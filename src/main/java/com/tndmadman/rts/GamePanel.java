@@ -50,6 +50,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener {
         world.draw(g2);
         g2.setTransform(old);
         drawHud(g2);
+        HangarHud.draw(g2, world, getWidth());
         buildMenu.draw(g2);
         g2.dispose();
     }
