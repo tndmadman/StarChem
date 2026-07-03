@@ -8,7 +8,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 final class PeerNetwork implements CommandSink {
-    private static final long HEARTBEAT_MS = 1000, SNAPSHOT_MS = 250, RELIABLE_MS = 450, TIMEOUT_MS = 4000, SEED_SYNC_MS = 5000;
+    private static final long HEARTBEAT_MS = 1000, SNAPSHOT_MS = 250, RELIABLE_MS = 450, TIMEOUT_MS = 4000, ENV_SYNC_MS = 1000;
     private final Config config;
     private final World world;
     private final DatagramSocket socket;
@@ -20,7 +20,7 @@ final class PeerNetwork implements CommandSink {
     private boolean running = true;
     private boolean joined;
     private int nextPlayer = 1;
-    private long nextReliable = 1, sequence = 1, lastJoin, lastPing, lastSnapshot, lastSeedSync;
+    private long nextReliable = 1, sequence = 1, lastJoin, lastPing, lastSnapshot, lastEnvSync;
     private String localPlayerId = "SOLO";
 
     private PeerNetwork(Config config, World world, DatagramSocket socket) { this.config = config; this.world = world; this.socket = socket; }
@@ -58,7 +58,7 @@ final class PeerNetwork implements CommandSink {
         if (config.hostMode) {
             removeTimedOutPeers(now);
             if (now - lastSnapshot >= SNAPSHOT_MS) { broadcast(SnapshotWriter.write(WorldNetAccess.snapshot(world, sequence++))); lastSnapshot = now; }
-            if (now - lastSeedSync >= SEED_SYNC_MS) { broadcast("SEED|" + world.systemSeed()); lastSeedSync = now; }
+            if (now - lastEnvSync >= ENV_SYNC_MS) { broadcast(envMessage()); lastEnvSync = now; }
         } else {
             if (!joined && now - lastJoin >= HEARTBEAT_MS) { reliableToServer("JOIN|" + config.playerName); lastJoin = now; }
             if (joined && now - lastPing >= HEARTBEAT_MS) { sendToServer("PING|" + localPlayerId); lastPing = now; }
@@ -120,6 +120,10 @@ final class PeerNetwork implements CommandSink {
 
     private void clientPacket(String m) {
         String[] p = m.split("\\|", -1);
+        if (p[0].equals("ENV") && p.length >= 3) {
+            syncEnv(p[1], p[2]);
+            return;
+        }
         if (p[0].equals("SEED") && p.length >= 2) {
             try { world.useSystemSeed(Long.parseLong(p[1])); } catch (NumberFormatException ignored) { }
             return;
@@ -127,7 +131,8 @@ final class PeerNetwork implements CommandSink {
         if (p[0].equals("WELCOME") && p.length >= 4) {
             localPlayerId = p[1];
             joined = true;
-            if (p.length >= 5) try { world.useSystemSeed(Long.parseLong(p[4])); } catch (NumberFormatException ignored) { }
+            if (p.length >= 6) syncEnv(p[4], p[5]);
+            else if (p.length >= 5) try { world.useSystemSeed(Long.parseLong(p[4])); } catch (NumberFormatException ignored) { }
             PlayerRegistry.register(localPlayerId, p[2], Integer.parseInt(p[3]), true);
             world.status = "Joined as " + p[2];
             return;
@@ -145,17 +150,18 @@ final class PeerNetwork implements CommandSink {
         PlayerRegistry.register(id, cleanName, rgb, false);
         WorldNetAccess.addPeerGroup(world, id);
         reliable(welcome(id, cleanName, rgb), address, port);
+        reliable(envMessage(), address, port);
         broadcastNow();
     }
 
-    private String welcome(String id, String name, int rgb) {
-        return "WELCOME|" + id + "|" + Config.clean(name) + "|" + rgb + "|" + world.systemSeed();
+    private void syncEnv(String seed, String time) {
+        try { world.syncEnvironment(Long.parseLong(seed), Double.parseDouble(time)); } catch (NumberFormatException ignored) { }
     }
 
-    private void removeTimedOutPeers(long now) {
-        for (String ep : new ArrayList<>(peers.keySet())) if (now - peers.get(ep).lastSeen() > TIMEOUT_MS) removePeer(ep);
-    }
+    private String envMessage() { return "ENV|" + world.systemSeed() + "|" + Calc.round(world.systemTime()); }
+    private String welcome(String id, String name, int rgb) { return "WELCOME|" + id + "|" + Config.clean(name) + "|" + rgb + "|" + world.systemSeed() + "|" + Calc.round(world.systemTime()); }
 
+    private void removeTimedOutPeers(long now) { for (String ep : new ArrayList<>(peers.keySet())) if (now - peers.get(ep).lastSeen() > TIMEOUT_MS) removePeer(ep); }
     private void touch(String ep) { ServerPeer p = peers.get(ep); if (p != null) peers.put(ep, new ServerPeer(p.playerId(), p.address(), p.port(), System.currentTimeMillis())); }
     private void removePeer(String ep) { ServerPeer p = peers.remove(ep); if (p != null) removePlayer(p.playerId()); }
     private int colorFor(int i) { int[] c = {0x50BEFF,0xFF5F55,0x7DFF7A,0xFFE066,0xC77DFF,0xFF9F1C}; return c[Math.floorMod(i, c.length)]; }
