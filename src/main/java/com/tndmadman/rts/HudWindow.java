@@ -24,6 +24,7 @@ final class HudWindow {
         g2.setColor(Color.WHITE);
         g2.setFont(g2.getFont().deriveFont(Font.BOLD, 12f));
         g2.drawString((collapsed ? "+ " : "- ") + title, x + 12, y + 19);
+        g2.drawString(collapsed ? "+" : "_", x + w - 24, y + 19);
     }
 
     boolean press(int sx, int sy, int bodyHeight) {
@@ -37,8 +38,8 @@ final class HudWindow {
 
     void drag(int sx, int sy, int screenW, int screenH) {
         if (!dragging) return;
-        x = Calc.clamp(sx - dx, 0, Math.max(0, screenW - w));
-        y = Calc.clamp(sy - dy, 0, Math.max(0, screenH - HEADER));
+        x = (int)Calc.clamp(sx - dx, 0, Math.max(0, screenW - w));
+        y = (int)Calc.clamp(sy - dy, 0, Math.max(0, screenH - HEADER));
     }
 
     void release() { dragging = false; }
