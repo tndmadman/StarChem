@@ -29,10 +29,11 @@ final class Rules {
         try {
             Map<String,Object> root = readObject(path);
             Map<String,Object> files = object(root.get("files"));
-            Map<String,ShipType> ships = parseShips(readObject(configFile(files, "ships", "config/ships.json")));
+            Map<String,ShipType> ships = parseShipFiles(files.getOrDefault("ships", "config/ships.json"));
             Map<String,BaseType> bases = parseBases(readObject(configFile(files, "stations", "config/stations.json")));
-            List<ResourceBelt> belts = parseResourceBelts(readObject(configFile(files, "resources", "config/resources.json")));
-            ResourceRespawnRules respawn = parseRespawn(readObject(configFile(files, "resources", "config/resources.json")), RESOURCE_RESPAWN);
+            Map<String,Object> resources = readObject(configFile(files, "resources", "config/resources.json"));
+            List<ResourceBelt> belts = parseResourceBelts(resources);
+            ResourceRespawnRules respawn = parseRespawn(resources, RESOURCE_RESPAWN);
             apply(string(root, "startingShipType", STARTING_SHIP), string(root, "defaultStationType", DEFAULT_BASE), ships, bases, belts, respawn);
             return true;
         } catch (Exception ex) {
@@ -81,6 +82,16 @@ final class Rules {
         return object(parsed);
     }
 
+    private static Map<String,ShipType> parseShipFiles(Object fileValue) throws IOException {
+        Map<String,ShipType> out = new LinkedHashMap<>();
+        if (fileValue instanceof List<?> list) {
+            for (Object item : list) out.putAll(parseShips(readObject(Path.of(String.valueOf(item)))));
+        } else {
+            out.putAll(parseShips(readObject(Path.of(String.valueOf(fileValue)))));
+        }
+        return out;
+    }
+
     private static Map<String,ShipType> parseShips(Map<String,Object> doc) {
         Map<String,Object> source = object(doc.getOrDefault("shipTypes", doc));
         Map<String,ShipType> out = new LinkedHashMap<>();
@@ -101,7 +112,7 @@ final class Rules {
                     number(s, "idleStationOrbitRadius", 110),
                     number(s, "scoutRange", 0),
                     integer(s, "scoutDispatchLimit", 0),
-                    bool(s, "baseBuilder", bool(s, "canCarryStationPackages", false)),
+                    bool(s, "baseBuilder", false),
                     nodeKinds(s.get("canHarvest")),
                     costs(s.get("buildCost"))));
         }
