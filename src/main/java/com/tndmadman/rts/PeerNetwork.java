@@ -26,12 +26,21 @@ final class PeerNetwork implements CommandSink {
     private PeerNetwork(Config config, World world, DatagramSocket socket) { this.config = config; this.world = world; this.socket = socket; }
 
     static PeerNetwork start(Config config, World world) throws IOException {
-        if (!config.hostMode && !config.clientMode()) return null;
+        if (!config.hostMode && !config.clientMode()) {
+            PlayerRegistry.reset("SOLO", config.playerName, 0x50BEFF);
+            return null;
+        }
         DatagramSocket socket = config.hostMode ? new DatagramSocket(config.port) : new DatagramSocket();
         socket.setSoTimeout(250);
         PeerNetwork network = new PeerNetwork(config, world, socket);
-        if (config.hostMode) { network.joined = true; world.status = "Hosting UDP " + socket.getLocalPort(); }
-        else world.status = "Joining " + config.serverAddress;
+        if (config.hostMode) {
+            network.joined = true;
+            PlayerRegistry.reset("SOLO", config.playerName, 0x50BEFF);
+            world.status = "Hosting UDP " + socket.getLocalPort();
+        } else {
+            PlayerRegistry.reset("WAIT", config.playerName, 0x50BEFF);
+            world.status = "Joining " + config.serverAddress;
+        }
         Thread thread = new Thread(network::listenLoop, "starchem-udp");
         thread.setDaemon(true);
         thread.start();
@@ -65,7 +74,7 @@ final class PeerNetwork implements CommandSink {
     private void applyMove(MoveCommand c) { Unit u = world.units.get(Unit.key(c.playerId(), c.unitId())); if (u != null) u.moveTo(c.x(), c.y()); }
     private void applyWork(HarvestCommand c) { Unit u = world.units.get(Unit.key(c.playerId(), c.unitId())); if (u != null) u.startAutoHarvest(c.resourceId()); }
     private void applyPack(String mode, String id, String packageType) { if ("LOAD".equals(mode)) world.loadBasePackage(id, packageType); else world.placePackage(world.units.get(id)); }
-    private void removePlayer(String playerId) { world.units.values().removeIf(u -> u.playerId.equals(playerId)); world.bases.values().removeIf(b -> b.playerId.equals(playerId)); }
+    private void removePlayer(String playerId) { world.units.values().removeIf(u -> u.playerId.equals(playerId)); world.bases.values().removeIf(b -> b.playerId.equals(playerId)); PlayerRegistry.remove(playerId); }
     private void broadcastNow() { broadcast(SnapshotWriter.write(WorldNetAccess.snapshot(world, sequence++))); }
 
     private void handle(NetPacket packet) {
@@ -90,18 +99,29 @@ final class PeerNetwork implements CommandSink {
             switch (p[0]) {
                 case "JOIN" -> joinPeer(ep, packet.address(), packet.port(), p.length > 1 ? p[1] : "Player");
                 case "PING" -> touch(ep);
-                case "MOVE" -> { touch(ep); applyMove(new MoveCommand(p[1], Integer.parseInt(p[2]), Double.parseDouble(p[3]), Double.parseDouble(p[4]))); }
-                case "WORK" -> { touch(ep); applyWork(new HarvestCommand(p[1], Integer.parseInt(p[2]), Integer.parseInt(p[3]))); }
-                case "BUILD" -> { touch(ep); world.buildShip(p[2], p[3]); }
-                case "PACK" -> { touch(ep); applyPack(p[2], p[3], p[4]); }
+                case "MOVE" -> { touch(ep); if (owns(ep, p[1])) applyMove(new MoveCommand(p[1], Integer.parseInt(p[2]), Double.parseDouble(p[3]), Double.parseDouble(p[4]))); }
+                case "WORK" -> { touch(ep); if (owns(ep, p[1])) applyWork(new HarvestCommand(p[1], Integer.parseInt(p[2]), Integer.parseInt(p[3]))); }
+                case "BUILD" -> { touch(ep); if (owns(ep, p[1])) world.buildShip(p[2], p[3]); }
+                case "PACK" -> { touch(ep); if (owns(ep, p[1])) applyPack(p[2], p[3], p[4]); }
                 case "LEAVE" -> removePeer(ep);
             }
         } catch (Exception ex) { System.err.println("Bad packet: " + m + " / " + ex.getMessage()); }
     }
 
+    private boolean owns(String endpoint, String playerId) {
+        ServerPeer peer = peers.get(endpoint);
+        return playerId != null && ("SOLO".equals(playerId) || (peer != null && playerId.equals(peer.playerId())));
+    }
+
     private void clientPacket(String m) {
         String[] p = m.split("\\|", -1);
-        if (p[0].equals("WELCOME") && p.length >= 4) { localPlayerId = p[1]; joined = true; world.status = "Joined as " + p[2]; return; }
+        if (p[0].equals("WELCOME") && p.length >= 4) {
+            localPlayerId = p[1];
+            joined = true;
+            PlayerRegistry.register(localPlayerId, p[2], Integer.parseInt(p[3]), true);
+            world.status = "Joined as " + p[2];
+            return;
+        }
         if (p[0].equals("SNAPSHOT")) WorldNetAccess.apply(world, SnapshotReader.read(m));
     }
 
@@ -110,9 +130,11 @@ final class PeerNetwork implements CommandSink {
         if (old != null) { reliable("WELCOME|" + old.playerId() + "|" + name + "|" + colorFor(peers.size()), address, port); return; }
         String id = "P" + nextPlayer++;
         int rgb = colorFor(peers.size() + 1);
+        String cleanName = Config.clean(name);
         peers.put(ep, new ServerPeer(id, address, port, System.currentTimeMillis()));
+        PlayerRegistry.register(id, cleanName, rgb, false);
         WorldNetAccess.addPeerGroup(world, id);
-        reliable("WELCOME|" + id + "|" + Config.clean(name) + "|" + rgb, address, port);
+        reliable("WELCOME|" + id + "|" + cleanName + "|" + rgb, address, port);
         broadcastNow();
     }
 
