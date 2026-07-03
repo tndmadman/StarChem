@@ -5,13 +5,9 @@ final class ClientPrediction {
 
     static void update(World world, double dt) {
         for (Unit unit : world.units.values()) {
-            if (shouldPredict(unit)) predictTarget(world, unit, dt);
+            if (PlayerRegistry.isLocal(unit.playerId)) predictTarget(world, unit, dt);
             unit.updatePosition(dt, world.width, world.height);
         }
-    }
-
-    private static boolean shouldPredict(Unit unit) {
-        return PlayerRegistry.isLocal(unit.playerId) || unit.task == UnitTask.AUTO_HARVEST || unit.task == UnitTask.IDLE;
     }
 
     private static void predictTarget(World world, Unit unit, double dt) {
