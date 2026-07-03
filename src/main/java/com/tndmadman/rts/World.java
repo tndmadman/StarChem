@@ -19,6 +19,7 @@ final class World {
 
     private final Random random = new Random(1977);
     private final WorkSystem workSystem = new WorkSystem();
+    private final HaulerSystem haulerSystem = new HaulerSystem();
     private final ScoutSystem scoutSystem = new ScoutSystem();
     private final ResourceRespawnSystem resourceRespawnSystem = new ResourceRespawnSystem();
     private final BuildSystem buildSystem = new BuildSystem();
@@ -56,6 +57,7 @@ final class World {
     private void updateUnit(Unit unit, double dt) {
         unit.unloadingThisFrame = false;
         autoUnload(unit, dt);
+        haulerSystem.update(this, unit, dt);
         workSystem.update(this, unit, dt);
         if (unit.task == UnitTask.RETURN_TO_STATION) updateReturn(unit);
         if (unit.task == UnitTask.IDLE) idleNearBase(unit, dt);
