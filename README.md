@@ -70,17 +70,29 @@ Shipyard package:
 - `350 Silicates`
 - `160 Water Ice`
 
-## Rules config
+## Modding config
 
-The rules file is:
+The primary rules manifest is now:
 
 ```text
-config/starchem-rules.json
+config/starchem.json
 ```
 
-It describes the intended moddable rule data for materials, ship types, station types, costs, ship traits, station traits, automation behavior, and resource respawn behavior.
+That manifest points to separate data files:
 
-Important: the current Java build now mirrors these rules in code, but it still does not fully load and sync the JSON as the match authority. The next architecture pass should make the host load `config/starchem-rules.json`, send it to clients, and use that loaded config directly instead of the Java defaults.
+```text
+config/materials.json
+config/ships.json
+config/stations.json
+config/resources.json
+config/automation.json
+```
+
+The Java build loads ships, stations, resource belt spawning, and resource respawn timing from those files through `Rules.java`. This means ship stats, build costs, station build menus, station package costs, and spawned resource belts can be changed without editing Java source.
+
+Important current limitation: materials are still backed by the Java `Material` enum in `Types.java`, so `materials.json` is currently documentation/metadata for the existing material IDs. A later pass should replace the enum with loaded material definitions if fully custom materials/colors are needed.
+
+Multiplayer note: the host and clients should run the same config files. The host does not yet transmit the full rule set to clients.
 
 ## Network design
 
@@ -91,7 +103,7 @@ The current multiplayer model is host-authoritative UDP:
 - Host assigns each client a player ID, unique name, color, station, and starter ship.
 - Clients send movement, harvest, build, and station commands to the host.
 - Host validates the commands and broadcasts snapshots.
-- Host syncs ships, ship cargo, resource node positions/amounts, stations, and stockpiles.
+- Host syncs ships, ship cargo, resource node positions/amount, stations, and stockpiles.
 - Host also sends periodic reliable full snapshots.
 - Reliable messages are wrapped as `REL|messageId|payload`.
 - Receivers answer with `ACK|messageId`.
@@ -135,8 +147,8 @@ gradle run --args="--join 127.0.0.1 50000 --name Player"
 
 ## Next build steps
 
-- [ ] Make `config/starchem-rules.json` the actual source of truth.
-- [ ] Rename either `station_builder` or `builder` so JSON and Java match.
+- [ ] Replace the Java `Material` enum with loaded material data so mods can add entirely new materials and colors.
+- [ ] Send the loaded rules config from host to clients so multiplayer sessions cannot drift.
 - [ ] Add snapshot sequence rejection on the client.
 - [ ] Replace the raw delimited UDP protocol with JSON or length-prefixed packets.
 - [x] Update README controls.
