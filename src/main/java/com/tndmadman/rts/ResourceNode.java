@@ -43,7 +43,7 @@ final class ResourceNode {
             poly.addPoint((int)Math.round(x + Math.cos(a) * radius * wobble), (int)Math.round(y + Math.sin(a) * radius * wobble));
         }
         g2.setColor(new Color(70, 68, 63)); g2.fillPolygon(poly);
-        g2.setColor(material.color); g2.setStroke(new BasicStroke(2f)); g2.drawPolygon(poly);
+        g2.setColor(material.color); g2.setStroke(new BasicStroke(1f)); g2.drawPolygon(poly);
         g2.setColor(new Color(material.color.getRed(), material.color.getGreen(), material.color.getBlue(), 85));
         g2.fillOval((int)(x - radius * .45), (int)(y - radius * .45), (int)radius, (int)radius);
         if (selected) drawSelected(g2);
@@ -57,21 +57,21 @@ final class ResourceNode {
             g2.fillOval((int)(x + ox - radius * .55), (int)(y + oy - radius * .42), (int)(radius * 1.1), (int)(radius * .84));
         }
         g2.setColor(new Color(material.color.getRed(), material.color.getGreen(), material.color.getBlue(), 150));
-        g2.setStroke(new BasicStroke(1.8f));
+        g2.setStroke(new BasicStroke(1f));
         g2.drawOval((int)(x - radius * .8), (int)(y - radius * .62), (int)(radius * 1.6), (int)(radius * 1.24));
         if (selected) drawSelected(g2);
     }
 
     private void drawSelected(Graphics2D g2) {
         g2.setColor(new Color(255,245,140,210));
-        g2.setStroke(new BasicStroke(2.4f));
-        g2.drawOval((int)(x - radius - 12), (int)(y - radius - 12), (int)(radius * 2 + 24), (int)(radius * 2 + 24));
+        g2.setStroke(new BasicStroke(1.8f));
+        g2.drawOval((int)(x - radius - 8), (int)(y - radius - 8), (int)(radius * 2 + 16), (int)(radius * 2 + 16));
     }
 
     private void drawAmountBar(Graphics2D g2) {
-        int w = 64, h = 6, bx = (int)(x - w / 2.0), by = (int)(y + radius + 12);
+        int w = 18, h = 3, bx = (int)(x - w / 2.0), by = (int)(y + radius + 4);
         double pct = maxAmount <= 0 ? 0 : amount / maxAmount;
-        g2.setColor(new Color(0,0,0,150)); g2.fillRoundRect(bx, by, w, h, 6, 6);
-        g2.setColor(material.color); g2.fillRoundRect(bx, by, (int)Math.round(w * pct), h, 6, 6);
+        g2.setColor(new Color(0,0,0,130)); g2.fillRoundRect(bx, by, w, h, 3, 3);
+        g2.setColor(material.color); g2.fillRoundRect(bx, by, (int)Math.round(w * pct), h, 3, 3);
     }
 }
