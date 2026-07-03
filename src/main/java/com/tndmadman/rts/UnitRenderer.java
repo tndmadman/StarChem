@@ -6,7 +6,9 @@ import java.awt.geom.Line2D;
 final class UnitRenderer {
     private UnitRenderer() { }
 
-    static void draw(Graphics2D g2, Unit unit, Color playerColor, boolean owner) {
+    static void draw(Graphics2D g2, Unit unit, Color ignoredColor, boolean ignoredOwner) {
+        Color playerColor = PlayerRegistry.color(unit.playerId);
+        boolean owner = PlayerRegistry.isLocal(unit.playerId);
         Graphics2D s = (Graphics2D) g2.create();
         s.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         s.translate(unit.x, unit.y);
@@ -14,11 +16,12 @@ final class UnitRenderer {
         ShipShape.draw(s, unit.type(), playerColor);
         s.dispose();
         drawBars(g2, unit);
+        drawName(g2, unit, playerColor);
         if (!unit.basePackageType.isBlank()) {
             g2.setColor(new Color(255,230,130));
             g2.drawString("PKG", (int)unit.x - 12, (int)unit.y + 45);
         }
-        if (unit.selected) {
+        if (unit.selected && owner) {
             g2.setColor(new Color(255,245,120));
             g2.setStroke(new BasicStroke(2f));
             g2.drawOval((int)unit.x - 26, (int)unit.y - 26, 52, 52);
@@ -26,8 +29,9 @@ final class UnitRenderer {
         if (owner && unit.type().scoutRange > 0) drawScoutCircle(g2, unit, playerColor);
     }
 
-    static void drawRoute(Graphics2D g2, Unit unit, Color color) {
+    static void drawRoute(Graphics2D g2, Unit unit, Color ignoredColor) {
         if (Calc.distance(unit.x, unit.y, unit.targetX, unit.targetY) <= 4) return;
+        Color color = PlayerRegistry.color(unit.playerId);
         Graphics2D r = (Graphics2D) g2.create();
         r.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), 160));
         r.setStroke(new BasicStroke(1.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 0, new float[]{9f, 8f}, 0));
@@ -42,6 +46,17 @@ final class UnitRenderer {
         b.setColor(new Color(m.getRed(), m.getGreen(), m.getBlue(), 150));
         b.draw(new Line2D.Double(unit.x, unit.y, node.x, node.y));
         b.dispose();
+    }
+
+    private static void drawName(Graphics2D g2, Unit unit, Color color) {
+        String text = PlayerRegistry.name(unit.playerId);
+        int tw = g2.getFontMetrics().stringWidth(text);
+        int x = (int)unit.x - tw / 2;
+        int y = (int)unit.y - 42;
+        g2.setColor(new Color(0, 0, 0, 150));
+        g2.fillRoundRect(x - 5, y - 12, tw + 10, 16, 7, 7);
+        g2.setColor(color);
+        g2.drawString(text, x, y);
     }
 
     private static void drawBars(Graphics2D g2, Unit unit) {
