@@ -110,7 +110,7 @@ final class PeerNetwork implements CommandSink {
 
     private boolean owns(String endpoint, String playerId) {
         ServerPeer peer = peers.get(endpoint);
-        return playerId != null && ("SOLO".equals(playerId) || (peer != null && playerId.equals(peer.playerId())));
+        return peer != null && playerId != null && playerId.equals(peer.playerId());
     }
 
     private void clientPacket(String m) {
