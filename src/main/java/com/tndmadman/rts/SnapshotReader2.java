@@ -5,7 +5,29 @@ import java.util.List;
 
 final class SnapshotReader2 {
     private SnapshotReader2() { }
-    static List<ResourceState> resources(String[] parts) { return new ArrayList<>(); }
+
+    static List<ResourceState> resources(String[] parts) {
+        List<ResourceState> out = new ArrayList<>();
+        if (parts.length <= 4 || parts[4].isBlank()) return out;
+        for (String row : parts[4].split(";")) {
+            String[] c = row.split(",", -1);
+            if (c.length < 12) continue;
+            int id = Integer.parseInt(c[0]);
+            String name = c[1];
+            String kind = c[2];
+            String mat = c[3];
+            double x = Double.parseDouble(c[4]);
+            double y = Double.parseDouble(c[5]);
+            double max = Double.parseDouble(c[6]);
+            double rate = Double.parseDouble(c[7]);
+            double radius = Double.parseDouble(c[8]);
+            double amount = Double.parseDouble(c[9]);
+            boolean active = Boolean.parseBoolean(c[10]);
+            double timer = Double.parseDouble(c[11]);
+            out.add(new ResourceState(id, name, kind, mat, x, y, max, rate, radius, amount, active, timer));
+        }
+        return out;
+    }
 
     static List<BaseState> bases(String[] parts) {
         List<BaseState> out = new ArrayList<>();
