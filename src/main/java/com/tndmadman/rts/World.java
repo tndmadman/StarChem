@@ -203,6 +203,10 @@ final class World {
         else moveTowardOrbit(unit, base.x, base.y, base.type().unloadRange * 0.55);
     }
 
+    boolean scoutRetarget(Unit unit, ResourceNode oldNode) {
+        return oldNode != null && scoutSystem.retargetAfterDepletion(this, unit, oldNode);
+    }
+
     void orbitAround(Unit unit, double cx, double cy, double radius, double dt, double speed) {
         unit.orbitAngle += dt * speed * (unit.unitId % 2 == 0 ? 1 : -1);
         unit.orbitRetarget -= dt;
