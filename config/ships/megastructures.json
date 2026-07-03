@@ -1,0 +1,28 @@
+{
+  "shipTypes": {
+    "monolith": {
+      "displayName": "Monolith",
+      "role": "mobile megastructure hull",
+      "size": "MONOLITH",
+      "seed": 31001,
+      "maxHp": 32000,
+      "speed": 12,
+      "cargoCapacity": 6000,
+      "harvestRange": 0,
+      "orbitRadius": 520,
+      "idleStationOrbitRadius": 680,
+      "buildTimeSeconds": 0,
+      "buildCost": {
+        "IRON": 80000,
+        "COPPER": 32000,
+        "SILICATES": 52000,
+        "ICE": 24000,
+        "HYDROGEN": 18000,
+        "HELIUM": 9000,
+        "METHANE": 5200,
+        "AMMONIA": 4200
+      },
+      "canHarvest": []
+    }
+  }
+}
