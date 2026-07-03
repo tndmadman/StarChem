@@ -7,8 +7,8 @@ import java.util.*;
 import java.util.List;
 
 final class World {
-    final int width = 8000;
-    final int height = 5200;
+    final int width = 16000;
+    final int height = 10000;
     final String localPlayerId = "SOLO";
     final String localPlayerName;
     final Color localColor = new Color(0x50BEFF);
@@ -17,7 +17,8 @@ final class World {
     final Map<String, Base> bases = new LinkedHashMap<>();
     final EnumMap<Material, Double> stockpile = new EnumMap<>(Material.class);
 
-    private final Random random = new Random(1977);
+    private final Random random = new Random();
+    private final CelestialSystem celestials = new CelestialSystem(width, height, random);
     private final WorkSystem workSystem = new WorkSystem();
     private final HaulerSystem haulerSystem = new HaulerSystem();
     private final ScoutSystem scoutSystem = new ScoutSystem();
@@ -38,13 +39,15 @@ final class World {
     }
 
     private void seedResources() {
-        ResourceSpawner.seed(resources, width, height);
+        ResourceSpawner.seed(resources, celestials, random);
     }
 
-    private Point2D startShipPoint() { return new Point2D.Double(760, 720); }
-    private Point2D startBasePoint() { return new Point2D.Double(540, 940); }
+    private Point2D startShipPoint() { return new Point2D.Double(celestials.sunX() - 2350, celestials.sunY() + 780); }
+    private Point2D startBasePoint() { return new Point2D.Double(celestials.sunX() - 2550, celestials.sunY() + 900); }
 
     void update(double dt) {
+        celestials.update(dt);
+        ResourceSpawner.update(resources, celestials, dt);
         resourceRespawnSystem.update(this, dt);
         scoutSystem.update(this);
         for (Unit unit : new ArrayList<>(units.values())) updateUnit(unit, dt);
@@ -123,6 +126,7 @@ final class World {
 
     void draw(Graphics2D g2) {
         drawMap(g2);
+        celestials.draw(g2);
         for (Base base : bases.values()) base.draw(g2, localColor, stockpile, true);
         for (ResourceNode node : resources) node.draw(g2, node.id == selectedResourceId);
         for (Unit unit : units.values()) {
@@ -223,7 +227,7 @@ final class World {
     }
 
     void relocateResource(ResourceNode node) {
-        ResourceSpawner.relocate(node, resources, bases.values(), width, height, random);
+        ResourceSpawner.relocate(node, resources, bases.values(), celestials, random);
     }
 
     ResourceNode resourceAt(double x, double y) {
