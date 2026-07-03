@@ -5,54 +5,44 @@ import java.util.List;
 import java.util.Random;
 
 final class ResourceSpawner {
-    private static final int SEED = 1977;
-    private static final double RESOURCE_SPACING = 18;
-    private static final double BASE_SPACING = 180;
-
     private ResourceSpawner() { }
 
-    static void seed(List<ResourceNode> resources, int worldW, int worldH) {
-        Random random = new Random(SEED);
+    static void seed(List<ResourceNode> resources, CelestialSystem celestials, Random random) {
         int id = 1;
-        id = belt(resources, id, random, "Inner Iron Belt", NodeKind.SILICATE_ROCK, new Material[]{Material.IRON}, 1700, 860, 1500, 190, -0.18, 44, 60, 7.5, 3.4, worldW, worldH);
-        id = belt(resources, id, random, "Copper Shard Belt", NodeKind.SILICATE_ROCK, new Material[]{Material.COPPER}, 3250, 1380, 1320, 170, 0.28, 36, 54, 6.5, 3.0, worldW, worldH);
-        id = belt(resources, id, random, "Silicate Ridge", NodeKind.SILICATE_ROCK, new Material[]{Material.SILICATES}, 6350, 3650, 1600, 220, -0.38, 38, 70, 8.0, 3.8, worldW, worldH);
-        id = belt(resources, id, random, "Ice Fragment Field", NodeKind.SILICATE_ROCK, new Material[]{Material.ICE}, 5750, 980, 1500, 240, 0.10, 34, 62, 7.0, 3.2, worldW, worldH);
-        id = belt(resources, id, random, "Hydrogen Nebula", NodeKind.GAS_CLOUD, new Material[]{Material.HYDROGEN}, 2300, 3920, 1450, 360, -0.08, 40, 78, 9.0, 6.2, worldW, worldH);
-        belt(resources, id, random, "Outer Gas Pocket", NodeKind.GAS_CLOUD, new Material[]{Material.HELIUM, Material.METHANE, Material.AMMONIA, Material.HYDROGEN}, 5450, 3180, 1700, 420, 0.32, 48, 64, 7.5, 5.8, worldW, worldH);
+        id = belt(resources, id, random, celestials, "Inner Iron Belt", NodeKind.SILICATE_ROCK, new Material[]{Material.IRON}, 1900, 260, 1.0, 130, 22, 7.5, 2.8);
+        id = belt(resources, id, random, celestials, "Copper Arc", NodeKind.SILICATE_ROCK, new Material[]{Material.COPPER}, 2650, 300, 0.8, 110, 18, 6.5, 2.6);
+        id = belt(resources, id, random, celestials, "Silicate Belt", NodeKind.SILICATE_ROCK, new Material[]{Material.SILICATES}, 3500, 360, 1.2, 140, 24, 8.0, 3.0);
+        id = belt(resources, id, random, celestials, "Ice Ring", NodeKind.SILICATE_ROCK, new Material[]{Material.ICE}, 4650, 420, 0.9, 115, 20, 7.0, 2.8);
+        id = belt(resources, id, random, celestials, "Hydrogen Drift", NodeKind.GAS_CLOUD, new Material[]{Material.HYDROGEN}, 5450, 520, 1.1, 120, 26, 9.0, 4.8);
+        belt(resources, id, random, celestials, "Outer Gas Band", NodeKind.GAS_CLOUD, new Material[]{Material.HELIUM, Material.METHANE, Material.AMMONIA, Material.HYDROGEN}, 6650, 620, 1.4, 160, 22, 7.5, 4.5);
     }
 
-    static void relocate(ResourceNode node, List<ResourceNode> resources, Collection<Base> bases, int worldW, int worldH, Random random) {
-        for (int attempt = 0; attempt < 80; attempt++) {
-            ResourceNode anchor = anchorFor(node, resources, random);
-            double angle = random.nextDouble() * Math.PI * 2;
-            double distance = 35 + random.nextDouble() * 260;
-            double x = anchor == null ? randomX(worldW, random) : anchor.x + Math.cos(angle) * distance;
-            double y = anchor == null ? randomY(worldH, random) : anchor.y + Math.sin(angle) * distance;
-            x = clamp(x, 120, worldW - 120);
-            y = clamp(y, 120, worldH - 120);
-            if (valid(node.id, x, y, resources, bases)) {
-                activate(node, x, y);
-                return;
-            }
-        }
-        activate(node, randomX(worldW, random), randomY(worldH, random));
+    static void update(List<ResourceNode> resources, CelestialSystem celestials, double dt) {
+        for (ResourceNode node : resources) node.updateOrbit(celestials.sunX(), celestials.sunY(), dt);
     }
 
-    private static int belt(List<ResourceNode> out, int id, Random random, String name, NodeKind kind, Material[] materials,
-                            double cx, double cy, double length, double width, double angle, int count,
-                            double amount, double harvestRate, double radius, int worldW, int worldH) {
-        double ca = Math.cos(angle);
-        double sa = Math.sin(angle);
+    static void relocate(ResourceNode node, List<ResourceNode> resources, Collection<Base> bases, CelestialSystem celestials, Random random) {
+        ResourceNode anchor = anchorFor(node, resources, random);
+        double orbitRadius = anchor == null ? 2200 + random.nextDouble() * 4400 : anchor.orbitRadius + random.nextGaussian() * 90;
+        double orbitAngle = anchor == null ? random.nextDouble() * Math.PI * 2 : anchor.orbitAngle + random.nextGaussian() * 0.18;
+        double orbitSpeed = anchor == null ? speedFor(orbitRadius) : anchor.orbitSpeed * (0.94 + random.nextDouble() * 0.12);
+        activate(node, celestials, orbitRadius, orbitAngle, orbitSpeed);
+    }
+
+    private static int belt(List<ResourceNode> out, int id, Random random, CelestialSystem celestials, String name,
+                            NodeKind kind, Material[] materials, double orbit, double width, double arc,
+                            int count, double amount, double harvestRate, double radius) {
+        double center = random.nextDouble() * Math.PI * 2;
         for (int i = 0; i < count; i++) {
-            double along = ((i / (double)Math.max(1, count - 1)) - 0.5) * length;
-            double across = (random.nextDouble() - 0.5) * width;
-            double x = clamp(cx + ca * along - sa * across, 120, worldW - 120);
-            double y = clamp(cy + sa * along + ca * across, 120, worldH - 120);
+            double orbitRadius = orbit + random.nextGaussian() * width;
+            double orbitAngle = center + (random.nextDouble() - 0.5) * arc;
+            double orbitSpeed = speedFor(orbitRadius) * (0.9 + random.nextDouble() * 0.2);
             Material material = materials[i % materials.length];
-            double nodeAmount = amount * (0.75 + random.nextDouble() * 0.5);
-            double nodeRadius = radius * (0.75 + random.nextDouble() * 0.5);
-            out.add(new ResourceNode(id++, name + " " + material.name() + " " + i, kind, material, x, y, nodeAmount, harvestRate, nodeRadius));
+            double nodeAmount = amount * (0.65 + random.nextDouble() * 0.7);
+            double nodeRadius = radius * (0.7 + random.nextDouble() * 0.6);
+            ResourceNode node = new ResourceNode(id++, name + " " + material.name() + " " + i, kind, material, 0, 0, nodeAmount, harvestRate, nodeRadius);
+            node.orbit(celestials.sunX(), celestials.sunY(), orbitRadius, orbitAngle, orbitSpeed);
+            out.add(node);
         }
         return id;
     }
@@ -67,21 +57,14 @@ final class ResourceSpawner {
         return picked;
     }
 
-    private static boolean valid(int nodeId, double x, double y, List<ResourceNode> resources, Collection<Base> bases) {
-        for (Base base : bases) if (Calc.distance(x, y, base.x, base.y) < BASE_SPACING) return false;
-        for (ResourceNode node : resources) if (node.id != nodeId && node.active && Calc.distance(x, y, node.x, node.y) < RESOURCE_SPACING) return false;
-        return true;
-    }
-
-    private static void activate(ResourceNode node, double x, double y) {
-        node.x = x;
-        node.y = y;
+    private static void activate(ResourceNode node, CelestialSystem celestials, double orbitRadius, double orbitAngle, double orbitSpeed) {
         node.amount = node.maxAmount;
         node.active = true;
         node.respawnTimer = 0;
+        node.orbit(celestials.sunX(), celestials.sunY(), orbitRadius, orbitAngle, orbitSpeed);
     }
 
-    private static double randomX(int worldW, Random random) { return 120 + random.nextDouble() * (worldW - 240); }
-    private static double randomY(int worldH, Random random) { return 120 + random.nextDouble() * (worldH - 240); }
-    private static double clamp(double value, double min, double max) { return Math.max(min, Math.min(max, value)); }
+    private static double speedFor(double orbitRadius) {
+        return 0.028 * Math.pow(2000.0 / Math.max(900.0, orbitRadius), 0.65);
+    }
 }
