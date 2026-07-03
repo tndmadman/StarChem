@@ -65,7 +65,8 @@ final class World {
 
     private void updateReturn(Unit unit) {
         Base base = nearestBase(unit.playerId, unit.x, unit.y);
-        if (base == null) {
+        Unit depot = MobileDepot.preferredFor(this, unit, base);
+        if (base == null && depot == null) {
             unit.task = UnitTask.IDLE;
             return;
         }
@@ -74,7 +75,8 @@ final class World {
             unit.task = resume != null && resume.active ? UnitTask.AUTO_HARVEST : UnitTask.IDLE;
             return;
         }
-        moveTowardOrbit(unit, base.x, base.y, base.type().unloadRange * 0.55);
+        if (depot != null) moveTowardOrbit(unit, depot.x, depot.y, MobileDepot.range(depot) * 0.55);
+        else moveTowardOrbit(unit, base.x, base.y, base.type().unloadRange * 0.55);
     }
 
     private void idleNearBase(Unit unit, double dt) {
@@ -87,6 +89,8 @@ final class World {
     private void autoUnload(Unit unit, double dt) {
         if (unit.cargoUsed() <= 0.05) return;
         Base base = nearestBase(unit.playerId, unit.x, unit.y);
+        Unit depot = MobileDepot.preferredFor(this, unit, base);
+        if (MobileDepot.transfer(unit, depot, dt)) return;
         if (base == null || Calc.distance(unit.x, unit.y, base.x, base.y) > base.type().unloadRange) return;
         double remaining = Math.min(base.type().unloadRate * dt, unit.cargoUsed());
         for (Material material : Material.values()) {
@@ -192,9 +196,11 @@ final class World {
 
     void sendToNearestBase(Unit unit) {
         Base base = nearestBase(unit.playerId, unit.x, unit.y);
-        if (base == null) return;
+        Unit depot = MobileDepot.preferredFor(this, unit, base);
+        if (base == null && depot == null) return;
         unit.task = UnitTask.RETURN_TO_STATION;
-        moveTowardOrbit(unit, base.x, base.y, base.type().unloadRange * 0.55);
+        if (depot != null) moveTowardOrbit(unit, depot.x, depot.y, MobileDepot.range(depot) * 0.55);
+        else moveTowardOrbit(unit, base.x, base.y, base.type().unloadRange * 0.55);
     }
 
     void orbitAround(Unit unit, double cx, double cy, double radius, double dt, double speed) {
