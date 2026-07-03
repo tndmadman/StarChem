@@ -1,0 +1,64 @@
+{
+  "shipTypes": {
+    "carrier": {
+      "displayName": "Carrier",
+      "role": "capital command carrier",
+      "size": "CARRIER",
+      "seed": 21001,
+      "maxHp": 2600,
+      "speed": 72,
+      "cargoCapacity": 480,
+      "harvestRange": 0,
+      "orbitRadius": 210,
+      "idleStationOrbitRadius": 275,
+      "buildTimeSeconds": 0,
+      "buildCost": { "IRON": 4200, "COPPER": 1900, "SILICATES": 2400, "ICE": 900, "HYDROGEN": 700, "HELIUM": 320 },
+      "canHarvest": []
+    },
+    "dreadnought": {
+      "displayName": "Dreadnought",
+      "role": "capital siege ship",
+      "size": "DREADNOUGHT",
+      "seed": 22002,
+      "maxHp": 3400,
+      "speed": 58,
+      "cargoCapacity": 380,
+      "harvestRange": 0,
+      "orbitRadius": 235,
+      "idleStationOrbitRadius": 310,
+      "buildTimeSeconds": 0,
+      "buildCost": { "IRON": 5200, "COPPER": 2300, "SILICATES": 3200, "ICE": 1200, "HYDROGEN": 850, "HELIUM": 420 },
+      "canHarvest": []
+    },
+    "supercarrier": {
+      "displayName": "Supercarrier",
+      "role": "supercapital fleet carrier",
+      "size": "SUPERCARRIER",
+      "seed": 23003,
+      "maxHp": 6200,
+      "speed": 42,
+      "cargoCapacity": 900,
+      "harvestRange": 0,
+      "orbitRadius": 290,
+      "idleStationOrbitRadius": 380,
+      "buildTimeSeconds": 0,
+      "buildCost": { "IRON": 11000, "COPPER": 4800, "SILICATES": 7200, "ICE": 3000, "HYDROGEN": 2200, "HELIUM": 1200, "METHANE": 700 },
+      "canHarvest": []
+    },
+    "titan": {
+      "displayName": "Titan",
+      "role": "strategic supercapital flagship",
+      "size": "TITAN",
+      "seed": 24004,
+      "maxHp": 12000,
+      "speed": 30,
+      "cargoCapacity": 1800,
+      "harvestRange": 0,
+      "orbitRadius": 360,
+      "idleStationOrbitRadius": 475,
+      "buildTimeSeconds": 0,
+      "buildCost": { "IRON": 25000, "COPPER": 10500, "SILICATES": 16000, "ICE": 7200, "HYDROGEN": 5200, "HELIUM": 3000, "METHANE": 1700, "AMMONIA": 900 },
+      "canHarvest": []
+    }
+  }
+}

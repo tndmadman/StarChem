@@ -35,7 +35,7 @@ final class ResourceNode {
         y = centerY + Math.sin(orbitAngle) * orbitRadius;
     }
 
-    void deplete() { active = false; amount = 0; respawnTimer = 18; }
+    void deplete() { active = false; amount = 0; respawnTimer = Rules.RESOURCE_RESPAWN.respawnDelaySeconds; }
 
     void updateRespawn(double dt, World world) {
         if (active) return;

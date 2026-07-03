@@ -1,0 +1,64 @@
+{
+  "shipTypes": {
+    "hauler": {
+      "displayName": "Hauler",
+      "role": "cargo ship",
+      "size": "LARGE",
+      "seed": 3319,
+      "maxHp": 150,
+      "speed": 138,
+      "cargoCapacity": 340,
+      "harvestRange": 70,
+      "orbitRadius": 84,
+      "idleStationOrbitRadius": 120,
+      "buildTimeSeconds": 0,
+      "buildCost": { "IRON": 150, "COPPER": 60, "SILICATES": 80 },
+      "canHarvest": []
+    },
+    "deep_miner": {
+      "displayName": "Deep Miner",
+      "role": "asteroid specialist",
+      "size": "MEDIUM",
+      "seed": 6173,
+      "maxHp": 180,
+      "speed": 125,
+      "cargoCapacity": 220,
+      "harvestRange": 125,
+      "orbitRadius": 86,
+      "idleStationOrbitRadius": 120,
+      "buildTimeSeconds": 0,
+      "buildCost": { "IRON": 180, "COPPER": 110, "SILICATES": 140, "ICE": 60 },
+      "canHarvest": ["SILICATE_ROCK"]
+    },
+    "gas_harvester": {
+      "displayName": "Gas Harvester",
+      "role": "gas specialist",
+      "size": "MEDIUM",
+      "seed": 7281,
+      "maxHp": 125,
+      "speed": 150,
+      "cargoCapacity": 180,
+      "harvestRange": 130,
+      "orbitRadius": 92,
+      "idleStationOrbitRadius": 120,
+      "buildTimeSeconds": 0,
+      "buildCost": { "IRON": 120, "COPPER": 150, "SILICATES": 60, "ICE": 80, "HYDROGEN": 80 },
+      "canHarvest": ["GAS_CLOUD"]
+    },
+    "freighter": {
+      "displayName": "Freighter",
+      "role": "heavy cargo ship",
+      "size": "XL",
+      "seed": 8431,
+      "maxHp": 360,
+      "speed": 92,
+      "cargoCapacity": 1440,
+      "harvestRange": 0,
+      "orbitRadius": 110,
+      "idleStationOrbitRadius": 155,
+      "buildTimeSeconds": 0,
+      "buildCost": { "IRON": 420, "COPPER": 200, "SILICATES": 300, "ICE": 140 },
+      "canHarvest": []
+    }
+  }
+}

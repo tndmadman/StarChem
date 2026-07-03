@@ -9,12 +9,9 @@ final class ResourceSpawner {
 
     static void seed(List<ResourceNode> resources, CelestialSystem celestials, Random random) {
         int id = 1;
-        id = belt(resources, id, random, celestials, "Inner Iron Belt", NodeKind.SILICATE_ROCK, new Material[]{Material.IRON}, 1900, 260, 1.0, 130, 22, 7.5, 2.8);
-        id = belt(resources, id, random, celestials, "Copper Arc", NodeKind.SILICATE_ROCK, new Material[]{Material.COPPER}, 2650, 300, 0.8, 110, 18, 6.5, 2.6);
-        id = belt(resources, id, random, celestials, "Silicate Belt", NodeKind.SILICATE_ROCK, new Material[]{Material.SILICATES}, 3500, 360, 1.2, 140, 24, 8.0, 3.0);
-        id = belt(resources, id, random, celestials, "Ice Ring", NodeKind.SILICATE_ROCK, new Material[]{Material.ICE}, 4650, 420, 0.9, 115, 20, 7.0, 2.8);
-        id = belt(resources, id, random, celestials, "Hydrogen Drift", NodeKind.GAS_CLOUD, new Material[]{Material.HYDROGEN}, 5450, 520, 1.1, 120, 26, 9.0, 4.8);
-        belt(resources, id, random, celestials, "Outer Gas Band", NodeKind.GAS_CLOUD, new Material[]{Material.HELIUM, Material.METHANE, Material.AMMONIA, Material.HYDROGEN}, 6650, 620, 1.4, 160, 22, 7.5, 4.5);
+        for (ResourceBelt belt : Rules.RESOURCE_BELTS) {
+            id = belt(resources, id, random, celestials, belt);
+        }
     }
 
     static void update(List<ResourceNode> resources, CelestialSystem celestials, double dt) {
@@ -29,18 +26,17 @@ final class ResourceSpawner {
         activate(node, celestials, orbitRadius, orbitAngle, orbitSpeed);
     }
 
-    private static int belt(List<ResourceNode> out, int id, Random random, CelestialSystem celestials, String name,
-                            NodeKind kind, Material[] materials, double orbit, double width, double arc,
-                            int count, double amount, double harvestRate, double radius) {
+    private static int belt(List<ResourceNode> out, int id, Random random, CelestialSystem celestials, ResourceBelt belt) {
         double center = random.nextDouble() * Math.PI * 2;
-        for (int i = 0; i < count; i++) {
-            double orbitRadius = orbit + random.nextGaussian() * width;
-            double orbitAngle = center + (random.nextDouble() - 0.5) * arc;
+        List<Material> materials = belt.materials.isEmpty() ? List.of(Material.IRON) : belt.materials;
+        for (int i = 0; i < belt.count; i++) {
+            double orbitRadius = belt.orbit + random.nextGaussian() * belt.width;
+            double orbitAngle = center + (random.nextDouble() - 0.5) * belt.arc;
             double orbitSpeed = speedFor(orbitRadius) * (0.9 + random.nextDouble() * 0.2);
-            Material material = materials[i % materials.length];
-            double nodeAmount = amount * (0.65 + random.nextDouble() * 0.7);
-            double nodeRadius = radius * (0.7 + random.nextDouble() * 0.6);
-            ResourceNode node = new ResourceNode(id++, name + " " + material.name() + " " + i, kind, material, 0, 0, nodeAmount, harvestRate, nodeRadius);
+            Material material = materials.get(i % materials.size());
+            double nodeAmount = belt.amount * (0.65 + random.nextDouble() * 0.7);
+            double nodeRadius = belt.radius * (0.7 + random.nextDouble() * 0.6);
+            ResourceNode node = new ResourceNode(id++, belt.name + " " + material.name() + " " + i, belt.kind, material, 0, 0, nodeAmount, belt.harvestRate, nodeRadius);
             node.orbit(celestials.sunX(), celestials.sunY(), orbitRadius, orbitAngle, orbitSpeed);
             out.add(node);
         }

@@ -1,0 +1,8 @@
+{
+  "automationDefaults": {
+    "rightClickResourceWithSelectedShipBeginsAutoHarvest": true,
+    "shipReturnsToNearestFriendlyStationWhenFull": true,
+    "shipOrbitsResourceWhileHarvesting": true,
+    "idleShipsOrbitNearestFriendlyStation": true
+  }
+}

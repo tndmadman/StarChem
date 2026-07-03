@@ -20,7 +20,7 @@ It is written in plain Java/Swing with a UDP host/client layer. The game opens i
 - Outposts build Prospectors and Deployers
 - Outposts fabricate/load Shipyard packages into Deployers
 - Deployers place Shipyards and are consumed
-- Shipyards unlock Haulers and Scouts
+- Shipyards unlock industrial, combat, capital, supercapital, titan, and monolith hulls
 - Movement route line, destination ring, speed, and ETA
 - Manual WASD camera and mouse-wheel zoom
 - UDP host/client synchronization for players, ships, stations, cargo, resources, and stockpiles
@@ -46,20 +46,38 @@ It is written in plain Java/Swing with a UDP host/client layer. The game opens i
 1. Select your Prospector.
 2. Right-click an iron asteroid to auto-harvest.
 3. The ship mines, orbits the asteroid/cloud, returns when full, unloads at the Outpost, then resumes if the node still exists.
-4. Repeat for Copper, Silicates, and Ice as needed.
+4. Repeat for Copper, Silicates, Ice, Hydrogen, and advanced gases as needed.
 5. Left-click the Outpost and build a Deployer when the Outpost stockpile can afford it.
 6. Move an empty Deployer near the Outpost.
 7. Left-click the Outpost and load a Shipyard package into the Deployer.
 8. Move the loaded Deployer to the desired spot.
 9. Left-click the loaded Deployer and place the Shipyard. The Deployer is consumed.
-10. Use the Shipyard build menu to build Haulers and Scouts.
+10. Use the Shipyard build menu to build industry ships, combat hulls, capitals, titans, and monoliths.
 
-## Ship costs
+## Ship examples
 
-- Prospector: `80 Iron + 40 Copper`
-- Deployer: `220 Iron + 120 Copper + 100 Silicates + 40 Water Ice`
-- Hauler: `150 Iron + 60 Copper + 80 Silicates`
-- Scout: `60 Iron + 90 Copper + 40 Hydrogen`
+Early and industry ships:
+
+- Prospector
+- Deployer
+- Scout
+- Hauler
+- Deep Miner
+- Gas Harvester
+- Freighter
+
+Combat and capital classes:
+
+- Frigate
+- Destroyer
+- Cruiser
+- Battle Cruiser
+- Battleship
+- Carrier
+- Dreadnought
+- Supercarrier
+- Titan
+- Monolith
 
 ## Station package cost
 
@@ -70,17 +88,35 @@ Shipyard package:
 - `350 Silicates`
 - `160 Water Ice`
 
-## Rules config
+## Modding config
 
-The rules file is:
+The primary rules manifest is:
 
 ```text
-config/starchem-rules.json
+config/starchem.json
 ```
 
-It describes the intended moddable rule data for materials, ship types, station types, costs, ship traits, station traits, automation behavior, and resource respawn behavior.
+That manifest points to separate data files:
 
-Important: the current Java build now mirrors these rules in code, but it still does not fully load and sync the JSON as the match authority. The next architecture pass should make the host load `config/starchem-rules.json`, send it to clients, and use that loaded config directly instead of the Java defaults.
+```text
+config/materials.json
+config/stations.json
+config/resources.json
+config/automation.json
+config/ships/early.json
+config/ships/industry.json
+config/ships/combat-line.json
+config/ships/capitals.json
+config/ships/megastructures.json
+```
+
+`files.ships` in `config/starchem.json` may be either one JSON file or a list of JSON files. The loader merges all ship files in order, so new ship packs can be added without growing one huge config file.
+
+The Java build loads ships, stations, resource belt spawning, and resource respawn timing from those files through `Rules.java`. This means ship stats, build costs, station build menus, station package costs, and spawned resource belts can be changed without editing Java source.
+
+Important current limitation: materials are still backed by the Java `Material` enum in `Types.java`, so `materials.json` is currently documentation/metadata for the existing material IDs. A later pass should replace the enum with loaded material definitions if fully custom materials/colors are needed.
+
+Multiplayer note: the host and clients should run the same config files. The host does not yet transmit the full rule set to clients.
 
 ## Network design
 
@@ -91,7 +127,7 @@ The current multiplayer model is host-authoritative UDP:
 - Host assigns each client a player ID, unique name, color, station, and starter ship.
 - Clients send movement, harvest, build, and station commands to the host.
 - Host validates the commands and broadcasts snapshots.
-- Host syncs ships, ship cargo, resource node positions/amounts, stations, and stockpiles.
+- Host syncs ships, ship cargo, resource node positions/amount, stations, and stockpiles.
 - Host also sends periodic reliable full snapshots.
 - Reliable messages are wrapped as `REL|messageId|payload`.
 - Receivers answer with `ACK|messageId`.
@@ -135,8 +171,9 @@ gradle run --args="--join 127.0.0.1 50000 --name Player"
 
 ## Next build steps
 
-- [ ] Make `config/starchem-rules.json` the actual source of truth.
-- [ ] Rename either `station_builder` or `builder` so JSON and Java match.
+- [ ] Replace the Java `Material` enum with loaded material data so mods can add entirely new materials and colors.
+- [ ] Send the loaded rules config from host to clients so multiplayer sessions cannot drift.
+- [ ] Add actual combat/projectile/weapon behavior for combat hulls.
 - [ ] Add snapshot sequence rejection on the client.
 - [ ] Replace the raw delimited UDP protocol with JSON or length-prefixed packets.
 - [x] Update README controls.
@@ -145,5 +182,4 @@ gradle run --args="--join 127.0.0.1 50000 --name Player"
 - [ ] Add build queues/timers instead of instant construction.
 - [ ] Add reconnect support.
 - [ ] Add fog of war.
-- [ ] Add combat/projectiles.
 - [ ] Add NAT traversal or relay fallback for internet play.

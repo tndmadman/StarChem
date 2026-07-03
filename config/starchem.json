@@ -1,0 +1,18 @@
+{
+  "rulesVersion": 4,
+  "startingShipType": "prospector",
+  "defaultStationType": "outpost",
+  "files": {
+    "materials": "config/materials.json",
+    "ships": [
+      "config/ships/early.json",
+      "config/ships/industry.json",
+      "config/ships/combat-line.json",
+      "config/ships/capitals.json",
+      "config/ships/megastructures.json"
+    ],
+    "stations": "config/stations.json",
+    "resources": "config/resources.json",
+    "automation": "config/automation.json"
+  }
+}

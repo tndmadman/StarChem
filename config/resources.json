@@ -1,0 +1,98 @@
+{
+  "resourceBelts": [
+    {
+      "name": "Inner Iron Belt",
+      "kind": "SILICATE_ROCK",
+      "materials": [
+        "IRON"
+      ],
+      "orbit": 1900,
+      "width": 260,
+      "arc": 1.0,
+      "count": 130,
+      "amount": 22,
+      "harvestRate": 7.5,
+      "radius": 2.8
+    },
+    {
+      "name": "Copper Arc",
+      "kind": "SILICATE_ROCK",
+      "materials": [
+        "COPPER"
+      ],
+      "orbit": 2650,
+      "width": 300,
+      "arc": 0.8,
+      "count": 110,
+      "amount": 18,
+      "harvestRate": 6.5,
+      "radius": 2.6
+    },
+    {
+      "name": "Silicate Belt",
+      "kind": "SILICATE_ROCK",
+      "materials": [
+        "SILICATES"
+      ],
+      "orbit": 3500,
+      "width": 360,
+      "arc": 1.2,
+      "count": 140,
+      "amount": 24,
+      "harvestRate": 8.0,
+      "radius": 3.0
+    },
+    {
+      "name": "Ice Ring",
+      "kind": "SILICATE_ROCK",
+      "materials": [
+        "ICE"
+      ],
+      "orbit": 4650,
+      "width": 420,
+      "arc": 0.9,
+      "count": 115,
+      "amount": 20,
+      "harvestRate": 7.0,
+      "radius": 2.8
+    },
+    {
+      "name": "Hydrogen Drift",
+      "kind": "GAS_CLOUD",
+      "materials": [
+        "HYDROGEN"
+      ],
+      "orbit": 5450,
+      "width": 520,
+      "arc": 1.1,
+      "count": 120,
+      "amount": 26,
+      "harvestRate": 9.0,
+      "radius": 4.8
+    },
+    {
+      "name": "Outer Gas Band",
+      "kind": "GAS_CLOUD",
+      "materials": [
+        "HELIUM",
+        "METHANE",
+        "AMMONIA",
+        "HYDROGEN"
+      ],
+      "orbit": 6650,
+      "width": 620,
+      "arc": 1.4,
+      "count": 160,
+      "amount": 22,
+      "harvestRate": 7.5,
+      "radius": 4.5
+    }
+  ],
+  "resourceRespawn": {
+    "mode": "move_depleted_node_to_new_location",
+    "depletedNodeVanishDelaySeconds": 2,
+    "respawnDelaySeconds": 18,
+    "minimumDistanceFromStations": 180,
+    "minimumDistanceFromOtherNodes": 140
+  }
+}

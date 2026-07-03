@@ -1,0 +1,36 @@
+{
+  "materials": {
+    "IRON": {
+      "displayName": "Iron",
+      "color": "#B49678"
+    },
+    "COPPER": {
+      "displayName": "Copper",
+      "color": "#DD7A3C"
+    },
+    "SILICATES": {
+      "displayName": "Silicates",
+      "color": "#A5AA9B"
+    },
+    "ICE": {
+      "displayName": "Water Ice",
+      "color": "#91DCFF"
+    },
+    "HYDROGEN": {
+      "displayName": "Hydrogen",
+      "color": "#6ED2FF"
+    },
+    "HELIUM": {
+      "displayName": "Helium",
+      "color": "#D2AFFF"
+    },
+    "METHANE": {
+      "displayName": "Methane",
+      "color": "#64FFBE"
+    },
+    "AMMONIA": {
+      "displayName": "Ammonia",
+      "color": "#EBF596"
+    }
+  }
+}
