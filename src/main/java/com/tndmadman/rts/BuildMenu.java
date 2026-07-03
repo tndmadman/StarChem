@@ -5,8 +5,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 final class BuildMenu {
+    private static final int WIDTH = 430;
+    private static final int ROW_H = 78;
     private final List<Entry> entries = new ArrayList<>();
-    private int x, y, width = 270;
+    private int x, y;
     boolean visible;
 
     void showForBase(World world, Base base, int sx, int sy) { showForBase(world, null, base, sx, sy); }
@@ -60,29 +62,66 @@ final class BuildMenu {
 
     void draw(Graphics2D g2) {
         if (!visible || entries.isEmpty()) return;
-        int height = 32 + entries.size() * 42;
+        keepOnScreen(g2.getClipBounds());
+        int height = 34 + entries.size() * ROW_H;
         g2.setColor(new Color(0, 0, 0, 210));
-        g2.fillRoundRect(x, y, width, height, 14, 14);
+        g2.fillRoundRect(x, y, WIDTH, height, 14, 14);
         g2.setColor(new Color(90, 190, 245, 190));
-        g2.drawRoundRect(x, y, width, height, 14, 14);
+        g2.drawRoundRect(x, y, WIDTH, height, 14, 14);
         g2.setFont(g2.getFont().deriveFont(Font.BOLD, 12f));
         g2.setColor(Color.WHITE);
         g2.drawString("BUILD MENU", x + 14, y + 20);
+        for (int i = 0; i < entries.size(); i++) drawEntry(g2, row(i), entries.get(i));
+    }
+
+    private void drawEntry(Graphics2D g2, Rectangle r, Entry e) {
+        g2.setColor(new Color(18, 54, 82, 220));
+        g2.fillRoundRect(r.x, r.y, r.width, r.height, 10, 10);
+        g2.setColor(new Color(120, 220, 255, 170));
+        g2.drawRoundRect(r.x, r.y, r.width, r.height, 10, 10);
+        g2.setColor(Color.WHITE);
+        g2.setFont(g2.getFont().deriveFont(Font.BOLD, 12f));
+        g2.drawString(fit(g2, e.title, r.width - 20), r.x + 10, r.y + 17);
         g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f));
-        for (int i = 0; i < entries.size(); i++) {
-            Rectangle r = row(i);
-            g2.setColor(new Color(18, 54, 82, 220));
-            g2.fillRoundRect(r.x, r.y, r.width, r.height, 10, 10);
-            g2.setColor(new Color(120, 220, 255, 170));
-            g2.drawRoundRect(r.x, r.y, r.width, r.height, 10, 10);
-            Entry e = entries.get(i);
-            g2.setColor(Color.WHITE);
-            g2.drawString(e.title, r.x + 10, r.y + 16);
-            g2.setColor(new Color(220, 225, 185));
-            g2.drawString(e.detail, r.x + 10, r.y + 32);
+        g2.setColor(new Color(220, 225, 185));
+        List<String> lines = wrap(g2, e.detail, r.width - 20, 3);
+        int yLine = r.y + 35;
+        for (String line : lines) {
+            g2.drawString(line, r.x + 10, yLine);
+            yLine += 15;
         }
     }
 
-    private Rectangle row(int index) { return new Rectangle(x + 10, y + 30 + index * 42, width - 20, 36); }
+    private List<String> wrap(Graphics2D g2, String text, int maxW, int maxLines) {
+        List<String> out = new ArrayList<>();
+        StringBuilder line = new StringBuilder();
+        for (String part : text.split(", ")) {
+            String next = line.isEmpty() ? part : line + ", " + part;
+            if (g2.getFontMetrics().stringWidth(next) <= maxW) line = new StringBuilder(next);
+            else {
+                out.add(line.toString());
+                line = new StringBuilder(part);
+                if (out.size() == maxLines - 1) break;
+            }
+        }
+        if (!line.isEmpty() && out.size() < maxLines) out.add(fit(g2, line.toString(), maxW));
+        return out.isEmpty() ? List.of(text) : out;
+    }
+
+    private String fit(Graphics2D g2, String text, int maxW) {
+        if (g2.getFontMetrics().stringWidth(text) <= maxW) return text;
+        String s = text;
+        while (s.length() > 3 && g2.getFontMetrics().stringWidth(s + "...") > maxW) s = s.substring(0, s.length() - 1);
+        return s + "...";
+    }
+
+    private void keepOnScreen(Rectangle clip) {
+        if (clip == null) return;
+        int h = 34 + entries.size() * ROW_H;
+        x = (int)Calc.clamp(x, 4, Math.max(4, clip.width - WIDTH - 4));
+        y = (int)Calc.clamp(y, 4, Math.max(4, clip.height - h - 4));
+    }
+
+    private Rectangle row(int index) { return new Rectangle(x + 10, y + 30 + index * ROW_H, WIDTH - 20, ROW_H - 8); }
     private record Entry(String title, String detail, Runnable action) { }
 }
