@@ -17,7 +17,7 @@ final class ResourceText {
         return out.isEmpty() ? "empty" : out.toString();
     }
 
-    private static String displayName(Material material) {
+    static String displayName(Material material) {
         String raw = material.name().toLowerCase().replace('_', ' ');
         return Character.toUpperCase(raw.charAt(0)) + raw.substring(1);
     }
