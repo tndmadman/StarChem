@@ -1,5 +1,5 @@
 {
-  "rulesVersion": 4,
+  "rulesVersion": 5,
   "startingShipType": "prospector",
   "defaultStationType": "outpost",
   "files": {
@@ -10,6 +10,13 @@
       "config/ships/combat-line.json",
       "config/ships/capitals.json",
       "config/ships/megastructures.json"
+    ],
+    "weapons": "config/weapons.json",
+    "loadouts": [
+      "config/loadouts/industry.json",
+      "config/loadouts/combat-line.json",
+      "config/loadouts/capitals.json",
+      "config/loadouts/megastructures.json"
     ],
     "stations": "config/stations.json",
     "resources": "config/resources.json",
