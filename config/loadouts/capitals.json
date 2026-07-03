@@ -1,0 +1,8 @@
+{
+  "shipLoadouts": {
+    "carrier": ["fighter_strike", "point_defense_laser", "point_defense_laser"],
+    "dreadnought": ["capital_lance", "heavy_cannon"],
+    "supercarrier": ["fighter_strike", "fighter_strike", "point_defense_laser", "point_defense_laser"],
+    "titan": ["capital_lance", "heavy_cannon", "heavy_cannon", "point_defense_laser", "point_defense_laser"]
+  }
+}

@@ -11,6 +11,15 @@ final class ClientPrediction {
     }
 
     private static void predictTarget(World world, Unit unit, double dt) {
+        if (unit.task == UnitTask.ATTACK) {
+            if (!CombatTarget.enemy(world, unit, unit.attackTarget)) return;
+            double range = WeaponRules.maxRange(unit.type());
+            if (range <= 0) return;
+            double tx = CombatTarget.x(world, unit.attackTarget);
+            double ty = CombatTarget.y(world, unit.attackTarget);
+            if (Calc.distance(unit.x, unit.y, tx, ty) > range * 0.92) world.moveTowardOrbit(unit, tx, ty, range * 0.82);
+            return;
+        }
         if (unit.task == UnitTask.AUTO_HARVEST) {
             ResourceNode node = world.findResource(unit.automationResourceId);
             if (node == null || !node.active) return;

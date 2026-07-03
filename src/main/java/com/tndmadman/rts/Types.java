@@ -2,6 +2,7 @@ package com.tndmadman.rts;
 
 import java.awt.Color;
 
+@SuppressWarnings("unused")
 enum Material {
     IRON("Iron", new Color(180,150,120)),
     COPPER("Copper", new Color(221,122,60)),
@@ -18,7 +19,7 @@ enum Material {
 }
 
 enum NodeKind { SILICATE_ROCK, GAS_CLOUD }
-enum UnitTask { IDLE, MOVE, AUTO_HARVEST, RETURN_TO_STATION }
+enum UnitTask { IDLE, MOVE, AUTO_HARVEST, RETURN_TO_STATION, ATTACK }
 
 enum ShipSize {
     SMALL(0.85),
@@ -43,3 +44,4 @@ enum ShipSize {
 record Cost(Material material, double amount) { }
 record MoveCommand(String playerId, int unitId, double x, double y) { }
 record HarvestCommand(String playerId, int unitId, int resourceId) { }
+record AttackCommand(String playerId, int unitId, String targetKey) { }

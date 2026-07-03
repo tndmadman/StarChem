@@ -73,11 +73,13 @@ final class PeerNetwork implements CommandSink {
 
     @Override public void move(MoveCommand c) { if (config.hostMode) { applyMove(c); broadcastNow(); } else sendToServer("MOVE|" + c.playerId() + "|" + c.unitId() + "|" + Calc.round(c.x()) + "|" + Calc.round(c.y())); }
     @Override public void work(HarvestCommand c) { if (config.hostMode) { applyWork(c); broadcastNow(); } else sendToServer("WORK|" + c.playerId() + "|" + c.unitId() + "|" + c.resourceId()); }
+    @Override public void attack(AttackCommand c) { if (config.hostMode) { applyAttack(c); broadcastNow(); } else sendToServer("ATTACK|" + c.playerId() + "|" + c.unitId() + "|" + c.targetKey()); }
     @Override public void build(String playerId, String baseId, String shipTypeId) { if (config.hostMode) { if (CommandAuth.base(world, playerId, baseId)) world.buildShip(baseId, shipTypeId); broadcastNow(); } else sendToServer("BUILD|" + playerId + "|" + baseId + "|" + shipTypeId); }
     @Override public void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { if (config.hostMode) { if (CommandAuth.pack(world, playerId, mode, baseOrUnitId)) applyPack(mode, baseOrUnitId, packageType); broadcastNow(); } else sendToServer("PACK|" + playerId + "|" + mode + "|" + baseOrUnitId + "|" + packageType); }
 
     private void applyMove(MoveCommand c) { Unit u = world.units.get(Unit.key(c.playerId(), c.unitId())); if (u != null) u.moveTo(c.x(), c.y()); }
     private void applyWork(HarvestCommand c) { Unit u = world.units.get(Unit.key(c.playerId(), c.unitId())); if (u != null) u.startAutoHarvest(c.resourceId()); }
+    private void applyAttack(AttackCommand c) { Unit u = world.units.get(Unit.key(c.playerId(), c.unitId())); if (u != null && CombatTarget.enemy(world, u, c.targetKey()) && WeaponRules.armed(u.type())) u.attack(c.targetKey()); }
     private void applyPack(String mode, String id, String packageType) { if ("LOAD".equals(mode)) world.loadBasePackage(id, packageType); else world.placePackage(world.units.get(id)); }
     private void removePlayer(String playerId) { world.units.values().removeIf(u -> u.playerId.equals(playerId)); world.bases.values().removeIf(b -> b.playerId.equals(playerId)); PlayerRegistry.remove(playerId); }
     private void broadcastNow() { broadcast(SnapshotWriter.write(WorldNetAccess.snapshot(world, sequence++))); }
@@ -106,6 +108,7 @@ final class PeerNetwork implements CommandSink {
                 case "PING" -> touch(ep);
                 case "MOVE" -> { touch(ep); if (owns(ep, p[1])) applyMove(new MoveCommand(p[1], Integer.parseInt(p[2]), Double.parseDouble(p[3]), Double.parseDouble(p[4]))); }
                 case "WORK" -> { touch(ep); if (owns(ep, p[1])) applyWork(new HarvestCommand(p[1], Integer.parseInt(p[2]), Integer.parseInt(p[3]))); }
+                case "ATTACK" -> { touch(ep); if (owns(ep, p[1]) && CommandAuth.unit(world, p[1], Unit.key(p[1], Integer.parseInt(p[2])))) applyAttack(new AttackCommand(p[1], Integer.parseInt(p[2]), p[3])); }
                 case "BUILD" -> { touch(ep); if (owns(ep, p[1]) && CommandAuth.base(world, p[1], p[2])) world.buildShip(p[2], p[3]); }
                 case "PACK" -> { touch(ep); if (owns(ep, p[1]) && CommandAuth.pack(world, p[1], p[2], p[3])) applyPack(p[2], p[3], p[4]); }
                 case "LEAVE" -> removePeer(ep);

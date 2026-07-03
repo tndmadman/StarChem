@@ -16,7 +16,9 @@ final class SnapshotWriter {
                     .append(Calc.round(unit.x())).append(',').append(Calc.round(unit.y())).append(',')
                     .append(Calc.round(unit.targetX())).append(',').append(Calc.round(unit.targetY())).append(',')
                     .append(Calc.round(unit.heading())).append(',').append(unit.task()).append(',').append(unit.resourceId()).append(',')
-                    .append(CargoCodec.safe(unit.packageType())).append(',').append(CargoCodec.safe(unit.cargo()));
+                    .append(CargoCodec.safe(unit.packageType())).append(',').append(CargoCodec.safe(unit.cargo())).append(',')
+                    .append(Calc.round(unit.hp())).append(',').append(CargoCodec.safe(unit.attackTarget())).append(',')
+                    .append(Calc.round(unit.weaponFlashTimer()));
         }
         StringBuilder resources = new StringBuilder();
         for (ResourceState r : snapshot.resources()) {
@@ -32,7 +34,7 @@ final class SnapshotWriter {
             if (!bases.isEmpty()) bases.append(';');
             bases.append(base.id()).append(',').append(base.playerId()).append(',').append(base.typeId()).append(',')
                     .append(Calc.round(base.x())).append(',').append(Calc.round(base.y())).append(',')
-                    .append(CargoCodec.safe(base.cargo()));
+                    .append(Calc.round(base.hp())).append(',').append(CargoCodec.safe(base.cargo()));
         }
         StringBuilder stocks = new StringBuilder();
         for (StockState stock : snapshot.stocks()) {

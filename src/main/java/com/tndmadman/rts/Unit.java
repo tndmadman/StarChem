@@ -8,8 +8,10 @@ final class Unit {
     final EnumMap<Material, Double> inventory = new EnumMap<>(Material.class);
     String shipTypeId;
     String basePackageType = "";
+    String attackTarget = "";
     UnitTask task = UnitTask.IDLE;
     double x, y, targetX, targetY, heading = -Math.PI / 2, orbitAngle, orbitRetarget;
+    double weaponCooldown, weaponFlashTimer;
     int automationResourceId = -1;
     boolean selected, unloadingThisFrame;
     double hp;
@@ -36,10 +38,18 @@ final class Unit {
         targetY = ty;
         task = UnitTask.MOVE;
         automationResourceId = -1;
+        attackTarget = "";
+    }
+
+    void attack(String targetKey) {
+        attackTarget = targetKey == null ? "" : targetKey;
+        task = attackTarget.isBlank() ? UnitTask.IDLE : UnitTask.ATTACK;
+        automationResourceId = -1;
     }
 
     void startAutoHarvest(int resourceId) {
         automationResourceId = resourceId;
+        attackTarget = "";
         task = UnitTask.AUTO_HARVEST;
     }
 

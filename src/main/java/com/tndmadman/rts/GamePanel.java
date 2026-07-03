@@ -120,6 +120,16 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     }
 
     private void clickRight(Point2D p) {
+        Unit enemyUnit = world.unitAt(p.getX(), p.getY());
+        if (enemyUnit != null && !PlayerRegistry.isLocal(enemyUnit.playerId)) {
+            orderAttack(CombatTarget.unit(enemyUnit));
+            return;
+        }
+        Base enemyBase = world.baseAt(p.getX(), p.getY());
+        if (enemyBase != null && !PlayerRegistry.isLocal(enemyBase.playerId)) {
+            orderAttack(CombatTarget.base(enemyBase));
+            return;
+        }
         ResourceNode node = world.resourceAt(p.getX(), p.getY());
         if (node != null) {
             world.autoHarvestSelected(node);
@@ -127,6 +137,15 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         } else {
             world.moveSelected(p.getX(), p.getY());
             if (network != null) for (Unit u : world.selectedUnits()) if (PlayerRegistry.isLocal(u.playerId)) network.move(new MoveCommand(u.playerId, u.unitId, u.targetX, u.targetY));
+        }
+    }
+
+    private void orderAttack(String targetKey) {
+        world.attackSelected(targetKey);
+        if (network != null) for (Unit u : world.selectedUnits()) {
+            if (PlayerRegistry.isLocal(u.playerId) && u.task == UnitTask.ATTACK && targetKey.equals(u.attackTarget)) {
+                network.attack(new AttackCommand(u.playerId, u.unitId, targetKey));
+            }
         }
     }
 
