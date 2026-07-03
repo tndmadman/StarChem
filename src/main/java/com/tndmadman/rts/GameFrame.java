@@ -55,10 +55,10 @@ final class GameFrame extends JFrame {
             networkTimer = new Timer(16, e -> peer.tick());
             networkTimer.start();
         }
-        gamePanel = new GamePanel(world, this, network);
+        gamePanel = new GamePanel(world, this, network, config.devMode);
         root.removeAll();
         root.add(gamePanel, JLayeredPane.DEFAULT_LAYER);
-        setTitle("StarChem - " + config.modeLabel() + " - " + config.playerName);
+        setTitle("StarChem - " + config.modeLabel() + " - " + config.playerName + (config.devMode ? " - DEV" : ""));
         layoutLayers();
         root.revalidate();
         root.repaint();
