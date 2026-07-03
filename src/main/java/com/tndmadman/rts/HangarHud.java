@@ -4,30 +4,28 @@ import java.awt.*;
 import java.util.List;
 
 final class HangarHud {
-    private HangarHud() { }
+    private final HudWindow window = new HudWindow(-1, 18, 360);
 
-    static void draw(Graphics2D g2, World world, int screenW) {
-        int x = Math.max(16, screenW - 380);
-        int y = 18;
-        int h = height(world);
-        g2.setColor(new Color(0, 0, 0, 180));
-        g2.fillRoundRect(x, y, 360, h, 14, 14);
-        g2.setColor(new Color(90, 190, 245, 170));
-        g2.drawRoundRect(x, y, 360, h, 14, 14);
-        g2.setColor(Color.WHITE);
-        g2.setFont(g2.getFont().deriveFont(Font.BOLD, 12f));
-        g2.drawString("HANGARS", x + 14, y + 20);
+    void draw(Graphics2D g2, World world, int screenW) {
+        if (window.x < 0) window.x = Math.max(16, screenW - 380);
+        int bodyH = bodyHeight(world);
+        window.draw(g2, "HANGARS", bodyH, new Color(90, 190, 245, 170));
+        if (window.collapsed) return;
+        int line = window.bodyY();
         g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f));
-        int line = y + 42;
         for (Base base : world.bases.values()) {
             if (!PlayerRegistry.isLocal(base.playerId)) continue;
-            line = drawStore(g2, base.type().name + " " + base.id, base.inventory, x + 14, line, PlayerRegistry.color(base.playerId));
+            line = drawStore(g2, base.type().name + " " + base.id, base.inventory, window.x + 14, line, PlayerRegistry.color(base.playerId));
         }
         Unit unit = world.selectedUnit();
-        if (unit != null) drawStore(g2, "Selected ship", unit.inventory, x + 14, line, new Color(255, 235, 145));
+        if (unit != null) drawStore(g2, "Selected ship", unit.inventory, window.x + 14, line, new Color(255, 235, 145));
     }
 
-    private static int drawStore(Graphics2D g2, String title, java.util.EnumMap<Material, Double> store, int x, int y, Color titleColor) {
+    boolean mousePressed(World world, int x, int y) { return window.press(x, y, bodyHeight(world)); }
+    void mouseDragged(int x, int y, int screenW, int screenH) { window.drag(x, y, screenW, screenH); }
+    void mouseReleased() { window.release(); }
+
+    private int drawStore(Graphics2D g2, String title, java.util.EnumMap<Material, Double> store, int x, int y, Color titleColor) {
         g2.setColor(titleColor);
         g2.drawString(title, x, y);
         int line = y + 16;
@@ -44,11 +42,11 @@ final class HangarHud {
         return line + 8;
     }
 
-    private static int height(World world) {
+    private int bodyHeight(World world) {
         int rows = 2;
         for (Base base : world.bases.values()) if (PlayerRegistry.isLocal(base.playerId)) rows += 1 + Math.max(1, ResourceText.lines(base.inventory).size());
         Unit unit = world.selectedUnit();
         if (unit != null) rows += 1 + Math.max(1, ResourceText.lines(unit.inventory).size());
-        return Math.min(520, Math.max(145, 30 + rows * 18));
+        return Math.min(492, Math.max(117, 8 + rows * 18));
     }
 }
