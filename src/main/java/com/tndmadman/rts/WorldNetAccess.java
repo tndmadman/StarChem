@@ -19,7 +19,8 @@ final class WorldNetAccess {
     }
 
     static void apply(World world, Snapshot snapshot) {
-        for (PlayerInfo p : snapshot.players()) PlayerRegistry.register(p.id(), p.name(), p.rgb(), p.local());
+        String local = PlayerRegistry.localId();
+        for (PlayerInfo p : snapshot.players()) PlayerRegistry.register(p.id(), p.name(), p.rgb(), p.id().equals(local));
         Set<String> liveUnits = new HashSet<>();
         for (UnitState s : snapshot.units()) {
             String key = Unit.key(s.playerId(), s.unitId());
