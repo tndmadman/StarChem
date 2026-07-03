@@ -63,9 +63,7 @@ final class World {
         celestials = new CelestialSystem(width, height, random);
     }
 
-    private void seedResources() {
-        ResourceSpawner.seed(resources, celestials, random);
-    }
+    private void seedResources() { ResourceSpawner.seed(resources, celestials, random); }
 
     private Point2D startShipPoint(Point2D basePoint) { return new Point2D.Double(basePoint.getX() + 180, basePoint.getY() - 80); }
 
@@ -185,7 +183,7 @@ final class World {
         g2.setColor(new Color(9, 15, 24));
         g2.fillRect(0, 0, width, height);
         g2.setColor(new Color(22, 33, 48));
-        for (int x = 0; x <= width; x += 160) g2.drawLine(x, 0, height);
+        for (int x = 0; x <= width; x += 160) g2.drawLine(x, 0, x, height);
         for (int y = 0; y <= height; y += 160) g2.drawLine(0, y, width, y);
     }
 
@@ -204,17 +202,11 @@ final class World {
         }
     }
 
-    void selectBox(Rectangle2D box) {
-        for (Unit unit : units.values()) unit.selected = PlayerRegistry.isLocal(unit.playerId) && box.contains(unit.x, unit.y);
-        status = selectedCount() + " ship(s) selected.";
-    }
+    void selectBox(Rectangle2D box) { for (Unit unit : units.values()) unit.selected = PlayerRegistry.isLocal(unit.playerId) && box.contains(unit.x, unit.y); status = selectedCount() + " ship(s) selected."; }
 
     void moveSelected(double x, double y) {
         List<Unit> selected = selectedUnits();
-        if (selected.isEmpty()) {
-            status = "No ship selected.";
-            return;
-        }
+        if (selected.isEmpty()) { status = "No ship selected."; return; }
         int count = selected.size();
         int cols = (int)Math.ceil(Math.sqrt(count));
         double rows = Math.ceil(count / (double)cols);
@@ -232,10 +224,7 @@ final class World {
     void autoHarvestSelected(ResourceNode node) {
         int started = 0;
         for (Unit unit : selectedUnits()) {
-            if (unit.type().harvestKinds.contains(node.kind)) {
-                unit.startAutoHarvest(node.id);
-                started++;
-            }
+            if (unit.type().harvestKinds.contains(node.kind)) { unit.startAutoHarvest(node.id); started++; }
         }
         status = started == 0 ? "Selected ship cannot harvest this node." : "Auto-harvesting " + node.name + ".";
     }
@@ -249,9 +238,7 @@ final class World {
         else moveTowardOrbit(unit, base.x, base.y, base.type().unloadRange * 0.55);
     }
 
-    boolean scoutRetarget(Unit unit, ResourceNode oldNode) {
-        return oldNode != null && scoutSystem.retargetAfterDepletion(this, unit, oldNode);
-    }
+    boolean scoutRetarget(Unit unit, ResourceNode oldNode) { return oldNode != null && scoutSystem.retargetAfterDepletion(this, unit, oldNode); }
 
     void orbitAround(Unit unit, double cx, double cy, double radius, double dt, double speed) {
         unit.orbitAngle += dt * speed * (unit.unitId % 2 == 0 ? 1 : -1);
@@ -270,9 +257,7 @@ final class World {
         unit.targetY = Calc.clamp(cy + Math.sin(angle) * radius, 0, height);
     }
 
-    void relocateResource(ResourceNode node) {
-        ResourceSpawner.relocate(node, resources, bases.values(), celestials, random);
-    }
+    void relocateResource(ResourceNode node) { ResourceSpawner.relocate(node, resources, bases.values(), celestials, random); }
 
     ResourceNode resourceAt(double x, double y) {
         ResourceNode best = null;
