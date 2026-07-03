@@ -17,8 +17,9 @@ final class World {
     final Map<String, Base> bases = new LinkedHashMap<>();
     final EnumMap<Material, Double> stockpile = new EnumMap<>(Material.class);
 
-    private final Random random = new Random();
-    private final CelestialSystem celestials = new CelestialSystem(width, height, random);
+    private long systemSeed;
+    private Random random;
+    private CelestialSystem celestials;
     private final WorkSystem workSystem = new WorkSystem();
     private final HaulerSystem haulerSystem = new HaulerSystem();
     private final ScoutSystem scoutSystem = new ScoutSystem();
@@ -31,11 +32,27 @@ final class World {
 
     World(String localPlayerName) {
         this.localPlayerName = Config.clean(localPlayerName);
+        setSystemSeed(System.nanoTime() ^ System.currentTimeMillis());
         seedResources();
         Point2D basePoint = startBasePoint();
         addBase(Rules.DEFAULT_BASE, basePoint.getX(), basePoint.getY());
         Point2D start = startShipPoint(basePoint);
         spawnShip(Rules.STARTING_SHIP, start.getX(), start.getY());
+    }
+
+    long systemSeed() { return systemSeed; }
+
+    void useSystemSeed(long seed) {
+        if (seed == systemSeed) return;
+        setSystemSeed(seed);
+        resources.clear();
+        seedResources();
+    }
+
+    private void setSystemSeed(long seed) {
+        systemSeed = seed;
+        random = new Random(seed);
+        celestials = new CelestialSystem(width, height, random);
     }
 
     private void seedResources() {
@@ -57,9 +74,13 @@ final class World {
         return null;
     }
 
-    void update(double dt) {
+    void updateEnvironment(double dt) {
         celestials.update(dt);
         ResourceSpawner.update(resources, celestials, dt);
+    }
+
+    void update(double dt) {
+        updateEnvironment(dt);
         resourceRespawnSystem.update(this, dt);
         scoutSystem.update(this);
         for (Unit unit : new ArrayList<>(units.values())) updateUnit(unit, dt);
