@@ -1,0 +1,17 @@
+@echo off
+setlocal
+cd /d "%~dp0"
+
+set HOST_IP=127.0.0.1
+set PORT=50000
+
+if not "%~1"=="" set HOST_IP=%~1
+if not "%~2"=="" set PORT=%~2
+
+echo Starting StarChem JOIN client...
+echo Connecting to %HOST_IP%:%PORT%
+echo.
+call gradle run --args="--join %HOST_IP% %PORT% --id JOIN"
+
+echo.
+pause
