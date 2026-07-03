@@ -1,7 +1,5 @@
 package com.tndmadman.rts;
 
-import java.util.List;
-
 final class BuildSystem {
     boolean buildShip(World world, String baseId, String shipTypeId) {
         Base base = world.bases.get(baseId);
@@ -16,9 +14,9 @@ final class BuildSystem {
             return false;
         }
         world.spend(shipType.buildCost);
-        int n = world.units.size() + 1;
+        int n = countUnits(world, base.playerId) + 1;
         double a = n * 1.35;
-        world.spawnShip(shipTypeId, base.x + Math.cos(a) * (base.type().buildRadius + 40), base.y + Math.sin(a) * (base.type().buildRadius + 40));
+        spawnShipFor(world, base.playerId, shipTypeId, base.x + Math.cos(a) * (base.type().buildRadius + 40), base.y + Math.sin(a) * (base.type().buildRadius + 40));
         world.status = "Built " + shipType.name + ".";
         return true;
     }
@@ -51,7 +49,8 @@ final class BuildSystem {
             world.status = "Select a loaded Deployer first.";
             return false;
         }
-        world.addBase(carrier.basePackageType, carrier.x, carrier.y);
+        String baseId = nextBaseId(world, carrier.playerId);
+        world.bases.put(baseId, new Base(baseId, carrier.playerId, carrier.basePackageType, carrier.x, carrier.y));
         world.units.remove(carrier.key());
         world.status = "Placed Shipyard. Deployer consumed.";
         return true;
@@ -61,6 +60,7 @@ final class BuildSystem {
         Unit best = null;
         double bestDist = Double.MAX_VALUE;
         for (Unit unit : world.units.values()) {
+            if (!unit.playerId.equals(base.playerId)) continue;
             if (!unit.type().baseBuilder || !unit.basePackageType.isBlank()) continue;
             double d = Calc.distance(unit.x, unit.y, base.x, base.y);
             if (d <= base.type().unloadRange && d < bestDist) {
@@ -69,5 +69,28 @@ final class BuildSystem {
             }
         }
         return best;
+    }
+
+    private void spawnShipFor(World world, String playerId, String type, double x, double y) {
+        int next = countUnits(world, playerId) + 1;
+        Unit unit = new Unit(playerId, next, type, x, y);
+        world.units.put(unit.key(), unit);
+    }
+
+    private int countUnits(World world, String playerId) {
+        int count = 0;
+        for (Unit unit : world.units.values()) if (unit.playerId.equals(playerId)) count++;
+        return count;
+    }
+
+    private String nextBaseId(World world, String playerId) {
+        int max = 0;
+        String prefix = playerId + ":B";
+        for (String id : world.bases.keySet()) {
+            if (!id.startsWith(prefix)) continue;
+            try { max = Math.max(max, Integer.parseInt(id.substring(prefix.length()))); }
+            catch (NumberFormatException ignored) { }
+        }
+        return prefix + (max + 1);
     }
 }
