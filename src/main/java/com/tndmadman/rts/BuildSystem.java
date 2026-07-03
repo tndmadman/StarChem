@@ -14,9 +14,9 @@ final class BuildSystem {
             return false;
         }
         HangarStore.spend(base.inventory, shipType.buildCost);
-        int n = countUnits(world, base.playerId) + 1;
+        int n = nextUnitId(world, base.playerId);
         double a = n * 1.35;
-        spawnShipFor(world, base.playerId, shipTypeId, base.x + Math.cos(a) * (base.type().buildRadius + 40), base.y + Math.sin(a) * (base.type().buildRadius + 40));
+        spawnShipFor(world, base.playerId, n, shipTypeId, base.x + Math.cos(a) * (base.type().buildRadius + 40), base.y + Math.sin(a) * (base.type().buildRadius + 40));
         world.status = "Built " + shipType.name + ".";
         return true;
     }
@@ -71,16 +71,15 @@ final class BuildSystem {
         return best;
     }
 
-    private void spawnShipFor(World world, String playerId, String type, double x, double y) {
-        int next = countUnits(world, playerId) + 1;
-        Unit unit = new Unit(playerId, next, type, x, y);
+    private void spawnShipFor(World world, String playerId, int unitId, String type, double x, double y) {
+        Unit unit = new Unit(playerId, unitId, type, x, y);
         world.units.put(unit.key(), unit);
     }
 
-    private int countUnits(World world, String playerId) {
-        int count = 0;
-        for (Unit unit : world.units.values()) if (unit.playerId.equals(playerId)) count++;
-        return count;
+    private int nextUnitId(World world, String playerId) {
+        int max = 0;
+        for (Unit unit : world.units.values()) if (unit.playerId.equals(playerId)) max = Math.max(max, unit.unitId);
+        return max + 1;
     }
 
     private String nextBaseId(World world, String playerId) {
