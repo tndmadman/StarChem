@@ -1,0 +1,20 @@
+plugins {
+    id 'application'
+}
+
+group = 'com.tndmadman'
+version = '0.1.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+application {
+    mainClass = 'com.tndmadman.rts.RtsGame'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
