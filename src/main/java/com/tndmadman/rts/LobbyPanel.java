@@ -8,6 +8,7 @@ final class LobbyPanel extends JPanel {
     private final JTextField nameField = new JTextField(System.getProperty("user.name", "Player"), 18);
     private final JTextField addressField = new JTextField("127.0.0.1", 18);
     private final JTextField portField = new JTextField("50000", 8);
+    private final JCheckBox devBox = new JCheckBox("Dev mode");
     private final JLabel statusLabel = new JLabel("Choose Solo, Host, or Join.");
 
     LobbyPanel(GameFrame owner) {
@@ -18,6 +19,7 @@ final class LobbyPanel extends JPanel {
         styleField(nameField);
         styleField(addressField);
         styleField(portField);
+        styleCheck(devBox);
 
         JLabel title = new JLabel("STAR  CHEM");
         title.setForeground(new Color(230, 248, 255));
@@ -38,6 +40,8 @@ final class LobbyPanel extends JPanel {
         box.add(addressField);
         box.add(label("Port"));
         box.add(portField);
+        box.add(label("Options"));
+        box.add(devBox);
         JButton solo = new MenuButton("SOLO");
         JButton serve = new MenuButton("HOST");
         JButton connect = new MenuButton("JOIN");
@@ -53,7 +57,7 @@ final class LobbyPanel extends JPanel {
         card.add(box, BorderLayout.CENTER);
         add(card, BorderLayout.CENTER);
 
-        solo.addActionListener(e -> owner.launchGame(Config.solo(nameField.getText())));
+        solo.addActionListener(e -> owner.launchGame(Config.solo(nameField.getText(), devBox.isSelected())));
         serve.addActionListener(e -> startServer());
         connect.addActionListener(e -> startClient());
     }
@@ -74,13 +78,19 @@ final class LobbyPanel extends JPanel {
                 BorderFactory.createEmptyBorder(8, 10, 8, 10)));
     }
 
+    private void styleCheck(JCheckBox box) {
+        box.setOpaque(false);
+        box.setForeground(new Color(220, 238, 250));
+        box.setFont(box.getFont().deriveFont(Font.BOLD, 13f));
+    }
+
     private void startServer() {
-        try { owner.launchGame(Config.host(nameField.getText(), Config.parsePort(portField.getText()))); }
+        try { owner.launchGame(Config.host(nameField.getText(), Config.parsePort(portField.getText()), devBox.isSelected())); }
         catch (RuntimeException ex) { setStatus(ex.getMessage()); }
     }
 
     private void startClient() {
-        try { owner.launchGame(Config.join(nameField.getText(), addressField.getText().trim(), Config.parsePort(portField.getText()))); }
+        try { owner.launchGame(Config.join(nameField.getText(), addressField.getText().trim(), Config.parsePort(portField.getText()), devBox.isSelected())); }
         catch (RuntimeException ex) { setStatus(ex.getMessage()); }
     }
 
