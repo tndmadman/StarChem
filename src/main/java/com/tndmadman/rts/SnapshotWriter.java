@@ -31,7 +31,8 @@ final class SnapshotWriter {
         for (BaseState base : snapshot.bases()) {
             if (!bases.isEmpty()) bases.append(';');
             bases.append(base.id()).append(',').append(base.playerId()).append(',').append(base.typeId()).append(',')
-                    .append(Calc.round(base.x())).append(',').append(Calc.round(base.y()));
+                    .append(Calc.round(base.x())).append(',').append(Calc.round(base.y())).append(',')
+                    .append(CargoCodec.safe(base.cargo()));
         }
         StringBuilder stocks = new StringBuilder();
         for (StockState stock : snapshot.stocks()) {
