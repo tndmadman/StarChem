@@ -8,14 +8,18 @@ import java.awt.geom.*;
 final class GamePanel extends JPanel implements KeyListener, MouseListener {
     private final World world;
     private final GameFrame owner;
+    private final PeerNetwork network;
     private final Timer timer;
     private final BuildMenu buildMenu = new BuildMenu();
     private long lastNanos = System.nanoTime();
     private double zoom = 0.9;
 
-    GamePanel(World world, GameFrame owner) {
+    GamePanel(World world, GameFrame owner) { this(world, owner, null); }
+
+    GamePanel(World world, GameFrame owner, PeerNetwork network) {
         this.world = world;
         this.owner = owner;
+        this.network = network;
         setFocusable(true);
         setBackground(new Color(8, 12, 18));
         addKeyListener(this);
@@ -49,12 +53,12 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener {
 
     private void drawHud(Graphics2D g2) {
         g2.setColor(new Color(0,0,0,175));
-        g2.fillRoundRect(12, 12, 940, 92, 14, 14);
+        g2.fillRoundRect(12, 12, 980, 92, 14, 14);
         g2.setColor(Color.WHITE);
-        g2.drawString("StarChem modular | " + world.localPlayerName + " | Selected: " + world.selectedCount(), 28, 36);
+        g2.drawString("StarChem | " + world.localPlayerName + " | Selected: " + world.selectedCount(), 28, 36);
         g2.setColor(new Color(210,230,245));
         g2.drawString(world.status, 28, 58);
-        g2.drawString("Left button selects/opens menu. Right button commands. ESC lobby.", 28, 80);
+        g2.drawString(network == null ? "Solo" : network.statusLine(), 28, 80);
     }
 
     private Point2D screenToWorld(Point p) { return new Point2D.Double(p.x / zoom, p.y / zoom); }
@@ -63,16 +67,26 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener {
         requestFocusInWindow();
         if (buildMenu.click(e.getX(), e.getY())) return;
         Point2D p = screenToWorld(e.getPoint());
-        if (SwingUtilities.isLeftMouseButton(e)) {
-            Base base = world.baseAt(p.getX(), p.getY());
-            Unit unit = world.unitAt(p.getX(), p.getY());
-            if (base != null) buildMenu.showForBase(world, base, e.getX(), e.getY());
-            else if (unit != null && !unit.basePackageType.isBlank()) buildMenu.showForUnit(world, unit, e.getX(), e.getY());
-            else world.selectAt(p.getX(), p.getY());
-        } else if (SwingUtilities.isRightMouseButton(e)) {
-            ResourceNode node = world.resourceAt(p.getX(), p.getY());
-            if (node != null) world.autoHarvestSelected(node);
-            else world.moveSelected(p.getX(), p.getY());
+        if (SwingUtilities.isLeftMouseButton(e)) clickLeft(e, p);
+        else if (SwingUtilities.isRightMouseButton(e)) clickRight(p);
+    }
+
+    private void clickLeft(MouseEvent e, Point2D p) {
+        Base base = world.baseAt(p.getX(), p.getY());
+        Unit unit = world.unitAt(p.getX(), p.getY());
+        if (base != null) buildMenu.showForBase(world, network, base, e.getX(), e.getY());
+        else if (unit != null && !unit.basePackageType.isBlank()) buildMenu.showForUnit(world, network, unit, e.getX(), e.getY());
+        else world.selectAt(p.getX(), p.getY());
+    }
+
+    private void clickRight(Point2D p) {
+        ResourceNode node = world.resourceAt(p.getX(), p.getY());
+        if (node != null) {
+            world.autoHarvestSelected(node);
+            if (network != null) for (Unit u : world.selectedUnits()) if (u.automationResourceId == node.id) network.work(new HarvestCommand(u.playerId, u.unitId, node.id));
+        } else {
+            world.moveSelected(p.getX(), p.getY());
+            if (network != null) for (Unit u : world.selectedUnits()) network.move(new MoveCommand(u.playerId, u.unitId, u.targetX, u.targetY));
         }
     }
 
