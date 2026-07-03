@@ -133,12 +133,15 @@ gradle run --args="--join 127.0.0.1 50000 --name Player"
 
 ## Next build steps
 
-1. Load `config/starchem-rules.json` at runtime.
-2. Send host rules JSON to clients on join through reliable packets.
-3. Add a proper build menu instead of number hotkeys only.
-4. Add build queues/timers instead of instant construction.
-5. Add packet ordering checks so old reliable snapshots cannot overwrite newer state.
-6. Add reconnect support.
-7. Add fog of war.
-8. Add combat/projectiles.
-9. Add NAT traversal or relay fallback for internet play.
+- [ ] Make `config/starchem-rules.json` the actual source of truth.
+- [ ] Rename either `station_builder` or `builder` so JSON and Java match.
+- [ ] Add snapshot sequence rejection on the client.
+- [ ] Replace the raw delimited UDP protocol with JSON or length-prefixed packets.
+- [ ] Update README controls.
+- [ ] Add a Gradle wrapper and a tiny CI build.
+- [ ] Add tests for `CargoCodec`, `SnapshotReader`/`SnapshotWriter`, `CommandAuth`, and `BuildSystem`.
+- [ ] Add build queues/timers instead of instant construction.
+- [ ] Add reconnect support.
+- [ ] Add fog of war.
+- [ ] Add combat/projectiles.
+- [ ] Add NAT traversal or relay fallback for internet play.
