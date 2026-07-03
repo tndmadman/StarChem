@@ -31,6 +31,7 @@ final class UnitRenderer {
     }
 
     static void drawRoute(Graphics2D g2, Unit unit, Color ignoredColor) {
+        if (!PlayerRegistry.isLocal(unit.playerId)) return;
         if (Calc.distance(unit.x, unit.y, unit.targetX, unit.targetY) <= 4) return;
         Color color = PlayerRegistry.color(unit.playerId);
         Graphics2D r = (Graphics2D) g2.create();
