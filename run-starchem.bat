@@ -24,7 +24,6 @@ if errorlevel 1 (
 
 if not exist "build" mkdir "build"
 if not exist "build\classes" mkdir "build\classes"
-if not exist "build\sources.txt" type nul > "build\sources.txt"
 
 if not exist "src\main\java\com\tndmadman\rts" (
     echo Could not find StarChem source folder.
@@ -35,7 +34,9 @@ if not exist "src\main\java\com\tndmadman\rts" (
 )
 
 echo Finding Java sources...
-dir /s /b "src\main\java\*.java" > "build\sources.txt"
+(
+    for /r "src\main\java" %%F in (*.java) do echo "%%F"
+) > "build\sources.txt"
 
 if not exist "build\sources.txt" (
     echo Could not create source list.
