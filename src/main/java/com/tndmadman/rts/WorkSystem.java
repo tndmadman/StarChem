@@ -27,10 +27,12 @@ final class WorkSystem {
         double gain = Math.min(node.harvestRate * dt, Math.min(node.amount, unit.freeCargo()));
         if (gain > 0) {
             node.amount -= gain;
+            ResourceSync.mark(world, node);
             unit.addCargo(node.material, gain);
         }
         if (node.amount <= 0.05) {
             node.deplete();
+            ResourceSync.mark(world, node);
             if (unit.freeCargo() > 0.05 && world.scoutRetarget(unit, node)) return;
             world.status = node.name + " depleted. Returning cargo and relocating deposit.";
             if (unit.cargoUsed() > 0.05) world.sendToNearestBase(unit);
