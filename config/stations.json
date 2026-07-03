@@ -1,0 +1,44 @@
+{
+  "stationTypes": {
+    "outpost": {
+      "displayName": "Outpost",
+      "maxHp": 1200,
+      "unloadRange": 118,
+      "unloadRate": 95,
+      "buildRadius": 72,
+      "canBuildShips": [
+        "prospector",
+        "station_builder"
+      ],
+      "canBuildStationPackages": [
+        "shipyard"
+      ]
+    },
+    "shipyard": {
+      "displayName": "Shipyard",
+      "maxHp": 2400,
+      "unloadRange": 150,
+      "unloadRate": 160,
+      "buildRadius": 100,
+      "buildCost": {
+        "IRON": 500,
+        "COPPER": 250,
+        "SILICATES": 350,
+        "ICE": 160
+      },
+      "packedVolume": 1,
+      "mustBeCarriedByShipType": "station_builder",
+      "carrierIsRemovedAfterPlacement": true,
+      "canBuildShips": [
+        "prospector",
+        "station_builder",
+        "scout",
+        "hauler",
+        "deep_miner",
+        "gas_harvester",
+        "freighter"
+      ],
+      "canBuildStationPackages": []
+    }
+  }
+}
