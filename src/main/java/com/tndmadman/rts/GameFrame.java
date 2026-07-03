@@ -79,8 +79,8 @@ final class GameFrame extends JFrame {
         int h = Math.max(1, root.getHeight());
         backdrop.setBounds(0, 0, w, h);
         if (gamePanel != null) gamePanel.setBounds(0, 0, w, h);
-        int mw = Math.min(720, Math.max(520, w - 160));
-        int mh = Math.min(420, Math.max(260, h - 160));
+        int mw = Math.min(760, Math.max(560, w - 160));
+        int mh = Math.min(520, Math.max(420, h - 140));
         menuPanel.setBounds((w - mw) / 2, (h - mh) / 2, mw, mh);
     }
 }
