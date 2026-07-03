@@ -7,7 +7,7 @@ if not "%~1"=="" set PORT=%~1
 
 echo Starting StarChem HOST on UDP port %PORT%...
 echo.
-call gradle run --args="--host %PORT% --id HOST"
+call "%~dp0run-starchem.bat" --host %PORT% --id HOST
 
 echo.
 pause
