@@ -18,6 +18,7 @@ final class World {
     final EnumMap<Material, Double> stockpile = new EnumMap<>(Material.class);
 
     private long systemSeed;
+    private double systemTime;
     private Random random;
     private CelestialSystem celestials;
     private final WorkSystem workSystem = new WorkSystem();
@@ -41,16 +42,23 @@ final class World {
     }
 
     long systemSeed() { return systemSeed; }
+    double systemTime() { return systemTime; }
 
-    void useSystemSeed(long seed) {
-        if (seed == systemSeed) return;
-        setSystemSeed(seed);
-        resources.clear();
-        seedResources();
+    void useSystemSeed(long seed) { syncEnvironment(seed, 0); }
+
+    void syncEnvironment(long seed, double hostTime) {
+        if (seed != systemSeed) {
+            setSystemSeed(seed);
+            resources.clear();
+            seedResources();
+        }
+        double delta = hostTime - systemTime;
+        if (Math.abs(delta) > 0.08) advanceEnvironment(delta);
     }
 
     private void setSystemSeed(long seed) {
         systemSeed = seed;
+        systemTime = 0;
         random = new Random(seed);
         celestials = new CelestialSystem(width, height, random);
     }
@@ -74,7 +82,10 @@ final class World {
         return null;
     }
 
-    void updateEnvironment(double dt) {
+    void updateEnvironment(double dt) { advanceEnvironment(dt); }
+
+    private void advanceEnvironment(double dt) {
+        systemTime += dt;
         celestials.update(dt);
         ResourceSpawner.update(resources, celestials, dt);
     }
@@ -174,7 +185,7 @@ final class World {
         g2.setColor(new Color(9, 15, 24));
         g2.fillRect(0, 0, width, height);
         g2.setColor(new Color(22, 33, 48));
-        for (int x = 0; x <= width; x += 160) g2.drawLine(x, 0, x, height);
+        for (int x = 0; x <= width; x += 160) g2.drawLine(x, 0, height);
         for (int y = 0; y <= height; y += 160) g2.drawLine(0, y, width, y);
     }
 
