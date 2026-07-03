@@ -22,7 +22,6 @@ final class World {
     private final ScoutSystem scoutSystem = new ScoutSystem();
     private final ResourceRespawnSystem resourceRespawnSystem = new ResourceRespawnSystem();
     private final BuildSystem buildSystem = new BuildSystem();
-
     private int nextUnitId = 1;
     private int nextBaseId = 1;
     int selectedResourceId = -1;
@@ -65,7 +64,7 @@ final class World {
     }
 
     private void updateReturn(Unit unit) {
-        Base base = nearestBase(unit.x, unit.y);
+        Base base = nearestBase(unit.playerId, unit.x, unit.y);
         if (base == null) {
             unit.task = UnitTask.IDLE;
             return;
@@ -79,7 +78,7 @@ final class World {
     }
 
     private void idleNearBase(Unit unit, double dt) {
-        Base base = nearestBase(unit.x, unit.y);
+        Base base = nearestBase(unit.playerId, unit.x, unit.y);
         if (base != null && Calc.distance(unit.x, unit.y, base.x, base.y) < base.type().unloadRange + 170) {
             orbitAround(unit, base.x, base.y, unit.type().idleOrbitRadius, dt, 0.35);
         }
@@ -87,7 +86,7 @@ final class World {
 
     private void autoUnload(Unit unit, double dt) {
         if (unit.cargoUsed() <= 0.05) return;
-        Base base = nearestBase(unit.x, unit.y);
+        Base base = nearestBase(unit.playerId, unit.x, unit.y);
         if (base == null || Calc.distance(unit.x, unit.y, base.x, base.y) > base.type().unloadRange) return;
         double remaining = Math.min(base.type().unloadRate * dt, unit.cargoUsed());
         for (Material material : Material.values()) {
@@ -149,14 +148,14 @@ final class World {
         }
         Unit unit = unitAt(x, y);
         for (Unit u : units.values()) u.selected = false;
-        if (unit != null) {
+        if (unit != null && PlayerRegistry.isLocal(unit.playerId)) {
             unit.selected = true;
             status = "Selected " + unit.type().name + " #" + unit.unitId + ".";
         }
     }
 
     void selectBox(Rectangle2D box) {
-        for (Unit unit : units.values()) unit.selected = box.contains(unit.x, unit.y);
+        for (Unit unit : units.values()) unit.selected = PlayerRegistry.isLocal(unit.playerId) && box.contains(unit.x, unit.y);
         status = selectedCount() + " ship(s) selected.";
     }
 
@@ -192,7 +191,7 @@ final class World {
     }
 
     void sendToNearestBase(Unit unit) {
-        Base base = nearestBase(unit.x, unit.y);
+        Base base = nearestBase(unit.playerId, unit.x, unit.y);
         if (base == null) return;
         unit.task = UnitTask.RETURN_TO_STATION;
         moveTowardOrbit(unit, base.x, base.y, base.type().unloadRange * 0.55);
@@ -253,10 +252,11 @@ final class World {
     Base baseAt(double x, double y) { for (Base base : bases.values()) if (base.contains(x, y)) return base; return null; }
     Unit unitAt(double x, double y) { for (Unit unit : units.values()) if (unit.contains(x, y)) return unit; return null; }
     ResourceNode findResource(int id) { for (ResourceNode node : resources) if (node.id == id) return node; return null; }
-    Base nearestBase(double x, double y) { Base best = null; double bestDist = Double.MAX_VALUE; for (Base base : bases.values()) { double d = Calc.distance(x, y, base.x, base.y); if (d < bestDist) { best = base; bestDist = d; } } return best; }
-    List<Unit> selectedUnits() { List<Unit> out = new ArrayList<>(); for (Unit unit : units.values()) if (unit.selected) out.add(unit); return out; }
-    Unit selectedUnit() { for (Unit unit : units.values()) if (unit.selected) return unit; return null; }
-    int selectedCount() { int count = 0; for (Unit unit : units.values()) if (unit.selected) count++; return count; }
+    Base nearestBase(double x, double y) { return nearestBase(PlayerRegistry.localId(), x, y); }
+    Base nearestBase(String playerId, double x, double y) { Base best = null; double bestDist = Double.MAX_VALUE; for (Base base : bases.values()) if (base.playerId.equals(playerId)) { double d = Calc.distance(x, y, base.x, base.y); if (d < bestDist) { best = base; bestDist = d; } } return best; }
+    List<Unit> selectedUnits() { List<Unit> out = new ArrayList<>(); for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) out.add(unit); return out; }
+    Unit selectedUnit() { for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) return unit; return null; }
+    int selectedCount() { int count = 0; for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) count++; return count; }
 
     boolean canAfford(List<Cost> cost) { for (Cost c : cost) if (stockpile.getOrDefault(c.material(), 0.0) + 0.001 < c.amount()) return false; return true; }
     void spend(List<Cost> cost) { for (Cost c : cost) { double next = stockpile.getOrDefault(c.material(), 0.0) - c.amount(); if (next <= 0.05) stockpile.remove(c.material()); else stockpile.put(c.material(), next); } }
@@ -264,8 +264,8 @@ final class World {
     Rectangle2D localBounds() {
         boolean found = false;
         double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
-        for (Unit u : units.values()) { found = true; minX = Math.min(minX, u.x); minY = Math.min(minY, u.y); maxX = Math.max(maxX, u.x); maxY = Math.max(maxY, u.y); }
-        for (Base b : bases.values()) { found = true; minX = Math.min(minX, b.x); minY = Math.min(minY, b.y); maxX = Math.max(maxX, b.x); maxY = Math.max(maxY, b.y); }
+        for (Unit u : units.values()) if (PlayerRegistry.isLocal(u.playerId)) { found = true; minX = Math.min(minX, u.x); minY = Math.min(minY, u.y); maxX = Math.max(maxX, u.x); maxY = Math.max(maxY, u.y); }
+        for (Base b : bases.values()) if (PlayerRegistry.isLocal(b.playerId)) { found = true; minX = Math.min(minX, b.x); minY = Math.min(minY, b.y); maxX = Math.max(maxX, b.x); maxY = Math.max(maxY, b.y); }
         return found ? new Rectangle2D.Double(minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY)) : null;
     }
 }
