@@ -7,8 +7,8 @@ import java.util.*;
 import java.util.List;
 
 final class World {
-    final int width = 16000;
-    final int height = 10000;
+    final int width = 18000;
+    final int height = 16000;
     final String localPlayerId = "SOLO";
     final String localPlayerName;
     final Color localColor = new Color(0x50BEFF);
@@ -34,7 +34,7 @@ final class World {
         seedResources();
         Point2D basePoint = startBasePoint();
         addBase(Rules.DEFAULT_BASE, basePoint.getX(), basePoint.getY());
-        Point2D start = startShipPoint();
+        Point2D start = startShipPoint(basePoint);
         spawnShip(Rules.STARTING_SHIP, start.getX(), start.getY());
     }
 
@@ -42,8 +42,20 @@ final class World {
         ResourceSpawner.seed(resources, celestials, random);
     }
 
-    private Point2D startShipPoint() { return new Point2D.Double(celestials.sunX() - 2350, celestials.sunY() + 780); }
-    private Point2D startBasePoint() { return new Point2D.Double(celestials.sunX() - 2550, celestials.sunY() + 900); }
+    private Point2D startShipPoint(Point2D basePoint) { return new Point2D.Double(basePoint.getX() + 180, basePoint.getY() - 80); }
+
+    private Point2D startBasePoint() {
+        ResourceNode iron = firstResource(Material.IRON);
+        if (iron == null) return new Point2D.Double(celestials.sunX() - 2550, celestials.sunY() + 900);
+        double a = Math.atan2(iron.y - celestials.sunY(), iron.x - celestials.sunX());
+        double r = Math.max(900, iron.orbitRadius - 260);
+        return new Point2D.Double(celestials.sunX() + Math.cos(a) * r, celestials.sunY() + Math.sin(a) * r);
+    }
+
+    private ResourceNode firstResource(Material material) {
+        for (ResourceNode node : resources) if (node.material == material) return node;
+        return null;
+    }
 
     void update(double dt) {
         celestials.update(dt);
