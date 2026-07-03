@@ -22,6 +22,37 @@ It is written in plain Java/Swing with a simple UDP peer-to-peer networking laye
 - Java 17+
 - Gradle, or your IDE's Gradle support
 
+## Windows quick launch
+
+Double-click this to launch both local test clients:
+
+```bat
+launch-both-local.bat
+```
+
+Or launch them separately:
+
+```bat
+run-host.bat
+run-join-local.bat
+```
+
+Optional custom port:
+
+```bat
+launch-both-local.bat 50001
+run-host.bat 50001
+run-join-local.bat 127.0.0.1 50001
+```
+
+For LAN play, run `run-host.bat` on the host machine. On the joining machine, run:
+
+```bat
+run-join-local.bat HOST_LAN_IP 50000
+```
+
+Make sure Windows Firewall allows inbound UDP on the host port.
+
 ## Run solo
 
 ```bash
