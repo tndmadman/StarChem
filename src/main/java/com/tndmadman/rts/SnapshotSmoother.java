@@ -6,9 +6,9 @@ final class SnapshotSmoother {
     static void apply(Unit unit, UnitState state) {
         boolean local = PlayerRegistry.isLocal(unit.playerId);
         UnitTask serverTask = safeTask(state.task(), unit.task);
-        correctPosition(unit, state, local);
+        boolean snapped = correctPosition(unit, state, local);
         applyTarget(unit, state, serverTask, local);
-        unit.heading = state.heading();
+        if (!local || snapped) unit.heading = state.heading();
         unit.shipTypeId = state.shipTypeId();
         unit.task = serverTask;
         unit.automationResourceId = state.resourceId();
@@ -16,19 +16,20 @@ final class SnapshotSmoother {
         CargoCodec.readInto(state.cargo(), unit.inventory);
     }
 
-    private static void correctPosition(Unit unit, UnitState state, boolean local) {
+    private static boolean correctPosition(Unit unit, UnitState state, boolean local) {
         double error = Calc.distance(unit.x, unit.y, state.x(), state.y());
         double deadZone = local ? 34 : 10;
         double snap = local ? 320 : 220;
         double blend = local ? 0.06 : 0.18;
-        if (error <= deadZone) return;
+        if (error <= deadZone) return false;
         if (error > snap) {
             unit.x = state.x();
             unit.y = state.y();
-        } else {
-            unit.x = Calc.lerp(unit.x, state.x(), blend);
-            unit.y = Calc.lerp(unit.y, state.y(), blend);
+            return true;
         }
+        unit.x = Calc.lerp(unit.x, state.x(), blend);
+        unit.y = Calc.lerp(unit.y, state.y(), blend);
+        return false;
     }
 
     private static void applyTarget(Unit unit, UnitState state, UnitTask serverTask, boolean local) {
