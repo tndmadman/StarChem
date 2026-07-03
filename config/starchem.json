@@ -1,0 +1,12 @@
+{
+  "rulesVersion": 3,
+  "startingShipType": "prospector",
+  "defaultStationType": "outpost",
+  "files": {
+    "materials": "config/materials.json",
+    "ships": "config/ships.json",
+    "stations": "config/stations.json",
+    "resources": "config/resources.json",
+    "automation": "config/automation.json"
+  }
+}
