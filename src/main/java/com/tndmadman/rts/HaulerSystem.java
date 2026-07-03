@@ -3,13 +3,16 @@ package com.tndmadman.rts;
 final class HaulerSystem {
     void update(World world, Unit hauler, double dt) {
         if (!MobileDepot.isHauler(hauler)) return;
-        if (hauler.cargoUsed() > 0.05) {
+        if (hauler.freeCargo() <= 0.05) {
             sendToBase(world, hauler);
             return;
         }
         Unit depot = loadedFreighter(world, hauler);
-        if (depot == null) return;
-        if (MobileDepot.drainTo(hauler, depot, dt)) {
+        if (depot == null) {
+            if (hauler.cargoUsed() > 0.05) sendToBase(world, hauler);
+            return;
+        }
+        if (MobileDepot.drainTo(hauler, depot, dt) && hauler.freeCargo() <= 0.05) {
             sendToBase(world, hauler);
             return;
         }
