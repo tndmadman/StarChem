@@ -2,6 +2,7 @@ package com.tndmadman.rts;
 
 import java.awt.*;
 import java.util.EnumMap;
+import java.util.List;
 
 final class Base {
     final String id;
@@ -56,13 +57,24 @@ final class Base {
     }
 
     private void drawHangar(Graphics2D s, double radius) {
-        String text = "Hangar: " + ResourceText.shortLine(inventory);
-        int tw = s.getFontMetrics().stringWidth(text);
-        int px = (int)(x - tw / 2.0 - 7);
-        int py = (int)(y + radius + 17);
+        List<String> rows = ResourceText.lines(inventory);
+        int rowCount = Math.max(1, Math.min(6, rows.size()));
+        int w = 150;
+        int h = 22 + rowCount * 15;
+        int px = (int)(x - w / 2.0);
+        int py = (int)(y + radius + 12);
         s.setColor(new Color(0,0,0,170));
-        s.fillRoundRect(px, py - 13, tw + 14, 18, 8, 8);
+        s.fillRoundRect(px, py, w, h, 8, 8);
         s.setColor(new Color(220, 238, 250));
-        s.drawString(text, px + 7, py);
+        s.drawString("Hangar", px + 8, py + 14);
+        if (rows.isEmpty()) {
+            s.drawString("empty", px + 16, py + 30);
+            return;
+        }
+        int line = py + 30;
+        for (int i = 0; i < rowCount; i++) {
+            s.drawString(rows.get(i), px + 16, line);
+            line += 15;
+        }
     }
 }
