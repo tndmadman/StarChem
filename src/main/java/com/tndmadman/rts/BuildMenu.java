@@ -9,26 +9,35 @@ final class BuildMenu {
     private int x, y, width = 270;
     boolean visible;
 
-    void showForBase(World world, Base base, int sx, int sy) {
+    void showForBase(World world, PeerNetwork network, Base base, int sx, int sy) {
         entries.clear();
         x = sx; y = sy; visible = true;
         BaseType def = base.type();
         for (String shipId : def.buildableShips) {
             ShipType ship = Rules.ship(shipId);
-            entries.add(new Entry("Build " + ship.name, Rules.formatCost(ship.buildCost), () -> world.buildShip(base.id, shipId)));
+            entries.add(new Entry("Build " + ship.name, Rules.formatCost(ship.buildCost), () -> {
+                if (network == null) world.buildShip(base.id, shipId);
+                else network.build(base.playerId, base.id, shipId);
+            }));
         }
         for (String packageId : def.basePackages) {
             BaseType pkg = Rules.base(packageId);
-            entries.add(new Entry("Load " + pkg.name + " Package", Rules.formatCost(pkg.buildCost), () -> world.loadBasePackage(base.id, packageId)));
+            entries.add(new Entry("Load " + pkg.name, Rules.formatCost(pkg.buildCost), () -> {
+                if (network == null) world.loadBasePackage(base.id, packageId);
+                else network.basePackage(base.playerId, "LOAD", base.id, packageId);
+            }));
         }
     }
 
-    void showForUnit(World world, Unit unit, int sx, int sy) {
+    void showForUnit(World world, PeerNetwork network, Unit unit, int sx, int sy) {
         entries.clear();
         x = sx; y = sy; visible = true;
         if (!unit.basePackageType.isBlank()) {
             BaseType pkg = Rules.base(unit.basePackageType);
-            entries.add(new Entry("Place " + pkg.name, "Consumes Deployer", () -> world.placePackage(unit)));
+            entries.add(new Entry("Place " + pkg.name, "ready", () -> {
+                if (network == null) world.placePackage(unit);
+                else network.basePackage(unit.playerId, "PLACE", unit.key(), unit.basePackageType);
+            }));
         }
     }
 
