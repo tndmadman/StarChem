@@ -7,8 +7,14 @@ import java.util.List;
 final class BuildMenu {
     private static final int WIDTH = 430;
     private static final int ROW_H = 78;
+    private static final int HEADER_H = 34;
+    private static final int FOOTER_H = 32;
+    private static final int MARGIN = 4;
     private final List<Entry> entries = new ArrayList<>();
     private int x, y;
+    private int scrollOffset;
+    private int visibleRows;
+    private int menuHeight;
     boolean visible;
 
     void showForBase(World world, Base base, int sx, int sy) { showForBase(world, null, base, sx, sy); }
@@ -16,6 +22,9 @@ final class BuildMenu {
 
     void showForBase(World world, PeerNetwork network, Base base, int sx, int sy) {
         entries.clear();
+        scrollOffset = 0;
+        visibleRows = 0;
+        menuHeight = HEADER_H;
         x = sx; y = sy; visible = true;
         BaseType def = base.type();
         for (String shipId : def.buildableShips) {
@@ -36,6 +45,9 @@ final class BuildMenu {
 
     void showForUnit(World world, PeerNetwork network, Unit unit, int sx, int sy) {
         entries.clear();
+        scrollOffset = 0;
+        visibleRows = 0;
+        menuHeight = HEADER_H;
         x = sx; y = sy; visible = true;
         if (!unit.basePackageType.isBlank()) {
             BaseType pkg = Rules.base(unit.basePackageType);
@@ -48,30 +60,50 @@ final class BuildMenu {
 
     boolean click(int sx, int sy) {
         if (!visible) return false;
-        for (int i = 0; i < entries.size(); i++) {
-            Rectangle r = row(i);
+        ensureClickLayout();
+        if (hasOverflow()) {
+            if (upButton().contains(sx, sy)) {
+                page(-1);
+                return true;
+            }
+            if (downButton().contains(sx, sy)) {
+                page(1);
+                return true;
+            }
+        }
+        for (int slot = 0; slot < visibleRows; slot++) {
+            int entryIndex = scrollOffset + slot;
+            if (entryIndex >= entries.size()) break;
+            Rectangle r = row(slot);
             if (r.contains(sx, sy)) {
-                entries.get(i).action.run();
+                entries.get(entryIndex).action.run();
                 visible = false;
                 return true;
             }
         }
+        if (menuBounds().contains(sx, sy)) return true;
         visible = false;
         return false;
     }
 
     void draw(Graphics2D g2) {
         if (!visible || entries.isEmpty()) return;
-        keepOnScreen(g2.getClipBounds());
-        int height = 34 + entries.size() * ROW_H;
+        Rectangle clip = g2.getClipBounds();
+        updateLayout(clip);
+        keepOnScreen(clip);
         g2.setColor(new Color(0, 0, 0, 210));
-        g2.fillRoundRect(x, y, WIDTH, height, 14, 14);
+        g2.fillRoundRect(x, y, WIDTH, menuHeight, 14, 14);
         g2.setColor(new Color(90, 190, 245, 190));
-        g2.drawRoundRect(x, y, WIDTH, height, 14, 14);
+        g2.drawRoundRect(x, y, WIDTH, menuHeight, 14, 14);
         g2.setFont(g2.getFont().deriveFont(Font.BOLD, 12f));
         g2.setColor(Color.WHITE);
         g2.drawString("BUILD MENU", x + 14, y + 20);
-        for (int i = 0; i < entries.size(); i++) drawEntry(g2, row(i), entries.get(i));
+        for (int slot = 0; slot < visibleRows; slot++) {
+            int entryIndex = scrollOffset + slot;
+            if (entryIndex >= entries.size()) break;
+            drawEntry(g2, row(slot), entries.get(entryIndex));
+        }
+        if (hasOverflow()) drawFooter(g2);
     }
 
     private void drawEntry(Graphics2D g2, Rectangle r, Entry e) {
@@ -89,6 +121,75 @@ final class BuildMenu {
             g2.drawString(line, r.x + 10, yLine);
             yLine += 15;
         }
+    }
+
+    private void drawFooter(Graphics2D g2) {
+        Rectangle up = upButton();
+        Rectangle down = downButton();
+        g2.setFont(g2.getFont().deriveFont(Font.BOLD, 12f));
+        drawButton(g2, up, scrollOffset == 0 ? "Top" : "▲ Up");
+        int end = Math.min(entries.size(), scrollOffset + visibleRows);
+        String label = end + " / " + entries.size();
+        g2.setColor(new Color(220, 225, 185));
+        g2.drawString(label, x + WIDTH / 2 - g2.getFontMetrics().stringWidth(label) / 2, up.y + 20);
+        drawButton(g2, down, end >= entries.size() ? "Bottom" : "Down ▼");
+    }
+
+    private void drawButton(Graphics2D g2, Rectangle r, String text) {
+        g2.setColor(new Color(18, 54, 82, 230));
+        g2.fillRoundRect(r.x, r.y, r.width, r.height, 8, 8);
+        g2.setColor(new Color(120, 220, 255, 160));
+        g2.drawRoundRect(r.x, r.y, r.width, r.height, 8, 8);
+        g2.setColor(Color.WHITE);
+        int tx = r.x + r.width / 2 - g2.getFontMetrics().stringWidth(text) / 2;
+        g2.drawString(text, tx, r.y + 20);
+    }
+
+    private void updateLayout(Rectangle clip) {
+        int maxRows = entries.size();
+        if (clip != null) {
+            int available = Math.max(ROW_H, clip.height - MARGIN * 2 - HEADER_H);
+            int rowsWithoutFooter = Math.max(1, available / ROW_H);
+            boolean needsFooter = entries.size() > rowsWithoutFooter;
+            int footer = needsFooter ? FOOTER_H : 0;
+            maxRows = Math.max(1, (available - footer) / ROW_H);
+            maxRows = Math.min(maxRows, entries.size());
+        }
+        visibleRows = maxRows;
+        scrollOffset = clampScroll(scrollOffset);
+        menuHeight = HEADER_H + visibleRows * ROW_H + (hasOverflow() ? FOOTER_H : 0);
+    }
+
+    private void ensureClickLayout() {
+        if (visibleRows <= 0) {
+            visibleRows = Math.min(entries.size(), 6);
+            scrollOffset = clampScroll(scrollOffset);
+            menuHeight = HEADER_H + visibleRows * ROW_H + (hasOverflow() ? FOOTER_H : 0);
+        }
+    }
+
+    private void page(int direction) {
+        int step = Math.max(1, visibleRows - 1);
+        scrollOffset = clampScroll(scrollOffset + direction * step);
+    }
+
+    private int clampScroll(int offset) {
+        int max = Math.max(0, entries.size() - Math.max(1, visibleRows));
+        return Math.max(0, Math.min(offset, max));
+    }
+
+    private boolean hasOverflow() { return entries.size() > visibleRows; }
+
+    private Rectangle menuBounds() { return new Rectangle(x, y, WIDTH, menuHeight); }
+
+    private Rectangle upButton() {
+        int fy = y + HEADER_H + visibleRows * ROW_H;
+        return new Rectangle(x + 10, fy + 4, 90, FOOTER_H - 8);
+    }
+
+    private Rectangle downButton() {
+        int fy = y + HEADER_H + visibleRows * ROW_H;
+        return new Rectangle(x + WIDTH - 100, fy + 4, 90, FOOTER_H - 8);
     }
 
     private List<String> wrap(Graphics2D g2, String text, int maxW, int maxLines) {
@@ -114,11 +215,10 @@ final class BuildMenu {
 
     private void keepOnScreen(Rectangle clip) {
         if (clip == null) return;
-        int h = 34 + entries.size() * ROW_H;
-        x = (int)Calc.clamp(x, 4, Math.max(4, clip.width - WIDTH - 4));
-        y = (int)Calc.clamp(y, 4, Math.max(4, clip.height - h - 4));
+        x = (int)Calc.clamp(x, MARGIN, Math.max(MARGIN, clip.width - WIDTH - MARGIN));
+        y = (int)Calc.clamp(y, MARGIN, Math.max(MARGIN, clip.height - menuHeight - MARGIN));
     }
 
-    private Rectangle row(int index) { return new Rectangle(x + 10, y + 30 + index * ROW_H, WIDTH - 20, ROW_H - 8); }
+    private Rectangle row(int slot) { return new Rectangle(x + 10, y + HEADER_H + slot * ROW_H, WIDTH - 20, ROW_H - 8); }
     private record Entry(String title, String detail, Runnable action) { }
 }
