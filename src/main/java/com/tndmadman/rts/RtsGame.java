@@ -9,39 +9,56 @@ import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
- * StarChem: tiny Java 2D top-down RTS starter with direct UDP P2P multiplayer.
+ * StarChem: Java 2D top-down RTS prototype.
  *
- * Controls:
- *   WASD / Arrow keys: pan camera
- *   Mouse wheel: zoom
- *   Left click: select one unit
- *   Left drag: box select
- *   Right click: move selected units
+ * Networking is host-authoritative now:
+ * - Host owns the player list and creates/removes each player's unit group.
+ * - Host assigns player IDs, unique display names, and unique colors.
+ * - Clients send join/heartbeat/move/leave packets.
+ * - Host broadcasts snapshots so clients correct desync instead of simulating forever alone.
  */
 public final class RtsGame {
     public static void main(String[] args) {
         Config config = Config.parse(args);
 
         SwingUtilities.invokeLater(() -> {
-            World world = new World(config.localPlayerId, config.hostMode);
+            World world = new World();
             PeerNetwork network = null;
 
             try {
                 network = PeerNetwork.start(config, world);
             } catch (IOException e) {
                 System.err.println("Network disabled: " + e.getMessage());
+                world.startSolo(config.localPlayerName);
             }
 
-            JFrame frame = new JFrame("StarChem RTS - " + config.localPlayerId);
-            GamePanel panel = new GamePanel(world, network);
+            if (network == null && !config.hostMode && config.serverAddress == null) {
+                world.startSolo(config.localPlayerName);
+            }
+
+            PeerNetwork finalNetwork = network;
+            JFrame frame = new JFrame("StarChem RTS - " + config.localPlayerName);
+            GamePanel panel = new GamePanel(world, finalNetwork);
             frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+            frame.addWindowListener(new WindowAdapter() {
+                @Override
+                public void windowClosing(WindowEvent e) {
+                    if (finalNetwork != null) {
+                        finalNetwork.shutdown();
+                    }
+                }
+            });
             frame.setContentPane(panel);
             frame.setSize(1280, 800);
             frame.setLocationRelativeTo(null);
@@ -51,27 +68,27 @@ public final class RtsGame {
     }
 
     static final class Config {
-        final String localPlayerId;
+        final String localPlayerName;
         final boolean hostMode;
         final int localPort;
-        final InetSocketAddress peerAddress;
+        final InetSocketAddress serverAddress;
 
-        private Config(String localPlayerId, boolean hostMode, int localPort, InetSocketAddress peerAddress) {
-            this.localPlayerId = localPlayerId;
+        private Config(String localPlayerName, boolean hostMode, int localPort, InetSocketAddress serverAddress) {
+            this.localPlayerName = localPlayerName;
             this.hostMode = hostMode;
             this.localPort = localPort;
-            this.peerAddress = peerAddress;
+            this.serverAddress = serverAddress;
         }
 
         static Config parse(String[] args) {
-            String id = "P" + Integer.toHexString(new SecureRandom().nextInt(0xFFFF)).toUpperCase(Locale.ROOT);
+            String name = System.getProperty("user.name", "Player");
             boolean host = false;
             int localPort = 0;
-            InetSocketAddress peer = null;
+            InetSocketAddress server = null;
 
             for (int i = 0; i < args.length; i++) {
                 switch (args[i]) {
-                    case "--id" -> id = require(args, ++i, "--id needs a value");
+                    case "--name", "--id" -> name = require(args, ++i, args[i - 1] + " needs a value");
                     case "--host" -> {
                         host = true;
                         localPort = Integer.parseInt(require(args, ++i, "--host needs a port"));
@@ -80,15 +97,14 @@ public final class RtsGame {
                         host = false;
                         String hostName = require(args, ++i, "--join needs host ip");
                         int peerPort = Integer.parseInt(require(args, ++i, "--join needs peer port"));
-                        peer = new InetSocketAddress(hostName, peerPort);
-                        localPort = peerPort + 1 + new SecureRandom().nextInt(1000);
+                        server = new InetSocketAddress(hostName, peerPort);
                     }
                     case "--local-port" -> localPort = Integer.parseInt(require(args, ++i, "--local-port needs a port"));
                     default -> throw new IllegalArgumentException("Unknown arg: " + args[i]);
                 }
             }
 
-            return new Config(id, host, localPort, peer);
+            return new Config(cleanName(name), host, localPort, server);
         }
 
         private static String require(String[] args, int index, String message) {
@@ -208,12 +224,24 @@ public final class RtsGame {
         }
 
         private void drawHud(Graphics2D g2) {
-            g2.setColor(new Color(0, 0, 0, 170));
-            g2.fillRoundRect(12, 12, 570, 82, 14, 14);
+            List<PlayerInfo> players = world.playersSnapshot();
+            int height = 92 + players.size() * 18;
+            g2.setColor(new Color(0, 0, 0, 175));
+            g2.fillRoundRect(12, 12, 620, height, 14, 14);
             g2.setColor(Color.WHITE);
-            g2.drawString("StarChem | Player: " + world.localPlayerId + " | Selected: " + world.selectedCount(), 28, 36);
+            g2.drawString("StarChem | Local: " + world.localPlayerLabel() + " | Selected: " + world.selectedCount(), 28, 36);
             g2.drawString("WASD pan | Wheel zoom | Left select/drag | Right move", 28, 58);
-            g2.drawString(network == null ? "Network: offline" : network.statusLine(), 28, 80);
+            g2.drawString(network == null ? "Network: solo/offline" : network.statusLine(), 28, 80);
+
+            int y = 104;
+            for (PlayerInfo player : players) {
+                g2.setColor(new Color(player.rgb));
+                g2.fillRect(28, y - 11, 12, 12);
+                g2.setColor(Color.WHITE);
+                String suffix = player.local ? "  (you)" : "";
+                g2.drawString(player.name + " - " + world.unitCountFor(player.id) + " ships" + suffix, 48, y);
+                y += 18;
+            }
         }
 
         private Point2D screenToWorld(Point p) {
@@ -279,52 +307,118 @@ public final class RtsGame {
     static final class World {
         final int width = 2200;
         final int height = 1400;
-        final String localPlayerId;
-        final List<Unit> units = new ArrayList<>();
         final List<ResourceNode> resources = new ArrayList<>();
+        private final Map<String, PlayerInfo> players = new LinkedHashMap<>();
+        private final Map<String, Unit> units = new LinkedHashMap<>();
+        private String localPlayerId = "";
+        private String localPlayerName = "Waiting";
 
-        World(String localPlayerId, boolean hostMode) {
-            this.localPlayerId = localPlayerId;
+        World() {
             resources.add(new ResourceNode(620, 370));
             resources.add(new ResourceNode(1080, 720));
             resources.add(new ResourceNode(1640, 1030));
-            spawnPlayer(localPlayerId, hostMode ? 220 : 1840, hostMode ? 260 : 1020, true);
         }
 
-        synchronized void spawnPlayer(String playerId, double startX, double startY, boolean local) {
-            if (hasPlayer(playerId)) {
+        synchronized void startSolo(String requestedName) {
+            addPlayerWithGroup("SOLO", uniqueName(requestedName), PALETTE[0], true);
+        }
+
+        synchronized void addPlayerWithGroup(String playerId, String name, int rgb, boolean local) {
+            int index = players.size();
+            PlayerInfo info = new PlayerInfo(playerId, name, rgb, local);
+            players.put(playerId, info);
+            if (local) {
+                localPlayerId = playerId;
+                localPlayerName = name;
+            }
+            spawnGroup(playerId, index);
+        }
+
+        synchronized void addOrUpdatePlayer(String playerId, String name, int rgb, boolean local) {
+            players.put(playerId, new PlayerInfo(playerId, name, rgb, local));
+            if (local) {
+                localPlayerId = playerId;
+                localPlayerName = name;
+            }
+        }
+
+        synchronized void removePlayer(String playerId) {
+            players.remove(playerId);
+            units.values().removeIf(u -> u.playerId.equals(playerId));
+            if (playerId.equals(localPlayerId)) {
+                localPlayerId = "";
+                localPlayerName = "Disconnected";
+            }
+        }
+
+        private void spawnGroup(String playerId, int spawnIndex) {
+            PlayerInfo player = players.get(playerId);
+            if (player == null) {
                 return;
             }
-
-            Color color = local ? new Color(80, 190, 255) : new Color(255, 95, 85);
+            Point2D start = spawnPoint(spawnIndex);
             for (int i = 0; i < 6; i++) {
                 int unitId = i + 1;
-                double x = startX + (i % 3) * 46;
-                double y = startY + (i / 3) * 46;
-                units.add(new Unit(playerId, unitId, x, y, color, local));
+                double x = start.getX() + (i % 3) * 46;
+                double y = start.getY() + (i / 3) * 46;
+                Unit unit = new Unit(playerId, unitId, x, y, player.rgb);
+                units.put(unit.key(), unit);
             }
         }
 
-        synchronized boolean hasPlayer(String playerId) {
-            return units.stream().anyMatch(u -> u.playerId.equals(playerId));
+        synchronized String uniqueName(String requested) {
+            String base = cleanName(requested);
+            if (base.isBlank()) {
+                base = "Player";
+            }
+            String candidate = base;
+            int suffix = 2;
+            Set<String> names = new HashSet<>();
+            for (PlayerInfo p : players.values()) {
+                names.add(p.name.toLowerCase(Locale.ROOT));
+            }
+            while (names.contains(candidate.toLowerCase(Locale.ROOT))) {
+                candidate = base + " " + suffix++;
+            }
+            return candidate;
         }
 
         synchronized void update(double dt) {
-            for (Unit u : units) {
+            for (Unit u : units.values()) {
                 u.update(dt, width, height);
             }
         }
 
         synchronized void draw(Graphics2D g2) {
-            for (Unit u : units) {
-                u.draw(g2);
+            for (Unit u : units.values()) {
+                PlayerInfo player = players.get(u.playerId);
+                String name = player == null ? u.playerId : player.name;
+                u.draw(g2, name);
             }
         }
 
         synchronized int selectedCount() {
             int count = 0;
-            for (Unit u : units) {
+            for (Unit u : units.values()) {
                 if (u.selected) count++;
+            }
+            return count;
+        }
+
+        synchronized String localPlayerLabel() {
+            return localPlayerName;
+        }
+
+        synchronized List<PlayerInfo> playersSnapshot() {
+            return new ArrayList<>(players.values());
+        }
+
+        synchronized int unitCountFor(String playerId) {
+            int count = 0;
+            for (Unit u : units.values()) {
+                if (u.playerId.equals(playerId)) {
+                    count++;
+                }
             }
             return count;
         }
@@ -333,8 +427,8 @@ public final class RtsGame {
             Unit best = null;
             double bestDist = Double.MAX_VALUE;
 
-            for (Unit u : units) {
-                if (!u.local) continue;
+            for (Unit u : units.values()) {
+                if (!u.playerId.equals(localPlayerId)) continue;
                 double d = distance(x, y, u.x, u.y);
                 if (d < 28 && d < bestDist) {
                     bestDist = d;
@@ -342,7 +436,7 @@ public final class RtsGame {
                 }
             }
 
-            for (Unit u : units) {
+            for (Unit u : units.values()) {
                 u.selected = false;
             }
             if (best != null) {
@@ -351,13 +445,15 @@ public final class RtsGame {
         }
 
         synchronized void selectBox(Rectangle2D box) {
-            for (Unit u : units) {
-                u.selected = u.local && box.contains(u.x, u.y);
+            for (Unit u : units.values()) {
+                u.selected = u.playerId.equals(localPlayerId) && box.contains(u.x, u.y);
             }
         }
 
         synchronized List<MoveCommand> issueMoveSelected(double x, double y) {
-            List<Unit> selected = units.stream().filter(u -> u.local && u.selected).toList();
+            List<Unit> selected = units.values().stream()
+                    .filter(u -> u.playerId.equals(localPlayerId) && u.selected)
+                    .toList();
             List<MoveCommand> commands = new ArrayList<>();
             int count = selected.size();
             if (count == 0) {
@@ -378,19 +474,45 @@ public final class RtsGame {
             return commands;
         }
 
-        synchronized void applyRemoteMove(MoveCommand command) {
-            for (Unit u : units) {
-                if (u.playerId.equals(command.playerId) && u.unitId == command.unitId) {
-                    u.moveTo(command.x, command.y);
-                    return;
-                }
+        synchronized void applyAuthorizedMove(MoveCommand command) {
+            Unit unit = units.get(Unit.key(command.playerId, command.unitId));
+            if (unit != null) {
+                unit.moveTo(command.x, command.y);
             }
         }
 
-        synchronized void ensureRemotePlayer(String playerId) {
-            if (!playerId.equals(localPlayerId) && !hasPlayer(playerId)) {
-                spawnPlayer(playerId, 1840, 1020, false);
+        synchronized Snapshot createSnapshot(long sequence) {
+            List<PlayerInfo> playerCopies = new ArrayList<>(players.values());
+            List<UnitState> unitCopies = new ArrayList<>();
+            for (Unit u : units.values()) {
+                unitCopies.add(new UnitState(u.playerId, u.unitId, u.x, u.y, u.targetX, u.targetY));
             }
+            return new Snapshot(sequence, playerCopies, unitCopies);
+        }
+
+        synchronized void applySnapshot(Snapshot snapshot, String knownLocalPlayerId) {
+            Set<String> playerIds = new LinkedHashSet<>();
+            for (PlayerInfo p : snapshot.players) {
+                boolean local = p.id.equals(knownLocalPlayerId);
+                addOrUpdatePlayer(p.id, p.name, p.rgb, local);
+                playerIds.add(p.id);
+            }
+            players.keySet().removeIf(id -> !playerIds.contains(id));
+
+            Set<String> unitKeys = new LinkedHashSet<>();
+            for (UnitState state : snapshot.units) {
+                unitKeys.add(Unit.key(state.playerId, state.unitId));
+                PlayerInfo player = players.get(state.playerId);
+                int rgb = player == null ? Color.GRAY.getRGB() : player.rgb;
+                Unit unit = units.get(Unit.key(state.playerId, state.unitId));
+                if (unit == null) {
+                    unit = new Unit(state.playerId, state.unitId, state.x, state.y, rgb);
+                    units.put(unit.key(), unit);
+                }
+                unit.rgb = rgb;
+                unit.applySnapshot(state);
+            }
+            units.keySet().removeIf(key -> !unitKeys.contains(key));
         }
     }
 
@@ -401,25 +523,44 @@ public final class RtsGame {
         double y;
         double targetX;
         double targetY;
-        final Color color;
-        final boolean local;
+        int rgb;
         boolean selected;
         double hp = 100;
 
-        Unit(String playerId, int unitId, double x, double y, Color color, boolean local) {
+        Unit(String playerId, int unitId, double x, double y, int rgb) {
             this.playerId = playerId;
             this.unitId = unitId;
             this.x = x;
             this.y = y;
             this.targetX = x;
             this.targetY = y;
-            this.color = color;
-            this.local = local;
+            this.rgb = rgb;
+        }
+
+        static String key(String playerId, int unitId) {
+            return playerId + ":" + unitId;
+        }
+
+        String key() {
+            return key(playerId, unitId);
         }
 
         void moveTo(double x, double y) {
             this.targetX = x;
             this.targetY = y;
+        }
+
+        void applySnapshot(UnitState state) {
+            double error = distance(x, y, state.x, state.y);
+            if (error > 20) {
+                x = state.x;
+                y = state.y;
+            } else {
+                x = x * 0.65 + state.x * 0.35;
+                y = y * 0.65 + state.y * 0.35;
+            }
+            targetX = state.targetX;
+            targetY = state.targetY;
         }
 
         void update(double dt, int mapW, int mapH) {
@@ -436,7 +577,7 @@ public final class RtsGame {
             y = clamp(y, 0, mapH);
         }
 
-        void draw(Graphics2D g2) {
+        void draw(Graphics2D g2, String playerName) {
             int r = 16;
             Polygon ship = new Polygon();
             ship.addPoint((int) x, (int) y - r);
@@ -446,7 +587,7 @@ public final class RtsGame {
 
             g2.setColor(new Color(0, 0, 0, 130));
             g2.fillOval((int) x - r - 3, (int) y - r + 8, r * 2 + 6, r * 2);
-            g2.setColor(color);
+            g2.setColor(new Color(rgb));
             g2.fillPolygon(ship);
             g2.setColor(Color.BLACK);
             g2.drawPolygon(ship);
@@ -456,6 +597,9 @@ public final class RtsGame {
             g2.setColor(new Color(80, 230, 90));
             g2.fillRect((int) x - 18, (int) y - 30, (int) (36 * hp / 100.0), 5);
 
+            g2.setColor(Color.WHITE);
+            g2.drawString(playerName, (int) x - 22, (int) y - 38);
+
             if (selected) {
                 g2.setColor(new Color(255, 245, 120));
                 g2.setStroke(new BasicStroke(2f));
@@ -464,96 +608,291 @@ public final class RtsGame {
         }
     }
 
-    record ResourceNode(double x, double y) { }
-    record MoveCommand(String playerId, int unitId, double x, double y) { }
-
     static final class PeerNetwork {
+        private static final long HEARTBEAT_MS = 1_000;
+        private static final long SNAPSHOT_MS = 250;
+        private static final long CLIENT_TIMEOUT_MS = 10_000;
+
         private final Config config;
         private final World world;
         private final DatagramSocket socket;
-        private final ConcurrentLinkedQueue<String> inbox = new ConcurrentLinkedQueue<>();
-        private volatile InetSocketAddress peerAddress;
+        private final ConcurrentLinkedQueue<InboundPacket> inbox = new ConcurrentLinkedQueue<>();
+        private final Map<String, ServerPeer> serverPeers = new LinkedHashMap<>();
+        private final Map<String, String> endpointToPlayerId = new HashMap<>();
         private volatile boolean running = true;
-        private long lastHello = 0;
+        private volatile boolean joined = false;
+        private String localPlayerId = "";
+        private long nextPlayerNumber = 1;
+        private long lastJoinOrPing = 0;
+        private long lastSnapshot = 0;
+        private long sequence = 1;
         private long lastPacketAt = 0;
 
         private PeerNetwork(Config config, World world, DatagramSocket socket) {
             this.config = config;
             this.world = world;
             this.socket = socket;
-            this.peerAddress = config.peerAddress;
         }
 
         static PeerNetwork start(Config config, World world) throws IOException {
-            if (config.localPort == 0 && config.peerAddress == null) {
+            if (!config.hostMode && config.serverAddress == null) {
                 return null;
             }
 
             DatagramSocket socket = config.localPort == 0 ? new DatagramSocket() : new DatagramSocket(config.localPort);
             socket.setSoTimeout(300);
-
             PeerNetwork network = new PeerNetwork(config, world, socket);
-            Thread thread = new Thread(network::listenLoop, "starchem-p2p-udp-listener");
+
+            if (config.hostMode) {
+                network.localPlayerId = "HOST";
+                world.addPlayerWithGroup("HOST", world.uniqueName(config.localPlayerName), PALETTE[0], true);
+                network.joined = true;
+                System.out.println("Hosting StarChem on UDP " + socket.getLocalPort());
+            } else {
+                System.out.println("Joining StarChem server " + config.serverAddress + " from UDP " + socket.getLocalPort());
+            }
+
+            Thread thread = new Thread(network::listenLoop, "starchem-udp-listener");
             thread.setDaemon(true);
             thread.start();
-            network.sendHello();
             return network;
         }
 
         String statusLine() {
-            String peer = peerAddress == null ? "waiting for peer" : peerAddress.toString();
-            String age = lastPacketAt == 0 ? "no packets yet" : (System.currentTimeMillis() - lastPacketAt) + "ms since packet";
-            return "UDP " + socket.getLocalPort() + " -> " + peer + " | " + age;
+            if (config.hostMode) {
+                return "HOST UDP " + socket.getLocalPort() + " | players: " + world.playersSnapshot().size() + " | clients: " + serverPeers.size();
+            }
+            String age = lastPacketAt == 0 ? "no server snapshot yet" : (System.currentTimeMillis() - lastPacketAt) + "ms since server";
+            String id = joined ? localPlayerId : "joining...";
+            return "CLIENT UDP " + socket.getLocalPort() + " -> " + config.serverAddress + " | " + id + " | " + age;
         }
 
         void drainMessages() {
             long now = System.currentTimeMillis();
-            if (now - lastHello > 1500) {
-                sendHello();
-                lastHello = now;
+            String message;
+            while ((message = pollMessage()) != null) {
+                // handled inside pollMessage
             }
 
-            String msg;
-            while ((msg = inbox.poll()) != null) {
-                handleMessage(msg);
+            if (config.hostMode) {
+                checkClientTimeouts(now);
+                if (now - lastSnapshot >= SNAPSHOT_MS) {
+                    broadcastSnapshot();
+                    lastSnapshot = now;
+                }
+            } else {
+                if (!joined && now - lastJoinOrPing >= HEARTBEAT_MS) {
+                    sendToServer("JOIN|" + config.localPlayerName);
+                    lastJoinOrPing = now;
+                } else if (joined && now - lastJoinOrPing >= HEARTBEAT_MS) {
+                    sendToServer("PING|" + localPlayerId);
+                    lastJoinOrPing = now;
+                }
             }
+        }
+
+        private String pollMessage() {
+            InboundPacket packet = inbox.poll();
+            if (packet == null) {
+                return null;
+            }
+            lastPacketAt = System.currentTimeMillis();
+            if (config.hostMode) {
+                handleHostPacket(packet);
+            } else {
+                handleClientPacket(packet.message);
+            }
+            return packet.message;
         }
 
         void sendMove(MoveCommand command) {
-            send("MOVE|" + command.playerId() + "|" + command.unitId() + "|" + command.x() + "|" + command.y());
+            if (command.playerId == null || command.playerId.isBlank()) {
+                return;
+            }
+            String msg = "MOVE|" + command.playerId + "|" + command.unitId + "|" + round(command.x) + "|" + round(command.y);
+            if (config.hostMode) {
+                world.applyAuthorizedMove(command);
+                broadcastSnapshot();
+            } else {
+                sendToServer(msg);
+            }
         }
 
-        private void sendHello() {
-            send("HELLO|" + config.localPlayerId);
+        void shutdown() {
+            running = false;
+            if (!config.hostMode && joined) {
+                sendToServer("LEAVE|" + localPlayerId);
+            } else if (config.hostMode) {
+                broadcast("SERVER_CLOSING");
+            }
+            socket.close();
         }
 
-        private void send(String message) {
-            InetSocketAddress target = peerAddress;
-            if (target == null) {
+        private void handleHostPacket(InboundPacket packet) {
+            String[] parts = packet.message.split("\\|");
+            if (parts.length == 0) {
                 return;
             }
 
+            String endpoint = endpointKey(packet.address, packet.port);
+            switch (parts[0]) {
+                case "JOIN" -> {
+                    ServerPeer existing = serverPeers.get(endpoint);
+                    if (existing != null) {
+                        existing.lastSeen = System.currentTimeMillis();
+                        sendWelcome(existing, packet.address, packet.port);
+                        sendSnapshot(packet.address, packet.port);
+                        return;
+                    }
+
+                    String requestedName = parts.length >= 2 ? parts[1] : "Player";
+                    String name = world.uniqueName(requestedName);
+                    String playerId = "P" + nextPlayerNumber++;
+                    int color = colorFor(world.playersSnapshot().size());
+                    world.addPlayerWithGroup(playerId, name, color, false);
+
+                    ServerPeer peer = new ServerPeer(playerId, packet.address, packet.port, System.currentTimeMillis());
+                    serverPeers.put(endpoint, peer);
+                    endpointToPlayerId.put(endpoint, playerId);
+
+                    sendWelcome(peer, packet.address, packet.port);
+                    broadcastSnapshot();
+                    System.out.println(name + " joined as " + playerId + " from " + endpoint);
+                }
+                case "PING" -> {
+                    ServerPeer peer = serverPeers.get(endpoint);
+                    if (peer != null) {
+                        peer.lastSeen = System.currentTimeMillis();
+                    }
+                }
+                case "MOVE" -> {
+                    if (parts.length < 5) {
+                        return;
+                    }
+                    ServerPeer peer = serverPeers.get(endpoint);
+                    if (peer == null || !peer.playerId.equals(parts[1])) {
+                        return;
+                    }
+                    MoveCommand command = new MoveCommand(parts[1], Integer.parseInt(parts[2]), Double.parseDouble(parts[3]), Double.parseDouble(parts[4]));
+                    world.applyAuthorizedMove(command);
+                    broadcastSnapshot();
+                }
+                case "LEAVE" -> removePeer(endpoint, true);
+                default -> System.err.println("unknown host packet: " + packet.message);
+            }
+        }
+
+        private void handleClientPacket(String message) {
+            String[] parts = message.split("\\|");
+            if (parts.length == 0) {
+                return;
+            }
+            switch (parts[0]) {
+                case "WELCOME" -> {
+                    if (parts.length >= 4) {
+                        localPlayerId = parts[1];
+                        String name = parts[2];
+                        int rgb = Integer.parseInt(parts[3]);
+                        world.addOrUpdatePlayer(localPlayerId, name, rgb, true);
+                        joined = true;
+                    }
+                }
+                case "SNAPSHOT" -> {
+                    Snapshot snapshot = decodeSnapshot(message);
+                    world.applySnapshot(snapshot, localPlayerId);
+                }
+                case "REMOVE" -> {
+                    if (parts.length >= 2) {
+                        world.removePlayer(parts[1]);
+                    }
+                }
+                case "SERVER_CLOSING" -> System.out.println("Server closed.");
+                default -> System.err.println("unknown client packet: " + message);
+            }
+        }
+
+        private void checkClientTimeouts(long now) {
+            List<String> deadEndpoints = new ArrayList<>();
+            for (Map.Entry<String, ServerPeer> entry : serverPeers.entrySet()) {
+                if (now - entry.getValue().lastSeen > CLIENT_TIMEOUT_MS) {
+                    deadEndpoints.add(entry.getKey());
+                }
+            }
+            for (String endpoint : deadEndpoints) {
+                removePeer(endpoint, true);
+            }
+        }
+
+        private void removePeer(String endpoint, boolean announce) {
+            ServerPeer peer = serverPeers.remove(endpoint);
+            endpointToPlayerId.remove(endpoint);
+            if (peer == null) {
+                return;
+            }
+            world.removePlayer(peer.playerId);
+            if (announce) {
+                broadcast("REMOVE|" + peer.playerId);
+                broadcastSnapshot();
+            }
+            System.out.println(peer.playerId + " left.");
+        }
+
+        private void sendWelcome(ServerPeer peer, InetAddress address, int port) {
+            PlayerInfo info = world.playersSnapshot().stream()
+                    .filter(p -> p.id.equals(peer.playerId))
+                    .findFirst()
+                    .orElse(new PlayerInfo(peer.playerId, peer.playerId, Color.WHITE.getRGB(), false));
+            send("WELCOME|" + info.id + "|" + info.name + "|" + info.rgb, address, port);
+        }
+
+        private void broadcastSnapshot() {
+            String encoded = encodeSnapshot(world.createSnapshot(sequence++));
+            broadcast(encoded);
+        }
+
+        private void sendSnapshot(InetAddress address, int port) {
+            send(encodeSnapshot(world.createSnapshot(sequence++)), address, port);
+        }
+
+        private void broadcast(String message) {
+            for (ServerPeer peer : serverPeers.values()) {
+                send(message, peer.address, peer.port);
+            }
+        }
+
+        private void sendToServer(String message) {
+            if (config.serverAddress == null) {
+                return;
+            }
+            send(message, config.serverAddress.getAddress(), config.serverAddress.getPort());
+        }
+
+        private void send(String message, InetAddress address, int port) {
             byte[] bytes = message.getBytes(StandardCharsets.UTF_8);
-            DatagramPacket packet = new DatagramPacket(bytes, bytes.length, target.getAddress(), target.getPort());
+            DatagramPacket packet = new DatagramPacket(bytes, bytes.length, address, port);
             try {
                 socket.send(packet);
             } catch (IOException e) {
-                System.err.println("send failed: " + e.getMessage());
+                if (running) {
+                    System.err.println("send failed: " + e.getMessage());
+                }
             }
         }
 
         private void listenLoop() {
-            byte[] buffer = new byte[2048];
+            byte[] buffer = new byte[16_384];
             while (running) {
                 DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                 try {
                     socket.receive(packet);
                     String message = new String(packet.getData(), packet.getOffset(), packet.getLength(), StandardCharsets.UTF_8);
-                    peerAddress = new InetSocketAddress(packet.getAddress(), packet.getPort());
-                    lastPacketAt = System.currentTimeMillis();
-                    inbox.add(message);
+                    inbox.add(new InboundPacket(message, packet.getAddress(), packet.getPort()));
                 } catch (SocketTimeoutException ignored) {
                     // keep daemon alive
+                } catch (SocketException e) {
+                    if (running) {
+                        System.err.println("socket failed: " + e.getMessage());
+                    }
                 } catch (IOException e) {
                     if (running) {
                         System.err.println("listen failed: " + e.getMessage());
@@ -561,46 +900,131 @@ public final class RtsGame {
                 }
             }
         }
+    }
 
-        private void handleMessage(String message) {
-            String[] parts = message.split("\\|");
-            if (parts.length == 0) {
-                return;
-            }
+    record ResourceNode(double x, double y) { }
+    record PlayerInfo(String id, String name, int rgb, boolean local) { }
+    record UnitState(String playerId, int unitId, double x, double y, double targetX, double targetY) { }
+    record MoveCommand(String playerId, int unitId, double x, double y) { }
+    record Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units) { }
+    record InboundPacket(String message, InetAddress address, int port) { }
 
-            try {
-                switch (parts[0]) {
-                    case "HELLO" -> {
-                        if (parts.length >= 2) {
-                            world.ensureRemotePlayer(parts[1]);
-                            send("HELLO_ACK|" + config.localPlayerId);
-                        }
-                    }
-                    case "HELLO_ACK" -> {
-                        if (parts.length >= 2) {
-                            world.ensureRemotePlayer(parts[1]);
-                        }
-                    }
-                    case "MOVE" -> {
-                        if (parts.length >= 5) {
-                            MoveCommand command = new MoveCommand(
-                                    parts[1],
-                                    Integer.parseInt(parts[2]),
-                                    Double.parseDouble(parts[3]),
-                                    Double.parseDouble(parts[4])
-                            );
-                            if (!command.playerId().equals(config.localPlayerId)) {
-                                world.ensureRemotePlayer(command.playerId());
-                                world.applyRemoteMove(command);
-                            }
-                        }
-                    }
-                    default -> System.err.println("unknown packet: " + message);
+    static final class ServerPeer {
+        final String playerId;
+        final InetAddress address;
+        final int port;
+        long lastSeen;
+
+        ServerPeer(String playerId, InetAddress address, int port, long lastSeen) {
+            this.playerId = playerId;
+            this.address = address;
+            this.port = port;
+            this.lastSeen = lastSeen;
+        }
+    }
+
+    private static final int[] PALETTE = {
+            0x50BEFF, 0xFF5F55, 0x7DFF7A, 0xFFE066,
+            0xC77DFF, 0xFF9F1C, 0x4DFFD2, 0xFF70A6,
+            0xB8F35A, 0xA0C4FF, 0xFFD6A5, 0xCAFFBF
+    };
+
+    static int colorFor(int index) {
+        if (index < PALETTE.length) {
+            return PALETTE[index];
+        }
+        float hue = (index * 0.61803398875f) % 1.0f;
+        return Color.HSBtoRGB(hue, 0.75f, 1.0f) & 0xFFFFFF;
+    }
+
+    static Point2D spawnPoint(int index) {
+        double[][] points = {
+                {220, 260}, {1840, 1020}, {1840, 260}, {220, 1020},
+                {1080, 240}, {1080, 1080}, {520, 700}, {1640, 700}
+        };
+        double[] point = points[index % points.length];
+        int ring = index / points.length;
+        return new Point2D.Double(point[0] + ring * 34, point[1] + ring * 34);
+    }
+
+    static String encodeSnapshot(Snapshot snapshot) {
+        StringBuilder players = new StringBuilder();
+        for (PlayerInfo p : snapshot.players) {
+            if (!players.isEmpty()) players.append(';');
+            players.append(p.id).append(',').append(p.name).append(',').append(p.rgb);
+        }
+
+        StringBuilder units = new StringBuilder();
+        for (UnitState u : snapshot.units) {
+            if (!units.isEmpty()) units.append(';');
+            units.append(u.playerId).append(',')
+                    .append(u.unitId).append(',')
+                    .append(round(u.x)).append(',')
+                    .append(round(u.y)).append(',')
+                    .append(round(u.targetX)).append(',')
+                    .append(round(u.targetY));
+        }
+
+        return "SNAPSHOT|" + snapshot.sequence + "|" + players + "|" + units;
+    }
+
+    static Snapshot decodeSnapshot(String message) {
+        String[] parts = message.split("\\|", -1);
+        long sequence = parts.length > 1 ? Long.parseLong(parts[1]) : 0;
+        List<PlayerInfo> players = new ArrayList<>();
+        List<UnitState> units = new ArrayList<>();
+
+        if (parts.length > 2 && !parts[2].isBlank()) {
+            String[] playerRows = parts[2].split(";");
+            for (String row : playerRows) {
+                String[] cols = row.split(",", -1);
+                if (cols.length >= 3) {
+                    players.add(new PlayerInfo(cols[0], cols[1], Integer.parseInt(cols[2]), false));
                 }
-            } catch (RuntimeException e) {
-                System.err.println("bad packet: " + message + " | " + e.getMessage());
             }
         }
+
+        if (parts.length > 3 && !parts[3].isBlank()) {
+            String[] unitRows = parts[3].split(";");
+            for (String row : unitRows) {
+                String[] cols = row.split(",", -1);
+                if (cols.length >= 6) {
+                    units.add(new UnitState(
+                            cols[0],
+                            Integer.parseInt(cols[1]),
+                            Double.parseDouble(cols[2]),
+                            Double.parseDouble(cols[3]),
+                            Double.parseDouble(cols[4]),
+                            Double.parseDouble(cols[5])
+                    ));
+                }
+            }
+        }
+
+        return new Snapshot(sequence, players, units);
+    }
+
+    static String cleanName(String name) {
+        if (name == null) {
+            return "Player";
+        }
+        String cleaned = name.replace('|', ' ')
+                .replace(';', ' ')
+                .replace(',', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
+        if (cleaned.isBlank()) {
+            return "Player";
+        }
+        return cleaned.length() > 18 ? cleaned.substring(0, 18).trim() : cleaned;
+    }
+
+    static String endpointKey(InetAddress address, int port) {
+        return address.getHostAddress() + ":" + port;
+    }
+
+    static String round(double value) {
+        return String.format(Locale.ROOT, "%.1f", value);
     }
 
     static double distance(double ax, double ay, double bx, double by) {
