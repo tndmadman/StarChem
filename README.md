@@ -29,6 +29,8 @@ It is written in plain Java/Swing with a UDP multiplayer layer. The game starts 
 - Selected ship inventory panel
 - Selected resource information panel
 - Station stockpile panel
+- Modding rules file: `config/starchem-rules.json`
+- Rules file describes materials, ship types, station types, traits, and build costs
 - Single Windows launcher: `run-starchem.bat`
 - Mouse box selection
 - Right-click movement commands
@@ -92,6 +94,76 @@ The first real RTS loop is now playable:
 7. When the station has `80 Iron + 40 Copper`, press `B` to build another ship.
 
 The first build cost uses iron for the hull and copper for basic electronics/power routing.
+
+## Modding rules config
+
+The first modding rules file is now in:
+
+```text
+config/starchem-rules.json
+```
+
+That JSON is meant to become the main rules/config source for the match.
+
+It currently describes:
+
+- `materials`
+- `shipTypes`
+- `stationTypes`
+- starting ship type
+- default station type
+- ship speed
+- ship HP
+- ship cargo capacity
+- ship harvest range
+- ship build costs
+- which node types a ship can harvest
+- station unload range
+- station unload rate
+- station build radius
+- which ship types a station can build
+
+Example ship type:
+
+```json
+"prospector": {
+  "displayName": "Prospector",
+  "role": "starter miner",
+  "description": "Small starter utility ship. Cheap, slow, and useful for basic mining and hauling.",
+  "maxHp": 100,
+  "speed": 185,
+  "cargoCapacity": 120,
+  "harvestRange": 105,
+  "buildTimeSeconds": 0,
+  "buildCost": {
+    "IRON": 80,
+    "COPPER": 40
+  },
+  "canHarvest": ["SILICATE_ROCK", "GAS_CLOUD"]
+}
+```
+
+Example station type:
+
+```json
+"outpost": {
+  "displayName": "Outpost",
+  "description": "Default starter station. Stores unloaded materials and builds basic ships.",
+  "maxHp": 1200,
+  "unloadRange": 118,
+  "unloadRate": 95,
+  "buildRadius": 72,
+  "canBuildShips": ["prospector"]
+}
+```
+
+Target architecture:
+
+- Host loads `config/starchem-rules.json`.
+- Host is the authority for match rules.
+- Clients joining the host receive the host's rules config.
+- Clients use the host's config for ship/station traits and costs.
+- This makes custom ships, stations, costs, and balancing moddable without editing Java every time.
 
 ## Stations
 
@@ -175,6 +247,8 @@ The current multiplayer model is host-authoritative UDP:
 - Clients send heartbeat pings.
 - Host removes a player's group when it receives reliable `LEAVE` or the client times out.
 
+Next network/config step: host-authoritative JSON rules sync over the existing reliable packet layer.
+
 This is much more stable than the first two-peer prototype, but it is still not a finished internet multiplayer stack. NAT traversal, packet ordering windows, reconnects, and cheat resistance still need work.
 
 ## Run from terminal
@@ -205,13 +279,16 @@ gradle run --args="--join 127.0.0.1 50000 --name Player"
 
 ## Next build steps
 
-1. Add build queues/timers instead of instant ship construction.
-2. Add different ship classes: miner, scout, hauler, fighter.
-3. Add a refinery/base upgrade system.
-4. Add packet ordering checks so old reliable snapshots cannot overwrite newer state.
-5. Add reconnect support.
-6. Add a proper pre-match player list inside the lobby.
-7. Add fog of war.
-8. Add unit production buildings.
-9. Add combat/projectiles.
-10. Add NAT traversal or relay fallback for internet play.
+1. Wire `config/starchem-rules.json` into Java runtime loading.
+2. Send host rules JSON to clients on join through reliable packets.
+3. Replace hardcoded ship/station constants with loaded ship/station definitions.
+4. Add build queues/timers instead of instant ship construction.
+5. Add different ship classes: miner, scout, hauler, fighter.
+6. Add a refinery/base upgrade system.
+7. Add packet ordering checks so old reliable snapshots cannot overwrite newer state.
+8. Add reconnect support.
+9. Add a proper pre-match player list inside the lobby.
+10. Add fog of war.
+11. Add unit production buildings.
+12. Add combat/projectiles.
+13. Add NAT traversal or relay fallback for internet play.
