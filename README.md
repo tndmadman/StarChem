@@ -14,13 +14,14 @@ It is written in plain Java/Swing with a simple UDP peer-to-peer networking laye
 - Basic UDP P2P connection
 - Remote peer spawning
 - Remote movement command replication
+- Direct Windows batch launchers
 - Gradle build
 - GitHub Actions CI
 
 ## Requirements
 
-- Java 17+
-- Gradle, or your IDE's Gradle support
+- Java 17 JDK+
+- Gradle is optional. The Windows `.bat` files do not require Gradle.
 
 ## Windows quick launch
 
@@ -53,10 +54,20 @@ run-join-local.bat HOST_LAN_IP 50000
 
 Make sure Windows Firewall allows inbound UDP on the host port.
 
+If Windows says `javac` is not recognized, install a Java 17+ JDK and reopen Command Prompt or File Explorer before running the batch file again.
+
 ## Run solo
+
+With Gradle:
 
 ```bash
 gradle run
+```
+
+Without Gradle on Windows:
+
+```bat
+run-starchem.bat
 ```
 
 ## Run two-player P2P locally
@@ -71,6 +82,12 @@ Terminal 2:
 
 ```bash
 gradle run --args="--join 127.0.0.1 50000 --id JOIN"
+```
+
+Or on Windows, use:
+
+```bat
+launch-both-local.bat
 ```
 
 ## Run over LAN
