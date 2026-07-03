@@ -10,6 +10,9 @@ It is written in plain Java/Swing with a UDP multiplayer layer. The game starts 
 - Top-down RTS camera
 - Automatic fleet camera/zoom based on the player's ships
 - Starts with one command ship per player
+- Centered move orders so a single selected ship lands exactly on the clicked point
+- Movement route line from ship to destination
+- Destination ring/crosshair with speed and ETA readout
 - Designed for later unit expansion through resource collection
 - Single Windows launcher: `run-starchem.bat`
 - Grid map and resource nodes
@@ -84,6 +87,14 @@ gradle run --args="--join 127.0.0.1 50000 --name Player"
 - Left drag: box-select units
 - Right click: move selected units
 - `ESC`: return to lobby
+
+## Movement quality-of-life
+
+- A single selected ship now centers exactly on the clicked destination.
+- Multi-ship formations are centered around the clicked point instead of offset from it.
+- Moving ships draw a subtle line from the ship to its destination.
+- The destination is marked with a small ring/crosshair.
+- Local ships show speed and ETA while moving.
 
 ## Camera behavior
 
