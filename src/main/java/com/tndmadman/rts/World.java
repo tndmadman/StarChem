@@ -38,18 +38,7 @@ final class World {
     }
 
     private void seedResources() {
-        resources.add(new ResourceNode(1, "Iron Vein", NodeKind.SILICATE_ROCK, Material.IRON, 1250, 820, 520, 7.5, 34));
-        resources.add(new ResourceNode(2, "Copper Vein", NodeKind.SILICATE_ROCK, Material.COPPER, 2560, 1220, 420, 6.5, 30));
-        resources.add(new ResourceNode(3, "Ice Rock", NodeKind.SILICATE_ROCK, Material.ICE, 5160, 880, 460, 7.0, 32));
-        resources.add(new ResourceNode(4, "Silicate Cluster", NodeKind.SILICATE_ROCK, Material.SILICATES, 6900, 3700, 620, 8.0, 38));
-        resources.add(new ResourceNode(5, "Hydrogen Cloud", NodeKind.GAS_CLOUD, Material.HYDROGEN, 2150, 3880, 700, 9.0, 62));
-        resources.add(new ResourceNode(6, "Helium Pocket", NodeKind.GAS_CLOUD, Material.HELIUM, 6040, 1840, 430, 7.5, 54));
-        resources.add(new ResourceNode(7, "Methane Cloud", NodeKind.GAS_CLOUD, Material.METHANE, 920, 4380, 520, 7.5, 58));
-        resources.add(new ResourceNode(8, "Ammonia Trace", NodeKind.GAS_CLOUD, Material.AMMONIA, 4200, 4460, 400, 6.5, 52));
-        resources.add(new ResourceNode(9, "Outer Iron Belt", NodeKind.SILICATE_ROCK, Material.IRON, 7420, 920, 640, 7.8, 36));
-        resources.add(new ResourceNode(10, "Outer Copper Belt", NodeKind.SILICATE_ROCK, Material.COPPER, 3650, 2760, 520, 6.8, 32));
-        resources.add(new ResourceNode(11, "Deep Ice Field", NodeKind.SILICATE_ROCK, Material.ICE, 7100, 4920, 560, 7.0, 34));
-        resources.add(new ResourceNode(12, "Outer Hydrogen Cloud", NodeKind.GAS_CLOUD, Material.HYDROGEN, 5480, 3280, 760, 9.2, 64));
+        ResourceSpawner.seed(resources, width, height);
     }
 
     private Point2D startShipPoint() { return new Point2D.Double(760, 720); }
@@ -234,28 +223,7 @@ final class World {
     }
 
     void relocateResource(ResourceNode node) {
-        for (int attempt = 0; attempt < 120; attempt++) {
-            double x = 280 + random.nextDouble() * (width - 560);
-            double y = 280 + random.nextDouble() * (height - 560);
-            if (validResourceSpot(node.id, x, y)) {
-                node.x = x;
-                node.y = y;
-                node.amount = node.maxAmount;
-                node.active = true;
-                node.respawnTimer = 0;
-                return;
-            }
-        }
-        node.x = width / 2.0;
-        node.y = height / 2.0;
-        node.amount = node.maxAmount;
-        node.active = true;
-    }
-
-    private boolean validResourceSpot(int nodeId, double x, double y) {
-        for (Base base : bases.values()) if (Calc.distance(x, y, base.x, base.y) < 260) return false;
-        for (ResourceNode node : resources) if (node.id != nodeId && node.active && Calc.distance(x, y, node.x, node.y) < 320) return false;
-        return true;
+        ResourceSpawner.relocate(node, resources, bases.values(), width, height, random);
     }
 
     ResourceNode resourceAt(double x, double y) {
