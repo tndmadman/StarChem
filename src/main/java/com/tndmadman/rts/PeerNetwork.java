@@ -8,7 +8,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 final class PeerNetwork implements CommandSink {
-    private static final long HEARTBEAT_MS = 1000, SNAPSHOT_MS = 250, RELIABLE_MS = 450, TIMEOUT_MS = 10000;
+    private static final long HEARTBEAT_MS = 1000, SNAPSHOT_MS = 250, RELIABLE_MS = 450, TIMEOUT_MS = 4000;
     private final Config config;
     private final World world;
     private final DatagramSocket socket;
@@ -56,7 +56,7 @@ final class PeerNetwork implements CommandSink {
         while ((packet = inbox.poll()) != null) handle(packet);
         resend(now);
         if (config.hostMode) {
-            peers.entrySet().removeIf(e -> now - e.getValue().lastSeen() > TIMEOUT_MS);
+            removeTimedOutPeers(now);
             if (now - lastSnapshot >= SNAPSHOT_MS) { broadcast(SnapshotWriter.write(WorldNetAccess.snapshot(world, sequence++))); lastSnapshot = now; }
         } else {
             if (!joined && now - lastJoin >= HEARTBEAT_MS) { reliableToServer("JOIN|" + config.playerName); lastJoin = now; }
@@ -64,7 +64,11 @@ final class PeerNetwork implements CommandSink {
         }
     }
 
-    void shutdown() { running = false; if (!config.hostMode && joined) reliableToServer("LEAVE|" + localPlayerId); socket.close(); }
+    void shutdown() {
+        if (!config.hostMode && joined) for (int i = 0; i < 3; i++) sendToServer("LEAVE|" + localPlayerId);
+        running = false;
+        socket.close();
+    }
 
     @Override public void move(MoveCommand c) { if (config.hostMode) { applyMove(c); broadcastNow(); } else sendToServer("MOVE|" + c.playerId() + "|" + c.unitId() + "|" + Calc.round(c.x()) + "|" + Calc.round(c.y())); }
     @Override public void work(HarvestCommand c) { if (config.hostMode) { applyWork(c); broadcastNow(); } else sendToServer("WORK|" + c.playerId() + "|" + c.unitId() + "|" + c.resourceId()); }
@@ -136,6 +140,10 @@ final class PeerNetwork implements CommandSink {
         WorldNetAccess.addPeerGroup(world, id);
         reliable("WELCOME|" + id + "|" + cleanName + "|" + rgb, address, port);
         broadcastNow();
+    }
+
+    private void removeTimedOutPeers(long now) {
+        for (String ep : new ArrayList<>(peers.keySet())) if (now - peers.get(ep).lastSeen() > TIMEOUT_MS) removePeer(ep);
     }
 
     private void touch(String ep) { ServerPeer p = peers.get(ep); if (p != null) peers.put(ep, new ServerPeer(p.playerId(), p.address(), p.port(), System.currentTimeMillis())); }
