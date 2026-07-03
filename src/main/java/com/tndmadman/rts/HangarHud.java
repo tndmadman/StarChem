@@ -17,8 +17,12 @@ final class HangarHud {
             if (!PlayerRegistry.isLocal(base.playerId)) continue;
             line = drawStore(g2, base.type().name + " " + base.id, base.inventory, window.x + 14, line, PlayerRegistry.color(base.playerId));
         }
+        for (Unit unit : world.units.values()) {
+            if (!PlayerRegistry.isLocal(unit.playerId) || !MobileDepot.isDepot(unit)) continue;
+            line = drawStore(g2, "Freighter #" + unit.unitId, unit.inventory, window.x + 14, line, new Color(120, 220, 255));
+        }
         Unit unit = world.selectedUnit();
-        if (unit != null) drawStore(g2, "Selected ship", unit.inventory, window.x + 14, line, new Color(255, 235, 145));
+        if (unit != null && !MobileDepot.isDepot(unit)) drawStore(g2, "Selected ship", unit.inventory, window.x + 14, line, new Color(255, 235, 145));
     }
 
     boolean mousePressed(World world, int x, int y) { return window.press(x, y, bodyHeight(world)); }
@@ -45,8 +49,9 @@ final class HangarHud {
     private int bodyHeight(World world) {
         int rows = 2;
         for (Base base : world.bases.values()) if (PlayerRegistry.isLocal(base.playerId)) rows += 1 + Math.max(1, ResourceText.lines(base.inventory).size());
+        for (Unit unit : world.units.values()) if (PlayerRegistry.isLocal(unit.playerId) && MobileDepot.isDepot(unit)) rows += 1 + Math.max(1, ResourceText.lines(unit.inventory).size());
         Unit unit = world.selectedUnit();
-        if (unit != null) rows += 1 + Math.max(1, ResourceText.lines(unit.inventory).size());
+        if (unit != null && !MobileDepot.isDepot(unit)) rows += 1 + Math.max(1, ResourceText.lines(unit.inventory).size());
         return Math.min(492, Math.max(117, 8 + rows * 18));
     }
 }
