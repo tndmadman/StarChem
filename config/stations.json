@@ -36,7 +36,17 @@
         "hauler",
         "deep_miner",
         "gas_harvester",
-        "freighter"
+        "freighter",
+        "frigate",
+        "destroyer",
+        "cruiser",
+        "battle_cruiser",
+        "battleship",
+        "carrier",
+        "dreadnought",
+        "supercarrier",
+        "titan",
+        "monolith"
       ],
       "canBuildStationPackages": []
     }
