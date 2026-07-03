@@ -5,6 +5,7 @@ final class WorkSystem {
         if (unit.task != UnitTask.AUTO_HARVEST) return;
         ResourceNode node = world.findResource(unit.automationResourceId);
         if (node == null || !node.active) {
+            if (unit.freeCargo() > 0.05 && world.scoutRetarget(unit, node)) return;
             if (unit.cargoUsed() > 0.05) world.sendToNearestBase(unit);
             else unit.task = UnitTask.IDLE;
             return;
@@ -30,6 +31,7 @@ final class WorkSystem {
         }
         if (node.amount <= 0.05) {
             node.deplete();
+            if (unit.freeCargo() > 0.05 && world.scoutRetarget(unit, node)) return;
             world.status = node.name + " depleted. Returning cargo and relocating deposit.";
             if (unit.cargoUsed() > 0.05) world.sendToNearestBase(unit);
             else unit.task = UnitTask.IDLE;
