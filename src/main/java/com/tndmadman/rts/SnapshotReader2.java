@@ -33,8 +33,8 @@ final class SnapshotReader2 {
         List<BaseState> out = new ArrayList<>();
         if (parts.length <= 5 || parts[5].isBlank()) return out;
         for (String row : parts[5].split(";")) {
-            String[] c = row.split(",", -1);
-            if (c.length >= 5) out.add(new BaseState(c[0], c[1], c[2], Double.parseDouble(c[3]), Double.parseDouble(c[4])));
+            BaseState parsed = BaseStateParser.parse(row);
+            if (parsed != null) out.add(parsed);
         }
         return out;
     }
