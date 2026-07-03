@@ -15,6 +15,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final BuildMenu buildMenu = new BuildMenu();
     private final GameCamera camera = new GameCamera();
     private final HangarHud hangarHud = new HangarHud();
+    private final LeaderboardHud leaderboardHud = new LeaderboardHud();
+    private final EliminationOverlay eliminationOverlay = new EliminationOverlay();
     private long lastNanos = System.nanoTime();
     private boolean cameraLeft, cameraRight, cameraUp, cameraDown;
 
@@ -55,6 +57,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     }
 
     private void updateCameraControls(double dt) {
+        if (eliminated()) return;
         double dx = 0;
         double dy = 0;
         double step = CAMERA_PAN_SPEED * dt;
@@ -74,8 +77,10 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         world.draw(g2);
         g2.setTransform(old);
         drawHud(g2);
+        leaderboardHud.draw(g2, world, getWidth());
         hangarHud.draw(g2, world, getWidth());
         buildMenu.draw(g2);
+        if (eliminated()) eliminationOverlay.draw(g2, getWidth(), getHeight());
         g2.dispose();
     }
 
@@ -84,7 +89,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         g2.fillRoundRect(12, 12, 980, 92, 14, 14);
         g2.setColor(Color.WHITE);
         String dev = world.devFreeBuild ? " | DEV FREE BUILD" : "";
-        g2.drawString("StarChem | " + PlayerRegistry.name(PlayerRegistry.localId()) + " | Selected: " + world.selectedCount() + dev, 28, 36);
+        String state = eliminated() ? " | ELIMINATED" : "";
+        g2.drawString("StarChem | " + PlayerRegistry.name(PlayerRegistry.localId()) + " | Selected: " + world.selectedCount() + dev + state, 28, 36);
         g2.setColor(new Color(210,230,245));
         g2.drawString(world.status, 28, 58);
         g2.drawString(network == null ? "Solo" : network.statusLine(), 28, 80);
@@ -95,11 +101,29 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
 
     @Override public void mousePressed(MouseEvent e) {
         requestFocusInWindow();
+        if (eliminated()) {
+            if (eliminationOverlay.disconnectClicked(e.getX(), e.getY())) owner.showLobby("Disconnected after elimination.");
+            else if (eliminationOverlay.respawnClicked(e.getX(), e.getY())) respawn();
+            return;
+        }
         if (buildMenu.click(e.getX(), e.getY())) return;
         if (hangarHud.mousePressed(world, e.getX(), e.getY())) return;
         Point2D p = screenToWorld(e.getPoint());
         if (SwingUtilities.isLeftMouseButton(e)) clickLeft(e, p);
         else if (SwingUtilities.isRightMouseButton(e)) clickRight(p);
+    }
+
+    private void respawn() {
+        String playerId = PlayerRegistry.localId();
+        if (network == null) WorldNetAccess.respawnPlayer(world, playerId);
+        else network.respawn(playerId);
+    }
+
+    private boolean eliminated() {
+        String playerId = PlayerRegistry.localId();
+        for (Unit unit : world.units.values()) if (unit.playerId.equals(playerId) && unit.hp > 0) return false;
+        for (Base base : world.bases.values()) if (base.playerId.equals(playerId) && base.hp > 0) return false;
+        return true;
     }
 
     private void clickLeft(MouseEvent e, Point2D p) {
@@ -152,7 +176,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private void clearSelection() { for (Unit u : world.units.values()) u.selected = false; }
 
     @Override public void mouseDragged(MouseEvent e) {
-        hangarHud.mouseDragged(e.getX(), e.getY(), getWidth(), getHeight());
+        if (!eliminated()) hangarHud.mouseDragged(e.getX(), e.getY(), getWidth(), getHeight());
     }
 
     @Override public void mouseReleased(MouseEvent e) {
@@ -160,7 +184,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     }
 
     @Override public void mouseWheelMoved(MouseWheelEvent e) {
-        camera.zoomAt(e.getPoint(), e.getWheelRotation(), world, getWidth(), getHeight());
+        if (!eliminated()) camera.zoomAt(e.getPoint(), e.getWheelRotation(), world, getWidth(), getHeight());
     }
 
     @Override public void keyPressed(KeyEvent e) {
