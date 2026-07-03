@@ -33,6 +33,7 @@ final class WorldNetAccess {
             SnapshotSmoother.apply(u, s);
         }
         world.units.keySet().removeIf(key -> !liveUnits.contains(key));
+        if (!snapshot.resources().isEmpty()) NetResourceSync.apply(world, snapshot.resources());
         if (!snapshot.bases().isEmpty()) {
             world.bases.clear();
             for (BaseState b : snapshot.bases()) world.bases.put(b.id(), new Base(b.id(), b.playerId(), b.typeId(), b.x(), b.y()));
