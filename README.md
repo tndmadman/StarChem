@@ -2,46 +2,73 @@
 
 StarChem is a Java 2D top-down multiplayer RTS prototype.
 
-It is written in plain Java/Swing with a UDP multiplayer layer. The game starts in an in-game lobby inside the same main window, then swaps into the RTS view when you choose Solo, Host, or Join.
+It is written in plain Java/Swing with a UDP host/client layer. The game opens into an in-game lobby, then swaps into the RTS view when you choose Solo, Host, or Join.
 
 ## Playable right now
 
 - In-game lobby
 - Solo, host, and join flow
-- One starter ship per player
-- Default station per player
-- Finite resource nodes with slow regeneration
-- Ship inventory
-- Station stockpile
-- Manual harvesting with `F1`
-- Auto-unload when a cargo ship is near its station
-- Build another starter ship with `B` once the station has enough resources
+- One starter Prospector per player
+- Default Outpost station per player
+- Ship inventory and station stockpile
+- Right-click resource auto-harvesting
+- Full cargo return-to-station behavior
+- Automatic unloading near station
+- Idle ships orbit/wander near station
+- Harvesting ships orbit the asteroid/cloud while working
+- Depleted resource nodes vanish and respawn somewhere else
+- Outposts build Prospectors and Deployers
+- Outposts fabricate/load Shipyard packages into Deployers
+- Deployers place Shipyards and are consumed
+- Shipyards unlock Haulers and Scouts
 - Movement route line, destination ring, speed, and ETA
 - Automatic fleet camera/zoom
-- UDP host/client synchronization for players, ships, cargo, resources, and station stockpiles
+- UDP host/client synchronization for players, ships, stations, cargo, resources, and stockpiles
 
-## Current controls
+## Controls
 
 - Left click your ship: select ship
-- Left click a rock/cloud: target resource
+- Left click a rock/cloud: inspect/target resource
 - Left drag: box-select ships
-- Right click: move selected ships
-- `F1`: begin harvesting selected target with selected ship
-- Move cargo ship near station: unload automatically
-- `B`: build a new ship if the station stockpile has enough resources
+- Right click ground: move selected ships
+- Right click resource with a ship selected: begin auto-harvesting
+- `1`: build Prospector
+- `2`: build Deployer
+- `3`: build Hauler, requires Shipyard
+- `4`: build Scout, requires Shipyard
+- `U` with selected empty Deployer near Outpost: load Shipyard package if you can afford it
+- `U` with selected loaded Deployer: place Shipyard and consume Deployer
 - `ESC`: return to lobby
 
-## First playable progression loop
+## Progression loop
 
-1. Select your command ship.
-2. Select an iron asteroid.
-3. Move into range.
-4. Press `F1` to harvest iron.
-5. Return to your station and let the ship unload automatically.
-6. Repeat with copper.
-7. When the station has `80 Iron + 40 Copper`, press `B` to build another starter ship.
+1. Select your Prospector.
+2. Right-click an iron asteroid to auto-harvest.
+3. The ship mines, orbits the asteroid/cloud, returns when full, unloads at the Outpost, then resumes if the node still exists.
+4. Repeat for Copper, Silicates, and Ice as needed.
+5. Press `2` to build a Deployer when the Outpost stockpile can afford it.
+6. Select the Deployer near the Outpost and press `U` to fabricate/load a Shipyard package.
+7. Move the loaded Deployer to the desired spot.
+8. Press `U` again to place the Shipyard. The Deployer is consumed.
+9. Use the Shipyard to build Haulers with `3` and Scouts with `4`.
 
-## Modding rules config
+## Ship costs
+
+- Prospector: `80 Iron + 40 Copper`
+- Deployer: `220 Iron + 120 Copper + 100 Silicates + 40 Water Ice`
+- Hauler: `150 Iron + 60 Copper + 80 Silicates`
+- Scout: `60 Iron + 90 Copper + 40 Hydrogen`
+
+## Station package cost
+
+Shipyard package:
+
+- `500 Iron`
+- `250 Copper`
+- `350 Silicates`
+- `160 Water Ice`
+
+## Rules config
 
 The rules file is:
 
@@ -49,121 +76,24 @@ The rules file is:
 config/starchem-rules.json
 ```
 
-This file is the intended rules source for moddable gameplay. It now describes:
+It describes the intended moddable rule data for materials, ship types, station types, costs, ship traits, station traits, automation behavior, and resource respawn behavior.
 
-- Materials
-- Ship types
-- Station types
-- Starting ship type
-- Default station type
-- Ship HP
-- Ship speed
-- Ship cargo capacity
-- Ship harvest range
-- Ship orbit behavior
-- Ship build cost by material
-- Which node types a ship can harvest
-- Station unload range
-- Station unload rate
-- Station build radius
-- Which ships a station can build
-- Which station packages a station can fabricate
-- Which ship type can carry a packed station
-- Whether the carrier ship is removed after placing a station
-- Resource respawn behavior
+Important: the current Java build now mirrors these rules in code, but it still does not fully load and sync the JSON as the match authority. The next architecture pass should make the host load `config/starchem-rules.json`, send it to clients, and use that loaded config directly instead of the Java defaults.
 
-Important: the JSON exists now, but the Java runtime is not fully wired to it yet. The next code patch needs to load this file, replace the hardcoded traits, and sync the host rules JSON to joining clients.
+## Network design
 
-## Config-defined ship types
+The current multiplayer model is host-authoritative UDP:
 
-### Prospector
-
-The current starter miner.
-
-- Can harvest rocks and gas clouds
-- Has cargo space
-- Intended to auto-harvest after right-clicking a resource node
-- Intended to return to station when full
-- Intended to orbit while harvesting
-- Intended to orbit near station while idle
-
-### Deployer
-
-The config key is `station_builder`, but the in-game display name is `Deployer`.
-
-Purpose:
-
-- Freighter-like station placement ship
-- Built separately from normal ships
-- Carries one packed station package
-- Can carry the Shipyard package
-- Is removed after placing the station
-
-### Hauler
-
-Future cargo ship unlocked by the Shipyard.
-
-### Scout
-
-Future fast recon ship unlocked by the Shipyard.
-
-## Config-defined station types
-
-### Outpost
-
-The default station.
-
-It can build:
-
-- Prospector
-- Deployer
-
-It can fabricate station packages:
-
-- Shipyard package
-
-### Shipyard
-
-Expanded production station.
-
-Intended loop:
-
-1. Outpost fabricates a packed Shipyard package.
-2. Deployer loads the package.
-3. Deployer moves to the desired placement location.
-4. Player places the Shipyard.
-5. Deployer is removed after placement.
-6. Shipyard unlocks larger ships.
-
-The Shipyard can build:
-
-- Prospector
-- Deployer
-- Hauler
-- Scout
-
-## Requested next gameplay changes
-
-These are now represented in the JSON config and need runtime wiring next:
-
-- Right-clicking a resource node with a selected ship should begin auto-harvesting.
-- Ships should automatically return to station when full.
-- Ships should unload automatically at station.
-- Idle ships near station should wander/orbit close to the station.
-- Ships harvesting a rock/cloud should orbit around the target while mining.
-- Depleted resource nodes should disappear, then respawn somewhere else instead of regenerating in place.
-- Outpost should fabricate a packed Shipyard package.
-- Deployer should load the packed Shipyard.
-- Placing the Shipyard should remove the Deployer.
-- Shipyard should unlock Hauler and Scout.
-
-## Network/rules target architecture
-
-- Host loads `config/starchem-rules.json`.
-- Host is the authority for match rules.
-- Clients joining the host receive the host's rules config.
-- Clients use the host's config for ship/station traits and costs.
-- This makes custom ships, stations, costs, and balancing moddable without editing Java every time.
+- Host opens the session on a known UDP port.
+- Clients send reliable `JOIN|name` messages.
+- Host assigns each client a player ID, unique name, color, station, and starter ship.
+- Clients send movement, harvest, build, and station commands to the host.
+- Host validates the commands and broadcasts snapshots.
+- Host syncs ships, ship cargo, resource node positions/amounts, stations, and stockpiles.
+- Host also sends periodic reliable full snapshots.
+- Reliable messages are wrapped as `REL|messageId|payload`.
+- Receivers answer with `ACK|messageId`.
+- Unacked reliable messages are resent for a limited number of attempts.
 
 ## Windows launch
 
@@ -204,19 +134,11 @@ gradle run --args="--join 127.0.0.1 50000 --name Player"
 ## Next build steps
 
 1. Load `config/starchem-rules.json` at runtime.
-2. Replace hardcoded ship/station constants with loaded rules.
-3. Send host rules JSON to clients on join through reliable packets.
-4. Add auto-harvest on selected ship + right-click resource.
-5. Add full-cargo return-to-station behavior.
-6. Add station idle orbit and resource harvest orbit behavior.
-7. Change static resource regeneration into despawn-and-respawn-somewhere-else.
-8. Add station package fabrication.
-9. Add Deployer package loading and Shipyard placement.
-10. Remove Deployer after placing Shipyard.
-11. Add a build menu for ship/station package choices.
-12. Add build queues/timers instead of instant construction.
-13. Add packet ordering checks so old reliable snapshots cannot overwrite newer state.
-14. Add reconnect support.
-15. Add fog of war.
-16. Add combat/projectiles.
-17. Add NAT traversal or relay fallback for internet play.
+2. Send host rules JSON to clients on join through reliable packets.
+3. Add a proper build menu instead of number hotkeys only.
+4. Add build queues/timers instead of instant construction.
+5. Add packet ordering checks so old reliable snapshots cannot overwrite newer state.
+6. Add reconnect support.
+7. Add fog of war.
+8. Add combat/projectiles.
+9. Add NAT traversal or relay fallback for internet play.
