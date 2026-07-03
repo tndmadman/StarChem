@@ -8,6 +8,7 @@ final class Base {
     final String playerId;
     final String typeId;
     final double x, y;
+    final EnumMap<Material, Double> inventory = new EnumMap<>(Material.class);
 
     Base(String id, String playerId, String typeId, double x, double y) {
         this.id = id; this.playerId = playerId; this.typeId = typeId; this.x = x; this.y = y;
@@ -19,7 +20,7 @@ final class Base {
         return Calc.distance(wx, wy, x, y) <= (typeId.equals("shipyard") ? 82 : 64);
     }
 
-    void draw(Graphics2D g2, Color ignoredColor, EnumMap<Material, Double> stockpile, boolean ignoredLocal) {
+    void draw(Graphics2D g2, Color ignoredColor, EnumMap<Material, Double> ignoredStockpile, boolean ignoredLocal) {
         Color playerColor = PlayerRegistry.color(playerId);
         boolean local = PlayerRegistry.isLocal(playerId);
         Graphics2D s = (Graphics2D) g2.create();
@@ -40,11 +41,28 @@ final class Base {
         s.setColor(playerColor); s.setStroke(new BasicStroke(3f)); s.drawPolygon(hull);
         s.setColor(new Color(125,205,255,90)); s.fillOval((int)(x - 26), (int)(y - 26), 52, 52);
         s.setFont(s.getFont().deriveFont(Font.BOLD, 12f));
+        drawLabel(s, def, radius, playerColor);
+        if (local) drawHangar(s, radius);
+        s.dispose();
+    }
+
+    private void drawLabel(Graphics2D s, BaseType def, double radius, Color playerColor) {
         String label = def.name + " - " + PlayerRegistry.name(playerId);
         int tw = s.getFontMetrics().stringWidth(label);
         s.setColor(new Color(0,0,0,160));
         s.fillRoundRect((int)(x - tw / 2.0 - 6), (int)(y - radius - 32), tw + 12, 18, 8, 8);
-        s.setColor(playerColor); s.drawString(label, (int)(x - tw / 2.0), (int)(y - radius - 18));
-        s.dispose();
+        s.setColor(playerColor);
+        s.drawString(label, (int)(x - tw / 2.0), (int)(y - radius - 18));
+    }
+
+    private void drawHangar(Graphics2D s, double radius) {
+        String text = "Hangar: " + ResourceText.shortLine(inventory);
+        int tw = s.getFontMetrics().stringWidth(text);
+        int px = (int)(x - tw / 2.0 - 7);
+        int py = (int)(y + radius + 17);
+        s.setColor(new Color(0,0,0,170));
+        s.fillRoundRect(px, py - 13, tw + 14, 18, 8, 8);
+        s.setColor(new Color(220, 238, 250));
+        s.drawString(text, px + 7, py);
     }
 }
