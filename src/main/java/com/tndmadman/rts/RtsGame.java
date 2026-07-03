@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 /**
  * StarChem: Java 2D top-down RTS prototype.
  *
- * The lobby is now an in-game screen inside the same main window.
+ * The lobby is an in-game screen inside the same main window.
  *
  * Networking is host-authoritative:
  * - Host owns the player list and creates/removes each player's unit group.
@@ -32,6 +32,10 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * - Host sends fast snapshots plus periodic reliable full snapshots to reduce desync.
  */
 public final class RtsGame {
+    private static final int STARTING_UNITS = 1;
+    private static final double MIN_AUTO_ZOOM = 0.38;
+    private static final double MAX_AUTO_ZOOM = 1.12;
+
     public static void main(String[] args) {
         Config config = Config.parse(args);
         SwingUtilities.invokeLater(() -> new GameFrame(config).setVisible(true));
@@ -125,74 +129,122 @@ public final class RtsGame {
             super(new BorderLayout(16, 16));
             this.owner = owner;
             setBorder(BorderFactory.createEmptyBorder(42, 60, 42, 60));
-            setBackground(new Color(8, 12, 18));
+            setBackground(new Color(4, 8, 15));
 
-            JPanel titlePanel = new JPanel(new GridLayout(0, 1, 0, 6));
+            JPanel titlePanel = new JPanel(new GridLayout(0, 1, 0, 7));
             titlePanel.setOpaque(false);
-            JLabel title = new JLabel("StarChem");
-            title.setForeground(Color.WHITE);
-            title.setFont(title.getFont().deriveFont(Font.BOLD, 42f));
-            JLabel subtitle = new JLabel("2D top-down RTS multiplayer prototype");
-            subtitle.setForeground(new Color(170, 195, 220));
-            subtitle.setFont(subtitle.getFont().deriveFont(16f));
+            JLabel title = new JLabel("STAR  CHEM");
+            title.setForeground(new Color(224, 245, 255));
+            title.setFont(title.getFont().deriveFont(Font.BOLD, 48f));
+            JLabel subtitle = new JLabel("Fleet command prototype");
+            subtitle.setForeground(new Color(112, 190, 235));
+            subtitle.setFont(subtitle.getFont().deriveFont(Font.BOLD, 16f));
+            JLabel hint = new JLabel("Start with one command ship. Expand later by harvesting resources and building more units.");
+            hint.setForeground(new Color(160, 180, 205));
+            hint.setFont(hint.getFont().deriveFont(13f));
             titlePanel.add(title);
             titlePanel.add(subtitle);
+            titlePanel.add(hint);
             add(titlePanel, BorderLayout.NORTH);
 
             JPanel centerWrap = new JPanel(new GridBagLayout());
             centerWrap.setOpaque(false);
             JPanel form = new JPanel(new GridBagLayout());
-            form.setOpaque(true);
-            form.setBackground(new Color(15, 23, 36));
-            form.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(new Color(54, 77, 105), 1),
-                    BorderFactory.createEmptyBorder(22, 24, 22, 24)
-            ));
+            form.setOpaque(false);
+            form.setBorder(BorderFactory.createEmptyBorder(24, 26, 24, 26));
 
             GridBagConstraints c = new GridBagConstraints();
             c.insets = new Insets(8, 8, 8, 8);
             c.fill = GridBagConstraints.HORIZONTAL;
-            addRow(form, c, 0, "Player name", nameField);
-            addRow(form, c, 1, "Host port", hostPortField);
-            addRow(form, c, 2, "Join IP", joinHostField);
-            addRow(form, c, 3, "Join port", joinPortField);
 
-            JPanel buttons = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 10));
+            JLabel section = new JLabel("SESSION SETUP");
+            section.setForeground(new Color(110, 210, 255));
+            section.setFont(section.getFont().deriveFont(Font.BOLD, 13f));
+            c.gridx = 0;
+            c.gridy = 0;
+            c.gridwidth = 2;
+            form.add(section, c);
+
+            styleField(nameField);
+            styleField(hostPortField);
+            styleField(joinHostField);
+            styleField(joinPortField);
+            addRow(form, c, 1, "Commander", nameField);
+            addRow(form, c, 2, "Host port", hostPortField);
+            addRow(form, c, 3, "Join IP", joinHostField);
+            addRow(form, c, 4, "Join port", joinPortField);
+
+            JPanel buttons = new JPanel(new GridLayout(1, 3, 12, 0));
             buttons.setOpaque(false);
-            JButton solo = new JButton("Solo");
-            JButton host = new JButton("Host Game");
-            JButton join = new JButton("Join Game");
-            styleButton(solo);
-            styleButton(host);
-            styleButton(join);
+            JButton solo = new MenuButton("SOLO");
+            JButton host = new MenuButton("HOST");
+            JButton join = new MenuButton("JOIN");
             buttons.add(solo);
             buttons.add(host);
             buttons.add(join);
 
             c.gridx = 0;
-            c.gridy = 4;
+            c.gridy = 5;
             c.gridwidth = 2;
+            c.insets = new Insets(18, 8, 10, 8);
             form.add(buttons, c);
 
-            statusLabel.setForeground(new Color(205, 220, 238));
-            c.gridy = 5;
+            statusLabel.setForeground(new Color(210, 228, 245));
+            statusLabel.setFont(statusLabel.getFont().deriveFont(Font.BOLD, 13f));
+            c.gridy = 6;
+            c.insets = new Insets(8, 8, 8, 8);
             form.add(statusLabel, c);
 
-            centerWrap.add(form);
+            JPanel glass = new MenuCardPanel(new BorderLayout());
+            glass.add(form, BorderLayout.CENTER);
+            centerWrap.add(glass);
             add(centerWrap, BorderLayout.CENTER);
 
-            JTextArea notes = new JTextArea("Host creates the session. Join connects to the host IP. Important packets use ACK/retry; movement uses fast snapshots.");
+            JTextArea notes = new JTextArea("Host creates the session. Join connects to the host IP. Important packets use ACK/retry; movement uses fast snapshots. Camera zoom is automatic and follows your fleet.");
             notes.setEditable(false);
             notes.setLineWrap(true);
             notes.setWrapStyleWord(true);
             notes.setOpaque(false);
-            notes.setForeground(new Color(160, 180, 205));
+            notes.setForeground(new Color(150, 175, 205));
             notes.setFont(notes.getFont().deriveFont(13f));
             add(notes, BorderLayout.SOUTH);
 
             solo.addActionListener(e -> launchSolo());
             host.addActionListener(e -> launchHost());
             join.addActionListener(e -> launchJoin());
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            int w = getWidth();
+            int h = getHeight();
+
+            GradientPaint bg = new GradientPaint(0, 0, new Color(4, 8, 15), w, h, new Color(12, 25, 44));
+            g2.setPaint(bg);
+            g2.fillRect(0, 0, w, h);
+
+            g2.setColor(new Color(50, 130, 190, 38));
+            g2.fillOval(w - 360, -160, 520, 520);
+            g2.setColor(new Color(160, 80, 255, 25));
+            g2.fillOval(-220, h - 320, 520, 420);
+
+            for (int i = 0; i < 180; i++) {
+                int x = Math.floorMod(i * 97 + 37, Math.max(w, 1));
+                int y = Math.floorMod(i * 53 + 91, Math.max(h, 1));
+                int alpha = 70 + (i % 4) * 35;
+                int size = i % 17 == 0 ? 2 : 1;
+                g2.setColor(new Color(180, 225, 255, alpha));
+                g2.fillOval(x, y, size, size);
+            }
+
+            g2.setColor(new Color(80, 170, 255, 35));
+            for (int x = -120; x < w + 120; x += 90) {
+                g2.drawLine(x, h, x + 260, 0);
+            }
+            g2.dispose();
         }
 
         void setStatus(String status) {
@@ -208,7 +260,8 @@ public final class RtsGame {
 
         private void addRow(JPanel form, GridBagConstraints c, int row, String label, JComponent field) {
             JLabel jLabel = new JLabel(label);
-            jLabel.setForeground(Color.WHITE);
+            jLabel.setForeground(new Color(218, 235, 248));
+            jLabel.setFont(jLabel.getFont().deriveFont(Font.BOLD, 13f));
             c.gridwidth = 1;
             c.weightx = 0;
             c.gridx = 0;
@@ -219,9 +272,15 @@ public final class RtsGame {
             form.add(field, c);
         }
 
-        private void styleButton(JButton button) {
-            button.setFocusPainted(false);
-            button.setFont(button.getFont().deriveFont(Font.BOLD, 14f));
+        private void styleField(JTextField field) {
+            field.setForeground(Color.WHITE);
+            field.setCaretColor(Color.WHITE);
+            field.setBackground(new Color(9, 18, 31));
+            field.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(new Color(70, 115, 150)),
+                    BorderFactory.createEmptyBorder(8, 10, 8, 10)
+            ));
+            field.setFont(field.getFont().deriveFont(Font.BOLD, 14f));
         }
 
         private void launchSolo() {
@@ -249,6 +308,56 @@ public final class RtsGame {
             } catch (IllegalArgumentException ex) {
                 setStatus(ex.getMessage());
             }
+        }
+    }
+
+    static final class MenuCardPanel extends JPanel {
+        MenuCardPanel(LayoutManager layout) {
+            super(layout);
+            setOpaque(false);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(new Color(6, 12, 22, 218));
+            g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 26, 26);
+            g2.setColor(new Color(80, 170, 225, 140));
+            g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 26, 26);
+            g2.setColor(new Color(130, 220, 255, 40));
+            g2.drawRoundRect(7, 7, getWidth() - 15, getHeight() - 15, 20, 20);
+            g2.dispose();
+            super.paintComponent(g);
+        }
+    }
+
+    static final class MenuButton extends JButton {
+        MenuButton(String text) {
+            super(text);
+            setFocusPainted(false);
+            setBorderPainted(false);
+            setContentAreaFilled(false);
+            setOpaque(false);
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            setForeground(Color.WHITE);
+            setFont(getFont().deriveFont(Font.BOLD, 15f));
+            setPreferredSize(new Dimension(120, 44));
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            ButtonModel model = getModel();
+            Color top = model.isPressed() ? new Color(25, 90, 130) : model.isRollover() ? new Color(34, 128, 180) : new Color(18, 64, 100);
+            Color bottom = model.isPressed() ? new Color(16, 52, 82) : model.isRollover() ? new Color(18, 86, 132) : new Color(9, 34, 62);
+            g2.setPaint(new GradientPaint(0, 0, top, 0, getHeight(), bottom));
+            g2.fillRoundRect(0, 0, getWidth(), getHeight(), 14, 14);
+            g2.setColor(new Color(126, 220, 255));
+            g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 14, 14);
+            g2.dispose();
+            super.paintComponent(g);
         }
     }
 
@@ -368,7 +477,7 @@ public final class RtsGame {
             double dt = Math.min(0.05, (now - lastNanos) / 1_000_000_000.0);
             lastNanos = now;
 
-            handleCamera(dt);
+            handleInputAndCamera(dt);
             if (network != null) {
                 network.drainMessages();
             }
@@ -376,18 +485,44 @@ public final class RtsGame {
             repaint();
         }
 
-        private void handleCamera(double dt) {
-            double speed = 800 / zoom;
-            if (keys.contains(KeyEvent.VK_W) || keys.contains(KeyEvent.VK_UP)) cameraY -= speed * dt;
-            if (keys.contains(KeyEvent.VK_S) || keys.contains(KeyEvent.VK_DOWN)) cameraY += speed * dt;
-            if (keys.contains(KeyEvent.VK_A) || keys.contains(KeyEvent.VK_LEFT)) cameraX -= speed * dt;
-            if (keys.contains(KeyEvent.VK_D) || keys.contains(KeyEvent.VK_RIGHT)) cameraX += speed * dt;
+        private void handleInputAndCamera(double dt) {
             if (keys.contains(KeyEvent.VK_ESCAPE)) {
                 timer.stop();
                 owner.showLobby("Returned to lobby.");
+                return;
             }
-            cameraX = clamp(cameraX, -200, world.width - 200);
-            cameraY = clamp(cameraY, -200, world.height - 200);
+            updateAutoCamera(dt);
+        }
+
+        private void updateAutoCamera(double dt) {
+            Rectangle2D bounds = world.localUnitBounds();
+            if (bounds == null) {
+                return;
+            }
+
+            double fleetWidth = Math.max(bounds.getWidth(), 40);
+            double fleetHeight = Math.max(bounds.getHeight(), 40);
+            double padding = Math.max(320, Math.max(fleetWidth, fleetHeight) * 0.55);
+            double availableW = Math.max(500, getWidth() - 120);
+            double availableH = Math.max(360, getHeight() - 120);
+            double desiredZoom = Math.min(availableW / (fleetWidth + padding), availableH / (fleetHeight + padding));
+            double targetZoom = clamp(desiredZoom, MIN_AUTO_ZOOM, MAX_AUTO_ZOOM);
+
+            double visibleW = getWidth() / targetZoom;
+            double visibleH = getHeight() / targetZoom;
+            double targetCameraX = bounds.getCenterX() - visibleW / 2.0;
+            double targetCameraY = bounds.getCenterY() - visibleH / 2.0;
+
+            double zoomBlend = clamp(dt * 3.2, 0, 1);
+            double cameraBlend = clamp(dt * 3.8, 0, 1);
+            zoom = lerp(zoom, targetZoom, zoomBlend);
+            cameraX = lerp(cameraX, targetCameraX, cameraBlend);
+            cameraY = lerp(cameraY, targetCameraY, cameraBlend);
+
+            double currentVisibleW = getWidth() / zoom;
+            double currentVisibleH = getHeight() / zoom;
+            cameraX = clamp(cameraX, -160, Math.max(-160, world.width - currentVisibleW + 160));
+            cameraY = clamp(cameraY, -160, Math.max(-160, world.height - currentVisibleH + 160));
         }
 
         @Override
@@ -450,10 +585,10 @@ public final class RtsGame {
             List<PlayerInfo> players = world.playersSnapshot();
             int height = 112 + players.size() * 18;
             g2.setColor(new Color(0, 0, 0, 175));
-            g2.fillRoundRect(12, 12, 750, height, 14, 14);
+            g2.fillRoundRect(12, 12, 790, height, 14, 14);
             g2.setColor(Color.WHITE);
             g2.drawString("StarChem | Local: " + world.localPlayerLabel() + " | Selected: " + world.selectedCount(), 28, 36);
-            g2.drawString("WASD pan | Wheel zoom | Left select/drag | Right move | ESC lobby", 28, 58);
+            g2.drawString("Auto camera/zoom follows your ships | Left select/drag | Right move | ESC lobby", 28, 58);
             g2.drawString(network == null ? "Network: solo/offline" : network.statusLine(), 28, 80);
 
             int y = 104;
@@ -521,7 +656,7 @@ public final class RtsGame {
         @Override public void mouseExited(MouseEvent e) { }
         @Override public void mouseDragged(MouseEvent e) { dragNow = e.getPoint(); }
         @Override public void mouseMoved(MouseEvent e) { }
-        @Override public void mouseWheelMoved(MouseWheelEvent e) { zoom = clamp(zoom - e.getPreciseWheelRotation() * 0.08, 0.45, 2.2); }
+        @Override public void mouseWheelMoved(MouseWheelEvent e) { }
         @Override public void keyTyped(KeyEvent e) { }
         @Override public void keyPressed(KeyEvent e) { keys.add(e.getKeyCode()); }
         @Override public void keyReleased(KeyEvent e) { keys.remove(e.getKeyCode()); }
@@ -580,7 +715,7 @@ public final class RtsGame {
                 return;
             }
             Point2D start = spawnPoint(spawnIndex);
-            for (int i = 0; i < 6; i++) {
+            for (int i = 0; i < STARTING_UNITS; i++) {
                 int unitId = i + 1;
                 double x = start.getX() + (i % 3) * 46;
                 double y = start.getY() + (i / 3) * 46;
@@ -644,6 +779,28 @@ public final class RtsGame {
                 }
             }
             return count;
+        }
+
+        synchronized Rectangle2D localUnitBounds() {
+            boolean found = false;
+            double minX = Double.MAX_VALUE;
+            double minY = Double.MAX_VALUE;
+            double maxX = -Double.MAX_VALUE;
+            double maxY = -Double.MAX_VALUE;
+            for (Unit u : units.values()) {
+                if (!u.playerId.equals(localPlayerId)) {
+                    continue;
+                }
+                found = true;
+                minX = Math.min(minX, u.x);
+                minY = Math.min(minY, u.y);
+                maxX = Math.max(maxX, u.x);
+                maxY = Math.max(maxY, u.y);
+            }
+            if (!found) {
+                return null;
+            }
+            return new Rectangle2D.Double(minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY));
         }
 
         synchronized void selectSingle(double x, double y) {
@@ -1404,6 +1561,10 @@ public final class RtsGame {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    static double lerp(double from, double to, double t) {
+        return from + (to - from) * t;
     }
 
     static double distance(double ax, double ay, double bx, double by) {
