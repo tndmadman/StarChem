@@ -9,11 +9,11 @@ final class BuildSystem {
             world.status = base.type().name + " cannot build " + shipType.name + ".";
             return false;
         }
-        if (!world.canAfford(shipType.buildCost)) {
-            world.status = "Need " + Rules.formatCost(shipType.buildCost) + " for " + shipType.name + ".";
+        if (!HangarStore.canAfford(base.inventory, shipType.buildCost)) {
+            world.status = "Need " + Rules.formatCost(shipType.buildCost) + " in " + base.type().name + " hangar.";
             return false;
         }
-        world.spend(shipType.buildCost);
+        HangarStore.spend(base.inventory, shipType.buildCost);
         int n = countUnits(world, base.playerId) + 1;
         double a = n * 1.35;
         spawnShipFor(world, base.playerId, shipTypeId, base.x + Math.cos(a) * (base.type().buildRadius + 40), base.y + Math.sin(a) * (base.type().buildRadius + 40));
@@ -29,8 +29,8 @@ final class BuildSystem {
             return false;
         }
         BaseType pkg = Rules.base(packageType);
-        if (!world.canAfford(pkg.buildCost)) {
-            world.status = "Need " + Rules.formatCost(pkg.buildCost) + " for " + pkg.name + " package.";
+        if (!HangarStore.canAfford(base.inventory, pkg.buildCost)) {
+            world.status = "Need " + Rules.formatCost(pkg.buildCost) + " in " + base.type().name + " hangar.";
             return false;
         }
         Unit carrier = nearestEmptyBuilder(world, base);
@@ -38,7 +38,7 @@ final class BuildSystem {
             world.status = "Move an empty Deployer into base range first.";
             return false;
         }
-        world.spend(pkg.buildCost);
+        HangarStore.spend(base.inventory, pkg.buildCost);
         carrier.basePackageType = packageType;
         world.status = "Loaded " + pkg.name + " package into Deployer.";
         return true;
