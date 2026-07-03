@@ -122,6 +122,7 @@ final class PeerNetwork implements CommandSink {
         if (p[0].equals("WELCOME") && p.length >= 4) {
             localPlayerId = p[1];
             joined = true;
+            if (p.length >= 5) try { world.useSystemSeed(Long.parseLong(p[4])); } catch (NumberFormatException ignored) { }
             PlayerRegistry.register(localPlayerId, p[2], Integer.parseInt(p[3]), true);
             world.status = "Joined as " + p[2];
             return;
@@ -131,15 +132,19 @@ final class PeerNetwork implements CommandSink {
 
     private void joinPeer(String ep, InetAddress address, int port, String name) {
         ServerPeer old = peers.get(ep);
-        if (old != null) { reliable("WELCOME|" + old.playerId() + "|" + name + "|" + colorFor(peers.size()), address, port); return; }
+        if (old != null) { reliable(welcome(old.playerId(), name, colorFor(peers.size())), address, port); return; }
         String id = "P" + nextPlayer++;
         int rgb = colorFor(peers.size() + 1);
         String cleanName = Config.clean(name);
         peers.put(ep, new ServerPeer(id, address, port, System.currentTimeMillis()));
         PlayerRegistry.register(id, cleanName, rgb, false);
         WorldNetAccess.addPeerGroup(world, id);
-        reliable("WELCOME|" + id + "|" + cleanName + "|" + rgb, address, port);
+        reliable(welcome(id, cleanName, rgb), address, port);
         broadcastNow();
+    }
+
+    private String welcome(String id, String name, int rgb) {
+        return "WELCOME|" + id + "|" + Config.clean(name) + "|" + rgb + "|" + world.systemSeed();
     }
 
     private void removeTimedOutPeers(long now) {
