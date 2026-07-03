@@ -9,6 +9,9 @@ final class BuildMenu {
     private int x, y, width = 270;
     boolean visible;
 
+    void showForBase(World world, Base base, int sx, int sy) { showForBase(world, null, base, sx, sy); }
+    void showForUnit(World world, Unit unit, int sx, int sy) { showForUnit(world, null, unit, sx, sy); }
+
     void showForBase(World world, PeerNetwork network, Base base, int sx, int sy) {
         entries.clear();
         x = sx; y = sy; visible = true;
