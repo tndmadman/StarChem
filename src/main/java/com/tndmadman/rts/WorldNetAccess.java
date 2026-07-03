@@ -10,8 +10,7 @@ final class WorldNetAccess {
         List<PlayerInfo> players = PlayerRegistry.snapshotPlayers();
         List<UnitState> units = new ArrayList<>();
         for (Unit u : world.units.values()) units.add(new UnitState(u.playerId, u.unitId, u.shipTypeId, u.x, u.y, u.targetX, u.targetY, u.heading, u.task.name(), u.automationResourceId, u.basePackageType, CargoCodec.write(u.inventory)));
-        List<ResourceState> resources = new ArrayList<>();
-        for (ResourceNode r : world.resources) resources.add(new ResourceState(r.id, r.name, r.kind.name(), r.material.name(), r.x, r.y, r.maxAmount, r.harvestRate, r.radius, r.amount, r.active, r.respawnTimer));
+        List<ResourceState> resources = List.of();
         List<BaseState> bases = new ArrayList<>();
         for (Base b : world.bases.values()) bases.add(NetBaseSync.toState(b));
         List<StockState> stocks = List.of(new StockState(PlayerRegistry.localId(), CargoCodec.write(world.stockpile)));
