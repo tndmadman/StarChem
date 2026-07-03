@@ -13,7 +13,7 @@ final class WorldNetAccess {
         List<ResourceState> resources = new ArrayList<>();
         for (ResourceNode r : world.resources) resources.add(new ResourceState(r.id, r.name, r.kind.name(), r.material.name(), r.x, r.y, r.maxAmount, r.harvestRate, r.radius, r.amount, r.active, r.respawnTimer));
         List<BaseState> bases = new ArrayList<>();
-        for (Base b : world.bases.values()) bases.add(new BaseState(b.id, b.playerId, b.typeId, b.x, b.y));
+        for (Base b : world.bases.values()) bases.add(NetBaseSync.toState(b));
         List<StockState> stocks = List.of(new StockState(PlayerRegistry.localId(), CargoCodec.write(world.stockpile)));
         return new Snapshot(sequence, players, units, resources, bases, stocks);
     }
@@ -36,7 +36,7 @@ final class WorldNetAccess {
         if (!snapshot.resources().isEmpty()) NetResourceSync.apply(world, snapshot.resources());
         if (!snapshot.bases().isEmpty()) {
             world.bases.clear();
-            for (BaseState b : snapshot.bases()) world.bases.put(b.id(), new Base(b.id(), b.playerId(), b.typeId(), b.x(), b.y()));
+            for (BaseState b : snapshot.bases()) world.bases.put(b.id(), NetBaseSync.fromState(b));
         }
         if (!snapshot.stocks().isEmpty()) CargoCodec.readInto(snapshot.stocks().get(0).cargo(), world.stockpile);
     }
