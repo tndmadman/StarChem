@@ -29,11 +29,13 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * - Finite rocks/clouds with slow respawn.
  * - Selected ship + selected resource + F1 starts harvesting.
  * - Each ship has its own inventory shown when selected.
+ * - Player station auto-unloads cargo and stores team stockpile.
+ * - Iron + Copper stockpile can build the next ship.
  *
  * Networking is host-authoritative:
  * - Host owns the player list and creates/removes each player's unit group.
  * - Host assigns player IDs, unique display names, and unique colors.
- * - Clients send join/heartbeat/move/harvest/leave packets.
+ * - Clients send join/heartbeat/move/harvest/build/leave packets.
  * - Important UDP packets can be wrapped as reliable messages with ACK/retry.
  * - Host sends fast snapshots plus periodic reliable full snapshots to reduce desync.
  */
@@ -42,6 +44,10 @@ public final class RtsGame {
     private static final double SHIP_SPEED = 185.0;
     private static final double SHIP_CARGO_CAPACITY = 120.0;
     private static final double HARVEST_RANGE = 105.0;
+    private static final double STATION_UNLOAD_RANGE = 118.0;
+    private static final double UNLOAD_RATE = 95.0;
+    private static final double BUILD_SHIP_IRON_COST = 80.0;
+    private static final double BUILD_SHIP_COPPER_COST = 40.0;
     private static final double MIN_AUTO_ZOOM = 0.38;
     private static final double MAX_AUTO_ZOOM = 1.12;
 
@@ -172,7 +178,7 @@ public final class RtsGame {
             JLabel subtitle = new JLabel("Fleet command prototype");
             subtitle.setForeground(new Color(112, 190, 235));
             subtitle.setFont(subtitle.getFont().deriveFont(Font.BOLD, 16f));
-            JLabel hint = new JLabel("Mine finite rocks and gas clouds. Cargo is ship-by-ship. F1 starts harvesting.");
+            JLabel hint = new JLabel("Mine resources, return to station, build ships. F1 harvests. B builds when stocked.");
             hint.setForeground(new Color(160, 180, 205));
             hint.setFont(hint.getFont().deriveFont(13f));
             titlePanel.add(title);
@@ -233,7 +239,7 @@ public final class RtsGame {
             centerWrap.add(glass);
             add(centerWrap, BorderLayout.CENTER);
 
-            JTextArea notes = new JTextArea("Select a ship, select a resource node, press F1 to harvest. Resources are finite but slowly respawn. Camera follows your fleet.");
+            JTextArea notes = new JTextArea("Select ship, select resource, press F1. Return cargo to station. Press B when stockpile has 80 Iron and 40 Copper.");
             notes.setEditable(false);
             notes.setLineWrap(true);
             notes.setWrapStyleWord(true);
@@ -603,17 +609,18 @@ public final class RtsGame {
 
         private void drawHud(Graphics2D g2) {
             List<PlayerInfo> players = world.playersSnapshot();
-            int leftHeight = 136 + players.size() * 18;
+            int leftHeight = 146 + players.size() * 18;
             g2.setColor(new Color(0, 0, 0, 175));
-            g2.fillRoundRect(12, 12, 860, leftHeight, 14, 14);
+            g2.fillRoundRect(12, 12, 930, leftHeight, 14, 14);
             g2.setColor(Color.WHITE);
             g2.drawString("StarChem | Local: " + world.localPlayerLabel() + " | Selected: " + world.selectedCount(), 28, 36);
-            g2.drawString("Left select ship/resource | Right move | F1 harvest selected target | ESC lobby", 28, 58);
+            g2.drawString("Left select ship/resource | Right move | F1 harvest | Auto-unload near station | B build ship | ESC lobby", 28, 58);
             g2.drawString(network == null ? "Network: solo/offline" : network.statusLine(), 28, 80);
             g2.setColor(new Color(210, 230, 245));
             g2.drawString(world.statusLine(), 28, 102);
+            g2.drawString(world.buildHintLine(), 28, 124);
 
-            int y = 126;
+            int y = 148;
             for (PlayerInfo player : players) {
                 g2.setColor(new Color(player.rgb));
                 g2.fillRect(28, y - 11, 12, 12);
@@ -627,8 +634,8 @@ public final class RtsGame {
         }
 
         private void drawInfoPanel(Graphics2D g2) {
-            int panelW = 330;
-            int panelH = 250;
+            int panelW = 350;
+            int panelH = 380;
             int x = getWidth() - panelW - 18;
             int y = 18;
             g2.setColor(new Color(0, 0, 0, 178));
@@ -639,7 +646,7 @@ public final class RtsGame {
             int lineY = y + 26;
             g2.setColor(Color.WHITE);
             g2.setFont(g2.getFont().deriveFont(Font.BOLD, 13f));
-            g2.drawString("SELECTION", x + 16, lineY);
+            g2.drawString("SELECTION / ECONOMY", x + 16, lineY);
             g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f));
 
             lineY += 24;
@@ -652,6 +659,13 @@ public final class RtsGame {
             lineY += 8;
             for (String line : world.selectedResourceInfoLines()) {
                 g2.setColor(new Color(210, 235, 210));
+                g2.drawString(line, x + 16, lineY);
+                lineY += 17;
+            }
+
+            lineY += 8;
+            for (String line : world.stockpileInfoLines()) {
+                g2.setColor(new Color(235, 225, 185));
                 g2.drawString(line, x + 16, lineY);
                 lineY += 17;
             }
@@ -716,6 +730,18 @@ public final class RtsGame {
             }
         }
 
+        private void triggerBuildShip() {
+            BuildCommand command = world.issueBuildShipRequest();
+            if (command == null) {
+                return;
+            }
+            if (network != null) {
+                network.sendBuild(command);
+            } else {
+                world.applyBuildShip(command.playerId);
+            }
+        }
+
         @Override public void mouseEntered(MouseEvent e) { }
         @Override public void mouseExited(MouseEvent e) { }
         @Override public void mouseDragged(MouseEvent e) { dragNow = e.getPoint(); }
@@ -729,6 +755,9 @@ public final class RtsGame {
             if (e.getKeyCode() == KeyEvent.VK_F1) {
                 triggerHarvest();
             }
+            if (e.getKeyCode() == KeyEvent.VK_B) {
+                triggerBuildShip();
+            }
         }
 
         @Override public void keyReleased(KeyEvent e) { keys.remove(e.getKeyCode()); }
@@ -740,6 +769,8 @@ public final class RtsGame {
         final List<ResourceNode> resources = new ArrayList<>();
         private final Map<String, PlayerInfo> players = new LinkedHashMap<>();
         private final Map<String, Unit> units = new LinkedHashMap<>();
+        private final Map<String, Station> stations = new LinkedHashMap<>();
+        private final Map<String, EnumMap<Material, Double>> stockpiles = new LinkedHashMap<>();
         private String localPlayerId = "";
         private String localPlayerName = "Waiting";
         private int selectedResourceId = -1;
@@ -765,46 +796,75 @@ public final class RtsGame {
         }
 
         synchronized void addPlayerWithGroup(String playerId, String name, int rgb, boolean local) {
-            int index = players.size();
             PlayerInfo info = new PlayerInfo(playerId, name, rgb, local);
             players.put(playerId, info);
+            ensurePlayerEconomy(playerId);
             if (local) {
                 localPlayerId = playerId;
                 localPlayerName = name;
             }
-            spawnGroup(playerId, index);
+            spawnGroup(playerId);
         }
 
         synchronized void addOrUpdatePlayer(String playerId, String name, int rgb, boolean local) {
             players.put(playerId, new PlayerInfo(playerId, name, rgb, local));
+            ensurePlayerEconomy(playerId);
             if (local) {
                 localPlayerId = playerId;
                 localPlayerName = name;
             }
+        }
+
+        private void ensurePlayerEconomy(String playerId) {
+            stockpileFor(playerId);
+            stationFor(playerId);
         }
 
         synchronized void removePlayer(String playerId) {
             players.remove(playerId);
             units.values().removeIf(u -> u.playerId.equals(playerId));
+            stations.remove(playerId);
+            stockpiles.remove(playerId);
             if (playerId.equals(localPlayerId)) {
                 localPlayerId = "";
                 localPlayerName = "Disconnected";
             }
         }
 
-        private void spawnGroup(String playerId, int spawnIndex) {
+        private void spawnGroup(String playerId) {
             PlayerInfo player = players.get(playerId);
             if (player == null) {
                 return;
             }
-            Point2D start = spawnPoint(spawnIndex);
+            Point2D start = spawnPoint(playerSlot(playerId));
             for (int i = 0; i < STARTING_UNITS; i++) {
-                int unitId = i + 1;
+                int unitId = nextUnitId(playerId);
                 double x = start.getX() + (i % 3) * 46;
                 double y = start.getY() + (i / 3) * 46;
                 Unit unit = new Unit(playerId, unitId, x, y, player.rgb);
                 units.put(unit.key(), unit);
             }
+        }
+
+        private int nextUnitId(String playerId) {
+            int max = 0;
+            for (Unit unit : units.values()) {
+                if (unit.playerId.equals(playerId)) {
+                    max = Math.max(max, unit.unitId);
+                }
+            }
+            return max + 1;
+        }
+
+        private Station stationFor(String playerId) {
+            return stations.computeIfAbsent(playerId, id -> {
+                Point2D p = stationPoint(id);
+                return new Station(id, p.getX(), p.getY());
+            });
+        }
+
+        private EnumMap<Material, Double> stockpileFor(String playerId) {
+            return stockpiles.computeIfAbsent(playerId, id -> new EnumMap<>(Material.class));
         }
 
         synchronized String uniqueName(String requested) {
@@ -831,6 +891,7 @@ public final class RtsGame {
             for (Unit u : units.values()) {
                 u.update(dt, width, height);
                 updateHarvest(u, dt);
+                autoUnloadAtStation(u, dt);
             }
         }
 
@@ -860,7 +921,44 @@ public final class RtsGame {
             unit.addCargo(node.material, harvested);
         }
 
+        private void autoUnloadAtStation(Unit unit, double dt) {
+            unit.unloadingThisFrame = false;
+            if (unit.cargoUsed() <= 0.05) {
+                return;
+            }
+            Station station = stationFor(unit.playerId);
+            if (distance(unit.x, unit.y, station.x, station.y) > STATION_UNLOAD_RANGE) {
+                return;
+            }
+
+            double remainingUnload = Math.min(UNLOAD_RATE * dt, unit.cargoUsed());
+            EnumMap<Material, Double> stockpile = stockpileFor(unit.playerId);
+            for (Material material : Material.values()) {
+                if (remainingUnload <= 0.001) {
+                    break;
+                }
+                double held = unit.inventory.getOrDefault(material, 0.0);
+                if (held <= 0.001) {
+                    continue;
+                }
+                double take = Math.min(held, remainingUnload);
+                unit.inventory.put(material, held - take);
+                if (unit.inventory.getOrDefault(material, 0.0) <= 0.05) {
+                    unit.inventory.remove(material);
+                }
+                stockpile.put(material, stockpile.getOrDefault(material, 0.0) + take);
+                remainingUnload -= take;
+                unit.unloadingThisFrame = true;
+            }
+            if (unit.unloadingThisFrame && unit.playerId.equals(localPlayerId)) {
+                statusLine = "Auto-unloading cargo at station.";
+            }
+        }
+
         synchronized void draw(Graphics2D g2) {
+            for (PlayerInfo player : players.values()) {
+                stationFor(player.id).draw(g2, player, stockpileFor(player.id), player.id.equals(localPlayerId));
+            }
             for (ResourceNode node : resources) {
                 node.draw(g2, node.id == selectedResourceId);
             }
@@ -868,6 +966,10 @@ public final class RtsGame {
                 ResourceNode node = findResource(u.harvestNodeId);
                 if (node != null) {
                     u.drawHarvestVisual(g2, node, u.playerId.equals(localPlayerId));
+                }
+                Station station = stationFor(u.playerId);
+                if (u.unloadingThisFrame) {
+                    u.drawUnloadVisual(g2, station, u.playerId.equals(localPlayerId));
                 }
                 u.drawMoveOrder(g2, u.playerId.equals(localPlayerId));
             }
@@ -880,6 +982,16 @@ public final class RtsGame {
 
         synchronized String statusLine() {
             return statusLine;
+        }
+
+        synchronized String buildHintLine() {
+            EnumMap<Material, Double> stockpile = stockpileFor(localPlayerId);
+            double iron = stockpile.getOrDefault(Material.IRON, 0.0);
+            double copper = stockpile.getOrDefault(Material.COPPER, 0.0);
+            boolean ready = canAffordShip(localPlayerId);
+            return String.format(Locale.ROOT,
+                    "Build Ship [B]: %.0f Iron + %.0f Copper needed | Stockpile: %.1f Iron / %.1f Copper | %s",
+                    BUILD_SHIP_IRON_COST, BUILD_SHIP_COPPER_COST, iron, copper, ready ? "READY" : "not ready");
         }
 
         synchronized int selectedCount() {
@@ -925,6 +1037,10 @@ public final class RtsGame {
                 maxY = Math.max(maxY, u.y);
             }
             if (!found) {
+                Station station = stations.get(localPlayerId);
+                if (station != null) {
+                    return new Rectangle2D.Double(station.x, station.y, 1, 1);
+                }
                 return null;
             }
             return new Rectangle2D.Double(minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY));
@@ -958,7 +1074,7 @@ public final class RtsGame {
             }
             if (best != null) {
                 best.selected = true;
-                statusLine = "Selected ship " + best.unitId + ". Target a rock/cloud and press F1.";
+                statusLine = "Selected ship " + best.unitId + ". Target a rock/cloud and press F1, or press B at station stockpile.";
             }
         }
 
@@ -1043,6 +1159,19 @@ public final class RtsGame {
             return distance(unit.x, unit.y, node.x, node.y) <= HARVEST_RANGE + node.radius;
         }
 
+        synchronized BuildCommand issueBuildShipRequest() {
+            if (localPlayerId == null || localPlayerId.isBlank()) {
+                statusLine = "No local player for build request.";
+                return null;
+            }
+            if (!canAffordShip(localPlayerId)) {
+                statusLine = String.format(Locale.ROOT, "Need %.0f Iron and %.0f Copper in station stockpile to build ship.", BUILD_SHIP_IRON_COST, BUILD_SHIP_COPPER_COST);
+                return null;
+            }
+            statusLine = "Build ship requested.";
+            return new BuildCommand(localPlayerId);
+        }
+
         synchronized void applyAuthorizedMove(MoveCommand command) {
             Unit unit = units.get(Unit.key(command.playerId, command.unitId));
             if (unit != null) {
@@ -1060,6 +1189,49 @@ public final class RtsGame {
             }
         }
 
+        synchronized boolean applyBuildShip(String playerId) {
+            if (!canAffordShip(playerId)) {
+                if (playerId.equals(localPlayerId)) {
+                    statusLine = "Not enough station stockpile for a new ship.";
+                }
+                return false;
+            }
+            EnumMap<Material, Double> stockpile = stockpileFor(playerId);
+            spend(stockpile, Material.IRON, BUILD_SHIP_IRON_COST);
+            spend(stockpile, Material.COPPER, BUILD_SHIP_COPPER_COST);
+
+            PlayerInfo player = players.get(playerId);
+            int rgb = player == null ? Color.WHITE.getRGB() : player.rgb;
+            Station station = stationFor(playerId);
+            int unitId = nextUnitId(playerId);
+            double angle = unitId * 1.35;
+            double spawnRadius = 72 + (unitId % 4) * 10;
+            double x = clamp(station.x + Math.cos(angle) * spawnRadius, 0, width);
+            double y = clamp(station.y + Math.sin(angle) * spawnRadius, 0, height);
+            Unit unit = new Unit(playerId, unitId, x, y, rgb);
+            units.put(unit.key(), unit);
+            if (playerId.equals(localPlayerId)) {
+                statusLine = "Built Ship #" + unitId + " from station stockpile.";
+            }
+            return true;
+        }
+
+        private boolean canAffordShip(String playerId) {
+            EnumMap<Material, Double> stockpile = stockpileFor(playerId);
+            return stockpile.getOrDefault(Material.IRON, 0.0) >= BUILD_SHIP_IRON_COST
+                    && stockpile.getOrDefault(Material.COPPER, 0.0) >= BUILD_SHIP_COPPER_COST;
+        }
+
+        private void spend(EnumMap<Material, Double> stockpile, Material material, double amount) {
+            double current = stockpile.getOrDefault(material, 0.0);
+            double next = Math.max(0, current - amount);
+            if (next <= 0.05) {
+                stockpile.remove(material);
+            } else {
+                stockpile.put(material, next);
+            }
+        }
+
         synchronized Snapshot createSnapshot(long sequence) {
             List<PlayerInfo> playerCopies = new ArrayList<>(players.values());
             List<UnitState> unitCopies = new ArrayList<>();
@@ -1070,7 +1242,11 @@ public final class RtsGame {
             for (ResourceNode node : resources) {
                 resourceCopies.add(new ResourceState(node.id, node.amount));
             }
-            return new Snapshot(sequence, playerCopies, unitCopies, resourceCopies);
+            List<StockpileState> stockpileCopies = new ArrayList<>();
+            for (Map.Entry<String, EnumMap<Material, Double>> entry : stockpiles.entrySet()) {
+                stockpileCopies.add(new StockpileState(entry.getKey(), encodeInventory(entry.getValue())));
+            }
+            return new Snapshot(sequence, playerCopies, unitCopies, resourceCopies, stockpileCopies);
         }
 
         synchronized void applySnapshot(Snapshot snapshot, String knownLocalPlayerId) {
@@ -1081,6 +1257,8 @@ public final class RtsGame {
                 playerIds.add(p.id);
             }
             players.keySet().removeIf(id -> !playerIds.contains(id));
+            stations.keySet().removeIf(id -> !playerIds.contains(id));
+            stockpiles.keySet().removeIf(id -> !playerIds.contains(id));
 
             Set<String> unitKeys = new LinkedHashSet<>();
             for (UnitState state : snapshot.units) {
@@ -1103,6 +1281,12 @@ public final class RtsGame {
                     node.amount = clamp(state.amount, 0, node.maxAmount);
                 }
             }
+
+            for (StockpileState state : snapshot.stockpiles) {
+                EnumMap<Material, Double> stockpile = stockpileFor(state.playerId);
+                stockpile.clear();
+                decodeInventoryInto(state.cargo, stockpile);
+            }
         }
 
         synchronized List<String> selectedShipInfoLines() {
@@ -1118,6 +1302,8 @@ public final class RtsGame {
             if (selected.harvestNodeId >= 0) {
                 ResourceNode node = findResource(selected.harvestNodeId);
                 lines.add("Action: harvesting " + (node == null ? "unknown" : node.material.label));
+            } else if (selected.unloadingThisFrame) {
+                lines.add("Action: unloading at station");
             } else {
                 lines.add("Action: idle/moving");
             }
@@ -1151,6 +1337,26 @@ public final class RtsGame {
             return lines;
         }
 
+        synchronized List<String> stockpileInfoLines() {
+            List<String> lines = new ArrayList<>();
+            EnumMap<Material, Double> stockpile = stockpileFor(localPlayerId);
+            lines.add("Station Stockpile:");
+            boolean empty = true;
+            for (Material material : Material.values()) {
+                double amount = stockpile.getOrDefault(material, 0.0);
+                if (amount > 0.05) {
+                    lines.add("  " + material.label + ": " + String.format(Locale.ROOT, "%.1f", amount));
+                    empty = false;
+                }
+            }
+            if (empty) {
+                lines.add("  Empty");
+            }
+            lines.add(String.format(Locale.ROOT, "Build ship: %.0f Iron + %.0f Copper", BUILD_SHIP_IRON_COST, BUILD_SHIP_COPPER_COST));
+            lines.add(canAffordShip(localPlayerId) ? "B: BUILD READY" : "B: need more Iron/Copper");
+            return lines;
+        }
+
         private Unit selectedLocalUnit() {
             for (Unit unit : units.values()) {
                 if (unit.playerId.equals(localPlayerId) && unit.selected) {
@@ -1180,6 +1386,68 @@ public final class RtsGame {
                 }
             }
             return null;
+        }
+    }
+
+    static final class Station {
+        final String playerId;
+        final double x;
+        final double y;
+        final double radius = 64;
+
+        Station(String playerId, double x, double y) {
+            this.playerId = playerId;
+            this.x = x;
+            this.y = y;
+        }
+
+        void draw(Graphics2D g2, PlayerInfo player, EnumMap<Material, Double> stockpile, boolean local) {
+            Graphics2D s = (Graphics2D) g2.create();
+            s.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            Color playerColor = new Color(player.rgb);
+
+            s.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), local ? 42 : 25));
+            s.fillOval((int) (x - STATION_UNLOAD_RANGE), (int) (y - STATION_UNLOAD_RANGE), (int) (STATION_UNLOAD_RANGE * 2), (int) (STATION_UNLOAD_RANGE * 2));
+            s.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), local ? 110 : 70));
+            s.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 0, new float[]{10f, 8f}, 0));
+            s.drawOval((int) (x - STATION_UNLOAD_RANGE), (int) (y - STATION_UNLOAD_RANGE), (int) (STATION_UNLOAD_RANGE * 2), (int) (STATION_UNLOAD_RANGE * 2));
+
+            Polygon hull = new Polygon();
+            for (int i = 0; i < 6; i++) {
+                double a = Math.PI / 6 + i * Math.PI * 2 / 6.0;
+                hull.addPoint((int) Math.round(x + Math.cos(a) * radius), (int) Math.round(y + Math.sin(a) * radius));
+            }
+            s.setColor(new Color(20, 29, 42));
+            s.fillPolygon(hull);
+            s.setColor(playerColor);
+            s.setStroke(new BasicStroke(3f));
+            s.drawPolygon(hull);
+            s.setColor(new Color(125, 205, 255, 90));
+            s.fillOval((int) (x - 26), (int) (y - 26), 52, 52);
+            s.setColor(new Color(230, 248, 255));
+            s.drawLine((int) x - 38, (int) y, (int) x + 38, (int) y);
+            s.drawLine((int) x, (int) y - 38, (int) x, (int) y + 38);
+
+            double total = 0;
+            for (double amount : stockpile.values()) {
+                total += amount;
+            }
+            s.setFont(s.getFont().deriveFont(Font.BOLD, 12f));
+            String label = player.name + " STATION";
+            FontMetrics fm = s.getFontMetrics();
+            int textW = fm.stringWidth(label);
+            s.setColor(new Color(0, 0, 0, 160));
+            s.fillRoundRect((int) (x - textW / 2.0 - 6), (int) (y - radius - 32), textW + 12, 18, 8, 8);
+            s.setColor(Color.WHITE);
+            s.drawString(label, (int) (x - textW / 2.0), (int) (y - radius - 18));
+
+            String stock = String.format(Locale.ROOT, "Stock %.0f", total);
+            int stockW = fm.stringWidth(stock);
+            s.setColor(new Color(0, 0, 0, 145));
+            s.fillRoundRect((int) (x - stockW / 2.0 - 6), (int) (y + radius + 14), stockW + 12, 18, 8, 8);
+            s.setColor(new Color(235, 225, 185));
+            s.drawString(stock, (int) (x - stockW / 2.0), (int) (y + radius + 28));
+            s.dispose();
         }
     }
 
@@ -1294,6 +1562,7 @@ public final class RtsGame {
         int harvestNodeId = -1;
         int rgb;
         boolean selected;
+        boolean unloadingThisFrame;
         double hp = 100;
 
         Unit(String playerId, int unitId, double x, double y, int rgb) {
@@ -1338,24 +1607,7 @@ public final class RtsGame {
 
         void setCargoFromEncoded(String encoded) {
             inventory.clear();
-            if (encoded == null || encoded.isBlank() || encoded.equals("-")) {
-                return;
-            }
-            String[] parts = encoded.split("~");
-            for (String part : parts) {
-                String[] pair = part.split(":");
-                if (pair.length == 2) {
-                    try {
-                        Material material = Material.valueOf(pair[0]);
-                        double amount = Double.parseDouble(pair[1]);
-                        if (amount > 0.05) {
-                            inventory.put(material, amount);
-                        }
-                    } catch (IllegalArgumentException ignored) {
-                        // ignore stale material keys
-                    }
-                }
-            }
+            decodeInventoryInto(encoded, inventory);
         }
 
         void applySnapshot(UnitState state) {
@@ -1457,6 +1709,30 @@ public final class RtsGame {
             beam.setColor(new Color(0, 0, 0, 170));
             beam.fillRoundRect(lx - 5, ly - 13, textW + 10, 18, 8, 8);
             beam.setColor(new Color(235, 250, 255));
+            beam.drawString(label, lx, ly);
+            beam.dispose();
+        }
+
+        void drawUnloadVisual(Graphics2D g2, Station station, boolean local) {
+            Graphics2D beam = (Graphics2D) g2.create();
+            beam.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            Color base = new Color(rgb);
+            beam.setStroke(new BasicStroke(local ? 3.2f : 2.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            beam.setColor(new Color(base.getRed(), base.getGreen(), base.getBlue(), local ? 150 : 80));
+            beam.draw(new Line2D.Double(x, y, station.x, station.y));
+            beam.setColor(new Color(235, 245, 255, local ? 135 : 75));
+            beam.setStroke(new BasicStroke(1.3f));
+            beam.draw(new Line2D.Double(x, y, station.x, station.y));
+
+            String label = "UNLOADING";
+            beam.setFont(beam.getFont().deriveFont(Font.BOLD, 11f));
+            FontMetrics fm = beam.getFontMetrics();
+            int textW = fm.stringWidth(label);
+            int lx = (int) ((x + station.x) / 2 - textW / 2.0);
+            int ly = (int) ((y + station.y) / 2 - 18);
+            beam.setColor(new Color(0, 0, 0, 160));
+            beam.fillRoundRect(lx - 5, ly - 13, textW + 10, 18, 8, 8);
+            beam.setColor(new Color(235, 245, 255));
             beam.drawString(label, lx, ly);
             beam.dispose();
         }
@@ -1624,6 +1900,19 @@ public final class RtsGame {
             }
         }
 
+        void sendBuild(BuildCommand command) {
+            if (command.playerId == null || command.playerId.isBlank()) {
+                return;
+            }
+            String msg = "BUILD|" + command.playerId;
+            if (config.hostMode) {
+                world.applyBuildShip(command.playerId);
+                broadcastSnapshot(true);
+            } else {
+                sendToServer(msg);
+            }
+        }
+
         void shutdown() {
             running = false;
             if (!config.hostMode && joined) {
@@ -1733,6 +2022,18 @@ public final class RtsGame {
                     HarvestCommand command = new HarvestCommand(parts[1], Integer.parseInt(parts[2]), Integer.parseInt(parts[3]));
                     world.applyAuthorizedHarvest(command);
                     broadcastSnapshot(false);
+                }
+                case "BUILD" -> {
+                    if (parts.length < 2) {
+                        return;
+                    }
+                    ServerPeer peer = serverPeers.get(endpoint);
+                    if (peer == null || !peer.playerId.equals(parts[1])) {
+                        return;
+                    }
+                    peer.lastSeen = System.currentTimeMillis();
+                    world.applyBuildShip(parts[1]);
+                    broadcastSnapshot(true);
                 }
                 case "LEAVE" -> removePeer(endpoint, true);
                 default -> System.err.println("unknown host packet: " + message);
@@ -1935,9 +2236,11 @@ public final class RtsGame {
     record PlayerInfo(String id, String name, int rgb, boolean local) { }
     record UnitState(String playerId, int unitId, double x, double y, double targetX, double targetY, int harvestNodeId, String cargo) { }
     record ResourceState(int id, double amount) { }
+    record StockpileState(String playerId, String cargo) { }
     record MoveCommand(String playerId, int unitId, double x, double y) { }
     record HarvestCommand(String playerId, int unitId, int resourceId) { }
-    record Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources) { }
+    record BuildCommand(String playerId) { }
+    record Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<StockpileState> stockpiles) { }
     record InboundPacket(String message, InetAddress address, int port) { }
 
     static final class ServerPeer {
@@ -1986,6 +2289,20 @@ public final class RtsGame {
         return Color.HSBtoRGB(hue, 0.75f, 1.0f) & 0xFFFFFF;
     }
 
+    static int playerSlot(String playerId) {
+        if (playerId == null || playerId.isBlank() || playerId.equals("HOST") || playerId.equals("SOLO")) {
+            return 0;
+        }
+        if (playerId.startsWith("P")) {
+            try {
+                return Math.max(1, Integer.parseInt(playerId.substring(1)));
+            } catch (NumberFormatException ignored) {
+                // fall through
+            }
+        }
+        return Math.floorMod(playerId.hashCode(), 8);
+    }
+
     static Point2D spawnPoint(int index) {
         double[][] points = {
                 {220, 260}, {1840, 1020}, {1840, 260}, {220, 1020},
@@ -1994,6 +2311,16 @@ public final class RtsGame {
         double[] point = points[index % points.length];
         int ring = index / points.length;
         return new Point2D.Double(point[0] + ring * 34, point[1] + ring * 34);
+    }
+
+    static Point2D stationPoint(String playerId) {
+        int slot = playerSlot(playerId);
+        Point2D spawn = spawnPoint(slot);
+        double dx = slot % 2 == 0 ? -96 : 96;
+        double dy = slot % 3 == 0 ? 92 : -92;
+        double x = clamp(spawn.getX() + dx, 90, 2110);
+        double y = clamp(spawn.getY() + dy, 90, 1310);
+        return new Point2D.Double(x, y);
     }
 
     static String encodeSnapshot(Snapshot snapshot) {
@@ -2022,7 +2349,13 @@ public final class RtsGame {
             resources.append(r.id).append(',').append(round(r.amount));
         }
 
-        return "SNAPSHOT|" + snapshot.sequence + "|" + players + "|" + units + "|" + resources;
+        StringBuilder stockpiles = new StringBuilder();
+        for (StockpileState s : snapshot.stockpiles) {
+            if (!stockpiles.isEmpty()) stockpiles.append(';');
+            stockpiles.append(s.playerId).append(',').append(s.cargo == null || s.cargo.isBlank() ? "-" : s.cargo);
+        }
+
+        return "SNAPSHOT|" + snapshot.sequence + "|" + players + "|" + units + "|" + resources + "|" + stockpiles;
     }
 
     static Snapshot decodeSnapshot(String message) {
@@ -2031,6 +2364,7 @@ public final class RtsGame {
         List<PlayerInfo> players = new ArrayList<>();
         List<UnitState> units = new ArrayList<>();
         List<ResourceState> resources = new ArrayList<>();
+        List<StockpileState> stockpiles = new ArrayList<>();
 
         if (parts.length > 2 && !parts[2].isBlank()) {
             String[] playerRows = parts[2].split(";");
@@ -2071,7 +2405,17 @@ public final class RtsGame {
             }
         }
 
-        return new Snapshot(sequence, players, units, resources);
+        if (parts.length > 5 && !parts[5].isBlank()) {
+            String[] stockpileRows = parts[5].split(";");
+            for (String row : stockpileRows) {
+                String[] cols = row.split(",", -1);
+                if (cols.length >= 2) {
+                    stockpiles.add(new StockpileState(cols[0], cols[1]));
+                }
+            }
+        }
+
+        return new Snapshot(sequence, players, units, resources, stockpiles);
     }
 
     static String encodeInventory(EnumMap<Material, Double> inventory) {
@@ -2089,6 +2433,28 @@ public final class RtsGame {
             }
         }
         return builder.isEmpty() ? "-" : builder.toString();
+    }
+
+    static void decodeInventoryInto(String encoded, EnumMap<Material, Double> inventory) {
+        inventory.clear();
+        if (encoded == null || encoded.isBlank() || encoded.equals("-")) {
+            return;
+        }
+        String[] parts = encoded.split("~");
+        for (String part : parts) {
+            String[] pair = part.split(":");
+            if (pair.length == 2) {
+                try {
+                    Material material = Material.valueOf(pair[0]);
+                    double amount = Double.parseDouble(pair[1]);
+                    if (amount > 0.05) {
+                        inventory.put(material, amount);
+                    }
+                } catch (IllegalArgumentException ignored) {
+                    // ignore stale material keys
+                }
+            }
+        }
     }
 
     static String defaultName() {
