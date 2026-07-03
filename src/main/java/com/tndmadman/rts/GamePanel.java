@@ -11,8 +11,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener {
     private final PeerNetwork network;
     private final Timer timer;
     private final BuildMenu buildMenu = new BuildMenu();
+    private final GameCamera camera = new GameCamera();
     private long lastNanos = System.nanoTime();
-    private double zoom = 0.9;
 
     GamePanel(World world, GameFrame owner) { this(world, owner, null); }
 
@@ -35,6 +35,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener {
         double dt = Math.min(0.05, (now - lastNanos) / 1_000_000_000.0);
         lastNanos = now;
         if (network == null || network.statusLine().startsWith("HOST")) world.update(dt);
+        camera.update(world, getWidth(), getHeight(), dt);
         repaint();
     }
 
@@ -43,7 +44,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener {
         Graphics2D g2 = (Graphics2D) g.create();
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         AffineTransform old = g2.getTransform();
-        g2.scale(zoom, zoom);
+        camera.apply(g2);
         world.draw(g2);
         g2.setTransform(old);
         drawHud(g2);
@@ -61,7 +62,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener {
         g2.drawString(network == null ? "Solo" : network.statusLine(), 28, 80);
     }
 
-    private Point2D screenToWorld(Point p) { return new Point2D.Double(p.x / zoom, p.y / zoom); }
+    private Point2D screenToWorld(Point p) { return camera.screenToWorld(p); }
 
     @Override public void mousePressed(MouseEvent e) {
         requestFocusInWindow();
