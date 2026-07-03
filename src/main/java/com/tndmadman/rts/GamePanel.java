@@ -5,7 +5,7 @@ import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.*;
 
-final class GamePanel extends JPanel implements KeyListener, MouseListener {
+final class GamePanel extends JPanel implements KeyListener, MouseListener, MouseMotionListener {
     private final World world;
     private final GameFrame owner;
     private final PeerNetwork network;
@@ -13,6 +13,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener {
     private final Timer timer;
     private final BuildMenu buildMenu = new BuildMenu();
     private final GameCamera camera = new GameCamera();
+    private final HangarHud hangarHud = new HangarHud();
     private final DevMenu devMenu = new DevMenu();
     private long lastNanos = System.nanoTime();
 
@@ -28,6 +29,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener {
         setBackground(new Color(8, 12, 18));
         addKeyListener(this);
         addMouseListener(this);
+        addMouseMotionListener(this);
         timer = new Timer(16, e -> tick());
     }
 
@@ -54,7 +56,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener {
         world.draw(g2);
         g2.setTransform(old);
         drawHud(g2);
-        HangarHud.draw(g2, world, getWidth());
+        hangarHud.draw(g2, world, getWidth());
         if (devMode) devMenu.draw(g2, world, canEditDev());
         buildMenu.draw(g2);
         g2.dispose();
@@ -77,6 +79,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener {
         requestFocusInWindow();
         if (buildMenu.click(e.getX(), e.getY())) return;
         if (devMode && devMenu.click(world, e.getX(), e.getY(), canEditDev())) return;
+        if (hangarHud.mousePressed(world, e.getX(), e.getY())) return;
         Point2D p = screenToWorld(e.getPoint());
         if (SwingUtilities.isLeftMouseButton(e)) clickLeft(e, p);
         else if (SwingUtilities.isRightMouseButton(e)) clickRight(p);
@@ -112,11 +115,21 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener {
 
     private void clearSelection() { for (Unit u : world.units.values()) u.selected = false; }
 
+    @Override public void mouseDragged(MouseEvent e) {
+        hangarHud.mouseDragged(e.getX(), e.getY(), getWidth(), getHeight());
+        if (devMode) devMenu.drag(e.getX(), e.getY(), getWidth(), getHeight());
+    }
+
+    @Override public void mouseReleased(MouseEvent e) {
+        hangarHud.mouseReleased();
+        if (devMode) devMenu.release();
+    }
+
     @Override public void keyPressed(KeyEvent e) { if (e.getKeyCode() == KeyEvent.VK_ESCAPE) owner.showLobby("Returned to lobby."); }
     @Override public void keyTyped(KeyEvent e) { }
     @Override public void keyReleased(KeyEvent e) { }
+    @Override public void mouseMoved(MouseEvent e) { }
     @Override public void mouseClicked(MouseEvent e) { }
-    @Override public void mouseReleased(MouseEvent e) { }
     @Override public void mouseEntered(MouseEvent e) { }
     @Override public void mouseExited(MouseEvent e) { }
 }
