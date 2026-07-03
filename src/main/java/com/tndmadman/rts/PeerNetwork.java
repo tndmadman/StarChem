@@ -8,7 +8,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 final class PeerNetwork implements CommandSink {
-    private static final long HEARTBEAT_MS = 1000, SNAPSHOT_MS = 250, RELIABLE_MS = 450, TIMEOUT_MS = 4000;
+    private static final long HEARTBEAT_MS = 1000, SNAPSHOT_MS = 250, RELIABLE_MS = 450, TIMEOUT_MS = 4000, SEED_SYNC_MS = 5000;
     private final Config config;
     private final World world;
     private final DatagramSocket socket;
@@ -20,7 +20,7 @@ final class PeerNetwork implements CommandSink {
     private boolean running = true;
     private boolean joined;
     private int nextPlayer = 1;
-    private long nextReliable = 1, sequence = 1, lastJoin, lastPing, lastSnapshot;
+    private long nextReliable = 1, sequence = 1, lastJoin, lastPing, lastSnapshot, lastSeedSync;
     private String localPlayerId = "SOLO";
 
     private PeerNetwork(Config config, World world, DatagramSocket socket) { this.config = config; this.world = world; this.socket = socket; }
@@ -58,6 +58,7 @@ final class PeerNetwork implements CommandSink {
         if (config.hostMode) {
             removeTimedOutPeers(now);
             if (now - lastSnapshot >= SNAPSHOT_MS) { broadcast(SnapshotWriter.write(WorldNetAccess.snapshot(world, sequence++))); lastSnapshot = now; }
+            if (now - lastSeedSync >= SEED_SYNC_MS) { broadcast("SEED|" + world.systemSeed()); lastSeedSync = now; }
         } else {
             if (!joined && now - lastJoin >= HEARTBEAT_MS) { reliableToServer("JOIN|" + config.playerName); lastJoin = now; }
             if (joined && now - lastPing >= HEARTBEAT_MS) { sendToServer("PING|" + localPlayerId); lastPing = now; }
@@ -119,6 +120,10 @@ final class PeerNetwork implements CommandSink {
 
     private void clientPacket(String m) {
         String[] p = m.split("\\|", -1);
+        if (p[0].equals("SEED") && p.length >= 2) {
+            try { world.useSystemSeed(Long.parseLong(p[1])); } catch (NumberFormatException ignored) { }
+            return;
+        }
         if (p[0].equals("WELCOME") && p.length >= 4) {
             localPlayerId = p[1];
             joined = true;
