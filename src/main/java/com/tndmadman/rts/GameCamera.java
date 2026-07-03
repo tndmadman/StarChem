@@ -26,13 +26,15 @@ final class GameCamera {
         clampToWorld(world, screenW, screenH);
     }
 
-    void zoomAt(Point screenPoint, int wheelRotation, World world, int screenW, int screenH) {
+    void zoomAt(Point ignoredScreenPoint, int wheelRotation, World world, int screenW, int screenH) {
         if (wheelRotation == 0) return;
-        double worldX = screenPoint.x / zoom + x;
-        double worldY = screenPoint.y / zoom + y;
+        double centerX = screenW / 2.0;
+        double centerY = screenH / 2.0;
+        double worldX = centerX / zoom + x;
+        double worldY = centerY / zoom + y;
         zoom = Calc.clamp(zoom * Math.pow(1.12, -wheelRotation), MIN_ZOOM, MAX_ZOOM);
-        x = worldX - screenPoint.x / zoom;
-        y = worldY - screenPoint.y / zoom;
+        x = worldX - centerX / zoom;
+        y = worldY - centerY / zoom;
         clampToWorld(world, screenW, screenH);
     }
 
