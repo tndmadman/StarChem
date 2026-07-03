@@ -1,6 +1,7 @@
 package com.tndmadman.rts;
 
 import java.awt.*;
+import java.awt.geom.Rectangle2D;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -10,6 +11,7 @@ final class BuildMenu {
     private static final int HEADER_H = 34;
     private static final int FOOTER_H = 32;
     private static final int MARGIN = 4;
+    private static final int ICON_W = 74;
     private final List<Entry> entries = new ArrayList<>();
     private int x, y;
     private int scrollOffset;
@@ -29,14 +31,14 @@ final class BuildMenu {
         BaseType def = base.type();
         for (String shipId : def.buildableShips) {
             ShipType ship = Rules.ship(shipId);
-            entries.add(new Entry("Build " + ship.name, Rules.formatCost(ship.buildCost), () -> {
+            entries.add(new Entry("Build " + ship.name, Rules.formatCost(ship.buildCost), ship, () -> {
                 if (network == null) world.buildShip(base.id, shipId);
                 else network.build(base.playerId, base.id, shipId);
             }));
         }
         for (String packageId : def.basePackages) {
             BaseType pkg = Rules.base(packageId);
-            entries.add(new Entry("Load " + pkg.name, Rules.formatCost(pkg.buildCost), () -> {
+            entries.add(new Entry("Load " + pkg.name, Rules.formatCost(pkg.buildCost), null, () -> {
                 if (network == null) world.loadBasePackage(base.id, packageId);
                 else network.basePackage(base.playerId, "LOAD", base.id, packageId);
             }));
@@ -51,7 +53,7 @@ final class BuildMenu {
         x = sx; y = sy; visible = true;
         if (!unit.basePackageType.isBlank()) {
             BaseType pkg = Rules.base(unit.basePackageType);
-            entries.add(new Entry("Place " + pkg.name, "ready", () -> {
+            entries.add(new Entry("Place " + pkg.name, "ready", null, () -> {
                 if (network == null) world.placePackage(unit);
                 else network.basePackage(unit.playerId, "PLACE", unit.key(), unit.basePackageType);
             }));
@@ -111,16 +113,36 @@ final class BuildMenu {
         g2.fillRoundRect(r.x, r.y, r.width, r.height, 10, 10);
         g2.setColor(new Color(120, 220, 255, 170));
         g2.drawRoundRect(r.x, r.y, r.width, r.height, 10, 10);
+        int textW = r.width - 22 - (e.shipIcon == null ? 0 : ICON_W);
         g2.setColor(Color.WHITE);
         g2.setFont(g2.getFont().deriveFont(Font.BOLD, 12f));
-        g2.drawString(fit(g2, e.title, r.width - 20), r.x + 10, r.y + 17);
+        g2.drawString(fit(g2, e.title, textW), r.x + 10, r.y + 17);
         g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f));
         g2.setColor(new Color(220, 225, 185));
         int yLine = r.y + 35;
-        for (String line : wrap(g2, e.detail, r.width - 20, 3)) {
+        for (String line : wrap(g2, e.detail, textW, 3)) {
             g2.drawString(line, r.x + 10, yLine);
             yLine += 15;
         }
+        if (e.shipIcon != null) drawShipIcon(g2, r, e.shipIcon);
+    }
+
+    private void drawShipIcon(Graphics2D g2, Rectangle row, ShipType ship) {
+        Rectangle box = new Rectangle(row.x + row.width - ICON_W + 8, row.y + 8, ICON_W - 18, row.height - 16);
+        g2.setColor(new Color(5, 18, 28, 180));
+        g2.fillRoundRect(box.x, box.y, box.width, box.height, 10, 10);
+        g2.setColor(new Color(120, 220, 255, 95));
+        g2.drawRoundRect(box.x, box.y, box.width, box.height, 10, 10);
+
+        Rectangle2D bounds = ShipShape.create(ship).getBounds2D();
+        double scale = Math.min((box.width - 10) / Math.max(1.0, bounds.getWidth()), (box.height - 10) / Math.max(1.0, bounds.getHeight()));
+        Graphics2D icon = (Graphics2D) g2.create();
+        icon.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        icon.translate(box.getCenterX(), box.getCenterY());
+        icon.scale(scale, scale);
+        icon.translate(-bounds.getCenterX(), -bounds.getCenterY());
+        ShipShape.draw(icon, ship, PlayerRegistry.color(PlayerRegistry.localId()));
+        icon.dispose();
     }
 
     private void drawFooter(Graphics2D g2) {
@@ -220,5 +242,5 @@ final class BuildMenu {
     }
 
     private Rectangle row(int slot) { return new Rectangle(x + 10, y + HEADER_H + slot * ROW_H, WIDTH - 20, ROW_H - 8); }
-    private record Entry(String title, String detail, Runnable action) { }
+    private record Entry(String title, String detail, ShipType shipIcon, Runnable action) { }
 }
