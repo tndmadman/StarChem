@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 
 where javac >nul 2>nul
@@ -35,7 +35,11 @@ if not exist "src\main\java\com\tndmadman\rts" (
 
 echo Finding Java sources...
 (
-    for /r "src\main\java" %%F in (*.java) do echo "%%F"
+    for /r "src\main\java" %%F in (*.java) do (
+        set "SRC=%%F"
+        set "SRC=!SRC:\=/!"
+        echo "!SRC!"
+    )
 ) > "build\sources.txt"
 
 if not exist "build\sources.txt" (
