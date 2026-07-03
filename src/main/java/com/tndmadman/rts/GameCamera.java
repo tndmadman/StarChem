@@ -13,16 +13,14 @@ final class GameCamera {
     private boolean initialized;
 
     void update(World world, int screenW, int screenH, double dt) {
-        if (!initialized) {
-            centerOnLocal(world, screenW, screenH);
-            initialized = true;
-        }
+        if (!initialized) initialized = centerOnLocal(world, screenW, screenH);
         clampToWorld(world, screenW, screenH);
     }
 
     void panByScreen(double screenDx, double screenDy, World world, int screenW, int screenH) {
         x += screenDx / zoom;
         y += screenDy / zoom;
+        initialized = true;
         clampToWorld(world, screenW, screenH);
     }
 
@@ -35,6 +33,7 @@ final class GameCamera {
         zoom = Calc.clamp(zoom * Math.pow(1.12, -wheelRotation), MIN_ZOOM, MAX_ZOOM);
         x = worldX - centerX / zoom;
         y = worldY - centerY / zoom;
+        initialized = true;
         clampToWorld(world, screenW, screenH);
     }
 
@@ -47,13 +46,14 @@ final class GameCamera {
         return new Point2D.Double(p.x / zoom + x, p.y / zoom + y);
     }
 
-    private void centerOnLocal(World world, int screenW, int screenH) {
+    private boolean centerOnLocal(World world, int screenW, int screenH) {
         Rectangle2D target = localTarget(world);
-        if (target == null) return;
+        if (target == null) return false;
         double viewW = screenW / zoom;
         double viewH = screenH / zoom;
         x = target.getCenterX() - viewW / 2.0;
         y = target.getCenterY() - viewH / 2.0;
+        return true;
     }
 
     private void clampToWorld(World world, int screenW, int screenH) {
