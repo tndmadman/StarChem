@@ -18,9 +18,9 @@ final class SnapshotSmoother {
 
     private static boolean correctPosition(Unit unit, UnitState state, boolean local) {
         double error = Calc.distance(unit.x, unit.y, state.x(), state.y());
-        double deadZone = local ? 34 : 10;
-        double snap = local ? 320 : 220;
-        double blend = local ? 0.06 : 0.18;
+        double deadZone = local ? 34 : 24;
+        double snap = local ? 320 : 360;
+        double blend = local ? 0.06 : 0.08;
         if (error <= deadZone) return false;
         if (error > snap) {
             unit.x = state.x();
