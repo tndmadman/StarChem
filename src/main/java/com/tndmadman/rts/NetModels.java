@@ -6,7 +6,7 @@ import java.util.List;
 record PlayerInfo(String id, String name, int rgb, boolean local) { }
 record UnitState(String playerId, int unitId, String shipTypeId, double x, double y, double targetX, double targetY, double heading, String task, int resourceId, String packageType, String cargo) { }
 record ResourceState(int id, String name, String kind, String material, double x, double y, double maxAmount, double harvestRate, double radius, double amount, boolean active, double respawnTimer) { }
-record BaseState(String id, String playerId, String typeId, double x, double y) { }
+record BaseState(String id, String playerId, String typeId, double x, double y, String cargo) { }
 record StockState(String playerId, String cargo) { }
 record Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks) { }
 record NetPacket(String message, InetAddress address, int port) { }
