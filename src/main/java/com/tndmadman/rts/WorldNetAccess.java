@@ -42,10 +42,38 @@ final class WorldNetAccess {
     }
 
     static void addPeerGroup(World world, String playerId) {
-        Point2D bp = Calc.basePoint(slot(playerId));
-        Point2D sp = Calc.spawnPoint(slot(playerId));
+        int slot = slot(playerId);
+        Point2D bp = resourceStart(world, slot);
+        Point2D sp = new Point2D.Double(bp.getX() + 180, bp.getY() - 80);
         world.bases.put(playerId + ":B1", new Base(playerId + ":B1", playerId, Rules.DEFAULT_BASE, bp.getX(), bp.getY()));
         world.units.put(Unit.key(playerId, 1), new Unit(playerId, 1, Rules.STARTING_SHIP, sp.getX(), sp.getY()));
+    }
+
+    private static Point2D resourceStart(World world, int slot) {
+        Material material = switch (Math.floorMod(slot, 4)) {
+            case 1 -> Material.IRON;
+            case 2 -> Material.COPPER;
+            case 3 -> Material.SILICATES;
+            default -> Material.ICE;
+        };
+        ResourceNode node = nthActiveResource(world, material, slot * 17);
+        if (node == null) return Calc.basePoint(slot);
+        double cx = world.width / 2.0;
+        double cy = world.height / 2.0;
+        double a = Math.atan2(node.y - cy, node.x - cx);
+        double r = Math.max(700, Math.hypot(node.x - cx, node.y - cy) - 260);
+        return new Point2D.Double(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+    }
+
+    private static ResourceNode nthActiveResource(World world, Material material, int skip) {
+        ResourceNode picked = null;
+        int seen = 0;
+        for (ResourceNode node : world.resources) {
+            if (!node.active || node.material != material) continue;
+            if (seen++ >= skip) return node;
+            picked = node;
+        }
+        return picked;
     }
 
     private static int slot(String id) {
