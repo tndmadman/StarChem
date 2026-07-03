@@ -1,32 +1,39 @@
 package com.tndmadman.rts;
 
+import java.awt.Point;
 import java.awt.geom.Point2D;
 import java.awt.geom.Rectangle2D;
 
 final class GameCamera {
+    private static final double MIN_ZOOM = 0.36;
+    private static final double MAX_ZOOM = 2.2;
     private double x;
     private double y;
     private double zoom = 0.9;
+    private boolean initialized;
 
     void update(World world, int screenW, int screenH, double dt) {
-        Rectangle2D target = localTarget(world);
-        if (target == null) target = world.localBounds();
-        if (target == null) return;
+        if (!initialized) {
+            centerOnLocal(world, screenW, screenH);
+            initialized = true;
+        }
+        clampToWorld(world, screenW, screenH);
+    }
 
-        double padding = 360;
-        double targetZoom = Math.min(
-                Math.max(520, screenW - 130) / (target.getWidth() + padding),
-                Math.max(360, screenH - 130) / (target.getHeight() + padding));
-        targetZoom = Calc.clamp(targetZoom, 0.36, 1.18);
+    void panByScreen(double screenDx, double screenDy, World world, int screenW, int screenH) {
+        x += screenDx / zoom;
+        y += screenDy / zoom;
+        clampToWorld(world, screenW, screenH);
+    }
 
-        double viewW = screenW / targetZoom;
-        double viewH = screenH / targetZoom;
-        double targetX = Calc.clamp(target.getCenterX() - viewW / 2.0, 0, Math.max(0, world.width - viewW));
-        double targetY = Calc.clamp(target.getCenterY() - viewH / 2.0, 0, Math.max(0, world.height - viewH));
-        double t = Calc.clamp(dt * 3.6, 0, 1);
-        x = Calc.lerp(x, targetX, t);
-        y = Calc.lerp(y, targetY, t);
-        zoom = Calc.lerp(zoom, targetZoom, t);
+    void zoomAt(Point screenPoint, int wheelRotation, World world, int screenW, int screenH) {
+        if (wheelRotation == 0) return;
+        double worldX = screenPoint.x / zoom + x;
+        double worldY = screenPoint.y / zoom + y;
+        zoom = Calc.clamp(zoom * Math.pow(1.12, -wheelRotation), MIN_ZOOM, MAX_ZOOM);
+        x = worldX - screenPoint.x / zoom;
+        y = worldY - screenPoint.y / zoom;
+        clampToWorld(world, screenW, screenH);
     }
 
     void apply(java.awt.Graphics2D g2) {
@@ -36,6 +43,22 @@ final class GameCamera {
 
     Point2D screenToWorld(java.awt.Point p) {
         return new Point2D.Double(p.x / zoom + x, p.y / zoom + y);
+    }
+
+    private void centerOnLocal(World world, int screenW, int screenH) {
+        Rectangle2D target = localTarget(world);
+        if (target == null) return;
+        double viewW = screenW / zoom;
+        double viewH = screenH / zoom;
+        x = target.getCenterX() - viewW / 2.0;
+        y = target.getCenterY() - viewH / 2.0;
+    }
+
+    private void clampToWorld(World world, int screenW, int screenH) {
+        double viewW = screenW / zoom;
+        double viewH = screenH / zoom;
+        x = Calc.clamp(x, 0, Math.max(0, world.width - viewW));
+        y = Calc.clamp(y, 0, Math.max(0, world.height - viewH));
     }
 
     private Rectangle2D localTarget(World world) {
