@@ -174,7 +174,7 @@ final class World {
         g2.fillRect(0, 0, width, height);
         g2.setColor(new Color(22, 33, 48));
         for (int x = 0; x <= width; x += 160) g2.drawLine(x, 0, x, height);
-        for (int y = 0; y <= height; y += 160) g2.drawLine(0, y, width, height);
+        for (int y = 0; y <= height; y += 160) g2.drawLine(0, y, width, y);
     }
 
     void selectAt(double x, double y) {
@@ -233,7 +233,7 @@ final class World {
 
     void relocateResource(ResourceNode node) { ResourceSpawner.relocate(node, resources, bases.values(), celestials, random); }
 
-    ResourceNode resourceAt(double x, double y) { Base best = null; return null; }
+    ResourceNode resourceAt(double x, double y) { ResourceNode best = null; double bestDist = Double.MAX_VALUE; for (ResourceNode node : resources) if (node.active) { double d = Calc.distance(x, y, node.x, node.y); if (d <= node.radius + 14 && d < bestDist) { best = node; bestDist = d; } } return best; }
     Base baseAt(double x, double y) { for (Base base : bases.values()) if (base.contains(x, y)) return base; return null; }
     Unit unitAt(double x, double y) { for (Unit unit : units.values()) if (unit.contains(x, y)) return unit; return null; }
     ResourceNode findResource(int id) { for (ResourceNode node : resources) if (node.id == id) return node; return null; }
@@ -241,5 +241,16 @@ final class World {
     Base nearestBase(String playerId, double x, double y) { Base best = null; double bestDist = Double.MAX_VALUE; for (Base base : bases.values()) if (base.playerId.equals(playerId)) { double d = Calc.distance(x, y, base.x, base.y); if (d < bestDist) { best = base; bestDist = d; } } return best; }
     List<Unit> selectedUnits() { List<Unit> out = new ArrayList<>(); for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) out.add(unit); return out; }
     Unit selectedUnit() { for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) return unit; return null; }
-    int selectedCount() { int count = 0; for (Unit u : units.values()) if (u.selected && PlayerRegistry.isLocal(u.playerId)) count++; return count; }
+    int selectedCount() { int count = 0; for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) count++; return count; }
+
+    boolean canAfford(List<Cost> cost) { for (Cost c : cost) if (stockpile.getOrDefault(c.material(), 0.0) + 0.001 < c.amount()) return false; return true; }
+    void spend(List<Cost> cost) { for (Cost c : cost) { double next = stockpile.getOrDefault(c.material(), 0.0) - c.amount(); if (next <= 0.05) stockpile.remove(c.material()); else stockpile.put(c.material(), next); } }
+
+    Rectangle2D localBounds() {
+        boolean found = false;
+        double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+        for (Unit u : units.values()) if (PlayerRegistry.isLocal(u.playerId)) { found = true; minX = Math.min(minX, u.x); minY = Math.min(minY, u.y); maxX = Math.max(maxX, u.x); maxY = Math.max(maxY, u.y); }
+        for (Base b : bases.values()) if (PlayerRegistry.isLocal(b.playerId)) { found = true; minX = Math.min(minX, b.x); minY = Math.min(minY, b.y); maxX = Math.max(maxX, b.x); maxY = Math.max(maxY, b.y); }
+        return found ? new Rectangle2D.Double(minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY)) : null;
+    }
 }
