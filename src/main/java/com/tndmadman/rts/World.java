@@ -7,8 +7,8 @@ import java.util.*;
 import java.util.List;
 
 final class World {
-    final int width = 2200;
-    final int height = 1400;
+    final int width = 8000;
+    final int height = 5200;
     final String localPlayerId = "SOLO";
     final String localPlayerName;
     final Color localColor = new Color(0x50BEFF);
@@ -31,22 +31,29 @@ final class World {
     World(String localPlayerName) {
         this.localPlayerName = Config.clean(localPlayerName);
         seedResources();
-        Point2D basePoint = Calc.basePoint(0);
+        Point2D basePoint = startBasePoint();
         addBase(Rules.DEFAULT_BASE, basePoint.getX(), basePoint.getY());
-        Point2D start = Calc.spawnPoint(0);
+        Point2D start = startShipPoint();
         spawnShip(Rules.STARTING_SHIP, start.getX(), start.getY());
     }
 
     private void seedResources() {
-        resources.add(new ResourceNode(1, "Iron Vein", NodeKind.SILICATE_ROCK, Material.IRON, 620, 370, 260, 7.5, 32));
-        resources.add(new ResourceNode(2, "Copper Vein", NodeKind.SILICATE_ROCK, Material.COPPER, 1010, 610, 180, 6.5, 28));
-        resources.add(new ResourceNode(3, "Ice Rock", NodeKind.SILICATE_ROCK, Material.ICE, 1380, 330, 220, 7.0, 31));
-        resources.add(new ResourceNode(4, "Silicate Cluster", NodeKind.SILICATE_ROCK, Material.SILICATES, 1660, 1000, 320, 8.0, 36));
-        resources.add(new ResourceNode(5, "Hydrogen Cloud", NodeKind.GAS_CLOUD, Material.HYDROGEN, 890, 980, 360, 9.0, 58));
-        resources.add(new ResourceNode(6, "Helium Pocket", NodeKind.GAS_CLOUD, Material.HELIUM, 1830, 520, 210, 7.5, 52));
-        resources.add(new ResourceNode(7, "Methane Cloud", NodeKind.GAS_CLOUD, Material.METHANE, 420, 1060, 240, 7.5, 55));
-        resources.add(new ResourceNode(8, "Ammonia Trace", NodeKind.GAS_CLOUD, Material.AMMONIA, 1250, 1130, 180, 6.5, 50));
+        resources.add(new ResourceNode(1, "Iron Vein", NodeKind.SILICATE_ROCK, Material.IRON, 1250, 820, 520, 7.5, 34));
+        resources.add(new ResourceNode(2, "Copper Vein", NodeKind.SILICATE_ROCK, Material.COPPER, 2560, 1220, 420, 6.5, 30));
+        resources.add(new ResourceNode(3, "Ice Rock", NodeKind.SILICATE_ROCK, Material.ICE, 5160, 880, 460, 7.0, 32));
+        resources.add(new ResourceNode(4, "Silicate Cluster", NodeKind.SILICATE_ROCK, Material.SILICATES, 6900, 3700, 620, 8.0, 38));
+        resources.add(new ResourceNode(5, "Hydrogen Cloud", NodeKind.GAS_CLOUD, Material.HYDROGEN, 2150, 3880, 700, 9.0, 62));
+        resources.add(new ResourceNode(6, "Helium Pocket", NodeKind.GAS_CLOUD, Material.HELIUM, 6040, 1840, 430, 7.5, 54));
+        resources.add(new ResourceNode(7, "Methane Cloud", NodeKind.GAS_CLOUD, Material.METHANE, 920, 4380, 520, 7.5, 58));
+        resources.add(new ResourceNode(8, "Ammonia Trace", NodeKind.GAS_CLOUD, Material.AMMONIA, 4200, 4460, 400, 6.5, 52));
+        resources.add(new ResourceNode(9, "Outer Iron Belt", NodeKind.SILICATE_ROCK, Material.IRON, 7420, 920, 640, 7.8, 36));
+        resources.add(new ResourceNode(10, "Outer Copper Belt", NodeKind.SILICATE_ROCK, Material.COPPER, 3650, 2760, 520, 6.8, 32));
+        resources.add(new ResourceNode(11, "Deep Ice Field", NodeKind.SILICATE_ROCK, Material.ICE, 7100, 4920, 560, 7.0, 34));
+        resources.add(new ResourceNode(12, "Outer Hydrogen Cloud", NodeKind.GAS_CLOUD, Material.HYDROGEN, 5480, 3280, 760, 9.2, 64));
     }
+
+    private Point2D startShipPoint() { return new Point2D.Double(760, 720); }
+    private Point2D startBasePoint() { return new Point2D.Double(540, 940); }
 
     void update(double dt) {
         resourceRespawnSystem.update(this, dt);
@@ -141,8 +148,8 @@ final class World {
         g2.setColor(new Color(9, 15, 24));
         g2.fillRect(0, 0, width, height);
         g2.setColor(new Color(22, 33, 48));
-        for (int x = 0; x <= width; x += 80) g2.drawLine(x, 0, x, height);
-        for (int y = 0; y <= height; y += 80) g2.drawLine(0, y, width, y);
+        for (int x = 0; x <= width; x += 160) g2.drawLine(x, 0, x, height);
+        for (int y = 0; y <= height; y += 160) g2.drawLine(0, y, width, y);
     }
 
     void selectAt(double x, double y) {
@@ -228,8 +235,8 @@ final class World {
 
     void relocateResource(ResourceNode node) {
         for (int attempt = 0; attempt < 120; attempt++) {
-            double x = 140 + random.nextDouble() * (width - 280);
-            double y = 140 + random.nextDouble() * (height - 280);
+            double x = 280 + random.nextDouble() * (width - 560);
+            double y = 280 + random.nextDouble() * (height - 560);
             if (validResourceSpot(node.id, x, y)) {
                 node.x = x;
                 node.y = y;
@@ -246,8 +253,8 @@ final class World {
     }
 
     private boolean validResourceSpot(int nodeId, double x, double y) {
-        for (Base base : bases.values()) if (Calc.distance(x, y, base.x, base.y) < 180) return false;
-        for (ResourceNode node : resources) if (node.id != nodeId && node.active && Calc.distance(x, y, node.x, node.y) < 140) return false;
+        for (Base base : bases.values()) if (Calc.distance(x, y, base.x, base.y) < 260) return false;
+        for (ResourceNode node : resources) if (node.id != nodeId && node.active && Calc.distance(x, y, node.x, node.y) < 320) return false;
         return true;
     }
 
