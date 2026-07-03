@@ -9,15 +9,16 @@ final class BuildSystem {
             world.status = base.type().name + " cannot build " + shipType.name + ".";
             return false;
         }
-        if (!HangarStore.canAfford(base.inventory, shipType.buildCost)) {
+        boolean free = freeBuild(world, base);
+        if (!free && !HangarStore.canAfford(base.inventory, shipType.buildCost)) {
             world.status = "Need " + Rules.formatCost(shipType.buildCost) + " in " + base.type().name + " hangar.";
             return false;
         }
-        HangarStore.spend(base.inventory, shipType.buildCost);
+        if (!free) HangarStore.spend(base.inventory, shipType.buildCost);
         int n = nextUnitId(world, base.playerId);
         double a = n * 1.35;
         spawnShipFor(world, base.playerId, n, shipTypeId, base.x + Math.cos(a) * (base.type().buildRadius + 40), base.y + Math.sin(a) * (base.type().buildRadius + 40));
-        world.status = "Built " + shipType.name + ".";
+        world.status = free ? "Dev built " + shipType.name + " for free." : "Built " + shipType.name + ".";
         return true;
     }
 
@@ -29,7 +30,8 @@ final class BuildSystem {
             return false;
         }
         BaseType pkg = Rules.base(packageType);
-        if (!HangarStore.canAfford(base.inventory, pkg.buildCost)) {
+        boolean free = freeBuild(world, base);
+        if (!free && !HangarStore.canAfford(base.inventory, pkg.buildCost)) {
             world.status = "Need " + Rules.formatCost(pkg.buildCost) + " in " + base.type().name + " hangar.";
             return false;
         }
@@ -38,9 +40,9 @@ final class BuildSystem {
             world.status = "Move an empty Deployer into base range first.";
             return false;
         }
-        HangarStore.spend(base.inventory, pkg.buildCost);
+        if (!free) HangarStore.spend(base.inventory, pkg.buildCost);
         carrier.basePackageType = packageType;
-        world.status = "Loaded " + pkg.name + " package into Deployer.";
+        world.status = free ? "Dev loaded " + pkg.name + " package for free." : "Loaded " + pkg.name + " package into Deployer.";
         return true;
     }
 
@@ -54,6 +56,10 @@ final class BuildSystem {
         world.units.remove(carrier.key());
         world.status = "Placed Shipyard. Deployer consumed.";
         return true;
+    }
+
+    private boolean freeBuild(World world, Base base) {
+        return world.devFreeBuild && PlayerRegistry.isLocal(base.playerId);
     }
 
     private Unit nearestEmptyBuilder(World world, Base base) {
