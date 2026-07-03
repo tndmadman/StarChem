@@ -9,17 +9,21 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener {
     private final World world;
     private final GameFrame owner;
     private final PeerNetwork network;
+    private final boolean devMode;
     private final Timer timer;
     private final BuildMenu buildMenu = new BuildMenu();
     private final GameCamera camera = new GameCamera();
+    private final DevMenu devMenu = new DevMenu();
     private long lastNanos = System.nanoTime();
 
-    GamePanel(World world, GameFrame owner) { this(world, owner, null); }
+    GamePanel(World world, GameFrame owner) { this(world, owner, null, false); }
+    GamePanel(World world, GameFrame owner, PeerNetwork network) { this(world, owner, network, false); }
 
-    GamePanel(World world, GameFrame owner, PeerNetwork network) {
+    GamePanel(World world, GameFrame owner, PeerNetwork network, boolean devMode) {
         this.world = world;
         this.owner = owner;
         this.network = network;
+        this.devMode = devMode;
         setFocusable(true);
         setBackground(new Color(8, 12, 18));
         addKeyListener(this);
@@ -51,6 +55,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener {
         g2.setTransform(old);
         drawHud(g2);
         HangarHud.draw(g2, world, getWidth());
+        if (devMode) devMenu.draw(g2, world, canEditDev());
         buildMenu.draw(g2);
         g2.dispose();
     }
@@ -65,11 +70,13 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener {
         g2.drawString(network == null ? "Solo" : network.statusLine(), 28, 80);
     }
 
+    private boolean canEditDev() { return network == null || network.statusLine().startsWith("HOST"); }
     private Point2D screenToWorld(Point p) { return camera.screenToWorld(p); }
 
     @Override public void mousePressed(MouseEvent e) {
         requestFocusInWindow();
         if (buildMenu.click(e.getX(), e.getY())) return;
+        if (devMode && devMenu.click(world, e.getX(), e.getY(), canEditDev())) return;
         Point2D p = screenToWorld(e.getPoint());
         if (SwingUtilities.isLeftMouseButton(e)) clickLeft(e, p);
         else if (SwingUtilities.isRightMouseButton(e)) clickRight(p);
