@@ -109,10 +109,7 @@ final class World {
     private void updateReturn(Unit unit) {
         Base base = nearestBase(unit.playerId, unit.x, unit.y);
         Unit depot = MobileDepot.preferredFor(this, unit, base);
-        if (base == null && depot == null) {
-            unit.task = UnitTask.IDLE;
-            return;
-        }
+        if (base == null && depot == null) { unit.task = UnitTask.IDLE; return; }
         if (unit.cargoUsed() <= 0.05) {
             ResourceNode resume = findResource(unit.automationResourceId);
             unit.task = resume != null && resume.active ? UnitTask.AUTO_HARVEST : UnitTask.IDLE;
@@ -220,10 +217,10 @@ final class World {
     void orbitAround(Unit unit, double cx, double cy, double radius, double dt, double speed) {
         unit.orbitAngle += dt * speed * (unit.unitId % 2 == 0 ? 1 : -1);
         unit.orbitRetarget -= dt;
-        if (unit.orbitRetarget <= 0 || Calc.distance(unit.x, unit.y, unit.targetX, unit.targetY) < 12) {
+        if (unit.orbitRetarget <= 0) {
             unit.targetX = Calc.clamp(cx + Math.cos(unit.orbitAngle) * radius, 0, width);
             unit.targetY = Calc.clamp(cy + Math.sin(unit.orbitAngle) * radius, 0, height);
-            unit.orbitRetarget = 1.1;
+            unit.orbitRetarget = 0.75;
         }
     }
 
