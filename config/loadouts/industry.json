@@ -1,0 +1,6 @@
+{
+  "shipLoadouts": {
+    "hauler": ["point_defense_laser"],
+    "freighter": ["point_defense_laser", "point_defense_laser"]
+  }
+}
