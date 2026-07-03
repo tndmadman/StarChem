@@ -24,19 +24,27 @@ if errorlevel 1 (
 
 if not exist "build" mkdir "build"
 if not exist "build\classes" mkdir "build\classes"
+if not exist "build\sources.txt" type nul > "build\sources.txt"
 
-set MAIN_SOURCE=src\main\java\com\tndmadman\rts\RtsGame.java
-
-if not exist "%MAIN_SOURCE%" (
-    echo Could not find %MAIN_SOURCE%.
+if not exist "src\main\java\com\tndmadman\rts" (
+    echo Could not find StarChem source folder.
     echo Make sure you are running this from the StarChem repo folder.
     echo.
     pause
     exit /b 1
 )
 
-echo Compiling StarChem...
-javac --release 17 -encoding UTF-8 -d "build\classes" "%MAIN_SOURCE%"
+echo Finding Java sources...
+dir /s /b "src\main\java\*.java" > "build\sources.txt"
+
+if not exist "build\sources.txt" (
+    echo Could not create source list.
+    pause
+    exit /b 1
+)
+
+echo Compiling StarChem modular source files...
+javac --release 17 -encoding UTF-8 -d "build\classes" @"build\sources.txt"
 if errorlevel 1 (
     echo.
     echo Compile failed.
@@ -46,4 +54,4 @@ if errorlevel 1 (
 
 echo Launching StarChem...
 echo.
-java -cp "build\classes" com.tndmadman.rts.RtsGame %*
+java -cp "build\classes" com.tndmadman.rts.App %*
