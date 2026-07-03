@@ -1,0 +1,55 @@
+{
+  "shipTypes": {
+    "prospector": {
+      "displayName": "Prospector",
+      "role": "starter miner",
+      "size": "SMALL",
+      "seed": 1501,
+      "maxHp": 100,
+      "speed": 185,
+      "cargoCapacity": 120,
+      "harvestRange": 105,
+      "orbitRadius": 72,
+      "idleStationOrbitRadius": 96,
+      "buildTimeSeconds": 0,
+      "buildCost": { "IRON": 80, "COPPER": 40 },
+      "canHarvest": ["SILICATE_ROCK", "GAS_CLOUD"]
+    },
+    "station_builder": {
+      "displayName": "Deployer",
+      "role": "station placement ship",
+      "size": "LARGE",
+      "seed": 2451,
+      "maxHp": 240,
+      "speed": 115,
+      "cargoCapacity": 0,
+      "harvestRange": 0,
+      "orbitRadius": 90,
+      "idleStationOrbitRadius": 120,
+      "buildTimeSeconds": 0,
+      "buildCost": { "IRON": 220, "COPPER": 120, "SILICATES": 100, "ICE": 40 },
+      "canHarvest": [],
+      "baseBuilder": true,
+      "stationPackageSlots": 1,
+      "canCarryStationPackages": ["shipyard"],
+      "singleUseAfterStationPlacement": true
+    },
+    "scout": {
+      "displayName": "Scout",
+      "role": "fast recon",
+      "size": "SMALL",
+      "seed": 9907,
+      "maxHp": 70,
+      "speed": 275,
+      "cargoCapacity": 45,
+      "harvestRange": 60,
+      "orbitRadius": 70,
+      "idleStationOrbitRadius": 115,
+      "scoutRange": 420,
+      "scoutDispatchLimit": 5,
+      "buildTimeSeconds": 0,
+      "buildCost": { "IRON": 60, "COPPER": 90, "HYDROGEN": 40 },
+      "canHarvest": []
+    }
+  }
+}
