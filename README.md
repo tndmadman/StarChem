@@ -10,6 +10,12 @@ It is written in plain Java/Swing with a UDP multiplayer layer. The game starts 
 - Top-down RTS camera
 - Automatic fleet camera/zoom based on the player's ships
 - Starts with one command ship per player
+- Default station for each player
+- Automatic cargo unloading when a ship is inside station range
+- Station stockpile for unloaded resources
+- First real progression loop: build a second ship from station resources
+- `B` build action for new ships
+- New ship cost: `80 Iron + 40 Copper`
 - Centered move orders so a single selected ship lands exactly on the clicked point
 - Movement route line from ship to destination
 - Destination ring/crosshair with speed and ETA readout
@@ -18,9 +24,11 @@ It is written in plain Java/Swing with a UDP multiplayer layer. The game starts 
 - Gas clouds containing hydrogen, helium, methane, and ammonia
 - `F1` harvesting action
 - Harvest beam/particle visuals while mining or collecting gas
+- Unload beam/visual when transferring cargo to station
 - Per-ship cargo inventory
 - Selected ship inventory panel
 - Selected resource information panel
+- Station stockpile panel
 - Single Windows launcher: `run-starchem.bat`
 - Mouse box selection
 - Right-click movement commands
@@ -28,7 +36,7 @@ It is written in plain Java/Swing with a UDP multiplayer layer. The game starts 
 - Host-created player groups
 - Player removal on leave or timeout
 - Unique player names and colors
-- Host snapshot sync for units, cargo, and resource amounts
+- Host snapshot sync for units, cargo, resource amounts, and station stockpiles
 - Reliable UDP wrapper for important packets
 - ACK/retry delivery for join, welcome, leave, remove, and full snapshots
 - Fast lightweight snapshots for movement smoothing
@@ -67,7 +75,35 @@ If Windows says `javac` is not recognized, install a Java 17+ JDK and reopen Com
 - Left drag: box-select ships
 - Right click: move selected ships
 - `F1`: begin harvesting selected target with selected ship
+- Move cargo ship near station: unload automatically
+- `B`: build a new ship if the station stockpile has enough resources
 - `ESC`: return to lobby
+
+## First progression loop
+
+The first real RTS loop is now playable:
+
+1. Select your command ship.
+2. Select an iron asteroid.
+3. Move into range.
+4. Press `F1` to harvest iron.
+5. Return to your station and let the ship unload automatically.
+6. Repeat with copper.
+7. When the station has `80 Iron + 40 Copper`, press `B` to build another ship.
+
+The first build cost uses iron for the hull and copper for basic electronics/power routing.
+
+## Stations
+
+Each player gets a default station near their spawn point.
+
+Station behavior:
+
+- Draws an unload radius around itself.
+- Automatically unloads cargo from friendly ships in range.
+- Stores unloaded resources in that player's station stockpile.
+- Shows total station stockpile in the economy panel.
+- Spawns newly built ships nearby.
 
 ## Resource harvesting
 
@@ -86,6 +122,7 @@ Rules:
 - The ship must have free cargo space.
 - The resource node must have material remaining.
 - Each ship has its own cargo inventory.
+- Cargo must be unloaded at station before it can be spent.
 
 Resource nodes are finite, but they slowly regenerate over time instead of being permanently exhausted.
 
@@ -128,9 +165,9 @@ The current multiplayer model is host-authoritative UDP:
 - Host opens the session on a known UDP port.
 - Clients send reliable `JOIN|name` messages.
 - Host assigns each client a player ID, unique name, color, and unit group.
-- Clients send movement and harvest requests to the host.
-- Host validates movement/harvesting and broadcasts snapshots.
-- Host syncs unit cargo and resource node amounts.
+- Clients send movement, harvest, and build requests to the host.
+- Host validates movement, harvesting, building, unloading, and stockpiles.
+- Host syncs unit cargo, resource node amounts, station stockpiles, and ships.
 - Host also sends periodic reliable full snapshots.
 - Reliable messages are wrapped as `REL|messageId|payload`.
 - Receivers answer with `ACK|messageId`.
@@ -168,12 +205,13 @@ gradle run --args="--join 127.0.0.1 50000 --name Player"
 
 ## Next build steps
 
-1. Add a way to spend resources to build more ships.
-2. Add a basic refinery/base/drop-off point.
-3. Add packet ordering checks so old reliable snapshots cannot overwrite newer state.
-4. Add reconnect support.
-5. Add a proper pre-match player list inside the lobby.
-6. Add fog of war.
-7. Add unit production buildings.
-8. Add combat/projectiles.
-9. Add NAT traversal or relay fallback for internet play.
+1. Add build queues/timers instead of instant ship construction.
+2. Add different ship classes: miner, scout, hauler, fighter.
+3. Add a refinery/base upgrade system.
+4. Add packet ordering checks so old reliable snapshots cannot overwrite newer state.
+5. Add reconnect support.
+6. Add a proper pre-match player list inside the lobby.
+7. Add fog of war.
+8. Add unit production buildings.
+9. Add combat/projectiles.
+10. Add NAT traversal or relay fallback for internet play.
