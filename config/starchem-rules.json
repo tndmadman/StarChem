@@ -1,108 +1,115 @@
 {
-  "rulesVersion": 1,
+  "rulesVersion": 2,
   "startingShipType": "prospector",
   "defaultStationType": "outpost",
   "materials": {
-    "IRON": {
-      "displayName": "Iron",
-      "description": "Common structural metal used for hulls, station frames, and basic ship construction."
-    },
-    "COPPER": {
-      "displayName": "Copper",
-      "description": "Conductive metal used for electronics, power routing, and starter ship systems."
-    },
-    "SILICATES": {
-      "displayName": "Silicates",
-      "description": "Rocky material used later for ceramics, insulation, and station modules."
-    },
-    "ICE": {
-      "displayName": "Water Ice",
-      "description": "Frozen volatiles used later for life support, reaction mass, and refining."
-    },
-    "HYDROGEN": {
-      "displayName": "Hydrogen",
-      "description": "Light gas used later for fuel, coolant, and reactor feedstock."
-    },
-    "HELIUM": {
-      "displayName": "Helium",
-      "description": "Inert gas used later for cooling, shielding, and advanced industry."
-    },
-    "METHANE": {
-      "displayName": "Methane",
-      "description": "Carbon-bearing gas used later for fuel chemistry and plastics."
-    },
-    "AMMONIA": {
-      "displayName": "Ammonia",
-      "description": "Nitrogen-bearing volatile used later for fertilizer chemistry and life support inputs."
-    }
+    "IRON": { "displayName": "Iron" },
+    "COPPER": { "displayName": "Copper" },
+    "SILICATES": { "displayName": "Silicates" },
+    "ICE": { "displayName": "Water Ice" },
+    "HYDROGEN": { "displayName": "Hydrogen" },
+    "HELIUM": { "displayName": "Helium" },
+    "METHANE": { "displayName": "Methane" },
+    "AMMONIA": { "displayName": "Ammonia" }
   },
   "shipTypes": {
     "prospector": {
       "displayName": "Prospector",
       "role": "starter miner",
-      "description": "Small starter utility ship. Cheap, slow, and useful for basic mining and hauling.",
       "maxHp": 100,
       "speed": 185,
       "cargoCapacity": 120,
       "harvestRange": 105,
+      "orbitRadius": 72,
+      "idleStationOrbitRadius": 96,
       "buildTimeSeconds": 0,
-      "buildCost": {
-        "IRON": 80,
-        "COPPER": 40
-      },
-      "canHarvest": ["SILICATE_ROCK", "GAS_CLOUD"]
+      "buildCost": { "IRON": 80, "COPPER": 40 },
+      "canHarvest": ["SILICATE_ROCK", "GAS_CLOUD"],
+      "automation": {
+        "rightClickResourceBeginsAutoHarvest": true,
+        "returnToStationWhenCargoFull": true,
+        "orbitWhileHarvesting": true,
+        "orbitStationWhenIdle": true
+      }
+    },
+    "station_builder": {
+      "displayName": "Deployer",
+      "role": "station placement ship",
+      "maxHp": 240,
+      "speed": 115,
+      "cargoCapacity": 0,
+      "harvestRange": 0,
+      "orbitRadius": 90,
+      "idleStationOrbitRadius": 120,
+      "buildTimeSeconds": 0,
+      "buildCost": { "IRON": 220, "COPPER": 120, "SILICATES": 100, "ICE": 40 },
+      "canHarvest": [],
+      "stationPackageSlots": 1,
+      "canCarryStationPackages": ["shipyard"],
+      "singleUseAfterStationPlacement": true
     },
     "hauler": {
       "displayName": "Hauler",
       "role": "cargo ship",
-      "description": "Larger cargo ship reserved for later progression. Lower speed, high cargo capacity.",
       "maxHp": 140,
       "speed": 140,
       "cargoCapacity": 320,
       "harvestRange": 80,
+      "orbitRadius": 84,
+      "idleStationOrbitRadius": 120,
       "buildTimeSeconds": 0,
-      "buildCost": {
-        "IRON": 150,
-        "COPPER": 60,
-        "SILICATES": 80
-      },
+      "buildCost": { "IRON": 150, "COPPER": 60, "SILICATES": 80 },
       "canHarvest": []
     },
     "scout": {
       "displayName": "Scout",
       "role": "fast recon",
-      "description": "Fast light ship reserved for later scouting and fog-of-war gameplay.",
       "maxHp": 70,
       "speed": 270,
       "cargoCapacity": 45,
       "harvestRange": 60,
+      "orbitRadius": 70,
+      "idleStationOrbitRadius": 115,
       "buildTimeSeconds": 0,
-      "buildCost": {
-        "IRON": 60,
-        "COPPER": 90,
-        "HYDROGEN": 40
-      },
+      "buildCost": { "IRON": 60, "COPPER": 90, "HYDROGEN": 40 },
       "canHarvest": []
     }
   },
   "stationTypes": {
     "outpost": {
       "displayName": "Outpost",
-      "description": "Default starter station. Stores unloaded materials and builds basic ships.",
       "maxHp": 1200,
       "unloadRange": 118,
       "unloadRate": 95,
       "buildRadius": 72,
-      "canBuildShips": ["prospector"]
+      "canBuildShips": ["prospector", "station_builder"],
+      "canBuildStationPackages": ["shipyard"]
     },
     "shipyard": {
       "displayName": "Shipyard",
-      "description": "Future upgraded station type for larger ship production.",
       "maxHp": 2400,
       "unloadRange": 150,
       "unloadRate": 160,
       "buildRadius": 100,
-      "canBuildShips": ["prospector", "hauler", "scout"]
+      "buildCost": { "IRON": 500, "COPPER": 250, "SILICATES": 350, "ICE": 160 },
+      "packedVolume": 1,
+      "mustBeCarriedByShipType": "station_builder",
+      "carrierIsRemovedAfterPlacement": true,
+      "canBuildShips": ["prospector", "station_builder", "hauler", "scout"],
+      "canBuildStationPackages": []
     }
+  },
+  "automationDefaults": {
+    "rightClickResourceWithSelectedShipBeginsAutoHarvest": true,
+    "shipReturnsToNearestFriendlyStationWhenFull": true,
+    "shipOrbitsResourceWhileHarvesting": true,
+    "idleShipsOrbitNearestFriendlyStation": true
+  },
+  "resourceRespawn": {
+    "mode": "move_depleted_node_to_new_location",
+    "depletedNodeVanishDelaySeconds": 2,
+    "respawnDelaySeconds": 18,
+    "minimumDistanceFromStations": 180,
+    "minimumDistanceFromOtherNodes": 140
   }
 }
