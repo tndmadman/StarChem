@@ -22,6 +22,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 /**
  * StarChem: Java 2D top-down RTS prototype.
  *
+ * The lobby is now an in-game screen inside the same main window.
+ *
  * Networking is host-authoritative:
  * - Host owns the player list and creates/removes each player's unit group.
  * - Host assigns player IDs, unique display names, and unique colors.
@@ -32,93 +34,137 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 public final class RtsGame {
     public static void main(String[] args) {
         Config config = Config.parse(args);
-        SwingUtilities.invokeLater(() -> {
-            if (config.showLobby) {
-                new LobbyFrame().setVisible(true);
-            } else {
-                startGame(config);
-            }
-        });
+        SwingUtilities.invokeLater(() -> new GameFrame(config).setVisible(true));
     }
 
-    private static void startGame(Config config) {
-        World world = new World();
-        PeerNetwork network = null;
+    static final class GameFrame extends JFrame {
+        private final CardLayout cards = new CardLayout();
+        private final JPanel root = new JPanel(cards);
+        private final LobbyPanel lobbyPanel = new LobbyPanel(this);
+        private PeerNetwork currentNetwork;
+        private GamePanel currentGamePanel;
 
-        try {
-            network = PeerNetwork.start(config, world);
-        } catch (IOException e) {
-            JOptionPane.showMessageDialog(null,
-                    "Could not start network: " + e.getMessage(),
-                    "StarChem Network Error",
-                    JOptionPane.ERROR_MESSAGE);
-            if (!config.soloMode) {
-                return;
+        GameFrame(Config config) {
+            super("StarChem");
+            setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+            setSize(1280, 800);
+            setMinimumSize(new Dimension(900, 620));
+            setLocationRelativeTo(null);
+            setContentPane(root);
+            root.add(lobbyPanel, "lobby");
+
+            addWindowListener(new WindowAdapter() {
+                @Override
+                public void windowClosing(WindowEvent e) {
+                    shutdownCurrentNetwork();
+                }
+            });
+
+            if (config.showLobby) {
+                showLobby("Choose Solo, Host, or Join.");
+            } else {
+                launchGame(config);
             }
         }
 
-        if (network == null) {
-            world.startSolo(config.localPlayerName);
+        void showLobby(String status) {
+            shutdownCurrentNetwork();
+            currentGamePanel = null;
+            lobbyPanel.setStatus(status);
+            setTitle("StarChem - Lobby");
+            cards.show(root, "lobby");
+            lobbyPanel.requestFocusForName();
         }
 
-        PeerNetwork finalNetwork = network;
-        JFrame frame = new JFrame("StarChem RTS - " + config.localPlayerName);
-        GamePanel panel = new GamePanel(world, finalNetwork);
-        frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
-        frame.addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosing(WindowEvent e) {
-                if (finalNetwork != null) {
-                    finalNetwork.shutdown();
+        void launchGame(Config config) {
+            shutdownCurrentNetwork();
+            World world = new World();
+            PeerNetwork network = null;
+
+            try {
+                network = PeerNetwork.start(config, world);
+            } catch (IOException e) {
+                if (config.showLobby || config.serverAddress != null || config.hostMode) {
+                    showLobby("Network failed: " + e.getMessage());
+                    return;
                 }
             }
-        });
-        frame.setContentPane(panel);
-        frame.setSize(1280, 800);
-        frame.setLocationRelativeTo(null);
-        frame.setVisible(true);
-        panel.start();
+
+            if (network == null) {
+                world.startSolo(config.localPlayerName);
+            }
+
+            currentNetwork = network;
+            currentGamePanel = new GamePanel(world, currentNetwork, this);
+            String cardName = "game-" + System.nanoTime();
+            root.add(currentGamePanel, cardName);
+            setTitle("StarChem - " + config.modeLabel() + " - " + config.localPlayerName);
+            cards.show(root, cardName);
+            revalidate();
+            repaint();
+            SwingUtilities.invokeLater(currentGamePanel::start);
+        }
+
+        private void shutdownCurrentNetwork() {
+            if (currentNetwork != null) {
+                currentNetwork.shutdown();
+                currentNetwork = null;
+            }
+        }
     }
 
-    static final class LobbyFrame extends JFrame {
+    static final class LobbyPanel extends JPanel {
+        private final GameFrame owner;
         private final JTextField nameField = new JTextField(defaultName(), 18);
         private final JTextField hostPortField = new JTextField("50000", 8);
         private final JTextField joinHostField = new JTextField("127.0.0.1", 14);
         private final JTextField joinPortField = new JTextField("50000", 8);
         private final JLabel statusLabel = new JLabel("Choose Solo, Host, or Join.");
 
-        LobbyFrame() {
-            super("StarChem Lobby");
-            setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
-            setSize(460, 330);
-            setLocationRelativeTo(null);
-            setResizable(false);
+        LobbyPanel(GameFrame owner) {
+            super(new BorderLayout(16, 16));
+            this.owner = owner;
+            setBorder(BorderFactory.createEmptyBorder(42, 60, 42, 60));
+            setBackground(new Color(8, 12, 18));
 
-            JPanel root = new JPanel(new BorderLayout(12, 12));
-            root.setBorder(BorderFactory.createEmptyBorder(18, 18, 18, 18));
-            root.setBackground(new Color(12, 18, 28));
-
-            JLabel title = new JLabel("StarChem Lobby");
+            JPanel titlePanel = new JPanel(new GridLayout(0, 1, 0, 6));
+            titlePanel.setOpaque(false);
+            JLabel title = new JLabel("StarChem");
             title.setForeground(Color.WHITE);
-            title.setFont(title.getFont().deriveFont(Font.BOLD, 26f));
-            root.add(title, BorderLayout.NORTH);
+            title.setFont(title.getFont().deriveFont(Font.BOLD, 42f));
+            JLabel subtitle = new JLabel("2D top-down RTS multiplayer prototype");
+            subtitle.setForeground(new Color(170, 195, 220));
+            subtitle.setFont(subtitle.getFont().deriveFont(16f));
+            titlePanel.add(title);
+            titlePanel.add(subtitle);
+            add(titlePanel, BorderLayout.NORTH);
 
+            JPanel centerWrap = new JPanel(new GridBagLayout());
+            centerWrap.setOpaque(false);
             JPanel form = new JPanel(new GridBagLayout());
-            form.setOpaque(false);
-            GridBagConstraints c = new GridBagConstraints();
-            c.insets = new Insets(6, 6, 6, 6);
-            c.fill = GridBagConstraints.HORIZONTAL;
+            form.setOpaque(true);
+            form.setBackground(new Color(15, 23, 36));
+            form.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(new Color(54, 77, 105), 1),
+                    BorderFactory.createEmptyBorder(22, 24, 22, 24)
+            ));
 
+            GridBagConstraints c = new GridBagConstraints();
+            c.insets = new Insets(8, 8, 8, 8);
+            c.fill = GridBagConstraints.HORIZONTAL;
             addRow(form, c, 0, "Player name", nameField);
             addRow(form, c, 1, "Host port", hostPortField);
             addRow(form, c, 2, "Join IP", joinHostField);
             addRow(form, c, 3, "Join port", joinPortField);
 
-            JPanel buttons = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 8));
+            JPanel buttons = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 10));
             buttons.setOpaque(false);
             JButton solo = new JButton("Solo");
             JButton host = new JButton("Host Game");
             JButton join = new JButton("Join Game");
+            styleButton(solo);
+            styleButton(host);
+            styleButton(join);
             buttons.add(solo);
             buttons.add(host);
             buttons.add(join);
@@ -128,16 +174,36 @@ public final class RtsGame {
             c.gridwidth = 2;
             form.add(buttons, c);
 
-            statusLabel.setForeground(new Color(190, 210, 230));
+            statusLabel.setForeground(new Color(205, 220, 238));
             c.gridy = 5;
             form.add(statusLabel, c);
 
-            root.add(form, BorderLayout.CENTER);
-            setContentPane(root);
+            centerWrap.add(form);
+            add(centerWrap, BorderLayout.CENTER);
+
+            JTextArea notes = new JTextArea("Host creates the session. Join connects to the host IP. Important packets use ACK/retry; movement uses fast snapshots.");
+            notes.setEditable(false);
+            notes.setLineWrap(true);
+            notes.setWrapStyleWord(true);
+            notes.setOpaque(false);
+            notes.setForeground(new Color(160, 180, 205));
+            notes.setFont(notes.getFont().deriveFont(13f));
+            add(notes, BorderLayout.SOUTH);
 
             solo.addActionListener(e -> launchSolo());
             host.addActionListener(e -> launchHost());
             join.addActionListener(e -> launchJoin());
+        }
+
+        void setStatus(String status) {
+            statusLabel.setText(status);
+        }
+
+        void requestFocusForName() {
+            SwingUtilities.invokeLater(() -> {
+                nameField.requestFocusInWindow();
+                nameField.selectAll();
+            });
         }
 
         private void addRow(JPanel form, GridBagConstraints c, int row, String label, JComponent field) {
@@ -153,33 +219,35 @@ public final class RtsGame {
             form.add(field, c);
         }
 
+        private void styleButton(JButton button) {
+            button.setFocusPainted(false);
+            button.setFont(button.getFont().deriveFont(Font.BOLD, 14f));
+        }
+
         private void launchSolo() {
-            dispose();
-            startGame(Config.solo(nameField.getText()));
+            owner.launchGame(Config.solo(nameField.getText()));
         }
 
         private void launchHost() {
             try {
-                int port = Integer.parseInt(hostPortField.getText().trim());
-                dispose();
-                startGame(Config.host(nameField.getText(), port));
-            } catch (NumberFormatException ex) {
-                statusLabel.setText("Host port must be a number.");
+                int port = parsePort(hostPortField.getText().trim());
+                owner.launchGame(Config.host(nameField.getText(), port));
+            } catch (IllegalArgumentException ex) {
+                setStatus(ex.getMessage());
             }
         }
 
         private void launchJoin() {
             try {
-                int port = Integer.parseInt(joinPortField.getText().trim());
+                int port = parsePort(joinPortField.getText().trim());
                 String host = joinHostField.getText().trim();
                 if (host.isBlank()) {
-                    statusLabel.setText("Join IP cannot be blank.");
+                    setStatus("Join IP cannot be blank.");
                     return;
                 }
-                dispose();
-                startGame(Config.join(nameField.getText(), host, port));
-            } catch (NumberFormatException ex) {
-                statusLabel.setText("Join port must be a number.");
+                owner.launchGame(Config.join(nameField.getText(), host, port));
+            } catch (IllegalArgumentException ex) {
+                setStatus(ex.getMessage());
             }
         }
     }
@@ -218,15 +286,15 @@ public final class RtsGame {
                     case "--solo" -> solo = true;
                     case "--host" -> {
                         host = true;
-                        localPort = Integer.parseInt(require(args, ++i, "--host needs a port"));
+                        localPort = parsePort(require(args, ++i, "--host needs a port"));
                     }
                     case "--join" -> {
                         host = false;
                         String hostName = require(args, ++i, "--join needs host ip");
-                        int peerPort = Integer.parseInt(require(args, ++i, "--join needs peer port"));
+                        int peerPort = parsePort(require(args, ++i, "--join needs peer port"));
                         server = new InetSocketAddress(hostName, peerPort);
                     }
-                    case "--local-port" -> localPort = Integer.parseInt(require(args, ++i, "--local-port needs a port"));
+                    case "--local-port" -> localPort = parsePort(require(args, ++i, "--local-port needs a port"));
                     default -> throw new IllegalArgumentException("Unknown arg: " + args[i]);
                 }
             }
@@ -249,6 +317,13 @@ public final class RtsGame {
             return new Config(cleanName(name), false, false, false, 0, new InetSocketAddress(host, port));
         }
 
+        String modeLabel() {
+            if (soloMode) return "Solo";
+            if (hostMode) return "Host";
+            if (serverAddress != null) return "Client";
+            return "Lobby";
+        }
+
         private static String require(String[] args, int index, String message) {
             if (index >= args.length) {
                 throw new IllegalArgumentException(message);
@@ -260,6 +335,7 @@ public final class RtsGame {
     static final class GamePanel extends JPanel implements MouseListener, MouseMotionListener, MouseWheelListener, KeyListener {
         private final World world;
         private final PeerNetwork network;
+        private final GameFrame owner;
         private final Set<Integer> keys = new HashSet<>();
         private final javax.swing.Timer timer;
         private double cameraX = 0;
@@ -269,9 +345,10 @@ public final class RtsGame {
         private Point dragNow;
         private long lastNanos = System.nanoTime();
 
-        GamePanel(World world, PeerNetwork network) {
+        GamePanel(World world, PeerNetwork network, GameFrame owner) {
             this.world = world;
             this.network = network;
+            this.owner = owner;
             setBackground(new Color(8, 12, 18));
             setFocusable(true);
             addMouseListener(this);
@@ -305,6 +382,10 @@ public final class RtsGame {
             if (keys.contains(KeyEvent.VK_S) || keys.contains(KeyEvent.VK_DOWN)) cameraY += speed * dt;
             if (keys.contains(KeyEvent.VK_A) || keys.contains(KeyEvent.VK_LEFT)) cameraX -= speed * dt;
             if (keys.contains(KeyEvent.VK_D) || keys.contains(KeyEvent.VK_RIGHT)) cameraX += speed * dt;
+            if (keys.contains(KeyEvent.VK_ESCAPE)) {
+                timer.stop();
+                owner.showLobby("Returned to lobby.");
+            }
             cameraX = clamp(cameraX, -200, world.width - 200);
             cameraY = clamp(cameraY, -200, world.height - 200);
         }
@@ -367,12 +448,12 @@ public final class RtsGame {
 
         private void drawHud(Graphics2D g2) {
             List<PlayerInfo> players = world.playersSnapshot();
-            int height = 92 + players.size() * 18;
+            int height = 112 + players.size() * 18;
             g2.setColor(new Color(0, 0, 0, 175));
-            g2.fillRoundRect(12, 12, 720, height, 14, 14);
+            g2.fillRoundRect(12, 12, 750, height, 14, 14);
             g2.setColor(Color.WHITE);
             g2.drawString("StarChem | Local: " + world.localPlayerLabel() + " | Selected: " + world.selectedCount(), 28, 36);
-            g2.drawString("WASD pan | Wheel zoom | Left select/drag | Right move", 28, 58);
+            g2.drawString("WASD pan | Wheel zoom | Left select/drag | Right move | ESC lobby", 28, 58);
             g2.drawString(network == null ? "Network: solo/offline" : network.statusLine(), 28, 80);
 
             int y = 104;
@@ -1280,6 +1361,18 @@ public final class RtsGame {
 
     static String defaultName() {
         return cleanName(System.getProperty("user.name", "Player"));
+    }
+
+    static int parsePort(String value) {
+        try {
+            int port = Integer.parseInt(value.trim());
+            if (port < 1 || port > 65535) {
+                throw new IllegalArgumentException("Port must be 1-65535.");
+            }
+            return port;
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Port must be a number.");
+        }
     }
 
     static String cleanName(String name) {
