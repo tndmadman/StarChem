@@ -1,0 +1,52 @@
+{
+  "weaponTypes": {
+    "point_defense_laser": {
+      "displayName": "Point Defense Laser",
+      "range": 360,
+      "damage": 6,
+      "cooldownSeconds": 0.25,
+      "beam": true,
+      "color": "#66e8ff"
+    },
+    "light_railgun": {
+      "displayName": "Light Railgun",
+      "range": 620,
+      "damage": 18,
+      "cooldownSeconds": 0.85,
+      "beam": false,
+      "color": "#9fdcff"
+    },
+    "heavy_cannon": {
+      "displayName": "Heavy Cannon",
+      "range": 780,
+      "damage": 55,
+      "cooldownSeconds": 1.6,
+      "beam": false,
+      "color": "#ffd17a"
+    },
+    "fighter_strike": {
+      "displayName": "Fighter Strike",
+      "range": 920,
+      "damage": 80,
+      "cooldownSeconds": 2.4,
+      "beam": false,
+      "color": "#c77dff"
+    },
+    "capital_lance": {
+      "displayName": "Capital Lance",
+      "range": 1150,
+      "damage": 220,
+      "cooldownSeconds": 4.0,
+      "beam": true,
+      "color": "#ff5f55"
+    },
+    "siege_lance": {
+      "displayName": "Siege Lance",
+      "range": 1400,
+      "damage": 420,
+      "cooldownSeconds": 5.5,
+      "beam": true,
+      "color": "#ff9f1c"
+    }
+  }
+}
