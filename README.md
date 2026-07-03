@@ -2,12 +2,15 @@
 
 StarChem is a Java 2D top-down multiplayer RTS prototype.
 
-It is written in plain Java/Swing with a UDP multiplayer layer. The game now starts in an in-game lobby inside the same main window, then swaps into the RTS view when you choose Solo, Host, or Join.
+It is written in plain Java/Swing with a UDP multiplayer layer. The game starts in an in-game lobby inside the same main window, then swaps into the RTS view when you choose Solo, Host, or Join.
 
 ## Current features
 
+- Polished in-game menu with a space/RTS style
 - Top-down RTS camera
-- In-game Swing lobby screen for Solo, Host, and Join
+- Automatic fleet camera/zoom based on the player's ships
+- Starts with one command ship per player
+- Designed for later unit expansion through resource collection
 - Single Windows launcher: `run-starchem.bat`
 - Grid map and resource nodes
 - Local units
@@ -77,12 +80,18 @@ gradle run --args="--join 127.0.0.1 50000 --name Player"
 
 ## Controls
 
-- `WASD` or arrow keys: pan camera
-- Mouse wheel: zoom
 - Left click: select one unit
 - Left drag: box-select units
 - Right click: move selected units
 - `ESC`: return to lobby
+
+## Camera behavior
+
+The camera no longer depends on manual mouse-wheel zoom. It frames the player's owned ships automatically:
+
+- With one ship, it uses a comfortable minimum close zoom so the camera does not zoom too far in.
+- As the player's ships spread out, the camera smoothly zooms out to keep all owned ships in frame.
+- When future resource systems add more units, the camera will scale with the fleet automatically.
 
 ## Network design
 
@@ -104,11 +113,12 @@ This is much more stable than the first two-peer prototype, but it is still not 
 
 ## Next build steps
 
-1. Add packet ordering checks so old reliable snapshots cannot overwrite newer state.
-2. Add reconnect support.
-3. Add a proper pre-match player list inside the lobby.
-4. Add fog of war.
-5. Add resource harvesting.
-6. Add unit production buildings.
-7. Add combat/projectiles.
-8. Add NAT traversal or relay fallback for internet play.
+1. Add resource collection.
+2. Add a way to spend resources to build more units.
+3. Add packet ordering checks so old reliable snapshots cannot overwrite newer state.
+4. Add reconnect support.
+5. Add a proper pre-match player list inside the lobby.
+6. Add fog of war.
+7. Add unit production buildings.
+8. Add combat/projectiles.
+9. Add NAT traversal or relay fallback for internet play.
