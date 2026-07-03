@@ -15,6 +15,9 @@ final class LobbyPanel extends JPanel {
         this.owner = owner;
         setOpaque(false);
         setBorder(BorderFactory.createEmptyBorder(26, 34, 26, 34));
+        styleField(nameField);
+        styleField(addressField);
+        styleField(portField);
 
         JLabel title = new JLabel("STAR  CHEM");
         title.setForeground(new Color(230, 248, 255));
@@ -60,6 +63,15 @@ final class LobbyPanel extends JPanel {
         label.setForeground(new Color(220, 238, 250));
         label.setFont(label.getFont().deriveFont(Font.BOLD, 13f));
         return label;
+    }
+
+    private void styleField(JTextField field) {
+        field.setForeground(Color.WHITE);
+        field.setCaretColor(Color.WHITE);
+        field.setBackground(new Color(9, 18, 31));
+        field.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(70, 135, 180)),
+                BorderFactory.createEmptyBorder(8, 10, 8, 10)));
     }
 
     private void startServer() {
