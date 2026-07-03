@@ -8,7 +8,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 final class PeerNetwork implements CommandSink {
-    private static final long HEARTBEAT_MS = 1000, SNAPSHOT_MS = 250, RELIABLE_MS = 450, TIMEOUT_MS = 4000, ENV_SYNC_MS = 1000;
+    private static final long HEARTBEAT_MS = 1000, SNAPSHOT_MS = 100, RELIABLE_MS = 450, TIMEOUT_MS = 4000, ENV_SYNC_MS = 1000;
     private final Config config;
     private final World world;
     private final DatagramSocket socket;
