@@ -30,14 +30,7 @@ final class WorldNetAccess {
                 u = new Unit(s.playerId(), s.unitId(), s.shipTypeId(), s.x(), s.y());
                 world.units.put(key, u);
             }
-            u.shipTypeId = s.shipTypeId();
-            u.x = s.x(); u.y = s.y();
-            u.targetX = s.targetX(); u.targetY = s.targetY();
-            u.heading = s.heading();
-            u.task = UnitTask.valueOf(s.task());
-            u.automationResourceId = s.resourceId();
-            u.basePackageType = s.packageType();
-            CargoCodec.readInto(s.cargo(), u.inventory);
+            SnapshotSmoother.apply(u, s);
         }
         world.units.keySet().removeIf(key -> !liveUnits.contains(key));
         if (!snapshot.bases().isEmpty()) {
