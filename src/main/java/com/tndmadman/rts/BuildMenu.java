@@ -29,16 +29,17 @@ final class BuildMenu {
         menuHeight = HEADER_H;
         x = sx; y = sy; visible = true;
         BaseType def = base.type();
+        boolean free = world.devFreeBuild && PlayerRegistry.isLocal(base.playerId);
         for (String shipId : def.buildableShips) {
             ShipType ship = Rules.ship(shipId);
-            entries.add(new Entry("Build " + ship.name, Rules.formatCost(ship.buildCost), ship, () -> {
+            entries.add(new Entry("Build " + ship.name, free ? "free (dev mode)" : Rules.formatCost(ship.buildCost), ship, () -> {
                 if (network == null) world.buildShip(base.id, shipId);
                 else network.build(base.playerId, base.id, shipId);
             }));
         }
         for (String packageId : def.basePackages) {
             BaseType pkg = Rules.base(packageId);
-            entries.add(new Entry("Load " + pkg.name, Rules.formatCost(pkg.buildCost), null, () -> {
+            entries.add(new Entry("Load " + pkg.name, free ? "free (dev mode)" : Rules.formatCost(pkg.buildCost), null, () -> {
                 if (network == null) world.loadBasePackage(base.id, packageId);
                 else network.basePackage(base.playerId, "LOAD", base.id, packageId);
             }));

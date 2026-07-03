@@ -16,6 +16,7 @@ final class World {
     final Map<String, Unit> units = new LinkedHashMap<>();
     final Map<String, Base> bases = new LinkedHashMap<>();
     final EnumMap<Material, Double> stockpile = new EnumMap<>(Material.class);
+    boolean devFreeBuild;
 
     private long systemSeed;
     private double systemTime;
