@@ -22,22 +22,23 @@ It is written in plain Java/Swing with a UDP host/client layer. The game opens i
 - Deployers place Shipyards and are consumed
 - Shipyards unlock Haulers and Scouts
 - Movement route line, destination ring, speed, and ETA
-- Automatic fleet camera/zoom
+- Manual WASD camera and mouse-wheel zoom
 - UDP host/client synchronization for players, ships, stations, cargo, resources, and stockpiles
 
 ## Controls
 
+- `W`: pan camera up
+- `A`: pan camera left
+- `S`: pan camera down
+- `D`: pan camera right
+- Mouse wheel: zoom camera in/out around the cursor
 - Left click your ship: select ship
+- Left click your base: open build menu
+- Left click a loaded Deployer: open place-station menu
 - Left click a rock/cloud: inspect/target resource
 - Left drag: box-select ships
 - Right click ground: move selected ships
 - Right click resource with a ship selected: begin auto-harvesting
-- `1`: build Prospector
-- `2`: build Deployer
-- `3`: build Hauler, requires Shipyard
-- `4`: build Scout, requires Shipyard
-- `U` with selected empty Deployer near Outpost: load Shipyard package if you can afford it
-- `U` with selected loaded Deployer: place Shipyard and consume Deployer
 - `ESC`: return to lobby
 
 ## Progression loop
@@ -46,11 +47,12 @@ It is written in plain Java/Swing with a UDP host/client layer. The game opens i
 2. Right-click an iron asteroid to auto-harvest.
 3. The ship mines, orbits the asteroid/cloud, returns when full, unloads at the Outpost, then resumes if the node still exists.
 4. Repeat for Copper, Silicates, and Ice as needed.
-5. Press `2` to build a Deployer when the Outpost stockpile can afford it.
-6. Select the Deployer near the Outpost and press `U` to fabricate/load a Shipyard package.
-7. Move the loaded Deployer to the desired spot.
-8. Press `U` again to place the Shipyard. The Deployer is consumed.
-9. Use the Shipyard to build Haulers with `3` and Scouts with `4`.
+5. Left-click the Outpost and build a Deployer when the Outpost stockpile can afford it.
+6. Move an empty Deployer near the Outpost.
+7. Left-click the Outpost and load a Shipyard package into the Deployer.
+8. Move the loaded Deployer to the desired spot.
+9. Left-click the loaded Deployer and place the Shipyard. The Deployer is consumed.
+10. Use the Shipyard build menu to build Haulers and Scouts.
 
 ## Ship costs
 
@@ -137,7 +139,7 @@ gradle run --args="--join 127.0.0.1 50000 --name Player"
 - [ ] Rename either `station_builder` or `builder` so JSON and Java match.
 - [ ] Add snapshot sequence rejection on the client.
 - [ ] Replace the raw delimited UDP protocol with JSON or length-prefixed packets.
-- [ ] Update README controls.
+- [x] Update README controls.
 - [ ] Add a Gradle wrapper and a tiny CI build.
 - [ ] Add tests for `CargoCodec`, `SnapshotReader`/`SnapshotWriter`, `CommandAuth`, and `BuildSystem`.
 - [ ] Add build queues/timers instead of instant construction.
