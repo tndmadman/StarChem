@@ -11,7 +11,7 @@ if not "%~2"=="" set PORT=%~2
 echo Starting StarChem JOIN client...
 echo Connecting to %HOST_IP%:%PORT%
 echo.
-call gradle run --args="--join %HOST_IP% %PORT% --id JOIN"
+call "%~dp0run-starchem.bat" --join %HOST_IP% %PORT% --id JOIN
 
 echo.
 pause
