@@ -33,6 +33,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  */
 public final class RtsGame {
     private static final int STARTING_UNITS = 1;
+    private static final double SHIP_SPEED = 185.0;
     private static final double MIN_AUTO_ZOOM = 0.38;
     private static final double MAX_AUTO_ZOOM = 1.12;
 
@@ -588,7 +589,7 @@ public final class RtsGame {
             g2.fillRoundRect(12, 12, 790, height, 14, 14);
             g2.setColor(Color.WHITE);
             g2.drawString("StarChem | Local: " + world.localPlayerLabel() + " | Selected: " + world.selectedCount(), 28, 36);
-            g2.drawString("Auto camera/zoom follows your ships | Left select/drag | Right move | ESC lobby", 28, 58);
+            g2.drawString("Auto camera follows your ships | Route line shows destination, speed, ETA | ESC lobby", 28, 58);
             g2.drawString(network == null ? "Network: solo/offline" : network.statusLine(), 28, 80);
 
             int y = 104;
@@ -749,6 +750,9 @@ public final class RtsGame {
 
         synchronized void draw(Graphics2D g2) {
             for (Unit u : units.values()) {
+                u.drawMoveOrder(g2, u.playerId.equals(localPlayerId));
+            }
+            for (Unit u : units.values()) {
                 PlayerInfo player = players.get(u.playerId);
                 String name = player == null ? u.playerId : player.name;
                 u.draw(g2, name);
@@ -842,12 +846,15 @@ public final class RtsGame {
 
             double spacing = 42;
             int columns = (int) Math.ceil(Math.sqrt(count));
+            int rows = (int) Math.ceil(count / (double) columns);
+            double centerCol = (columns - 1) / 2.0;
+            double centerRow = (rows - 1) / 2.0;
             for (int i = 0; i < count; i++) {
                 Unit u = selected.get(i);
                 int col = i % columns;
                 int row = i / columns;
-                double targetX = x + (col - columns / 2.0) * spacing;
-                double targetY = y + row * spacing;
+                double targetX = x + (col - centerCol) * spacing;
+                double targetY = y + (row - centerRow) * spacing;
                 u.moveTo(targetX, targetY);
                 commands.add(new MoveCommand(localPlayerId, u.unitId, targetX, targetY));
             }
@@ -930,6 +937,10 @@ public final class RtsGame {
             this.targetY = y;
         }
 
+        boolean isMoving() {
+            return distance(x, y, targetX, targetY) > 4;
+        }
+
         void applySnapshot(UnitState state) {
             double error = distance(x, y, state.x, state.y);
             if (error > 20) {
@@ -948,13 +959,50 @@ public final class RtsGame {
             double dy = targetY - y;
             double distance = Math.hypot(dx, dy);
             if (distance > 2) {
-                double speed = 185;
-                double step = Math.min(distance, speed * dt);
+                double step = Math.min(distance, SHIP_SPEED * dt);
                 x += dx / distance * step;
                 y += dy / distance * step;
             }
             x = clamp(x, 0, mapW);
             y = clamp(y, 0, mapH);
+        }
+
+        void drawMoveOrder(Graphics2D g2, boolean showEta) {
+            double distance = distance(x, y, targetX, targetY);
+            if (distance <= 4) {
+                return;
+            }
+
+            Graphics2D route = (Graphics2D) g2.create();
+            route.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            Color base = new Color(rgb);
+            int alpha = showEta ? 180 : 95;
+            route.setColor(new Color(base.getRed(), base.getGreen(), base.getBlue(), alpha));
+            route.setStroke(new BasicStroke(1.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 0, new float[]{9f, 8f}, 0));
+            route.draw(new Line2D.Double(x, y, targetX, targetY));
+
+            route.setStroke(new BasicStroke(2.0f));
+            route.setColor(new Color(base.getRed(), base.getGreen(), base.getBlue(), Math.min(220, alpha + 35)));
+            route.draw(new Ellipse2D.Double(targetX - 11, targetY - 11, 22, 22));
+            route.draw(new Line2D.Double(targetX - 16, targetY, targetX + 16, targetY));
+            route.draw(new Line2D.Double(targetX, targetY - 16, targetX, targetY + 16));
+
+            if (showEta) {
+                double eta = distance / SHIP_SPEED;
+                String label = String.format(Locale.ROOT, "%.0f u/s | ETA %.1fs", SHIP_SPEED, eta);
+                Font oldFont = route.getFont();
+                route.setFont(oldFont.deriveFont(Font.BOLD, 12f));
+                FontMetrics fm = route.getFontMetrics();
+                double labelX = (x + targetX) / 2.0 + 10;
+                double labelY = (y + targetY) / 2.0 - 10;
+                int textW = fm.stringWidth(label);
+                int textH = fm.getHeight();
+                route.setColor(new Color(0, 0, 0, 170));
+                route.fillRoundRect((int) labelX - 5, (int) labelY - textH + 3, textW + 10, textH + 5, 8, 8);
+                route.setColor(new Color(220, 245, 255));
+                route.drawString(label, (int) labelX, (int) labelY);
+            }
+            route.dispose();
         }
 
         void draw(Graphics2D g2, String playerName) {
