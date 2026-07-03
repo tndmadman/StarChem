@@ -15,7 +15,6 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final BuildMenu buildMenu = new BuildMenu();
     private final GameCamera camera = new GameCamera();
     private final HangarHud hangarHud = new HangarHud();
-    private final DevMenu devMenu = new DevMenu();
     private long lastNanos = System.nanoTime();
     private boolean cameraLeft, cameraRight, cameraUp, cameraDown;
 
@@ -27,6 +26,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         this.owner = owner;
         this.network = network;
         this.devMode = devMode;
+        world.devFreeBuild = devMode && canEditDev();
         setFocusable(true);
         setBackground(new Color(8, 12, 18));
         addKeyListener(this);
@@ -75,7 +75,6 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         g2.setTransform(old);
         drawHud(g2);
         hangarHud.draw(g2, world, getWidth());
-        if (devMode) devMenu.draw(g2, world, canEditDev());
         buildMenu.draw(g2);
         g2.dispose();
     }
@@ -84,7 +83,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         g2.setColor(new Color(0,0,0,175));
         g2.fillRoundRect(12, 12, 980, 92, 14, 14);
         g2.setColor(Color.WHITE);
-        g2.drawString("StarChem | " + PlayerRegistry.name(PlayerRegistry.localId()) + " | Selected: " + world.selectedCount(), 28, 36);
+        String dev = world.devFreeBuild ? " | DEV FREE BUILD" : "";
+        g2.drawString("StarChem | " + PlayerRegistry.name(PlayerRegistry.localId()) + " | Selected: " + world.selectedCount() + dev, 28, 36);
         g2.setColor(new Color(210,230,245));
         g2.drawString(world.status, 28, 58);
         g2.drawString(network == null ? "Solo" : network.statusLine(), 28, 80);
@@ -96,7 +96,6 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     @Override public void mousePressed(MouseEvent e) {
         requestFocusInWindow();
         if (buildMenu.click(e.getX(), e.getY())) return;
-        if (devMode && devMenu.click(world, e.getX(), e.getY(), canEditDev())) return;
         if (hangarHud.mousePressed(world, e.getX(), e.getY())) return;
         Point2D p = screenToWorld(e.getPoint());
         if (SwingUtilities.isLeftMouseButton(e)) clickLeft(e, p);
@@ -135,12 +134,10 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
 
     @Override public void mouseDragged(MouseEvent e) {
         hangarHud.mouseDragged(e.getX(), e.getY(), getWidth(), getHeight());
-        if (devMode) devMenu.drag(e.getX(), e.getY(), getWidth(), getHeight());
     }
 
     @Override public void mouseReleased(MouseEvent e) {
         hangarHud.mouseReleased();
-        if (devMode) devMenu.release();
     }
 
     @Override public void mouseWheelMoved(MouseWheelEvent e) {
