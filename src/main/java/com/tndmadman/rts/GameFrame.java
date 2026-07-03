@@ -4,6 +4,8 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.io.IOException;
 
 final class GameFrame extends JFrame {
@@ -23,6 +25,9 @@ final class GameFrame extends JFrame {
         setContentPane(root);
         root.addComponentListener(new ComponentAdapter() {
             @Override public void componentResized(ComponentEvent e) { layoutLayers(); }
+        });
+        addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent e) { stopActiveGame(); }
         });
         if (config.showLobby) showLobby("Choose Solo, Host, or Join.");
         else launchGame(config);
