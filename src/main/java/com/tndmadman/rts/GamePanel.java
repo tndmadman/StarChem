@@ -45,7 +45,10 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         lastNanos = now;
         boolean hostOrSolo = network == null || network.statusLine().startsWith("HOST");
         if (hostOrSolo) world.update(dt);
-        else ClientPrediction.update(world, dt);
+        else {
+            world.updateEnvironment(dt);
+            ClientPrediction.update(world, dt);
+        }
         updateCameraControls(dt);
         camera.update(world, getWidth(), getHeight(), dt);
         repaint();
