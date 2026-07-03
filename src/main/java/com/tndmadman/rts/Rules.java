@@ -21,7 +21,7 @@ final class Rules {
                 EnumSet.of(NodeKind.SILICATE_ROCK), cost(Material.IRON,180, Material.COPPER,110, Material.SILICATES,140, Material.ICE,60)));
         ship(new ShipType("gas_harvester", "Gas Harvester", ShipSize.MEDIUM, 7281, 125, 150, 180, 130, 92, 120, 0, 0, false,
                 EnumSet.of(NodeKind.GAS_CLOUD), cost(Material.IRON,120, Material.COPPER,150, Material.SILICATES,60, Material.ICE,80, Material.HYDROGEN,80)));
-        ship(new ShipType("freighter", "Freighter", ShipSize.XL, 8431, 360, 92, 720, 0, 110, 155, 0, 0, false,
+        ship(new ShipType("freighter", "Freighter", ShipSize.XL, 8431, 360, 92, 1440, 0, 110, 155, 0, 0, false,
                 EnumSet.noneOf(NodeKind.class), cost(Material.IRON,420, Material.COPPER,200, Material.SILICATES,300, Material.ICE,140)));
 
         base(new BaseType("outpost", "Outpost", 1200, 118, 95, 72,
