@@ -84,9 +84,8 @@ final class BuildMenu {
         g2.drawString(fit(g2, e.title, r.width - 20), r.x + 10, r.y + 17);
         g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f));
         g2.setColor(new Color(220, 225, 185));
-        List<String> lines = wrap(g2, e.detail, r.width - 20, 3);
         int yLine = r.y + 35;
-        for (String line : lines) {
+        for (String line : wrap(g2, e.detail, r.width - 20, 3)) {
             g2.drawString(line, r.x + 10, yLine);
             yLine += 15;
         }
@@ -94,18 +93,16 @@ final class BuildMenu {
 
     private List<String> wrap(Graphics2D g2, String text, int maxW, int maxLines) {
         List<String> out = new ArrayList<>();
-        StringBuilder line = new StringBuilder();
+        String line = "";
         for (String part : text.split(", ")) {
-            String next = line.isEmpty() ? part : line + ", " + part;
-            if (g2.getFontMetrics().stringWidth(next) <= maxW) line = new StringBuilder(next);
-            else {
-                out.add(line.toString());
-                line = new StringBuilder(part);
-                if (out.size() == maxLines - 1) break;
-            }
+            String next = line.isBlank() ? part : line + ", " + part;
+            if (g2.getFontMetrics().stringWidth(next) <= maxW) line = next;
+            else if (line.isBlank()) out.add(fit(g2, part, maxW));
+            else { out.add(line); line = part; }
+            if (out.size() == maxLines) break;
         }
-        if (!line.isEmpty() && out.size() < maxLines) out.add(fit(g2, line.toString(), maxW));
-        return out.isEmpty() ? List.of(text) : out;
+        if (!line.isBlank() && out.size() < maxLines) out.add(fit(g2, line, maxW));
+        return out.isEmpty() ? List.of(fit(g2, text, maxW)) : out;
     }
 
     private String fit(Graphics2D g2, String text, int maxW) {
