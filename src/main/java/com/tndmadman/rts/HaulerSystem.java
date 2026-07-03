@@ -3,6 +3,10 @@ package com.tndmadman.rts;
 final class HaulerSystem {
     void update(World world, Unit hauler, double dt) {
         if (!MobileDepot.isHauler(hauler)) return;
+        if (hauler.task == UnitTask.RETURN_TO_STATION && hauler.cargoUsed() > 0.05) {
+            sendToBase(world, hauler);
+            return;
+        }
         if (hauler.freeCargo() <= 0.05) {
             sendToBase(world, hauler);
             return;
