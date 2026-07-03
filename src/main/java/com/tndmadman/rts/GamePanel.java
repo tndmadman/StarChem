@@ -34,7 +34,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener {
         long now = System.nanoTime();
         double dt = Math.min(0.05, (now - lastNanos) / 1_000_000_000.0);
         lastNanos = now;
-        world.update(dt);
+        if (network == null || network.statusLine().startsWith("HOST")) world.update(dt);
         repaint();
     }
 
