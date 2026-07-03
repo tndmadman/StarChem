@@ -52,7 +52,7 @@ final class GameFrame extends JFrame {
             networkTimer = new Timer(16, e -> peer.tick());
             networkTimer.start();
         }
-        gamePanel = new GamePanel(world, this);
+        gamePanel = new GamePanel(world, this, network);
         root.add(gamePanel, "game");
         setTitle("StarChem - " + config.modeLabel() + " - " + config.playerName);
         cards.show(root, "game");
