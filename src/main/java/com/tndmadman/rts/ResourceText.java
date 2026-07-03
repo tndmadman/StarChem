@@ -1,20 +1,26 @@
 package com.tndmadman.rts;
 
+import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.List;
 
 final class ResourceText {
     private ResourceText() { }
 
     static String shortLine(EnumMap<Material, Double> store) {
-        if (store == null || store.isEmpty()) return "empty";
-        StringBuilder out = new StringBuilder();
+        List<String> rows = lines(store);
+        return rows.isEmpty() ? "empty" : String.join("  ", rows);
+    }
+
+    static List<String> lines(EnumMap<Material, Double> store) {
+        List<String> out = new ArrayList<>();
+        if (store == null || store.isEmpty()) return out;
         for (Material material : Material.values()) {
             double amount = store.getOrDefault(material, 0.0);
             if (amount <= 0.05) continue;
-            if (!out.isEmpty()) out.append("  ");
-            out.append(displayName(material)).append(':').append((int)Math.floor(amount));
+            out.add(displayName(material) + ": " + (int)Math.floor(amount));
         }
-        return out.isEmpty() ? "empty" : out.toString();
+        return out;
     }
 
     static String displayName(Material material) {
