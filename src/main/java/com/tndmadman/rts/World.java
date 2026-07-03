@@ -44,7 +44,7 @@ final class World {
     long systemSeed() { return systemSeed; }
     double systemTime() { return systemTime; }
 
-    void useSystemSeed(long seed) { syncEnvironment(seed, 0); }
+    void useSystemSeed(long seed) { if (seed != systemSeed) syncEnvironment(seed, 0); }
 
     void syncEnvironment(long seed, double hostTime) {
         if (seed != systemSeed) {
@@ -53,7 +53,7 @@ final class World {
             seedResources();
         }
         double delta = hostTime - systemTime;
-        if (Math.abs(delta) > 0.08) advanceEnvironment(delta);
+        if (Math.abs(delta) > 0.25) advanceEnvironment(delta);
     }
 
     private void setSystemSeed(long seed) {
@@ -149,18 +149,8 @@ final class World {
         }
     }
 
-    Base addBase(String type, double x, double y) {
-        String id = "B" + nextBaseId++;
-        Base base = new Base(id, localPlayerId, type, x, y);
-        bases.put(id, base);
-        return base;
-    }
-
-    Unit spawnShip(String type, double x, double y) {
-        Unit unit = new Unit(localPlayerId, nextUnitId++, type, x, y);
-        units.put(unit.key(), unit);
-        return unit;
-    }
+    Base addBase(String type, double x, double y) { String id = "B" + nextBaseId++; Base base = new Base(id, localPlayerId, type, x, y); bases.put(id, base); return base; }
+    Unit spawnShip(String type, double x, double y) { Unit unit = new Unit(localPlayerId, nextUnitId++, type, x, y); units.put(unit.key(), unit); return unit; }
 
     boolean buildShip(String baseId, String shipTypeId) { return buildSystem.buildShip(this, baseId, shipTypeId); }
     boolean loadBasePackage(String baseId, String packageType) { return buildSystem.loadBasePackage(this, baseId, packageType); }
@@ -189,17 +179,10 @@ final class World {
 
     void selectAt(double x, double y) {
         ResourceNode node = resourceAt(x, y);
-        if (node != null) {
-            selectedResourceId = node.id;
-            status = "Targeted " + node.name + ". Right-click to auto-harvest.";
-            return;
-        }
+        if (node != null) { selectedResourceId = node.id; status = "Targeted " + node.name + ". Right-click to auto-harvest."; return; }
         Unit unit = unitAt(x, y);
         for (Unit u : units.values()) u.selected = false;
-        if (unit != null && PlayerRegistry.isLocal(unit.playerId)) {
-            unit.selected = true;
-            status = "Selected " + unit.type().name + " #" + unit.unitId + ".";
-        }
+        if (unit != null && PlayerRegistry.isLocal(unit.playerId)) { unit.selected = true; status = "Selected " + unit.type().name + " #" + unit.unitId + "."; }
     }
 
     void selectBox(Rectangle2D box) { for (Unit unit : units.values()) unit.selected = PlayerRegistry.isLocal(unit.playerId) && box.contains(unit.x, unit.y); status = selectedCount() + " ship(s) selected."; }
@@ -221,13 +204,7 @@ final class World {
         }
     }
 
-    void autoHarvestSelected(ResourceNode node) {
-        int started = 0;
-        for (Unit unit : selectedUnits()) {
-            if (unit.type().harvestKinds.contains(node.kind)) { unit.startAutoHarvest(node.id); started++; }
-        }
-        status = started == 0 ? "Selected ship cannot harvest this node." : "Auto-harvesting " + node.name + ".";
-    }
+    void autoHarvestSelected(ResourceNode node) { int started = 0; for (Unit unit : selectedUnits()) if (unit.type().harvestKinds.contains(node.kind)) { unit.startAutoHarvest(node.id); started++; } status = started == 0 ? "Selected ship cannot harvest this node." : "Auto-harvesting " + node.name + "."; }
 
     void sendToNearestBase(Unit unit) {
         Base base = nearestBase(unit.playerId, unit.x, unit.y);
@@ -259,16 +236,7 @@ final class World {
 
     void relocateResource(ResourceNode node) { ResourceSpawner.relocate(node, resources, bases.values(), celestials, random); }
 
-    ResourceNode resourceAt(double x, double y) {
-        ResourceNode best = null;
-        double bestDist = Double.MAX_VALUE;
-        for (ResourceNode node : resources) if (node.active) {
-            double d = Calc.distance(x, y, node.x, node.y);
-            if (d <= node.radius + 14 && d < bestDist) { best = node; bestDist = d; }
-        }
-        return best;
-    }
-
+    ResourceNode resourceAt(double x, double y) { ResourceNode best = null; double bestDist = Double.MAX_VALUE; for (ResourceNode node : resources) if (node.active) { double d = Calc.distance(x, y, node.x, node.y); if (d <= node.radius + 14 && d < bestDist) { best = node; bestDist = d; } } return best; }
     Base baseAt(double x, double y) { for (Base base : bases.values()) if (base.contains(x, y)) return base; return null; }
     Unit unitAt(double x, double y) { for (Unit unit : units.values()) if (unit.contains(x, y)) return unit; return null; }
     ResourceNode findResource(int id) { for (ResourceNode node : resources) if (node.id == id) return node; return null; }
