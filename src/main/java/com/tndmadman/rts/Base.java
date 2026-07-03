@@ -10,9 +10,11 @@ final class Base {
     final String typeId;
     final double x, y;
     final EnumMap<Material, Double> inventory = new EnumMap<>(Material.class);
+    double hp;
 
     Base(String id, String playerId, String typeId, double x, double y) {
         this.id = id; this.playerId = playerId; this.typeId = typeId; this.x = x; this.y = y;
+        this.hp = type().maxHp;
     }
 
     BaseType type() { return Rules.base(typeId); }
@@ -42,9 +44,20 @@ final class Base {
         s.setColor(playerColor); s.setStroke(new BasicStroke(3f)); s.drawPolygon(hull);
         s.setColor(new Color(125,205,255,90)); s.fillOval((int)(x - 26), (int)(y - 26), 52, 52);
         s.setFont(s.getFont().deriveFont(Font.BOLD, 12f));
+        drawHpBar(s, def, radius);
         drawLabel(s, def, radius, playerColor);
         if (local) drawHangar(s, radius);
         s.dispose();
+    }
+
+    private void drawHpBar(Graphics2D s, BaseType def, double radius) {
+        int w = 58;
+        int px = (int)(x - w / 2.0);
+        int py = (int)(y - radius - 45);
+        s.setColor(new Color(20,20,20));
+        s.fillRect(px, py, w, 6);
+        s.setColor(new Color(80,230,90));
+        s.fillRect(px, py, (int)(w * Math.max(0, hp) / Math.max(1, def.maxHp)), 6);
     }
 
     private void drawLabel(Graphics2D s, BaseType def, double radius, Color playerColor) {
