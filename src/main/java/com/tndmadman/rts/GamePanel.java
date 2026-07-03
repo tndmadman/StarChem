@@ -5,7 +5,8 @@ import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.*;
 
-final class GamePanel extends JPanel implements KeyListener, MouseListener, MouseMotionListener {
+final class GamePanel extends JPanel implements KeyListener, MouseListener, MouseMotionListener, MouseWheelListener {
+    private static final double CAMERA_PAN_SPEED = 640.0;
     private final World world;
     private final GameFrame owner;
     private final PeerNetwork network;
@@ -16,6 +17,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final HangarHud hangarHud = new HangarHud();
     private final DevMenu devMenu = new DevMenu();
     private long lastNanos = System.nanoTime();
+    private boolean cameraLeft, cameraRight, cameraUp, cameraDown;
 
     GamePanel(World world, GameFrame owner) { this(world, owner, null, false); }
     GamePanel(World world, GameFrame owner, PeerNetwork network) { this(world, owner, network, false); }
@@ -30,6 +32,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         addKeyListener(this);
         addMouseListener(this);
         addMouseMotionListener(this);
+        addMouseWheelListener(this);
         timer = new Timer(16, e -> tick());
     }
 
@@ -43,8 +46,20 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         boolean hostOrSolo = network == null || network.statusLine().startsWith("HOST");
         if (hostOrSolo) world.update(dt);
         else ClientPrediction.update(world, dt);
+        updateCameraControls(dt);
         camera.update(world, getWidth(), getHeight(), dt);
         repaint();
+    }
+
+    private void updateCameraControls(double dt) {
+        double dx = 0;
+        double dy = 0;
+        double step = CAMERA_PAN_SPEED * dt;
+        if (cameraLeft) dx -= step;
+        if (cameraRight) dx += step;
+        if (cameraUp) dy -= step;
+        if (cameraDown) dy += step;
+        if (dx != 0 || dy != 0) camera.panByScreen(dx, dy, world, getWidth(), getHeight());
     }
 
     @Override protected void paintComponent(Graphics g) {
@@ -125,9 +140,33 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         if (devMode) devMenu.release();
     }
 
-    @Override public void keyPressed(KeyEvent e) { if (e.getKeyCode() == KeyEvent.VK_ESCAPE) owner.showLobby("Returned to lobby."); }
+    @Override public void mouseWheelMoved(MouseWheelEvent e) {
+        camera.zoomAt(e.getPoint(), e.getWheelRotation(), world, getWidth(), getHeight());
+    }
+
+    @Override public void keyPressed(KeyEvent e) {
+        switch (e.getKeyCode()) {
+            case KeyEvent.VK_ESCAPE -> owner.showLobby("Returned to lobby.");
+            case KeyEvent.VK_A -> cameraLeft = true;
+            case KeyEvent.VK_D -> cameraRight = true;
+            case KeyEvent.VK_W -> cameraUp = true;
+            case KeyEvent.VK_S -> cameraDown = true;
+            default -> { }
+        }
+    }
+
     @Override public void keyTyped(KeyEvent e) { }
-    @Override public void keyReleased(KeyEvent e) { }
+
+    @Override public void keyReleased(KeyEvent e) {
+        switch (e.getKeyCode()) {
+            case KeyEvent.VK_A -> cameraLeft = false;
+            case KeyEvent.VK_D -> cameraRight = false;
+            case KeyEvent.VK_W -> cameraUp = false;
+            case KeyEvent.VK_S -> cameraDown = false;
+            default -> { }
+        }
+    }
+
     @Override public void mouseMoved(MouseEvent e) { }
     @Override public void mouseClicked(MouseEvent e) { }
     @Override public void mouseEntered(MouseEvent e) { }
