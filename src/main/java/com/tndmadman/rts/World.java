@@ -96,7 +96,7 @@ final class World {
             double take = Math.min(held, remaining);
             unit.inventory.put(material, held - take);
             if (unit.inventory.getOrDefault(material, 0.0) <= 0.05) unit.inventory.remove(material);
-            stockpile.put(material, stockpile.getOrDefault(material, 0.0) + take);
+            HangarStore.add(base.inventory, material, take);
             remaining -= take;
             unit.unloadingThisFrame = true;
         }
@@ -125,7 +125,7 @@ final class World {
         for (ResourceNode node : resources) node.draw(g2, node.id == selectedResourceId);
         for (Unit unit : units.values()) {
             ResourceNode node = findResource(unit.automationResourceId);
-            if (unit.task == UnitTask.AUTO_HARVEST && node != null && node.active) UnitRenderer.drawWorkLine(g2, unit, node);
+            if (MiningBeam.visible(unit, node)) UnitRenderer.drawWorkLine(g2, unit, node);
             UnitRenderer.drawRoute(g2, unit, localColor);
         }
         for (Unit unit : units.values()) UnitRenderer.draw(g2, unit, localColor, true);
