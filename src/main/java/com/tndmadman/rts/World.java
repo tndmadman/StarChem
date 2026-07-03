@@ -27,6 +27,7 @@ final class World {
     private final ScoutSystem scoutSystem = new ScoutSystem();
     private final ResourceRespawnSystem resourceRespawnSystem = new ResourceRespawnSystem();
     private final BuildSystem buildSystem = new BuildSystem();
+    private final WeaponSystem weaponSystem = new WeaponSystem();
     private int nextUnitId = 1;
     private int nextBaseId = 1;
     int selectedResourceId = -1;
@@ -94,6 +95,8 @@ final class World {
         resourceRespawnSystem.update(this, dt);
         scoutSystem.update(this);
         for (Unit unit : new ArrayList<>(units.values())) updateUnit(unit, dt);
+        weaponSystem.update(this, dt);
+        cleanupDestroyed();
     }
 
     private void updateUnit(Unit unit, double dt) {
@@ -162,11 +165,12 @@ final class World {
             if (MiningBeam.visible(unit, node)) UnitRenderer.drawWorkLine(g2, unit, node);
             if (shouldDrawRoute(unit)) UnitRenderer.drawRoute(g2, unit, localColor);
         }
+        weaponSystem.draw(g2, this);
         for (Unit unit : units.values()) UnitRenderer.draw(g2, unit, localColor, true);
     }
 
     private boolean shouldDrawRoute(Unit unit) {
-        return PlayerRegistry.isLocal(unit.playerId) && (unit.task == UnitTask.MOVE || unit.task == UnitTask.RETURN_TO_STATION);
+        return PlayerRegistry.isLocal(unit.playerId) && (unit.task == UnitTask.MOVE || unit.task == UnitTask.RETURN_TO_STATION || unit.task == UnitTask.ATTACK);
     }
 
     private void drawMap(Graphics2D g2) {
@@ -204,6 +208,19 @@ final class World {
         }
     }
 
+    void attackSelected(String targetKey) {
+        int started = 0;
+        int unarmed = 0;
+        for (Unit unit : selectedUnits()) {
+            if (!WeaponRules.armed(unit.type())) { unarmed++; continue; }
+            if (!CombatTarget.enemy(this, unit, targetKey)) continue;
+            unit.attack(targetKey);
+            started++;
+        }
+        if (started > 0) status = "Attacking target with " + started + " ship(s).";
+        else status = unarmed > 0 ? "Selected ship has no weapons." : "No valid attack target.";
+    }
+
     void autoHarvestSelected(ResourceNode node) { int started = 0; for (Unit unit : selectedUnits()) if (unit.type().harvestKinds.contains(node.kind)) { unit.startAutoHarvest(node.id); started++; } status = started == 0 ? "Selected ship cannot harvest this node." : "Auto-harvesting " + node.name + "."; }
 
     void sendToNearestBase(Unit unit) {
@@ -232,6 +249,17 @@ final class World {
     }
 
     void relocateResource(ResourceNode node) { ResourceSpawner.relocate(node, resources, bases.values(), celestials, random); }
+
+    private void cleanupDestroyed() {
+        units.values().removeIf(unit -> unit.hp <= 0);
+        bases.values().removeIf(base -> base.hp <= 0);
+        for (Unit unit : units.values()) {
+            if (!unit.attackTarget.isBlank() && !CombatTarget.alive(this, unit.attackTarget)) {
+                unit.attackTarget = "";
+                if (unit.task == UnitTask.ATTACK) unit.task = UnitTask.IDLE;
+            }
+        }
+    }
 
     ResourceNode resourceAt(double x, double y) { ResourceNode best = null; double bestDist = Double.MAX_VALUE; for (ResourceNode node : resources) if (node.active) { double d = Calc.distance(x, y, node.x, node.y); if (d <= node.radius + 14 && d < bestDist) { best = node; bestDist = d; } } return best; }
     Base baseAt(double x, double y) { for (Base base : bases.values()) if (base.contains(x, y)) return base; return null; }
