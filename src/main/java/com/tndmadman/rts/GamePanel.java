@@ -121,6 +121,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
 
     private boolean eliminated() {
         String playerId = PlayerRegistry.localId();
+        if ("WAIT".equals(playerId)) return false;
         for (Unit unit : world.units.values()) if (unit.playerId.equals(playerId) && unit.hp > 0) return false;
         for (Base base : world.bases.values()) if (base.playerId.equals(playerId) && base.hp > 0) return false;
         return true;
