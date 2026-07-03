@@ -2,12 +2,14 @@ package com.tndmadman.rts;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.io.IOException;
 
 final class GameFrame extends JFrame {
-    private final CardLayout cards = new CardLayout();
-    private final JPanel root = new JPanel(cards);
-    private final LobbyPanel lobbyPanel = new LobbyPanel(this);
+    private final JLayeredPane root = new JLayeredPane();
+    private final MenuBackdrop backdrop = new MenuBackdrop();
+    private final LobbyPanel menuPanel = new LobbyPanel(this);
     private GamePanel gamePanel;
     private PeerNetwork network;
     private Timer networkTimer;
@@ -19,27 +21,28 @@ final class GameFrame extends JFrame {
         setMinimumSize(new Dimension(900, 620));
         setLocationRelativeTo(null);
         setContentPane(root);
-        root.add(lobbyPanel, "lobby");
+        root.addComponentListener(new ComponentAdapter() {
+            @Override public void componentResized(ComponentEvent e) { layoutLayers(); }
+        });
         if (config.showLobby) showLobby("Choose Solo, Host, or Join.");
         else launchGame(config);
     }
 
     void showLobby(String status) {
-        if (gamePanel != null) gamePanel.stop();
-        if (networkTimer != null) networkTimer.stop();
-        if (network != null) network.shutdown();
-        network = null;
-        networkTimer = null;
-        lobbyPanel.setStatus(status);
-        setTitle("StarChem - Lobby");
-        cards.show(root, "lobby");
-        lobbyPanel.requestFocusForName();
+        stopActiveGame();
+        root.removeAll();
+        root.add(backdrop, JLayeredPane.DEFAULT_LAYER);
+        root.add(menuPanel, JLayeredPane.PALETTE_LAYER);
+        menuPanel.setStatus(status);
+        setTitle("StarChem - Menu");
+        layoutLayers();
+        root.revalidate();
+        root.repaint();
+        menuPanel.requestFocusForName();
     }
 
     void launchGame(Config config) {
-        if (gamePanel != null) gamePanel.stop();
-        if (networkTimer != null) networkTimer.stop();
-        if (network != null) network.shutdown();
+        stopActiveGame();
         World world = new World(config.playerName);
         try {
             network = PeerNetwork.start(config, world);
@@ -53,11 +56,31 @@ final class GameFrame extends JFrame {
             networkTimer.start();
         }
         gamePanel = new GamePanel(world, this, network);
-        root.add(gamePanel, "game");
+        root.removeAll();
+        root.add(gamePanel, JLayeredPane.DEFAULT_LAYER);
         setTitle("StarChem - " + config.modeLabel() + " - " + config.playerName);
-        cards.show(root, "game");
-        revalidate();
-        repaint();
+        layoutLayers();
+        root.revalidate();
+        root.repaint();
         SwingUtilities.invokeLater(gamePanel::start);
+    }
+
+    private void stopActiveGame() {
+        if (gamePanel != null) gamePanel.stop();
+        if (networkTimer != null) networkTimer.stop();
+        if (network != null) network.shutdown();
+        gamePanel = null;
+        network = null;
+        networkTimer = null;
+    }
+
+    private void layoutLayers() {
+        int w = Math.max(1, root.getWidth());
+        int h = Math.max(1, root.getHeight());
+        backdrop.setBounds(0, 0, w, h);
+        if (gamePanel != null) gamePanel.setBounds(0, 0, w, h);
+        int mw = Math.min(720, Math.max(520, w - 160));
+        int mh = Math.min(420, Math.max(260, h - 160));
+        menuPanel.setBounds((w - mw) / 2, (h - mh) / 2, mw, mh);
     }
 }
