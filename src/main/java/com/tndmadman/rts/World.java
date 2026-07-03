@@ -121,9 +121,7 @@ final class World {
 
     private void idleNearBase(Unit unit, double dt) {
         Base base = nearestBase(unit.playerId, unit.x, unit.y);
-        if (base != null && Calc.distance(unit.x, unit.y, base.x, base.y) < base.type().unloadRange + 170) {
-            orbitAround(unit, base.x, base.y, unit.type().idleOrbitRadius, dt, 0.35);
-        }
+        if (base != null && Calc.distance(unit.x, unit.y, base.x, base.y) < base.type().unloadRange + 170) orbitAround(unit, base.x, base.y, unit.type().idleOrbitRadius, dt, 0.35);
     }
 
     private void autoUnload(Unit unit, double dt) {
@@ -161,9 +159,13 @@ final class World {
         for (Unit unit : units.values()) {
             ResourceNode node = findResource(unit.automationResourceId);
             if (MiningBeam.visible(unit, node)) UnitRenderer.drawWorkLine(g2, unit, node);
-            UnitRenderer.drawRoute(g2, unit, localColor);
+            if (shouldDrawRoute(unit)) UnitRenderer.drawRoute(g2, unit, localColor);
         }
         for (Unit unit : units.values()) UnitRenderer.draw(g2, unit, localColor, true);
+    }
+
+    private boolean shouldDrawRoute(Unit unit) {
+        return PlayerRegistry.isLocal(unit.playerId) && (unit.task == UnitTask.MOVE || unit.task == UnitTask.RETURN_TO_STATION);
     }
 
     private void drawMap(Graphics2D g2) {
@@ -216,12 +218,9 @@ final class World {
 
     void orbitAround(Unit unit, double cx, double cy, double radius, double dt, double speed) {
         unit.orbitAngle += dt * speed * (unit.unitId % 2 == 0 ? 1 : -1);
-        unit.orbitRetarget -= dt;
-        if (unit.orbitRetarget <= 0) {
-            unit.targetX = Calc.clamp(cx + Math.cos(unit.orbitAngle) * radius, 0, width);
-            unit.targetY = Calc.clamp(cy + Math.sin(unit.orbitAngle) * radius, 0, height);
-            unit.orbitRetarget = 0.75;
-        }
+        unit.targetX = Calc.clamp(cx + Math.cos(unit.orbitAngle) * radius, 0, width);
+        unit.targetY = Calc.clamp(cy + Math.sin(unit.orbitAngle) * radius, 0, height);
+        unit.orbitRetarget = 0;
     }
 
     void moveTowardOrbit(Unit unit, double cx, double cy, double radius) {
