@@ -12,7 +12,7 @@ java {
 }
 
 application {
-    mainClass = 'com.tndmadman.rts.RtsGame'
+    mainClass = 'com.tndmadman.rts.App'
 }
 
 tasks.withType(JavaCompile).configureEach {
