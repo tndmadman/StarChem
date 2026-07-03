@@ -29,6 +29,21 @@ final class World {
         g2.drawString("Modular StarChem build", 250, 270);
     }
 
+    boolean buildShip(String baseId, String shipTypeId) {
+        status = "Build menu skeleton clicked: " + Rules.ship(shipTypeId).name;
+        return false;
+    }
+
+    boolean loadBasePackage(String baseId, String packageType) {
+        status = "Package menu skeleton clicked: " + Rules.base(packageType).name;
+        return false;
+    }
+
+    boolean placePackage(Unit unit) {
+        status = "Placement skeleton clicked.";
+        return false;
+    }
+
     int selectedCount() { return 0; }
     Rectangle2D localBounds() { return new Rectangle2D.Double(220, 260, 1, 1); }
 }
