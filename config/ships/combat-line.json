@@ -1,0 +1,79 @@
+{
+  "shipTypes": {
+    "frigate": {
+      "displayName": "Frigate",
+      "role": "light combat screen",
+      "size": "FRIGATE",
+      "seed": 11001,
+      "maxHp": 180,
+      "speed": 230,
+      "cargoCapacity": 35,
+      "harvestRange": 0,
+      "orbitRadius": 82,
+      "idleStationOrbitRadius": 120,
+      "buildTimeSeconds": 0,
+      "buildCost": { "IRON": 160, "COPPER": 120, "SILICATES": 60 },
+      "canHarvest": []
+    },
+    "destroyer": {
+      "displayName": "Destroyer",
+      "role": "anti-frigate combat ship",
+      "size": "DESTROYER",
+      "seed": 12002,
+      "maxHp": 280,
+      "speed": 190,
+      "cargoCapacity": 55,
+      "harvestRange": 0,
+      "orbitRadius": 95,
+      "idleStationOrbitRadius": 130,
+      "buildTimeSeconds": 0,
+      "buildCost": { "IRON": 280, "COPPER": 190, "SILICATES": 120, "HYDROGEN": 40 },
+      "canHarvest": []
+    },
+    "cruiser": {
+      "displayName": "Cruiser",
+      "role": "mainline medium combat ship",
+      "size": "CRUISER",
+      "seed": 13003,
+      "maxHp": 520,
+      "speed": 150,
+      "cargoCapacity": 90,
+      "harvestRange": 0,
+      "orbitRadius": 115,
+      "idleStationOrbitRadius": 150,
+      "buildTimeSeconds": 0,
+      "buildCost": { "IRON": 520, "COPPER": 340, "SILICATES": 260, "ICE": 90, "HYDROGEN": 80 },
+      "canHarvest": []
+    },
+    "battle_cruiser": {
+      "displayName": "Battle Cruiser",
+      "role": "heavy strike combat ship",
+      "size": "BATTLE_CRUISER",
+      "seed": 14004,
+      "maxHp": 850,
+      "speed": 128,
+      "cargoCapacity": 130,
+      "harvestRange": 0,
+      "orbitRadius": 135,
+      "idleStationOrbitRadius": 175,
+      "buildTimeSeconds": 0,
+      "buildCost": { "IRON": 900, "COPPER": 520, "SILICATES": 450, "ICE": 160, "HYDROGEN": 130 },
+      "canHarvest": []
+    },
+    "battleship": {
+      "displayName": "Battleship",
+      "role": "heavy line combat ship",
+      "size": "BATTLESHIP",
+      "seed": 15005,
+      "maxHp": 1400,
+      "speed": 96,
+      "cargoCapacity": 190,
+      "harvestRange": 0,
+      "orbitRadius": 160,
+      "idleStationOrbitRadius": 210,
+      "buildTimeSeconds": 0,
+      "buildCost": { "IRON": 1600, "COPPER": 850, "SILICATES": 900, "ICE": 320, "HYDROGEN": 220, "HELIUM": 90 },
+      "canHarvest": []
+    }
+  }
+}
