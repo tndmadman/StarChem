@@ -25,6 +25,7 @@ final class UnitRenderer {
             g2.setColor(new Color(255,245,120));
             g2.setStroke(new BasicStroke(2f));
             g2.drawOval((int)unit.x - 26, (int)unit.y - 26, 52, 52);
+            drawCargo(g2, unit);
         }
         if (owner && unit.type().scoutRange > 0) drawScoutCircle(g2, unit, playerColor);
     }
@@ -56,6 +57,17 @@ final class UnitRenderer {
         g2.setColor(new Color(0, 0, 0, 150));
         g2.fillRoundRect(x - 5, y - 12, tw + 10, 16, 7, 7);
         g2.setColor(color);
+        g2.drawString(text, x, y);
+    }
+
+    private static void drawCargo(Graphics2D g2, Unit unit) {
+        String text = "Cargo: " + ResourceText.shortLine(unit.inventory);
+        int tw = g2.getFontMetrics().stringWidth(text);
+        int x = (int)unit.x - tw / 2;
+        int y = (int)unit.y + 55;
+        g2.setColor(new Color(0, 0, 0, 170));
+        g2.fillRoundRect(x - 6, y - 13, tw + 12, 18, 8, 8);
+        g2.setColor(new Color(220, 238, 250));
         g2.drawString(text, x, y);
     }
 
