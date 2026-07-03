@@ -23,37 +23,22 @@ final class PeerNetwork implements CommandSink {
     private long nextReliable = 1, sequence = 1, lastJoin, lastPing, lastSnapshot;
     private String localPlayerId = "SOLO";
 
-    private PeerNetwork(Config config, World world, DatagramSocket socket) {
-        this.config = config;
-        this.world = world;
-        this.socket = socket;
-    }
+    private PeerNetwork(Config config, World world, DatagramSocket socket) { this.config = config; this.world = world; this.socket = socket; }
 
     static PeerNetwork start(Config config, World world) throws IOException {
         if (!config.hostMode && !config.clientMode()) return null;
         DatagramSocket socket = config.hostMode ? new DatagramSocket(config.port) : new DatagramSocket();
         socket.setSoTimeout(250);
         PeerNetwork network = new PeerNetwork(config, world, socket);
-        world.setCommandSink(network, config.hostMode);
-        if (config.hostMode) {
-            network.joined = true;
-            network.localPlayerId = "SOLO";
-            world.status = "Hosting UDP " + socket.getLocalPort();
-        } else {
-            world.authoritative = false;
-            world.status = "Joining " + config.serverAddress;
-        }
+        if (config.hostMode) { network.joined = true; world.status = "Hosting UDP " + socket.getLocalPort(); }
+        else world.status = "Joining " + config.serverAddress;
         Thread thread = new Thread(network::listenLoop, "starchem-udp");
         thread.setDaemon(true);
         thread.start();
         return network;
     }
 
-    String statusLine() {
-        if (config.hostMode) return "HOST UDP " + socket.getLocalPort() + " | clients " + peers.size() + " | pending " + pending.size();
-        return "CLIENT " + (joined ? localPlayerId : "joining") + " -> " + config.serverAddress + " | pending " + pending.size();
-    }
-
+    String statusLine() { return config.hostMode ? "HOST UDP " + socket.getLocalPort() + " | clients " + peers.size() + " | pending " + pending.size() : "CLIENT " + (joined ? localPlayerId : "joining") + " -> " + config.serverAddress + " | pending " + pending.size(); }
     String localPlayerId() { return localPlayerId; }
 
     void tick() {
@@ -70,16 +55,18 @@ final class PeerNetwork implements CommandSink {
         }
     }
 
-    void shutdown() {
-        running = false;
-        if (!config.hostMode && joined) reliableToServer("LEAVE|" + localPlayerId);
-        socket.close();
-    }
+    void shutdown() { running = false; if (!config.hostMode && joined) reliableToServer("LEAVE|" + localPlayerId); socket.close(); }
 
-    @Override public void move(MoveCommand c) { if (config.hostMode) { world.applyMove(c); broadcast(SnapshotWriter.write(WorldNetAccess.snapshot(world, sequence++))); } else sendToServer("MOVE|" + c.playerId() + "|" + c.unitId() + "|" + Calc.round(c.x()) + "|" + Calc.round(c.y())); }
-    @Override public void work(HarvestCommand c) { if (config.hostMode) { world.applyWork(c); broadcast(SnapshotWriter.write(WorldNetAccess.snapshot(world, sequence++))); } else sendToServer("WORK|" + c.playerId() + "|" + c.unitId() + "|" + c.resourceId()); }
-    @Override public void build(String playerId, String baseId, String shipTypeId) { if (config.hostMode) { world.applyBuild(playerId, baseId, shipTypeId); broadcast(SnapshotWriter.write(WorldNetAccess.snapshot(world, sequence++))); } else sendToServer("BUILD|" + playerId + "|" + baseId + "|" + shipTypeId); }
-    @Override public void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { if (config.hostMode) { world.applyPackage(playerId, mode, baseOrUnitId, packageType); broadcast(SnapshotWriter.write(WorldNetAccess.snapshot(world, sequence++))); } else sendToServer("PACK|" + playerId + "|" + mode + "|" + baseOrUnitId + "|" + packageType); }
+    @Override public void move(MoveCommand c) { if (config.hostMode) { applyMove(c); broadcastNow(); } else sendToServer("MOVE|" + c.playerId() + "|" + c.unitId() + "|" + Calc.round(c.x()) + "|" + Calc.round(c.y())); }
+    @Override public void work(HarvestCommand c) { if (config.hostMode) { applyWork(c); broadcastNow(); } else sendToServer("WORK|" + c.playerId() + "|" + c.unitId() + "|" + c.resourceId()); }
+    @Override public void build(String playerId, String baseId, String shipTypeId) { if (config.hostMode) { world.buildShip(baseId, shipTypeId); broadcastNow(); } else sendToServer("BUILD|" + playerId + "|" + baseId + "|" + shipTypeId); }
+    @Override public void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { if (config.hostMode) { applyPack(mode, baseOrUnitId, packageType); broadcastNow(); } else sendToServer("PACK|" + playerId + "|" + mode + "|" + baseOrUnitId + "|" + packageType); }
+
+    private void applyMove(MoveCommand c) { Unit u = world.units.get(Unit.key(c.playerId(), c.unitId())); if (u != null) u.moveTo(c.x(), c.y()); }
+    private void applyWork(HarvestCommand c) { Unit u = world.units.get(Unit.key(c.playerId(), c.unitId())); if (u != null) u.startAutoHarvest(c.resourceId()); }
+    private void applyPack(String mode, String id, String packageType) { if ("LOAD".equals(mode)) world.loadBasePackage(id, packageType); else world.placePackage(world.units.get(id)); }
+    private void removePlayer(String playerId) { world.units.values().removeIf(u -> u.playerId.equals(playerId)); world.bases.values().removeIf(b -> b.playerId.equals(playerId)); }
+    private void broadcastNow() { broadcast(SnapshotWriter.write(WorldNetAccess.snapshot(world, sequence++))); }
 
     private void handle(NetPacket packet) {
         String m = packet.message();
@@ -103,10 +90,10 @@ final class PeerNetwork implements CommandSink {
             switch (p[0]) {
                 case "JOIN" -> joinPeer(ep, packet.address(), packet.port(), p.length > 1 ? p[1] : "Player");
                 case "PING" -> touch(ep);
-                case "MOVE" -> { touch(ep); world.applyMove(new MoveCommand(p[1], Integer.parseInt(p[2]), Double.parseDouble(p[3]), Double.parseDouble(p[4]))); }
-                case "WORK" -> { touch(ep); world.applyWork(new HarvestCommand(p[1], Integer.parseInt(p[2]), Integer.parseInt(p[3]))); }
-                case "BUILD" -> { touch(ep); world.applyBuild(p[1], p[2], p[3]); }
-                case "PACK" -> { touch(ep); world.applyPackage(p[1], p[2], p[3], p[4]); }
+                case "MOVE" -> { touch(ep); applyMove(new MoveCommand(p[1], Integer.parseInt(p[2]), Double.parseDouble(p[3]), Double.parseDouble(p[4]))); }
+                case "WORK" -> { touch(ep); applyWork(new HarvestCommand(p[1], Integer.parseInt(p[2]), Integer.parseInt(p[3]))); }
+                case "BUILD" -> { touch(ep); world.buildShip(p[2], p[3]); }
+                case "PACK" -> { touch(ep); applyPack(p[2], p[3], p[4]); }
                 case "LEAVE" -> removePeer(ep);
             }
         } catch (Exception ex) { System.err.println("Bad packet: " + m + " / " + ex.getMessage()); }
@@ -126,13 +113,12 @@ final class PeerNetwork implements CommandSink {
         peers.put(ep, new ServerPeer(id, address, port, System.currentTimeMillis()));
         WorldNetAccess.addPeerGroup(world, id);
         reliable("WELCOME|" + id + "|" + Config.clean(name) + "|" + rgb, address, port);
-        broadcast(SnapshotWriter.write(WorldNetAccess.snapshot(world, sequence++)));
+        broadcastNow();
     }
 
     private void touch(String ep) { ServerPeer p = peers.get(ep); if (p != null) peers.put(ep, new ServerPeer(p.playerId(), p.address(), p.port(), System.currentTimeMillis())); }
-    private void removePeer(String ep) { ServerPeer p = peers.remove(ep); if (p != null) world.removePlayer(p.playerId()); }
+    private void removePeer(String ep) { ServerPeer p = peers.remove(ep); if (p != null) removePlayer(p.playerId()); }
     private int colorFor(int i) { int[] c = {0x50BEFF,0xFF5F55,0x7DFF7A,0xFFE066,0xC77DFF,0xFF9F1C}; return c[Math.floorMod(i, c.length)]; }
-
     private void broadcast(String message) { for (ServerPeer p : peers.values()) send(message, p.address(), p.port()); }
     private void sendToServer(String message) { send(message, config.serverAddress.getAddress(), config.serverAddress.getPort()); }
     private void reliableToServer(String payload) { reliable(payload, config.serverAddress.getAddress(), config.serverAddress.getPort()); }
