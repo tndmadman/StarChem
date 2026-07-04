@@ -74,6 +74,7 @@ final class PeerNetwork implements CommandSink {
     @Override public void move(MoveCommand c) { if (config.hostMode) { applyMove(c); broadcastNow(); } else sendToServer("MOVE|" + c.playerId() + "|" + c.unitId() + "|" + Calc.round(c.x()) + "|" + Calc.round(c.y())); }
     @Override public void work(HarvestCommand c) { if (config.hostMode) { applyWork(c); broadcastNow(); } else sendToServer("WORK|" + c.playerId() + "|" + c.unitId() + "|" + c.resourceId()); }
     @Override public void attack(AttackCommand c) { if (config.hostMode) { applyAttack(c); broadcastNow(); } else sendToServer("ATTACK|" + c.playerId() + "|" + c.unitId() + "|" + c.targetKey()); }
+    @Override public void respawn(String playerId) { if (config.hostMode) { WorldNetAccess.respawnPlayer(world, playerId); broadcastNow(); } else sendToServer("RESPAWN|" + playerId); }
     @Override public void build(String playerId, String baseId, String shipTypeId) { if (config.hostMode) { if (CommandAuth.base(world, playerId, baseId)) world.buildShip(baseId, shipTypeId); broadcastNow(); } else sendToServer("BUILD|" + playerId + "|" + baseId + "|" + shipTypeId); }
     @Override public void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { if (config.hostMode) { if (CommandAuth.pack(world, playerId, mode, baseOrUnitId)) applyPack(mode, baseOrUnitId, packageType); broadcastNow(); } else sendToServer("PACK|" + playerId + "|" + mode + "|" + baseOrUnitId + "|" + packageType); }
 
@@ -109,6 +110,7 @@ final class PeerNetwork implements CommandSink {
                 case "MOVE" -> { touch(ep); if (owns(ep, p[1])) applyMove(new MoveCommand(p[1], Integer.parseInt(p[2]), Double.parseDouble(p[3]), Double.parseDouble(p[4]))); }
                 case "WORK" -> { touch(ep); if (owns(ep, p[1])) applyWork(new HarvestCommand(p[1], Integer.parseInt(p[2]), Integer.parseInt(p[3]))); }
                 case "ATTACK" -> { touch(ep); if (owns(ep, p[1]) && CommandAuth.unit(world, p[1], Unit.key(p[1], Integer.parseInt(p[2])))) applyAttack(new AttackCommand(p[1], Integer.parseInt(p[2]), p[3])); }
+                case "RESPAWN" -> { touch(ep); if (owns(ep, p[1])) { WorldNetAccess.respawnPlayer(world, p[1]); broadcastNow(); } }
                 case "BUILD" -> { touch(ep); if (owns(ep, p[1]) && CommandAuth.base(world, p[1], p[2])) world.buildShip(p[2], p[3]); }
                 case "PACK" -> { touch(ep); if (owns(ep, p[1]) && CommandAuth.pack(world, p[1], p[2], p[3])) applyPack(p[2], p[3], p[4]); }
                 case "LEAVE" -> removePeer(ep);
