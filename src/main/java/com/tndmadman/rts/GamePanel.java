@@ -15,6 +15,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final BuildMenu buildMenu = new BuildMenu();
     private final GameCamera camera = new GameCamera();
     private final HangarHud hangarHud = new HangarHud();
+    private final LeaderboardHud leaderboardHud = new LeaderboardHud();
     private long lastNanos = System.nanoTime();
     private boolean cameraLeft, cameraRight, cameraUp, cameraDown;
 
@@ -74,6 +75,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         world.draw(g2);
         g2.setTransform(old);
         drawHud(g2);
+        leaderboardHud.draw(g2, world, getWidth());
         hangarHud.draw(g2, world, getWidth());
         buildMenu.draw(g2);
         g2.dispose();
