@@ -48,4 +48,14 @@ final class SnapshotReader2 {
         }
         return out;
     }
+
+    static List<ShotState> shots(String[] parts) {
+        List<ShotState> out = new ArrayList<>();
+        if (parts.length <= 7 || parts[7].isBlank()) return out;
+        for (String row : parts[7].split(";")) {
+            String[] c = row.split(",", -1);
+            if (c.length >= 8) out.add(new ShotState(Integer.parseInt(c[0]), c[1], c[2], CargoCodec.unsafed(c[3]), Double.parseDouble(c[4]), Double.parseDouble(c[5]), Double.parseDouble(c[6]), Double.parseDouble(c[7])));
+        }
+        return out;
+    }
 }

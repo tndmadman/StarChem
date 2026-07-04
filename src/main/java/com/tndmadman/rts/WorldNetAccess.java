@@ -14,7 +14,9 @@ final class WorldNetAccess {
         List<BaseState> bases = new ArrayList<>();
         for (Base b : world.bases.values()) bases.add(NetBaseSync.toState(b));
         List<StockState> stocks = List.of(new StockState(PlayerRegistry.localId(), CargoCodec.write(world.stockpile)));
-        return new Snapshot(sequence, players, units, resources, bases, stocks);
+        List<ShotState> shots = new ArrayList<>();
+        for (ProjectileShot shot : world.shots) shots.add(new ShotState(shot.id, shot.ownerId, shot.weaponId, shot.targetKey, shot.x, shot.y, shot.lastX, shot.lastY));
+        return new Snapshot(sequence, players, units, resources, bases, stocks, shots);
     }
 
     static void apply(World world, Snapshot snapshot) {
@@ -37,6 +39,13 @@ final class WorldNetAccess {
             world.bases.clear();
             for (BaseState b : snapshot.bases()) world.bases.put(b.id(), NetBaseSync.fromState(b));
         }
+        world.shots.clear();
+        for (ShotState s : snapshot.shots()) {
+            ProjectileShot shot = new ProjectileShot(s.id(), s.ownerId(), s.weaponId(), s.targetKey(), s.x(), s.y());
+            shot.lastX = s.lastX();
+            shot.lastY = s.lastY();
+            world.shots.add(shot);
+        }
         if (!snapshot.stocks().isEmpty()) CargoCodec.readInto(snapshot.stocks().get(0).cargo(), world.stockpile);
     }
 
@@ -45,6 +54,7 @@ final class WorldNetAccess {
     static void respawnPlayer(World world, String playerId) {
         world.units.values().removeIf(unit -> unit.playerId.equals(playerId));
         world.bases.values().removeIf(base -> base.playerId.equals(playerId));
+        world.shots.removeIf(shot -> shot.ownerId.equals(playerId));
         int salt = Math.max(5, world.units.size() + world.bases.size() + (int)Math.round(world.systemTime()));
         spawnGroup(world, playerId, slot(playerId) + salt);
         world.status = PlayerRegistry.name(playerId) + " respawned in a new sector.";

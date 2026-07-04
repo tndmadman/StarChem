@@ -2,26 +2,36 @@ package com.tndmadman.rts;
 
 import java.awt.*;
 import java.awt.geom.Line2D;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 
 final class WeaponSystem {
     void update(World world, double dt) {
         for (Unit unit : world.units.values()) {
             unit.weaponCooldown = Math.max(0, unit.weaponCooldown - dt);
             unit.weaponFlashTimer = Math.max(0, unit.weaponFlashTimer - dt);
+        }
+        for (Unit unit : new ArrayList<>(world.units.values())) {
+            if (!WeaponRules.screenWeapons(unit.type()).isEmpty()) screenShots(world, unit);
+        }
+        for (Unit unit : new ArrayList<>(world.units.values())) {
             if (!WeaponRules.armed(unit.type())) continue;
             if (unit.task == UnitTask.IDLE && unit.attackTarget.isBlank()) acquireTarget(world, unit);
             if (unit.task == UnitTask.ATTACK) updateAttack(world, unit);
         }
+        updateShots(world, dt);
     }
 
     void draw(Graphics2D g2, World world) {
+        for (ProjectileShot shot : world.shots) drawMovingShot(g2, shot);
         for (Unit unit : world.units.values()) {
             if (unit.attackTarget.isBlank()) continue;
             if (!CombatTarget.enemy(world, unit, unit.attackTarget)) continue;
             double tx = CombatTarget.x(world, unit.attackTarget);
             double ty = CombatTarget.y(world, unit.attackTarget);
             double dist = Calc.distance(unit.x, unit.y, tx, ty);
-            WeaponVolley volley = WeaponRules.volley(unit.type(), dist);
+            WeaponVolley volley = WeaponRules.directVolley(unit.type(), dist);
             WeaponType visual = volley.visualWeapon();
             if (visual == null) continue;
             float alpha = (float)(unit.weaponFlashTimer > 0 ? 0.85 : 0.18);
@@ -68,14 +78,88 @@ final class WeaponSystem {
             world.moveTowardOrbit(unit, tx, ty, range * 0.82);
             return;
         }
-        WeaponVolley volley = WeaponRules.volley(unit.type(), dist);
-        if (volley.damage() <= 0 || unit.weaponCooldown > 0) return;
-        CombatTarget.damage(world, unit.attackTarget, volley.damage());
-        unit.weaponCooldown = volley.cooldownSeconds();
+        if (unit.weaponCooldown > 0) return;
+        WeaponVolley direct = WeaponRules.directVolley(unit.type(), dist);
+        List<WeaponType> moving = WeaponRules.movingWeapons(unit.type(), dist);
+        if (direct.damage() <= 0 && moving.isEmpty()) return;
+        if (direct.damage() > 0) CombatTarget.damage(world, unit.attackTarget, direct.damage());
+        double cooldown = direct.damage() > 0 ? direct.cooldownSeconds() : 0;
+        for (WeaponType weapon : moving) {
+            world.addShot(unit.playerId, weapon.id, unit.attackTarget, unit.x, unit.y);
+            cooldown = Math.max(cooldown, weapon.cooldownSeconds);
+        }
+        unit.weaponCooldown = Math.max(0.2, cooldown);
         unit.weaponFlashTimer = 0.22;
         unit.targetX = unit.x;
         unit.targetY = unit.y;
         unit.heading = Math.atan2(ty - unit.y, tx - unit.x);
+    }
+
+    private void updateShots(World world, double dt) {
+        Iterator<ProjectileShot> it = world.shots.iterator();
+        while (it.hasNext()) {
+            ProjectileShot shot = it.next();
+            WeaponType weapon = shot.weapon();
+            if (weapon == null || !CombatTarget.alive(world, shot.targetKey)) { it.remove(); continue; }
+            double tx = CombatTarget.x(world, shot.targetKey);
+            double ty = CombatTarget.y(world, shot.targetKey);
+            double dist = Calc.distance(shot.x, shot.y, tx, ty);
+            double step = Math.max(1, weapon.shotSpeed * dt);
+            shot.lastX = shot.x;
+            shot.lastY = shot.y;
+            if (dist <= step + 10) {
+                CombatTarget.damage(world, shot.targetKey, weapon.damage * hitScale(world, shot.targetKey, weapon));
+                it.remove();
+                continue;
+            }
+            double a = Math.atan2(ty - shot.y, tx - shot.x);
+            shot.x += Math.cos(a) * step;
+            shot.y += Math.sin(a) * step;
+        }
+    }
+
+    private void screenShots(World world, Unit unit) {
+        if (unit.weaponCooldown > 0) return;
+        List<WeaponType> screens = WeaponRules.screenWeapons(unit.type());
+        if (screens.isEmpty()) return;
+        WeaponType screen = screens.get(0);
+        ProjectileShot best = null;
+        double bestDist = Double.MAX_VALUE;
+        for (ProjectileShot shot : world.shots) {
+            WeaponType weapon = shot.weapon();
+            if (weapon == null || !weapon.stoppable || shot.ownerId.equals(unit.playerId)) continue;
+            double d = Calc.distance(unit.x, unit.y, shot.x, shot.y);
+            if (d <= screen.range && d < bestDist) { best = shot; bestDist = d; }
+        }
+        if (best == null) return;
+        world.shots.remove(best);
+        unit.weaponCooldown = screen.cooldownSeconds;
+        unit.weaponFlashTimer = 0.12;
+        unit.heading = Math.atan2(best.y - unit.y, best.x - unit.x);
+    }
+
+    private double hitScale(World world, String key, WeaponType weapon) {
+        Base base = CombatTarget.base(world, key);
+        if (base != null) return 1.35;
+        Unit unit = CombatTarget.unit(world, key);
+        if (unit == null) return 1.0;
+        double sizeFactor = 0.75 + unit.type().size.scale * 0.20;
+        double speedFactor = Math.max(0.35, Math.min(1.15, 1.2 - unit.type().speed / 360.0));
+        double trackedSpeed = weapon.tracking + (1.0 - weapon.tracking) * speedFactor;
+        return Math.max(0.45, Math.min(1.65, sizeFactor * trackedSpeed));
+    }
+
+    private void drawMovingShot(Graphics2D g2, ProjectileShot shot) {
+        WeaponType weapon = shot.weapon();
+        if (weapon == null) return;
+        Graphics2D s = (Graphics2D) g2.create();
+        Color c = weapon.color;
+        s.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 230));
+        s.setStroke(new BasicStroke(2.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        s.draw(new Line2D.Double(shot.lastX, shot.lastY, shot.x, shot.y));
+        int r = weapon.damage >= 200 ? 7 : weapon.damage >= 100 ? 5 : 4;
+        s.fillOval((int)shot.x - r, (int)shot.y - r, r * 2, r * 2);
+        s.dispose();
     }
 
     private void drawShot(Graphics2D g2, double x1, double y1, double x2, double y2, WeaponType weapon, float alpha) {

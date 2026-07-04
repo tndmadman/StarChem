@@ -6,6 +6,7 @@
       "damage": 6,
       "cooldownSeconds": 0.25,
       "beam": true,
+      "screenWeapon": true,
       "color": "#66e8ff"
     },
     "light_railgun": {
@@ -47,6 +48,42 @@
       "cooldownSeconds": 5.5,
       "beam": true,
       "color": "#ff9f1c"
+    },
+    "light_missile": {
+      "displayName": "Light Missile",
+      "range": 820,
+      "damage": 36,
+      "cooldownSeconds": 1.8,
+      "beam": false,
+      "movingShot": true,
+      "stoppable": true,
+      "shotSpeed": 430,
+      "tracking": 0.75,
+      "color": "#d7f7ff"
+    },
+    "torpedo": {
+      "displayName": "Torpedo",
+      "range": 980,
+      "damage": 115,
+      "cooldownSeconds": 3.2,
+      "beam": false,
+      "movingShot": true,
+      "stoppable": true,
+      "shotSpeed": 310,
+      "tracking": 0.45,
+      "color": "#ffb86b"
+    },
+    "capital_torpedo": {
+      "displayName": "Capital Torpedo",
+      "range": 1300,
+      "damage": 260,
+      "cooldownSeconds": 4.8,
+      "beam": false,
+      "movingShot": true,
+      "stoppable": true,
+      "shotSpeed": 250,
+      "tracking": 0.30,
+      "color": "#ff6b35"
     }
   }
 }

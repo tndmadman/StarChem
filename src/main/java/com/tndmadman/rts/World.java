@@ -15,6 +15,7 @@ final class World {
     final List<ResourceNode> resources = new ArrayList<>();
     final Map<String, Unit> units = new LinkedHashMap<>();
     final Map<String, Base> bases = new LinkedHashMap<>();
+    final List<ProjectileShot> shots = new ArrayList<>();
     final EnumMap<Material, Double> stockpile = new EnumMap<>(Material.class);
     boolean devFreeBuild;
 
@@ -30,6 +31,7 @@ final class World {
     private final WeaponSystem weaponSystem = new WeaponSystem();
     private int nextUnitId = 1;
     private int nextBaseId = 1;
+    private int nextShotId = 1;
     int selectedResourceId = -1;
     String status = "Right-click a resource with a ship selected to auto-harvest.";
 
@@ -150,6 +152,7 @@ final class World {
 
     Base addBase(String type, double x, double y) { String id = "B" + nextBaseId++; Base base = new Base(id, localPlayerId, type, x, y); bases.put(id, base); return base; }
     Unit spawnShip(String type, double x, double y) { Unit unit = new Unit(localPlayerId, nextUnitId++, type, x, y); units.put(unit.key(), unit); return unit; }
+    ProjectileShot addShot(String ownerId, String weaponId, String targetKey, double x, double y) { ProjectileShot shot = new ProjectileShot(nextShotId++, ownerId, weaponId, targetKey, x, y); shots.add(shot); return shot; }
 
     boolean buildShip(String baseId, String shipTypeId) { return buildSystem.buildShip(this, baseId, shipTypeId); }
     boolean loadBasePackage(String baseId, String packageType) { return buildSystem.loadBasePackage(this, baseId, packageType); }
@@ -253,6 +256,7 @@ final class World {
     private void cleanupDestroyed() {
         units.values().removeIf(unit -> unit.hp <= 0);
         bases.values().removeIf(base -> base.hp <= 0);
+        shots.removeIf(shot -> !CombatTarget.alive(this, shot.targetKey) || shot.weapon() == null);
         for (Unit unit : units.values()) {
             if (!unit.attackTarget.isBlank() && !CombatTarget.alive(this, unit.attackTarget)) {
                 unit.attackTarget = "";
