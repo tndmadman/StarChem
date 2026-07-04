@@ -17,6 +17,7 @@ interface CommandSink {
     void move(MoveCommand command);
     void work(HarvestCommand command);
     void attack(AttackCommand command);
+    void respawn(String playerId);
     void build(String playerId, String baseId, String shipTypeId);
     void basePackage(String playerId, String mode, String baseOrUnitId, String packageType);
 }

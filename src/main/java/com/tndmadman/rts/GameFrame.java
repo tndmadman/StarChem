@@ -13,6 +13,7 @@ final class GameFrame extends JFrame {
     private final MenuBackdrop backdrop = new MenuBackdrop();
     private final LobbyPanel menuPanel = new LobbyPanel(this);
     private GamePanel gamePanel;
+    private EndStatePanel endStatePanel;
     private PeerNetwork network;
     private Timer networkTimer;
 
@@ -61,8 +62,10 @@ final class GameFrame extends JFrame {
             networkTimer.start();
         }
         gamePanel = new GamePanel(world, this, network, config.devMode);
+        endStatePanel = new EndStatePanel(world, this, network);
         root.removeAll();
         root.add(gamePanel, JLayeredPane.DEFAULT_LAYER);
+        root.add(endStatePanel, JLayeredPane.MODAL_LAYER);
         setTitle("StarChem - " + config.modeLabel() + " - " + config.playerName + (config.devMode ? " - DEV" : ""));
         layoutLayers();
         root.revalidate();
@@ -72,9 +75,11 @@ final class GameFrame extends JFrame {
 
     private void stopActiveGame() {
         if (gamePanel != null) gamePanel.stop();
+        if (endStatePanel != null) endStatePanel.stop();
         if (networkTimer != null) networkTimer.stop();
         if (network != null) network.shutdown();
         gamePanel = null;
+        endStatePanel = null;
         network = null;
         networkTimer = null;
     }
@@ -84,6 +89,7 @@ final class GameFrame extends JFrame {
         int h = Math.max(1, root.getHeight());
         backdrop.setBounds(0, 0, w, h);
         if (gamePanel != null) gamePanel.setBounds(0, 0, w, h);
+        if (endStatePanel != null) endStatePanel.setBounds(0, 0, w, h);
         int mw = Math.min(760, Math.max(560, w - 160));
         int mh = Math.min(520, Math.max(420, h - 140));
         menuPanel.setBounds((w - mw) / 2, (h - mh) / 2, mw, mh);
