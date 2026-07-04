@@ -8,7 +8,8 @@ record UnitState(String playerId, int unitId, String shipTypeId, double x, doubl
 record ResourceState(int id, String name, String kind, String material, double x, double y, double maxAmount, double harvestRate, double radius, double amount, boolean active, double respawnTimer) { }
 record BaseState(String id, String playerId, String typeId, double x, double y, double hp, String cargo) { }
 record StockState(String playerId, String cargo) { }
-record Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks) { }
+record ShotState(int id, String ownerId, String weaponId, String targetKey, double x, double y, double lastX, double lastY) { }
+record Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks, List<ShotState> shots) { }
 record NetPacket(String message, InetAddress address, int port) { }
 record ServerPeer(String playerId, InetAddress address, int port, long lastSeen) { }
 record PendingReliable(String id, String payload, InetAddress address, int port, long lastSent, int attempts) { }
