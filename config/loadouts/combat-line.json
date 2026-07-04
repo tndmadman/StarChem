@@ -1,9 +1,9 @@
 {
   "shipLoadouts": {
     "frigate": ["light_railgun"],
-    "destroyer": ["light_railgun", "light_railgun", "point_defense_laser"],
-    "cruiser": ["light_railgun", "light_railgun", "heavy_cannon"],
-    "battle_cruiser": ["heavy_cannon", "heavy_cannon"],
-    "battleship": ["heavy_cannon", "heavy_cannon", "heavy_cannon", "point_defense_laser", "point_defense_laser"]
+    "destroyer": ["light_railgun", "light_missile", "point_defense_laser"],
+    "cruiser": ["light_railgun", "heavy_cannon", "light_missile", "torpedo"],
+    "battle_cruiser": ["heavy_cannon", "heavy_cannon", "torpedo"],
+    "battleship": ["heavy_cannon", "heavy_cannon", "torpedo", "torpedo", "point_defense_laser", "point_defense_laser"]
   }
 }
