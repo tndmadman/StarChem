@@ -40,12 +40,36 @@ final class WorldNetAccess {
         if (!snapshot.stocks().isEmpty()) CargoCodec.readInto(snapshot.stocks().get(0).cargo(), world.stockpile);
     }
 
-    static void addPeerGroup(World world, String playerId) {
-        int slot = slot(playerId);
+    static void addPeerGroup(World world, String playerId) { spawnGroup(world, playerId, slot(playerId)); }
+
+    static void respawnPlayer(World world, String playerId) {
+        world.units.values().removeIf(unit -> unit.playerId.equals(playerId));
+        world.bases.values().removeIf(base -> base.playerId.equals(playerId));
+        int salt = Math.max(5, world.units.size() + world.bases.size() + (int)Math.round(world.systemTime()));
+        spawnGroup(world, playerId, slot(playerId) + salt);
+        world.status = PlayerRegistry.name(playerId) + " respawned in a new sector.";
+    }
+
+    private static void spawnGroup(World world, String playerId, int slot) {
         Point2D bp = resourceStart(world, slot);
         Point2D sp = new Point2D.Double(bp.getX() + 180, bp.getY() - 80);
-        world.bases.put(playerId + ":B1", new Base(playerId + ":B1", playerId, Rules.DEFAULT_BASE, bp.getX(), bp.getY()));
-        world.units.put(Unit.key(playerId, 1), new Unit(playerId, 1, Rules.STARTING_SHIP, sp.getX(), sp.getY()));
+        int baseId = nextBaseNumber(world, playerId);
+        int unitId = nextUnitNumber(world, playerId);
+        world.bases.put(playerId + ":B" + baseId, new Base(playerId + ":B" + baseId, playerId, Rules.DEFAULT_BASE, bp.getX(), bp.getY()));
+        world.units.put(Unit.key(playerId, unitId), new Unit(playerId, unitId, Rules.STARTING_SHIP, sp.getX(), sp.getY()));
+    }
+
+    private static int nextBaseNumber(World world, String playerId) {
+        int max = 0;
+        String prefix = playerId + ":B";
+        for (String id : world.bases.keySet()) if (id.startsWith(prefix)) try { max = Math.max(max, Integer.parseInt(id.substring(prefix.length()))); } catch (NumberFormatException ignored) { }
+        return max + 1;
+    }
+
+    private static int nextUnitNumber(World world, String playerId) {
+        int max = 0;
+        for (Unit unit : world.units.values()) if (unit.playerId.equals(playerId)) max = Math.max(max, unit.unitId);
+        return max + 1;
     }
 
     private static Point2D resourceStart(World world, int slot) {
@@ -55,7 +79,7 @@ final class WorldNetAccess {
             case 3 -> Material.SILICATES;
             default -> Material.ICE;
         };
-        ResourceNode node = nthActiveResource(world, material, slot * 17);
+        ResourceNode node = nthActiveResource(world, material, Math.floorMod(slot * 17, Math.max(1, world.resources.size())));
         if (node == null) return Calc.basePoint(slot);
         double cx = world.width / 2.0;
         double cy = world.height / 2.0;
