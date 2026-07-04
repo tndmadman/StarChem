@@ -2,12 +2,12 @@ package com.tndmadman.rts;
 
 import java.awt.*;
 import java.awt.geom.Rectangle2D;
-import java.util.ArrayList;
+import java.util.*;
 import java.util.List;
 
 final class BuildMenu {
-    private static final int WIDTH = 430;
-    private static final int ROW_H = 78;
+    private static final int WIDTH = 460;
+    private static final int ROW_H = 92;
     private static final int HEADER_H = 34;
     private static final int FOOTER_H = 32;
     private static final int MARGIN = 4;
@@ -32,14 +32,14 @@ final class BuildMenu {
         boolean free = world.devFreeBuild && PlayerRegistry.isLocal(base.playerId);
         for (String shipId : def.buildableShips) {
             ShipType ship = Rules.ship(shipId);
-            entries.add(new Entry("Build " + ship.name, free ? "free (dev mode)" : Rules.formatCost(ship.buildCost), ship, () -> {
+            entries.add(new Entry("Build " + ship.name, free ? "free (dev mode)" : Rules.formatCost(ship.buildCost), ship, weaponBadges(ship), () -> {
                 if (network == null) world.buildShip(base.id, shipId);
                 else network.build(base.playerId, base.id, shipId);
             }));
         }
         for (String packageId : def.basePackages) {
             BaseType pkg = Rules.base(packageId);
-            entries.add(new Entry("Load " + pkg.name, free ? "free (dev mode)" : Rules.formatCost(pkg.buildCost), null, () -> {
+            entries.add(new Entry("Load " + pkg.name, free ? "free (dev mode)" : Rules.formatCost(pkg.buildCost), null, List.of(), () -> {
                 if (network == null) world.loadBasePackage(base.id, packageId);
                 else network.basePackage(base.playerId, "LOAD", base.id, packageId);
             }));
@@ -54,7 +54,7 @@ final class BuildMenu {
         x = sx; y = sy; visible = true;
         if (!unit.basePackageType.isBlank()) {
             BaseType pkg = Rules.base(unit.basePackageType);
-            entries.add(new Entry("Place " + pkg.name, "ready", null, () -> {
+            entries.add(new Entry("Place " + pkg.name, "ready", null, List.of(), () -> {
                 if (network == null) world.placePackage(unit);
                 else network.basePackage(unit.playerId, "PLACE", unit.key(), unit.basePackageType);
             }));
@@ -120,12 +120,61 @@ final class BuildMenu {
         g2.drawString(fit(g2, e.title, textW), r.x + 10, r.y + 17);
         g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f));
         g2.setColor(new Color(220, 225, 185));
-        int yLine = r.y + 35;
-        for (String line : wrap(g2, e.detail, textW, 3)) {
-            g2.drawString(line, r.x + 10, yLine);
-            yLine += 15;
+        g2.drawString(fit(g2, e.detail, textW), r.x + 10, r.y + 35);
+        if (!e.weapons.isEmpty()) drawWeaponBadges(g2, e.weapons, r.x + 10, r.y + 49, textW);
+        else if (e.shipIcon != null) {
+            g2.setColor(new Color(155, 170, 180));
+            g2.drawString("Weapons: none", r.x + 10, r.y + 58);
         }
         if (e.shipIcon != null) drawShipIcon(g2, r, e.shipIcon);
+    }
+
+    private void drawWeaponBadges(Graphics2D g2, List<WeaponBadge> badges, int sx, int sy, int maxW) {
+        Graphics2D b = (Graphics2D) g2.create();
+        b.setFont(b.getFont().deriveFont(Font.BOLD, 10f));
+        int x = sx;
+        int y = sy;
+        for (WeaponBadge badge : badges) {
+            String label = badge.count > 1 ? badge.label + " x" + badge.count : badge.label;
+            int w = b.getFontMetrics().stringWidth(label) + 14;
+            if (x > sx && x + w > sx + maxW) { x = sx; y += 18; }
+            if (y > sy + 18) break;
+            Color c = badge.color;
+            b.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 58));
+            b.fillRoundRect(x, y, w, 15, 8, 8);
+            b.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 190));
+            b.drawRoundRect(x, y, w, 15, 8, 8);
+            b.setColor(Color.WHITE);
+            b.drawString(label, x + 7, y + 11);
+            x += w + 5;
+        }
+        b.dispose();
+    }
+
+    private List<WeaponBadge> weaponBadges(ShipType ship) {
+        Map<String, WeaponBadge> grouped = new LinkedHashMap<>();
+        for (WeaponType weapon : WeaponRules.loadout(ship)) {
+            String label = weaponLabel(weapon);
+            WeaponBadge old = grouped.get(label);
+            if (old == null) grouped.put(label, new WeaponBadge(label, 1, weapon.color));
+            else grouped.put(label, new WeaponBadge(label, old.count + 1, old.color));
+        }
+        return List.copyOf(grouped.values());
+    }
+
+    private String weaponLabel(WeaponType weapon) {
+        String id = weapon.id.toLowerCase(Locale.ROOT);
+        if (weapon.screenWeapon) return "PD";
+        if (id.contains("capital_torpedo")) return "CAP TORP";
+        if (id.contains("torpedo")) return "TORP";
+        if (weapon.movingShot || id.contains("missile")) return "MSL";
+        if (id.contains("siege")) return "SIEGE";
+        if (id.contains("lance")) return "LANCE";
+        if (id.contains("fighter")) return "FTR";
+        if (id.contains("cannon")) return "CANNON";
+        if (id.contains("rail")) return "RAIL";
+        if (weapon.beam) return "BEAM";
+        return "GUN";
     }
 
     private void drawShipIcon(Graphics2D g2, Rectangle row, ShipType ship) {
@@ -215,20 +264,6 @@ final class BuildMenu {
         return new Rectangle(x + WIDTH - 100, fy + 4, 90, FOOTER_H - 8);
     }
 
-    private List<String> wrap(Graphics2D g2, String text, int maxW, int maxLines) {
-        List<String> out = new ArrayList<>();
-        String line = "";
-        for (String part : text.split(", ")) {
-            String next = line.isBlank() ? part : line + ", " + part;
-            if (g2.getFontMetrics().stringWidth(next) <= maxW) line = next;
-            else if (line.isBlank()) out.add(fit(g2, part, maxW));
-            else { out.add(line); line = part; }
-            if (out.size() == maxLines) break;
-        }
-        if (!line.isBlank() && out.size() < maxLines) out.add(fit(g2, line, maxW));
-        return out.isEmpty() ? List.of(fit(g2, text, maxW)) : out;
-    }
-
     private String fit(Graphics2D g2, String text, int maxW) {
         if (g2.getFontMetrics().stringWidth(text) <= maxW) return text;
         String s = text;
@@ -243,5 +278,6 @@ final class BuildMenu {
     }
 
     private Rectangle row(int slot) { return new Rectangle(x + 10, y + HEADER_H + slot * ROW_H, WIDTH - 20, ROW_H - 8); }
-    private record Entry(String title, String detail, ShipType shipIcon, Runnable action) { }
+    private record Entry(String title, String detail, ShipType shipIcon, List<WeaponBadge> weapons, Runnable action) { }
+    private record WeaponBadge(String label, int count, Color color) { }
 }
