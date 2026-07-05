@@ -260,40 +260,65 @@ final class World {
         else status = unarmed > 0 ? "Selected ship has no weapons." : "No valid attack target.";
     }
 
-    private Unit unitAt(double x, double y) { for (Unit u : units.values()) if (u.contains(x, y)) return u; return null; }
-    Base baseAt(double x, double y) { for (Base b : bases.values()) if (b.contains(x, y)) return b; return null; }
-    private ResourceNode resourceAt(double x, double y) { for (ResourceNode node : resources) if (node.contains(x, y)) return node; return null; }
-    ResourceNode findResource(int id) { for (ResourceNode node : resources) if (node.id == id) return node; return null; }
-    Collection<Unit> selectedUnits() { List<Unit> out = new ArrayList<>(); for (Unit unit : units.values()) if (unit.selected) out.add(unit); return out; }
-    int selectedCount() { int c = 0; for (Unit unit : units.values()) if (unit.selected) c++; return c; }
+    void autoHarvestSelected(ResourceNode node) { int started = 0; for (Unit unit : selectedUnits()) if (unit.type().harvestKinds.contains(node.kind)) { unit.startAutoHarvest(node.id); started++; } status = started == 0 ? "Selected ship cannot harvest this node." : "Auto-harvesting " + node.name + "."; }
 
-    Base nearestBase(String playerId, double x, double y) {
-        Base best = null;
-        double bestD = Double.MAX_VALUE;
-        for (Base base : bases.values()) {
-            if (!base.playerId.equals(playerId)) continue;
-            double d = Calc.distance(x, y, base.x, base.y);
-            if (d < bestD) { best = base; bestD = d; }
-        }
-        return best;
+    void sendToNearestBase(Unit unit) {
+        Base base = nearestBase(unit.playerId, unit.x, unit.y);
+        Unit depot = MobileDepot.preferredFor(this, unit, base);
+        if (base == null && depot == null) return;
+        unit.task = UnitTask.RETURN_TO_STATION;
+        if (depot != null) moveTowardOrbit(unit, depot.x, depot.y, MobileDepot.range(depot) * 0.55);
+        else moveTowardOrbit(unit, base.x, base.y, base.type().unloadRange * 0.55);
     }
 
-    private void orbitAround(Unit unit, double cx, double cy, double radius, double dt, double speedScale) {
-        unit.orbitAngle += dt * speedScale;
-        unit.targetX = cx + Math.cos(unit.orbitAngle) * radius;
-        unit.targetY = cy + Math.sin(unit.orbitAngle) * radius;
-        unit.updatePosition(dt, width, height);
+    boolean scoutRetarget(Unit unit, ResourceNode oldNode) { return oldNode != null && scoutSystem.retargetAfterDepletion(this, unit, oldNode); }
+
+    void orbitAround(Unit unit, double cx, double cy, double radius, double dt, double speed) {
+        unit.orbitAngle += dt * speed * (unit.unitId % 2 == 0 ? 1 : -1);
+        unit.targetX = Calc.clamp(cx + Math.cos(unit.orbitAngle) * radius, 0, width);
+        unit.targetY = Calc.clamp(cy + Math.sin(unit.orbitAngle) * radius, 0, height);
+        unit.orbitRetarget = 0;
     }
 
-    private void moveTowardOrbit(Unit unit, double x, double y, double range) {
-        double a = Math.atan2(unit.y - y, unit.x - x);
-        unit.targetX = x + Math.cos(a) * range;
-        unit.targetY = y + Math.sin(a) * range;
+    void moveTowardOrbit(Unit unit, double cx, double cy, double radius) {
+        double angle = Math.atan2(unit.y - cy, unit.x - cx);
+        if (Double.isNaN(angle)) angle = unit.unitId;
+        unit.targetX = Calc.clamp(cx + Math.cos(angle) * radius, 0, width);
+        unit.targetY = Calc.clamp(cy + Math.sin(angle) * radius, 0, height);
     }
+
+    void relocateResource(ResourceNode node) { ResourceSpawner.relocate(node, resources, bases.values(), celestials, random); }
 
     private void cleanupDestroyed() {
-        units.values().removeIf(u -> u.hp <= 0);
-        bases.values().removeIf(b -> b.hp <= 0);
-        shots.removeIf(s -> !CombatTarget.alive(this, s.targetKey));
+        units.values().removeIf(unit -> unit.hp <= 0);
+        bases.values().removeIf(base -> base.hp <= 0);
+        shots.removeIf(shot -> !CombatTarget.alive(this, shot.targetKey) || shot.weapon() == null);
+        for (Unit unit : units.values()) {
+            if (!unit.attackTarget.isBlank() && !CombatTarget.alive(this, unit.attackTarget)) {
+                unit.attackTarget = "";
+                if (unit.task == UnitTask.ATTACK) unit.task = UnitTask.IDLE;
+            }
+        }
+    }
+
+    ResourceNode resourceAt(double x, double y) { ResourceNode best = null; double bestDist = Double.MAX_VALUE; for (ResourceNode node : resources) if (node.active) { double d = Calc.distance(x, y, node.x, node.y); if (d <= node.radius + 14 && d < bestDist) { best = node; bestDist = d; } } return best; }
+    Base baseAt(double x, double y) { for (Base base : bases.values()) if (base.contains(x, y)) return base; return null; }
+    Unit unitAt(double x, double y) { for (Unit unit : units.values()) if (unit.contains(x, y)) return unit; return null; }
+    ResourceNode findResource(int id) { for (ResourceNode node : resources) if (node.id == id) return node; return null; }
+    Base nearestBase(double x, double y) { return nearestBase(PlayerRegistry.localId(), x, y); }
+    Base nearestBase(String playerId, double x, double y) { Base best = null; double bestDist = Double.MAX_VALUE; for (Base base : bases.values()) if (base.playerId.equals(playerId)) { double d = Calc.distance(x, y, base.x, base.y); if (d < bestDist) { best = base; bestDist = d; } } return best; }
+    List<Unit> selectedUnits() { List<Unit> out = new ArrayList<>(); for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) out.add(unit); return out; }
+    Unit selectedUnit() { for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) return unit; return null; }
+    int selectedCount() { int count = 0; for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) count++; return count; }
+
+    boolean canAfford(List<Cost> cost) { for (Cost c : cost) if (stockpile.getOrDefault(c.material(), 0.0) + 0.001 < c.amount()) return false; return true; }
+    void spend(List<Cost> cost) { for (Cost c : cost) { double next = stockpile.getOrDefault(c.material(), 0.0) - c.amount(); if (next <= 0.05) stockpile.remove(c.material()); else stockpile.put(c.material(), next); } }
+
+    Rectangle2D localBounds() {
+        boolean found = false;
+        double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+        for (Unit u : units.values()) if (PlayerRegistry.isLocal(u.playerId)) { found = true; minX = Math.min(minX, u.x); minY = Math.min(minY, u.y); maxX = Math.max(maxX, u.x); maxY = Math.max(maxY, u.y); }
+        for (Base b : bases.values()) if (PlayerRegistry.isLocal(b.playerId)) { found = true; minX = Math.min(minX, b.x); minY = Math.min(minY, b.y); maxX = Math.max(maxX, b.x); maxY = Math.max(maxY, b.y); }
+        return found ? new Rectangle2D.Double(minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY)) : null;
     }
 }
