@@ -159,7 +159,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         hangarHud.mouseDragged(e.getX(), e.getY(), getWidth(), getHeight());
     }
 
-    @Override public void mouseWheelMoved(MouseWheelEvent e) { camera.zoomAt(e.getPreciseWheelRotation(), e.getX(), e.getY()); }
+    @Override public void mouseWheelMoved(MouseWheelEvent e) { camera.zoomAt(e.getPoint(), e.getWheelRotation(), world, getWidth(), getHeight()); }
     @Override public void mouseMoved(MouseEvent e) { }
     @Override public void mouseClicked(MouseEvent e) { }
     @Override public void mouseReleased(MouseEvent e) { }
