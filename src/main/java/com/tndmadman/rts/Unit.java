@@ -13,8 +13,9 @@ final class Unit {
     double x, y, targetX, targetY, heading = -Math.PI / 2, orbitAngle, orbitRetarget;
     double weaponCooldown, weaponFlashTimer;
     double hp, shield, shieldDelayTimer;
+    double miningAnchorX, miningAnchorY;
     int automationResourceId = -1;
-    boolean selected, unloadingThisFrame;
+    boolean selected, unloadingThisFrame, miningAnchorSet;
 
     Unit(String playerId, int unitId, String shipTypeId, double x, double y) {
         this.playerId = playerId;
@@ -24,6 +25,8 @@ final class Unit {
         this.y = y;
         this.targetX = x;
         this.targetY = y;
+        this.miningAnchorX = x;
+        this.miningAnchorY = y;
         this.hp = type().maxHp;
         this.shield = type().maxShield;
         this.orbitAngle = unitId;
@@ -40,6 +43,7 @@ final class Unit {
         task = UnitTask.MOVE;
         automationResourceId = -1;
         attackTarget = "";
+        if (canAutoMineLocally()) setMiningAnchor(tx, ty);
     }
 
     void attack(String targetKey) {
@@ -52,6 +56,17 @@ final class Unit {
         automationResourceId = resourceId;
         attackTarget = "";
         task = UnitTask.AUTO_HARVEST;
+    }
+
+    void setMiningAnchor(double x, double y) {
+        miningAnchorX = x;
+        miningAnchorY = y;
+        miningAnchorSet = true;
+    }
+
+    private boolean canAutoMineLocally() {
+        ShipType type = type();
+        return type.scoutRange > 0 && !type.harvestKinds.isEmpty();
     }
 
     double cargoUsed() {
