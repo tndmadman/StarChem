@@ -94,7 +94,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         g2.setColor(new Color(210,230,245));
         g2.drawString(world.status, 28, 58);
         g2.drawString(network == null ? "Solo" : network.statusLine(), 28, 80);
-        g2.drawString("Drag-select ships | Right-click group order | Formation: " + formation.label + " (F to cycle)", 28, 102);
+        String minerRanges = UnitRenderer.miningRangeOverlayVisible() ? "ON" : "OFF";
+        g2.drawString("Drag-select ships | Right-click group order | Formation: " + formation.label + " (F) | Miner ranges: " + minerRanges + " (R)", 28, 102);
     }
 
     private void drawSelectionBox(Graphics2D g2) {
@@ -217,6 +218,12 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         if (e.getKeyCode() == KeyEvent.VK_F) {
             formation = formation.next();
             world.status = "Fleet formation: " + formation.label + ".";
+            return;
+        }
+        if (e.getKeyCode() == KeyEvent.VK_R) {
+            UnitRenderer.toggleMiningRangeOverlay();
+            world.status = "Miner range overlay: " + (UnitRenderer.miningRangeOverlayVisible() ? "ON" : "OFF") + ".";
+            repaint();
             return;
         }
         setCameraKey(e.getKeyCode(), true);
