@@ -7,6 +7,7 @@
     "ships": [
       "config/ships/early.json",
       "config/ships/industry.json",
+      "config/ships/shuttles.json",
       "config/ships/combat-line.json",
       "config/ships/capitals.json",
       "config/ships/megastructures.json"
