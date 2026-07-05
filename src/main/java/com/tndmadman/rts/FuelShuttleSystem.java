@@ -3,21 +3,23 @@ package com.tndmadman.rts;
 import java.util.*;
 
 final class FuelShuttleSystem {
-    static final String SHUTTLE_TYPE = "fuel_shuttle";
+    static final String SHUTTLE_TYPE = "fuel_hauler_shuttle";
     private static final String MANUFACTURING = "manufacturing";
     private static final String LABORATORY = "laboratory";
     private static final double LAB_FUEL_TARGET = 200.0;
     private static final double MAX_DELIVERY_RANGE = 2400.0;
     private static final double LAUNCH_COOLDOWN_SECONDS = 3.5;
-    private final Map<String, Double> launchCooldowns = new HashMap<>();
+    private static final Map<String, Double> launchCooldowns = new HashMap<>();
 
-    void update(World world, double dt) {
+    private FuelShuttleSystem() { }
+
+    static void update(World world, double dt) {
         deliverActiveShuttles(world);
         launchFromManufacturing(world, dt);
         launchCooldowns.keySet().removeIf(id -> !world.bases.containsKey(id));
     }
 
-    private void deliverActiveShuttles(World world) {
+    private static void deliverActiveShuttles(World world) {
         Iterator<Unit> it = world.units.values().iterator();
         while (it.hasNext()) {
             Unit shuttle = it.next();
@@ -37,7 +39,7 @@ final class FuelShuttleSystem {
         }
     }
 
-    private void launchFromManufacturing(World world, double dt) {
+    private static void launchFromManufacturing(World world, double dt) {
         for (Base plant : new ArrayList<>(world.bases.values())) {
             if (!MANUFACTURING.equals(plant.typeId)) continue;
             double cooldown = launchCooldowns.getOrDefault(plant.id, 0.0) - dt;
@@ -72,7 +74,7 @@ final class FuelShuttleSystem {
         }
     }
 
-    private Base nearestFuelHungryLab(World world, String playerId, double x, double y, double maxRange) {
+    private static Base nearestFuelHungryLab(World world, String playerId, double x, double y, double maxRange) {
         Base best = null;
         double bestDist = Double.MAX_VALUE;
         for (Base base : world.bases.values()) {
@@ -88,7 +90,7 @@ final class FuelShuttleSystem {
         return best;
     }
 
-    private double inboundFuel(World world, Base lab) {
+    private static double inboundFuel(World world, Base lab) {
         double total = 0;
         for (Unit unit : world.units.values()) {
             if (!SHUTTLE_TYPE.equals(unit.shipTypeId) || !unit.playerId.equals(lab.playerId)) continue;
@@ -98,7 +100,7 @@ final class FuelShuttleSystem {
         return total;
     }
 
-    private void moveToward(Unit shuttle, Base lab) {
+    private static void moveToward(Unit shuttle, Base lab) {
         shuttle.task = UnitTask.MOVE;
         shuttle.attackTarget = "";
         shuttle.automationResourceId = -1;
@@ -106,23 +108,23 @@ final class FuelShuttleSystem {
         shuttle.targetY = lab.y;
     }
 
-    private double undockX(Base plant, Base lab) {
+    private static double undockX(Base plant, Base lab) {
         double a = Math.atan2(lab.y - plant.y, lab.x - plant.x);
         return plant.x + Math.cos(a) * Math.max(58, plant.type().buildRadius * 0.8);
     }
 
-    private double undockY(Base plant, Base lab) {
+    private static double undockY(Base plant, Base lab) {
         double a = Math.atan2(lab.y - plant.y, lab.x - plant.x);
         return plant.y + Math.sin(a) * Math.max(58, plant.type().buildRadius * 0.8);
     }
 
-    private void spendFuel(Base base, double amount) {
+    private static void spendFuel(Base base, double amount) {
         double next = base.inventory.getOrDefault(Material.FUEL, 0.0) - amount;
         if (next <= 0.05) base.inventory.remove(Material.FUEL);
         else base.inventory.put(Material.FUEL, next);
     }
 
-    private int nextUnitId(World world, String playerId) {
+    private static int nextUnitId(World world, String playerId) {
         int max = 0;
         for (Unit unit : world.units.values()) if (unit.playerId.equals(playerId)) max = Math.max(max, unit.unitId);
         return max + 1;
