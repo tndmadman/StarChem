@@ -7,6 +7,7 @@ final class FuelShuttleSystem {
     private static final String MANUFACTURING = "manufacturing";
     private static final String LABORATORY = "laboratory";
     private static final double LAB_FUEL_TARGET = 200.0;
+    private static final double LAB_FUEL_LOW_WATER = 150.0;
     private static final double MAX_DELIVERY_RANGE = 2400.0;
     private static final double LAUNCH_COOLDOWN_SECONDS = 3.5;
     private static final Map<String, Double> launchCooldowns = new HashMap<>();
@@ -52,18 +53,20 @@ final class FuelShuttleSystem {
                 launchCooldowns.put(plant.id, 0.4);
                 continue;
             }
-            double available = plant.inventory.getOrDefault(Material.FUEL, 0.0);
-            if (available <= 0.05 || !Rules.SHIPS.containsKey(SHUTTLE_TYPE)) {
+            if (!Rules.SHIPS.containsKey(SHUTTLE_TYPE)) {
                 launchCooldowns.put(plant.id, 0.4);
                 continue;
             }
+            double available = plant.inventory.getOrDefault(Material.FUEL, 0.0);
+            double shuttleCapacity = Rules.ship(SHUTTLE_TYPE).cargoCapacity;
+            double minimumLoad = Math.min(shuttleCapacity, LAB_FUEL_TARGET - LAB_FUEL_LOW_WATER);
             double labFuel = lab.inventory.getOrDefault(Material.FUEL, 0.0);
             double missing = Math.max(0, LAB_FUEL_TARGET - labFuel - inboundFuel(world, lab));
-            double batch = Math.min(available, Math.min(Rules.ship(SHUTTLE_TYPE).cargoCapacity, missing));
-            if (batch <= 0.5) {
+            if (available < minimumLoad || missing < minimumLoad) {
                 launchCooldowns.put(plant.id, 0.6);
                 continue;
             }
+            double batch = Math.min(available, Math.min(shuttleCapacity, missing));
             spendFuel(plant, batch);
             Unit shuttle = new Unit(plant.playerId, nextUnitId(world, plant.playerId), SHUTTLE_TYPE, undockX(plant, lab), undockY(plant, lab));
             shuttle.addCargo(Material.FUEL, batch);
@@ -80,7 +83,7 @@ final class FuelShuttleSystem {
         for (Base base : world.bases.values()) {
             if (!LABORATORY.equals(base.typeId) || !base.playerId.equals(playerId)) continue;
             double stored = base.inventory.getOrDefault(Material.FUEL, 0.0) + inboundFuel(world, base);
-            if (stored >= LAB_FUEL_TARGET - 0.5) continue;
+            if (stored > LAB_FUEL_LOW_WATER) continue;
             double d = Calc.distance(x, y, base.x, base.y);
             if (d <= maxRange && d < bestDist) {
                 best = base;
