@@ -24,7 +24,7 @@ final class FuelShuttleSystem {
         while (it.hasNext()) {
             Unit shuttle = it.next();
             if (!SHUTTLE_TYPE.equals(shuttle.shipTypeId)) continue;
-            Base lab = nearestFuelHungryLab(world, shuttle.playerId, shuttle.x, shuttle.y, Double.MAX_VALUE);
+            Base lab = nearestLab(world, shuttle.playerId, shuttle.x, shuttle.y, Double.MAX_VALUE);
             if (lab == null || shuttle.inventory.getOrDefault(Material.FUEL, 0.0) <= 0.05) {
                 it.remove();
                 continue;
@@ -81,6 +81,20 @@ final class FuelShuttleSystem {
             if (!LABORATORY.equals(base.typeId) || !base.playerId.equals(playerId)) continue;
             double stored = base.inventory.getOrDefault(Material.FUEL, 0.0) + inboundFuel(world, base);
             if (stored >= LAB_FUEL_TARGET - 0.5) continue;
+            double d = Calc.distance(x, y, base.x, base.y);
+            if (d <= maxRange && d < bestDist) {
+                best = base;
+                bestDist = d;
+            }
+        }
+        return best;
+    }
+
+    private static Base nearestLab(World world, String playerId, double x, double y, double maxRange) {
+        Base best = null;
+        double bestDist = Double.MAX_VALUE;
+        for (Base base : world.bases.values()) {
+            if (!LABORATORY.equals(base.typeId) || !base.playerId.equals(playerId)) continue;
             double d = Calc.distance(x, y, base.x, base.y);
             if (d <= maxRange && d < bestDist) {
                 best = base;
