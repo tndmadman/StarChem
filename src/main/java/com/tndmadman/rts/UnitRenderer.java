@@ -4,7 +4,15 @@ import java.awt.*;
 import java.awt.geom.Line2D;
 
 final class UnitRenderer {
+    private static boolean miningRangeOverlayVisible;
+
     private UnitRenderer() { }
+
+    static boolean miningRangeOverlayVisible() { return miningRangeOverlayVisible; }
+
+    static void toggleMiningRangeOverlay() {
+        miningRangeOverlayVisible = !miningRangeOverlayVisible;
+    }
 
     static void draw(Graphics2D g2, Unit unit, Color ignoredColor, boolean ignoredOwner) {
         Color playerColor = PlayerRegistry.color(unit.playerId);
@@ -27,7 +35,7 @@ final class UnitRenderer {
             g2.drawOval((int)unit.x - 26, (int)unit.y - 26, 52, 52);
             drawCargo(g2, unit);
         }
-        if (owner && unit.type().scoutRange > 0) drawScoutCircle(g2, unit, playerColor);
+        if (owner && unit.type().scoutRange > 0 && shouldDrawScoutCircle(unit)) drawScoutCircle(g2, unit, playerColor);
     }
 
     static void drawRoute(Graphics2D g2, Unit unit, Color ignoredColor) {
@@ -48,6 +56,11 @@ final class UnitRenderer {
         b.setColor(new Color(m.getRed(), m.getGreen(), m.getBlue(), 150));
         b.draw(new Line2D.Double(unit.x, unit.y, node.x, node.y));
         b.dispose();
+    }
+
+    private static boolean shouldDrawScoutCircle(Unit unit) {
+        if (unit.type().harvestKinds.isEmpty()) return true;
+        return miningRangeOverlayVisible || unit.selected;
     }
 
     private static void drawName(Graphics2D g2, Unit unit, Color color) {
