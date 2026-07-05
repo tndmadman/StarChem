@@ -59,7 +59,7 @@ final class BuildSystem {
     }
 
     private boolean freeBuild(World world, Base base) {
-        return world.devFreeBuild && PlayerRegistry.isLocal(base.playerId);
+        return world.devFreeBuildFor(base.playerId);
     }
 
     private Unit nearestEmptyBuilder(World world, Base base) {
