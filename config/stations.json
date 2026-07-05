@@ -3,6 +3,9 @@
     "outpost": {
       "displayName": "Outpost",
       "maxHp": 1200,
+      "maxShield": 800,
+      "shieldRegen": 12.0,
+      "shieldRegenDelay": 5.0,
       "unloadRange": 118,
       "unloadRate": 95,
       "buildRadius": 72,
@@ -17,6 +20,9 @@
     "shipyard": {
       "displayName": "Shipyard",
       "maxHp": 2400,
+      "maxShield": 1800,
+      "shieldRegen": 20.0,
+      "shieldRegenDelay": 6.0,
       "unloadRange": 150,
       "unloadRate": 160,
       "buildRadius": 100,
