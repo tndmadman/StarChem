@@ -1,0 +1,23 @@
+{
+  "shipTypes": {
+    "fuel_hauler_shuttle": {
+      "displayName": "Fuel Shuttle",
+      "role": "automated fuel courier",
+      "size": "SMALL",
+      "seed": 5128,
+      "maxHp": 60,
+      "maxShield": 20,
+      "shieldRegen": 1.0,
+      "shieldRegenDelay": 3.0,
+      "speed": 245,
+      "cargoCapacity": 50,
+      "harvestRange": 0,
+      "orbitRadius": 54,
+      "idleStationOrbitRadius": 82,
+      "automatedOnly": true,
+      "craftable": false,
+      "buildCost": {},
+      "canHarvest": []
+    }
+  }
+}
