@@ -31,6 +31,10 @@
     "AMMONIA": {
       "displayName": "Ammonia",
       "color": "#EBF596"
+    },
+    "FUEL": {
+      "displayName": "Fuel",
+      "color": "#FFB946"
     }
   }
 }

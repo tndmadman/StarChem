@@ -18,9 +18,12 @@ It is written in plain Java/Swing with a UDP host/client layer. The game opens i
 - Harvesting ships orbit the asteroid/cloud while working
 - Depleted resource nodes vanish and respawn somewhere else
 - Outposts build Prospectors and Deployers
-- Outposts fabricate/load Shipyard packages into Deployers
-- Deployers place Shipyards and are consumed
+- Outposts fabricate/load Shipyard, Research Lab, and Manufacturing Plant packages into Deployers
+- Deployers place packaged stations and are consumed
 - Shipyards unlock industrial, combat, capital, supercapital, titan, and monolith hulls
+- Research Labs require Fuel in their hangar to stay powered
+- Manufacturing Plants manufacture Fuel from harvested gases
+- Craftable item recipes are loaded from their own JSON data files
 - Movement route line, destination ring, speed, and ETA
 - Manual WASD camera and mouse-wheel zoom
 - UDP host/client synchronization for players, ships, stations, cargo, resources, and stockpiles
@@ -49,10 +52,12 @@ It is written in plain Java/Swing with a UDP host/client layer. The game opens i
 4. Repeat for Copper, Silicates, Ice, Hydrogen, and advanced gases as needed.
 5. Left-click the Outpost and build a Deployer when the Outpost stockpile can afford it.
 6. Move an empty Deployer near the Outpost.
-7. Left-click the Outpost and load a Shipyard package into the Deployer.
+7. Left-click the Outpost and load a Shipyard, Research Lab, or Manufacturing Plant package into the Deployer.
 8. Move the loaded Deployer to the desired spot.
-9. Left-click the loaded Deployer and place the Shipyard. The Deployer is consumed.
+9. Left-click the loaded Deployer and place the station. The Deployer is consumed.
 10. Use the Shipyard build menu to build industry ships, combat hulls, capitals, titans, and monoliths.
+11. Use the Manufacturing Plant build menu to manufacture Fuel from harvested gases.
+12. Deliver Fuel to the Research Lab hangar so it stays powered for the later science/research update.
 
 ## Ship examples
 
@@ -88,6 +93,31 @@ Shipyard package:
 - `350 Silicates`
 - `160 Water Ice`
 
+Research Lab package:
+
+- `350 Iron`
+- `220 Copper`
+- `280 Silicates`
+- `120 Water Ice`
+
+Manufacturing Plant package:
+
+- `450 Iron`
+- `240 Copper`
+- `320 Silicates`
+- `140 Water Ice`
+- `120 Hydrogen`
+
+## Fuel manufacturing
+
+Fuel recipe:
+
+- Input: `30 Hydrogen`, `10 Helium`, `12 Methane`
+- Output: `50 Fuel`
+- Crafted at: `Manufacturing Plant`
+
+Research Labs consume `0.25 Fuel` per second from their station hangar while powered.
+
 ## Modding config
 
 The primary rules manifest is:
@@ -103,6 +133,7 @@ config/materials.json
 config/stations.json
 config/resources.json
 config/automation.json
+config/craftables/fuel.json
 config/ships/early.json
 config/ships/industry.json
 config/ships/combat-line.json
@@ -112,7 +143,9 @@ config/ships/megastructures.json
 
 `files.ships` in `config/starchem.json` may be either one JSON file or a list of JSON files. The loader merges all ship files in order, so new ship packs can be added without growing one huge config file.
 
-The Java build loads ships, stations, resource belt spawning, and resource respawn timing from those files through `Rules.java`. This means ship stats, build costs, station build menus, station package costs, and spawned resource belts can be changed without editing Java source.
+`files.craftables` may also be one JSON file or a list of JSON files. Each craftable item should live in its own JSON file with its required resources, output material, display name, description, style, color, and station types that can craft it.
+
+The Java build loads ships, stations, craftable recipes, resource belt spawning, and resource respawn timing from those files through `Rules.java`, `CraftingRules.java`, and `StationFuelRules.java`. This means ship stats, build costs, station build menus, station package costs, station fuel requirements, craftable recipe costs/outputs, and spawned resource belts can be changed without editing Java source.
 
 Important current limitation: materials are still backed by the Java `Material` enum in `Types.java`, so `materials.json` is currently documentation/metadata for the existing material IDs. A later pass should replace the enum with loaded material definitions if fully custom materials/colors are needed.
 
@@ -173,6 +206,8 @@ gradle run --args="--join 127.0.0.1 50000 --name Player"
 
 - [ ] Replace the Java `Material` enum with loaded material data so mods can add entirely new materials and colors.
 - [ ] Send the loaded rules config from host to clients so multiplayer sessions cannot drift.
+- [ ] Add actual science/research behavior to the Research Lab.
+- [ ] Add full client-to-host manufacturing commands for craftable items.
 - [ ] Add actual combat/projectile/weapon behavior for combat hulls.
 - [ ] Add snapshot sequence rejection on the client.
 - [ ] Replace the raw delimited UDP protocol with JSON or length-prefixed packets.

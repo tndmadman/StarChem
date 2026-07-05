@@ -21,7 +21,7 @@ final class Base {
     BaseType type() { return Rules.base(typeId); }
 
     boolean contains(double wx, double wy) {
-        return Calc.distance(wx, wy, x, y) <= (typeId.equals("shipyard") ? 82 : 64);
+        return Calc.distance(wx, wy, x, y) <= radius();
     }
 
     void draw(Graphics2D g2, Color ignoredColor, EnumMap<Material, Double> ignoredStockpile, boolean ignoredLocal) {
@@ -30,7 +30,7 @@ final class Base {
         Graphics2D s = (Graphics2D) g2.create();
         s.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         BaseType def = type();
-        double radius = typeId.equals("shipyard") ? 82 : 64;
+        double radius = radius();
         s.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), local ? 42 : 22));
         s.fillOval((int)(x - def.unloadRange), (int)(y - def.unloadRange), (int)(def.unloadRange * 2), (int)(def.unloadRange * 2));
         s.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), local ? 120 : 72));
@@ -43,12 +43,41 @@ final class Base {
         }
         s.setColor(new Color(20,29,42)); s.fillPolygon(hull);
         s.setColor(playerColor); s.setStroke(new BasicStroke(3f)); s.drawPolygon(hull);
-        s.setColor(new Color(125,205,255,90)); s.fillOval((int)(x - 26), (int)(y - 26), 52, 52);
+        drawCore(s, playerColor);
         s.setFont(s.getFont().deriveFont(Font.BOLD, 12f));
         drawBars(s, def, radius);
         drawLabel(s, def, radius, playerColor);
+        drawFuelState(s, radius);
         if (local) drawHangar(s, radius);
         s.dispose();
+    }
+
+    private double radius() {
+        return switch (typeId) {
+            case "shipyard" -> 82;
+            case "laboratory", "manufacturing" -> 74;
+            default -> 64;
+        };
+    }
+
+    private void drawCore(Graphics2D s, Color playerColor) {
+        if ("laboratory".equals(typeId)) {
+            s.setColor(new Color(80, 230, 255, 80));
+            s.fillOval((int)(x - 30), (int)(y - 30), 60, 60);
+            s.setColor(new Color(240, 255, 255, 120));
+            s.drawLine((int)(x - 22), (int)y, (int)(x + 22), (int)y);
+            s.drawLine((int)x, (int)(y - 22), (int)x, (int)(y + 22));
+            return;
+        }
+        if ("manufacturing".equals(typeId)) {
+            s.setColor(new Color(255, 185, 90, 90));
+            s.fillRect((int)(x - 28), (int)(y - 22), 56, 44);
+            s.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), 150));
+            s.drawRect((int)(x - 28), (int)(y - 22), 56, 44);
+            return;
+        }
+        s.setColor(new Color(125,205,255,90));
+        s.fillOval((int)(x - 26), (int)(y - 26), 52, 52);
     }
 
     private void drawBars(Graphics2D s, BaseType def, double radius) {
@@ -75,6 +104,21 @@ final class Base {
         s.fillRoundRect((int)(x - tw / 2.0 - 6), (int)(y - radius - 32), tw + 12, 18, 8, 8);
         s.setColor(playerColor);
         s.drawString(label, (int)(x - tw / 2.0), (int)(y - radius - 18));
+    }
+
+    private void drawFuelState(Graphics2D s, double radius) {
+        StationFuelRequirement req = StationFuelRules.requirement(typeId);
+        if (req == null) return;
+        double fuel = inventory.getOrDefault(req.material(), 0.0);
+        boolean powered = StationFuelRules.isOperational(this);
+        String label = powered ? "Fuel " + Calc.round(fuel) + " | " + Calc.round(req.perSecond()) + "/s" : "NO FUEL";
+        int tw = s.getFontMetrics().stringWidth(label);
+        int px = (int)(x - tw / 2.0 - 6);
+        int py = (int)(y - radius - 72);
+        s.setColor(new Color(0,0,0,165));
+        s.fillRoundRect(px, py, tw + 12, 18, 8, 8);
+        s.setColor(powered ? new Color(255, 210, 110) : new Color(255, 95, 80));
+        s.drawString(label, px + 6, py + 13);
     }
 
     private void drawHangar(Graphics2D s, double radius) {

@@ -9,6 +9,10 @@ final class BuildSystem {
             world.status = base.type().name + " cannot build " + shipType.name + ".";
             return false;
         }
+        if (!StationFuelRules.isOperational(base)) {
+            world.status = base.type().name + " needs " + StationFuelRules.requirement(base.typeId).material().label + " to run.";
+            return false;
+        }
         boolean free = freeBuild(world, base);
         if (!free && !HangarStore.canAfford(base.inventory, shipType.buildCost)) {
             world.status = "Need " + Rules.formatCost(shipType.buildCost) + " in " + base.type().name + " hangar.";
@@ -27,6 +31,10 @@ final class BuildSystem {
         if (base == null) return false;
         if (!base.type().basePackages.contains(packageType)) {
             world.status = base.type().name + " cannot craft that package.";
+            return false;
+        }
+        if (!StationFuelRules.isOperational(base)) {
+            world.status = base.type().name + " needs " + StationFuelRules.requirement(base.typeId).material().label + " to run.";
             return false;
         }
         BaseType pkg = Rules.base(packageType);
@@ -52,9 +60,37 @@ final class BuildSystem {
             return false;
         }
         String baseId = nextBaseId(world, carrier.playerId);
+        BaseType placed = Rules.base(carrier.basePackageType);
         world.bases.put(baseId, new Base(baseId, carrier.playerId, carrier.basePackageType, carrier.x, carrier.y));
         world.units.remove(carrier.key());
-        world.status = "Placed Shipyard. Deployer consumed.";
+        world.status = "Placed " + placed.name + ". Deployer consumed.";
+        return true;
+    }
+
+    boolean craftItem(World world, String baseId, String craftableId) {
+        Base base = world.bases.get(baseId);
+        if (base == null) return false;
+        CraftableItem item = CraftingRules.item(craftableId);
+        if (item == null) {
+            world.status = "Unknown craftable item: " + craftableId + ".";
+            return false;
+        }
+        if (!item.canCraftAt(base.typeId)) {
+            world.status = base.type().name + " cannot manufacture " + item.name + ".";
+            return false;
+        }
+        if (!StationFuelRules.isOperational(base)) {
+            world.status = base.type().name + " needs " + StationFuelRules.requirement(base.typeId).material().label + " to run.";
+            return false;
+        }
+        boolean free = freeBuild(world, base);
+        if (!free && !HangarStore.canAfford(base.inventory, item.requiredResources)) {
+            world.status = "Need " + Rules.formatCost(item.requiredResources) + " in " + base.type().name + " hangar.";
+            return false;
+        }
+        if (!free) HangarStore.spend(base.inventory, item.requiredResources);
+        HangarStore.add(base.inventory, item.outputMaterial, item.outputAmount);
+        world.status = free ? "Dev manufactured " + item.outputLabel() + " for free." : "Manufactured " + item.outputLabel() + ".";
         return true;
     }
 

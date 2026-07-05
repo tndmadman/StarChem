@@ -105,6 +105,7 @@ final class World {
     void update(double dt) {
         updateEnvironment(dt);
         resourceRespawnSystem.update(this, dt);
+        StationFuelRules.consume(this, dt);
         scoutSystem.update(this);
         for (Unit unit : new ArrayList<>(units.values())) updateUnit(unit, dt);
         weaponSystem.update(this, dt);
@@ -141,6 +142,7 @@ final class World {
     }
 
     private void autoUnload(Unit unit, double dt) {
+        if (FuelShuttleSystem.SHUTTLE_TYPE.equals(unit.shipTypeId)) return;
         if (unit.cargoUsed() <= 0.05) return;
         Base base = nearestBase(unit.playerId, unit.x, unit.y);
         Unit depot = MobileDepot.preferredFor(this, unit, base);
@@ -167,6 +169,7 @@ final class World {
     boolean buildShip(String baseId, String shipTypeId) { return buildSystem.buildShip(this, baseId, shipTypeId); }
     boolean loadBasePackage(String baseId, String packageType) { return buildSystem.loadBasePackage(this, baseId, packageType); }
     boolean placePackage(Unit unit) { return buildSystem.placePackage(this, unit); }
+    boolean craftItem(String baseId, String craftableId) { return buildSystem.craftItem(this, baseId, craftableId); }
 
     void draw(Graphics2D g2) {
         drawMap(g2);

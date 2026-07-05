@@ -44,6 +44,14 @@ final class BuildMenu {
                 else network.basePackage(base.playerId, "LOAD", base.id, packageId);
             }));
         }
+        for (CraftableItem item : CraftingRules.forStation(def.id)) {
+            String detail = free ? "free (dev mode)" : Rules.formatCost(item.requiredResources) + " -> " + item.outputLabel();
+            String info = item.description.isBlank() ? "Style: " + item.style : item.description;
+            entries.add(new Entry("Manufacture " + item.name, detail, info, null, List.of(), () -> {
+                if (network == null || network.statusLine().startsWith("HOST")) world.craftItem(base.id, item.id);
+                else world.status = "Manufacturing commands are host/solo only right now.";
+            }));
+        }
     }
 
     void showForUnit(World world, PeerNetwork network, Unit unit, int sx, int sy) {
@@ -169,7 +177,9 @@ final class BuildMenu {
     }
 
     private String stationDefenseLine(BaseType station) {
-        return "HP " + whole(station.maxHp) + " | SHD " + whole(station.maxShield) + " | REG " + one(station.shieldRegen) + "/s";
+        StationFuelRequirement fuel = StationFuelRules.requirement(station.id);
+        String base = "HP " + whole(station.maxHp) + " | SHD " + whole(station.maxShield) + " | REG " + one(station.shieldRegen) + "/s";
+        return fuel == null ? base : base + " | Fuel " + one(fuel.perSecond()) + "/s";
     }
 
     private String whole(double value) { return String.valueOf((int)Math.round(value)); }

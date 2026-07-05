@@ -11,7 +11,8 @@ enum Material {
     HYDROGEN("Hydrogen", new Color(110,210,255)),
     HELIUM("Helium", new Color(210,175,255)),
     METHANE("Methane", new Color(100,255,190)),
-    AMMONIA("Ammonia", new Color(235,245,150));
+    AMMONIA("Ammonia", new Color(235,245,150)),
+    FUEL("Fuel", new Color(255,185,70));
 
     final String label;
     final Color color;

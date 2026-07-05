@@ -14,7 +14,9 @@
         "station_builder"
       ],
       "canBuildStationPackages": [
-        "shipyard"
+        "shipyard",
+        "laboratory",
+        "manufacturing"
       ]
     },
     "shipyard": {
@@ -54,6 +56,53 @@
         "titan",
         "monolith"
       ],
+      "canBuildStationPackages": []
+    },
+    "laboratory": {
+      "displayName": "Research Lab",
+      "maxHp": 1600,
+      "maxShield": 1100,
+      "shieldRegen": 14.0,
+      "shieldRegenDelay": 5.0,
+      "unloadRange": 130,
+      "unloadRate": 110,
+      "buildRadius": 84,
+      "buildCost": {
+        "IRON": 350,
+        "COPPER": 220,
+        "SILICATES": 280,
+        "ICE": 120
+      },
+      "packedVolume": 1,
+      "mustBeCarriedByShipType": "station_builder",
+      "carrierIsRemovedAfterPlacement": true,
+      "fuel": {
+        "material": "FUEL",
+        "perSecond": 0.25
+      },
+      "canBuildShips": [],
+      "canBuildStationPackages": []
+    },
+    "manufacturing": {
+      "displayName": "Manufacturing Plant",
+      "maxHp": 2000,
+      "maxShield": 1400,
+      "shieldRegen": 16.0,
+      "shieldRegenDelay": 5.5,
+      "unloadRange": 145,
+      "unloadRate": 145,
+      "buildRadius": 96,
+      "buildCost": {
+        "IRON": 450,
+        "COPPER": 240,
+        "SILICATES": 320,
+        "ICE": 140,
+        "HYDROGEN": 120
+      },
+      "packedVolume": 1,
+      "mustBeCarriedByShipType": "station_builder",
+      "carrierIsRemovedAfterPlacement": true,
+      "canBuildShips": [],
       "canBuildStationPackages": []
     }
   }
