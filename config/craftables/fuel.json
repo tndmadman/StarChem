@@ -1,0 +1,22 @@
+{
+  "craftableItems": {
+    "fuel": {
+      "displayName": "Fuel",
+      "description": "Refined reactor fuel required to keep Research Labs operational.",
+      "style": "fuel_cell",
+      "color": "#FFB946",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "requiredResources": {
+        "HYDROGEN": 30,
+        "HELIUM": 10,
+        "METHANE": 12
+      },
+      "output": {
+        "material": "FUEL",
+        "amount": 50
+      }
+    }
+  }
+}
