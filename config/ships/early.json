@@ -14,6 +14,7 @@
       "harvestRange": 105,
       "orbitRadius": 72,
       "idleStationOrbitRadius": 96,
+      "scoutRange": 320,
       "buildTimeSeconds": 0,
       "buildCost": { "IRON": 80, "COPPER": 40 },
       "canHarvest": ["SILICATE_ROCK", "GAS_CLOUD"]
