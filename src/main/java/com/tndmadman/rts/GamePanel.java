@@ -10,7 +10,6 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final World world;
     private final GameFrame owner;
     private final PeerNetwork network;
-    private final boolean devMode;
     private final Timer timer;
     private final BuildMenu buildMenu = new BuildMenu();
     private final GameCamera camera = new GameCamera();
@@ -27,8 +26,6 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         this.world = world;
         this.owner = owner;
         this.network = network;
-        this.devMode = devMode;
-        world.devFreeBuild = devMode && canEditDev();
         setFocusable(true);
         setBackground(new Color(8, 12, 18));
         addKeyListener(this);
@@ -78,7 +75,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         drawHud(g2);
         leaderboardHud.draw(g2, world, getWidth());
         hangarHud.draw(g2, world, getWidth());
-        if (devMode) shieldDebugOverlay.draw(g2, world, getWidth());
+        if (world.devFreeBuild) shieldDebugOverlay.draw(g2, world, getWidth());
         buildMenu.draw(g2);
         g2.dispose();
     }
@@ -94,7 +91,6 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         g2.drawString(network == null ? "Solo" : network.statusLine(), 28, 80);
     }
 
-    private boolean canEditDev() { return network == null || network.statusLine().startsWith("HOST"); }
     private Point2D screenToWorld(Point p) { return camera.screenToWorld(p); }
 
     @Override public void mousePressed(MouseEvent e) {
