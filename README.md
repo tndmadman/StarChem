@@ -42,6 +42,8 @@ It is written in plain Java/Swing with a UDP host/client layer. The game opens i
 - Left drag: box-select ships
 - Right click ground: move selected ships
 - Right click resource with a ship selected: begin auto-harvesting
+- `F`: cycle selected fleet move formation
+- `R`: toggle miner range overlays; selected miners still show their range
 - `ESC`: return to lobby
 
 ## Progression loop
