@@ -9,6 +9,8 @@ final class Unit {
     String shipTypeId;
     String basePackageType = "";
     String attackTarget = "";
+    String logisticsTargetBaseId = "";
+    String logisticsRequestId = "";
     UnitTask task = UnitTask.IDLE;
     double x, y, targetX, targetY, heading = -Math.PI / 2, orbitAngle, orbitRetarget;
     double weaponCooldown, weaponFlashTimer;
