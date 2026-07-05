@@ -31,6 +31,7 @@ final class StationFuelRules {
             if (next <= 0.05) base.inventory.remove(req.material());
             else base.inventory.put(req.material(), next);
         }
+        FuelShuttleSystem.update(world, dt);
     }
 
     private static Map<String, StationFuelRequirement> load() {
