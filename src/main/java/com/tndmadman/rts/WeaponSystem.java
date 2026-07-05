@@ -8,6 +8,7 @@ import java.util.List;
 
 final class WeaponSystem {
     void update(World world, double dt) {
+        ShieldSystem.update(world, dt);
         for (Unit unit : world.units.values()) {
             unit.weaponCooldown = Math.max(0, unit.weaponCooldown - dt);
             unit.weaponFlashTimer = Math.max(0, unit.weaponFlashTimer - dt);
@@ -24,6 +25,7 @@ final class WeaponSystem {
     }
 
     void draw(Graphics2D g2, World world) {
+        for (Unit unit : world.units.values()) drawUnitShieldBar(g2, unit);
         for (ProjectileShot shot : world.shots) drawMovingShot(g2, shot);
         for (Unit unit : world.units.values()) {
             if (unit.attackTarget.isBlank()) continue;
@@ -147,6 +149,17 @@ final class WeaponSystem {
         double speedFactor = Math.max(0.35, Math.min(1.15, 1.2 - unit.type().speed / 360.0));
         double trackedSpeed = weapon.tracking + (1.0 - weapon.tracking) * speedFactor;
         return Math.max(0.45, Math.min(1.65, sizeFactor * trackedSpeed));
+    }
+
+    private void drawUnitShieldBar(Graphics2D g2, Unit unit) {
+        if (unit.type().maxShield <= 0) return;
+        int w = 36;
+        int x = (int)unit.x - w / 2;
+        int y = (int)unit.y - 36;
+        g2.setColor(new Color(20,20,20));
+        g2.fillRect(x, y, w, 4);
+        g2.setColor(new Color(80,180,255));
+        g2.fillRect(x, y, (int)(w * Math.max(0, unit.shield) / Math.max(1, unit.type().maxShield)), 4);
     }
 
     private void drawMovingShot(Graphics2D g2, ProjectileShot shot) {
