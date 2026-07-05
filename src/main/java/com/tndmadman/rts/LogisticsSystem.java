@@ -6,6 +6,7 @@ final class LogisticsSystem {
     static final String SHUTTLE_TYPE = "logistics_shuttle";
     private static final double MAX_DELIVERY_RANGE = 2600.0;
     private static final double DOCK_RANGE_FACTOR = 0.42;
+    private static final double CLOSEST_SOURCE_BIAS = 1.5;
     private final List<LogisticsRequest> requests = new ArrayList<>();
     private long nextRequestId = 1;
 
@@ -91,21 +92,46 @@ final class LogisticsSystem {
     private void dispatchMaterial(World world, Base target, LogisticsRequest request, Material material, double amount) {
         double remaining = amount;
         double shuttleCapacity = Math.max(1, Rules.ship(SHUTTLE_TYPE).cargoCapacity);
-        for (Base source : nearbySources(world, target, material)) {
-            while (remaining > 0.05 && source.inventory.getOrDefault(material, 0.0) > 0.05) {
-                double available = source.inventory.getOrDefault(material, 0.0);
-                double take = Math.min(remaining, Math.min(shuttleCapacity, available));
-                debit(source, material, take);
-                Unit shuttle = new Unit(source.playerId, nextUnitId(world, source.playerId), SHUTTLE_TYPE, undockX(source, target), undockY(source, target));
-                shuttle.logisticsTargetBaseId = target.id;
-                shuttle.logisticsRequestId = request.id;
-                shuttle.addCargo(material, take);
-                moveToward(shuttle, target);
-                world.units.put(shuttle.key(), shuttle);
-                remaining -= take;
+        List<Base> sources = nearbySources(world, target, material);
+        while (remaining > 0.05) {
+            List<Base> active = activeSources(sources, material);
+            if (active.isEmpty()) return;
+            boolean sentAny = false;
+            for (int i = 0; i < active.size() && remaining > 0.05; i++) {
+                Base source = active.get(i);
+                int sourcesLeft = active.size() - i;
+                double share = remaining / Math.max(1, sourcesLeft);
+                if (i == 0 && active.size() > 1) share *= CLOSEST_SOURCE_BIAS;
+                double sent = dispatchFromSource(world, source, target, request, material, Math.min(remaining, share), shuttleCapacity);
+                remaining -= sent;
+                sentAny |= sent > 0.05;
             }
-            if (remaining <= 0.05) return;
+            if (!sentAny) return;
         }
+    }
+
+    private List<Base> activeSources(List<Base> sources, Material material) {
+        List<Base> out = new ArrayList<>();
+        for (Base source : sources) if (source.inventory.getOrDefault(material, 0.0) > 0.05) out.add(source);
+        return out;
+    }
+
+    private double dispatchFromSource(World world, Base source, Base target, LogisticsRequest request, Material material, double requested, double shuttleCapacity) {
+        double remaining = Math.min(requested, source.inventory.getOrDefault(material, 0.0));
+        double sent = 0;
+        while (remaining > 0.05) {
+            double take = Math.min(shuttleCapacity, remaining);
+            debit(source, material, take);
+            Unit shuttle = new Unit(source.playerId, nextUnitId(world, source.playerId), SHUTTLE_TYPE, undockX(source, target), undockY(source, target));
+            shuttle.logisticsTargetBaseId = target.id;
+            shuttle.logisticsRequestId = request.id;
+            shuttle.addCargo(material, take);
+            moveToward(shuttle, target);
+            world.units.put(shuttle.key(), shuttle);
+            sent += take;
+            remaining -= take;
+        }
+        return sent;
     }
 
     private void deliverActiveShuttles(World world) {
