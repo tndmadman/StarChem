@@ -15,6 +15,7 @@ final class BuildSystem {
         }
         boolean free = freeBuild(world, base);
         if (!free && !HangarStore.canAfford(base.inventory, shipType.buildCost)) {
+            if (world.logisticsSystem.queueBuildShip(world, base, shipType)) return true;
             world.status = "Need " + Rules.formatCost(shipType.buildCost) + " in " + base.type().name + " hangar.";
             return false;
         }
@@ -40,6 +41,7 @@ final class BuildSystem {
         BaseType pkg = Rules.base(packageType);
         boolean free = freeBuild(world, base);
         if (!free && !HangarStore.canAfford(base.inventory, pkg.buildCost)) {
+            if (world.logisticsSystem.queueBasePackage(world, base, pkg)) return true;
             world.status = "Need " + Rules.formatCost(pkg.buildCost) + " in " + base.type().name + " hangar.";
             return false;
         }
@@ -85,6 +87,7 @@ final class BuildSystem {
         }
         boolean free = freeBuild(world, base);
         if (!free && !HangarStore.canAfford(base.inventory, item.requiredResources)) {
+            if (world.logisticsSystem.queueCraftable(world, base, item)) return true;
             world.status = "Need " + Rules.formatCost(item.requiredResources) + " in " + base.type().name + " hangar.";
             return false;
         }

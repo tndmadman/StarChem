@@ -10,6 +10,7 @@ final class Base {
     final String typeId;
     final double x, y;
     final EnumMap<Material, Double> inventory = new EnumMap<>(Material.class);
+    String logisticsStatus = "";
     double hp, shield, shieldDelayTimer;
 
     Base(String id, String playerId, String typeId, double x, double y) {
@@ -48,6 +49,7 @@ final class Base {
         drawBars(s, def, radius);
         drawLabel(s, def, radius, playerColor);
         drawFuelState(s, radius);
+        drawLogistics(s, radius);
         if (local) drawHangar(s, radius);
         s.dispose();
     }
@@ -118,6 +120,18 @@ final class Base {
         s.setColor(new Color(0,0,0,165));
         s.fillRoundRect(px, py, tw + 12, 18, 8, 8);
         s.setColor(powered ? new Color(255, 210, 110) : new Color(255, 95, 80));
+        s.drawString(label, px + 6, py + 13);
+    }
+
+    private void drawLogistics(Graphics2D s, double radius) {
+        if (logisticsStatus == null || logisticsStatus.isBlank()) return;
+        String label = logisticsStatus.length() > 44 ? logisticsStatus.substring(0, 41) + "..." : logisticsStatus;
+        int tw = s.getFontMetrics().stringWidth(label);
+        int px = (int)(x - tw / 2.0 - 6);
+        int py = (int)(y - radius - 94);
+        s.setColor(new Color(0,0,0,170));
+        s.fillRoundRect(px, py, tw + 12, 18, 8, 8);
+        s.setColor(new Color(140, 225, 255));
         s.drawString(label, px + 6, py + 13);
     }
 

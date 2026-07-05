@@ -17,6 +17,7 @@ final class World {
     final Map<String, Base> bases = new LinkedHashMap<>();
     final List<ProjectileShot> shots = new ArrayList<>();
     final EnumMap<Material, Double> stockpile = new EnumMap<>(Material.class);
+    final LogisticsSystem logisticsSystem = new LogisticsSystem();
     private final Set<String> devFreeBuildPlayers = new LinkedHashSet<>();
     boolean devFreeBuild;
 
@@ -106,6 +107,7 @@ final class World {
         updateEnvironment(dt);
         resourceRespawnSystem.update(this, dt);
         StationFuelRules.consume(this, dt);
+        logisticsSystem.update(this, dt);
         scoutSystem.update(this);
         for (Unit unit : new ArrayList<>(units.values())) updateUnit(unit, dt);
         weaponSystem.update(this, dt);
@@ -142,7 +144,7 @@ final class World {
     }
 
     private void autoUnload(Unit unit, double dt) {
-        if (FuelShuttleSystem.SHUTTLE_TYPE.equals(unit.shipTypeId)) return;
+        if (FuelShuttleSystem.SHUTTLE_TYPE.equals(unit.shipTypeId) || LogisticsSystem.SHUTTLE_TYPE.equals(unit.shipTypeId)) return;
         if (unit.cargoUsed() <= 0.05) return;
         Base base = nearestBase(unit.playerId, unit.x, unit.y);
         Unit depot = MobileDepot.preferredFor(this, unit, base);

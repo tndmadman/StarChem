@@ -18,6 +18,25 @@
       "craftable": false,
       "buildCost": {},
       "canHarvest": []
+    },
+    "logistics_shuttle": {
+      "displayName": "Logistics Shuttle",
+      "role": "automated station material courier",
+      "size": "SMALL",
+      "seed": 9137,
+      "maxHp": 60,
+      "maxShield": 20,
+      "shieldRegen": 1.0,
+      "shieldRegenDelay": 3.0,
+      "speed": 245,
+      "cargoCapacity": 50,
+      "harvestRange": 0,
+      "orbitRadius": 54,
+      "idleStationOrbitRadius": 82,
+      "automatedOnly": true,
+      "craftable": false,
+      "buildCost": {},
+      "canHarvest": []
     }
   }
 }
