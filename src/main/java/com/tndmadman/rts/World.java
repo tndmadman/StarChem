@@ -17,6 +17,7 @@ final class World {
     final Map<String, Base> bases = new LinkedHashMap<>();
     final List<ProjectileShot> shots = new ArrayList<>();
     final EnumMap<Material, Double> stockpile = new EnumMap<>(Material.class);
+    private final Set<String> devFreeBuildPlayers = new LinkedHashSet<>();
     boolean devFreeBuild;
 
     private long systemSeed;
@@ -47,6 +48,15 @@ final class World {
 
     long systemSeed() { return systemSeed; }
     double systemTime() { return systemTime; }
+
+    void setDevFreeBuild(String playerId, boolean enabled) {
+        if (playerId == null || playerId.isBlank()) return;
+        if (enabled) devFreeBuildPlayers.add(playerId);
+        else devFreeBuildPlayers.remove(playerId);
+        if (PlayerRegistry.isLocal(playerId)) devFreeBuild = enabled;
+    }
+
+    boolean devFreeBuildFor(String playerId) { return playerId != null && devFreeBuildPlayers.contains(playerId); }
 
     void useSystemSeed(long seed) { if (seed != systemSeed) syncEnvironment(seed, 0); }
 
