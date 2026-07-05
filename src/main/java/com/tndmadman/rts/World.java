@@ -204,21 +204,44 @@ final class World {
 
     void selectBox(Rectangle2D box) { for (Unit unit : units.values()) unit.selected = PlayerRegistry.isLocal(unit.playerId) && box.contains(unit.x, unit.y); status = selectedCount() + " ship(s) selected."; }
 
-    void moveSelected(double x, double y) {
+    void moveSelected(double x, double y) { moveSelected(x, y, FleetFormation.GRID); }
+
+    void moveSelected(double x, double y, FleetFormation formation) {
         List<Unit> selected = selectedUnits();
         if (selected.isEmpty()) { status = "No ship selected."; return; }
-        int count = selected.size();
-        int cols = (int)Math.ceil(Math.sqrt(count));
-        double rows = Math.ceil(count / (double)cols);
-        double spacing = 42;
-        double centerCol = (cols - 1) / 2.0;
-        double centerRow = (rows - 1) / 2.0;
-        for (int i = 0; i < count; i++) {
+        for (int i = 0; i < selected.size(); i++) {
             Unit unit = selected.get(i);
-            int col = i % cols;
-            int row = i / cols;
-            unit.moveTo(x + (col - centerCol) * spacing, y + (row - centerRow) * spacing);
+            Point2D target = formationTarget(x, y, i, selected.size(), formation);
+            unit.moveTo(target.getX(), target.getY());
         }
+        status = "Moving " + selected.size() + " ship(s) in " + formation.label + " formation.";
+    }
+
+    private Point2D formationTarget(double x, double y, int index, int count, FleetFormation formation) {
+        double spacing = 54;
+        double ox = 0;
+        double oy = 0;
+        switch (formation) {
+            case LINE -> ox = (index - (count - 1) / 2.0) * spacing;
+            case COLUMN -> oy = (index - (count - 1) / 2.0) * spacing;
+            case WEDGE -> {
+                if (index > 0) {
+                    int rank = (index + 1) / 2;
+                    int side = index % 2 == 1 ? -1 : 1;
+                    ox = side * rank * spacing;
+                    oy = rank * spacing;
+                }
+            }
+            case GRID -> {
+                int cols = (int)Math.ceil(Math.sqrt(count));
+                double rows = Math.ceil(count / (double)cols);
+                int col = index % cols;
+                int row = index / cols;
+                ox = (col - (cols - 1) / 2.0) * 42;
+                oy = (row - (rows - 1) / 2.0) * 42;
+            }
+        }
+        return new Point2D.Double(Calc.clamp(x + ox, 0, width), Calc.clamp(y + oy, 0, height));
     }
 
     void attackSelected(String targetKey) {
