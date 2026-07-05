@@ -29,7 +29,7 @@ final class BuildMenu {
         menuHeight = HEADER_H;
         x = sx; y = sy; visible = true;
         BaseType def = base.type();
-        boolean free = world.devFreeBuild && PlayerRegistry.isLocal(base.playerId);
+        boolean free = world.devFreeBuildFor(base.playerId) && PlayerRegistry.isLocal(base.playerId);
         for (String shipId : def.buildableShips) {
             ShipType ship = Rules.ship(shipId);
             entries.add(new Entry("Build " + ship.name, free ? "free (dev mode)" : Rules.formatCost(ship.buildCost), defenseLine(ship), ship, weaponBadges(ship), () -> {

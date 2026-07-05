@@ -28,6 +28,8 @@ final class PeerNetwork implements CommandSink {
     static PeerNetwork start(Config config, World world) throws IOException {
         if (!config.hostMode && !config.clientMode()) {
             PlayerRegistry.reset("SOLO", config.playerName, 0x50BEFF);
+            world.setDevFreeBuild("SOLO", config.devMode);
+            if (config.devMode) world.status = "Solo dev mode enabled.";
             return null;
         }
         DatagramSocket socket = config.hostMode ? new DatagramSocket(config.port) : new DatagramSocket();
@@ -36,9 +38,11 @@ final class PeerNetwork implements CommandSink {
         if (config.hostMode) {
             network.joined = true;
             PlayerRegistry.reset("SOLO", config.playerName, 0x50BEFF);
-            world.status = "Hosting UDP " + socket.getLocalPort();
+            world.setDevFreeBuild("SOLO", config.devMode);
+            world.status = "Hosting UDP " + socket.getLocalPort() + (config.devMode ? " with dev mode enabled" : "");
         } else {
             PlayerRegistry.reset("WAIT", config.playerName, 0x50BEFF);
+            world.setDevFreeBuild("WAIT", false);
             world.status = "Joining " + config.serverAddress;
         }
         Thread thread = new Thread(network::listenLoop, "starchem-udp");
@@ -47,7 +51,7 @@ final class PeerNetwork implements CommandSink {
         return network;
     }
 
-    String statusLine() { return config.hostMode ? "HOST UDP " + socket.getLocalPort() + " | clients " + peers.size() + " | pending " + pending.size() : "CLIENT " + (joined ? localPlayerId : "joining") + " -> " + config.serverAddress + " | pending " + pending.size(); }
+    String statusLine() { return config.hostMode ? "HOST UDP " + socket.getLocalPort() + " | clients " + peers.size() + " | pending " + pending.size() + (config.devMode ? " | dev host" : "") : "CLIENT " + (joined ? localPlayerId : "joining") + " -> " + config.serverAddress + " | pending " + pending.size() + (world.devFreeBuild ? " | dev" : ""); }
     String localPlayerId() { return localPlayerId; }
 
     void tick() {
@@ -60,7 +64,7 @@ final class PeerNetwork implements CommandSink {
             if (now - lastSnapshot >= SNAPSHOT_MS) { broadcast(SnapshotWriter.write(WorldNetAccess.snapshot(world, sequence++))); lastSnapshot = now; }
             if (now - lastEnvSync >= ENV_SYNC_MS) { broadcast(envMessage()); lastEnvSync = now; }
         } else {
-            if (!joined && now - lastJoin >= HEARTBEAT_MS) { reliableToServer("JOIN|" + config.playerName); lastJoin = now; }
+            if (!joined && now - lastJoin >= HEARTBEAT_MS) { reliableToServer("JOIN|" + config.playerName + "|" + (config.devMode ? "DEV" : "NODEV")); lastJoin = now; }
             if (joined && now - lastPing >= HEARTBEAT_MS) { sendToServer("PING|" + localPlayerId); lastPing = now; }
         }
     }
@@ -82,7 +86,7 @@ final class PeerNetwork implements CommandSink {
     private void applyWork(HarvestCommand c) { Unit u = world.units.get(Unit.key(c.playerId(), c.unitId())); if (u != null) u.startAutoHarvest(c.resourceId()); }
     private void applyAttack(AttackCommand c) { Unit u = world.units.get(Unit.key(c.playerId(), c.unitId())); if (u != null && CombatTarget.enemy(world, u, c.targetKey()) && WeaponRules.armed(u.type())) u.attack(c.targetKey()); }
     private void applyPack(String mode, String id, String packageType) { if ("LOAD".equals(mode)) world.loadBasePackage(id, packageType); else world.placePackage(world.units.get(id)); }
-    private void removePlayer(String playerId) { world.units.values().removeIf(u -> u.playerId.equals(playerId)); world.bases.values().removeIf(b -> b.playerId.equals(playerId)); PlayerRegistry.remove(playerId); }
+    private void removePlayer(String playerId) { world.setDevFreeBuild(playerId, false); world.units.values().removeIf(u -> u.playerId.equals(playerId)); world.bases.values().removeIf(b -> b.playerId.equals(playerId)); PlayerRegistry.remove(playerId); }
     private void broadcastNow() { broadcast(SnapshotWriter.write(WorldNetAccess.snapshot(world, sequence++))); }
 
     private void handle(NetPacket packet) {
@@ -105,7 +109,7 @@ final class PeerNetwork implements CommandSink {
         String ep = endpoint(packet.address(), packet.port());
         try {
             switch (p[0]) {
-                case "JOIN" -> joinPeer(ep, packet.address(), packet.port(), p.length > 1 ? p[1] : "Player");
+                case "JOIN" -> joinPeer(ep, packet.address(), packet.port(), p.length > 1 ? p[1] : "Player", requestedDev(p));
                 case "PING" -> touch(ep);
                 case "MOVE" -> { touch(ep); if (owns(ep, p[1])) applyMove(new MoveCommand(p[1], Integer.parseInt(p[2]), Double.parseDouble(p[3]), Double.parseDouble(p[4]))); }
                 case "WORK" -> { touch(ep); if (owns(ep, p[1])) applyWork(new HarvestCommand(p[1], Integer.parseInt(p[2]), Integer.parseInt(p[3]))); }
@@ -139,22 +143,26 @@ final class PeerNetwork implements CommandSink {
             if (p.length >= 6) syncEnv(p[4], p[5]);
             else if (p.length >= 5) try { world.useSystemSeed(Long.parseLong(p[4])); } catch (NumberFormatException ignored) { }
             PlayerRegistry.register(localPlayerId, p[2], Integer.parseInt(p[3]), true);
-            world.status = "Joined as " + p[2];
+            boolean devAllowed = welcomeDevAllowed(p);
+            world.setDevFreeBuild(localPlayerId, devAllowed);
+            world.status = "Joined as " + p[2] + devStatus(devAllowed);
             return;
         }
         if (p[0].equals("SNAPSHOT")) WorldNetAccess.apply(world, SnapshotReader.read(m));
     }
 
-    private void joinPeer(String ep, InetAddress address, int port, String name) {
+    private void joinPeer(String ep, InetAddress address, int port, String name, boolean requestedDev) {
         ServerPeer old = peers.get(ep);
-        if (old != null) { reliable(welcome(old.playerId(), name, colorFor(peers.size())), address, port); return; }
+        if (old != null) { reliable(welcome(old.playerId(), name, colorFor(peers.size()), old.devFreeBuild()), address, port); return; }
         String id = "P" + nextPlayer++;
         int rgb = colorFor(peers.size() + 1);
         String cleanName = Config.clean(name);
-        peers.put(ep, new ServerPeer(id, address, port, System.currentTimeMillis()));
+        boolean devAllowed = config.devMode && requestedDev;
+        peers.put(ep, new ServerPeer(id, address, port, System.currentTimeMillis(), devAllowed));
         PlayerRegistry.register(id, cleanName, rgb, false);
+        world.setDevFreeBuild(id, devAllowed);
         WorldNetAccess.addPeerGroup(world, id);
-        reliable(welcome(id, cleanName, rgb), address, port);
+        reliable(welcome(id, cleanName, rgb, devAllowed), address, port);
         reliable(envMessage(), address, port);
         broadcastNow();
     }
@@ -164,10 +172,15 @@ final class PeerNetwork implements CommandSink {
     }
 
     private String envMessage() { return "ENV|" + world.systemSeed() + "|" + Calc.round(world.systemTime()); }
-    private String welcome(String id, String name, int rgb) { return "WELCOME|" + id + "|" + Config.clean(name) + "|" + rgb + "|" + world.systemSeed() + "|" + Calc.round(world.systemTime()); }
+    private String welcome(String id, String name, int rgb, boolean devAllowed) { return "WELCOME|" + id + "|" + Config.clean(name) + "|" + rgb + "|" + world.systemSeed() + "|" + Calc.round(world.systemTime()) + "|DEV|" + (devAllowed ? "1" : "0"); }
+
+    private boolean requestedDev(String[] parts) { return parts.length > 2 && flag(parts[2]); }
+    private boolean welcomeDevAllowed(String[] parts) { return parts.length >= 8 && "DEV".equals(parts[6]) && flag(parts[7]); }
+    private boolean flag(String value) { return "1".equals(value) || "true".equalsIgnoreCase(value) || "DEV".equalsIgnoreCase(value) || "YES".equalsIgnoreCase(value); }
+    private String devStatus(boolean allowed) { if (allowed) return " (dev mode enabled by host)"; return config.devMode ? " (dev mode denied by host)" : ""; }
 
     private void removeTimedOutPeers(long now) { for (String ep : new ArrayList<>(peers.keySet())) if (now - peers.get(ep).lastSeen() > TIMEOUT_MS) removePeer(ep); }
-    private void touch(String ep) { ServerPeer p = peers.get(ep); if (p != null) peers.put(ep, new ServerPeer(p.playerId(), p.address(), p.port(), System.currentTimeMillis())); }
+    private void touch(String ep) { ServerPeer p = peers.get(ep); if (p != null) peers.put(ep, new ServerPeer(p.playerId(), p.address(), p.port(), System.currentTimeMillis(), p.devFreeBuild())); }
     private void removePeer(String ep) { ServerPeer p = peers.remove(ep); if (p != null) removePlayer(p.playerId()); }
     private int colorFor(int i) { int[] c = {0x50BEFF,0xFF5F55,0x7DFF7A,0xFFE066,0xC77DFF,0xFF9F1C}; return c[Math.floorMod(i, c.length)]; }
     private void broadcast(String message) { for (ServerPeer p : peers.values()) send(message, p.address(), p.port()); }
