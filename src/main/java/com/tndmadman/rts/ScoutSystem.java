@@ -1,8 +1,6 @@
 package com.tndmadman.rts;
 
 final class ScoutSystem {
-    private static final double ANCHOR_ARRIVAL_RANGE = 20;
-
     void update(World world) {
         for (Unit scout : world.units.values()) {
             if (scout.type().scoutRange <= 0) continue;
@@ -24,10 +22,6 @@ final class ScoutSystem {
         if (node != null) {
             miner.startAutoHarvest(node.id);
             world.status = miner.type().name + " found " + node.name + " nearby.";
-            return;
-        }
-        if (Calc.distance(miner.x, miner.y, miner.miningAnchorX, miner.miningAnchorY) > ANCHOR_ARRIVAL_RANGE) {
-            miner.moveTo(miner.miningAnchorX, miner.miningAnchorY);
         }
     }
 
