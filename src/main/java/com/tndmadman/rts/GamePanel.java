@@ -7,6 +7,7 @@ import java.awt.geom.*;
 
 final class GamePanel extends JPanel implements KeyListener, MouseListener, MouseMotionListener, MouseWheelListener {
     private static final double CAMERA_PAN_SPEED = 640.0;
+    private static final int SELECT_DRAG_PX = 7;
     private final World world;
     private final GameFrame owner;
     private final PeerNetwork network;
@@ -16,6 +17,9 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final HangarHud hangarHud = new HangarHud();
     private final LeaderboardHud leaderboardHud = new LeaderboardHud();
     private final ShieldDebugOverlay shieldDebugOverlay = new ShieldDebugOverlay();
+    private FleetFormation formation = FleetFormation.GRID;
+    private Point dragStart;
+    private Point dragNow;
     private long lastNanos = System.nanoTime();
     private boolean cameraLeft, cameraRight, cameraUp, cameraDown;
 
@@ -71,6 +75,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         AffineTransform old = g2.getTransform();
         camera.apply(g2);
         world.draw(g2);
+        drawSelectionBox(g2);
         g2.setTransform(old);
         drawHud(g2);
         leaderboardHud.draw(g2, world, getWidth());
@@ -82,24 +87,54 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
 
     private void drawHud(Graphics2D g2) {
         g2.setColor(new Color(0,0,0,175));
-        g2.fillRoundRect(12, 12, 980, 92, 14, 14);
+        g2.fillRoundRect(12, 12, 980, 112, 14, 14);
         g2.setColor(Color.WHITE);
         String dev = world.devFreeBuild ? " | DEV FREE BUILD" : "";
         g2.drawString("StarChem | " + PlayerRegistry.name(PlayerRegistry.localId()) + " | Selected: " + world.selectedCount() + dev, 28, 36);
         g2.setColor(new Color(210,230,245));
         g2.drawString(world.status, 28, 58);
         g2.drawString(network == null ? "Solo" : network.statusLine(), 28, 80);
+        g2.drawString("Drag-select ships | Right-click group order | Formation: " + formation.label + " (F to cycle)", 28, 102);
+    }
+
+    private void drawSelectionBox(Graphics2D g2) {
+        if (dragStart == null || dragNow == null || !isSelectionDrag()) return;
+        Rectangle2D box = screenRectToWorldRect(dragStart, dragNow);
+        g2.setColor(new Color(80, 170, 255, 55));
+        g2.fill(box);
+        g2.setColor(new Color(120, 205, 255, 210));
+        g2.draw(box);
     }
 
     private Point2D screenToWorld(Point p) { return camera.screenToWorld(p); }
+
+    private Rectangle2D screenRectToWorldRect(Point a, Point b) {
+        Point2D aw = screenToWorld(a);
+        Point2D bw = screenToWorld(b);
+        double x = Math.min(aw.getX(), bw.getX());
+        double y = Math.min(aw.getY(), bw.getY());
+        double w = Math.abs(aw.getX() - bw.getX());
+        double h = Math.abs(aw.getY() - bw.getY());
+        return new Rectangle2D.Double(x, y, w, h);
+    }
+
+    private boolean isSelectionDrag() {
+        if (dragStart == null || dragNow == null) return false;
+        return dragStart.distance(dragNow) >= SELECT_DRAG_PX;
+    }
 
     @Override public void mousePressed(MouseEvent e) {
         requestFocusInWindow();
         if (buildMenu.click(e.getX(), e.getY())) return;
         if (hangarHud.mousePressed(world, e.getX(), e.getY())) return;
-        Point2D p = screenToWorld(e.getPoint());
-        if (SwingUtilities.isLeftMouseButton(e)) clickLeft(e, p);
-        else if (SwingUtilities.isRightMouseButton(e)) clickRight(p);
+        if (SwingUtilities.isRightMouseButton(e)) {
+            clickRight(screenToWorld(e.getPoint()));
+            return;
+        }
+        if (SwingUtilities.isLeftMouseButton(e)) {
+            dragStart = e.getPoint();
+            dragNow = e.getPoint();
+        }
     }
 
     private void clickLeft(MouseEvent e, Point2D p) {
@@ -135,7 +170,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
             world.autoHarvestSelected(node);
             if (network != null) for (Unit u : world.selectedUnits()) if (PlayerRegistry.isLocal(u.playerId) && u.automationResourceId == node.id) network.work(new HarvestCommand(u.playerId, u.unitId, node.id));
         } else {
-            world.moveSelected(p.getX(), p.getY());
+            world.moveSelected(p.getX(), p.getY(), formation);
             if (network != null) for (Unit u : world.selectedUnits()) if (PlayerRegistry.isLocal(u.playerId)) network.move(new MoveCommand(u.playerId, u.unitId, u.targetX, u.targetY));
         }
     }
@@ -152,17 +187,40 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private void clearSelection() { for (Unit u : world.units.values()) u.selected = false; }
 
     @Override public void mouseDragged(MouseEvent e) {
+        if (dragStart != null) {
+            dragNow = e.getPoint();
+            repaint();
+            return;
+        }
         hangarHud.mouseDragged(e.getX(), e.getY(), getWidth(), getHeight());
+    }
+
+    @Override public void mouseReleased(MouseEvent e) {
+        if (SwingUtilities.isLeftMouseButton(e) && dragStart != null) {
+            dragNow = e.getPoint();
+            if (isSelectionDrag()) world.selectBox(screenRectToWorldRect(dragStart, dragNow));
+            else clickLeft(e, screenToWorld(e.getPoint()));
+            dragStart = null;
+            dragNow = null;
+            repaint();
+        }
+        hangarHud.mouseReleased();
     }
 
     @Override public void mouseWheelMoved(MouseWheelEvent e) { camera.zoomAt(e.getPoint(), e.getWheelRotation(), world, getWidth(), getHeight()); }
     @Override public void mouseMoved(MouseEvent e) { }
     @Override public void mouseClicked(MouseEvent e) { }
-    @Override public void mouseReleased(MouseEvent e) { }
     @Override public void mouseEntered(MouseEvent e) { }
     @Override public void mouseExited(MouseEvent e) { }
     @Override public void keyTyped(KeyEvent e) { }
-    @Override public void keyPressed(KeyEvent e) { setCameraKey(e.getKeyCode(), true); }
+    @Override public void keyPressed(KeyEvent e) {
+        if (e.getKeyCode() == KeyEvent.VK_F) {
+            formation = formation.next();
+            world.status = "Fleet formation: " + formation.label + ".";
+            return;
+        }
+        setCameraKey(e.getKeyCode(), true);
+    }
     @Override public void keyReleased(KeyEvent e) { setCameraKey(e.getKeyCode(), false); }
 
     private void setCameraKey(int code, boolean down) {
