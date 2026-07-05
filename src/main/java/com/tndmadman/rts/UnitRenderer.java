@@ -60,7 +60,7 @@ final class UnitRenderer {
 
     private static boolean shouldDrawScoutCircle(Unit unit) {
         if (unit.type().harvestKinds.isEmpty()) return true;
-        return miningRangeOverlayVisible || unit.selected;
+        return miningRangeOverlayVisible;
     }
 
     private static void drawName(Graphics2D g2, Unit unit, Color color) {
