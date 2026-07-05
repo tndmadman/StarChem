@@ -32,14 +32,14 @@ final class BuildMenu {
         boolean free = world.devFreeBuild && PlayerRegistry.isLocal(base.playerId);
         for (String shipId : def.buildableShips) {
             ShipType ship = Rules.ship(shipId);
-            entries.add(new Entry("Build " + ship.name, free ? "free (dev mode)" : Rules.formatCost(ship.buildCost), ship, weaponBadges(ship), () -> {
+            entries.add(new Entry("Build " + ship.name, free ? "free (dev mode)" : Rules.formatCost(ship.buildCost), defenseLine(ship), ship, weaponBadges(ship), () -> {
                 if (network == null) world.buildShip(base.id, shipId);
                 else network.build(base.playerId, base.id, shipId);
             }));
         }
         for (String packageId : def.basePackages) {
             BaseType pkg = Rules.base(packageId);
-            entries.add(new Entry("Load " + pkg.name, free ? "free (dev mode)" : Rules.formatCost(pkg.buildCost), null, List.of(), () -> {
+            entries.add(new Entry("Load " + pkg.name, free ? "free (dev mode)" : Rules.formatCost(pkg.buildCost), stationDefenseLine(pkg), null, List.of(), () -> {
                 if (network == null) world.loadBasePackage(base.id, packageId);
                 else network.basePackage(base.playerId, "LOAD", base.id, packageId);
             }));
@@ -54,7 +54,7 @@ final class BuildMenu {
         x = sx; y = sy; visible = true;
         if (!unit.basePackageType.isBlank()) {
             BaseType pkg = Rules.base(unit.basePackageType);
-            entries.add(new Entry("Place " + pkg.name, "ready", null, List.of(), () -> {
+            entries.add(new Entry("Place " + pkg.name, "ready", stationDefenseLine(pkg), null, List.of(), () -> {
                 if (network == null) world.placePackage(unit);
                 else network.basePackage(unit.playerId, "PLACE", unit.key(), unit.basePackageType);
             }));
@@ -121,10 +121,12 @@ final class BuildMenu {
         g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f));
         g2.setColor(new Color(220, 225, 185));
         g2.drawString(fit(g2, e.detail, textW), r.x + 10, r.y + 35);
-        if (!e.weapons.isEmpty()) drawWeaponBadges(g2, e.weapons, r.x + 10, r.y + 49, textW);
+        g2.setColor(new Color(140, 210, 255));
+        g2.drawString(fit(g2, e.defense, textW), r.x + 10, r.y + 51);
+        if (!e.weapons.isEmpty()) drawWeaponBadges(g2, e.weapons, r.x + 10, r.y + 66, textW);
         else if (e.shipIcon != null) {
             g2.setColor(new Color(155, 170, 180));
-            g2.drawString("Weapons: none", r.x + 10, r.y + 58);
+            g2.drawString("Weapons: none", r.x + 10, r.y + 75);
         }
         if (e.shipIcon != null) drawShipIcon(g2, r, e.shipIcon);
     }
@@ -161,6 +163,17 @@ final class BuildMenu {
         }
         return List.copyOf(grouped.values());
     }
+
+    private String defenseLine(ShipType ship) {
+        return "HP " + whole(ship.maxHp) + " | SHD " + whole(ship.maxShield) + " | REG " + one(ship.shieldRegen) + "/s";
+    }
+
+    private String stationDefenseLine(BaseType station) {
+        return "HP " + whole(station.maxHp) + " | SHD " + whole(station.maxShield) + " | REG " + one(station.shieldRegen) + "/s";
+    }
+
+    private String whole(double value) { return String.valueOf((int)Math.round(value)); }
+    private String one(double value) { return String.format(Locale.ROOT, "%.1f", value); }
 
     private String weaponLabel(WeaponType weapon) {
         String id = weapon.id.toLowerCase(Locale.ROOT);
@@ -278,6 +291,6 @@ final class BuildMenu {
     }
 
     private Rectangle row(int slot) { return new Rectangle(x + 10, y + HEADER_H + slot * ROW_H, WIDTH - 20, ROW_H - 8); }
-    private record Entry(String title, String detail, ShipType shipIcon, List<WeaponBadge> weapons, Runnable action) { }
+    private record Entry(String title, String detail, String defense, ShipType shipIcon, List<WeaponBadge> weapons, Runnable action) { }
     private record WeaponBadge(String label, int count, Color color) { }
 }

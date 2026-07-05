@@ -47,10 +47,10 @@ final class CombatTarget {
     static void damage(World world, String key, double amount) {
         Unit unit = unit(world, key);
         if (unit != null) {
-            unit.hp -= amount;
+            ShieldSystem.damage(unit, amount);
             return;
         }
         Base base = base(world, key);
-        if (base != null) base.hp -= amount;
+        if (base != null) ShieldSystem.damage(base, amount);
     }
 }

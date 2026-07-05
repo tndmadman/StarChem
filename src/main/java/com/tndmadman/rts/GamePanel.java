@@ -16,6 +16,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final GameCamera camera = new GameCamera();
     private final HangarHud hangarHud = new HangarHud();
     private final LeaderboardHud leaderboardHud = new LeaderboardHud();
+    private final ShieldDebugOverlay shieldDebugOverlay = new ShieldDebugOverlay();
     private long lastNanos = System.nanoTime();
     private boolean cameraLeft, cameraRight, cameraUp, cameraDown;
 
@@ -77,6 +78,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         drawHud(g2);
         leaderboardHud.draw(g2, world, getWidth());
         hangarHud.draw(g2, world, getWidth());
+        if (devMode) shieldDebugOverlay.draw(g2, world, getWidth());
         buildMenu.draw(g2);
         g2.dispose();
     }
@@ -157,39 +159,20 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         hangarHud.mouseDragged(e.getX(), e.getY(), getWidth(), getHeight());
     }
 
-    @Override public void mouseReleased(MouseEvent e) {
-        hangarHud.mouseReleased();
-    }
-
-    @Override public void mouseWheelMoved(MouseWheelEvent e) {
-        camera.zoomAt(e.getPoint(), e.getWheelRotation(), world, getWidth(), getHeight());
-    }
-
-    @Override public void keyPressed(KeyEvent e) {
-        switch (e.getKeyCode()) {
-            case KeyEvent.VK_ESCAPE -> owner.showLobby("Returned to lobby.");
-            case KeyEvent.VK_A -> cameraLeft = true;
-            case KeyEvent.VK_D -> cameraRight = true;
-            case KeyEvent.VK_W -> cameraUp = true;
-            case KeyEvent.VK_S -> cameraDown = true;
-            default -> { }
-        }
-    }
-
-    @Override public void keyTyped(KeyEvent e) { }
-
-    @Override public void keyReleased(KeyEvent e) {
-        switch (e.getKeyCode()) {
-            case KeyEvent.VK_A -> cameraLeft = false;
-            case KeyEvent.VK_D -> cameraRight = false;
-            case KeyEvent.VK_W -> cameraUp = false;
-            case KeyEvent.VK_S -> cameraDown = false;
-            default -> { }
-        }
-    }
-
+    @Override public void mouseWheelMoved(MouseWheelEvent e) { camera.zoomAt(e.getPreciseWheelRotation(), e.getX(), e.getY()); }
     @Override public void mouseMoved(MouseEvent e) { }
     @Override public void mouseClicked(MouseEvent e) { }
+    @Override public void mouseReleased(MouseEvent e) { }
     @Override public void mouseEntered(MouseEvent e) { }
     @Override public void mouseExited(MouseEvent e) { }
+    @Override public void keyTyped(KeyEvent e) { }
+    @Override public void keyPressed(KeyEvent e) { setCameraKey(e.getKeyCode(), true); }
+    @Override public void keyReleased(KeyEvent e) { setCameraKey(e.getKeyCode(), false); }
+
+    private void setCameraKey(int code, boolean down) {
+        if (code == KeyEvent.VK_A || code == KeyEvent.VK_LEFT) cameraLeft = down;
+        if (code == KeyEvent.VK_D || code == KeyEvent.VK_RIGHT) cameraRight = down;
+        if (code == KeyEvent.VK_W || code == KeyEvent.VK_UP) cameraUp = down;
+        if (code == KeyEvent.VK_S || code == KeyEvent.VK_DOWN) cameraDown = down;
+    }
 }

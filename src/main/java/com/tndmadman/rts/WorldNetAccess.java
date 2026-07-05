@@ -9,7 +9,7 @@ final class WorldNetAccess {
     static Snapshot snapshot(World world, long sequence) {
         List<PlayerInfo> players = PlayerRegistry.snapshotPlayers();
         List<UnitState> units = new ArrayList<>();
-        for (Unit u : world.units.values()) units.add(new UnitState(u.playerId, u.unitId, u.shipTypeId, u.x, u.y, u.targetX, u.targetY, u.heading, u.task.name(), u.automationResourceId, u.basePackageType, CargoCodec.write(u.inventory), u.hp, u.attackTarget, u.weaponFlashTimer));
+        for (Unit u : world.units.values()) units.add(new UnitState(u.playerId, u.unitId, u.shipTypeId, u.x, u.y, u.targetX, u.targetY, u.heading, u.task.name(), u.automationResourceId, u.basePackageType, CargoCodec.write(u.inventory), u.hp, u.shield, u.attackTarget, u.weaponFlashTimer));
         List<ResourceState> resources = ResourceSync.snapshot(world);
         List<BaseState> bases = new ArrayList<>();
         for (Base b : world.bases.values()) bases.add(NetBaseSync.toState(b));

@@ -12,9 +12,9 @@ final class Unit {
     UnitTask task = UnitTask.IDLE;
     double x, y, targetX, targetY, heading = -Math.PI / 2, orbitAngle, orbitRetarget;
     double weaponCooldown, weaponFlashTimer;
+    double hp, shield, shieldDelayTimer;
     int automationResourceId = -1;
     boolean selected, unloadingThisFrame;
-    double hp;
 
     Unit(String playerId, int unitId, String shipTypeId, double x, double y) {
         this.playerId = playerId;
@@ -25,6 +25,7 @@ final class Unit {
         this.targetX = x;
         this.targetY = y;
         this.hp = type().maxHp;
+        this.shield = type().maxShield;
         this.orbitAngle = unitId;
     }
 
