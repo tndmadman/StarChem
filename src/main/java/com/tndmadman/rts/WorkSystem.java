@@ -15,6 +15,7 @@ final class WorkSystem {
             unit.task = UnitTask.IDLE;
             return;
         }
+        if (type.scoutRange > 0 && !type.harvestKinds.isEmpty() && !unit.miningAnchorSet) unit.setMiningAnchor(node.x, node.y);
         if (unit.freeCargo() <= 0.05) {
             world.sendToNearestBase(unit);
             return;
