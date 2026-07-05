@@ -14,6 +14,7 @@ final class SnapshotSmoother {
         unit.automationResourceId = state.resourceId();
         unit.basePackageType = state.packageType();
         unit.hp = state.hp();
+        unit.shield = state.shield();
         unit.attackTarget = state.attackTarget();
         unit.weaponFlashTimer = state.weaponFlashTimer();
         CargoCodec.readInto(state.cargo(), unit.inventory);
