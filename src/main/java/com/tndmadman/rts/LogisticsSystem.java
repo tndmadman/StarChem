@@ -7,6 +7,7 @@ final class LogisticsSystem {
     private static final double MAX_DELIVERY_RANGE = 2600.0;
     private static final double DOCK_RANGE_FACTOR = 0.42;
     private static final double CLOSEST_SOURCE_BIAS = 1.5;
+    private static final double RECHECK_INTERVAL = 2.0;
     private final List<LogisticsRequest> requests = new ArrayList<>();
     private long nextRequestId = 1;
 
@@ -25,6 +26,7 @@ final class LogisticsSystem {
     void update(World world, double dt) {
         deliverActiveShuttles(world);
         cleanupDeadRequests(world);
+        recheckWaitingRequests(world, dt);
         updateBaseStatuses(world);
         completeReadyRequests(world);
     }
@@ -122,6 +124,7 @@ final class LogisticsSystem {
         while (remaining > 0.05) {
             double take = Math.min(shuttleCapacity, remaining);
             debit(source, material, take);
+            request.dispatched(material, take);
             Unit shuttle = new Unit(source.playerId, nextUnitId(world, source.playerId), SHUTTLE_TYPE, undockX(source, target), undockY(source, target));
             shuttle.logisticsTargetBaseId = target.id;
             shuttle.logisticsRequestId = request.id;
@@ -157,6 +160,22 @@ final class LogisticsSystem {
             }
             it.remove();
             if (PlayerRegistry.isLocal(target.playerId)) world.status = "Logistics shuttle docked at " + target.type().name + ".";
+        }
+    }
+
+    private void recheckWaitingRequests(World world, double dt) {
+        for (LogisticsRequest request : requests) {
+            Base target = world.bases.get(request.targetBaseId);
+            if (target == null) continue;
+            request.recheckTimer += dt;
+            if (request.recheckTimer < RECHECK_INTERVAL) continue;
+            request.recheckTimer = 0;
+            request.refreshAgainst(target);
+            if (request.ready()) continue;
+            for (Material material : Material.values()) {
+                double amount = request.undispatchedAmount(material);
+                if (amount > 0.05) dispatchMaterial(world, target, request, material, amount);
+            }
         }
     }
 
@@ -313,6 +332,8 @@ final class LogisticsRequest {
     final LogisticsJobKind kind;
     final List<Cost> cost;
     final EnumMap<Material, Double> awaiting = new EnumMap<>(Material.class);
+    final EnumMap<Material, Double> inTransit = new EnumMap<>(Material.class);
+    double recheckTimer = 0;
 
     LogisticsRequest(String id, String playerId, String targetBaseId, LogisticsJobKind kind, String itemId, String itemName, List<Cost> cost, List<Cost> missing) {
         this.id = id;
@@ -325,10 +346,30 @@ final class LogisticsRequest {
         for (Cost c : missing) awaiting.put(c.material(), c.amount());
     }
 
+    void refreshAgainst(Base target) {
+        for (Cost c : cost) {
+            double missing = c.amount() - target.inventory.getOrDefault(c.material(), 0.0);
+            if (missing <= 0.05) awaiting.remove(c.material());
+            else awaiting.put(c.material(), missing);
+        }
+    }
+
+    void dispatched(Material material, double amount) {
+        inTransit.put(material, inTransit.getOrDefault(material, 0.0) + amount);
+    }
+
     void delivered(Material material, double amount) {
-        double next = awaiting.getOrDefault(material, 0.0) - amount;
-        if (next <= 0.05) awaiting.remove(material);
-        else awaiting.put(material, next);
+        double nextAwaiting = awaiting.getOrDefault(material, 0.0) - amount;
+        if (nextAwaiting <= 0.05) awaiting.remove(material);
+        else awaiting.put(material, nextAwaiting);
+
+        double nextInTransit = inTransit.getOrDefault(material, 0.0) - amount;
+        if (nextInTransit <= 0.05) inTransit.remove(material);
+        else inTransit.put(material, nextInTransit);
+    }
+
+    double undispatchedAmount(Material material) {
+        return Math.max(0, awaiting.getOrDefault(material, 0.0) - inTransit.getOrDefault(material, 0.0));
     }
 
     boolean ready() { return awaiting.isEmpty(); }
