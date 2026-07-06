@@ -32,7 +32,9 @@ final class BuildMenu {
         boolean free = world.devFreeBuildFor(base.playerId) && PlayerRegistry.isLocal(base.playerId);
         for (String shipId : def.buildableShips) {
             ShipType ship = Rules.ship(shipId);
-            entries.add(new Entry("Build " + ship.name, free ? "free (dev mode)" : Rules.formatCost(ship.buildCost), defenseLine(ship), ship, weaponBadges(ship), () -> {
+            boolean unlocked = ResearchRules.shipUnlocked(world, base.playerId, shipId);
+            String detail = free ? "free (dev mode)" : unlocked ? Rules.formatCost(ship.buildCost) : "LOCKED: " + requiredResearch(shipId);
+            entries.add(new Entry("Build " + ship.name, detail, defenseLine(ship), ship, weaponBadges(ship), () -> {
                 if (network == null) world.buildShip(base.id, shipId);
                 else network.build(base.playerId, base.id, shipId);
             }));
@@ -50,6 +52,12 @@ final class BuildMenu {
             entries.add(new Entry("Manufacture " + item.name, detail, info, null, List.of(), () -> {
                 if (network == null || network.statusLine().startsWith("HOST")) world.craftItem(base.id, item.id);
                 else world.status = "Manufacturing commands are host/solo only right now.";
+            }));
+        }
+        for (ResearchTopic topic : ResearchRules.forStation(def.id)) {
+            entries.add(new Entry("Research " + topic.name, researchDetail(world, base, topic, free), topic.unlockLabel(), null, List.of(), () -> {
+                if (network == null || network.statusLine().startsWith("HOST")) world.research(base.id, topic.id);
+                else world.status = "Research commands are host/solo only right now.";
             }));
         }
     }
@@ -180,6 +188,18 @@ final class BuildMenu {
         StationFuelRequirement fuel = StationFuelRules.requirement(station.id);
         String base = "HP " + whole(station.maxHp) + " | SHD " + whole(station.maxShield) + " | REG " + one(station.shieldRegen) + "/s";
         return fuel == null ? base : base + " | Fuel " + one(fuel.perSecond()) + "/s";
+    }
+
+    private String requiredResearch(String shipId) {
+        ResearchTopic topic = ResearchRules.firstTopicUnlockingShip(shipId);
+        return topic == null ? "Research" : topic.name;
+    }
+
+    private String researchDetail(World world, Base base, ResearchTopic topic, boolean free) {
+        if (world.hasResearch(base.playerId, topic.id)) return "completed";
+        String missing = ResearchRules.missingPrerequisite(world, base.playerId, topic);
+        if (!missing.isBlank()) return "requires " + missing;
+        return free ? "free (dev mode)" : Rules.formatCost(topic.requiredResources);
     }
 
     private String whole(double value) { return String.valueOf((int)Math.round(value)); }
