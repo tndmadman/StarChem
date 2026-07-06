@@ -171,6 +171,7 @@ final class World {
 
     private void autoUnload(Unit unit, double dt) {
         if (FuelShuttleSystem.SHUTTLE_TYPE.equals(unit.shipTypeId) || LogisticsSystem.SHUTTLE_TYPE.equals(unit.shipTypeId)) return;
+        if (!unit.type().harvestKinds.isEmpty() && unit.task != UnitTask.RETURN_TO_STATION) return;
         if (unit.cargoUsed() <= 0.05) return;
         Base base = nearestBase(unit.playerId, unit.x, unit.y);
         Unit depot = MobileDepot.preferredFor(this, unit, base);
@@ -237,7 +238,7 @@ final class World {
         g2.setColor(new Color(9, 15, 24));
         g2.fillRect(0, 0, width, height);
         g2.setColor(new Color(22, 33, 48));
-        for (int x = 0; x <= width; x += 160) g2.drawLine(x, 0, x, height);
+        for (int x = 0; x <= width; x += 160) g2.drawLine(x, 0, width, height);
         for (int y = 0; y <= height; y += 160) g2.drawLine(0, y, width, y);
     }
 
