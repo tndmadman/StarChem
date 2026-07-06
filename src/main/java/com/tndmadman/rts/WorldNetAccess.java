@@ -5,6 +5,7 @@ import java.util.*;
 
 final class WorldNetAccess {
     private static final double MIN_PLAYER_START_DISTANCE = 1200.0;
+    private static final double DEPLOYMENT_MATCH_DISTANCE = 48.0;
     private static final int SPAWN_SLOT_SEARCH = 64;
 
     private WorldNetAccess() { }
@@ -42,7 +43,8 @@ final class WorldNetAccess {
         while (unitIt.hasNext()) {
             Map.Entry<String, Unit> entry = unitIt.next();
             if (!liveUnits.contains(entry.getKey())) {
-                world.explodeUnit(entry.getValue());
+                Unit unit = entry.getValue();
+                if (!wasConvertedToBase(unit, snapshot.bases())) world.explodeUnit(unit);
                 unitIt.remove();
             }
         }
@@ -57,6 +59,16 @@ final class WorldNetAccess {
         }
         ItemSync.apply(world, snapshot.items());
         if (!snapshot.stocks().isEmpty()) CargoCodec.readInto(snapshot.stocks().get(0).cargo(), world.stockpile);
+    }
+
+    private static boolean wasConvertedToBase(Unit unit, List<BaseState> bases) {
+        if (unit.basePackageType == null || unit.basePackageType.isBlank()) return false;
+        for (BaseState base : bases) {
+            if (!base.playerId().equals(unit.playerId)) continue;
+            if (!base.typeId().equals(unit.basePackageType)) continue;
+            if (Calc.distance(unit.x, unit.y, base.x(), base.y()) <= DEPLOYMENT_MATCH_DISTANCE) return true;
+        }
+        return false;
     }
 
     private static void applyBases(World world, List<BaseState> states) {
