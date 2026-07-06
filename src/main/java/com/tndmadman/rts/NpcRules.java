@@ -5,7 +5,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.EnumSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -73,10 +72,15 @@ final class NpcRules {
                 number(f, "firstSpawnSeconds", 18.0),
                 number(f, "respawnSeconds", 45.0),
                 number(f, "orderSeconds", 2.0),
-                string(f, "baseType", Rules.DEFAULT_BASE),
+                string(f, "baseType", defaultBaseType(behavior)),
                 stringList(f.get("startingUnits")),
                 stringList(f.get("workerUnitTypes")),
+                stringList(f.get("fleetUnitTypes")),
                 integer(f, "maxWorkers", 0),
+                integer(f, "targetFleetSize", 0),
+                integer(f, "raidFleetSize", 0),
+                number(f, "buildSeconds", 10.0),
+                number(f, "defendRange", 1250.0),
                 number(f, "spawnDistance", 2200.0),
                 number(f, "spawnPadding", 700.0),
                 number(f, "unitSpacing", 150.0),
@@ -86,27 +90,40 @@ final class NpcRules {
                 bool(f, "attackUnits", true),
                 bool(f, "attackNpcFactions", false),
                 bool(f, "replaceWorkers", true),
-                bool(f, "requirePlayerCombatShips", behavior == NpcBehavior.RAIDER),
-                integer(f, "minPlayerCombatShips", behavior == NpcBehavior.RAIDER ? 1 : 0),
+                bool(f, "requirePlayerCombatShips", behavior == NpcBehavior.RAIDER || behavior == NpcBehavior.FACTION),
+                integer(f, "minPlayerCombatShips", behavior == NpcBehavior.RAIDER || behavior == NpcBehavior.FACTION ? 1 : 0),
                 string(f, "spawnMessage", defaultSpawnMessage(behavior)));
     }
 
+    private static String defaultBaseType(NpcBehavior behavior) {
+        return behavior == NpcBehavior.FACTION ? "shipyard" : Rules.DEFAULT_BASE;
+    }
+
     private static String defaultSpawnMessage(NpcBehavior behavior) {
-        return behavior == NpcBehavior.MINER ? "Independent miners have entered the sector." : "Raider ships have entered the sector.";
+        return switch (behavior) {
+            case MINER -> "Independent miners have entered the sector.";
+            case FACTION -> "An organized NPC faction has established a foothold.";
+            case RAIDER -> "Raider ships have entered the sector.";
+        };
     }
 
     private static List<NpcFaction> defaults() {
         return List.of(
                 new NpcFaction("NPC_RAIDERS", "Raiders", 0xFF5F55, true, NpcBehavior.RAIDER,
                         18.0, 45.0, 2.0, Rules.DEFAULT_BASE,
-                        List.of("frigate", "frigate", "destroyer"), List.of(), 0,
+                        List.of("frigate", "frigate", "destroyer"), List.of(), List.of(), 0, 0, 0, 10.0, 1250.0,
                         2200.0, 700.0, 150.0, EnumSet.noneOf(Material.class), EnumSet.noneOf(NodeKind.class),
                         true, true, false, true, true, 1, "Raider ships have entered the sector."),
                 new NpcFaction("NPC_MINERS", "Free Miners", 0xFFE066, true, NpcBehavior.MINER,
                         35.0, 60.0, 3.0, Rules.DEFAULT_BASE,
-                        List.of("prospector", "prospector"), List.of("prospector"), 3,
+                        List.of("prospector", "prospector"), List.of("prospector"), List.of(), 3, 0, 0, 10.0, 1250.0,
                         2800.0, 700.0, 145.0, EnumSet.of(Material.IRON, Material.COPPER, Material.SILICATES, Material.ICE), EnumSet.of(NodeKind.SILICATE_ROCK),
-                        false, false, false, true, false, 0, "Independent miners have entered the sector."));
+                        false, false, false, true, false, 0, "Independent miners have entered the sector."),
+                new NpcFaction("NPC_CORSAIRS", "Corsair Syndicate", 0xC77DFF, true, NpcBehavior.FACTION,
+                        65.0, 90.0, 3.0, "shipyard",
+                        List.of("prospector", "prospector", "frigate"), List.of("prospector"), List.of("frigate", "destroyer"), 3, 5, 4, 12.0, 1400.0,
+                        3400.0, 700.0, 150.0, EnumSet.of(Material.IRON, Material.COPPER, Material.SILICATES, Material.ICE, Material.HYDROGEN), EnumSet.noneOf(NodeKind.class),
+                        true, true, false, true, true, 1, "Corsair Syndicate has established a foothold."));
     }
 
     @SuppressWarnings("unchecked")
@@ -189,7 +206,7 @@ final class NpcRules {
     }
 }
 
-enum NpcBehavior { RAIDER, MINER }
+enum NpcBehavior { RAIDER, MINER, FACTION }
 
 record NpcFaction(
         String id,
@@ -203,7 +220,12 @@ record NpcFaction(
         String baseType,
         List<String> startingUnits,
         List<String> workerUnitTypes,
+        List<String> fleetUnitTypes,
         int maxWorkers,
+        int targetFleetSize,
+        int raidFleetSize,
+        double buildSeconds,
+        double defendRange,
         double spawnDistance,
         double spawnPadding,
         double unitSpacing,
