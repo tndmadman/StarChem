@@ -29,6 +29,7 @@ It is written in plain Java/Swing with a UDP host/client layer. The game opens i
 - Craftable item recipes are loaded from their own JSON data files
 - Movement route line, destination ring, speed, and ETA
 - Manual WASD camera and mouse-wheel zoom
+- Procedural audio generated entirely in Java, with no sound files
 - UDP host/client synchronization for players, ships, stations, cargo, resources, world loot, and stockpiles
 
 ## Controls
@@ -47,7 +48,14 @@ It is written in plain Java/Swing with a UDP host/client layer. The game opens i
 - Right click resource with a ship selected: begin auto-harvesting
 - `F`: cycle selected fleet move formation
 - `R`: toggle miner range overlays on/off
+- `M`: mute/unmute procedural audio
 - `ESC`: return to lobby
+
+## Audio
+
+StarChem does not use sound asset files. The current audio pass uses a small Java Sound synthesizer that mixes oscillator, noise, envelope, and pitch-sweep voices directly into memory at runtime.
+
+Implemented sound events include selection, movement orders, harvest orders, attack orders, ship builds, station package loading, station placement, crafting, weapon fire, projectile impacts, resource depletion, and ship/station destruction.
 
 ## Progression loop
 
