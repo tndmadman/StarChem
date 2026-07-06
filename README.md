@@ -13,7 +13,7 @@ It is written in plain Java/Swing with a UDP host/client layer. The game opens i
 - Ship inventory and station stockpile
 - Destroyed ships and stations drop carried cargo, hangar contents, and salvage parts
 - Loot pieces pop out, spin, drift, and slowly stop moving
-- Nearby cargo-capable ships automatically collect world loot for now
+- Dedicated Salvager ships use tractor beams to pull in and collect world loot
 - Right-click resource auto-harvesting
 - Full cargo return-to-station behavior
 - Automatic unloading near station
@@ -64,6 +64,7 @@ It is written in plain Java/Swing with a UDP host/client layer. The game opens i
 11. Use the Manufacturing Plant build menu to manufacture Fuel from harvested gases.
 12. Deliver Fuel to the Research Lab hangar so it stays powered for the later science/research update.
 13. Destroyed ships and stations leave individual world loot pieces containing cargo/hangar contents plus Scrap Metal, Hull Plating, and Circuit Fragments.
+14. Build a Salvager to tractor those world loot pieces into cargo.
 
 ## Ship examples
 
@@ -76,6 +77,7 @@ Early and industry ships:
 - Deep Miner
 - Gas Harvester
 - Freighter
+- Salvager
 
 Combat and capital classes:
 
@@ -126,7 +128,7 @@ Research Labs consume `0.25 Fuel` per second from their station hangar while pow
 
 ## Salvage note
 
-Loot pickup is intentionally automatic for any cargo-capable ship right now. A later pass should add the dedicated salvage hauler and make salvage/loot pickup require that hull.
+World loot pickup requires a ship type with `tractorBeams` and `tractorRange` configured. The default Salvager has no weapon loadout and uses two tractor beams.
 
 ## Modding config
 
@@ -198,10 +200,4 @@ Solo directly:
 
 ```bash
 gradle run --args="--solo --name Player"
-```
-
-Host directly:
-
-```bash
-gradle run --args="--host 50000 --name Host"
 ```
