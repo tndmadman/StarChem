@@ -26,13 +26,15 @@ final class NpcSystem {
                     spawnFaction(world, faction);
                     state.spawnTimer = faction.respawnSeconds();
                     state.orderTimer = 0;
+                    state.buildTimer = faction.buildSeconds();
                 }
                 continue;
             }
 
+            state.buildTimer -= dt;
             state.orderTimer -= dt;
             if (state.orderTimer <= 0) {
-                orderFaction(world, faction);
+                orderFaction(world, faction, state);
                 state.orderTimer = faction.orderSeconds();
             }
         }
@@ -61,7 +63,7 @@ final class NpcSystem {
 
         spawnUnits(world, faction, point, faction.startingUnits());
         world.status = faction.spawnMessage();
-        orderFaction(world, faction);
+        orderFaction(world, faction, new NpcState(0));
     }
 
     private String validBaseType(String baseType) {
@@ -89,14 +91,14 @@ final class NpcSystem {
             if (!Rules.SHIPS.containsKey(shipTypeId)) continue;
             ShipType ship = Rules.ship(shipTypeId);
             if (faction.behavior() == NpcBehavior.RAIDER && !WeaponRules.armed(ship)) continue;
-            if (faction.behavior() == NpcBehavior.MINER && ship.harvestKinds.isEmpty() && !WeaponRules.armed(ship)) continue;
+            if ((faction.behavior() == NpcBehavior.MINER || faction.behavior() == NpcBehavior.FACTION) && ship.harvestKinds.isEmpty() && !WeaponRules.armed(ship)) continue;
             out.add(shipTypeId);
         }
         return out;
     }
 
     private List<String> fallbackUnits(NpcFaction faction) {
-        if (faction.behavior() == NpcBehavior.MINER) {
+        if (faction.behavior() == NpcBehavior.MINER || faction.behavior() == NpcBehavior.FACTION) {
             String worker = firstWorkerType(faction);
             return worker.isBlank() ? List.of() : List.of(worker);
         }
@@ -136,9 +138,10 @@ final class NpcSystem {
         return new SpawnPoint(x, y);
     }
 
-    private void orderFaction(World world, NpcFaction faction) {
+    private void orderFaction(World world, NpcFaction faction, NpcState state) {
         switch (faction.behavior()) {
             case MINER -> orderMiners(world, faction);
+            case FACTION -> orderFullFaction(world, faction, state);
             case RAIDER -> orderRaiders(world, faction);
         }
     }
@@ -154,7 +157,7 @@ final class NpcSystem {
     private void orderMiners(World world, NpcFaction faction) {
         if (faction.replaceWorkers()) maintainWorkers(world, faction);
         Set<String> workerTypes = faction.workerTypeSet();
-        for (Unit unit : world.units.values()) {
+        for (Unit unit : new ArrayList<>(world.units.values())) {
             if (!unit.playerId.equals(faction.id()) || unit.hp <= 0) continue;
             if (!unit.type().harvestKinds.isEmpty() && (workerTypes.isEmpty() || workerTypes.contains(unit.shipTypeId))) {
                 assignMiningTarget(world, faction, unit);
@@ -165,6 +168,74 @@ final class NpcSystem {
                 if (!target.isBlank()) unit.attack(target);
             }
         }
+    }
+
+    private void orderFullFaction(World world, NpcFaction faction, NpcState state) {
+        if (faction.replaceWorkers()) maintainWorkers(world, faction);
+        orderFactionWorkers(world, faction);
+
+        if (state.buildTimer <= 0) {
+            if (buildFleetShip(world, faction)) state.buildTimer = faction.buildSeconds();
+            else state.buildTimer = Math.max(2.0, faction.buildSeconds() * 0.5);
+        }
+
+        List<Unit> combat = combatUnits(world, faction);
+        String defenseTarget = nearestThreatToBase(world, faction);
+        if (!defenseTarget.isBlank()) {
+            for (Unit unit : combat) unit.attack(defenseTarget);
+            return;
+        }
+
+        int raidSize = Math.max(1, faction.raidFleetSize());
+        if (combat.size() >= raidSize) {
+            for (Unit unit : combat) {
+                String target = nearestEnemyTarget(world, faction, unit);
+                if (!target.isBlank()) unit.attack(target);
+            }
+        } else {
+            Base base = firstBase(world, faction);
+            if (base != null) for (Unit unit : combat) guardBase(world, unit, base);
+        }
+    }
+
+    private void orderFactionWorkers(World world, NpcFaction faction) {
+        Set<String> workerTypes = faction.workerTypeSet();
+        for (Unit unit : new ArrayList<>(world.units.values())) {
+            if (!unit.playerId.equals(faction.id()) || unit.hp <= 0) continue;
+            if (unit.type().harvestKinds.isEmpty()) continue;
+            if (!workerTypes.isEmpty() && !workerTypes.contains(unit.shipTypeId)) continue;
+            assignMiningTarget(world, faction, unit);
+        }
+    }
+
+    private boolean buildFleetShip(World world, NpcFaction faction) {
+        if (faction.targetFleetSize() <= 0 || combatUnits(world, faction).size() >= faction.targetFleetSize()) return false;
+        Base base = firstBase(world, faction);
+        if (base == null) return false;
+        String shipTypeId = affordableFleetShip(base, faction);
+        if (shipTypeId.isBlank()) return false;
+        ShipType ship = Rules.ship(shipTypeId);
+        HangarStore.spend(base.inventory, ship.buildCost);
+        int n = nextUnitNumber(world, faction);
+        double a = n * 1.35;
+        Unit unit = new Unit(faction.id(), n, shipTypeId,
+                Calc.clamp(base.x + Math.cos(a) * (base.type().buildRadius + 40), 0, world.width),
+                Calc.clamp(base.y + Math.sin(a) * (base.type().buildRadius + 40), 0, world.height));
+        world.units.put(unit.key(), unit);
+        return true;
+    }
+
+    private String affordableFleetShip(Base base, NpcFaction faction) {
+        String fallback = "";
+        for (String shipTypeId : faction.fleetUnitTypes()) {
+            if (!Rules.SHIPS.containsKey(shipTypeId)) continue;
+            if (!base.type().buildableShips.contains(shipTypeId)) continue;
+            ShipType ship = Rules.ship(shipTypeId);
+            if (!WeaponRules.armed(ship)) continue;
+            fallback = fallback.isBlank() ? shipTypeId : fallback;
+            if (HangarStore.canAfford(base.inventory, ship.buildCost)) return shipTypeId;
+        }
+        return fallback.isBlank() || !HangarStore.canAfford(base.inventory, Rules.ship(fallback).buildCost) ? "" : fallback;
     }
 
     private void maintainWorkers(World world, NpcFaction faction) {
@@ -188,6 +259,39 @@ final class NpcSystem {
             world.units.put(worker.key(), worker);
             workers++;
         }
+    }
+
+    private List<Unit> combatUnits(World world, NpcFaction faction) {
+        List<Unit> out = new ArrayList<>();
+        for (Unit unit : world.units.values()) {
+            if (!unit.playerId.equals(faction.id()) || unit.hp <= 0) continue;
+            if (WeaponRules.armed(unit.type())) out.add(unit);
+        }
+        return out;
+    }
+
+    private String nearestThreatToBase(World world, NpcFaction faction) {
+        Base base = firstBase(world, faction);
+        if (base == null) return "";
+        String best = "";
+        double bestDist = Double.MAX_VALUE;
+        for (Unit unit : world.units.values()) {
+            if (!canTarget(faction, unit.playerId) || unit.hp <= 0) continue;
+            double d = Calc.distance(base.x, base.y, unit.x, unit.y);
+            if (d <= faction.defendRange() && d < bestDist) {
+                best = CombatTarget.unit(unit);
+                bestDist = d;
+            }
+        }
+        return best;
+    }
+
+    private void guardBase(World world, Unit unit, Base base) {
+        if (unit.task == UnitTask.ATTACK) return;
+        double a = unit.unitId * 2.2;
+        unit.moveTo(
+                Calc.clamp(base.x + Math.cos(a) * Math.max(180, base.type().unloadRange + 160), 0, world.width),
+                Calc.clamp(base.y + Math.sin(a) * Math.max(180, base.type().unloadRange + 160), 0, world.height));
     }
 
     private Base firstBase(World world, NpcFaction faction) {
@@ -282,6 +386,7 @@ final class NpcSystem {
     private static final class NpcState {
         double spawnTimer;
         double orderTimer;
+        double buildTimer;
         NpcState(double spawnTimer) { this.spawnTimer = spawnTimer; }
     }
 
