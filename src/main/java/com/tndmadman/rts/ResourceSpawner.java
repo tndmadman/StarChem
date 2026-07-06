@@ -35,12 +35,20 @@ final class ResourceSpawner {
             double orbitSpeed = speedFor(orbitRadius) * (0.9 + random.nextDouble() * 0.2);
             Material material = materials.get(i % materials.size());
             double nodeAmount = belt.amount * (0.65 + random.nextDouble() * 0.7);
-            double nodeRadius = belt.radius * (0.7 + random.nextDouble() * 0.6);
+            double nodeRadius = radiusForAmount(belt.radius, belt.amount, nodeAmount, random);
             ResourceNode node = new ResourceNode(id++, belt.name + " " + material.name() + " " + i, belt.kind, material, 0, 0, nodeAmount, belt.harvestRate, nodeRadius);
             node.orbit(celestials.sunX(), celestials.sunY(), orbitRadius, orbitAngle, orbitSpeed);
             out.add(node);
         }
         return id;
+    }
+
+    private static double radiusForAmount(double baseRadius, double beltAverageAmount, double nodeAmount, Random random) {
+        double average = Math.max(1.0, beltAverageAmount);
+        double richness = Math.max(0.25, nodeAmount / average);
+        double amountScale = Math.sqrt(richness);
+        double naturalVariation = 0.92 + random.nextDouble() * 0.16;
+        return Math.max(1.8, baseRadius * amountScale * naturalVariation);
     }
 
     private static ResourceNode anchorFor(ResourceNode source, List<ResourceNode> resources, Random random) {
