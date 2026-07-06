@@ -1,30 +1,20 @@
 package com.tndmadman.rts;
 
 import java.awt.*;
-import java.util.Iterator;
 
 final class NotificationHud {
-    void update(World world, double dt) {
-        if (dt <= 0) return;
-        Iterator<GameNotification> it = world.notifications.iterator();
-        while (it.hasNext()) {
-            GameNotification note = it.next();
-            note.age += dt;
-            if (note.expired()) it.remove();
-        }
-    }
+    void update(World world, double dt) { AlertCenter.update(world, dt); }
 
     void draw(Graphics2D g2, World world, int height) {
         int x = 18;
         int y = height - 28;
-        for (int i = world.notifications.size() - 1; i >= 0; i--) {
-            GameNotification note = world.notifications.get(i);
-            float alpha = note.alpha();
+        java.util.List<GameNotification> notes = AlertCenter.list(world);
+        for (int i = notes.size() - 1; i >= 0; i--) {
+            GameNotification note = notes.get(i);
             Composite old = g2.getComposite();
-            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, note.alpha()));
             g2.setFont(g2.getFont().deriveFont(Font.BOLD, 13f));
-            FontMetrics fm = g2.getFontMetrics();
-            int w = Math.min(520, fm.stringWidth(note.text) + 24);
+            int w = Math.min(520, g2.getFontMetrics().stringWidth(note.text) + 24);
             g2.setColor(new Color(0, 0, 0, 185));
             g2.fillRoundRect(x, y - 24, w, 30, 10, 10);
             g2.setColor(new Color(120, 220, 255, 150));
