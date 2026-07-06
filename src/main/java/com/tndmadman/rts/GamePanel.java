@@ -151,8 +151,16 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
             world.status = "Enemy ship: " + PlayerRegistry.name(unit.playerId);
             return;
         }
-        if (unit != null && !unit.basePackageType.isBlank()) buildMenu.showForUnit(world, network, unit, e.getX(), e.getY());
-        else world.selectAt(p.getX(), p.getY());
+        if (unit != null && !unit.basePackageType.isBlank()) {
+            clickPackageCarrier(e, p, unit);
+            return;
+        }
+        world.selectAt(p.getX(), p.getY());
+    }
+
+    private void clickPackageCarrier(MouseEvent e, Point2D p, Unit unit) {
+        world.selectAt(p.getX(), p.getY());
+        buildMenu.showForUnit(world, network, unit, e.getX(), e.getY());
     }
 
     private void clickRight(Point2D p) {
