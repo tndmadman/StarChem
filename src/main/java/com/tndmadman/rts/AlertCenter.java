@@ -16,20 +16,17 @@ final class AlertCenter {
     }
 
     static java.util.List<GameNotification> list(World world) {
+        prune(world);
         ArrayList<GameNotification> list = DATA.get(world);
         return list == null ? java.util.List.of() : list;
     }
 
-    static void update(World world, double dt) {
-        if (dt <= 0) return;
+    static void update(World world, double dt) { prune(world); }
+
+    private static void prune(World world) {
         ArrayList<GameNotification> list = DATA.get(world);
         if (list == null) return;
-        Iterator<GameNotification> it = list.iterator();
-        while (it.hasNext()) {
-            GameNotification note = it.next();
-            note.age += dt;
-            if (note.expired()) it.remove();
-        }
+        list.removeIf(GameNotification::expired);
         if (list.isEmpty()) DATA.remove(world);
     }
 }
