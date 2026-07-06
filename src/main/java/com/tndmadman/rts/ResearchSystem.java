@@ -13,11 +13,13 @@ final class ResearchSystem {
     }
 
     static boolean active(World world, String playerId, String topicId) {
-        return jobs(world).containsKey(key(playerId, topicId));
+        Map<String, ResearchJob> jobs = JOBS.get(world);
+        return jobs != null && jobs.containsKey(key(playerId, topicId));
     }
 
     static ResearchJob job(World world, String playerId, String topicId) {
-        return jobs(world).get(key(playerId, topicId));
+        Map<String, ResearchJob> jobs = JOBS.get(world);
+        return jobs == null ? null : jobs.get(key(playerId, topicId));
     }
 
     static String timeLabel(ResearchJob job) {
