@@ -198,7 +198,7 @@ final class Rules {
                 EnumSet.of(NodeKind.GAS_CLOUD), cost(Material.IRON,120, Material.COPPER,150, Material.SILICATES,60, Material.ICE,80, Material.HYDROGEN,80)));
         ship(new ShipType("freighter", "Freighter", ShipSize.XL, 8431, 360, 92, 1440, 0, 110, 155, 0, 0, false,
                 EnumSet.noneOf(NodeKind.class), cost(Material.IRON,420, Material.COPPER,200, Material.SILICATES,300, Material.ICE,140)));
-        ship(new ShipType("salvager", "Salvager", ShipSize.MEDIUM, 5227, 135, 135, 300, 0, 88, 120, 0, 0,
+        ship(new ShipType("salvager", "Salvager", ShipSize.MEDIUM, 5227, 135, 135, 600, 0, 88, 120, 0, 0,
                 115, 2.0, 3.5, 2, 360, false, EnumSet.noneOf(NodeKind.class),
                 cost(Material.IRON,160, Material.COPPER,120, Material.SILICATES,90)));
 
