@@ -7,7 +7,7 @@ final class WorkSystem {
         if (node == null || !node.active) {
             if (unit.freeCargo() > 0.05 && world.scoutRetarget(unit, node)) return;
             if (unit.cargoUsed() > 0.05) world.sendToNearestBase(unit);
-            else unit.task = UnitTask.IDLE;
+            else if (!world.returnToMiningAnchor(unit)) unit.task = UnitTask.IDLE;
             return;
         }
         ShipType type = unit.type();
@@ -38,7 +38,7 @@ final class WorkSystem {
             if (unit.freeCargo() > 0.05 && world.scoutRetarget(unit, node)) return;
             world.status = node.name + " depleted. Returning cargo and relocating deposit.";
             if (unit.cargoUsed() > 0.05) world.sendToNearestBase(unit);
-            else unit.task = UnitTask.IDLE;
+            else if (!world.returnToMiningAnchor(unit)) unit.task = UnitTask.IDLE;
             return;
         }
         world.orbitAround(unit, node.x, node.y, node.radius + type.orbitRadius, dt, 0.7);
