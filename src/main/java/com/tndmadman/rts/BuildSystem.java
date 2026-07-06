@@ -9,6 +9,11 @@ final class BuildSystem {
             world.status = base.type().name + " cannot build " + shipType.name + ".";
             return false;
         }
+        if (!ResearchRules.shipUnlocked(world, base.playerId, shipTypeId)) {
+            ResearchTopic topic = ResearchRules.firstTopicUnlockingShip(shipTypeId);
+            world.status = shipType.name + " requires research" + (topic == null ? "." : ": " + topic.name + ".");
+            return false;
+        }
         if (!StationFuelRules.isOperational(base)) {
             world.status = base.type().name + " needs " + StationFuelRules.requirement(base.typeId).material().label + " to run.";
             return false;
@@ -97,6 +102,43 @@ final class BuildSystem {
         if (!free) HangarStore.spend(base.inventory, item.requiredResources);
         HangarStore.add(base.inventory, item.outputMaterial, item.outputAmount);
         world.status = free ? "Dev manufactured " + item.outputLabel() + " for free." : "Manufactured " + item.outputLabel() + ".";
+        if (PlayerRegistry.isLocal(base.playerId)) ProceduralAudio.play(SoundCue.CRAFT_ITEM);
+        return true;
+    }
+
+    boolean research(World world, String baseId, String topicId) {
+        Base base = world.bases.get(baseId);
+        if (base == null) return false;
+        ResearchTopic topic = ResearchRules.topic(topicId);
+        if (topic == null) {
+            world.status = "Unknown research topic: " + topicId + ".";
+            return false;
+        }
+        if (!topic.canResearchAt(base.typeId)) {
+            world.status = base.type().name + " cannot research " + topic.name + ".";
+            return false;
+        }
+        if (world.hasResearch(base.playerId, topic.id)) {
+            world.status = topic.name + " already researched.";
+            return false;
+        }
+        String missing = ResearchRules.missingPrerequisite(world, base.playerId, topic);
+        if (!missing.isBlank()) {
+            world.status = topic.name + " requires " + missing + " first.";
+            return false;
+        }
+        if (!StationFuelRules.isOperational(base)) {
+            world.status = base.type().name + " needs " + StationFuelRules.requirement(base.typeId).material().label + " to run.";
+            return false;
+        }
+        boolean free = freeBuild(world, base);
+        if (!free && !HangarStore.canAfford(base.inventory, topic.requiredResources)) {
+            world.status = "Need " + Rules.formatCost(topic.requiredResources) + " in " + base.type().name + " hangar.";
+            return false;
+        }
+        if (!free) HangarStore.spend(base.inventory, topic.requiredResources);
+        world.completeResearch(base.playerId, topic.id);
+        world.status = free ? "Dev researched " + topic.name + " for free." : "Researched " + topic.name + ".";
         if (PlayerRegistry.isLocal(base.playerId)) ProceduralAudio.play(SoundCue.CRAFT_ITEM);
         return true;
     }
