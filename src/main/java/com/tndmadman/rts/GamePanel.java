@@ -39,7 +39,11 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         timer = new Timer(16, e -> tick());
     }
 
-    void start() { requestFocusInWindow(); timer.start(); }
+    void start() {
+        requestFocusInWindow();
+        ProceduralAudio.prime();
+        timer.start();
+    }
     void stop() { timer.stop(); }
 
     private void tick() {
@@ -95,7 +99,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         g2.drawString(world.status, 28, 58);
         g2.drawString(network == null ? "Solo" : network.statusLine(), 28, 80);
         String minerRanges = UnitRenderer.miningRangeOverlayVisible() ? "ON" : "OFF";
-        g2.drawString("Drag-select ships | Right-click group order | Formation: " + formation.label + " (F) | Miner ranges: " + minerRanges + " (R)", 28, 102);
+        String audio = ProceduralAudio.muted() ? "OFF" : "ON";
+        g2.drawString("Drag-select ships | Right-click group order | Formation: " + formation.label + " (F) | Miner ranges: " + minerRanges + " (R) | Audio: " + audio + " (M)", 28, 102);
     }
 
     private void drawSelectionBox(Graphics2D g2) {
@@ -142,20 +147,24 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         Base base = world.baseAt(p.getX(), p.getY());
         Unit unit = world.unitAt(p.getX(), p.getY());
         if (base != null) {
+            ProceduralAudio.play(SoundCue.SELECT);
             if (PlayerRegistry.isLocal(base.playerId)) buildMenu.showForBase(world, network, base, e.getX(), e.getY());
             else world.status = "Enemy base: " + PlayerRegistry.name(base.playerId);
             return;
         }
         if (unit != null && !PlayerRegistry.isLocal(unit.playerId)) {
+            ProceduralAudio.play(SoundCue.SELECT);
             clearSelection();
             world.status = "Enemy ship: " + PlayerRegistry.name(unit.playerId);
             return;
         }
         if (unit != null && !unit.basePackageType.isBlank()) {
+            ProceduralAudio.play(SoundCue.SELECT);
             clickPackageCarrier(e, p, unit);
             return;
         }
         world.selectAt(p.getX(), p.getY());
+        if (world.status.startsWith("Selected ") || world.status.startsWith("Targeted ")) ProceduralAudio.play(SoundCue.SELECT);
     }
 
     private void clickPackageCarrier(MouseEvent e, Point2D p, Unit unit) {
@@ -166,20 +175,25 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private void clickRight(Point2D p) {
         Unit enemyUnit = world.unitAt(p.getX(), p.getY());
         if (enemyUnit != null && !PlayerRegistry.isLocal(enemyUnit.playerId)) {
+            ProceduralAudio.play(SoundCue.ATTACK_ORDER);
             orderAttack(CombatTarget.unit(enemyUnit));
             return;
         }
         Base enemyBase = world.baseAt(p.getX(), p.getY());
         if (enemyBase != null && !PlayerRegistry.isLocal(enemyBase.playerId)) {
+            ProceduralAudio.play(SoundCue.ATTACK_ORDER);
             orderAttack(CombatTarget.base(enemyBase));
             return;
         }
         ResourceNode node = world.resourceAt(p.getX(), p.getY());
         if (node != null) {
             world.autoHarvestSelected(node);
+            ProceduralAudio.play(world.status.startsWith("Auto-harvesting ") ? SoundCue.HARVEST_ORDER : SoundCue.ERROR);
             if (network != null) for (Unit u : world.selectedUnits()) if (PlayerRegistry.isLocal(u.playerId) && u.automationResourceId == node.id) network.work(new HarvestCommand(u.playerId, u.unitId, node.id));
         } else {
+            int selected = world.selectedCount();
             world.moveSelected(p.getX(), p.getY(), formation);
+            ProceduralAudio.play(selected > 0 ? SoundCue.MOVE_ORDER : SoundCue.ERROR);
             if (network != null) for (Unit u : world.selectedUnits()) if (PlayerRegistry.isLocal(u.playerId)) network.move(new MoveCommand(u.playerId, u.unitId, u.targetX, u.targetY));
         }
     }
@@ -207,8 +221,10 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     @Override public void mouseReleased(MouseEvent e) {
         if (SwingUtilities.isLeftMouseButton(e) && dragStart != null) {
             dragNow = e.getPoint();
-            if (isSelectionDrag()) world.selectBox(screenRectToWorldRect(dragStart, dragNow));
-            else clickLeft(e, screenToWorld(e.getPoint()));
+            if (isSelectionDrag()) {
+                world.selectBox(screenRectToWorldRect(dragStart, dragNow));
+                if (world.selectedCount() > 0) ProceduralAudio.play(SoundCue.SELECT);
+            } else clickLeft(e, screenToWorld(e.getPoint()));
             dragStart = null;
             dragNow = null;
             repaint();
@@ -223,14 +239,22 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     @Override public void mouseExited(MouseEvent e) { }
     @Override public void keyTyped(KeyEvent e) { }
     @Override public void keyPressed(KeyEvent e) {
+        if (e.getKeyCode() == KeyEvent.VK_M) {
+            boolean muted = ProceduralAudio.toggleMute();
+            world.status = muted ? "Audio muted." : "Audio enabled.";
+            repaint();
+            return;
+        }
         if (e.getKeyCode() == KeyEvent.VK_F) {
             formation = formation.next();
             world.status = "Fleet formation: " + formation.label + ".";
+            ProceduralAudio.play(SoundCue.SELECT);
             return;
         }
         if (e.getKeyCode() == KeyEvent.VK_R) {
             UnitRenderer.toggleMiningRangeOverlay();
             world.status = "Miner range overlay: " + (UnitRenderer.miningRangeOverlayVisible() ? "ON" : "OFF") + ".";
+            ProceduralAudio.play(SoundCue.SELECT);
             repaint();
             return;
         }
