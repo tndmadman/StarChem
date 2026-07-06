@@ -17,7 +17,15 @@ record BaseState(String id, String playerId, String typeId, double x, double y, 
 }
 record StockState(String playerId, String cargo) { }
 record ShotState(int id, String ownerId, String weaponId, String targetKey, double x, double y, double lastX, double lastY) { }
-record Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks, List<ShotState> shots) { }
+record ItemState(int id, double x, double y, String cargo) { }
+record Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks, List<ShotState> shots, List<ItemState> items) {
+    Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks, List<ShotState> shots) {
+        this(sequence, players, units, resources, bases, stocks, shots, List.of());
+    }
+    Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks) {
+        this(sequence, players, units, resources, bases, stocks, List.of(), List.of());
+    }
+}
 record NetPacket(String message, InetAddress address, int port) { }
 record ServerPeer(String playerId, InetAddress address, int port, long lastSeen, boolean devFreeBuild) { }
 record PendingReliable(String id, String payload, InetAddress address, int port, long lastSent, int attempts) { }
