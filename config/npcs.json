@@ -1,0 +1,53 @@
+{
+  "npcAiVersion": 1,
+  "factions": [
+    {
+      "id": "NPC_RAIDERS",
+      "name": "Raiders",
+      "color": "#FF5F55",
+      "enabled": true,
+      "behavior": "RAIDER",
+      "firstSpawnSeconds": 18,
+      "respawnSeconds": 45,
+      "orderSeconds": 2,
+      "baseType": "outpost",
+      "startingUnits": ["frigate", "frigate", "destroyer"],
+      "workerUnitTypes": [],
+      "maxWorkers": 0,
+      "spawnDistance": 2200,
+      "spawnPadding": 700,
+      "unitSpacing": 150,
+      "targetMaterials": [],
+      "harvestNodeKinds": [],
+      "attackBases": true,
+      "attackUnits": true,
+      "attackNpcFactions": false,
+      "replaceWorkers": false,
+      "spawnMessage": "Raider ships have entered the sector."
+    },
+    {
+      "id": "NPC_MINERS",
+      "name": "Free Miners",
+      "color": "#FFE066",
+      "enabled": true,
+      "behavior": "MINER",
+      "firstSpawnSeconds": 35,
+      "respawnSeconds": 60,
+      "orderSeconds": 3,
+      "baseType": "outpost",
+      "startingUnits": ["prospector", "prospector"],
+      "workerUnitTypes": ["prospector"],
+      "maxWorkers": 3,
+      "spawnDistance": 2800,
+      "spawnPadding": 700,
+      "unitSpacing": 145,
+      "targetMaterials": ["IRON", "COPPER", "SILICATES", "ICE"],
+      "harvestNodeKinds": ["SILICATE_ROCK"],
+      "attackBases": false,
+      "attackUnits": false,
+      "attackNpcFactions": false,
+      "replaceWorkers": true,
+      "spawnMessage": "Independent miners have entered the sector."
+    }
+  ]
+}
