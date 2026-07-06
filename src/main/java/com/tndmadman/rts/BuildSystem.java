@@ -137,6 +137,7 @@ final class BuildSystem {
         }
         boolean free = freeBuild(world, base);
         if (!free && !HangarStore.canAfford(base.inventory, topic.requiredResources)) {
+            if (world.logisticsSystem.queueResearch(world, base, topic)) return true;
             world.status = "Need " + Rules.formatCost(topic.requiredResources) + " in " + base.type().name + " hangar.";
             return false;
         }
