@@ -11,7 +11,8 @@ It is written in plain Java/Swing with a UDP host/client layer. The game opens i
 - One starter Prospector per player
 - Default Outpost station per player
 - Ship inventory and station stockpile
-- Destroyed ships drop carried cargo and salvage parts
+- Destroyed ships and stations drop carried cargo, hangar contents, and salvage parts
+- Loot pieces pop out, spin, drift, and slowly stop moving
 - Nearby cargo-capable ships automatically collect world loot for now
 - Right-click resource auto-harvesting
 - Full cargo return-to-station behavior
@@ -62,7 +63,7 @@ It is written in plain Java/Swing with a UDP host/client layer. The game opens i
 10. Use the Shipyard build menu to build industry ships, combat hulls, capitals, titans, and monoliths.
 11. Use the Manufacturing Plant build menu to manufacture Fuel from harvested gases.
 12. Deliver Fuel to the Research Lab hangar so it stays powered for the later science/research update.
-13. Destroyed ships leave world loot containing their cargo plus Scrap Metal, Hull Plating, and Circuit Fragments.
+13. Destroyed ships and stations leave individual world loot pieces containing cargo/hangar contents plus Scrap Metal, Hull Plating, and Circuit Fragments.
 
 ## Ship examples
 
