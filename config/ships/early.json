@@ -32,7 +32,7 @@
       "cargoCapacity": 0,
       "harvestRange": 0,
       "orbitRadius": 90,
-      "idleStationOrbitRadius": 120,
+      "idleStationOrbitRadius": 108,
       "buildTimeSeconds": 0,
       "buildCost": { "IRON": 220, "COPPER": 120, "SILICATES": 100, "ICE": 40 },
       "canHarvest": [],
