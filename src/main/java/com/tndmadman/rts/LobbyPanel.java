@@ -2,6 +2,8 @@ package com.tndmadman.rts;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 final class LobbyPanel extends JPanel {
     private final GameFrame owner;
@@ -9,6 +11,9 @@ final class LobbyPanel extends JPanel {
     private final JTextField addressField = new JTextField("127.0.0.1", 18);
     private final JTextField portField = new JTextField("50000", 8);
     private final JCheckBox devBox = new JCheckBox("Dev mode");
+    private final JCheckBox spawnRaidersBox = new JCheckBox("Raiders", true);
+    private final JCheckBox spawnFreeMinersBox = new JCheckBox("Free Miners", true);
+    private final JCheckBox spawnCorsairsBox = new JCheckBox("Corsair Syndicate", true);
     private final JLabel statusLabel = new JLabel("Choose Solo, Host, or Join.");
 
     LobbyPanel(GameFrame owner) {
@@ -20,6 +25,9 @@ final class LobbyPanel extends JPanel {
         styleField(addressField);
         styleField(portField);
         styleCheck(devBox);
+        styleCheck(spawnRaidersBox);
+        styleCheck(spawnFreeMinersBox);
+        styleCheck(spawnCorsairsBox);
 
         JLabel title = new JLabel("STAR  CHEM");
         title.setForeground(new Color(230, 248, 255));
@@ -42,6 +50,12 @@ final class LobbyPanel extends JPanel {
         box.add(portField);
         box.add(label("Options"));
         box.add(devBox);
+        box.add(label("NPC Spawns"));
+        box.add(spawnRaidersBox);
+        box.add(label(""));
+        box.add(spawnFreeMinersBox);
+        box.add(label(""));
+        box.add(spawnCorsairsBox);
         JButton solo = new MenuButton("SOLO");
         JButton serve = new MenuButton("HOST");
         JButton connect = new MenuButton("JOIN");
@@ -57,7 +71,7 @@ final class LobbyPanel extends JPanel {
         card.add(box, BorderLayout.CENTER);
         add(card, BorderLayout.CENTER);
 
-        solo.addActionListener(e -> owner.launchGame(Config.solo(nameField.getText(), devBox.isSelected())));
+        solo.addActionListener(e -> owner.launchGame(Config.solo(nameField.getText(), devBox.isSelected(), disabledNpcFactions())));
         serve.addActionListener(e -> startServer());
         connect.addActionListener(e -> startClient());
     }
@@ -84,13 +98,21 @@ final class LobbyPanel extends JPanel {
         box.setFont(box.getFont().deriveFont(Font.BOLD, 13f));
     }
 
+    private Set<String> disabledNpcFactions() {
+        Set<String> disabled = new LinkedHashSet<>();
+        if (!spawnRaidersBox.isSelected()) disabled.add(Config.RAIDERS_ID);
+        if (!spawnFreeMinersBox.isSelected()) disabled.add(Config.FREE_MINERS_ID);
+        if (!spawnCorsairsBox.isSelected()) disabled.add(Config.CORSAIRS_ID);
+        return disabled;
+    }
+
     private void startServer() {
-        try { owner.launchGame(Config.host(nameField.getText(), Config.parsePort(portField.getText()), devBox.isSelected())); }
+        try { owner.launchGame(Config.host(nameField.getText(), Config.parsePort(portField.getText()), devBox.isSelected(), disabledNpcFactions())); }
         catch (RuntimeException ex) { setStatus(ex.getMessage()); }
     }
 
     private void startClient() {
-        try { owner.launchGame(Config.join(nameField.getText(), addressField.getText().trim(), Config.parsePort(portField.getText()), devBox.isSelected())); }
+        try { owner.launchGame(Config.join(nameField.getText(), addressField.getText().trim(), Config.parsePort(portField.getText()), devBox.isSelected(), disabledNpcFactions())); }
         catch (RuntimeException ex) { setStatus(ex.getMessage()); }
     }
 
