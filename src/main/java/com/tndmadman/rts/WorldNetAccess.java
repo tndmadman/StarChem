@@ -16,7 +16,9 @@ final class WorldNetAccess {
         List<StockState> stocks = List.of(new StockState(PlayerRegistry.localId(), CargoCodec.write(world.stockpile)));
         List<ShotState> shots = new ArrayList<>();
         for (ProjectileShot shot : world.shots) shots.add(new ShotState(shot.id, shot.ownerId, shot.weaponId, shot.targetKey, shot.x, shot.y, shot.lastX, shot.lastY));
-        return new Snapshot(sequence, players, units, resources, bases, stocks, shots);
+        List<ItemState> items = new ArrayList<>();
+        for (WorldItem item : world.items) items.add(new ItemState(item.id, item.material.name(), item.amount, item.x, item.y, item.vx, item.vy, item.angle, item.spin));
+        return new Snapshot(sequence, players, units, resources, bases, stocks, shots, items);
     }
 
     static void apply(World world, Snapshot snapshot) {
@@ -42,10 +44,7 @@ final class WorldNetAccess {
             }
         }
         if (!snapshot.resources().isEmpty()) NetResourceSync.apply(world, snapshot.resources());
-        if (!snapshot.bases().isEmpty()) {
-            world.bases.clear();
-            for (BaseState b : snapshot.bases()) world.bases.put(b.id(), NetBaseSync.fromState(b));
-        }
+        if (!snapshot.bases().isEmpty()) applyBases(world, snapshot.bases());
         world.shots.clear();
         for (ShotState s : snapshot.shots()) {
             ProjectileShot shot = new ProjectileShot(s.id(), s.ownerId(), s.weaponId(), s.targetKey(), s.x(), s.y());
@@ -53,7 +52,16 @@ final class WorldNetAccess {
             shot.lastY = s.lastY();
             world.shots.add(shot);
         }
+        ItemSync.apply(world, snapshot.items());
         if (!snapshot.stocks().isEmpty()) CargoCodec.readInto(snapshot.stocks().get(0).cargo(), world.stockpile);
+    }
+
+    private static void applyBases(World world, List<BaseState> states) {
+        Set<String> live = new HashSet<>();
+        for (BaseState state : states) live.add(state.id());
+        for (Base base : world.bases.values()) if (!live.contains(base.id)) world.explodeBase(base);
+        world.bases.clear();
+        for (BaseState b : states) world.bases.put(b.id(), NetBaseSync.fromState(b));
     }
 
     static void addPeerGroup(World world, String playerId) { spawnGroup(world, playerId, slot(playerId)); }

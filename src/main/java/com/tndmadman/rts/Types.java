@@ -12,7 +12,10 @@ enum Material {
     HELIUM("Helium", new Color(210,175,255)),
     METHANE("Methane", new Color(100,255,190)),
     AMMONIA("Ammonia", new Color(235,245,150)),
-    FUEL("Fuel", new Color(255,185,70));
+    FUEL("Fuel", new Color(255,185,70)),
+    SCRAP_METAL("Scrap Metal", new Color(160,165,170)),
+    HULL_PLATING("Hull Plating", new Color(120,145,170)),
+    CIRCUIT_FRAGMENTS("Circuit Fragments", new Color(90,245,185));
 
     final String label;
     final Color color;

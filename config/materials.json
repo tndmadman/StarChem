@@ -35,6 +35,18 @@
     "FUEL": {
       "displayName": "Fuel",
       "color": "#FFB946"
+    },
+    "SCRAP_METAL": {
+      "displayName": "Scrap Metal",
+      "color": "#A0A5AA"
+    },
+    "HULL_PLATING": {
+      "displayName": "Hull Plating",
+      "color": "#7891AA"
+    },
+    "CIRCUIT_FRAGMENTS": {
+      "displayName": "Circuit Fragments",
+      "color": "#5AF5B9"
     }
   }
 }

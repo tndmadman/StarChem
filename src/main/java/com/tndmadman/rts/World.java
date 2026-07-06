@@ -17,6 +17,7 @@ final class World {
     final Map<String, Base> bases = new LinkedHashMap<>();
     final List<ProjectileShot> shots = new ArrayList<>();
     final List<ExplosionEffect> explosions = new ArrayList<>();
+    final List<WorldItem> items = new ArrayList<>();
     final EnumMap<Material, Double> stockpile = new EnumMap<>(Material.class);
     final LogisticsSystem logisticsSystem = new LogisticsSystem();
     private final Set<String> devFreeBuildPlayers = new LinkedHashSet<>();
@@ -32,9 +33,11 @@ final class World {
     private final ResourceRespawnSystem resourceRespawnSystem = new ResourceRespawnSystem();
     private final BuildSystem buildSystem = new BuildSystem();
     private final WeaponSystem weaponSystem = new WeaponSystem();
+    private final ItemPickupSystem itemPickupSystem = new ItemPickupSystem();
     private int nextUnitId = 1;
     private int nextBaseId = 1;
     private int nextShotId = 1;
+    int nextWorldItemId = 1;
     int selectedResourceId = -1;
     String status = "Right-click a resource with a ship selected to auto-harvest.";
 
@@ -59,7 +62,6 @@ final class World {
     }
 
     boolean devFreeBuildFor(String playerId) { return playerId != null && devFreeBuildPlayers.contains(playerId); }
-
     void useSystemSeed(long seed) { if (seed != systemSeed) syncEnvironment(seed, 0); }
 
     void syncEnvironment(long seed, double hostTime) {
@@ -80,7 +82,6 @@ final class World {
     }
 
     private void seedResources() { ResourceSpawner.seed(resources, celestials, random); }
-
     private Point2D startShipPoint(Point2D basePoint) { return new Point2D.Double(basePoint.getX() + 180, basePoint.getY() - 80); }
 
     private Point2D startBasePoint() {
@@ -91,13 +92,11 @@ final class World {
         return new Point2D.Double(celestials.sunX() + Math.cos(a) * r, celestials.sunY() + Math.sin(a) * r);
     }
 
-    private ResourceNode firstResource(Material material) {
-        for (ResourceNode node : resources) if (node.material == material) return node;
-        return null;
-    }
+    private ResourceNode firstResource(Material material) { for (ResourceNode node : resources) if (node.material == material) return node; return null; }
 
     void updateEnvironment(double dt) {
         advanceEnvironment(dt);
+        updateItems(dt);
         updateExplosions(dt);
     }
 
@@ -107,11 +106,21 @@ final class World {
         ResourceSpawner.update(resources, celestials, dt);
     }
 
+    private void updateItems(double dt) {
+        Iterator<WorldItem> it = items.iterator();
+        while (it.hasNext()) {
+            WorldItem item = it.next();
+            item.update(dt, width, height);
+            if (item.empty()) it.remove();
+        }
+    }
+
     void update(double dt) {
         updateEnvironment(dt);
         resourceRespawnSystem.update(this, dt);
         StationFuelRules.consume(this, dt);
         logisticsSystem.update(this, dt);
+        itemPickupSystem.update(this);
         scoutSystem.update(this);
         for (Unit unit : new ArrayList<>(units.values())) updateUnit(unit, dt);
         weaponSystem.update(this, dt);
@@ -171,12 +180,11 @@ final class World {
     Base addBase(String type, double x, double y) { String id = "B" + nextBaseId++; Base base = new Base(id, localPlayerId, type, x, y); bases.put(id, base); return base; }
     Unit spawnShip(String type, double x, double y) { Unit unit = new Unit(localPlayerId, nextUnitId++, type, x, y); units.put(unit.key(), unit); return unit; }
     ProjectileShot addShot(String ownerId, String weaponId, String targetKey, double x, double y) { ProjectileShot shot = new ProjectileShot(nextShotId++, ownerId, weaponId, targetKey, x, y); shots.add(shot); return shot; }
+    WorldItem addWorldItem(Material material, double amount, double x, double y, double vx, double vy, double angle, double spin) { WorldItem item = new WorldItem(nextWorldItemId++, material, amount, x, y, vx, vy, angle, spin); if (!item.empty()) items.add(item); return item.empty() ? null : item; }
     void explodeUnit(Unit unit) { if (unit != null) explosions.add(ExplosionEffect.fromUnit(unit)); }
+    void explodeBase(Base base) { if (base != null) explosions.add(ExplosionEffect.fromBase(base)); }
 
-    private void updateExplosions(double dt) {
-        Iterator<ExplosionEffect> it = explosions.iterator();
-        while (it.hasNext()) if (!it.next().update(dt)) it.remove();
-    }
+    private void updateExplosions(double dt) { Iterator<ExplosionEffect> it = explosions.iterator(); while (it.hasNext()) if (!it.next().update(dt)) it.remove(); }
 
     boolean buildShip(String baseId, String shipTypeId) { return buildSystem.buildShip(this, baseId, shipTypeId); }
     boolean loadBasePackage(String baseId, String packageType) { return buildSystem.loadBasePackage(this, baseId, packageType); }
@@ -188,6 +196,7 @@ final class World {
         celestials.draw(g2);
         for (Base base : bases.values()) base.draw(g2, localColor, stockpile, true);
         for (ResourceNode node : resources) node.draw(g2, node.id == selectedResourceId);
+        for (WorldItem item : items) item.draw(g2);
         for (Unit unit : units.values()) {
             ResourceNode node = findResource(unit.automationResourceId);
             if (MiningBeam.visible(unit, node)) UnitRenderer.drawWorkLine(g2, unit, node);
@@ -198,9 +207,7 @@ final class World {
         for (Unit unit : units.values()) UnitRenderer.draw(g2, unit, localColor, true);
     }
 
-    private boolean shouldDrawRoute(Unit unit) {
-        return PlayerRegistry.isLocal(unit.playerId) && (unit.task == UnitTask.MOVE || unit.task == UnitTask.RETURN_TO_STATION || unit.task == UnitTask.ATTACK);
-    }
+    private boolean shouldDrawRoute(Unit unit) { return PlayerRegistry.isLocal(unit.playerId) && (unit.task == UnitTask.MOVE || unit.task == UnitTask.RETURN_TO_STATION || unit.task == UnitTask.ATTACK); }
 
     private void drawMap(Graphics2D g2) {
         g2.setColor(new Color(9, 15, 24));
@@ -219,7 +226,6 @@ final class World {
     }
 
     void selectBox(Rectangle2D box) { for (Unit unit : units.values()) unit.selected = PlayerRegistry.isLocal(unit.playerId) && box.contains(unit.x, unit.y); status = selectedCount() + " ship(s) selected."; }
-
     void moveSelected(double x, double y) { moveSelected(x, y, FleetFormation.GRID); }
 
     void moveSelected(double x, double y, FleetFormation formation) {
@@ -307,11 +313,20 @@ final class World {
         while (unitIt.hasNext()) {
             Unit unit = unitIt.next();
             if (unit.hp <= 0) {
+                dropLoot(unit);
                 explodeUnit(unit);
                 unitIt.remove();
             }
         }
-        bases.values().removeIf(base -> base.hp <= 0);
+        Iterator<Base> baseIt = bases.values().iterator();
+        while (baseIt.hasNext()) {
+            Base base = baseIt.next();
+            if (base.hp <= 0) {
+                dropLoot(base);
+                explodeBase(base);
+                baseIt.remove();
+            }
+        }
         shots.removeIf(shot -> !CombatTarget.alive(this, shot.targetKey) || shot.weapon() == null);
         for (Unit unit : units.values()) {
             if (!unit.attackTarget.isBlank() && !CombatTarget.alive(this, unit.attackTarget)) {
@@ -319,6 +334,21 @@ final class World {
                 if (unit.task == UnitTask.ATTACK) unit.task = UnitTask.IDLE;
             }
         }
+    }
+
+    private void dropLoot(Unit unit) {
+        int count = WorldLootDrops.scatter(this, SalvageDrops.fromUnit(unit), unit.x, unit.y, Math.max(1.0, unit.type().size.scale), lootSeed(unit.key(), unit.x, unit.y));
+        if (count > 0 && PlayerRegistry.isLocal(unit.playerId)) status = "Destroyed ship dropped cargo and salvage.";
+    }
+
+    private void dropLoot(Base base) {
+        double power = Math.max(2.4, base.type().maxHp / 900.0);
+        int count = WorldLootDrops.scatter(this, SalvageDrops.fromBase(base), base.x, base.y, power, lootSeed(base.id, base.x, base.y));
+        if (count > 0 && PlayerRegistry.isLocal(base.playerId)) status = "Destroyed station dropped hangar loot and salvage.";
+    }
+
+    private long lootSeed(String key, double x, double y) {
+        return System.nanoTime() ^ ((long)key.hashCode() << 32) ^ Double.doubleToLongBits(x * 37.0 + y * 41.0);
     }
 
     ResourceNode resourceAt(double x, double y) { ResourceNode best = null; double bestDist = Double.MAX_VALUE; for (ResourceNode node : resources) if (node.active) { double d = Calc.distance(x, y, node.x, node.y); if (d <= node.radius + 14 && d < bestDist) { best = node; bestDist = d; } } return best; }
