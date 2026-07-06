@@ -186,6 +186,7 @@ final class NpcSystem {
         if (faction.replaceWorkers()) maintainWorkers(world, faction);
         orderFactionWorkers(world, faction);
         orderSupportShips(world, faction, base);
+        operateStations(world, faction);
 
         if (state.stationBuildTimer <= 0) {
             if (buildOrDeployStation(world, faction)) state.stationBuildTimer = faction.stationBuildSeconds();
@@ -194,6 +195,7 @@ final class NpcSystem {
 
         if (state.buildTimer <= 0) {
             if (buildSupportShip(world, faction)) state.buildTimer = faction.buildSeconds();
+            else if (buildIndustryShip(world, faction)) state.buildTimer = faction.buildSeconds();
             else if (buildFleetShip(world, faction)) state.buildTimer = faction.buildSeconds();
             else state.buildTimer = Math.max(2.0, faction.buildSeconds() * 0.5);
         }
@@ -229,6 +231,66 @@ final class NpcSystem {
         if (base != null) guardIdleCombat(world, combat, base);
     }
 
+    private void operateStations(World world, NpcFaction faction) {
+        craftConfiguredItems(world, faction);
+        supplyFuelToStations(world, faction);
+        startConfiguredResearch(world, faction);
+    }
+
+    private boolean craftConfiguredItems(World world, NpcFaction faction) {
+        for (Base base : world.bases.values()) {
+            if (!base.playerId.equals(faction.id()) || base.hp <= 0 || !StationFuelRules.isOperational(base)) continue;
+            for (String craftableId : faction.craftableItemIds()) {
+                CraftableItem item = CraftingRules.item(craftableId);
+                if (item == null || !item.canCraftAt(base.typeId)) continue;
+                if (item.outputMaterial == Material.FUEL && faction.fuelReserve() > 0 && factionMaterial(world, faction, Material.FUEL) >= faction.fuelReserve()) continue;
+                if (!factionCanAfford(world, faction, item.requiredResources)) continue;
+                spendFaction(world, faction, item.requiredResources);
+                HangarStore.add(base.inventory, item.outputMaterial, item.outputAmount);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void supplyFuelToStations(World world, NpcFaction faction) {
+        int consumers = fuelConsumerCount(world, faction);
+        if (consumers <= 0) return;
+        double target = Math.max(8.0, faction.fuelReserve() / Math.max(1, consumers));
+        for (Base base : world.bases.values()) {
+            if (!base.playerId.equals(faction.id()) || base.hp <= 0) continue;
+            StationFuelRequirement req = StationFuelRules.requirement(base.typeId);
+            if (req == null) continue;
+            double held = base.inventory.getOrDefault(req.material(), 0.0);
+            if (held < target) transferMaterialToBase(world, faction, base, req.material(), target - held);
+        }
+    }
+
+    private int fuelConsumerCount(World world, NpcFaction faction) {
+        int count = 0;
+        for (Base base : world.bases.values()) {
+            if (base.playerId.equals(faction.id()) && base.hp > 0 && StationFuelRules.requirement(base.typeId) != null) count++;
+        }
+        return count;
+    }
+
+    private boolean startConfiguredResearch(World world, NpcFaction faction) {
+        for (String topicId : faction.researchTopicIds()) {
+            ResearchTopic topic = ResearchRules.topic(topicId);
+            if (topic == null || world.hasResearch(faction.id(), topic.id) || ResearchSystem.active(world, faction.id(), topic.id)) continue;
+            if (!ResearchRules.missingPrerequisite(world, faction.id(), topic).isBlank()) continue;
+            for (Base base : world.bases.values()) {
+                if (!base.playerId.equals(faction.id()) || base.hp <= 0) continue;
+                if (!topic.canResearchAt(base.typeId) || !StationFuelRules.isOperational(base)) continue;
+                if (!factionCanAfford(world, faction, topic.requiredResources)) continue;
+                spendFaction(world, faction, topic.requiredResources);
+                ResearchSystem.start(world, base, topic);
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void issueRaid(World world, NpcFaction faction, List<Unit> combat) {
         for (Unit unit : combat) {
             String target = priorityEnemyTarget(world, faction, unit);
@@ -241,7 +303,7 @@ final class NpcSystem {
         for (Unit unit : new ArrayList<>(world.units.values())) {
             if (!unit.playerId.equals(faction.id()) || unit.hp <= 0) continue;
             if (unit.type().harvestKinds.isEmpty()) continue;
-            if (!workerTypes.isEmpty() && !workerTypes.contains(unit.shipTypeId)) continue;
+            if (!workerTypes.isEmpty() && !workerTypes.contains(unit.shipTypeId) && !faction.industryUnitTypes().contains(unit.shipTypeId)) continue;
             assignMiningTarget(world, faction, unit);
         }
     }
@@ -285,8 +347,8 @@ final class NpcSystem {
         String packageType = nextStationPackage(world, faction, source);
         if (packageType.isBlank()) return false;
         BaseType packageBase = Rules.base(packageType);
-        if (!HangarStore.canAfford(source.inventory, packageBase.buildCost)) return false;
-        HangarStore.spend(source.inventory, packageBase.buildCost);
+        if (!factionCanAfford(world, faction, packageBase.buildCost)) return false;
+        spendFaction(world, faction, packageBase.buildCost);
         builder.basePackageType = packageType;
         placeStationFromBuilder(world, faction, source, builder, packageType);
         return true;
@@ -347,18 +409,23 @@ final class NpcSystem {
         return buildFirstAffordable(world, faction, nextSupportBuildOrder(world, faction), false);
     }
 
+    private boolean buildIndustryShip(World world, NpcFaction faction) {
+        if (faction.maxIndustryUnits() <= 0 || industryCount(world, faction) >= faction.maxIndustryUnits()) return false;
+        return buildFirstAffordable(world, faction, faction.industryUnitTypes(), false);
+    }
+
     private List<String> nextSupportBuildOrder(World world, NpcFaction faction) {
-        List<String> out = new ArrayList<>();
-        for (String shipTypeId : faction.supportUnitTypes()) if (countUnitsOfType(world, faction, shipTypeId) <= 0) out.add(shipTypeId);
-        for (String shipTypeId : faction.supportUnitTypes()) if (!out.contains(shipTypeId)) out.add(shipTypeId);
-        return out;
+        List<String> missing = new ArrayList<>();
+        for (String shipTypeId : faction.supportUnitTypes()) if (countUnitsOfType(world, faction, shipTypeId) <= 0) missing.add(shipTypeId);
+        if (!missing.isEmpty()) return missing;
+        return faction.supportUnitTypes();
     }
 
     private boolean buildFirstAffordable(World world, NpcFaction faction, List<String> shipTypes, boolean requireArmed) {
         for (Base base : world.bases.values()) {
             if (!base.playerId.equals(faction.id()) || base.hp <= 0) continue;
             for (String shipTypeId : shipTypes) {
-                if (canBuildShip(base, shipTypeId, requireArmed) && HangarStore.canAfford(base.inventory, Rules.ship(shipTypeId).buildCost)) {
+                if (canBuildShip(world, faction, base, shipTypeId, requireArmed) && factionCanAfford(world, faction, Rules.ship(shipTypeId).buildCost)) {
                     return buildShipFromBase(world, faction, base, shipTypeId);
                 }
             }
@@ -367,10 +434,10 @@ final class NpcSystem {
     }
 
     private boolean buildShipFromBase(World world, NpcFaction faction, Base base, String shipTypeId) {
-        if (!canBuildShip(base, shipTypeId, false)) return false;
+        if (!canBuildShip(world, faction, base, shipTypeId, false)) return false;
         ShipType ship = Rules.ship(shipTypeId);
-        if (!HangarStore.canAfford(base.inventory, ship.buildCost)) return false;
-        HangarStore.spend(base.inventory, ship.buildCost);
+        if (!factionCanAfford(world, faction, ship.buildCost)) return false;
+        spendFaction(world, faction, ship.buildCost);
         int n = nextUnitNumber(world, faction);
         double a = n * 1.35;
         Unit unit = new Unit(faction.id(), n, shipTypeId,
@@ -380,10 +447,55 @@ final class NpcSystem {
         return true;
     }
 
-    private boolean canBuildShip(Base base, String shipTypeId, boolean requireArmed) {
+    private boolean canBuildShip(World world, NpcFaction faction, Base base, String shipTypeId, boolean requireArmed) {
         if (!Rules.SHIPS.containsKey(shipTypeId)) return false;
         if (!base.type().buildableShips.contains(shipTypeId)) return false;
+        if (!ResearchRules.shipUnlocked(world, faction.id(), shipTypeId)) return false;
         return !requireArmed || WeaponRules.armed(Rules.ship(shipTypeId));
+    }
+
+    private boolean factionCanAfford(World world, NpcFaction faction, List<Cost> cost) {
+        for (Cost c : cost) if (factionMaterial(world, faction, c.material()) + 0.001 < c.amount()) return false;
+        return true;
+    }
+
+    private void spendFaction(World world, NpcFaction faction, List<Cost> cost) {
+        for (Cost c : cost) spendFactionMaterial(world, faction, c.material(), c.amount());
+    }
+
+    private double factionMaterial(World world, NpcFaction faction, Material material) {
+        double total = 0;
+        for (Base base : world.bases.values()) if (base.playerId.equals(faction.id()) && base.hp > 0) total += base.inventory.getOrDefault(material, 0.0);
+        return total;
+    }
+
+    private void spendFactionMaterial(World world, NpcFaction faction, Material material, double amount) {
+        double remaining = amount;
+        for (Base base : world.bases.values()) {
+            if (!base.playerId.equals(faction.id()) || base.hp <= 0 || remaining <= 0.001) continue;
+            double held = base.inventory.getOrDefault(material, 0.0);
+            if (held <= 0.001) continue;
+            double take = Math.min(held, remaining);
+            double next = held - take;
+            if (next <= 0.05) base.inventory.remove(material);
+            else base.inventory.put(material, next);
+            remaining -= take;
+        }
+    }
+
+    private void transferMaterialToBase(World world, NpcFaction faction, Base target, Material material, double amount) {
+        double remaining = amount;
+        for (Base source : world.bases.values()) {
+            if (source == target || !source.playerId.equals(faction.id()) || source.hp <= 0 || remaining <= 0.001) continue;
+            double held = source.inventory.getOrDefault(material, 0.0);
+            if (held <= 0.001) continue;
+            double take = Math.min(held, remaining);
+            double next = held - take;
+            if (next <= 0.05) source.inventory.remove(material);
+            else source.inventory.put(material, next);
+            HangarStore.add(target.inventory, material, take);
+            remaining -= take;
+        }
     }
 
     private void maintainWorkers(World world, NpcFaction faction) {
@@ -414,6 +526,12 @@ final class NpcSystem {
     private int supportCount(World world, NpcFaction faction) {
         int count = 0;
         for (Unit unit : world.units.values()) if (unit.playerId.equals(faction.id()) && unit.hp > 0 && isSupportShip(faction, unit.shipTypeId)) count++;
+        return count;
+    }
+
+    private int industryCount(World world, NpcFaction faction) {
+        int count = 0;
+        for (Unit unit : world.units.values()) if (unit.playerId.equals(faction.id()) && unit.hp > 0 && faction.industryUnitTypes().contains(unit.shipTypeId)) count++;
         return count;
     }
 
