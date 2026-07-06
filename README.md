@@ -11,6 +11,8 @@ It is written in plain Java/Swing with a UDP host/client layer. The game opens i
 - One starter Prospector per player
 - Default Outpost station per player
 - Ship inventory and station stockpile
+- Destroyed ships drop carried cargo and salvage parts
+- Nearby cargo-capable ships automatically collect world loot for now
 - Right-click resource auto-harvesting
 - Full cargo return-to-station behavior
 - Automatic unloading near station
@@ -26,7 +28,7 @@ It is written in plain Java/Swing with a UDP host/client layer. The game opens i
 - Craftable item recipes are loaded from their own JSON data files
 - Movement route line, destination ring, speed, and ETA
 - Manual WASD camera and mouse-wheel zoom
-- UDP host/client synchronization for players, ships, stations, cargo, resources, and stockpiles
+- UDP host/client synchronization for players, ships, stations, cargo, resources, world loot, and stockpiles
 
 ## Controls
 
@@ -60,6 +62,7 @@ It is written in plain Java/Swing with a UDP host/client layer. The game opens i
 10. Use the Shipyard build menu to build industry ships, combat hulls, capitals, titans, and monoliths.
 11. Use the Manufacturing Plant build menu to manufacture Fuel from harvested gases.
 12. Deliver Fuel to the Research Lab hangar so it stays powered for the later science/research update.
+13. Destroyed ships leave world loot containing their cargo plus Scrap Metal, Hull Plating, and Circuit Fragments.
 
 ## Ship examples
 
@@ -120,6 +123,10 @@ Fuel recipe:
 
 Research Labs consume `0.25 Fuel` per second from their station hangar while powered.
 
+## Salvage note
+
+Loot pickup is intentionally automatic for any cargo-capable ship right now. A later pass should add the dedicated salvage hauler and make salvage/loot pickup require that hull.
+
 ## Modding config
 
 The primary rules manifest is:
@@ -162,7 +169,7 @@ The current multiplayer model is host-authoritative UDP:
 - Host assigns each client a player ID, unique name, color, station, and starter ship.
 - Clients send movement, harvest, build, and station commands to the host.
 - Host validates the commands and broadcasts snapshots.
-- Host syncs ships, ship cargo, resource node positions/amount, stations, and stockpiles.
+- Host syncs ships, ship cargo, resource node positions/amount, stations, world loot, and stockpiles.
 - Host also sends periodic reliable full snapshots.
 - Reliable messages are wrapped as `REL|messageId|payload`.
 - Receivers answer with `ACK|messageId`.
@@ -197,26 +204,3 @@ Host directly:
 ```bash
 gradle run --args="--host 50000 --name Host"
 ```
-
-Client directly:
-
-```bash
-gradle run --args="--join 127.0.0.1 50000 --name Player"
-```
-
-## Next build steps
-
-- [ ] Replace the Java `Material` enum with loaded material data so mods can add entirely new materials and colors.
-- [ ] Send the loaded rules config from host to clients so multiplayer sessions cannot drift.
-- [ ] Add actual science/research behavior to the Research Lab.
-- [ ] Add full client-to-host manufacturing commands for craftable items.
-- [ ] Add actual combat/projectile/weapon behavior for combat hulls.
-- [ ] Add snapshot sequence rejection on the client.
-- [ ] Replace the raw delimited UDP protocol with JSON or length-prefixed packets.
-- [x] Update README controls.
-- [ ] Add a Gradle wrapper and a tiny CI build.
-- [ ] Add tests for `CargoCodec`, `SnapshotReader`/`SnapshotWriter`, `CommandAuth`, and `BuildSystem`.
-- [ ] Add build queues/timers instead of instant construction.
-- [ ] Add reconnect support.
-- [ ] Add fog of war.
-- [ ] Add NAT traversal or relay fallback for internet play.
