@@ -17,6 +17,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final HangarHud hangarHud = new HangarHud();
     private final LeaderboardHud leaderboardHud = new LeaderboardHud();
     private final ShieldDebugOverlay shieldDebugOverlay = new ShieldDebugOverlay();
+    private final DevMenu devMenu = new DevMenu();
+    private final boolean devMode;
     private FleetFormation formation = FleetFormation.GRID;
     private Point dragStart;
     private Point dragNow;
@@ -30,6 +32,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         this.world = world;
         this.owner = owner;
         this.network = network;
+        this.devMode = devMode;
         setFocusable(true);
         setBackground(new Color(8, 12, 18));
         addKeyListener(this);
@@ -85,6 +88,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         leaderboardHud.draw(g2, world, getWidth());
         hangarHud.draw(g2, world, getWidth());
         if (world.devFreeBuild) shieldDebugOverlay.draw(g2, world, getWidth());
+        if (devMode) devMenu.draw(g2, world, canEditDev());
         buildMenu.draw(g2);
         g2.dispose();
     }
@@ -93,7 +97,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         g2.setColor(new Color(0,0,0,175));
         g2.fillRoundRect(12, 12, 980, 112, 14, 14);
         g2.setColor(Color.WHITE);
-        String dev = world.devFreeBuild ? " | DEV FREE BUILD" : "";
+        String dev = world.devFreeBuild ? " | FREE CRAFTING" : "";
         g2.drawString("StarChem | " + PlayerRegistry.name(PlayerRegistry.localId()) + " | Selected: " + world.selectedCount() + dev, 28, 36);
         g2.setColor(new Color(210,230,245));
         g2.drawString(world.status, 28, 58);
@@ -132,6 +136,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     @Override public void mousePressed(MouseEvent e) {
         requestFocusInWindow();
         if (buildMenu.click(e.getX(), e.getY())) return;
+        if (devMode && devMenu.click(world, e.getX(), e.getY(), canEditDev())) return;
         if (hangarHud.mousePressed(world, e.getX(), e.getY())) return;
         if (SwingUtilities.isRightMouseButton(e)) {
             clickRight(screenToWorld(e.getPoint()));
@@ -208,6 +213,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     }
 
     private void clearSelection() { for (Unit u : world.units.values()) u.selected = false; }
+    private boolean canEditDev() { return network == null || network.statusLine().startsWith("HOST"); }
 
     @Override public void mouseDragged(MouseEvent e) {
         if (dragStart != null) {
@@ -216,6 +222,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
             return;
         }
         hangarHud.mouseDragged(e.getX(), e.getY(), getWidth(), getHeight());
+        if (devMode) devMenu.drag(e.getX(), e.getY(), getWidth(), getHeight());
     }
 
     @Override public void mouseReleased(MouseEvent e) {
@@ -230,6 +237,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
             repaint();
         }
         hangarHud.mouseReleased();
+        if (devMode) devMenu.release();
     }
 
     @Override public void mouseWheelMoved(MouseWheelEvent e) { camera.zoomAt(e.getPoint(), e.getWheelRotation(), world, getWidth(), getHeight()); }
