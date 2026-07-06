@@ -23,6 +23,8 @@
       "attackUnits": true,
       "attackNpcFactions": false,
       "replaceWorkers": false,
+      "requirePlayerCombatShips": true,
+      "minPlayerCombatShips": 1,
       "spawnMessage": "Raider ships have entered the sector."
     },
     {
@@ -47,6 +49,8 @@
       "attackUnits": false,
       "attackNpcFactions": false,
       "replaceWorkers": true,
+      "requirePlayerCombatShips": false,
+      "minPlayerCombatShips": 0,
       "spawnMessage": "Independent miners have entered the sector."
     }
   ]
