@@ -62,7 +62,6 @@ final class World {
     }
 
     boolean devFreeBuildFor(String playerId) { return playerId != null && devFreeBuildPlayers.contains(playerId); }
-
     void useSystemSeed(long seed) { if (seed != systemSeed) syncEnvironment(seed, 0); }
 
     void syncEnvironment(long seed, double hostTime) {
@@ -83,7 +82,6 @@ final class World {
     }
 
     private void seedResources() { ResourceSpawner.seed(resources, celestials, random); }
-
     private Point2D startShipPoint(Point2D basePoint) { return new Point2D.Double(basePoint.getX() + 180, basePoint.getY() - 80); }
 
     private Point2D startBasePoint() {
@@ -94,10 +92,7 @@ final class World {
         return new Point2D.Double(celestials.sunX() + Math.cos(a) * r, celestials.sunY() + Math.sin(a) * r);
     }
 
-    private ResourceNode firstResource(Material material) {
-        for (ResourceNode node : resources) if (node.material == material) return node;
-        return null;
-    }
+    private ResourceNode firstResource(Material material) { for (ResourceNode node : resources) if (node.material == material) return node; return null; }
 
     void updateEnvironment(double dt) {
         advanceEnvironment(dt);
@@ -178,10 +173,7 @@ final class World {
     WorldItem addWorldItem(EnumMap<Material, Double> cargo, double x, double y) { WorldItem item = new WorldItem(nextWorldItemId++, x, y, cargo); if (!item.empty()) items.add(item); return item.empty() ? null : item; }
     void explodeUnit(Unit unit) { if (unit != null) explosions.add(ExplosionEffect.fromUnit(unit)); }
 
-    private void updateExplosions(double dt) {
-        Iterator<ExplosionEffect> it = explosions.iterator();
-        while (it.hasNext()) if (!it.next().update(dt)) it.remove();
-    }
+    private void updateExplosions(double dt) { Iterator<ExplosionEffect> it = explosions.iterator(); while (it.hasNext()) if (!it.next().update(dt)) it.remove(); }
 
     boolean buildShip(String baseId, String shipTypeId) { return buildSystem.buildShip(this, baseId, shipTypeId); }
     boolean loadBasePackage(String baseId, String packageType) { return buildSystem.loadBasePackage(this, baseId, packageType); }
@@ -204,9 +196,7 @@ final class World {
         for (Unit unit : units.values()) UnitRenderer.draw(g2, unit, localColor, true);
     }
 
-    private boolean shouldDrawRoute(Unit unit) {
-        return PlayerRegistry.isLocal(unit.playerId) && (unit.task == UnitTask.MOVE || unit.task == UnitTask.RETURN_TO_STATION || unit.task == UnitTask.ATTACK);
-    }
+    private boolean shouldDrawRoute(Unit unit) { return PlayerRegistry.isLocal(unit.playerId) && (unit.task == UnitTask.MOVE || unit.task == UnitTask.RETURN_TO_STATION || unit.task == UnitTask.ATTACK); }
 
     private void drawMap(Graphics2D g2) {
         g2.setColor(new Color(9, 15, 24));
@@ -225,7 +215,6 @@ final class World {
     }
 
     void selectBox(Rectangle2D box) { for (Unit unit : units.values()) unit.selected = PlayerRegistry.isLocal(unit.playerId) && box.contains(unit.x, unit.y); status = selectedCount() + " ship(s) selected."; }
-
     void moveSelected(double x, double y) { moveSelected(x, y, FleetFormation.GRID); }
 
     void moveSelected(double x, double y, FleetFormation formation) {
@@ -336,7 +325,7 @@ final class World {
     ResourceNode resourceAt(double x, double y) { ResourceNode best = null; double bestDist = Double.MAX_VALUE; for (ResourceNode node : resources) if (node.active) { double d = Calc.distance(x, y, node.x, node.y); if (d <= node.radius + 14 && d < bestDist) { best = node; bestDist = d; } } return best; }
     Base baseAt(double x, double y) { for (Base base : bases.values()) if (base.contains(x, y)) return base; return null; }
     Unit unitAt(double x, double y) { for (Unit unit : units.values()) if (unit.contains(x, y)) return unit; return null; }
-    ResourceNode findResource(int id) { for (ResourceNode node : resources) if (node.id == id) return null; return null; }
+    ResourceNode findResource(int id) { for (ResourceNode node : resources) if (node.id == id) return node; return null; }
     Base nearestBase(double x, double y) { return nearestBase(PlayerRegistry.localId(), x, y); }
     Base nearestBase(String playerId, double x, double y) { Base best = null; double bestDist = Double.MAX_VALUE; for (Base base : bases.values()) if (base.playerId.equals(playerId)) { double d = Calc.distance(x, y, base.x, base.y); if (d < bestDist) { best = base; bestDist = d; } } return best; }
     List<Unit> selectedUnits() { List<Unit> out = new ArrayList<>(); for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) out.add(unit); return out; }
