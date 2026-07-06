@@ -104,7 +104,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         g2.drawString(network == null ? "Solo" : network.statusLine(), 28, 80);
         String minerRanges = UnitRenderer.miningRangeOverlayVisible() ? "ON" : "OFF";
         String audio = ProceduralAudio.muted() ? "OFF" : "ON";
-        g2.drawString("Drag-select ships | Right-click group order | Formation: " + formation.label + " (F) | Miner ranges: " + minerRanges + " (R) | Audio: " + audio + " (M)", 28, 102);
+        g2.drawString("Drag-select ships | Double-click ship type | Right-click group order | Formation: " + formation.label + " (F) | Miner ranges: " + minerRanges + " (R) | Audio: " + audio + " (M)", 28, 102);
     }
 
     private void drawSelectionBox(Graphics2D g2) {
@@ -126,6 +126,10 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         double w = Math.abs(aw.getX() - bw.getX());
         double h = Math.abs(aw.getY() - bw.getY());
         return new Rectangle2D.Double(x, y, w, h);
+    }
+
+    private Rectangle2D visibleWorldRect() {
+        return screenRectToWorldRect(new Point(0, 0), new Point(getWidth(), getHeight()));
     }
 
     private boolean isSelectionDrag() {
@@ -163,6 +167,11 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
             world.status = "Enemy ship: " + PlayerRegistry.name(unit.playerId);
             return;
         }
+        if (unit != null && e.getClickCount() >= 2) {
+            ProceduralAudio.play(SoundCue.SELECT);
+            selectVisibleShipsOfSameType(unit);
+            return;
+        }
         if (unit != null && !unit.basePackageType.isBlank()) {
             ProceduralAudio.play(SoundCue.SELECT);
             clickPackageCarrier(e, p, unit);
@@ -170,6 +179,20 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         }
         world.selectAt(p.getX(), p.getY());
         if (world.status.startsWith("Selected ") || world.status.startsWith("Targeted ")) ProceduralAudio.play(SoundCue.SELECT);
+    }
+
+    private void selectVisibleShipsOfSameType(Unit clicked) {
+        Rectangle2D view = visibleWorldRect();
+        int selected = 0;
+        for (Unit unit : world.units.values()) {
+            boolean match = PlayerRegistry.isLocal(unit.playerId)
+                    && unit.shipTypeId.equals(clicked.shipTypeId)
+                    && view.contains(unit.x, unit.y);
+            unit.selected = match;
+            if (match) selected++;
+        }
+        world.selectedResourceId = -1;
+        world.status = "Selected " + selected + " " + clicked.type().name + " ship(s) in view.";
     }
 
     private void clickPackageCarrier(MouseEvent e, Point2D p, Unit unit) {
