@@ -1,28 +1,56 @@
 package com.tndmadman.rts;
 
+import java.util.HashSet;
 import java.util.Iterator;
+import java.util.Set;
 
 final class ItemPickupSystem {
     private static final double EPS = 0.05;
+    private static final double TRACTOR_PULL_PER_TICK = 7.5;
 
     void update(World world) {
+        Set<WorldItem> assigned = new HashSet<>();
+        for (Unit unit : world.units.values()) runTractors(world, unit, assigned);
         Iterator<WorldItem> it = world.items.iterator();
-        while (it.hasNext()) {
-            WorldItem item = it.next();
-            Unit unit = pickupUnit(world, item);
-            if (unit != null) transfer(item, unit);
-            if (item.empty()) it.remove();
+        while (it.hasNext()) if (it.next().empty()) it.remove();
+    }
+
+    private void runTractors(World world, Unit unit, Set<WorldItem> assigned) {
+        ShipType type = unit.type();
+        if (type.tractorBeamCount <= 0 || type.tractorRange <= 0 || unit.freeCargo() <= EPS) return;
+        for (int beam = 0; beam < type.tractorBeamCount && unit.freeCargo() > EPS; beam++) {
+            WorldItem item = nearestItem(world, unit, assigned);
+            if (item == null) return;
+            assigned.add(item);
+            tractor(item, unit);
+            if (Calc.distance(unit.x, unit.y, item.x, item.y) <= item.pickupRange(unit)) transfer(item, unit);
         }
     }
 
-    private Unit pickupUnit(World world, WorldItem item) {
-        // For now any cargo-capable ship collects loot automatically.
-        // Later this should require the dedicated salvage hauler hull.
-        for (Unit unit : world.units.values()) {
-            if (unit.freeCargo() <= EPS) continue;
-            if (Calc.distance(unit.x, unit.y, item.x, item.y) <= item.pickupRange(unit)) return unit;
+    private WorldItem nearestItem(World world, Unit unit, Set<WorldItem> assigned) {
+        ShipType type = unit.type();
+        WorldItem best = null;
+        double bestDist = Double.MAX_VALUE;
+        for (WorldItem item : world.items) {
+            if (item.empty() || assigned.contains(item)) continue;
+            double dist = Calc.distance(unit.x, unit.y, item.x, item.y);
+            if (dist > type.tractorRange || dist >= bestDist) continue;
+            best = item;
+            bestDist = dist;
         }
-        return null;
+        return best;
+    }
+
+    private void tractor(WorldItem item, Unit unit) {
+        double dx = unit.x - item.x;
+        double dy = unit.y - item.y;
+        double dist = Math.hypot(dx, dy);
+        if (dist <= EPS) return;
+        double step = Math.min(dist, TRACTOR_PULL_PER_TICK);
+        item.x += dx / dist * step;
+        item.y += dy / dist * step;
+        item.vx = dx / dist * TRACTOR_PULL_PER_TICK;
+        item.vy = dy / dist * TRACTOR_PULL_PER_TICK;
     }
 
     private void transfer(WorldItem item, Unit unit) {

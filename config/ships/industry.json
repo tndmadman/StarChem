@@ -61,6 +61,26 @@
       "buildTimeSeconds": 0,
       "buildCost": { "IRON": 420, "COPPER": 200, "SILICATES": 300, "ICE": 140 },
       "canHarvest": []
+    },
+    "salvager": {
+      "displayName": "Salvager",
+      "role": "salvage tractor ship",
+      "size": "MEDIUM",
+      "seed": 5227,
+      "maxHp": 135,
+      "maxShield": 115,
+      "shieldRegen": 2.0,
+      "shieldRegenDelay": 3.5,
+      "speed": 135,
+      "cargoCapacity": 600,
+      "harvestRange": 0,
+      "tractorBeams": 2,
+      "tractorRange": 360,
+      "orbitRadius": 88,
+      "idleStationOrbitRadius": 120,
+      "buildTimeSeconds": 0,
+      "buildCost": { "IRON": 160, "COPPER": 120, "SILICATES": 90 },
+      "canHarvest": []
     }
   }
 }

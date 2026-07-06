@@ -8,7 +8,10 @@ final class MobileDepot {
 
     static boolean isDepot(Unit unit) { return unit != null && "freighter".equals(unit.shipTypeId); }
     static boolean isHauler(Unit unit) { return unit != null && "hauler".equals(unit.shipTypeId); }
+    static boolean haulerCanDrain(Unit unit) { return isDepot(unit) || isSalvager(unit); }
     static double range(Unit unit) { return RANGE + (unit == null ? 0 : unit.type().size.scale * 18); }
+
+    private static boolean isSalvager(Unit unit) { return unit != null && "salvager".equals(unit.shipTypeId); }
 
     static Unit preferredFor(World world, Unit miner, Base base) {
         if (isHauler(miner)) return null;
@@ -33,6 +36,7 @@ final class MobileDepot {
 
     static boolean drainTo(Unit hauler, Unit depot, double dt) {
         if (!isHauler(hauler) || depot == null || depot.cargoUsed() <= 0.05 || hauler.freeCargo() <= 0.05) return false;
+        if (!haulerCanDrain(depot)) return false;
         if (Calc.distance(hauler.x, hauler.y, depot.x, depot.y) > range(depot)) return false;
         return moveCargo(depot, hauler, Math.min(RATE * dt, Math.min(depot.cargoUsed(), hauler.freeCargo())));
     }

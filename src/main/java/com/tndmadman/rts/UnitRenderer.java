@@ -35,7 +35,8 @@ final class UnitRenderer {
             g2.drawOval((int)unit.x - 26, (int)unit.y - 26, 52, 52);
             drawCargo(g2, unit);
         }
-        if (owner && unit.type().scoutRange > 0 && shouldDrawScoutCircle(unit)) drawScoutCircle(g2, unit, playerColor);
+        if (owner && unit.type().scoutRange > 0 && shouldDrawScoutCircle(unit)) drawRangeCircle(g2, unit, playerColor, unit.type().scoutRange);
+        if (owner && shouldDrawTractorCircle(unit)) drawRangeCircle(g2, unit, playerColor, unit.type().tractorRange);
     }
 
     static void drawRoute(Graphics2D g2, Unit unit, Color ignoredColor) {
@@ -61,6 +62,10 @@ final class UnitRenderer {
     private static boolean shouldDrawScoutCircle(Unit unit) {
         if (unit.type().harvestKinds.isEmpty()) return true;
         return miningRangeOverlayVisible;
+    }
+
+    private static boolean shouldDrawTractorCircle(Unit unit) {
+        return miningRangeOverlayVisible && unit.type().tractorBeamCount > 0 && unit.type().tractorRange > 0;
     }
 
     private static void drawName(Graphics2D g2, Unit unit, Color color) {
@@ -99,10 +104,10 @@ final class UnitRenderer {
         }
     }
 
-    private static void drawScoutCircle(Graphics2D g2, Unit unit, Color playerColor) {
+    private static void drawRangeCircle(Graphics2D g2, Unit unit, Color playerColor, double range) {
         g2.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), 35));
-        g2.fillOval((int)(unit.x - unit.type().scoutRange), (int)(unit.y - unit.type().scoutRange), (int)(unit.type().scoutRange * 2), (int)(unit.type().scoutRange * 2));
+        g2.fillOval((int)(unit.x - range), (int)(unit.y - range), (int)(range * 2), (int)(range * 2));
         g2.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), 100));
-        g2.drawOval((int)(unit.x - unit.type().scoutRange), (int)(unit.y - unit.type().scoutRange), (int)(unit.type().scoutRange * 2), (int)(unit.type().scoutRange * 2));
+        g2.drawOval((int)(unit.x - range), (int)(unit.y - range), (int)(range * 2), (int)(range * 2));
     }
 }
