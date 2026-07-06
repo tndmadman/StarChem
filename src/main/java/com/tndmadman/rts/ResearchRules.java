@@ -74,14 +74,16 @@ final class ResearchRules {
                 "Unlocks specialist mining and heavy hauling ships.",
                 List.of("laboratory"),
                 List.of(),
+                35,
                 List.of(new Cost(Material.FUEL, 25), new Cost(Material.COPPER, 120), new Cost(Material.SILICATES, 100)),
-                new ResearchUnlocks(List.of("deep_miner", "gas_harvester", "freighter"))));
+                new ResearchUnlocks(List.of("deep_miner", "gas_harvester", "freighter", "salvager"))));
         out.put("combat_doctrine", new ResearchTopic(
                 "combat_doctrine",
                 "Combat Doctrine",
                 "Unlocks the first dedicated combat hulls.",
                 List.of("laboratory"),
                 List.of("advanced_industry"),
+                50,
                 List.of(new Cost(Material.FUEL, 35), new Cost(Material.IRON, 180), new Cost(Material.COPPER, 120), new Cost(Material.CIRCUIT_FRAGMENTS, 20)),
                 new ResearchUnlocks(List.of("frigate", "destroyer", "cruiser"))));
         return out;
@@ -106,7 +108,8 @@ final class ResearchRules {
                     string(r, "displayName", e.getKey()),
                     string(r, "description", ""),
                     stringList(r.getOrDefault("stationTypes", r.get("stations"))),
-                    stringList(r.get("requires")),
+                    stringList(r.get("requires"),
+                    number(r, "timeSeconds", 30),
                     costs(r.getOrDefault("requiredResources", r.get("cost"))),
                     new ResearchUnlocks(stringList(unlocks.get("ships")))));
         }
@@ -148,6 +151,11 @@ final class ResearchRules {
         return v == null ? fallback : String.valueOf(v);
     }
 
+    private static double number(Map<String,Object> map, String key, double fallback) {
+        Object v = map.get(key);
+        return v instanceof Number n ? n.doubleValue() : fallback;
+    }
+
     private static Material material(String value) {
         try { return Material.valueOf(value.trim().toUpperCase(Locale.ROOT)); }
         catch (Exception ex) { throw new IllegalArgumentException("Unknown material: " + value); }
@@ -157,16 +165,18 @@ final class ResearchRules {
 final class ResearchTopic {
     final String id, name, description;
     final List<String> stationTypes, requires;
+    final double timeSeconds;
     final List<Cost> requiredResources;
     final ResearchUnlocks unlocks;
 
     ResearchTopic(String id, String name, String description, List<String> stationTypes, List<String> requires,
-                  List<Cost> requiredResources, ResearchUnlocks unlocks) {
+                  double timeSeconds, List<Cost> requiredResources, ResearchUnlocks unlocks) {
         this.id = id;
         this.name = name;
         this.description = description;
         this.stationTypes = List.copyOf(stationTypes);
         this.requires = List.copyOf(requires);
+        this.timeSeconds = Math.max(1.0, timeSeconds);
         this.requiredResources = List.copyOf(requiredResources);
         this.unlocks = unlocks;
     }
