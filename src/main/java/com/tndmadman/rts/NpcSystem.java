@@ -9,10 +9,17 @@ import java.util.Set;
 
 final class NpcSystem {
     private final Map<String, NpcState> states = new LinkedHashMap<>();
+    private final Set<String> disabledFactionIds;
+
+    NpcSystem() { this(Set.of()); }
+
+    NpcSystem(Set<String> disabledFactionIds) {
+        this.disabledFactionIds = disabledFactionIds == null ? Set.of() : Set.copyOf(disabledFactionIds);
+    }
 
     void update(World world, double dt) {
         for (NpcFaction faction : NpcRules.factions()) {
-            if (!faction.enabled()) continue;
+            if (!faction.enabled() || disabledFactionIds.contains(faction.id())) continue;
             PlayerRegistry.register(faction.id(), faction.name(), faction.rgb(), false);
 
             NpcState state = states.computeIfAbsent(faction.id(), ignored -> new NpcState(faction.firstSpawnSeconds()));
