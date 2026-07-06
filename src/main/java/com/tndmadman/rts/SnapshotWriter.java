@@ -50,6 +50,12 @@ final class SnapshotWriter {
                     .append(Calc.round(shot.x())).append(',').append(Calc.round(shot.y())).append(',')
                     .append(Calc.round(shot.lastX())).append(',').append(Calc.round(shot.lastY()));
         }
-        return "SNAPSHOT|" + snapshot.sequence() + "|" + players + "|" + units + "|" + resources + "|" + bases + "|" + stocks + "|" + shots;
+        StringBuilder items = new StringBuilder();
+        for (ItemState item : snapshot.items()) {
+            if (!items.isEmpty()) items.append(';');
+            items.append(item.id()).append(',').append(Calc.round(item.x())).append(',')
+                    .append(Calc.round(item.y())).append(',').append(CargoCodec.safe(item.cargo()));
+        }
+        return "SNAPSHOT|" + snapshot.sequence() + "|" + players + "|" + units + "|" + resources + "|" + bases + "|" + stocks + "|" + shots + "|" + items;
     }
 }
