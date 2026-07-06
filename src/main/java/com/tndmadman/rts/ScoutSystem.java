@@ -17,12 +17,20 @@ final class ScoutSystem {
 
     private void updateLocalMiner(World world, Unit miner) {
         if (miner.task != UnitTask.IDLE || miner.freeCargo() <= 0.05) return;
+        anchorToNearbyStation(world, miner);
         ensureMiningAnchor(miner);
         ResourceNode node = nearestLocalResource(world, miner, -1);
         if (node != null) {
             miner.startAutoHarvest(node.id);
             world.status = miner.type().name + " found " + node.name + " nearby.";
         }
+    }
+
+    private void anchorToNearbyStation(World world, Unit miner) {
+        Base base = world.nearestBase(miner.playerId, miner.x, miner.y);
+        if (base == null) return;
+        double idleStationRange = base.type().unloadRange + 170;
+        if (Calc.distance(miner.x, miner.y, base.x, base.y) <= idleStationRange) miner.setMiningAnchor(base.x, base.y);
     }
 
     private boolean retargetLocalMiner(World world, Unit miner, ResourceNode oldNode) {
