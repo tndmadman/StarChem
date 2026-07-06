@@ -2,59 +2,80 @@ package com.tndmadman.rts;
 
 import java.awt.*;
 import java.awt.geom.Ellipse2D;
-import java.util.EnumMap;
+import java.awt.geom.Path2D;
+import java.awt.geom.Rectangle2D;
 
 final class WorldItem {
-    static final double RADIUS = 24;
+    static final double BASE_RADIUS = 14;
     final int id;
-    final double x, y;
-    final EnumMap<Material, Double> inventory = new EnumMap<>(Material.class);
+    final Material material;
+    double amount;
+    double x, y, vx, vy, angle, spin;
 
-    WorldItem(int id, double x, double y, EnumMap<Material, Double> cargo) {
+    WorldItem(int id, Material material, double amount, double x, double y, double vx, double vy, double angle, double spin) {
         this.id = id;
+        this.material = material;
+        this.amount = amount;
         this.x = x;
         this.y = y;
-        if (cargo != null) for (Material material : Material.values()) {
-            double amount = cargo.getOrDefault(material, 0.0);
-            if (amount > 0.05) inventory.put(material, amount);
-        }
+        this.vx = vx;
+        this.vy = vy;
+        this.angle = angle;
+        this.spin = spin;
     }
 
-    boolean empty() { return amount() <= 0.05; }
+    boolean empty() { return amount <= 0.05; }
+    double radius() { return BASE_RADIUS + Math.min(10, Math.sqrt(Math.max(0, amount)) * 0.65); }
+    double pickupRange(Unit unit) { return radius() + 28 * unit.type().size.scale; }
 
-    double amount() {
-        double total = 0;
-        for (double value : inventory.values()) total += value;
-        return total;
+    void update(double dt, int mapW, int mapH) {
+        x = Calc.clamp(x + vx * dt, 0, mapW);
+        y = Calc.clamp(y + vy * dt, 0, mapH);
+        angle += spin * dt;
+        double damp = Math.max(0, 1.0 - 1.55 * dt);
+        vx *= damp;
+        vy *= damp;
+        spin *= Math.max(0, 1.0 - 1.2 * dt);
+        if (Math.abs(vx) + Math.abs(vy) < 2.5) { vx = 0; vy = 0; }
+        if (Math.abs(spin) < 0.04) spin = 0;
     }
 
-    double pickupRange(Unit unit) { return RADIUS + 28 * unit.type().size.scale; }
+    double take(double requested) {
+        double take = Math.min(amount, requested);
+        amount -= take;
+        return take;
+    }
 
     void draw(Graphics2D g2) {
         if (empty()) return;
-        Material material = primaryMaterial();
         Color c = material.color;
-        g2.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 65));
-        g2.fill(new Ellipse2D.Double(x - RADIUS * 1.45, y - RADIUS * 1.45, RADIUS * 2.9, RADIUS * 2.9));
-        g2.setColor(new Color(15, 20, 26, 220));
-        g2.fill(new Ellipse2D.Double(x - RADIUS, y - RADIUS, RADIUS * 2, RADIUS * 2));
-        g2.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 210));
-        g2.draw(new Ellipse2D.Double(x - RADIUS, y - RADIUS, RADIUS * 2, RADIUS * 2));
-        g2.fill(new Ellipse2D.Double(x - 7, y - 7, 14, 14));
+        double r = radius();
+        Graphics2D g = (Graphics2D) g2.create();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 45));
+        g.fill(new Ellipse2D.Double(x - r * 1.8, y - r * 1.8, r * 3.6, r * 3.6));
+        g.translate(x, y);
+        g.rotate(angle);
+        g.setColor(new Color(12, 17, 22, 230));
+        g.fill(shape(r));
+        g.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 225));
+        g.setStroke(new BasicStroke(2.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.draw(shape(r));
+        g.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 165));
+        g.fill(new Rectangle2D.Double(-r * 0.32, -r * 0.32, r * 0.64, r * 0.64));
+        g.dispose();
         g2.setColor(new Color(235, 245, 255, 215));
-        g2.drawString(Calc.round(amount()) + " loot", (float)(x + RADIUS + 5), (float)(y - RADIUS));
+        g2.drawString(Calc.round(amount) + " " + material.label, (float)(x + r + 5), (float)(y - r));
     }
 
-    private Material primaryMaterial() {
-        Material best = Material.SCRAP_METAL;
-        double bestAmount = -1;
-        for (Material material : Material.values()) {
-            double amount = inventory.getOrDefault(material, 0.0);
-            if (amount > bestAmount) {
-                best = material;
-                bestAmount = amount;
-            }
-        }
-        return best;
+    private Shape shape(double r) {
+        Path2D p = new Path2D.Double();
+        p.moveTo(0, -r);
+        p.lineTo(r * 0.82, -r * 0.24);
+        p.lineTo(r * 0.55, r * 0.88);
+        p.lineTo(-r * 0.55, r * 0.88);
+        p.lineTo(-r * 0.82, -r * 0.24);
+        p.closePath();
+        return p;
     }
 }
