@@ -89,14 +89,14 @@ final class ResourceNode {
 
     private void drawAmountBar(Graphics2D g2) {
         double visualRadius = visualRadius();
-        int w = Math.max(14, (int)Math.round(visualRadius * 5.0)), h = 3, bx = (int)(x - w / 2.0), by = (int)(y + visualRadius + 4);
+        int w = Math.max(12, (int)Math.round(visualRadius * 6.0)), h = 3, bx = (int)(x - w / 2.0), by = (int)(y + visualRadius + 4);
         double pct = amountPercent();
         g2.setColor(new Color(0,0,0,130)); g2.fillRoundRect(bx, by, w, h, 3, 3);
         g2.setColor(material.color); g2.fillRoundRect(bx, by, (int)Math.round(w * pct), h, 3, 3);
     }
 
     private double visualRadius() {
-        return radius * (0.72 + 0.28 * Math.sqrt(amountPercent()));
+        return radius * (0.38 + 0.62 * Math.sqrt(amountPercent()));
     }
 
     private double amountPercent() {
