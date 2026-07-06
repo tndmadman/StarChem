@@ -35,6 +35,7 @@ final class World {
     private final BuildSystem buildSystem = new BuildSystem();
     private final WeaponSystem weaponSystem = new WeaponSystem();
     private final ItemPickupSystem itemPickupSystem = new ItemPickupSystem();
+    private final NpcSystem npcSystem = new NpcSystem();
     private int nextUnitId = 1;
     private int nextBaseId = 1;
     private int nextShotId = 1;
@@ -134,6 +135,7 @@ final class World {
         logisticsSystem.update(this, dt);
         itemPickupSystem.update(this);
         scoutSystem.update(this);
+        npcSystem.update(this, dt);
         for (Unit unit : new ArrayList<>(units.values())) updateUnit(unit, dt);
         weaponSystem.update(this, dt);
         cleanupDestroyed();
