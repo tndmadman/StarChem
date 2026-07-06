@@ -16,6 +16,7 @@ final class World {
     final Map<String, Unit> units = new LinkedHashMap<>();
     final Map<String, Base> bases = new LinkedHashMap<>();
     final List<ProjectileShot> shots = new ArrayList<>();
+    final List<ExplosionEffect> explosions = new ArrayList<>();
     final EnumMap<Material, Double> stockpile = new EnumMap<>(Material.class);
     final LogisticsSystem logisticsSystem = new LogisticsSystem();
     private final Set<String> devFreeBuildPlayers = new LinkedHashSet<>();
@@ -95,7 +96,10 @@ final class World {
         return null;
     }
 
-    void updateEnvironment(double dt) { advanceEnvironment(dt); }
+    void updateEnvironment(double dt) {
+        advanceEnvironment(dt);
+        updateExplosions(dt);
+    }
 
     private void advanceEnvironment(double dt) {
         systemTime += dt;
@@ -167,6 +171,12 @@ final class World {
     Base addBase(String type, double x, double y) { String id = "B" + nextBaseId++; Base base = new Base(id, localPlayerId, type, x, y); bases.put(id, base); return base; }
     Unit spawnShip(String type, double x, double y) { Unit unit = new Unit(localPlayerId, nextUnitId++, type, x, y); units.put(unit.key(), unit); return unit; }
     ProjectileShot addShot(String ownerId, String weaponId, String targetKey, double x, double y) { ProjectileShot shot = new ProjectileShot(nextShotId++, ownerId, weaponId, targetKey, x, y); shots.add(shot); return shot; }
+    void explodeUnit(Unit unit) { if (unit != null) explosions.add(ExplosionEffect.fromUnit(unit)); }
+
+    private void updateExplosions(double dt) {
+        Iterator<ExplosionEffect> it = explosions.iterator();
+        while (it.hasNext()) if (!it.next().update(dt)) it.remove();
+    }
 
     boolean buildShip(String baseId, String shipTypeId) { return buildSystem.buildShip(this, baseId, shipTypeId); }
     boolean loadBasePackage(String baseId, String packageType) { return buildSystem.loadBasePackage(this, baseId, packageType); }
@@ -184,6 +194,7 @@ final class World {
             if (shouldDrawRoute(unit)) UnitRenderer.drawRoute(g2, unit, localColor);
         }
         weaponSystem.draw(g2, this);
+        for (ExplosionEffect explosion : explosions) explosion.draw(g2);
         for (Unit unit : units.values()) UnitRenderer.draw(g2, unit, localColor, true);
     }
 
@@ -292,7 +303,14 @@ final class World {
     void relocateResource(ResourceNode node) { ResourceSpawner.relocate(node, resources, bases.values(), celestials, random); }
 
     private void cleanupDestroyed() {
-        units.values().removeIf(unit -> unit.hp <= 0);
+        Iterator<Unit> unitIt = units.values().iterator();
+        while (unitIt.hasNext()) {
+            Unit unit = unitIt.next();
+            if (unit.hp <= 0) {
+                explodeUnit(unit);
+                unitIt.remove();
+            }
+        }
         bases.values().removeIf(base -> base.hp <= 0);
         shots.removeIf(shot -> !CombatTarget.alive(this, shot.targetKey) || shot.weapon() == null);
         for (Unit unit : units.values()) {

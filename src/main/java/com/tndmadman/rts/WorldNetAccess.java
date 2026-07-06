@@ -33,7 +33,14 @@ final class WorldNetAccess {
             }
             SnapshotSmoother.apply(u, s);
         }
-        world.units.keySet().removeIf(key -> !liveUnits.contains(key));
+        Iterator<Map.Entry<String, Unit>> unitIt = world.units.entrySet().iterator();
+        while (unitIt.hasNext()) {
+            Map.Entry<String, Unit> entry = unitIt.next();
+            if (!liveUnits.contains(entry.getKey())) {
+                world.explodeUnit(entry.getValue());
+                unitIt.remove();
+            }
+        }
         if (!snapshot.resources().isEmpty()) NetResourceSync.apply(world, snapshot.resources());
         if (!snapshot.bases().isEmpty()) {
             world.bases.clear();
