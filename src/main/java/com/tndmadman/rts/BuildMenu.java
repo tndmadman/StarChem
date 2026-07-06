@@ -8,11 +8,13 @@ import java.util.List;
 final class BuildMenu {
     private static final int WIDTH = 460;
     private static final int ROW_H = 92;
+    private static final int COMPACT_ROW_H = 46;
     private static final int HEADER_H = 34;
     private static final int FOOTER_H = 32;
     private static final int MARGIN = 4;
     private static final int ICON_W = 74;
     private final List<Entry> entries = new ArrayList<>();
+    private String title = "BUILD MENU";
     private int x, y;
     private int scrollOffset;
     private int visibleRows;
@@ -29,19 +31,21 @@ final class BuildMenu {
         menuHeight = HEADER_H;
         x = sx; y = sy; visible = true;
         BaseType def = base.type();
+        List<ResearchTopic> topics = ResearchRules.forStation(def.id);
+        title = topics.isEmpty() ? "BUILD MENU" : "RESEARCH MENU";
         boolean free = world.devFreeBuildFor(base.playerId) && PlayerRegistry.isLocal(base.playerId);
         for (String shipId : def.buildableShips) {
             ShipType ship = Rules.ship(shipId);
             boolean unlocked = ResearchRules.shipUnlocked(world, base.playerId, shipId);
             String detail = free ? "free (dev mode)" : unlocked ? Rules.formatCost(ship.buildCost) : "LOCKED: " + requiredResearch(shipId);
-            entries.add(new Entry("Build " + ship.name, detail, defenseLine(ship), ship, weaponBadges(ship), () -> {
+            entries.add(new Entry("Build " + ship.name, detail, defenseLine(ship), ship, weaponBadges(ship), false, false, () -> {
                 if (network == null) world.buildShip(base.id, shipId);
                 else network.build(base.playerId, base.id, shipId);
             }));
         }
         for (String packageId : def.basePackages) {
             BaseType pkg = Rules.base(packageId);
-            entries.add(new Entry("Load " + pkg.name, free ? "free (dev mode)" : Rules.formatCost(pkg.buildCost), stationDefenseLine(pkg), null, List.of(), () -> {
+            entries.add(new Entry("Load " + pkg.name, free ? "free (dev mode)" : Rules.formatCost(pkg.buildCost), stationDefenseLine(pkg), null, List.of(), false, false, () -> {
                 if (network == null) world.loadBasePackage(base.id, packageId);
                 else network.basePackage(base.playerId, "LOAD", base.id, packageId);
             }));
@@ -49,13 +53,14 @@ final class BuildMenu {
         for (CraftableItem item : CraftingRules.forStation(def.id)) {
             String detail = free ? "free (dev mode)" : Rules.formatCost(item.requiredResources) + " -> " + item.outputLabel();
             String info = item.description.isBlank() ? "Style: " + item.style : item.description;
-            entries.add(new Entry("Manufacture " + item.name, detail, info, null, List.of(), () -> {
+            entries.add(new Entry("Manufacture " + item.name, detail, info, null, List.of(), false, false, () -> {
                 if (network == null || network.statusLine().startsWith("HOST")) world.craftItem(base.id, item.id);
                 else world.status = "Manufacturing commands are host/solo only right now.";
             }));
         }
-        for (ResearchTopic topic : ResearchRules.forStation(def.id)) {
-            entries.add(new Entry("Research " + topic.name, researchDetail(world, base, topic, free), topic.unlockLabel(), null, List.of(), () -> {
+        for (ResearchTopic topic : topics) {
+            boolean completed = world.hasResearch(base.playerId, topic.id);
+            entries.add(new Entry("Research " + topic.name, researchDetail(world, base, topic, free), topic.unlockLabel(), null, List.of(), completed, completed, () -> {
                 if (network == null || network.statusLine().startsWith("HOST")) world.research(base.id, topic.id);
                 else world.status = "Research commands are host/solo only right now.";
             }));
@@ -67,10 +72,11 @@ final class BuildMenu {
         scrollOffset = 0;
         visibleRows = 0;
         menuHeight = HEADER_H;
+        title = "PLACE MENU";
         x = sx; y = sy; visible = true;
         if (!unit.basePackageType.isBlank()) {
             BaseType pkg = Rules.base(unit.basePackageType);
-            entries.add(new Entry("Place " + pkg.name, "ready", stationDefenseLine(pkg), null, List.of(), () -> {
+            entries.add(new Entry("Place " + pkg.name, "ready", stationDefenseLine(pkg), null, List.of(), false, false, () -> {
                 if (network == null) world.placePackage(unit);
                 else network.basePackage(unit.playerId, "PLACE", unit.key(), unit.basePackageType);
             }));
@@ -81,22 +87,19 @@ final class BuildMenu {
         if (!visible) return false;
         ensureClickLayout();
         if (hasOverflow()) {
-            if (upButton().contains(sx, sy)) {
-                page(-1);
-                return true;
-            }
-            if (downButton().contains(sx, sy)) {
-                page(1);
-                return true;
-            }
+            if (upButton().contains(sx, sy)) { page(-1); return true; }
+            if (downButton().contains(sx, sy)) { page(1); return true; }
         }
         for (int slot = 0; slot < visibleRows; slot++) {
             int entryIndex = scrollOffset + slot;
             if (entryIndex >= entries.size()) break;
             Rectangle r = row(slot);
             if (r.contains(sx, sy)) {
-                entries.get(entryIndex).action.run();
-                visible = false;
+                Entry entry = entries.get(entryIndex);
+                if (!entry.disabled) {
+                    entry.action.run();
+                    visible = false;
+                }
                 return true;
             }
         }
@@ -116,7 +119,7 @@ final class BuildMenu {
         g2.drawRoundRect(x, y, WIDTH, menuHeight, 14, 14);
         g2.setFont(g2.getFont().deriveFont(Font.BOLD, 12f));
         g2.setColor(Color.WHITE);
-        g2.drawString("BUILD MENU", x + 14, y + 20);
+        g2.drawString(title, x + 14, y + 20);
         for (int slot = 0; slot < visibleRows; slot++) {
             int entryIndex = scrollOffset + slot;
             if (entryIndex >= entries.size()) break;
@@ -126,6 +129,18 @@ final class BuildMenu {
     }
 
     private void drawEntry(Graphics2D g2, Rectangle r, Entry e) {
+        if (e.disabled) {
+            g2.setColor(new Color(46, 53, 59, 190));
+            g2.fillRoundRect(r.x, r.y, r.width, r.height, 10, 10);
+            g2.setColor(new Color(120, 130, 138, 120));
+            g2.drawRoundRect(r.x, r.y, r.width, r.height, 10, 10);
+            g2.setColor(new Color(178, 185, 190));
+            g2.setFont(g2.getFont().deriveFont(Font.BOLD, 11f));
+            g2.drawString(fit(g2, e.title, r.width - 22), r.x + 10, r.y + 17);
+            g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 11f));
+            g2.drawString(fit(g2, e.detail, r.width - 22), r.x + 10, r.y + 34);
+            return;
+        }
         g2.setColor(new Color(18, 54, 82, 220));
         g2.fillRoundRect(r.x, r.y, r.width, r.height, 10, 10);
         g2.setColor(new Color(120, 220, 255, 170));
@@ -197,9 +212,11 @@ final class BuildMenu {
 
     private String researchDetail(World world, Base base, ResearchTopic topic, boolean free) {
         if (world.hasResearch(base.playerId, topic.id)) return "completed";
+        ResearchJob job = ResearchSystem.job(world, base.playerId, topic.id);
+        if (job != null) return "researching | " + ResearchSystem.timeLabel(job);
         String missing = ResearchRules.missingPrerequisite(world, base.playerId, topic);
         if (!missing.isBlank()) return "requires " + missing;
-        return free ? "free (dev mode)" : Rules.formatCost(topic.requiredResources);
+        return (free ? "free" : Rules.formatCost(topic.requiredResources)) + " | " + whole(topic.timeSeconds) + "s";
     }
 
     private String whole(double value) { return String.valueOf((int)Math.round(value)); }
@@ -261,27 +278,22 @@ final class BuildMenu {
     }
 
     private void updateLayout(Rectangle clip) {
-        int maxRows = entries.size();
-        if (clip != null) {
-            int available = Math.max(ROW_H, clip.height - MARGIN * 2 - HEADER_H);
-            int rowsWithoutFooter = Math.max(1, available / ROW_H);
-            boolean needsFooter = entries.size() > rowsWithoutFooter;
-            int footer = needsFooter ? FOOTER_H : 0;
-            maxRows = Math.max(1, (available - footer) / ROW_H);
-            maxRows = Math.min(maxRows, entries.size());
+        scrollOffset = Math.max(0, Math.min(scrollOffset, Math.max(0, entries.size() - 1)));
+        int available = clip == null ? ROW_H * Math.max(1, entries.size()) : Math.max(ROW_H, clip.height - MARGIN * 2 - HEADER_H);
+        int used = 0;
+        visibleRows = 0;
+        for (int i = scrollOffset; i < entries.size(); i++) {
+            int h = rowHeight(entries.get(i));
+            int footer = i + 1 < entries.size() ? FOOTER_H : 0;
+            if (visibleRows > 0 && used + h + footer > available) break;
+            used += h;
+            visibleRows++;
         }
-        visibleRows = maxRows;
-        scrollOffset = clampScroll(scrollOffset);
-        menuHeight = HEADER_H + visibleRows * ROW_H + (hasOverflow() ? FOOTER_H : 0);
+        if (visibleRows <= 0 && !entries.isEmpty()) visibleRows = 1;
+        menuHeight = HEADER_H + visibleHeight() + (hasOverflow() ? FOOTER_H : 0);
     }
 
-    private void ensureClickLayout() {
-        if (visibleRows <= 0) {
-            visibleRows = Math.min(entries.size(), 6);
-            scrollOffset = clampScroll(scrollOffset);
-            menuHeight = HEADER_H + visibleRows * ROW_H + (hasOverflow() ? FOOTER_H : 0);
-        }
-    }
+    private void ensureClickLayout() { if (visibleRows <= 0) updateLayout(null); }
 
     private void page(int direction) {
         int step = Math.max(1, visibleRows - 1);
@@ -293,17 +305,17 @@ final class BuildMenu {
         return Math.max(0, Math.min(offset, max));
     }
 
-    private boolean hasOverflow() { return entries.size() > visibleRows; }
+    private boolean hasOverflow() { return entries.size() > scrollOffset + visibleRows; }
 
     private Rectangle menuBounds() { return new Rectangle(x, y, WIDTH, menuHeight); }
 
     private Rectangle upButton() {
-        int fy = y + HEADER_H + visibleRows * ROW_H;
+        int fy = y + HEADER_H + visibleHeight();
         return new Rectangle(x + 10, fy + 4, 90, FOOTER_H - 8);
     }
 
     private Rectangle downButton() {
-        int fy = y + HEADER_H + visibleRows * ROW_H;
+        int fy = y + HEADER_H + visibleHeight();
         return new Rectangle(x + WIDTH - 100, fy + 4, 90, FOOTER_H - 8);
     }
 
@@ -320,7 +332,21 @@ final class BuildMenu {
         y = (int)Calc.clamp(y, MARGIN, Math.max(MARGIN, clip.height - menuHeight - MARGIN));
     }
 
-    private Rectangle row(int slot) { return new Rectangle(x + 10, y + HEADER_H + slot * ROW_H, WIDTH - 20, ROW_H - 8); }
-    private record Entry(String title, String detail, String defense, ShipType shipIcon, List<WeaponBadge> weapons, Runnable action) { }
+    private Rectangle row(int slot) {
+        int yy = y + HEADER_H;
+        for (int i = 0; i < slot; i++) yy += rowHeight(entries.get(scrollOffset + i));
+        Entry e = entries.get(scrollOffset + slot);
+        return new Rectangle(x + 10, yy, WIDTH - 20, rowHeight(e) - 8);
+    }
+
+    private int visibleHeight() {
+        int h = 0;
+        for (int i = 0; i < visibleRows && scrollOffset + i < entries.size(); i++) h += rowHeight(entries.get(scrollOffset + i));
+        return h;
+    }
+
+    private int rowHeight(Entry e) { return e.compact ? COMPACT_ROW_H : ROW_H; }
+
+    private record Entry(String title, String detail, String defense, ShipType shipIcon, List<WeaponBadge> weapons, boolean disabled, boolean compact, Runnable action) { }
     private record WeaponBadge(String label, int count, Color color) { }
 }
