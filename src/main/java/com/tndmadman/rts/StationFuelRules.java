@@ -26,7 +26,7 @@ final class StationFuelRules {
         for (Base base : world.bases.values()) {
             StationFuelRequirement req = requirement(base.typeId);
             if (req == null || req.perSecond() <= 0) continue;
-            String key = base.id + "|" + base.typeId;
+            String key = dryKey(world, base);
             double held = base.inventory.getOrDefault(req.material(), 0.0);
             if (held <= 0.05) {
                 markDry(world, base, req, key);
@@ -43,6 +43,10 @@ final class StationFuelRules {
         }
         ResearchSystem.update(world, dt);
         FuelShuttleSystem.update(world, dt);
+    }
+
+    private static String dryKey(World world, Base base) {
+        return System.identityHashCode(world) + "|" + base.id + "|" + base.typeId;
     }
 
     private static void markDry(World world, Base base, StationFuelRequirement req, String key) {
