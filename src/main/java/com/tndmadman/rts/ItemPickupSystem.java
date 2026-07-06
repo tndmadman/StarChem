@@ -26,21 +26,9 @@ final class ItemPickupSystem {
     }
 
     private void transfer(WorldItem item, Unit unit) {
-        double free = unit.freeCargo();
-        if (free <= EPS) return;
-        boolean moved = false;
-        for (Material material : Material.values()) {
-            if (free <= EPS) break;
-            double held = item.inventory.getOrDefault(material, 0.0);
-            if (held <= EPS) continue;
-            double take = Math.min(held, free);
-            unit.addCargo(material, take);
-            double left = held - take;
-            if (left <= EPS) item.inventory.remove(material);
-            else item.inventory.put(material, left);
-            free -= take;
-            moved = true;
-        }
-        if (moved && PlayerRegistry.isLocal(unit.playerId)) unit.unloadingThisFrame = true;
+        double take = item.take(unit.freeCargo());
+        if (take <= EPS) return;
+        unit.addCargo(item.material, take);
+        if (PlayerRegistry.isLocal(unit.playerId)) unit.unloadingThisFrame = true;
     }
 }
