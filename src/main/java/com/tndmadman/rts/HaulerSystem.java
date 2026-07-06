@@ -11,7 +11,7 @@ final class HaulerSystem {
             sendToBase(world, hauler);
             return;
         }
-        Unit depot = loadedFreighter(world, hauler);
+        Unit depot = loadedDrainTarget(world, hauler);
         if (depot == null) {
             if (hauler.cargoUsed() > 0.05) sendToBase(world, hauler);
             return;
@@ -24,11 +24,11 @@ final class HaulerSystem {
         hauler.task = UnitTask.MOVE;
     }
 
-    private Unit loadedFreighter(World world, Unit hauler) {
+    private Unit loadedDrainTarget(World world, Unit hauler) {
         Unit best = null;
         double bestDist = Double.MAX_VALUE;
         for (Unit unit : world.units.values()) {
-            if (!MobileDepot.isDepot(unit) || unit.cargoUsed() <= 0.05) continue;
+            if (!MobileDepot.haulerCanDrain(unit) || unit.cargoUsed() <= 0.05) continue;
             if (!unit.playerId.equals(hauler.playerId)) continue;
             double d = Calc.distance(hauler.x, hauler.y, unit.x, unit.y);
             if (d < bestDist) { best = unit; bestDist = d; }
