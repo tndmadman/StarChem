@@ -96,6 +96,7 @@ final class World {
 
     void updateEnvironment(double dt) {
         advanceEnvironment(dt);
+        updateItems(dt);
         updateExplosions(dt);
     }
 
@@ -103,6 +104,15 @@ final class World {
         systemTime += dt;
         celestials.update(dt);
         ResourceSpawner.update(resources, celestials, dt);
+    }
+
+    private void updateItems(double dt) {
+        Iterator<WorldItem> it = items.iterator();
+        while (it.hasNext()) {
+            WorldItem item = it.next();
+            item.update(dt, width, height);
+            if (item.empty()) it.remove();
+        }
     }
 
     void update(double dt) {
@@ -170,8 +180,9 @@ final class World {
     Base addBase(String type, double x, double y) { String id = "B" + nextBaseId++; Base base = new Base(id, localPlayerId, type, x, y); bases.put(id, base); return base; }
     Unit spawnShip(String type, double x, double y) { Unit unit = new Unit(localPlayerId, nextUnitId++, type, x, y); units.put(unit.key(), unit); return unit; }
     ProjectileShot addShot(String ownerId, String weaponId, String targetKey, double x, double y) { ProjectileShot shot = new ProjectileShot(nextShotId++, ownerId, weaponId, targetKey, x, y); shots.add(shot); return shot; }
-    WorldItem addWorldItem(EnumMap<Material, Double> cargo, double x, double y) { WorldItem item = new WorldItem(nextWorldItemId++, x, y, cargo); if (!item.empty()) items.add(item); return item.empty() ? null : item; }
+    WorldItem addWorldItem(Material material, double amount, double x, double y, double vx, double vy, double angle, double spin) { WorldItem item = new WorldItem(nextWorldItemId++, material, amount, x, y, vx, vy, angle, spin); if (!item.empty()) items.add(item); return item.empty() ? null : item; }
     void explodeUnit(Unit unit) { if (unit != null) explosions.add(ExplosionEffect.fromUnit(unit)); }
+    void explodeBase(Base base) { if (base != null) explosions.add(ExplosionEffect.fromBase(base)); }
 
     private void updateExplosions(double dt) { Iterator<ExplosionEffect> it = explosions.iterator(); while (it.hasNext()) if (!it.next().update(dt)) it.remove(); }
 
@@ -307,7 +318,15 @@ final class World {
                 unitIt.remove();
             }
         }
-        bases.values().removeIf(base -> base.hp <= 0);
+        Iterator<Base> baseIt = bases.values().iterator();
+        while (baseIt.hasNext()) {
+            Base base = baseIt.next();
+            if (base.hp <= 0) {
+                dropLoot(base);
+                explodeBase(base);
+                baseIt.remove();
+            }
+        }
         shots.removeIf(shot -> !CombatTarget.alive(this, shot.targetKey) || shot.weapon() == null);
         for (Unit unit : units.values()) {
             if (!unit.attackTarget.isBlank() && !CombatTarget.alive(this, unit.attackTarget)) {
@@ -318,8 +337,18 @@ final class World {
     }
 
     private void dropLoot(Unit unit) {
-        WorldItem item = addWorldItem(SalvageDrops.fromUnit(unit), unit.x, unit.y);
-        if (item != null && PlayerRegistry.isLocal(unit.playerId)) status = "Destroyed ship dropped its cargo and salvage.";
+        int count = WorldLootDrops.scatter(this, SalvageDrops.fromUnit(unit), unit.x, unit.y, Math.max(1.0, unit.type().size.scale), lootSeed(unit.key(), unit.x, unit.y));
+        if (count > 0 && PlayerRegistry.isLocal(unit.playerId)) status = "Destroyed ship dropped cargo and salvage.";
+    }
+
+    private void dropLoot(Base base) {
+        double power = Math.max(2.4, base.type().maxHp / 900.0);
+        int count = WorldLootDrops.scatter(this, SalvageDrops.fromBase(base), base.x, base.y, power, lootSeed(base.id, base.x, base.y));
+        if (count > 0 && PlayerRegistry.isLocal(base.playerId)) status = "Destroyed station dropped hangar loot and salvage.";
+    }
+
+    private long lootSeed(String key, double x, double y) {
+        return System.nanoTime() ^ ((long)key.hashCode() << 32) ^ Double.doubleToLongBits(x * 37.0 + y * 41.0);
     }
 
     ResourceNode resourceAt(double x, double y) { ResourceNode best = null; double bestDist = Double.MAX_VALUE; for (ResourceNode node : resources) if (node.active) { double d = Calc.distance(x, y, node.x, node.y); if (d <= node.radius + 14 && d < bestDist) { best = node; bestDist = d; } } return best; }
