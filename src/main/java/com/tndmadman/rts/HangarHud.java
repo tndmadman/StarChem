@@ -5,8 +5,11 @@ import java.util.List;
 
 final class HangarHud {
     private final HudWindow window = new HudWindow(-1, 18, 360);
+    private final NotificationHud notificationHud = new NotificationHud();
 
     void draw(Graphics2D g2, World world, int screenW) {
+        Rectangle clip = g2.getClipBounds();
+        notificationHud.draw(g2, world, clip == null ? 720 : clip.height);
         if (window.x < 0) window.x = Math.max(16, screenW - 380);
         int bodyH = bodyHeight(world);
         window.draw(g2, "HANGARS", bodyH, new Color(90, 190, 245, 170));

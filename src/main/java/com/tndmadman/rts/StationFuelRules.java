@@ -7,6 +7,7 @@ import java.util.*;
 
 final class StationFuelRules {
     private static final Map<String, StationFuelRequirement> REQUIREMENTS = load();
+    private static final Set<String> DRY_STATIONS = new HashSet<>();
 
     private StationFuelRules() { }
 
@@ -25,13 +26,33 @@ final class StationFuelRules {
         for (Base base : world.bases.values()) {
             StationFuelRequirement req = requirement(base.typeId);
             if (req == null || req.perSecond() <= 0) continue;
+            String key = dryKey(world, base);
             double held = base.inventory.getOrDefault(req.material(), 0.0);
-            if (held <= 0.001) continue;
+            if (held <= 0.05) {
+                markDry(world, base, req, key);
+                continue;
+            }
+            DRY_STATIONS.remove(key);
             double next = held - req.perSecond() * dt;
-            if (next <= 0.05) base.inventory.remove(req.material());
-            else base.inventory.put(req.material(), next);
+            if (next <= 0.05) {
+                base.inventory.remove(req.material());
+                markDry(world, base, req, key);
+            } else {
+                base.inventory.put(req.material(), next);
+            }
         }
+        ResearchSystem.update(world, dt);
         FuelShuttleSystem.update(world, dt);
+    }
+
+    private static String dryKey(World world, Base base) {
+        return System.identityHashCode(world) + "|" + base.id + "|" + base.typeId;
+    }
+
+    private static void markDry(World world, Base base, StationFuelRequirement req, String key) {
+        if (DRY_STATIONS.add(key) && PlayerRegistry.isLocal(base.playerId)) {
+            AlertCenter.push(world, base.type().name + " is out of " + req.material().label + ".");
+        }
     }
 
     private static Map<String, StationFuelRequirement> load() {

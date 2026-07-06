@@ -4,7 +4,6 @@ import java.util.*;
 
 final class LogisticsSystem {
     static final String SHUTTLE_TYPE = "logistics_shuttle";
-    private static final double MAX_DELIVERY_RANGE = 2600.0;
     private static final double DOCK_RANGE_FACTOR = 0.42;
     private static final double CLOSEST_SOURCE_BIAS = 1.5;
     private static final double RECHECK_INTERVAL = 2.0;
@@ -21,6 +20,10 @@ final class LogisticsSystem {
 
     boolean queueCraftable(World world, Base target, CraftableItem item) {
         return queue(world, target, LogisticsJobKind.CRAFTABLE, item.id, item.name, item.requiredResources);
+    }
+
+    boolean queueResearch(World world, Base target, ResearchTopic topic) {
+        return queue(world, target, LogisticsJobKind.RESEARCH, topic.id, topic.name + " research", topic.requiredResources);
     }
 
     void update(World world, double dt) {
@@ -41,7 +44,7 @@ final class LogisticsSystem {
         }
         if (!Rules.SHIPS.containsKey(SHUTTLE_TYPE)) return false;
         List<Cost> missing = missingAt(target, cost);
-        if (missing.isEmpty() || !nearbyCanCover(world, target, missing)) return false;
+        if (missing.isEmpty() || !availableHangarsCanCover(world, target, missing)) return false;
 
         LogisticsRequest request = new LogisticsRequest("LR" + nextRequestId++, target.playerId, target.id, kind, itemId, itemName, cost, missing);
         requests.add(request);
@@ -67,10 +70,10 @@ final class LogisticsSystem {
         return out;
     }
 
-    private boolean nearbyCanCover(World world, Base target, List<Cost> missing) {
+    private boolean availableHangarsCanCover(World world, Base target, List<Cost> missing) {
         for (Cost need : missing) {
             double available = 0;
-            for (Base source : nearbySources(world, target, need.material())) {
+            for (Base source : sourceHangars(world, target, need.material())) {
                 available += source.inventory.getOrDefault(need.material(), 0.0);
                 if (available + 0.001 >= need.amount()) break;
             }
@@ -79,12 +82,11 @@ final class LogisticsSystem {
         return true;
     }
 
-    private List<Base> nearbySources(World world, Base target, Material material) {
+    private List<Base> sourceHangars(World world, Base target, Material material) {
         List<Base> out = new ArrayList<>();
         for (Base source : world.bases.values()) {
             if (source == target || !source.playerId.equals(target.playerId)) continue;
             if (source.inventory.getOrDefault(material, 0.0) <= 0.05) continue;
-            if (Calc.distance(source.x, source.y, target.x, target.y) > MAX_DELIVERY_RANGE) continue;
             out.add(source);
         }
         out.sort(Comparator.comparingDouble(source -> Calc.distance(source.x, source.y, target.x, target.y)));
@@ -94,7 +96,7 @@ final class LogisticsSystem {
     private void dispatchMaterial(World world, Base target, LogisticsRequest request, Material material, double amount) {
         double remaining = amount;
         double shuttleCapacity = Math.max(1, Rules.ship(SHUTTLE_TYPE).cargoCapacity);
-        List<Base> sources = nearbySources(world, target, material);
+        List<Base> sources = sourceHangars(world, target, material);
         while (remaining > 0.05) {
             List<Base> active = activeSources(sources, material);
             if (active.isEmpty()) return;
@@ -208,6 +210,7 @@ final class LogisticsSystem {
             case SHIP -> finishShip(world, target, request);
             case STATION_PACKAGE -> finishStationPackage(world, target, request);
             case CRAFTABLE -> finishCraftable(world, target, request);
+            case RESEARCH -> finishResearch(world, target, request);
         };
     }
 
@@ -244,6 +247,18 @@ final class LogisticsSystem {
         HangarStore.spend(target.inventory, request.cost);
         HangarStore.add(target.inventory, item.outputMaterial, item.outputAmount);
         world.status = "Logistics delivered resources. Manufactured " + item.outputLabel() + ".";
+        return true;
+    }
+
+    private boolean finishResearch(World world, Base target, LogisticsRequest request) {
+        ResearchTopic topic = ResearchRules.topic(request.itemId);
+        if (topic == null) {
+            world.status = "Logistics request failed: unknown research " + request.itemId + ".";
+            return true;
+        }
+        if (world.hasResearch(target.playerId, topic.id) || ResearchSystem.active(world, target.playerId, topic.id)) return true;
+        HangarStore.spend(target.inventory, request.cost);
+        ResearchSystem.start(world, target, topic);
         return true;
     }
 
@@ -325,7 +340,7 @@ final class LogisticsSystem {
     }
 }
 
-enum LogisticsJobKind { SHIP, STATION_PACKAGE, CRAFTABLE }
+enum LogisticsJobKind { SHIP, STATION_PACKAGE, CRAFTABLE, RESEARCH }
 
 final class LogisticsRequest {
     final String id, playerId, targetBaseId, itemId, itemName;

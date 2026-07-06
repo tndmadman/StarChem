@@ -1,5 +1,5 @@
 {
-  "rulesVersion": 6,
+  "rulesVersion": 7,
   "startingShipType": "prospector",
   "defaultStationType": "outpost",
   "files": {
@@ -24,6 +24,7 @@
     "automation": "config/automation.json",
     "craftables": [
       "config/craftables/fuel.json"
-    ]
+    ],
+    "research": "config/research.json"
   }
 }

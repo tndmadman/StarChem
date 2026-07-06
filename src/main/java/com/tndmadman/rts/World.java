@@ -19,6 +19,7 @@ final class World {
     final List<ExplosionEffect> explosions = new ArrayList<>();
     final List<WorldItem> items = new ArrayList<>();
     final EnumMap<Material, Double> stockpile = new EnumMap<>(Material.class);
+    final Map<String, Set<String>> completedResearch = new LinkedHashMap<>();
     final LogisticsSystem logisticsSystem = new LogisticsSystem();
     private final Set<String> devFreeBuildPlayers = new LinkedHashSet<>();
     boolean devFreeBuild;
@@ -62,6 +63,17 @@ final class World {
     }
 
     boolean devFreeBuildFor(String playerId) { return playerId != null && devFreeBuildPlayers.contains(playerId); }
+
+    boolean hasResearch(String playerId, String topicId) {
+        if (playerId == null || topicId == null) return false;
+        return completedResearch.getOrDefault(playerId, Set.of()).contains(topicId);
+    }
+
+    void completeResearch(String playerId, String topicId) {
+        if (playerId == null || playerId.isBlank() || topicId == null || topicId.isBlank()) return;
+        completedResearch.computeIfAbsent(playerId, ignored -> new LinkedHashSet<>()).add(topicId);
+    }
+
     void useSystemSeed(long seed) { if (seed != systemSeed) syncEnvironment(seed, 0); }
 
     void syncEnvironment(long seed, double hostTime) {
@@ -200,6 +212,7 @@ final class World {
     boolean loadBasePackage(String baseId, String packageType) { return buildSystem.loadBasePackage(this, baseId, packageType); }
     boolean placePackage(Unit unit) { return buildSystem.placePackage(this, unit); }
     boolean craftItem(String baseId, String craftableId) { return buildSystem.craftItem(this, baseId, craftableId); }
+    boolean research(String baseId, String topicId) { return buildSystem.research(this, baseId, topicId); }
 
     void draw(Graphics2D g2) {
         drawMap(g2);
