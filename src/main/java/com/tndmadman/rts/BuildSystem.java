@@ -24,6 +24,7 @@ final class BuildSystem {
         double a = n * 1.35;
         spawnShipFor(world, base.playerId, n, shipTypeId, base.x + Math.cos(a) * (base.type().buildRadius + 40), base.y + Math.sin(a) * (base.type().buildRadius + 40));
         world.status = free ? "Dev built " + shipType.name + " for free." : "Built " + shipType.name + ".";
+        if (PlayerRegistry.isLocal(base.playerId)) ProceduralAudio.play(SoundCue.BUILD_SHIP);
         return true;
     }
 
@@ -53,6 +54,7 @@ final class BuildSystem {
         if (!free) HangarStore.spend(base.inventory, pkg.buildCost);
         carrier.basePackageType = packageType;
         world.status = free ? "Dev loaded " + pkg.name + " package for free." : "Loaded " + pkg.name + " package into Deployer.";
+        if (PlayerRegistry.isLocal(base.playerId)) ProceduralAudio.play(SoundCue.PACKAGE_LOAD);
         return true;
     }
 
@@ -66,6 +68,7 @@ final class BuildSystem {
         world.bases.put(baseId, new Base(baseId, carrier.playerId, carrier.basePackageType, carrier.x, carrier.y));
         world.units.remove(carrier.key());
         world.status = "Placed " + placed.name + ". Deployer consumed.";
+        if (PlayerRegistry.isLocal(carrier.playerId)) ProceduralAudio.play(SoundCue.PLACE_STATION);
         return true;
     }
 
@@ -94,6 +97,7 @@ final class BuildSystem {
         if (!free) HangarStore.spend(base.inventory, item.requiredResources);
         HangarStore.add(base.inventory, item.outputMaterial, item.outputAmount);
         world.status = free ? "Dev manufactured " + item.outputLabel() + " for free." : "Manufactured " + item.outputLabel() + ".";
+        if (PlayerRegistry.isLocal(base.playerId)) ProceduralAudio.play(SoundCue.CRAFT_ITEM);
         return true;
     }
 
