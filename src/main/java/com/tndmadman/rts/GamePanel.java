@@ -159,14 +159,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     }
 
     private void clickPackageCarrier(MouseEvent e, Point2D p, Unit unit) {
-        boolean wasSelected = unit.selected;
         world.selectAt(p.getX(), p.getY());
-        if (wasSelected) {
-            buildMenu.showForUnit(world, network, unit, e.getX(), e.getY());
-            return;
-        }
-        BaseType pkg = Rules.base(unit.basePackageType);
-        world.status = "Selected " + unit.type().name + " #" + unit.unitId + " carrying " + pkg.name + ". Click again to place.";
+        buildMenu.showForUnit(world, network, unit, e.getX(), e.getY());
     }
 
     private void clickRight(Point2D p) {
