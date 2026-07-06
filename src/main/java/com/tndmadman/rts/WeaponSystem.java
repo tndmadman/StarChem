@@ -95,6 +95,9 @@ final class WeaponSystem {
         unit.targetX = unit.x;
         unit.targetY = unit.y;
         unit.heading = Math.atan2(ty - unit.y, tx - unit.x);
+        WeaponType audible = direct.visualWeapon();
+        if (audible == null && !moving.isEmpty()) audible = moving.get(0);
+        ProceduralAudio.playWeaponFire(audible, dist);
     }
 
     private void updateShots(World world, double dt) {
@@ -110,6 +113,7 @@ final class WeaponSystem {
             shot.lastX = shot.x;
             shot.lastY = shot.y;
             if (dist <= step + 10) {
+                ProceduralAudio.playWeaponImpact(weapon);
                 CombatTarget.damage(world, shot.targetKey, weapon.damage * hitScale(world, shot.targetKey, weapon));
                 it.remove();
                 continue;
@@ -135,6 +139,8 @@ final class WeaponSystem {
         }
         if (best == null) return;
         world.shots.remove(best);
+        ProceduralAudio.playWeaponFire(screen, bestDist);
+        ProceduralAudio.playWeaponImpact(best.weapon());
         unit.weaponCooldown = screen.cooldownSeconds;
         unit.weaponFlashTimer = 0.12;
         unit.heading = Math.atan2(best.y - unit.y, best.x - unit.x);
