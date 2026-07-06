@@ -1,6 +1,8 @@
 package com.tndmadman.rts;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 final class ScoutSystem {
@@ -97,48 +99,70 @@ final class ScoutSystem {
     private void dispatchWorkers(World world, Unit scout) {
         int limit = Math.max(0, scout.type().scoutDispatchLimit);
         if (limit <= 0) return;
+
+        List<ResourceNode> visibleResources = scoutVisibleResources(world, scout);
+        if (visibleResources.isEmpty()) return;
+
+        List<Unit> idleWorkers = idleHarvestWorkers(world, scout.playerId);
+        if (idleWorkers.isEmpty()) return;
+
         Map<Integer,Integer> assignedCounts = assignmentCounts(world, scout.playerId);
         int sent = 0;
-        while (sent < limit) {
-            DispatchChoice choice = bestDispatchChoice(world, scout, assignedCounts);
+        while (sent < limit && !idleWorkers.isEmpty()) {
+            DispatchChoice choice = bestDispatchChoice(idleWorkers, visibleResources, assignedCounts);
             if (choice == null) break;
             choice.worker.setMiningAnchor(choice.node.x, choice.node.y);
             choice.worker.startAutoHarvest(choice.node.id);
             assignedCounts.merge(choice.node.id, 1, Integer::sum);
+            idleWorkers.remove(choice.worker);
             sent++;
         }
     }
 
-    private DispatchChoice bestDispatchChoice(World world, Unit scout, Map<Integer,Integer> assignedCounts) {
+    private List<ResourceNode> scoutVisibleResources(World world, Unit scout) {
+        List<ResourceNode> visible = new ArrayList<>();
+        for (ResourceNode node : world.resources) {
+            if (!node.active) continue;
+            if (Calc.distance(scout.x, scout.y, node.x, node.y) <= scout.type().scoutRange) visible.add(node);
+        }
+        return visible;
+    }
+
+    private List<Unit> idleHarvestWorkers(World world, String playerId) {
+        List<Unit> workers = new ArrayList<>();
+        for (Unit unit : world.units.values()) {
+            if (!unit.playerId.equals(playerId) || unit.task != UnitTask.IDLE) continue;
+            if (unit.type().harvestKinds.isEmpty() || unit.freeCargo() <= 0.05) continue;
+            workers.add(unit);
+        }
+        return workers;
+    }
+
+    private DispatchChoice bestDispatchChoice(List<Unit> workers, List<ResourceNode> visibleResources, Map<Integer,Integer> assignedCounts) {
         DispatchChoice best = null;
         int bestAssigned = Integer.MAX_VALUE;
         double bestDist = Double.MAX_VALUE;
-        for (ResourceNode node : world.resources) {
-            if (!node.active) continue;
-            if (Calc.distance(scout.x, scout.y, node.x, node.y) > scout.type().scoutRange) continue;
-            Unit worker = findIdleWorker(world, scout.playerId, node);
-            if (worker == null) continue;
-            int assigned = assignedCounts.getOrDefault(node.id, 0);
-            double d = Calc.distance(worker.x, worker.y, node.x, node.y);
-            if (best == null || assigned < bestAssigned || (assigned == bestAssigned && (d < bestDist || (d == bestDist && node.id < best.node.id)))) {
-                best = new DispatchChoice(node, worker);
-                bestAssigned = assigned;
-                bestDist = d;
+        for (Unit worker : workers) {
+            for (ResourceNode node : visibleResources) {
+                if (!worker.type().harvestKinds.contains(node.kind)) continue;
+                int assigned = assignedCounts.getOrDefault(node.id, 0);
+                double d = Calc.distance(worker.x, worker.y, node.x, node.y);
+                if (betterDispatch(node, worker, assigned, d, best, bestAssigned, bestDist)) {
+                    best = new DispatchChoice(node, worker);
+                    bestAssigned = assigned;
+                    bestDist = d;
+                }
             }
         }
         return best;
     }
 
-    private Unit findIdleWorker(World world, String playerId, ResourceNode node) {
-        Unit best = null;
-        double bestDist = Double.MAX_VALUE;
-        for (Unit unit : world.units.values()) {
-            if (!unit.playerId.equals(playerId) || unit.task != UnitTask.IDLE) continue;
-            if (!unit.type().harvestKinds.contains(node.kind) || unit.freeCargo() <= 0.05) continue;
-            double d = Calc.distance(unit.x, unit.y, node.x, node.y);
-            if (d < bestDist) { best = unit; bestDist = d; }
-        }
-        return best;
+    private boolean betterDispatch(ResourceNode node, Unit worker, int assigned, double distance, DispatchChoice best, int bestAssigned, double bestDistance) {
+        if (best == null) return true;
+        if (assigned != bestAssigned) return assigned < bestAssigned;
+        if (Math.abs(distance - bestDistance) > 0.001) return distance < bestDistance;
+        if (node.id != best.node.id) return node.id < best.node.id;
+        return worker.unitId < best.worker.unitId;
     }
 
     private Map<Integer,Integer> assignmentCounts(World world, String playerId) {
