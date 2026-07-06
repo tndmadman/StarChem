@@ -58,4 +58,14 @@ final class SnapshotReader2 {
         }
         return out;
     }
+
+    static List<ItemState> items(String[] parts) {
+        List<ItemState> out = new ArrayList<>();
+        if (parts.length <= 8 || parts[8].isBlank()) return out;
+        for (String row : parts[8].split(";")) {
+            String[] c = row.split(",", -1);
+            if (c.length >= 4) out.add(new ItemState(Integer.parseInt(c[0]), Double.parseDouble(c[1]), Double.parseDouble(c[2]), CargoCodec.unsafed(c[3])));
+        }
+        return out;
+    }
 }
