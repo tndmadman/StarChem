@@ -1,6 +1,5 @@
 package com.tndmadman.rts;
 
-import java.util.EnumMap;
 import java.util.List;
 
 final class ItemSync {
@@ -10,12 +9,16 @@ final class ItemSync {
         world.items.clear();
         world.nextWorldItemId = 1;
         for (ItemState state : states) {
-            EnumMap<Material, Double> cargo = new EnumMap<>(Material.class);
-            CargoCodec.readInto(state.cargo(), cargo);
-            WorldItem item = new WorldItem(state.id(), state.x(), state.y(), cargo);
+            Material material = material(state.material());
+            WorldItem item = new WorldItem(state.id(), material, state.amount(), state.x(), state.y(), state.vx(), state.vy(), state.angle(), state.spin());
             if (item.empty()) continue;
             world.items.add(item);
             world.nextWorldItemId = Math.max(world.nextWorldItemId, item.id + 1);
         }
+    }
+
+    private static Material material(String value) {
+        try { return Material.valueOf(value); }
+        catch (Exception ignored) { return Material.SCRAP_METAL; }
     }
 }
