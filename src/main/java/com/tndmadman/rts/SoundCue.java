@@ -16,5 +16,7 @@ enum SoundCue {
     CRAFT_ITEM,
     ERROR,
     RESOURCE_DEPLETED,
+    TRACTOR_BEAM,
+    ITEM_PICKUP,
     MUTE_OFF
 }
