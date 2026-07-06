@@ -181,8 +181,18 @@ final class World {
     Unit spawnShip(String type, double x, double y) { Unit unit = new Unit(localPlayerId, nextUnitId++, type, x, y); units.put(unit.key(), unit); return unit; }
     ProjectileShot addShot(String ownerId, String weaponId, String targetKey, double x, double y) { ProjectileShot shot = new ProjectileShot(nextShotId++, ownerId, weaponId, targetKey, x, y); shots.add(shot); return shot; }
     WorldItem addWorldItem(Material material, double amount, double x, double y, double vx, double vy, double angle, double spin) { WorldItem item = new WorldItem(nextWorldItemId++, material, amount, x, y, vx, vy, angle, spin); if (!item.empty()) items.add(item); return item.empty() ? null : item; }
-    void explodeUnit(Unit unit) { if (unit != null) explosions.add(ExplosionEffect.fromUnit(unit)); }
-    void explodeBase(Base base) { if (base != null) explosions.add(ExplosionEffect.fromBase(base)); }
+    void explodeUnit(Unit unit) {
+        if (unit != null) {
+            explosions.add(ExplosionEffect.fromUnit(unit));
+            ProceduralAudio.playDestruction(unit.type().size.scale);
+        }
+    }
+    void explodeBase(Base base) {
+        if (base != null) {
+            explosions.add(ExplosionEffect.fromBase(base));
+            ProceduralAudio.playDestruction(Math.max(2.0, base.type().maxHp / 900.0));
+        }
+    }
 
     private void updateExplosions(double dt) { Iterator<ExplosionEffect> it = explosions.iterator(); while (it.hasNext()) if (!it.next().update(dt)) it.remove(); }
 
