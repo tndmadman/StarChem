@@ -20,11 +20,11 @@ final class SnapshotReader {
                 boolean v2 = c.length >= 16;
                 double hp = c.length >= 13 ? Double.parseDouble(c[12]) : Rules.ship(c[2]).maxHp;
                 double layer = v2 ? Double.parseDouble(c[13]) : Rules.ship(c[2]).maxShield;
-                String target = v2 ? CargoCodec.unsaf\u0065d(c[14]) : c.length >= 14 ? CargoCodec.unsaf\u0065d(c[13]) : "";
+                String target = v2 ? CargoCodec.unsafed(c[14]) : c.length >= 14 ? CargoCodec.unsafed(c[13]) : "";
                 double flash = v2 ? Double.parseDouble(c[15]) : c.length >= 15 ? Double.parseDouble(c[14]) : 0;
-                units.add(new UnitState(c[0], Integer.parseInt(c[1]), c[2], Double.parseDouble(c[3]), Double.parseDouble(c[4]), Double.parseDouble(c[5]), Double.parseDouble(c[6]), Double.parseDouble(c[7]), c[8], Integer.parseInt(c[9]), CargoCodec.unsaf\u0065d(c[10]), CargoCodec.unsaf\u0065d(c[11]), hp, layer, target, flash));
+                units.add(new UnitState(c[0], Integer.parseInt(c[1]), c[2], Double.parseDouble(c[3]), Double.parseDouble(c[4]), Double.parseDouble(c[5]), Double.parseDouble(c[6]), Double.parseDouble(c[7]), c[8], Integer.parseInt(c[9]), CargoCodec.unsafed(c[10]), CargoCodec.unsafed(c[11]), hp, layer, target, flash));
             }
         }
-        return new Snapshot(seq, players, units, SnapshotReader2.resources(p), SnapshotReader2.bases(p), SnapshotReader2.stocks(p), SnapshotReader2.shots(p));
+        return new Snapshot(seq, players, units, SnapshotReader2.resources(p), SnapshotReader2.bases(p), SnapshotReader2.stocks(p), SnapshotReader2.shots(p), SnapshotReader2.items(p));
     }
 }
