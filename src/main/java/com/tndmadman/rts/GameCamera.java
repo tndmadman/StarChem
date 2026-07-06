@@ -3,6 +3,8 @@ package com.tndmadman.rts;
 import java.awt.Point;
 import java.awt.geom.Point2D;
 import java.awt.geom.Rectangle2D;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 final class GameCamera {
     private static final double MIN_ZOOM = 0.36;
@@ -11,9 +13,16 @@ final class GameCamera {
     private double y;
     private double zoom = 0.9;
     private boolean initialized;
+    private Set<String> lastLocalEntityKeys = Set.of();
 
     void update(World world, int screenW, int screenH, double dt) {
-        if (!initialized) initialized = centerOnLocal(world, screenW, screenH);
+        Set<String> currentLocalEntityKeys = localEntityKeys(world);
+        if (!initialized) {
+            initialized = centerOnLocal(world, screenW, screenH);
+        } else if (localEntitiesReplaced(currentLocalEntityKeys)) {
+            centerOnLocal(world, screenW, screenH);
+        }
+        if (!currentLocalEntityKeys.isEmpty()) lastLocalEntityKeys = currentLocalEntityKeys;
         clampToWorld(world, screenW, screenH);
     }
 
@@ -54,6 +63,25 @@ final class GameCamera {
         x = target.getCenterX() - viewW / 2.0;
         y = target.getCenterY() - viewH / 2.0;
         return true;
+    }
+
+    private boolean localEntitiesReplaced(Set<String> currentLocalEntityKeys) {
+        if (lastLocalEntityKeys.isEmpty() || currentLocalEntityKeys.isEmpty()) return false;
+        for (String key : currentLocalEntityKeys) {
+            if (lastLocalEntityKeys.contains(key)) return false;
+        }
+        return true;
+    }
+
+    private Set<String> localEntityKeys(World world) {
+        Set<String> keys = new LinkedHashSet<>();
+        for (Unit u : world.units.values()) {
+            if (PlayerRegistry.isLocal(u.playerId)) keys.add("U:" + u.key());
+        }
+        for (Base b : world.bases.values()) {
+            if (PlayerRegistry.isLocal(b.playerId)) keys.add("B:" + b.id);
+        }
+        return keys;
     }
 
     private void clampToWorld(World world, int screenW, int screenH) {
