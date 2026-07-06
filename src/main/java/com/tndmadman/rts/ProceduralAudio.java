@@ -20,6 +20,7 @@ final class ProceduralAudio {
     private static final float SAMPLE_RATE = 44_100f;
     private static final int BUFFER_FRAMES = 512;
     private static final int MAX_VOICES = 64;
+    private static final double PITCH_VARIATION = 0.055;
 
     private final Object lock = new Object();
     private final List<Voice> voices = new ArrayList<>();
@@ -180,7 +181,12 @@ final class ProceduralAudio {
 
     private Voice voice(Wave wave, double startHz, double endHz, double duration, double volume, double noise,
                         double attack, double decay) {
-        return new Voice(wave, startHz, endHz, duration, volume, noise, attack, decay, randomPan(), random.nextLong());
+        double pitch = randomPitchFactor();
+        return new Voice(wave, startHz * pitch, endHz * pitch, duration, volume, noise, attack, decay, randomPan(), random.nextLong());
+    }
+
+    private double randomPitchFactor() {
+        return 1.0 + (random.nextDouble() * 2.0 - 1.0) * PITCH_VARIATION;
     }
 
     private double randomPan() {
