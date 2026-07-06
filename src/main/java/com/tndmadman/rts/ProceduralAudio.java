@@ -109,6 +109,14 @@ final class ProceduralAudio {
             case RESOURCE_DEPLETED -> add(
                     voice(Wave.NOISE, 220, 80, 0.180, 0.12, 0.75, 0.002, 0.160),
                     voice(Wave.SINE, 130, 72, 0.190, 0.070, 0.0, 0.010, 0.170));
+            case TRACTOR_BEAM -> add(
+                    voice(Wave.SAW, 145, 210, 0.115, 0.050, 0.05, 0.012, 0.070),
+                    voice(Wave.SINE, 520, 390, 0.130, 0.032, 0.0, 0.018, 0.080),
+                    voice(Wave.NOISE, 180, 120, 0.090, 0.020, 0.82, 0.004, 0.060));
+            case ITEM_PICKUP -> add(
+                    voice(Wave.TRIANGLE, 360, 760, 0.075, 0.085, 0.0, 0.003, 0.050),
+                    voice(Wave.SINE, 920, 1240, 0.060, 0.052, 0.0, 0.004, 0.042),
+                    voice(Wave.NOISE, 640, 260, 0.045, 0.030, 0.55, 0.001, 0.038));
             case MUTE_OFF -> add(
                     voice(Wave.SINE, 360, 720, 0.080, 0.10, 0.0, 0.004, 0.065));
         }
