@@ -5,6 +5,7 @@
       "description": "Unlocks specialist mining, hauling, and salvage ships.",
       "stationTypes": ["laboratory"],
       "requires": [],
+      "timeSeconds": 35,
       "requiredResources": {
         "FUEL": 25,
         "COPPER": 120,
@@ -19,6 +20,7 @@
       "description": "Unlocks the first dedicated combat hulls.",
       "stationTypes": ["laboratory"],
       "requires": ["advanced_industry"],
+      "timeSeconds": 50,
       "requiredResources": {
         "FUEL": 35,
         "IRON": 180,
@@ -34,6 +36,7 @@
       "description": "Unlocks battlecruisers, battleships, and capital hulls.",
       "stationTypes": ["laboratory"],
       "requires": ["combat_doctrine"],
+      "timeSeconds": 75,
       "requiredResources": {
         "FUEL": 80,
         "HULL_PLATING": 45,
@@ -48,6 +51,7 @@
       "description": "Unlocks the largest late-game hulls.",
       "stationTypes": ["laboratory"],
       "requires": ["battlefleet_engineering"],
+      "timeSeconds": 120,
       "requiredResources": {
         "FUEL": 140,
         "SCRAP_METAL": 120,
