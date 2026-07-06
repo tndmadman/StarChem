@@ -30,6 +30,7 @@ final class ScoutSystem {
     }
 
     private void anchorToNearbyStation(World world, Unit miner) {
+        if (miner.miningAnchorSet) return;
         Base base = world.nearestBase(miner.playerId, miner.x, miner.y);
         if (base == null) return;
         double idleStationRange = base.type().unloadRange + 170;
@@ -87,6 +88,7 @@ final class ScoutSystem {
             }
         }
         if (best == null) return false;
+        miner.setMiningAnchor(best.x, best.y);
         miner.startAutoHarvest(best.id);
         world.status = "Scout redirected " + miner.type().name + " to " + best.name + ".";
         return true;
@@ -100,6 +102,7 @@ final class ScoutSystem {
         while (sent < limit) {
             DispatchChoice choice = bestDispatchChoice(world, scout, assignedCounts);
             if (choice == null) break;
+            choice.worker.setMiningAnchor(choice.node.x, choice.node.y);
             choice.worker.startAutoHarvest(choice.node.id);
             assignedCounts.merge(choice.node.id, 1, Integer::sum);
             sent++;

@@ -141,6 +141,7 @@ final class World {
 
     private void updateUnit(Unit unit, double dt) {
         unit.unloadingThisFrame = false;
+        sendFullHarvestCargoToUnload(unit);
         autoUnload(unit, dt);
         haulerSystem.update(this, unit, dt);
         workSystem.update(this, unit, dt);
@@ -150,13 +151,21 @@ final class World {
         unit.updatePosition(dt, width, height);
     }
 
+    private void sendFullHarvestCargoToUnload(Unit unit) {
+        if (unit.type().harvestKinds.isEmpty()) return;
+        if (unit.task == UnitTask.RETURN_TO_STATION) return;
+        if (unit.cargoUsed() <= 0.05 || unit.freeCargo() > 0.05) return;
+        sendToNearestBase(unit);
+    }
+
     private void updateReturn(Unit unit) {
         Base base = nearestBase(unit.playerId, unit.x, unit.y);
         Unit depot = MobileDepot.preferredFor(this, unit, base);
         if (base == null && depot == null) { unit.task = UnitTask.IDLE; return; }
         if (unit.cargoUsed() <= 0.05) {
             ResourceNode resume = findResource(unit.automationResourceId);
-            unit.task = resume != null && resume.active ? UnitTask.AUTO_HARVEST : UnitTask.IDLE;
+            if (resume != null && resume.active) unit.task = UnitTask.AUTO_HARVEST;
+            else if (!returnToMiningAnchor(unit)) unit.task = UnitTask.IDLE;
             return;
         }
         if (depot != null) moveTowardOrbit(unit, depot.x, depot.y, MobileDepot.range(depot) * 0.55);
@@ -302,7 +311,16 @@ final class World {
         else status = unarmed > 0 ? "Selected ship has no weapons." : "No valid attack target.";
     }
 
-    void autoHarvestSelected(ResourceNode node) { int started = 0; for (Unit unit : selectedUnits()) if (unit.type().harvestKinds.contains(node.kind)) { unit.startAutoHarvest(node.id); started++; } status = started == 0 ? "Selected ship cannot harvest this node." : "Auto-harvesting " + node.name + "."; }
+    void autoHarvestSelected(ResourceNode node) {
+        int started = 0;
+        for (Unit unit : selectedUnits()) {
+            if (!unit.type().harvestKinds.contains(node.kind)) continue;
+            unit.setMiningAnchor(node.x, node.y);
+            unit.startAutoHarvest(node.id);
+            started++;
+        }
+        status = started == 0 ? "Selected ship cannot harvest this node." : "Auto-harvesting " + node.name + ".";
+    }
 
     void sendToNearestBase(Unit unit) {
         Base base = nearestBase(unit.playerId, unit.x, unit.y);
@@ -311,6 +329,12 @@ final class World {
         unit.task = UnitTask.RETURN_TO_STATION;
         if (depot != null) moveTowardOrbit(unit, depot.x, depot.y, MobileDepot.range(depot) * 0.55);
         else moveTowardOrbit(unit, base.x, base.y, base.type().unloadRange * 0.55);
+    }
+
+    boolean returnToMiningAnchor(Unit unit) {
+        if (unit == null || !unit.miningAnchorSet || unit.type().harvestKinds.isEmpty()) return false;
+        unit.moveTo(unit.miningAnchorX, unit.miningAnchorY);
+        return true;
     }
 
     boolean scoutRetarget(Unit unit, ResourceNode oldNode) { return oldNode != null && scoutSystem.retargetAfterDepletion(this, unit, oldNode); }
