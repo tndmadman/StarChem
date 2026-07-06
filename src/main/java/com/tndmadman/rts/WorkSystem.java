@@ -5,9 +5,12 @@ final class WorkSystem {
         if (unit.task != UnitTask.AUTO_HARVEST) return;
         ResourceNode node = world.findResource(unit.automationResourceId);
         if (node == null || !node.active) {
-            if (unit.freeCargo() > 0.05 && world.scoutRetarget(unit, node)) return;
-            if (unit.cargoUsed() > 0.05) world.sendToNearestBase(unit);
-            else if (!world.returnToMiningAnchor(unit)) unit.task = UnitTask.IDLE;
+            if (unit.freeCargo() <= 0.05) {
+                world.sendToNearestBase(unit);
+                return;
+            }
+            if (world.scoutRetarget(unit, node)) return;
+            if (!world.returnToMiningAnchor(unit)) unit.task = UnitTask.IDLE;
             return;
         }
         ShipType type = unit.type();
@@ -35,10 +38,14 @@ final class WorkSystem {
             node.deplete();
             ResourceSync.mark(world, node);
             ProceduralAudio.playResourceDepleted(node.material);
-            if (unit.freeCargo() > 0.05 && world.scoutRetarget(unit, node)) return;
-            world.status = node.name + " depleted. Returning cargo and relocating deposit.";
-            if (unit.cargoUsed() > 0.05) world.sendToNearestBase(unit);
-            else if (!world.returnToMiningAnchor(unit)) unit.task = UnitTask.IDLE;
+            if (unit.freeCargo() <= 0.05) {
+                world.status = node.name + " depleted. Cargo full, returning to unload.";
+                world.sendToNearestBase(unit);
+                return;
+            }
+            if (world.scoutRetarget(unit, node)) return;
+            world.status = node.name + " depleted. Waiting at assigned mining area for another deposit.";
+            if (!world.returnToMiningAnchor(unit)) unit.task = UnitTask.IDLE;
             return;
         }
         world.orbitAround(unit, node.x, node.y, node.radius + type.orbitRadius, dt, 0.7);
