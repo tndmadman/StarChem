@@ -23,6 +23,10 @@ final class LogisticsSystem {
         return queue(world, target, LogisticsJobKind.CRAFTABLE, item.id, item.name, item.requiredResources);
     }
 
+    boolean queueResearch(World world, Base target, ResearchTopic topic) {
+        return queue(world, target, LogisticsJobKind.RESEARCH, topic.id, topic.name + " research", topic.requiredResources);
+    }
+
     void update(World world, double dt) {
         deliverActiveShuttles(world);
         cleanupDeadRequests(world);
@@ -208,6 +212,7 @@ final class LogisticsSystem {
             case SHIP -> finishShip(world, target, request);
             case STATION_PACKAGE -> finishStationPackage(world, target, request);
             case CRAFTABLE -> finishCraftable(world, target, request);
+            case RESEARCH -> finishResearch(world, target, request);
         };
     }
 
@@ -244,6 +249,18 @@ final class LogisticsSystem {
         HangarStore.spend(target.inventory, request.cost);
         HangarStore.add(target.inventory, item.outputMaterial, item.outputAmount);
         world.status = "Logistics delivered resources. Manufactured " + item.outputLabel() + ".";
+        return true;
+    }
+
+    private boolean finishResearch(World world, Base target, LogisticsRequest request) {
+        ResearchTopic topic = ResearchRules.topic(request.itemId);
+        if (topic == null) {
+            world.status = "Logistics request failed: unknown research " + request.itemId + ".";
+            return true;
+        }
+        if (world.hasResearch(target.playerId, topic.id) || ResearchSystem.active(world, target.playerId, topic.id)) return true;
+        HangarStore.spend(target.inventory, request.cost);
+        ResearchSystem.start(world, target, topic);
         return true;
     }
 
@@ -325,7 +342,7 @@ final class LogisticsSystem {
     }
 }
 
-enum LogisticsJobKind { SHIP, STATION_PACKAGE, CRAFTABLE }
+enum LogisticsJobKind { SHIP, STATION_PACKAGE, CRAFTABLE, RESEARCH }
 
 final class LogisticsRequest {
     final String id, playerId, targetBaseId, itemId, itemName;
