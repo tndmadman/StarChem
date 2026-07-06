@@ -49,7 +49,7 @@ final class GameFrame extends JFrame {
 
     void launchGame(Config config) {
         stopActiveGame();
-        World world = new World(config.playerName);
+        World world = new World(config.playerName, config.disabledNpcFactionIds);
         try {
             network = PeerNetwork.start(config, world);
         } catch (IOException ex) {
@@ -91,7 +91,7 @@ final class GameFrame extends JFrame {
         if (gamePanel != null) gamePanel.setBounds(0, 0, w, h);
         if (endStatePanel != null) endStatePanel.setBounds(0, 0, w, h);
         int mw = Math.min(760, Math.max(560, w - 160));
-        int mh = Math.min(520, Math.max(420, h - 140));
+        int mh = Math.min(620, Math.max(520, h - 120));
         menuPanel.setBounds((w - mw) / 2, (h - mh) / 2, mw, mh);
     }
 }
