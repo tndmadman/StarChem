@@ -141,6 +141,7 @@ final class World {
 
     private void updateUnit(Unit unit, double dt) {
         unit.unloadingThisFrame = false;
+        sendFullHarvestCargoToUnload(unit);
         autoUnload(unit, dt);
         haulerSystem.update(this, unit, dt);
         workSystem.update(this, unit, dt);
@@ -148,6 +149,13 @@ final class World {
         if (unit.task == UnitTask.IDLE) idleNearBase(unit, dt);
         if (unit.task == UnitTask.MOVE && Calc.distance(unit.x, unit.y, unit.targetX, unit.targetY) < 5) unit.task = UnitTask.IDLE;
         unit.updatePosition(dt, width, height);
+    }
+
+    private void sendFullHarvestCargoToUnload(Unit unit) {
+        if (unit.type().harvestKinds.isEmpty()) return;
+        if (unit.task == UnitTask.RETURN_TO_STATION) return;
+        if (unit.cargoUsed() <= 0.05 || unit.freeCargo() > 0.05) return;
+        sendToNearestBase(unit);
     }
 
     private void updateReturn(Unit unit) {
