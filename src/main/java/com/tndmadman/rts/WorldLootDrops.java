@@ -14,11 +14,10 @@ final class WorldLootDrops {
             double amount = cargo.getOrDefault(material, 0.0);
             if (amount <= 0.05) continue;
             int pieces = pieces(amount, power);
-            double remaining = amount;
             for (int i = 0; i < pieces; i++) {
-                double share = i == pieces - 1 ? remaining : Math.max(0.05, amount / pieces * (0.65 + random.nextDouble() * 0.7));
-                remaining -= share;
-                spawn(world, material, share, x, y, power, random);
+                double share = amount / pieces;
+                if (pieces > 1) share *= 0.75 + random.nextDouble() * 0.5;
+                spawn(world, material, Math.max(0.05, share), x, y, power, random);
                 count++;
             }
         }
