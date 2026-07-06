@@ -122,6 +122,10 @@ final class BuildSystem {
             world.status = topic.name + " already researched.";
             return false;
         }
+        if (ResearchSystem.active(world, base.playerId, topic.id)) {
+            world.status = topic.name + " is already researching.";
+            return false;
+        }
         String missing = ResearchRules.missingPrerequisite(world, base.playerId, topic);
         if (!missing.isBlank()) {
             world.status = topic.name + " requires " + missing + " first.";
@@ -137,8 +141,7 @@ final class BuildSystem {
             return false;
         }
         if (!free) HangarStore.spend(base.inventory, topic.requiredResources);
-        world.completeResearch(base.playerId, topic.id);
-        world.status = free ? "Dev researched " + topic.name + " for free." : "Researched " + topic.name + ".";
+        ResearchSystem.start(world, base, topic);
         if (PlayerRegistry.isLocal(base.playerId)) ProceduralAudio.play(SoundCue.CRAFT_ITEM);
         return true;
     }
