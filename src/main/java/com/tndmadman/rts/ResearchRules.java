@@ -108,7 +108,7 @@ final class ResearchRules {
                     string(r, "displayName", e.getKey()),
                     string(r, "description", ""),
                     stringList(r.getOrDefault("stationTypes", r.get("stations"))),
-                    stringList(r.get("requires"),
+                    stringList(r.get("requires")),
                     number(r, "timeSeconds", 30),
                     costs(r.getOrDefault("requiredResources", r.get("cost"))),
                     new ResearchUnlocks(stringList(unlocks.get("ships")))));
