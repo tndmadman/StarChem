@@ -9,7 +9,8 @@ final class BuildSystem {
             world.status = base.type().name + " cannot build " + shipType.name + ".";
             return false;
         }
-        if (!ResearchRules.shipUnlocked(world, base.playerId, shipTypeId)) {
+        boolean free = freeBuild(world, base);
+        if (!free && !ResearchRules.shipUnlocked(world, base.playerId, shipTypeId)) {
             ResearchTopic topic = ResearchRules.firstTopicUnlockingShip(shipTypeId);
             world.status = shipType.name + " requires research" + (topic == null ? "." : ": " + topic.name + ".");
             return false;
@@ -18,7 +19,6 @@ final class BuildSystem {
             world.status = base.type().name + " needs " + StationFuelRules.requirement(base.typeId).material().label + " to run.";
             return false;
         }
-        boolean free = freeBuild(world, base);
         if (!free && !HangarStore.canAfford(base.inventory, shipType.buildCost)) {
             if (world.logisticsSystem.queueBuildShip(world, base, shipType)) return true;
             world.status = "Need " + Rules.formatCost(shipType.buildCost) + " in " + base.type().name + " hangar.";
