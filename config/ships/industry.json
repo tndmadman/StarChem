@@ -72,7 +72,7 @@
       "shieldRegen": 2.0,
       "shieldRegenDelay": 3.5,
       "speed": 135,
-      "cargoCapacity": 300,
+      "cargoCapacity": 600,
       "harvestRange": 0,
       "tractorBeams": 2,
       "tractorRange": 360,
