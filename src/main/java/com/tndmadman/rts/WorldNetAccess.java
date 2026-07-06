@@ -4,6 +4,9 @@ import java.awt.geom.Point2D;
 import java.util.*;
 
 final class WorldNetAccess {
+    private static final double MIN_PLAYER_START_DISTANCE = 1200.0;
+    private static final int SPAWN_SLOT_SEARCH = 64;
+
     private WorldNetAccess() { }
 
     static Snapshot snapshot(World world, long sequence) {
@@ -64,24 +67,58 @@ final class WorldNetAccess {
         for (BaseState b : states) world.bases.put(b.id(), NetBaseSync.fromState(b));
     }
 
-    static void addPeerGroup(World world, String playerId) { spawnGroup(world, playerId, slot(playerId)); }
+    static void addPeerGroup(World world, String playerId) { spawnGroup(world, playerId, separatedSlot(world, slot(playerId))); }
 
     static void respawnPlayer(World world, String playerId) {
         world.units.values().removeIf(unit -> unit.playerId.equals(playerId));
         world.bases.values().removeIf(base -> base.playerId.equals(playerId));
         world.shots.removeIf(shot -> shot.ownerId.equals(playerId));
         int salt = Math.max(5, world.units.size() + world.bases.size() + (int)Math.round(world.systemTime()));
-        spawnGroup(world, playerId, slot(playerId) + salt);
+        spawnGroup(world, playerId, separatedSlot(world, slot(playerId) + salt));
         world.status = PlayerRegistry.name(playerId) + " respawned in a new sector.";
     }
 
     private static void spawnGroup(World world, String playerId, int slot) {
         Point2D bp = resourceStart(world, slot);
-        Point2D sp = new Point2D.Double(bp.getX() + 180, bp.getY() - 80);
+        Point2D sp = startShipPoint(bp);
         int baseId = nextBaseNumber(world, playerId);
         int unitId = nextUnitNumber(world, playerId);
         world.bases.put(playerId + ":B" + baseId, new Base(playerId + ":B" + baseId, playerId, Rules.DEFAULT_BASE, bp.getX(), bp.getY()));
         world.units.put(Unit.key(playerId, unitId), new Unit(playerId, unitId, Rules.STARTING_SHIP, sp.getX(), sp.getY()));
+    }
+
+    private static int separatedSlot(World world, int preferredSlot) {
+        int bestSlot = preferredSlot;
+        double bestDistance = -1;
+        for (int offset = 0; offset < SPAWN_SLOT_SEARCH; offset++) {
+            int candidateSlot = preferredSlot + offset;
+            Point2D bp = resourceStart(world, candidateSlot);
+            Point2D sp = startShipPoint(bp);
+            double distance = nearestStartDistance(world, bp, sp);
+            if (distance > bestDistance) {
+                bestDistance = distance;
+                bestSlot = candidateSlot;
+            }
+            if (distance >= MIN_PLAYER_START_DISTANCE) return candidateSlot;
+        }
+        return bestSlot;
+    }
+
+    private static Point2D startShipPoint(Point2D basePoint) {
+        return new Point2D.Double(basePoint.getX() + 180, basePoint.getY() - 80);
+    }
+
+    private static double nearestStartDistance(World world, Point2D basePoint, Point2D shipPoint) {
+        double nearest = Double.POSITIVE_INFINITY;
+        for (Base base : world.bases.values()) nearest = nearestToStart(basePoint, shipPoint, base.x, base.y, nearest);
+        for (Unit unit : world.units.values()) nearest = nearestToStart(basePoint, shipPoint, unit.x, unit.y, nearest);
+        return nearest;
+    }
+
+    private static double nearestToStart(Point2D basePoint, Point2D shipPoint, double x, double y, double nearest) {
+        double baseDistance = Calc.distance(basePoint.getX(), basePoint.getY(), x, y);
+        double shipDistance = Calc.distance(shipPoint.getX(), shipPoint.getY(), x, y);
+        return Math.min(nearest, Math.min(baseDistance, shipDistance));
     }
 
     private static int nextBaseNumber(World world, String playerId) {
@@ -104,7 +141,7 @@ final class WorldNetAccess {
             case 3 -> Material.SILICATES;
             default -> Material.ICE;
         };
-        ResourceNode node = nthActiveResource(world, material, Math.floorMod(slot * 17, Math.max(1, world.resources.size())));
+        ResourceNode node = nthActiveResource(world, material, slot * 17);
         if (node == null) return Calc.basePoint(slot);
         double cx = world.width / 2.0;
         double cy = world.height / 2.0;
@@ -114,14 +151,10 @@ final class WorldNetAccess {
     }
 
     private static ResourceNode nthActiveResource(World world, Material material, int skip) {
-        ResourceNode picked = null;
-        int seen = 0;
-        for (ResourceNode node : world.resources) {
-            if (!node.active || node.material != material) continue;
-            if (seen++ >= skip) return node;
-            picked = node;
-        }
-        return picked;
+        List<ResourceNode> active = new ArrayList<>();
+        for (ResourceNode node : world.resources) if (node.active && node.material == material) active.add(node);
+        if (active.isEmpty()) return null;
+        return active.get(Math.floorMod(skip, active.size()));
     }
 
     private static int slot(String id) {
