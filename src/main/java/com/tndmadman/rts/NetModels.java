@@ -17,7 +17,7 @@ record BaseState(String id, String playerId, String typeId, double x, double y, 
 }
 record StockState(String playerId, String cargo) { }
 record ShotState(int id, String ownerId, String weaponId, String targetKey, double x, double y, double lastX, double lastY) { }
-record ItemState(int id, double x, double y, String cargo) { }
+record ItemState(int id, String material, double amount, double x, double y, double vx, double vy, double angle, double spin) { }
 record Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks, List<ShotState> shots, List<ItemState> items) {
     Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks, List<ShotState> shots) {
         this(sequence, players, units, resources, bases, stocks, shots, List.of());
