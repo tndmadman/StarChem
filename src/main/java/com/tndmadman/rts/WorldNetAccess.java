@@ -16,7 +16,9 @@ final class WorldNetAccess {
         List<StockState> stocks = List.of(new StockState(PlayerRegistry.localId(), CargoCodec.write(world.stockpile)));
         List<ShotState> shots = new ArrayList<>();
         for (ProjectileShot shot : world.shots) shots.add(new ShotState(shot.id, shot.ownerId, shot.weaponId, shot.targetKey, shot.x, shot.y, shot.lastX, shot.lastY));
-        return new Snapshot(sequence, players, units, resources, bases, stocks, shots);
+        List<ItemState> items = new ArrayList<>();
+        for (WorldItem item : world.items) items.add(new ItemState(item.id, item.x, item.y, CargoCodec.write(item.inventory)));
+        return new Snapshot(sequence, players, units, resources, bases, stocks, shots, items);
     }
 
     static void apply(World world, Snapshot snapshot) {
@@ -53,6 +55,7 @@ final class WorldNetAccess {
             shot.lastY = s.lastY();
             world.shots.add(shot);
         }
+        ItemSync.apply(world, snapshot.items());
         if (!snapshot.stocks().isEmpty()) CargoCodec.readInto(snapshot.stocks().get(0).cargo(), world.stockpile);
     }
 
