@@ -34,6 +34,7 @@ final class WorkSystem {
         if (node.amount <= 0.05) {
             node.deplete();
             ResourceSync.mark(world, node);
+            ProceduralAudio.playResourceDepleted(node.material);
             if (unit.freeCargo() > 0.05 && world.scoutRetarget(unit, node)) return;
             world.status = node.name + " depleted. Returning cargo and relocating deposit.";
             if (unit.cargoUsed() > 0.05) world.sendToNearestBase(unit);
