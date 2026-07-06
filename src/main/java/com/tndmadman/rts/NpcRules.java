@@ -86,6 +86,8 @@ final class NpcRules {
                 bool(f, "attackUnits", true),
                 bool(f, "attackNpcFactions", false),
                 bool(f, "replaceWorkers", true),
+                bool(f, "requirePlayerCombatShips", behavior == NpcBehavior.RAIDER),
+                integer(f, "minPlayerCombatShips", behavior == NpcBehavior.RAIDER ? 1 : 0),
                 string(f, "spawnMessage", defaultSpawnMessage(behavior)));
     }
 
@@ -99,12 +101,12 @@ final class NpcRules {
                         18.0, 45.0, 2.0, Rules.DEFAULT_BASE,
                         List.of("frigate", "frigate", "destroyer"), List.of(), 0,
                         2200.0, 700.0, 150.0, EnumSet.noneOf(Material.class), EnumSet.noneOf(NodeKind.class),
-                        true, true, false, true, "Raider ships have entered the sector."),
+                        true, true, false, true, true, 1, "Raider ships have entered the sector."),
                 new NpcFaction("NPC_MINERS", "Free Miners", 0xFFE066, true, NpcBehavior.MINER,
                         35.0, 60.0, 3.0, Rules.DEFAULT_BASE,
                         List.of("prospector", "prospector"), List.of("prospector"), 3,
                         2800.0, 700.0, 145.0, EnumSet.of(Material.IRON, Material.COPPER, Material.SILICATES, Material.ICE), EnumSet.of(NodeKind.SILICATE_ROCK),
-                        false, false, false, true, "Independent miners have entered the sector."));
+                        false, false, false, true, false, 0, "Independent miners have entered the sector."));
     }
 
     @SuppressWarnings("unchecked")
@@ -211,6 +213,8 @@ record NpcFaction(
         boolean attackUnits,
         boolean attackNpcFactions,
         boolean replaceWorkers,
+        boolean requirePlayerCombatShips,
+        int minPlayerCombatShips,
         String spawnMessage
 ) {
     boolean allowsMaterial(Material material) { return targetMaterials.isEmpty() || targetMaterials.contains(material); }
