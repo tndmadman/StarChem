@@ -1,5 +1,5 @@
 {
-  "rulesVersion": 10,
+  "rulesVersion": 11,
   "startingShipType": "prospector",
   "defaultStationType": "outpost",
   "files": {
