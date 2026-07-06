@@ -179,7 +179,6 @@ final class World {
 
     private void autoUnload(Unit unit, double dt) {
         if (FuelShuttleSystem.SHUTTLE_TYPE.equals(unit.shipTypeId) || LogisticsSystem.SHUTTLE_TYPE.equals(unit.shipTypeId)) return;
-        if (!unit.type().harvestKinds.isEmpty() && unit.task != UnitTask.RETURN_TO_STATION) return;
         if (unit.cargoUsed() <= 0.05) return;
         Base base = nearestBase(unit.playerId, unit.x, unit.y);
         Unit depot = MobileDepot.preferredFor(this, unit, base);
