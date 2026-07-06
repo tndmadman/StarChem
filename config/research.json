@@ -2,7 +2,7 @@
   "researchTopics": {
     "advanced_industry": {
       "displayName": "Advanced Industry",
-      "description": "Unlocks specialist mining and heavy hauling ships.",
+      "description": "Unlocks specialist mining, hauling, and salvage ships.",
       "stationTypes": ["laboratory"],
       "requires": [],
       "requiredResources": {
@@ -11,21 +11,7 @@
         "SILICATES": 100
       },
       "unlocks": {
-        "ships": ["deep_miner", "gas_harvester", "freighter"]
-      }
-    },
-    "salvage_engineering": {
-      "displayName": "Salvage Engineering",
-      "description": "Unlocks tractor salvage recovery ships.",
-      "stationTypes": ["laboratory"],
-      "requires": ["advanced_industry"],
-      "requiredResources": {
-        "FUEL": 20,
-        "SCRAP_METAL": 25,
-        "CIRCUIT_FRAGMENTS": 12
-      },
-      "unlocks": {
-        "ships": ["salvager"]
+        "ships": ["deep_miner", "gas_harvester", "freighter", "salvager"]
       }
     },
     "combat_doctrine": {
