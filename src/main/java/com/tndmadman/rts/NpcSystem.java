@@ -17,6 +17,10 @@ final class NpcSystem {
 
             NpcState state = states.computeIfAbsent(faction.id(), ignored -> new NpcState(faction.firstSpawnSeconds()));
             if (!hasAssets(world, faction)) {
+                if (!spawnRequirementsMet(world, faction)) {
+                    state.spawnTimer = faction.firstSpawnSeconds();
+                    continue;
+                }
                 state.spawnTimer -= dt;
                 if (state.spawnTimer <= 0) {
                     spawnFaction(world, faction);
@@ -38,6 +42,16 @@ final class NpcSystem {
         for (Unit unit : world.units.values()) if (unit.playerId.equals(faction.id()) && unit.hp > 0) return true;
         for (Base base : world.bases.values()) if (base.playerId.equals(faction.id()) && base.hp > 0) return true;
         return false;
+    }
+
+    private boolean spawnRequirementsMet(World world, NpcFaction faction) {
+        if (!faction.requirePlayerCombatShips()) return true;
+        int combatShips = 0;
+        for (Unit unit : world.units.values()) {
+            if (unit.hp <= 0 || NpcRules.isNpcFaction(unit.playerId)) continue;
+            if (WeaponRules.armed(unit.type())) combatShips++;
+        }
+        return combatShips >= Math.max(1, faction.minPlayerCombatShips());
     }
 
     private void spawnFaction(World world, NpcFaction faction) {
