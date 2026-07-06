@@ -116,6 +116,8 @@ final class Rules {
                     number(s, "maxShield", Math.max(0, hp * 0.35)),
                     number(s, "shieldRegen", Math.max(0, hp * 0.012)),
                     number(s, "shieldRegenDelay", 4.0),
+                    integer(s, "tractorBeams", integer(s, "tractorBeamCount", 0)),
+                    number(s, "tractorRange", 0),
                     bool(s, "baseBuilder", false),
                     nodeKinds(s.get("canHarvest")),
                     costs(s.get("buildCost"))));
@@ -196,11 +198,14 @@ final class Rules {
                 EnumSet.of(NodeKind.GAS_CLOUD), cost(Material.IRON,120, Material.COPPER,150, Material.SILICATES,60, Material.ICE,80, Material.HYDROGEN,80)));
         ship(new ShipType("freighter", "Freighter", ShipSize.XL, 8431, 360, 92, 1440, 0, 110, 155, 0, 0, false,
                 EnumSet.noneOf(NodeKind.class), cost(Material.IRON,420, Material.COPPER,200, Material.SILICATES,300, Material.ICE,140)));
+        ship(new ShipType("salvager", "Salvager", ShipSize.MEDIUM, 5227, 135, 135, 300, 0, 88, 120, 0, 0,
+                115, 2.0, 3.5, 2, 360, false, EnumSet.noneOf(NodeKind.class),
+                cost(Material.IRON,160, Material.COPPER,120, Material.SILICATES,90)));
 
         base(new BaseType("outpost", "Outpost", 1200, 118, 95, 72,
                 List.of("prospector", "station_builder"), List.of("shipyard"), List.of()));
         base(new BaseType("shipyard", "Shipyard", 2400, 150, 160, 100,
-                List.of("prospector", "station_builder", "scout", "hauler", "deep_miner", "gas_harvester", "freighter"),
+                List.of("prospector", "station_builder", "scout", "hauler", "deep_miner", "gas_harvester", "freighter", "salvager"),
                 List.of(), cost(Material.IRON,500, Material.COPPER,250, Material.SILICATES,350, Material.ICE,160)));
 
         RESOURCE_BELTS.addAll(defaultResourceBelts());
@@ -317,8 +322,8 @@ final class ShipType {
     final ShipSize size;
     final int seed;
     final double maxHp, speed, cargoCapacity, harvestRange, orbitRadius, idleOrbitRadius, scoutRange;
-    final double maxShield, shieldRegen, shieldRegenDelay;
-    final int scoutDispatchLimit;
+    final double maxShield, shieldRegen, shieldRegenDelay, tractorRange;
+    final int scoutDispatchLimit, tractorBeamCount;
     final boolean baseBuilder;
     final EnumSet<NodeKind> harvestKinds;
     final List<Cost> buildCost;
@@ -327,17 +332,28 @@ final class ShipType {
              double harvestRange, double orbitRadius, double idleOrbitRadius, double scoutRange, int scoutDispatchLimit,
              boolean baseBuilder, EnumSet<NodeKind> harvestKinds, List<Cost> buildCost) {
         this(id, name, size, seed, maxHp, speed, cargoCapacity, harvestRange, orbitRadius, idleOrbitRadius, scoutRange,
-                scoutDispatchLimit, Math.max(0, maxHp * 0.35), Math.max(0, maxHp * 0.012), 4.0, baseBuilder, harvestKinds, buildCost);
+                scoutDispatchLimit, Math.max(0, maxHp * 0.35), Math.max(0, maxHp * 0.012), 4.0, 0, 0,
+                baseBuilder, harvestKinds, buildCost);
     }
 
     ShipType(String id, String name, ShipSize size, int seed, double maxHp, double speed, double cargoCapacity,
              double harvestRange, double orbitRadius, double idleOrbitRadius, double scoutRange, int scoutDispatchLimit,
              double maxShield, double shieldRegen, double shieldRegenDelay,
              boolean baseBuilder, EnumSet<NodeKind> harvestKinds, List<Cost> buildCost) {
+        this(id, name, size, seed, maxHp, speed, cargoCapacity, harvestRange, orbitRadius, idleOrbitRadius, scoutRange,
+                scoutDispatchLimit, maxShield, shieldRegen, shieldRegenDelay, 0, 0, baseBuilder, harvestKinds, buildCost);
+    }
+
+    ShipType(String id, String name, ShipSize size, int seed, double maxHp, double speed, double cargoCapacity,
+             double harvestRange, double orbitRadius, double idleOrbitRadius, double scoutRange, int scoutDispatchLimit,
+             double maxShield, double shieldRegen, double shieldRegenDelay,
+             int tractorBeamCount, double tractorRange,
+             boolean baseBuilder, EnumSet<NodeKind> harvestKinds, List<Cost> buildCost) {
         this.id = id; this.name = name; this.size = size; this.seed = seed; this.maxHp = maxHp; this.speed = speed;
         this.cargoCapacity = cargoCapacity; this.harvestRange = harvestRange; this.orbitRadius = orbitRadius;
         this.idleOrbitRadius = idleOrbitRadius; this.scoutRange = scoutRange; this.scoutDispatchLimit = scoutDispatchLimit;
         this.maxShield = maxShield; this.shieldRegen = shieldRegen; this.shieldRegenDelay = shieldRegenDelay;
+        this.tractorBeamCount = Math.max(0, tractorBeamCount); this.tractorRange = Math.max(0, tractorRange);
         this.baseBuilder = baseBuilder; this.harvestKinds = harvestKinds; this.buildCost = buildCost;
     }
 }
