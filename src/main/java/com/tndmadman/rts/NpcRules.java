@@ -76,14 +76,20 @@ final class NpcRules {
                 stringList(f.get("startingUnits")),
                 stringList(f.get("workerUnitTypes")),
                 stringList(f.get("fleetUnitTypes")),
+                stringList(f.get("supportUnitTypes")),
+                stringList(f.get("stationPackageTypes")),
                 integer(f, "maxWorkers", 0),
                 integer(f, "targetFleetSize", 0),
                 integer(f, "raidFleetSize", 0),
                 integer(f, "harassFleetSize", 0),
+                integer(f, "maxSupportUnits", 0),
+                integer(f, "maxStations", 1),
                 number(f, "buildSeconds", 10.0),
+                number(f, "stationBuildSeconds", 16.0),
                 number(f, "defendRange", 1250.0),
                 number(f, "raidCooldownSeconds", 18.0),
                 number(f, "retreatHpPercent", 0.0),
+                number(f, "stationSpacing", 520.0),
                 number(f, "spawnDistance", 2200.0),
                 number(f, "spawnPadding", 700.0),
                 number(f, "unitSpacing", 150.0),
@@ -101,7 +107,7 @@ final class NpcRules {
     }
 
     private static String defaultBaseType(NpcBehavior behavior) {
-        return behavior == NpcBehavior.FACTION ? "shipyard" : Rules.DEFAULT_BASE;
+        return behavior == NpcBehavior.FACTION ? "outpost" : Rules.DEFAULT_BASE;
     }
 
     private static String defaultSpawnMessage(NpcBehavior behavior) {
@@ -116,17 +122,17 @@ final class NpcRules {
         return List.of(
                 new NpcFaction("NPC_RAIDERS", "Raiders", 0xFF5F55, true, NpcBehavior.RAIDER,
                         18.0, 45.0, 2.0, Rules.DEFAULT_BASE,
-                        List.of("frigate", "frigate", "destroyer"), List.of(), List.of(), 0, 0, 0, 0, 10.0, 1250.0, 18.0, 0.0,
+                        List.of("frigate", "frigate", "destroyer"), List.of(), List.of(), List.of(), List.of(), 0, 0, 0, 0, 0, 1, 10.0, 16.0, 1250.0, 18.0, 0.0, 520.0,
                         2200.0, 700.0, 150.0, EnumSet.noneOf(Material.class), EnumSet.noneOf(NodeKind.class),
                         true, true, false, true, false, false, true, 1, "Raider ships have entered the sector."),
                 new NpcFaction("NPC_MINERS", "Free Miners", 0xFFE066, true, NpcBehavior.MINER,
                         35.0, 60.0, 3.0, Rules.DEFAULT_BASE,
-                        List.of("prospector", "prospector"), List.of("prospector"), List.of(), 3, 0, 0, 0, 10.0, 1250.0, 18.0, 0.0,
+                        List.of("prospector", "prospector"), List.of("prospector"), List.of(), List.of(), List.of(), 3, 0, 0, 0, 0, 1, 10.0, 16.0, 1250.0, 18.0, 0.0, 520.0,
                         2800.0, 700.0, 145.0, EnumSet.of(Material.IRON, Material.COPPER, Material.SILICATES, Material.ICE), EnumSet.of(NodeKind.SILICATE_ROCK),
                         false, false, false, true, false, false, false, 0, "Independent miners have entered the sector."),
                 new NpcFaction("NPC_CORSAIRS", "Corsair Syndicate", 0xC77DFF, true, NpcBehavior.FACTION,
-                        65.0, 90.0, 3.0, "shipyard",
-                        List.of("prospector", "prospector", "frigate"), List.of("prospector"), List.of("frigate", "destroyer"), 3, 5, 4, 2, 12.0, 1400.0, 22.0, 0.35,
+                        65.0, 90.0, 3.0, "outpost",
+                        List.of("prospector", "prospector", "frigate"), List.of("prospector"), List.of("frigate", "destroyer"), List.of("hauler", "freighter", "salvager"), List.of("shipyard", "laboratory", "manufacturing"), 3, 5, 4, 2, 4, 4, 12.0, 16.0, 1400.0, 22.0, 0.35, 560.0,
                         3400.0, 700.0, 150.0, EnumSet.of(Material.IRON, Material.COPPER, Material.SILICATES, Material.ICE, Material.HYDROGEN), EnumSet.noneOf(NodeKind.class),
                         true, true, false, true, true, true, true, 1, "Corsair Syndicate has established a foothold."));
     }
@@ -226,14 +232,20 @@ record NpcFaction(
         List<String> startingUnits,
         List<String> workerUnitTypes,
         List<String> fleetUnitTypes,
+        List<String> supportUnitTypes,
+        List<String> stationPackageTypes,
         int maxWorkers,
         int targetFleetSize,
         int raidFleetSize,
         int harassFleetSize,
+        int maxSupportUnits,
+        int maxStations,
         double buildSeconds,
+        double stationBuildSeconds,
         double defendRange,
         double raidCooldownSeconds,
         double retreatHpPercent,
+        double stationSpacing,
         double spawnDistance,
         double spawnPadding,
         double unitSpacing,
@@ -252,4 +264,5 @@ record NpcFaction(
     boolean allowsMaterial(Material material) { return targetMaterials.isEmpty() || targetMaterials.contains(material); }
     boolean allowsKind(NodeKind kind) { return harvestNodeKinds.isEmpty() || harvestNodeKinds.contains(kind); }
     Set<String> workerTypeSet() { return workerUnitTypes.stream().collect(Collectors.toUnmodifiableSet()); }
+    Set<String> supportTypeSet() { return supportUnitTypes.stream().collect(Collectors.toUnmodifiableSet()); }
 }
