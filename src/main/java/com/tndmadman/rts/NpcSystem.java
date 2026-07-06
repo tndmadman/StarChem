@@ -34,12 +34,14 @@ final class NpcSystem {
                     state.spawnTimer = faction.respawnSeconds();
                     state.orderTimer = 0;
                     state.buildTimer = faction.buildSeconds();
+                    state.raidCooldownTimer = 0;
                 }
                 continue;
             }
 
             state.buildTimer -= dt;
             state.orderTimer -= dt;
+            state.raidCooldownTimer = Math.max(0, state.raidCooldownTimer - dt);
             if (state.orderTimer <= 0) {
                 orderFaction(world, faction, state);
                 state.orderTimer = faction.orderSeconds();
@@ -178,6 +180,7 @@ final class NpcSystem {
     }
 
     private void orderFullFaction(World world, NpcFaction faction, NpcState state) {
+        Base base = firstBase(world, faction);
         if (faction.replaceWorkers()) maintainWorkers(world, faction);
         orderFactionWorkers(world, faction);
 
@@ -186,7 +189,7 @@ final class NpcSystem {
             else state.buildTimer = Math.max(2.0, faction.buildSeconds() * 0.5);
         }
 
-        List<Unit> combat = combatUnits(world, faction);
+        List<Unit> combat = readyCombatUnits(world, faction, base);
         String defenseTarget = nearestThreatToBase(world, faction);
         if (!defenseTarget.isBlank()) {
             for (Unit unit : combat) unit.attack(defenseTarget);
@@ -195,13 +198,32 @@ final class NpcSystem {
 
         int raidSize = Math.max(1, faction.raidFleetSize());
         if (combat.size() >= raidSize) {
-            for (Unit unit : combat) {
-                String target = nearestEnemyTarget(world, faction, unit);
-                if (!target.isBlank()) unit.attack(target);
+            if (state.raidCooldownTimer <= 0) {
+                issueRaid(world, faction, combat);
+                state.raidCooldownTimer = Math.max(0, faction.raidCooldownSeconds());
+            } else if (base != null) {
+                guardIdleCombat(world, combat, base);
             }
-        } else {
-            Base base = firstBase(world, faction);
-            if (base != null) for (Unit unit : combat) guardBase(world, unit, base);
+            return;
+        }
+
+        int harassSize = Math.max(1, faction.harassFleetSize());
+        if (faction.harassWorkers() && combat.size() >= harassSize && state.raidCooldownTimer <= 0) {
+            String target = nearestWorkerTarget(world, faction, base);
+            if (!target.isBlank()) {
+                for (int i = 0; i < Math.min(harassSize, combat.size()); i++) combat.get(i).attack(target);
+                state.raidCooldownTimer = Math.max(4.0, faction.raidCooldownSeconds() * 0.35);
+                return;
+            }
+        }
+
+        if (base != null) guardIdleCombat(world, combat, base);
+    }
+
+    private void issueRaid(World world, NpcFaction faction, List<Unit> combat) {
+        for (Unit unit : combat) {
+            String target = priorityEnemyTarget(world, faction, unit);
+            if (!target.isBlank()) unit.attack(target);
         }
     }
 
@@ -277,6 +299,22 @@ final class NpcSystem {
         return out;
     }
 
+    private List<Unit> readyCombatUnits(World world, NpcFaction faction, Base base) {
+        List<Unit> out = new ArrayList<>();
+        for (Unit unit : combatUnits(world, faction)) {
+            if (shouldRetreat(unit, faction)) {
+                if (base != null) guardBase(world, unit, base);
+                continue;
+            }
+            out.add(unit);
+        }
+        return out;
+    }
+
+    private boolean shouldRetreat(Unit unit, NpcFaction faction) {
+        return faction.retreatHpPercent() > 0 && unit.hp / Math.max(1.0, unit.type().maxHp) <= faction.retreatHpPercent();
+    }
+
     private String nearestThreatToBase(World world, NpcFaction faction) {
         Base base = firstBase(world, faction);
         if (base == null) return "";
@@ -293,8 +331,12 @@ final class NpcSystem {
         return best;
     }
 
+    private void guardIdleCombat(World world, List<Unit> combat, Base base) {
+        for (Unit unit : combat) guardBase(world, unit, base);
+    }
+
     private void guardBase(World world, Unit unit, Base base) {
-        if (unit.task == UnitTask.ATTACK) return;
+        if (unit.task == UnitTask.ATTACK && CombatTarget.alive(world, unit.attackTarget)) return;
         double a = unit.unitId * 2.2;
         unit.moveTo(
                 Calc.clamp(base.x + Math.cos(a) * Math.max(180, base.type().unloadRange + 160), 0, world.width),
@@ -339,20 +381,54 @@ final class NpcSystem {
                 && faction.allowsMaterial(node.material);
     }
 
+    private String priorityEnemyTarget(World world, NpcFaction faction, Unit unit) {
+        if (faction.preferWorkerTargets()) {
+            String worker = nearestWorkerTarget(world, faction, unit.x, unit.y);
+            if (!worker.isBlank()) return worker;
+        }
+        String armed = nearestArmedUnitTarget(world, faction, unit.x, unit.y);
+        if (!armed.isBlank()) return armed;
+        return nearestEnemyTarget(world, faction, unit);
+    }
+
+    private String nearestWorkerTarget(World world, NpcFaction faction, Base base) {
+        if (base == null) return "";
+        return nearestWorkerTarget(world, faction, base.x, base.y);
+    }
+
+    private String nearestWorkerTarget(World world, NpcFaction faction, double x, double y) {
+        if (!faction.attackUnits()) return "";
+        String best = "";
+        double bestDist = Double.MAX_VALUE;
+        for (Unit unit : world.units.values()) {
+            if (!canTarget(faction, unit.playerId) || unit.hp <= 0 || unit.type().harvestKinds.isEmpty()) continue;
+            double d = Calc.distance(x, y, unit.x, unit.y);
+            if (d < bestDist) {
+                best = CombatTarget.unit(unit);
+                bestDist = d;
+            }
+        }
+        return best;
+    }
+
+    private String nearestArmedUnitTarget(World world, NpcFaction faction, double x, double y) {
+        if (!faction.attackUnits()) return "";
+        String best = "";
+        double bestDist = Double.MAX_VALUE;
+        for (Unit unit : world.units.values()) {
+            if (!canTarget(faction, unit.playerId) || unit.hp <= 0 || !WeaponRules.armed(unit.type())) continue;
+            double d = Calc.distance(x, y, unit.x, unit.y);
+            if (d < bestDist) {
+                best = CombatTarget.unit(unit);
+                bestDist = d;
+            }
+        }
+        return best;
+    }
+
     private String nearestEnemyTarget(World world, NpcFaction faction, Unit unit) {
         String best = "";
         double bestDist = Double.MAX_VALUE;
-
-        if (faction.attackBases()) {
-            for (Base base : world.bases.values()) {
-                if (!canTarget(faction, base.playerId) || base.hp <= 0) continue;
-                double d = Calc.distance(unit.x, unit.y, base.x, base.y);
-                if (d < bestDist) {
-                    best = CombatTarget.base(base);
-                    bestDist = d;
-                }
-            }
-        }
 
         if (faction.attackUnits()) {
             for (Unit target : world.units.values()) {
@@ -360,6 +436,17 @@ final class NpcSystem {
                 double d = Calc.distance(unit.x, unit.y, target.x, target.y);
                 if (d < bestDist) {
                     best = CombatTarget.unit(target);
+                    bestDist = d;
+                }
+            }
+        }
+
+        if (faction.attackBases()) {
+            for (Base base : world.bases.values()) {
+                if (!canTarget(faction, base.playerId) || base.hp <= 0) continue;
+                double d = Calc.distance(unit.x, unit.y, base.x, base.y);
+                if (d < bestDist) {
+                    best = CombatTarget.base(base);
                     bestDist = d;
                 }
             }
@@ -394,6 +481,7 @@ final class NpcSystem {
         double spawnTimer;
         double orderTimer;
         double buildTimer;
+        double raidCooldownTimer;
         NpcState(double spawnTimer) { this.spawnTimer = spawnTimer; }
     }
 
