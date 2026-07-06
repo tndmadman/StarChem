@@ -64,7 +64,7 @@ final class SnapshotReader2 {
         if (parts.length <= 8 || parts[8].isBlank()) return out;
         for (String row : parts[8].split(";")) {
             String[] c = row.split(",", -1);
-            if (c.length >= 4) out.add(new ItemState(Integer.parseInt(c[0]), Double.parseDouble(c[1]), Double.parseDouble(c[2]), CargoCodec.unsafed(c[3])));
+            if (c.length >= 9) out.add(new ItemState(Integer.parseInt(c[0]), c[1], Double.parseDouble(c[2]), Double.parseDouble(c[3]), Double.parseDouble(c[4]), Double.parseDouble(c[5]), Double.parseDouble(c[6]), Double.parseDouble(c[7]), Double.parseDouble(c[8])));
         }
         return out;
     }
