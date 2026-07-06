@@ -4,8 +4,8 @@ import java.awt.*;
 
 final class DevMenu {
     private static final int TARGET_Y = 18;
-    private static final int TOGGLE_Y = 48;
-    private static final int RESOURCE_Y = 88;
+    private static final int TOGGLE_Y = 62;
+    private static final int RESOURCE_Y = 104;
     private static final int ROW_H = 19;
     private static final double SPAWN_AMOUNT = 500.0;
 
@@ -26,7 +26,7 @@ final class DevMenu {
             return true;
         }
         Base base = target(world);
-        if (base == null) return true;
+        if (base == null || localY < RESOURCE_Y - 14) return true;
         int row = (localY - (RESOURCE_Y - 14)) / ROW_H;
         if (row >= 0 && row < Material.values().length) {
             Material material = Material.values()[row];
