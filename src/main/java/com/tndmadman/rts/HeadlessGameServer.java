@@ -18,7 +18,7 @@ final class HeadlessGameServer {
     }
 
     void tick(double dt) {
-        world.update(dt);
+        network.updateServerWorlds(dt);
         network.tick();
     }
 
