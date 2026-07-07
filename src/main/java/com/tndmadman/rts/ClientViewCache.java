@@ -9,6 +9,7 @@ final class ClientViewCache {
     void setHome(World world, String playerId) {
         if (playerId == null || playerId.isBlank()) return;
         viewByPlayer.put(playerId, world.playerHomeSystemId(playerId));
+        ResourceSync.markFull(world);
     }
 
     void remove(String playerId) {
@@ -21,6 +22,7 @@ final class ClientViewCache {
         if (existing != null) return existing;
         String home = world.playerHomeSystemId(playerId);
         viewByPlayer.put(playerId, home);
+        ResourceSync.markFull(world);
         return home;
     }
 
