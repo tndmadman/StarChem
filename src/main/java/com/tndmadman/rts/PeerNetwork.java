@@ -64,7 +64,7 @@ final class PeerNetwork implements CommandSink {
         if (config.hostMode) {
             removeTimedOutPeers(now);
             if (now - lastSnapshot >= SNAPSHOT_MS) { sendViewSnapshots(); lastSnapshot = now; }
-            if (now - lastEnvSync >= ENV_SYNC_MS) { broadcast(envMessage()); lastEnvSync = now; }
+            if (now - lastEnvSync >= ENV_SYNC_MS) lastEnvSync = now;
         } else {
             if (!joined && now - lastJoin >= HEARTBEAT_MS) { reliableToServer("JOIN|" + config.playerName + "|" + (config.devMode ? "DEV" : "NODEV")); lastJoin = now; }
             if (joined && now - lastPing >= HEARTBEAT_MS) { sendToServer("PING|" + localPlayerId); lastPing = now; }
