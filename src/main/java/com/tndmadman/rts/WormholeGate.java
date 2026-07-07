@@ -27,6 +27,10 @@ final class WormholeGate {
         return Calc.distance(wx, wy, x, y) <= radius;
     }
 
+    String label() {
+        return toSystemId;
+    }
+
     void draw(Graphics2D g2) {
         Graphics2D w = (Graphics2D) g2.create();
         w.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -37,8 +41,15 @@ final class WormholeGate {
         w.drawOval((int)(x - radius), (int)(y - radius), (int)(radius * 2), (int)(radius * 2));
         w.setColor(new Color(80, 220, 255, 190));
         w.drawOval((int)(x - radius * 0.58), (int)(y - radius * 0.58), (int)(radius * 1.16), (int)(radius * 1.16));
-        w.setColor(new Color(230, 245, 255, 210));
-        w.drawString("Wormhole -> " + toSystemId, (int)(x + radius + 8), (int)(y - radius));
+        String text = label();
+        FontMetrics fm = w.getFontMetrics();
+        int tw = fm.stringWidth(text);
+        int tx = (int)x - tw / 2;
+        int ty = (int)(y + radius + 20);
+        w.setColor(new Color(0, 0, 0, 145));
+        w.fillRoundRect(tx - 5, ty - 13, tw + 10, 17, 8, 8);
+        w.setColor(new Color(230, 245, 255, 220));
+        w.drawString(text, tx, ty);
         w.dispose();
     }
 }
