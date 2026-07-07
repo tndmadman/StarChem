@@ -21,6 +21,15 @@
     ],
     "stations": "config/stations.json",
     "resources": "config/resources.json",
+    "systems": [
+      "config/systems/sol-standard.json",
+      "config/systems/red-dwarf.json",
+      "config/systems/gas-giant-frontier.json",
+      "config/systems/ice-belt.json",
+      "config/systems/warzone.json",
+      "config/systems/corsair-den.json",
+      "config/systems/empty-frontier.json"
+    ],
     "automation": "config/automation.json",
     "craftables": [
       "config/craftables/fuel.json"
