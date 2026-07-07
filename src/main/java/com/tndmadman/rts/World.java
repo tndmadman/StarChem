@@ -379,6 +379,7 @@ final class World {
                 baseIt.remove();
             }
         }
+        NpcCollapseSystem.removeShipsWithoutStations(this);
         shots.removeIf(shot -> !CombatTarget.alive(this, shot.targetKey) || shot.weapon() == null);
         for (Unit unit : units.values()) {
             if (!unit.attackTarget.isBlank() && !CombatTarget.alive(this, unit.attackTarget)) {
