@@ -64,6 +64,12 @@ final class PeerClientSide {
         } else WorldNetAccess.apply(world, snapshot);
     }
 
+    void readFullView(String message) {
+        Snapshot snapshot = SyncFrame.read(message);
+        WorldNetAccess.applyView(world, snapshot);
+        if (WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId)) viewSnapshotMode = false;
+    }
+
     private void syncEnv(String systemId, String seed, String time) { try { world.syncEnvironment(systemId, Long.parseLong(seed), Double.parseDouble(time)); } catch (NumberFormatException ignored) { } }
     private void sendToServer(String message) { transport.send(message, config.serverAddress.getAddress(), config.serverAddress.getPort()); }
     private void reliableToServer(String payload) { transport.reliable(payload, config.serverAddress.getAddress(), config.serverAddress.getPort()); }
