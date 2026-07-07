@@ -25,7 +25,8 @@ final class GalaxyCoordinator {
         nextResourceId = 1;
         WorldSystemState main = createSystem(primary.id(), primary);
         WorldSystemState corsairs = createSystem(StarSystems.CORSAIR_SYSTEM_ID, StarSystems.get(StarSystems.CORSAIR_SYSTEM_ID));
-        link(world, main, corsairs);
+        linkAllKnown(world, main);
+        linkAllKnown(world, corsairs);
         activeSystemId = main.id;
         loadActive(world);
         return main.celestials;
@@ -56,15 +57,18 @@ final class GalaxyCoordinator {
     GalaxySystem ensurePlayerHome(World world, String playerId, StarSystemDefinition primary) {
         if (playerId == null || playerId.isBlank()) playerId = world.localPlayerId;
         String existing = playerHomes.get(playerId);
-        if (existing != null && systems.containsKey(existing)) return asGalaxySystem(systems.get(existing));
+        if (existing != null && systems.containsKey(existing)) {
+            WorldSystemState home = systems.get(existing);
+            linkAllKnown(world, home);
+            return asGalaxySystem(home);
+        }
         WorldSystemState home;
         if (world.localPlayerId.equals(playerId)) {
             home = systems.get(primary.id());
             if (home == null) home = createSystem(primary.id(), primary);
         } else home = createSystem(playerHomeId(playerId), StarSystems.get(StarSystems.PLAYER_HOME_SYSTEM_ID));
         playerHomes.put(playerId, home.id);
-        WorldSystemState main = systems.get(primary.id());
-        link(world, main, home);
+        linkAllKnown(world, home);
         return asGalaxySystem(home);
     }
 
@@ -209,14 +213,22 @@ final class GalaxyCoordinator {
         return state;
     }
 
+    private void linkAllKnown(World world, WorldSystemState state) {
+        if (state == null) return;
+        for (WorldSystemState other : new ArrayList<>(systems.values())) link(world, state, other);
+    }
+
     private void link(World world, WorldSystemState a, WorldSystemState b) {
-        if (a == null || b == null || wormholeExists(a, b.id)) return;
+        if (a == null || b == null || a == b || a.id.equals(b.id)) return;
+        boolean aHas = wormholeExists(a, b.id);
+        boolean bHas = wormholeExists(b, a.id);
+        if (aHas && bHas) return;
         Point2D ap = wormholePoint(a, a.wormholes.size(), b.id);
         Point2D bp = wormholePoint(b, b.wormholes.size(), a.id);
         Point2D aExit = exitPoint(a, ap);
         Point2D bExit = exitPoint(b, bp);
-        a.wormholes.add(new WormholeGate(a.id + "_to_" + b.id, a.id, b.id, ap.getX(), ap.getY(), bExit.getX(), bExit.getY()));
-        b.wormholes.add(new WormholeGate(b.id + "_to_" + a.id, b.id, a.id, bp.getX(), bp.getY(), aExit.getX(), aExit.getY()));
+        if (!aHas) a.wormholes.add(new WormholeGate(a.id + "_to_" + b.id, a.id, b.id, ap.getX(), ap.getY(), bExit.getX(), bExit.getY()));
+        if (!bHas) b.wormholes.add(new WormholeGate(b.id + "_to_" + a.id, b.id, a.id, bp.getX(), bp.getY(), aExit.getX(), aExit.getY()));
         if (a.id.equals(activeSystemId) || b.id.equals(activeSystemId)) loadActive(world);
     }
 
