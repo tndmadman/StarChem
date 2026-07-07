@@ -33,6 +33,7 @@ jobs:
           cp build/libs/starchem-0.1.0.jar release/StarChem/StarChem.jar
           cp -R config release/StarChem/config
           cp README.md release/StarChem/README.md
+          cp PLAY.txt release/StarChem/PLAY.txt
           cd release
           zip -r StarChem-${GITHUB_REF_NAME}.zip StarChem
           cd ..
