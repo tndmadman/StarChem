@@ -10,6 +10,12 @@ The package includes the runnable StarChem JAR file and the required config fold
 
 Java 17 or newer is required to play.
 
+To launch from a terminal inside the extracted StarChem folder, run:
+
+java -jar .\StarChem.jar
+
+Do not run `java .\StarChem.jar`. That makes Java look for a class named like the file path instead of launching the JAR.
+
 ## Development
 
 Run from source with Gradle during development.
