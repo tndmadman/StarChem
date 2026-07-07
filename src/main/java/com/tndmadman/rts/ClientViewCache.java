@@ -9,7 +9,6 @@ final class ClientViewCache {
     void setHome(World world, String playerId) {
         if (playerId == null || playerId.isBlank()) return;
         viewByPlayer.put(playerId, world.playerHomeSystemId(playerId));
-        ResourceSync.markFull(world);
     }
 
     void remove(String playerId) {
@@ -22,7 +21,6 @@ final class ClientViewCache {
         if (existing != null) return existing;
         String home = world.playerHomeSystemId(playerId);
         viewByPlayer.put(playerId, home);
-        ResourceSync.markFull(world);
         return home;
     }
 
@@ -40,12 +38,9 @@ final class ClientViewCache {
         String old = world.activeSystemId();
         try {
             world.activateSystem(view(world, playerId));
-            String before = world.activeSystemId();
             change.run();
-            String after = world.activeSystemId();
-            if (!after.equals(before)) ResourceSync.markFull(world);
             world.saveActiveSystem();
-            if (playerId != null && !playerId.isBlank()) viewByPlayer.put(playerId, after);
+            if (playerId != null && !playerId.isBlank()) viewByPlayer.put(playerId, world.activeSystemId());
         } finally {
             world.activateSystem(old);
         }
