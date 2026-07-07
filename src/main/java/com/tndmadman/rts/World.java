@@ -18,10 +18,12 @@ final class World {
     final List<ProjectileShot> shots = new ArrayList<>();
     final List<ExplosionEffect> explosions = new ArrayList<>();
     final List<WorldItem> items = new ArrayList<>();
+    final List<WormholeGate> wormholes = new ArrayList<>();
     final EnumMap<Material, Double> stockpile = new EnumMap<>(Material.class);
     final Map<String, Set<String>> completedResearch = new LinkedHashMap<>();
     final LogisticsSystem logisticsSystem = new LogisticsSystem();
     private final Set<String> devFreeBuildPlayers = new LinkedHashSet<>();
+    private final GalaxyCoordinator galaxy = new GalaxyCoordinator();
     boolean devFreeBuild;
 
     private StarSystemDefinition starSystem;
@@ -52,12 +54,12 @@ final class World {
         this.npcSystem = new NpcSystem(disabledNpcFactionIds);
         setStarSystem(systemId);
         setSystemSeed(System.nanoTime() ^ System.currentTimeMillis());
-        seedResources();
-        Point2D basePoint = startBasePoint();
+        ensurePlayerHome(localPlayerId);
+        Point2D basePoint = startPointForPlayer(localPlayerId, 0);
         addBase(Rules.DEFAULT_BASE, basePoint.getX(), basePoint.getY());
         Point2D start = startShipPoint(basePoint);
         spawnShip(Rules.STARTING_SHIP, start.getX(), start.getY());
-        status = "Entered " + starSystem.name() + ". Right-click a resource with a ship selected to auto-harvest.";
+        status = "Entered " + starSystem.name() + ". Wormhole gates connect active systems.";
     }
 
     long systemSeed() { return systemSeed; }
@@ -65,6 +67,10 @@ final class World {
     String systemId() { return starSystem.id(); }
     String systemName() { return starSystem.name(); }
     List<Material> spawnMaterials() { return starSystem.spawnMaterials(); }
+    List<Material> spawnMaterials(String playerId) { return galaxy.spawnMaterials(this, playerId, starSystem); }
+    void ensurePlayerHome(String playerId) { galaxy.ensurePlayerHome(this, playerId, starSystem); }
+    Point2D startPointForPlayer(String playerId, int slot) { return galaxy.startPoint(this, playerId, slot, starSystem); }
+    Point2D npcSpawnPoint(String factionId, double padding) { return galaxy.npcSpawnPoint(this, factionId, padding); }
 
     void setDevFreeBuild(String playerId, boolean enabled) {
         if (playerId == null || playerId.isBlank()) return;
@@ -86,45 +92,29 @@ final class World {
     }
 
     void useSystemSeed(long seed) { if (seed != systemSeed) syncEnvironment(systemId(), seed, 0); }
-
     void syncEnvironment(long seed, double hostTime) { syncEnvironment(systemId(), seed, hostTime); }
 
     void syncEnvironment(String newSystemId, long seed, double hostTime) {
         boolean systemChanged = !StarSystems.get(newSystemId).id().equals(systemId());
         if (systemChanged) setStarSystem(newSystemId);
-        if (systemChanged || seed != systemSeed) {
-            setSystemSeed(seed);
-            resources.clear();
-            seedResources();
-        }
+        if (systemChanged || seed != systemSeed) setSystemSeed(seed);
         double delta = hostTime - systemTime;
         if (Math.abs(delta) > 0.25) advanceEnvironment(delta);
     }
 
-    private void setStarSystem(String systemId) {
-        starSystem = StarSystems.get(systemId);
-        width = starSystem.width();
-        height = starSystem.height();
-    }
+    private void setStarSystem(String systemId) { starSystem = StarSystems.get(systemId); }
 
     private void setSystemSeed(long seed) {
         systemSeed = seed;
         systemTime = 0;
         random = new Random(seed);
-        celestials = new CelestialSystem(starSystem, random);
+        celestials = galaxy.rebuild(this, starSystem, seed);
     }
 
-    private void seedResources() { ResourceSpawner.seed(resources, celestials, random, starSystem.resourceBelts()); }
+    private void seedResources() { }
     private Point2D startShipPoint(Point2D basePoint) { return new Point2D.Double(basePoint.getX() + 180, basePoint.getY() - 80); }
 
-    private Point2D startBasePoint() {
-        ResourceNode iron = firstResource(Material.IRON);
-        if (iron == null) return new Point2D.Double(celestials.sunX() - 2550, celestials.sunY() + 900);
-        double a = Math.atan2(iron.y - celestials.sunY(), iron.x - celestials.sunX());
-        double r = Math.max(900, iron.orbitRadius - 260);
-        return new Point2D.Double(celestials.sunX() + Math.cos(a) * r, celestials.sunY() + Math.sin(a) * r);
-    }
-
+    private Point2D startBasePoint() { return startPointForPlayer(localPlayerId, 0); }
     private ResourceNode firstResource(Material material) { for (ResourceNode node : resources) if (node.material == material) return node; return null; }
 
     void updateEnvironment(double dt) {
@@ -135,7 +125,7 @@ final class World {
 
     private void advanceEnvironment(double dt) {
         systemTime += dt;
-        celestials.update(dt);
+        galaxy.update(this, dt);
         ResourceSpawner.update(resources, celestials, dt);
     }
 
@@ -247,7 +237,7 @@ final class World {
 
     void draw(Graphics2D g2) {
         drawMap(g2);
-        celestials.draw(g2);
+        galaxy.draw(this, g2);
         for (Base base : bases.values()) base.draw(g2, localColor, stockpile, true);
         for (ResourceNode node : resources) node.draw(g2, node.id == selectedResourceId);
         for (WorldItem item : items) item.draw(g2);
@@ -262,14 +252,7 @@ final class World {
     }
 
     private boolean shouldDrawRoute(Unit unit) { return PlayerRegistry.isLocal(unit.playerId) && (unit.task == UnitTask.MOVE || unit.task == UnitTask.RETURN_TO_STATION || unit.task == UnitTask.ATTACK); }
-
-    private void drawMap(Graphics2D g2) {
-        g2.setColor(new Color(9, 15, 24));
-        g2.fillRect(0, 0, width, height);
-        g2.setColor(new Color(22, 33, 48));
-        for (int x = 0; x <= width; x += 160) g2.drawLine(x, 0, x, height);
-        for (int y = 0; y <= height; y += 160) g2.drawLine(0, y, width, y);
-    }
+    private void drawMap(Graphics2D g2) { galaxy.drawMap(g2, width, height); }
 
     void selectAt(double x, double y) {
         ResourceNode node = resourceAt(x, y);
@@ -294,35 +277,18 @@ final class World {
     }
 
     private Point2D formationTarget(double x, double y, int index, int count, FleetFormation formation) {
-        double spacing = 54;
-        double ox = 0;
-        double oy = 0;
+        double spacing = 54, ox = 0, oy = 0;
         switch (formation) {
             case LINE -> ox = (index - (count - 1) / 2.0) * spacing;
-            case COLUMN -> oy = 0 + (index - (count - 1) / 2.0) * spacing;
-            case WEDGE -> {
-                if (index > 0) {
-                    int rank = (index + 1) / 2;
-                    int side = index % 2 == 1 ? -1 : 1;
-                    ox = side * rank * spacing;
-                    oy = rank * spacing;
-                }
-            }
-            case GRID -> {
-                int cols = (int)Math.ceil(Math.sqrt(count));
-                double rows = Math.ceil(count / (double)cols);
-                int col = index % cols;
-                int row = index / cols;
-                ox = (col - (cols - 1) / 2.0) * 42;
-                oy = (row - (rows - 1) / 2.0) * 42;
-            }
+            case COLUMN -> oy = (index - (count - 1) / 2.0) * spacing;
+            case WEDGE -> { if (index > 0) { int rank = (index + 1) / 2; int side = index % 2 == 1 ? -1 : 1; ox = side * rank * spacing; oy = rank * spacing; } }
+            case GRID -> { int cols = (int)Math.ceil(Math.sqrt(count)); double rows = Math.ceil(count / (double)cols); int col = index % cols; int row = index / cols; ox = (col - (cols - 1) / 2.0) * 42; oy = (row - (rows - 1) / 2.0) * 42; }
         }
         return new Point2D.Double(Calc.clamp(x + ox, 0, width), Calc.clamp(y + oy, 0, height));
     }
 
     void attackSelected(String targetKey) {
-        int started = 0;
-        int unarmed = 0;
+        int started = 0, unarmed = 0;
         for (Unit unit : selectedUnits()) {
             if (!WeaponRules.armed(unit.type())) { unarmed++; continue; }
             if (!CombatTarget.enemy(this, unit, targetKey)) continue;
@@ -353,12 +319,7 @@ final class World {
         else moveTowardOrbit(unit, base.x, base.y, base.type().unloadRange * 0.55);
     }
 
-    boolean returnToMiningAnchor(Unit unit) {
-        if (unit == null || !unit.miningAnchorSet || unit.type().harvestKinds.isEmpty()) return false;
-        unit.moveTo(unit.miningAnchorX, unit.miningAnchorY);
-        return true;
-    }
-
+    boolean returnToMiningAnchor(Unit unit) { if (unit == null || !unit.miningAnchorSet || unit.type().harvestKinds.isEmpty()) return false; unit.moveTo(unit.miningAnchorX, unit.miningAnchorY); return true; }
     boolean scoutRetarget(Unit unit, ResourceNode oldNode) { return oldNode != null && scoutSystem.retargetAfterDepletion(this, unit, oldNode); }
 
     void orbitAround(Unit unit, double cx, double cy, double radius, double dt, double speed) {
@@ -375,59 +336,29 @@ final class World {
         unit.targetY = Calc.clamp(cy + Math.sin(angle) * radius, 0, height);
     }
 
-    void relocateResource(ResourceNode node) { ResourceSpawner.relocate(node, resources, bases.values(), celestials, random); }
+    void relocateResource(ResourceNode node) { ResourceSpawner.relocate(node, resources, bases.values(), null, random); }
 
     private void cleanupDestroyed() {
         Iterator<Unit> unitIt = units.values().iterator();
-        while (unitIt.hasNext()) {
-            Unit unit = unitIt.next();
-            if (unit.hp <= 0) {
-                dropLoot(unit);
-                explodeUnit(unit);
-                unitIt.remove();
-            }
-        }
+        while (unitIt.hasNext()) { Unit unit = unitIt.next(); if (unit.hp <= 0) { dropLoot(unit); explodeUnit(unit); unitIt.remove(); } }
         Iterator<Base> baseIt = bases.values().iterator();
-        while (baseIt.hasNext()) {
-            Base base = baseIt.next();
-            if (base.hp <= 0) {
-                dropLoot(base);
-                explodeBase(base);
-                baseIt.remove();
-            }
-        }
+        while (baseIt.hasNext()) { Base base = baseIt.next(); if (base.hp <= 0) { dropLoot(base); explodeBase(base); baseIt.remove(); } }
         NpcStationReplacementSystem.replaceMissingStations(this);
         NpcCollapseSystem.removeShipsWithoutStations(this);
         shots.removeIf(shot -> !CombatTarget.alive(this, shot.targetKey) || shot.weapon() == null);
-        for (Unit unit : units.values()) {
-            if (!unit.attackTarget.isBlank() && !CombatTarget.alive(this, unit.attackTarget)) {
-                unit.attackTarget = "";
-                if (unit.task == UnitTask.ATTACK) unit.task = UnitTask.IDLE;
-            }
-        }
+        for (Unit unit : units.values()) if (!unit.attackTarget.isBlank() && !CombatTarget.alive(this, unit.attackTarget)) { unit.attackTarget = ""; if (unit.task == UnitTask.ATTACK) unit.task = UnitTask.IDLE; }
     }
 
-    private void dropLoot(Unit unit) {
-        int count = WorldLootDrops.scatter(this, SalvageDrops.fromUnit(unit), unit.x, unit.y, Math.max(1.0, unit.type().size.scale), lootSeed(unit.key(), unit.x, unit.y));
-        if (count > 0 && PlayerRegistry.isLocal(unit.playerId)) status = "Destroyed ship dropped cargo and salvage.";
-    }
-
-    private void dropLoot(Base base) {
-        double power = Math.max(2.4, base.type().maxHp / 900.0);
-        int count = WorldLootDrops.scatter(this, SalvageDrops.fromBase(base), base.x, base.y, power, lootSeed(base.id, base.x, base.y));
-        if (count > 0 && PlayerRegistry.isLocal(base.playerId)) status = "Destroyed station dropped hangar loot and salvage.";
-    }
-
-    private long lootSeed(String key, double x, double y) {
-        return System.nanoTime() ^ ((long)key.hashCode() << 32) ^ Double.doubleToLongBits(x * 37.0 + y * 41.0);
-    }
+    private void dropLoot(Unit unit) { int count = WorldLootDrops.scatter(this, SalvageDrops.fromUnit(unit), unit.x, unit.y, Math.max(1.0, unit.type().size.scale), lootSeed(unit.key(), unit.x, unit.y)); if (count > 0 && PlayerRegistry.isLocal(unit.playerId)) status = "Destroyed ship dropped cargo and salvage."; }
+    private void dropLoot(Base base) { double power = Math.max(2.4, base.type().maxHp / 900.0); int count = WorldLootDrops.scatter(this, SalvageDrops.fromBase(base), base.x, base.y, power, lootSeed(base.id, base.x, base.y)); if (count > 0 && PlayerRegistry.isLocal(base.playerId)) status = "Destroyed station dropped hangar loot and salvage."; }
+    private long lootSeed(String key, double x, double y) { return System.nanoTime() ^ ((long)key.hashCode() << 32) ^ Double.doubleToLongBits(x * 37.0 + y * 41.0); }
 
     ResourceNode resourceAt(double x, double y) { ResourceNode best = null; double bestDist = Double.MAX_VALUE; for (ResourceNode node : resources) if (node.active) { double d = Calc.distance(x, y, node.x, node.y); if (d <= node.radius + 14 && d < bestDist) { best = node; bestDist = d; } } return best; }
     Base baseAt(double x, double y) { for (Base base : bases.values()) if (base.contains(x, y)) return base; return null; }
     Unit unitAt(double x, double y) { for (Unit unit : units.values()) if (unit.contains(x, y)) return unit; return null; }
     ResourceNode findResource(int id) { for (ResourceNode node : resources) if (node.id == id) return node; return null; }
     Base nearestBase(double x, double y) { return nearestBase(PlayerRegistry.localId(), x, y); }
-    Base nearestBase(String playerId, double x, double y) { Base best = null; double bestDist = Double.MAX_VALUE; for (Base base : bases.values()) if (base.playerId.equals(playerId)) { double d = Calc.distance(x, y, base.x, base.y); if (d < bestDist) { best = base; bestDist = d; } } return best; }
+    Base nearestBase(String playerId, double x, double y) { return galaxy.nearestBaseInSameSystem(this, playerId, x, y); }
     List<Unit> selectedUnits() { List<Unit> out = new ArrayList<>(); for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) out.add(unit); return out; }
     Unit selectedUnit() { for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) return unit; return null; }
     int selectedCount() { int count = 0; for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) count++; return count; }
