@@ -11,6 +11,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final World world;
     private final GameFrame owner;
     private final PeerNetwork network;
+    private final GameServer server;
     private final Timer timer;
     private final BuildMenu buildMenu = new BuildMenu();
     private final GameCamera camera = new GameCamera();
@@ -34,6 +35,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         this.world = world;
         this.owner = owner;
         this.network = network;
+        this.server = GameServer.forNetwork(world, network);
         this.devMode = devMode;
         setFocusable(true);
         setBackground(new Color(8, 12, 18));
@@ -51,8 +53,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         long now = System.nanoTime();
         double dt = Math.min(0.05, (now - lastNanos) / 1_000_000_000.0);
         lastNanos = now;
-        boolean hostOrSolo = network == null || network.statusLine().startsWith("HOST");
-        if (hostOrSolo) world.update(dt);
+        if (server != null) server.tick(dt);
+        else if (network == null) world.update(dt);
         else {
             world.updateEnvironment(dt);
             ClientPrediction.update(world, dt);
