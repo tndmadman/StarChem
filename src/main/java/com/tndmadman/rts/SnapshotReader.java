@@ -25,6 +25,8 @@ final class SnapshotReader {
                 units.add(new UnitState(c[0], Integer.parseInt(c[1]), c[2], Double.parseDouble(c[3]), Double.parseDouble(c[4]), Double.parseDouble(c[5]), Double.parseDouble(c[6]), Double.parseDouble(c[7]), c[8], Integer.parseInt(c[9]), CargoCodec.unsafed(c[10]), CargoCodec.unsafed(c[11]), hp, layer, target, flash));
             }
         }
-        return new Snapshot(seq, players, units, SnapshotReader2.resources(p), SnapshotReader2.bases(p), SnapshotReader2.stocks(p), SnapshotReader2.shots(p), SnapshotReader2.items(p));
+        double systemTime = -1;
+        if (p.length > 9 && !p[9].isBlank()) try { systemTime = Double.parseDouble(p[9]); } catch (NumberFormatException ignored) { }
+        return new Snapshot(seq, players, units, SnapshotReader2.resources(p), SnapshotReader2.bases(p), SnapshotReader2.stocks(p), SnapshotReader2.shots(p), SnapshotReader2.items(p), systemTime);
     }
 }
