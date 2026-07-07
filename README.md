@@ -6,7 +6,9 @@ StarChem is a Java 2D top-down multiplayer RTS prototype.
 
 Download the release ZIP and extract it.
 
-The package includes the runnable game file and the required config folder. Players do not need to compile the project locally.
+The package includes the runnable StarChem JAR file and the required config folder. Players do not need to compile the project locally.
+
+Java 17 or newer is required to play.
 
 ## Development
 
