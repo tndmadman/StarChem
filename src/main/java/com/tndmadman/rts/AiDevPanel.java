@@ -5,14 +5,15 @@ import java.util.List;
 
 final class AiDevPanel {
     private static final int ROW = 18;
+    private static final int ROW_BASELINE_Y = 96;
     private final HudWindow window = new HudWindow(330, 205, 430);
 
     boolean click(World world, int sx, int sy, boolean canEdit) {
         if (!window.contains(sx, sy, bodyHeight())) return false;
         if (sy <= window.y + 28) return window.press(sx, sy, bodyHeight());
         if (window.collapsed || !canEdit) return true;
-        int row = (sy - window.bodyY() - 96) / ROW;
-        if (row < 0) return true;
+        int row = clickedRow(sy - window.bodyY());
+        if (row < 0 || row >= rows().length) return true;
         switch (row) {
             case 0 -> AiDevSettings.overlay = !AiDevSettings.overlay;
             case 1 -> AiDevSettings.pathLines = !AiDevSettings.pathLines;
@@ -61,9 +62,9 @@ final class AiDevPanel {
         g2.drawString("Blocked: " + AiDevSnapshot.blockedReason(world, f), x, yy); yy += 18;
 
         String[] rows = rows();
-        for (int i = 0; i < rows.length; i++) drawRow(g2, x, y + 96 + i * ROW, rows[i]);
+        for (int i = 0; i < rows.length; i++) drawRow(g2, x, y + ROW_BASELINE_Y + i * ROW, rows[i]);
 
-        int logY = y + 96 + rows.length * ROW + 16;
+        int logY = y + ROW_BASELINE_Y + rows.length * ROW + 16;
         g2.setColor(new Color(190, 220, 255));
         g2.drawString("Brain log:", x, logY);
         logY += 15;
@@ -100,6 +101,12 @@ final class AiDevPanel {
         };
     }
 
+    private int clickedRow(int localY) {
+        int firstTop = ROW_BASELINE_Y - ROW / 2;
+        if (localY < firstTop) return -1;
+        return (localY - firstTop) / ROW;
+    }
+
     private void drawRow(Graphics2D g2, int x, int y, String text) {
         g2.setColor(text.startsWith("[x]") ? new Color(120, 255, 170) : new Color(255, 225, 150));
         g2.drawString(text, x + 4, y);
@@ -107,5 +114,5 @@ final class AiDevPanel {
 
     private String check(String label, boolean on) { return (on ? "[x] " : "[ ] ") + label; }
     private String trim(String text, int max) { return text.length() <= max ? text : text.substring(0, Math.max(0, max - 3)) + "..."; }
-    private int bodyHeight() { return 96 + rows().length * ROW + 120; }
+    private int bodyHeight() { return ROW_BASELINE_Y + rows().length * ROW + 120; }
 }
