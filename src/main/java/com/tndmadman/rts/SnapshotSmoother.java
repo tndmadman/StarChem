@@ -46,7 +46,6 @@ final class SnapshotSmoother {
     }
 
     private static void applyTarget(Unit unit, UnitState state, UnitTask serverTask, boolean local, boolean forceLocalAuthority) {
-        if (local && !forceLocalAuthority && (serverTask == UnitTask.AUTO_HARVEST || serverTask == UnitTask.IDLE)) return;
         unit.targetX = state.targetX();
         unit.targetY = state.targetY();
     }
