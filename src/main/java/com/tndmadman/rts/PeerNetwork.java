@@ -39,7 +39,7 @@ final class PeerNetwork implements CommandSink {
             network.joined = true;
             PlayerRegistry.reset("SOLO", config.playerName, 0x50BEFF);
             world.setDevFreeBuild("SOLO", config.devMode);
-            world.status = "Hosting UDP " + socket.getLocalPort() + (config.devMode ? " with dev mode enabled" : "");
+            world.status = "Hosting " + world.systemName() + " UDP " + socket.getLocalPort() + (config.devMode ? " with dev mode enabled" : "");
         } else {
             PlayerRegistry.reset("WAIT", config.playerName, 0x50BEFF);
             world.setDevFreeBuild("WAIT", false);
@@ -51,7 +51,7 @@ final class PeerNetwork implements CommandSink {
         return network;
     }
 
-    String statusLine() { return config.hostMode ? "HOST UDP " + socket.getLocalPort() + " | clients " + peers.size() + " | pending " + pending.size() + (config.devMode ? " | dev host" : "") : "CLIENT " + (joined ? localPlayerId : "joining") + " -> " + config.serverAddress + " | pending " + pending.size() + (world.devFreeBuild ? " | dev" : ""); }
+    String statusLine() { return config.hostMode ? "HOST " + world.systemName() + " UDP " + socket.getLocalPort() + " | clients " + peers.size() + " | pending " + pending.size() + (config.devMode ? " | dev host" : "") : "CLIENT " + (joined ? localPlayerId : "joining") + " -> " + config.serverAddress + " | " + world.systemName() + " | pending " + pending.size() + (world.devFreeBuild ? " | dev" : ""); }
     String localPlayerId() { return localPlayerId; }
 
     void tick() {
@@ -129,8 +129,9 @@ final class PeerNetwork implements CommandSink {
 
     private void clientPacket(String m) {
         String[] p = m.split("\\|", -1);
-        if (p[0].equals("ENV") && p.length >= 3) {
-            syncEnv(p[1], p[2]);
+        if (p[0].equals("ENV")) {
+            if (p.length >= 4) syncEnv(p[1], p[2], p[3]);
+            else if (p.length >= 3) syncEnv(world.systemId(), p[1], p[2]);
             return;
         }
         if (p[0].equals("SEED") && p.length >= 2) {
@@ -140,12 +141,13 @@ final class PeerNetwork implements CommandSink {
         if (p[0].equals("WELCOME") && p.length >= 4) {
             localPlayerId = p[1];
             joined = true;
-            if (p.length >= 6) syncEnv(p[4], p[5]);
+            if (p.length >= 7) syncEnv(p[4], p[5], p[6]);
+            else if (p.length >= 6) syncEnv(world.systemId(), p[4], p[5]);
             else if (p.length >= 5) try { world.useSystemSeed(Long.parseLong(p[4])); } catch (NumberFormatException ignored) { }
             PlayerRegistry.register(localPlayerId, p[2], Integer.parseInt(p[3]), true);
             boolean devAllowed = welcomeDevAllowed(p);
             world.setDevFreeBuild(localPlayerId, devAllowed);
-            world.status = "Joined as " + p[2] + devStatus(devAllowed);
+            world.status = "Joined " + world.systemName() + " as " + p[2] + devStatus(devAllowed);
             return;
         }
         if (p[0].equals("SNAPSHOT")) WorldNetAccess.apply(world, SnapshotReader.read(m));
@@ -167,15 +169,15 @@ final class PeerNetwork implements CommandSink {
         broadcastNow();
     }
 
-    private void syncEnv(String seed, String time) {
-        try { world.syncEnvironment(Long.parseLong(seed), Double.parseDouble(time)); } catch (NumberFormatException ignored) { }
+    private void syncEnv(String systemId, String seed, String time) {
+        try { world.syncEnvironment(systemId, Long.parseLong(seed), Double.parseDouble(time)); } catch (NumberFormatException ignored) { }
     }
 
-    private String envMessage() { return "ENV|" + world.systemSeed() + "|" + Calc.round(world.systemTime()); }
-    private String welcome(String id, String name, int rgb, boolean devAllowed) { return "WELCOME|" + id + "|" + Config.clean(name) + "|" + rgb + "|" + world.systemSeed() + "|" + Calc.round(world.systemTime()) + "|DEV|" + (devAllowed ? "1" : "0"); }
+    private String envMessage() { return "ENV|" + world.systemId() + "|" + world.systemSeed() + "|" + Calc.round(world.systemTime()); }
+    private String welcome(String id, String name, int rgb, boolean devAllowed) { return "WELCOME|" + id + "|" + Config.clean(name) + "|" + rgb + "|" + world.systemId() + "|" + world.systemSeed() + "|" + Calc.round(world.systemTime()) + "|DEV|" + (devAllowed ? "1" : "0"); }
 
     private boolean requestedDev(String[] parts) { return parts.length > 2 && flag(parts[2]); }
-    private boolean welcomeDevAllowed(String[] parts) { return parts.length >= 8 && "DEV".equals(parts[6]) && flag(parts[7]); }
+    private boolean welcomeDevAllowed(String[] parts) { return parts.length >= 9 && "DEV".equals(parts[7]) && flag(parts[8]); }
     private boolean flag(String value) { return "1".equals(value) || "true".equalsIgnoreCase(value) || "DEV".equalsIgnoreCase(value) || "YES".equalsIgnoreCase(value); }
     private String devStatus(boolean allowed) { if (allowed) return " (dev mode enabled by host)"; return config.devMode ? " (dev mode denied by host)" : ""; }
 
