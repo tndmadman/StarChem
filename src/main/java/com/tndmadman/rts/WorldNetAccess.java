@@ -27,7 +27,10 @@ final class WorldNetAccess {
 
     static void apply(World world, Snapshot snapshot) {
         String local = PlayerRegistry.localId();
-        for (PlayerInfo p : snapshot.players()) PlayerRegistry.register(p.id(), p.name(), p.rgb(), p.id().equals(local));
+        for (PlayerInfo p : snapshot.players()) {
+            PlayerRegistry.register(p.id(), p.name(), p.rgb(), p.id().equals(local));
+            if (!NpcRules.isNpcFaction(p.id())) world.ensurePlayerHome(p.id());
+        }
         Set<String> liveUnits = new HashSet<>();
         for (UnitState s : snapshot.units()) {
             String key = Unit.key(s.playerId(), s.unitId());
@@ -79,19 +82,23 @@ final class WorldNetAccess {
         for (BaseState b : states) world.bases.put(b.id(), NetBaseSync.fromState(b));
     }
 
-    static void addPeerGroup(World world, String playerId) { spawnGroup(world, playerId, separatedSlot(world, slot(playerId))); }
+    static void addPeerGroup(World world, String playerId) {
+        world.ensurePlayerHome(playerId);
+        spawnGroup(world, playerId, separatedSlot(world, playerId, slot(playerId)));
+    }
 
     static void respawnPlayer(World world, String playerId) {
         world.units.values().removeIf(unit -> unit.playerId.equals(playerId));
         world.bases.values().removeIf(base -> base.playerId.equals(playerId));
         world.shots.removeIf(shot -> shot.ownerId.equals(playerId));
+        world.ensurePlayerHome(playerId);
         int salt = Math.max(5, world.units.size() + world.bases.size() + (int)Math.round(world.systemTime()));
-        spawnGroup(world, playerId, separatedSlot(world, slot(playerId) + salt));
-        world.status = PlayerRegistry.name(playerId) + " respawned in " + world.systemName() + ".";
+        spawnGroup(world, playerId, separatedSlot(world, playerId, slot(playerId) + salt));
+        world.status = PlayerRegistry.name(playerId) + " respawned in a home system.";
     }
 
     private static void spawnGroup(World world, String playerId, int slot) {
-        Point2D bp = resourceStart(world, slot);
+        Point2D bp = world.startPointForPlayer(playerId, slot);
         Point2D sp = startShipPoint(bp);
         int baseId = nextBaseNumber(world, playerId);
         int unitId = nextUnitNumber(world, playerId);
@@ -99,12 +106,12 @@ final class WorldNetAccess {
         world.units.put(Unit.key(playerId, unitId), new Unit(playerId, unitId, Rules.STARTING_SHIP, sp.getX(), sp.getY()));
     }
 
-    private static int separatedSlot(World world, int preferredSlot) {
+    private static int separatedSlot(World world, String playerId, int preferredSlot) {
         int bestSlot = preferredSlot;
         double bestDistance = -1;
         for (int offset = 0; offset < SPAWN_SLOT_SEARCH; offset++) {
             int candidateSlot = preferredSlot + offset;
-            Point2D bp = resourceStart(world, candidateSlot);
+            Point2D bp = world.startPointForPlayer(playerId, candidateSlot);
             Point2D sp = startShipPoint(bp);
             double distance = nearestStartDistance(world, bp, sp);
             if (distance > bestDistance) {
@@ -144,25 +151,6 @@ final class WorldNetAccess {
         int max = 0;
         for (Unit unit : world.units.values()) if (unit.playerId.equals(playerId)) max = Math.max(max, unit.unitId);
         return max + 1;
-    }
-
-    private static Point2D resourceStart(World world, int slot) {
-        List<Material> materials = world.spawnMaterials();
-        Material material = materials.isEmpty() ? Material.IRON : materials.get(Math.floorMod(slot, materials.size()));
-        ResourceNode node = nthActiveResource(world, material, slot * 17);
-        if (node == null) return Calc.basePoint(slot);
-        double cx = world.width / 2.0;
-        double cy = world.height / 2.0;
-        double a = Math.atan2(node.y - cy, node.x - cx);
-        double r = Math.max(700, Math.hypot(node.x - cx, node.y - cy) - 260);
-        return new Point2D.Double(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
-    }
-
-    private static ResourceNode nthActiveResource(World world, Material material, int skip) {
-        List<ResourceNode> active = new ArrayList<>();
-        for (ResourceNode node : world.resources) if (node.active && node.material == material) active.add(node);
-        if (active.isEmpty()) return null;
-        return active.get(Math.floorMod(skip, active.size()));
     }
 
     private static int slot(String id) {
