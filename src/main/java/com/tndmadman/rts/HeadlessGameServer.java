@@ -16,4 +16,13 @@ final class HeadlessGameServer {
         PeerNetwork network = PeerNetwork.start(config, world);
         return new HeadlessGameServer(world, network);
     }
+
+    void tick(double dt) {
+        world.update(dt);
+        network.tick();
+    }
+
+    void stop() {
+        network.shutdown();
+    }
 }
