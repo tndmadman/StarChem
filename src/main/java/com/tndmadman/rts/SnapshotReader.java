@@ -28,7 +28,8 @@ final class SnapshotReader {
         String systemId = "";
         double systemTime = -1;
         if (p.length > 10) {
-            systemId = p[9];
+            CelestialPacketCache.receive(p[9]);
+            systemId = CelestialPacketCache.systemId(p[9]);
             try { systemTime = Double.parseDouble(p[10]); } catch (NumberFormatException ignored) { }
         } else if (p.length > 9 && !p[9].isBlank()) {
             try { systemTime = Double.parseDouble(p[9]); } catch (NumberFormatException ignored) { systemId = p[9]; }
