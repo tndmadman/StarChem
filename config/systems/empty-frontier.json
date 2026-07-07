@@ -1,0 +1,18 @@
+{
+  "id": "empty_frontier",
+  "name": "Empty Frontier",
+  "role": "player_home",
+  "width": 15500,
+  "height": 14000,
+  "spawnMaterials": ["IRON", "COPPER", "SILICATES", "ICE"],
+  "bodies": [
+    {"id": "quiet_star", "name": "Quiet Star", "parent": null, "orbit": 0, "radius": 165, "speed": 0, "color": "#FFD47A"},
+    {"id": "homestead", "name": "Homestead Rock", "parent": "quiet_star", "orbit": 2100, "radius": 62, "speed": 0.013, "color": "#8BA37B"}
+  ],
+  "resourceBelts": [
+    {"name": "Starter Iron", "kind": "SILICATE_ROCK", "materials": ["IRON"], "orbit": 1750, "width": 240, "arc": 0.9, "count": 95, "amount": 20, "harvestRate": 7.0, "radius": 2.7},
+    {"name": "Starter Copper", "kind": "SILICATE_ROCK", "materials": ["COPPER"], "orbit": 2400, "width": 260, "arc": 0.9, "count": 85, "amount": 18, "harvestRate": 6.5, "radius": 2.5},
+    {"name": "Starter Silicates", "kind": "SILICATE_ROCK", "materials": ["SILICATES"], "orbit": 3100, "width": 300, "arc": 1.0, "count": 95, "amount": 22, "harvestRate": 7.0, "radius": 2.8},
+    {"name": "Starter Ice", "kind": "SILICATE_ROCK", "materials": ["ICE"], "orbit": 3950, "width": 360, "arc": 0.8, "count": 80, "amount": 18, "harvestRate": 6.4, "radius": 2.6}
+  ]
+}
