@@ -15,6 +15,23 @@ application {
     mainClass = 'com.tndmadman.rts.App'
 }
 
+tasks.named('jar') {
+    manifest {
+        attributes('Main-Class': application.mainClass.get())
+    }
+}
+
+distributions {
+    main {
+        contents {
+            from('config') {
+                into 'config'
+            }
+            from('README.md')
+        }
+    }
+}
+
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
