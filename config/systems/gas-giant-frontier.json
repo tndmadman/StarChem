@@ -1,0 +1,20 @@
+{
+  "id": "gas_giant_frontier",
+  "name": "Gas Giant Frontier",
+  "role": "gas",
+  "width": 19000,
+  "height": 17000,
+  "spawnMaterials": ["HYDROGEN", "HELIUM", "METHANE", "IRON"],
+  "bodies": [
+    {"id": "white_star", "name": "White Star", "parent": null, "orbit": 0, "radius": 190, "speed": 0, "color": "#DCEFFF"},
+    {"id": "leviathan", "name": "Leviathan", "parent": "white_star", "orbit": 3600, "radius": 165, "speed": 0.006, "color": "#C99562"},
+    {"id": "moon_a", "name": "Refinery Moon", "parent": "leviathan", "orbit": 330, "radius": 26, "speed": 0.045, "color": "#AFC6D0"},
+    {"id": "moon_b", "name": "Broken Moon", "parent": "leviathan", "orbit": 520, "radius": 34, "speed": -0.031, "color": "#938A7B"}
+  ],
+  "resourceBelts": [
+    {"name": "Hydrogen Sea", "kind": "GAS_CLOUD", "materials": ["HYDROGEN"], "orbit": 3200, "width": 650, "arc": 1.6, "count": 190, "amount": 32, "harvestRate": 10.0, "radius": 5.2},
+    {"name": "Helium Wake", "kind": "GAS_CLOUD", "materials": ["HELIUM"], "orbit": 4550, "width": 720, "arc": 1.4, "count": 160, "amount": 28, "harvestRate": 8.8, "radius": 5.0},
+    {"name": "Methane Ribbon", "kind": "GAS_CLOUD", "materials": ["METHANE", "AMMONIA"], "orbit": 5850, "width": 820, "arc": 1.3, "count": 145, "amount": 26, "harvestRate": 8.0, "radius": 4.8},
+    {"name": "Anchor Rocks", "kind": "SILICATE_ROCK", "materials": ["IRON", "SILICATES"], "orbit": 2250, "width": 260, "arc": 0.7, "count": 70, "amount": 16, "harvestRate": 6.0, "radius": 2.5}
+  ]
+}
