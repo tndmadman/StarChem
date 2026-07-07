@@ -32,12 +32,12 @@ final class PeerClientSide {
     }
 
     void handle(String message) { ClientPackets.handle(this, message); }
-    void move(MoveCommand c) { sendToServer("MOVE|" + c.playerId() + "|" + c.unitId() + "|" + Calc.round(c.x()) + "|" + Calc.round(c.y())); }
-    void work(HarvestCommand c) { sendToServer("WORK|" + c.playerId() + "|" + c.unitId() + "|" + c.resourceId()); }
-    void attack(AttackCommand c) { sendToServer("ATTACK|" + c.playerId() + "|" + c.unitId() + "|" + c.targetKey()); }
+    void move(MoveCommand c) { reliableToServer("MOVE|" + c.playerId() + "|" + c.unitId() + "|" + Calc.round(c.x()) + "|" + Calc.round(c.y())); }
+    void work(HarvestCommand c) { reliableToServer("WORK|" + c.playerId() + "|" + c.unitId() + "|" + c.resourceId()); }
+    void attack(AttackCommand c) { reliableToServer("ATTACK|" + c.playerId() + "|" + c.unitId() + "|" + c.targetKey()); }
     void respawn(String playerId) { reliableToServer("RESPAWN|" + playerId); }
-    void build(String playerId, String baseId, String shipTypeId) { sendToServer("BUILD|" + playerId + "|" + baseId + "|" + shipTypeId); }
-    void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { sendToServer("PACK|" + playerId + "|" + mode + "|" + baseOrUnitId + "|" + packageType); }
+    void build(String playerId, String baseId, String shipTypeId) { reliableToServer("BUILD|" + playerId + "|" + baseId + "|" + shipTypeId); }
+    void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { reliableToServer("PACK|" + playerId + "|" + mode + "|" + baseOrUnitId + "|" + packageType); }
     void jump(String playerId, double x, double y) { viewSnapshotMode = true; reliableToServer("JUMP|" + playerId + "|" + Calc.round(x) + "|" + Calc.round(y)); }
     void wormholeTouch(String playerId) { reliableToServer("WHTOUCH|" + playerId); }
 
