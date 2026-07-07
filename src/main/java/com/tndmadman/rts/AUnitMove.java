@@ -5,7 +5,12 @@ final class AUnitMove {
 
     static void apply(World world, MoveCommand c) {
         Unit u = world.units.get(Unit.key(c.playerId(), c.unitId()));
-        if (u != null) u.moveTo(c.x(), c.y());
+        if (u == null) {
+            System.out.println("MOVE MISS " + c.playerId() + ":" + c.unitId());
+            return;
+        }
+        u.moveTo(c.x(), c.y());
+        System.out.println("MOVE OK " + c.playerId() + ":" + c.unitId());
     }
 }
 
