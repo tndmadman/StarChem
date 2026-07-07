@@ -19,7 +19,7 @@ final class ClientViewCache {
 
     String[] systems(World world) {
         Set<String> out = new LinkedHashSet<>(viewByPlayer.values());
-        if (out.isEmpty()) out.add(world.activeSystemId());
+        out.add(world.activeSystemId());
         return out.toArray(new String[0]);
     }
 

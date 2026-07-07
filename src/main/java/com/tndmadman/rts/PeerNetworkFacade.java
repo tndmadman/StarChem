@@ -20,6 +20,7 @@ final class PeerNetwork implements CommandSink {
         if (!config.hostMode && !config.clientMode()) {
             PlayerRegistry.reset("SOLO", config.playerName, 0x50BEFF);
             world.setDevFreeBuild("SOLO", config.devMode);
+            ResourceNetDebug.registerClientWorld(world);
             if (config.devMode) world.status = "Solo dev mode enabled.";
             return null;
         }
@@ -31,11 +32,13 @@ final class PeerNetwork implements CommandSink {
             PlayerRegistry.reset("SOLO", config.playerName, 0x50BEFF);
             world.setDevFreeBuild("SOLO", config.devMode);
             world.status = "Hosting " + world.systemName() + " UDP " + transport.localPort() + (config.devMode ? " with dev mode enabled" : "");
+            ResourceNetDebug.registerServerWorld(world);
             server = new PeerServerSide(config, world, transport);
         } else {
             PlayerRegistry.reset("WAIT", config.playerName, 0x50BEFF);
             world.setDevFreeBuild("WAIT", false);
             world.status = "Joining " + config.serverAddress;
+            ResourceNetDebug.registerClientWorld(world);
             client = new PeerClientSide(config, world, transport);
         }
         transport.start();

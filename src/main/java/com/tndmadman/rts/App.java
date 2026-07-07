@@ -6,6 +6,7 @@ public final class App {
     private App() { }
     public static void main(String[] args) {
         Config config = Config.parse(args);
+        ResourceNetDebug.resetLogs(config);
         if (config.dedicatedServerMode()) {
             runServer(config);
             return;

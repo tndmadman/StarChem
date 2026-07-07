@@ -110,7 +110,7 @@ final class World {
     void completeResearch(String playerId, String topicId) { if (playerId == null || playerId.isBlank() || topicId == null || topicId.isBlank()) return; completedResearch.computeIfAbsent(playerId, ignored -> new LinkedHashSet<>()).add(topicId); }
     void useSystemSeed(long seed) { if (seed != systemSeed) syncEnvironment(systemId(), seed, 0); }
     void syncEnvironment(long seed, double hostTime) { syncEnvironment(systemId(), seed, hostTime); }
-    void syncEnvironment(String newSystemId, long seed, double hostTime) { boolean changed = !StarSystems.get(newSystemId).id().equals(systemId()); if (changed) setStarSystem(newSystemId); if (changed || seed != systemSeed) setSystemSeed(seed); double delta = hostTime - systemTime; if (Math.abs(delta) > 0.25) advanceEnvironment(delta); }
+    void syncEnvironment(String newSystemId, long seed, double hostTime) { boolean changed = !StarSystems.get(newSystemId).id().equals(systemId()); if (changed) setStarSystem(newSystemId); if (changed || seed != systemSeed) setSystemSeed(seed); double delta = hostTime - systemTime; if (Math.abs(delta) > 0.02) advanceEnvironment(delta); }
     private void setStarSystem(String systemId) { starSystem = StarSystems.get(systemId); }
     private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); celestials = galaxy.rebuild(this, starSystem, seed); }
     private Point2D startShipPoint(Point2D basePoint) { return new Point2D.Double(basePoint.getX() + 180, basePoint.getY() - 80); }

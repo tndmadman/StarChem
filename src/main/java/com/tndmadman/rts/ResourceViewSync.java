@@ -25,9 +25,10 @@ final class ResourceViewSync {
                 node = new ResourceNode(s.id(), s.name(), NodeKind.valueOf(s.kind()), Material.valueOf(s.material()), s.x(), s.y(), s.maxAmount(), s.harvestRate(), s.radius());
                 world.resources.add(node);
             }
-            ResourceOrbitSync.apply(node, s);
+            ResourceOrbitSync.apply(world, node, s);
         }
         CelestialPacketCache.clear();
+        world.saveActiveSystem();
         ResourceNetDebug.resourceViewEnd(world, replace);
     }
 }

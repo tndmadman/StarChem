@@ -15,7 +15,7 @@ final class GameServer {
     }
 
     void tick(double dt) {
-        world.update(dt);
+        network.updateServerWorlds(dt);
     }
 
     String statusLine() {

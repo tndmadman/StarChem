@@ -6,7 +6,7 @@ final class NetResourceSync {
     private NetResourceSync() { }
 
     static void apply(World world, Iterable<ResourceState> states) {
-        int seen = 0, missingCount = 0, corrected = 0, amountOnly = 0;
+        int seen = 0, missingCount = 0, corrected = 0, synced = 0;
         for (ResourceState s : states) {
             seen++;
             ResourceNode node = world.findResource(s.id());
@@ -24,14 +24,14 @@ final class NetResourceSync {
             boolean correctPosition = missing || reactivated || drifted;
             if (correctPosition || !s.active()) {
                 corrected++;
-                ResourceOrbitSync.apply(node, s);
-                ResourceNetDebug.netResourceCorrection(reason(missing, reactivated, drifted, s.active()), s, before, node, drift);
+                ResourceOrbitSync.apply(world, node, s);
+                ResourceNetDebug.netResourceCorrection(world, reason(missing, reactivated, drifted, s.active()), s, before, node, drift);
             } else {
-                amountOnly++;
-                ResourceOrbitSync.applyAmounts(node, s);
+                synced++;
+                ResourceOrbitSync.apply(world, node, s);
             }
         }
-        ResourceNetDebug.netResourceSummary(world, seen, missingCount, corrected, amountOnly);
+        ResourceNetDebug.netResourceSummary(world, seen, missingCount, corrected, synced);
     }
 
     private static String reason(boolean missing, boolean reactivated, boolean drifted, boolean active) {

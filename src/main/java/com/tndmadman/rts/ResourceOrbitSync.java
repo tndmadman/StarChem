@@ -4,6 +4,10 @@ final class ResourceOrbitSync {
     private ResourceOrbitSync() { }
 
     static void apply(ResourceNode node, ResourceState state) {
+        apply(null, node, state);
+    }
+
+    static void apply(World world, ResourceNode node, ResourceState state) {
         applyAmounts(node, state);
         node.x = state.x();
         node.y = state.y();
@@ -15,7 +19,7 @@ final class ResourceOrbitSync {
             node.orbitSpeed = state.orbitSpeed();
             node.orbiting = true;
             if (node.active) node.updateOrbit(0);
-            ResourceNetDebug.orbitRecomputed(node, state, Calc.distance(node.x, node.y, state.x(), state.y()));
+            ResourceNetDebug.orbitRecomputed(world, node, state, Calc.distance(node.x, node.y, state.x(), state.y()));
         } else node.orbiting = false;
     }
 

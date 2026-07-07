@@ -25,7 +25,9 @@ final class PeerServerSide {
 
     void updateWorlds(double dt) {
         String old = world.activeSystemId();
-        for (String systemId : views.systems(world)) {
+        String[] systems = views.systems(world);
+        ResourceNetDebug.serverUpdateSystems(world, systems, dt);
+        for (String systemId : systems) {
             world.activateSystem(systemId);
             world.updateCurrentSystem(dt);
         }
