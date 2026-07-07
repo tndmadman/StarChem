@@ -82,6 +82,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         if (devMode) aiDevOverlay.drawWorld(g2, world);
         drawSelectionBox(g2);
         g2.setTransform(old);
+        WormholeIndicator.draw(g2, world, camera, getWidth(), getHeight());
         drawHud(g2);
         leaderboardHud.draw(g2, world, getWidth());
         hangarHud.draw(g2, world, getWidth());
