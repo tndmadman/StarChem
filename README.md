@@ -6,17 +6,13 @@ StarChem is a Java 2D top-down multiplayer RTS prototype.
 
 Download the release ZIP and extract it.
 
-The package includes the runnable StarChem JAR file and the required config folder. Players do not need to compile the project locally.
+The player package contains only the compiled StarChem JAR, the required config folder, and run-starchem.bat.
 
-Java 17 or newer is required to play.
+Double-click run-starchem.bat to play.
 
-To launch normally, double-click the StarChem JAR file.
+Java 17 or newer is required.
 
-If double-click does not open the game, Windows probably does not have JAR files associated with Java. Use Open with on the JAR file and choose your installed Java runtime as the default app for JAR files.
-
-Fallback terminal launch from the extracted StarChem folder:
-
-java -jar .\StarChem.jar
+Players do not need Gradle, source files, or a local compile step.
 
 ## Development
 
@@ -24,4 +20,4 @@ Run from source with Gradle during development.
 
 ## Release
 
-Create and push tag v0.1.0 to build the first release artifacts.
+Create and push tag v0.1.0 to build the first release ZIP.
