@@ -1,7 +1,9 @@
 package com.tndmadman.rts;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 
 final class ClientViewCache {
     private final Map<String, String> viewByPlayer = new LinkedHashMap<>();
@@ -13,6 +15,12 @@ final class ClientViewCache {
 
     void remove(String playerId) {
         viewByPlayer.remove(playerId);
+    }
+
+    String[] systems(World world) {
+        Set<String> out = new LinkedHashSet<>(viewByPlayer.values());
+        if (out.isEmpty()) out.add(world.activeSystemId());
+        return out.toArray(new String[0]);
     }
 
     String view(World world, String playerId) {
