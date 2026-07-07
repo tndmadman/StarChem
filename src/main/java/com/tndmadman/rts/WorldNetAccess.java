@@ -51,7 +51,10 @@ final class WorldNetAccess {
             world.status = "Ignoring snapshot for another system; holding local fleet in " + world.activeSystemId() + ".";
             return;
         }
-        if (snapshot.systemTime() >= 0) world.syncEnvironment(world.systemId(), world.systemSeed(), snapshot.systemTime());
+        if (snapshot.systemTime() >= 0) {
+            world.syncEnvironment(world.systemId(), world.systemSeed(), snapshot.systemTime());
+            CelestialViewSync.apply(world, snapshot.systemId(), snapshot.systemTime());
+        }
         boolean forceLocal = allowNoLocalAssets;
         boolean explodeMissing = !allowNoLocalAssets;
         Set<String> liveUnits = new HashSet<>();
