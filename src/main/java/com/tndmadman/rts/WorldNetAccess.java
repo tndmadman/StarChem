@@ -19,7 +19,7 @@ final class WorldNetAccess {
         for (ProjectileShot shot : world.shots) shots.add(new ShotState(shot.id, shot.ownerId, shot.weaponId, shot.targetKey, shot.x, shot.y, shot.lastX, shot.lastY));
         List<ItemState> items = new ArrayList<>();
         for (WorldItem item : world.items) items.add(new ItemState(item.id, item.material.name(), item.amount, item.x, item.y, item.vx, item.vy, item.angle, item.spin));
-        return new Snapshot(sequence, players, units, resources, bases, stocks, shots, items, world.systemTime());
+        return new Snapshot(sequence, players, units, resources, bases, stocks, shots, items, world.activeSystemId(), world.systemTime());
     }
 
     static boolean hasPlayerAssets(Snapshot snapshot, String playerId) {
@@ -39,6 +39,11 @@ final class WorldNetAccess {
 
     private static void apply(World world, Snapshot snapshot, boolean allowNoLocalAssets) {
         String local = PlayerRegistry.localId();
+        String snapSystem = snapshot.systemId();
+        if (snapSystem != null && !snapSystem.isBlank() && !snapSystem.equals(world.activeSystemId())) {
+            world.status = "Ignoring stale snapshot for " + snapSystem + "; viewing " + world.activeSystemId() + ".";
+            return;
+        }
         boolean snapshotHasLocalAssets = hasPlayerAssets(snapshot, local);
         for (PlayerInfo p : snapshot.players()) {
             PlayerRegistry.register(p.id(), p.name(), p.rgb(), p.id().equals(local));
@@ -52,6 +57,7 @@ final class WorldNetAccess {
             return;
         }
         if (snapshot.systemTime() >= 0) world.syncEnvironment(world.systemId(), world.systemSeed(), snapshot.systemTime());
+        boolean forceLocal = allowNoLocalAssets;
         boolean explodeMissing = !allowNoLocalAssets;
         Set<String> liveUnits = new HashSet<>();
         for (UnitState s : snapshot.units()) {
@@ -61,8 +67,9 @@ final class WorldNetAccess {
             if (u == null) {
                 u = new Unit(s.playerId(), s.unitId(), s.shipTypeId(), s.x(), s.y());
                 world.units.put(key, u);
+                if (PlayerRegistry.isLocal(u.playerId)) forceLocal = true;
             }
-            SnapshotSmoother.apply(u, s);
+            SnapshotSmoother.apply(u, s, forceLocal);
         }
         Iterator<Map.Entry<String, Unit>> unitIt = world.units.entrySet().iterator();
         while (unitIt.hasNext()) {
