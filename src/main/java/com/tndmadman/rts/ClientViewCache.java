@@ -33,4 +33,15 @@ final class ClientViewCache {
             world.activateSystem(old);
         }
     }
+
+    void applyChange(World world, String playerId, Runnable change) {
+        String old = world.activeSystemId();
+        try {
+            world.activateSystem(view(world, playerId));
+            change.run();
+            world.saveActiveSystem();
+        } finally {
+            world.activateSystem(old);
+        }
+    }
 }
