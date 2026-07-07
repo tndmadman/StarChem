@@ -26,21 +26,26 @@ final class WeaponRules {
         return List.copyOf(out);
     }
 
-    static boolean armed(ShipType ship) { return !loadout(ship).isEmpty(); }
+    static boolean armed(ShipType ship) {
+        for (WeaponType weapon : loadout(ship)) if (!weapon.screenWeapon) return true;
+        return false;
+    }
 
     static double maxRange(ShipType ship) {
         double max = 0;
-        for (WeaponType weapon : loadout(ship)) max = Math.max(max, weapon.range);
+        for (WeaponType weapon : loadout(ship)) {
+            if (weapon.screenWeapon) continue;
+            max = Math.max(max, weapon.range);
+        }
         return max;
     }
 
     static WeaponVolley volley(ShipType ship, double distance) { return volley(ship, distance, false); }
-
     static WeaponVolley directVolley(ShipType ship, double distance) { return volley(ship, distance, true); }
 
     static List<WeaponType> movingWeapons(ShipType ship, double distance) {
         List<WeaponType> out = new ArrayList<>();
-        for (WeaponType weapon : loadout(ship)) if (weapon.movingShot && distance <= weapon.range) out.add(weapon);
+        for (WeaponType weapon : loadout(ship)) if (!weapon.screenWeapon && weapon.movingShot && distance <= weapon.range) out.add(weapon);
         return List.copyOf(out);
     }
 
@@ -55,6 +60,7 @@ final class WeaponRules {
         double cooldown = 0;
         WeaponType visual = null;
         for (WeaponType weapon : loadout(ship)) {
+            if (weapon.screenWeapon) continue;
             if (distance > weapon.range) continue;
             if (directOnly && weapon.movingShot) continue;
             damage += weapon.damage;
