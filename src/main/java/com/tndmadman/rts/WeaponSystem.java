@@ -13,11 +13,17 @@ final class WeaponSystem {
             unit.weaponCooldown = Math.max(0, unit.weaponCooldown - dt);
             unit.weaponFlashTimer = Math.max(0, unit.weaponFlashTimer - dt);
         }
+        if (AiDevSettings.disableAttacks) return;
         for (Unit unit : new ArrayList<>(world.units.values())) {
+            if (AiDevSettings.freezeNpcCombat && NpcRules.isNpcFaction(unit.playerId)) continue;
             if (!WeaponRules.screenWeapons(unit.type()).isEmpty()) screenShots(world, unit);
         }
         for (Unit unit : new ArrayList<>(world.units.values())) {
-            if (!WeaponRules.armed(unit.type())) continue;
+            if (AiDevSettings.freezeNpcCombat && NpcRules.isNpcFaction(unit.playerId)) continue;
+            if (!WeaponRules.armed(unit.type())) {
+                clearIllegalAttack(unit);
+                continue;
+            }
             if (unit.task == UnitTask.IDLE && unit.attackTarget.isBlank()) acquireTarget(world, unit);
             if (unit.task == UnitTask.ATTACK) updateAttack(world, unit);
         }
@@ -39,6 +45,12 @@ final class WeaponSystem {
             float alpha = (float)(unit.weaponFlashTimer > 0 ? 0.85 : 0.18);
             drawShot(g2, unit.x, unit.y, tx, ty, visual, alpha);
         }
+    }
+
+    private void clearIllegalAttack(Unit unit) {
+        if (unit.task != UnitTask.ATTACK && unit.attackTarget.isBlank()) return;
+        unit.attackTarget = "";
+        if (unit.task == UnitTask.ATTACK) unit.task = UnitTask.IDLE;
     }
 
     private void acquireTarget(World world, Unit unit) {

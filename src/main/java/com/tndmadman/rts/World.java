@@ -35,6 +35,7 @@ final class World {
     private final BuildSystem buildSystem = new BuildSystem();
     private final WeaponSystem weaponSystem = new WeaponSystem();
     private final ItemPickupSystem itemPickupSystem = new ItemPickupSystem();
+    private final NpcSystem npcSystem;
     private int nextUnitId = 1;
     private int nextBaseId = 1;
     private int nextShotId = 1;
@@ -42,8 +43,11 @@ final class World {
     int selectedResourceId = -1;
     String status = "Right-click a resource with a ship selected to auto-harvest.";
 
-    World(String localPlayerName) {
+    World(String localPlayerName) { this(localPlayerName, Set.of()); }
+
+    World(String localPlayerName, Set<String> disabledNpcFactionIds) {
         this.localPlayerName = Config.clean(localPlayerName);
+        this.npcSystem = new NpcSystem(disabledNpcFactionIds);
         setSystemSeed(System.nanoTime() ^ System.currentTimeMillis());
         seedResources();
         Point2D basePoint = startBasePoint();
@@ -134,6 +138,7 @@ final class World {
         logisticsSystem.update(this, dt);
         itemPickupSystem.update(this);
         scoutSystem.update(this);
+        npcSystem.update(this, dt);
         for (Unit unit : new ArrayList<>(units.values())) updateUnit(unit, dt);
         weaponSystem.update(this, dt);
         cleanupDestroyed();
@@ -277,7 +282,7 @@ final class World {
         double oy = 0;
         switch (formation) {
             case LINE -> ox = (index - (count - 1) / 2.0) * spacing;
-            case COLUMN -> oy = (index - (count - 1) / 2.0) * spacing;
+            case COLUMN -> oy = 0 + (index - (count - 1) / 2.0) * spacing;
             case WEDGE -> {
                 if (index > 0) {
                     int rank = (index + 1) / 2;
@@ -374,6 +379,8 @@ final class World {
                 baseIt.remove();
             }
         }
+        NpcStationReplacementSystem.replaceMissingStations(this);
+        NpcCollapseSystem.removeShipsWithoutStations(this);
         shots.removeIf(shot -> !CombatTarget.alive(this, shot.targetKey) || shot.weapon() == null);
         for (Unit unit : units.values()) {
             if (!unit.attackTarget.isBlank() && !CombatTarget.alive(this, unit.attackTarget)) {
