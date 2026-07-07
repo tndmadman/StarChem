@@ -38,9 +38,12 @@ final class ClientViewCache {
         String old = world.activeSystemId();
         try {
             world.activateSystem(view(world, playerId));
+            String before = world.activeSystemId();
             change.run();
+            String after = world.activeSystemId();
+            if (!after.equals(before)) ResourceSync.markFull(world);
             world.saveActiveSystem();
-            if (playerId != null && !playerId.isBlank()) viewByPlayer.put(playerId, world.activeSystemId());
+            if (playerId != null && !playerId.isBlank()) viewByPlayer.put(playerId, after);
         } finally {
             world.activateSystem(old);
         }
