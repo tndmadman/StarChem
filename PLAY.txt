@@ -1,0 +1,14 @@
+StarChem launch instructions
+
+1. Install Java 17 or newer.
+2. Extract the StarChem release ZIP.
+3. Open a terminal in the extracted StarChem folder.
+4. Run this command:
+
+java -jar .\StarChem.jar
+
+Do not run this:
+
+java .\StarChem.jar
+
+The -jar flag is required. Without it, Java tries to load the file path as a class name.
