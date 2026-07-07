@@ -29,13 +29,8 @@ final class WorldNetAccess {
         return false;
     }
 
-    static void apply(World world, Snapshot snapshot) {
-        apply(world, snapshot, false);
-    }
-
-    static void applyView(World world, Snapshot snapshot) {
-        apply(world, snapshot, true);
-    }
+    static void apply(World world, Snapshot snapshot) { apply(world, snapshot, false); }
+    static void applyView(World world, Snapshot snapshot) { apply(world, snapshot, true); }
 
     private static void apply(World world, Snapshot snapshot, boolean allowNoLocalAssets) {
         String local = PlayerRegistry.localId();
@@ -80,7 +75,10 @@ final class WorldNetAccess {
                 unitIt.remove();
             }
         }
-        if (!snapshot.resources().isEmpty()) NetResourceSync.apply(world, snapshot.resources());
+        if (!snapshot.resources().isEmpty()) {
+            if (allowNoLocalAssets) ResourceViewSync.apply(world, snapshot.resources());
+            else NetResourceSync.apply(world, snapshot.resources());
+        }
         applyBases(world, snapshot.bases(), explodeMissing);
         world.shots.clear();
         for (ShotState s : snapshot.shots()) {
