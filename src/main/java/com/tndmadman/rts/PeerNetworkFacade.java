@@ -44,6 +44,7 @@ final class PeerNetwork implements CommandSink {
 
     String statusLine() { return server != null ? server.statusLine() : client.statusLine(); }
     String localPlayerId() { return client != null ? client.localPlayerId() : "SOLO"; }
+    void updateServerWorlds(double dt) { if (server != null) server.updateWorlds(dt); }
 
     void tick() {
         long now = System.currentTimeMillis();
