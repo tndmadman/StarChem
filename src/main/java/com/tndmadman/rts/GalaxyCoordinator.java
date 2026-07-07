@@ -25,7 +25,7 @@ final class GalaxyCoordinator {
         nextResourceId = 1;
         WorldSystemState main = createSystem(primary.id(), primary);
         WorldSystemState corsairs = createSystem(StarSystems.CORSAIR_SYSTEM_ID, StarSystems.get(StarSystems.CORSAIR_SYSTEM_ID));
-        link(main, corsairs);
+        link(world, main, corsairs);
         activeSystemId = main.id;
         loadActive(world);
         return main.celestials;
@@ -42,7 +42,6 @@ final class GalaxyCoordinator {
         state.bases.clear(); state.bases.putAll(world.bases);
         state.shots.clear(); state.shots.addAll(world.shots);
         state.items.clear(); state.items.addAll(world.items);
-        state.wormholes.clear(); state.wormholes.addAll(world.wormholes);
     }
 
     CelestialSystem activate(World world, String systemId) {
@@ -63,7 +62,7 @@ final class GalaxyCoordinator {
         else home = createSystem(playerHomeId(playerId), StarSystems.get(StarSystems.PLAYER_HOME_SYSTEM_ID));
         playerHomes.put(playerId, home.id);
         WorldSystemState main = systems.get(primary.id());
-        link(main, home);
+        link(world, main, home);
         return asGalaxySystem(home);
     }
 
@@ -113,33 +112,53 @@ final class GalaxyCoordinator {
         return best;
     }
 
-    boolean jump(World world, WormholeGate gate, List<Unit> travelers) {
+    boolean viewThrough(World world, WormholeGate gate) {
+        WorldSystemState to = systems.get(gate.toSystemId);
+        if (to == null) return false;
+        activeSystemId = to.id;
+        loadActive(world);
+        world.status = "Viewing " + to.definition.name() + ". Ships travel only when they touch the wormhole.";
+        return true;
+    }
+
+    boolean transferTouchingShips(World world) {
+        List<Unit> unitsToMove = new ArrayList<>(world.units.values());
+        boolean moved = false;
+        for (Unit unit : unitsToMove) {
+            WormholeGate gate = touchingGate(world, unit);
+            if (gate == null) continue;
+            moved |= transferUnit(world, gate, unit);
+        }
+        return moved;
+    }
+
+    private WormholeGate touchingGate(World world, Unit unit) {
+        for (WormholeGate gate : world.wormholes) if (gate.contains(unit.x, unit.y)) return gate;
+        return null;
+    }
+
+    private boolean transferUnit(World world, WormholeGate gate, Unit unit) {
         WorldSystemState from = active();
         WorldSystemState to = systems.get(gate.toSystemId);
-        if (from == null || to == null) return false;
-        List<Unit> moving = new ArrayList<>();
-        if (travelers != null) moving.addAll(travelers);
-        if (moving.isEmpty()) for (Unit unit : world.units.values()) if (PlayerRegistry.isLocal(unit.playerId)) moving.add(unit);
-        if (moving.isEmpty()) for (Unit unit : world.units.values()) if (!NpcRules.isNpcFaction(unit.playerId)) moving.add(unit);
-        if (moving.isEmpty()) { world.status = "No ship available to jump."; return false; }
-        for (Unit unit : moving) world.units.remove(unit.key());
+        if (from == null || to == null || unit == null) return false;
+        if (!world.units.containsKey(unit.key())) return false;
+        String previous = activeSystemId;
+        world.units.remove(unit.key());
         saveActive(world);
         activeSystemId = to.id;
         loadActive(world);
-        double spacing = 0;
-        for (Unit unit : moving) {
-            unit.x = Calc.clamp(gate.exitX + spacing, 0, world.width);
-            unit.y = Calc.clamp(gate.exitY, 0, world.height);
-            unit.targetX = unit.x;
-            unit.targetY = unit.y;
-            unit.automationResourceId = -1;
-            unit.attackTarget = "";
-            unit.task = UnitTask.IDLE;
-            unit.selected = true;
-            world.units.put(unit.key(), unit);
-            spacing += 60;
-        }
-        world.status = "Wormhole jump complete: " + to.definition.name() + ".";
+        unit.x = Calc.clamp(gate.exitX, 0, world.width);
+        unit.y = Calc.clamp(gate.exitY, 0, world.height);
+        unit.targetX = unit.x;
+        unit.targetY = unit.y;
+        unit.automationResourceId = -1;
+        unit.attackTarget = "";
+        unit.task = UnitTask.IDLE;
+        world.units.put(unit.key(), unit);
+        saveActive(world);
+        activeSystemId = previous;
+        loadActive(world);
+        world.status = unit.type().name + " entered wormhole to " + to.definition.name() + ".";
         return true;
     }
 
@@ -180,7 +199,7 @@ final class GalaxyCoordinator {
         return state;
     }
 
-    private void link(WorldSystemState a, WorldSystemState b) {
+    private void link(World world, WorldSystemState a, WorldSystemState b) {
         if (a == null || b == null || wormholeExists(a, b.id)) return;
         double ax = a.width() * 0.78;
         double ay = a.height() * 0.52;
@@ -188,6 +207,7 @@ final class GalaxyCoordinator {
         double by = b.height() * 0.52;
         a.wormholes.add(new WormholeGate(a.id + "_to_" + b.id, a.id, b.id, ax, ay, bx + 180, by));
         b.wormholes.add(new WormholeGate(b.id + "_to_" + a.id, b.id, a.id, bx, by, ax - 180, ay));
+        if (a.id.equals(activeSystemId) || b.id.equals(activeSystemId)) loadActive(world);
     }
 
     private boolean wormholeExists(WorldSystemState state, String to) { for (WormholeGate gate : state.wormholes) if (gate.toSystemId.equals(to)) return true; return false; }
