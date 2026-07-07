@@ -104,13 +104,13 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         g2.fillRoundRect(12, 12, 980, 112, 14, 14);
         g2.setColor(Color.WHITE);
         String dev = world.devFreeBuild ? " | FREE CRAFTING" : "";
-        g2.drawString("StarChem | " + PlayerRegistry.name(PlayerRegistry.localId()) + " | Selected: " + world.selectedCount() + dev, 28, 36);
+        g2.drawString("StarChem | " + PlayerRegistry.name(PlayerRegistry.localId()) + " | System: " + world.activeSystemId() + " | Selected: " + world.selectedCount() + dev, 28, 36);
         g2.setColor(new Color(210,230,245));
         g2.drawString(world.status, 28, 58);
         g2.drawString(network == null ? "Solo" : network.statusLine(), 28, 80);
         String minerRanges = UnitRenderer.miningRangeOverlayVisible() ? "ON" : "OFF";
         String audio = ProceduralAudio.muted() ? "OFF" : "ON";
-        g2.drawString("Drag-select ships | Double-click ship type | Right-click group order | Formation: " + formation.label + " (F) | Miner ranges: " + minerRanges + " (R) | Audio: " + audio + " (M)", 28, 102);
+        g2.drawString("Left-click wormhole to jump | Drag-select ships | Right-click order | Formation: " + formation.label + " (F) | Miner ranges: " + minerRanges + " (R) | Audio: " + audio + " (M)", 28, 102);
     }
 
     private void drawSelectionBox(Graphics2D g2) {
@@ -134,14 +134,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         return new Rectangle2D.Double(x, y, w, h);
     }
 
-    private Rectangle2D visibleWorldRect() {
-        return screenRectToWorldRect(new Point(0, 0), new Point(getWidth(), getHeight()));
-    }
-
-    private boolean isSelectionDrag() {
-        if (dragStart == null || dragNow == null) return false;
-        return dragStart.distance(dragNow) >= SELECT_DRAG_PX;
-    }
+    private Rectangle2D visibleWorldRect() { return screenRectToWorldRect(new Point(0, 0), new Point(getWidth(), getHeight())); }
+    private boolean isSelectionDrag() { return dragStart != null && dragNow != null && dragStart.distance(dragNow) >= SELECT_DRAG_PX; }
 
     @Override public void mousePressed(MouseEvent e) {
         requestFocusInWindow();
@@ -149,17 +143,15 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         if (devMode && aiDevPanel.click(world, e.getX(), e.getY(), canEditDev())) return;
         if (devMode && devMenu.click(world, e.getX(), e.getY(), canEditDev())) return;
         if (hangarHud.mousePressed(world, e.getX(), e.getY())) return;
-        if (SwingUtilities.isRightMouseButton(e)) {
-            clickRight(screenToWorld(e.getPoint()));
-            return;
-        }
-        if (SwingUtilities.isLeftMouseButton(e)) {
-            dragStart = e.getPoint();
-            dragNow = e.getPoint();
-        }
+        if (SwingUtilities.isRightMouseButton(e)) { clickRight(screenToWorld(e.getPoint())); return; }
+        if (SwingUtilities.isLeftMouseButton(e)) { dragStart = e.getPoint(); dragNow = e.getPoint(); }
     }
 
     private void clickLeft(MouseEvent e, Point2D p) {
+        if (world.jumpThroughWormholeAt(p.getX(), p.getY())) {
+            ProceduralAudio.play(SoundCue.SELECT);
+            return;
+        }
         Base base = world.baseAt(p.getX(), p.getY());
         Unit unit = world.unitAt(p.getX(), p.getY());
         if (base != null) {
@@ -174,16 +166,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
             world.status = "Enemy ship: " + PlayerRegistry.name(unit.playerId) + " | " + unit.type().name + " | " + unit.task;
             return;
         }
-        if (unit != null && e.getClickCount() >= 2) {
-            ProceduralAudio.play(SoundCue.SELECT);
-            selectVisibleShipsOfSameType(unit);
-            return;
-        }
-        if (unit != null && !unit.basePackageType.isBlank()) {
-            ProceduralAudio.play(SoundCue.SELECT);
-            clickPackageCarrier(e, p, unit);
-            return;
-        }
+        if (unit != null && e.getClickCount() >= 2) { ProceduralAudio.play(SoundCue.SELECT); selectVisibleShipsOfSameType(unit); return; }
+        if (unit != null && !unit.basePackageType.isBlank()) { ProceduralAudio.play(SoundCue.SELECT); clickPackageCarrier(e, p, unit); return; }
         world.selectAt(p.getX(), p.getY());
         if (world.status.startsWith("Selected ") || world.status.startsWith("Targeted ")) ProceduralAudio.play(SoundCue.SELECT);
     }
@@ -192,9 +176,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         Rectangle2D view = visibleWorldRect();
         int selected = 0;
         for (Unit unit : world.units.values()) {
-            boolean match = PlayerRegistry.isLocal(unit.playerId)
-                    && unit.shipTypeId.equals(clicked.shipTypeId)
-                    && view.contains(unit.x, unit.y);
+            boolean match = PlayerRegistry.isLocal(unit.playerId) && unit.shipTypeId.equals(clicked.shipTypeId) && view.contains(unit.x, unit.y);
             unit.selected = match;
             if (match) selected++;
         }
@@ -202,24 +184,13 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         world.status = "Selected " + selected + " " + clicked.type().name + " ship(s) in view.";
     }
 
-    private void clickPackageCarrier(MouseEvent e, Point2D p, Unit unit) {
-        world.selectAt(p.getX(), p.getY());
-        buildMenu.showForUnit(world, network, unit, e.getX(), e.getY());
-    }
+    private void clickPackageCarrier(MouseEvent e, Point2D p, Unit unit) { world.selectAt(p.getX(), p.getY()); buildMenu.showForUnit(world, network, unit, e.getX(), e.getY()); }
 
     private void clickRight(Point2D p) {
         Unit enemyUnit = world.unitAt(p.getX(), p.getY());
-        if (enemyUnit != null && !PlayerRegistry.isLocal(enemyUnit.playerId)) {
-            ProceduralAudio.play(SoundCue.ATTACK_ORDER);
-            orderAttack(CombatTarget.unit(enemyUnit));
-            return;
-        }
+        if (enemyUnit != null && !PlayerRegistry.isLocal(enemyUnit.playerId)) { ProceduralAudio.play(SoundCue.ATTACK_ORDER); orderAttack(CombatTarget.unit(enemyUnit)); return; }
         Base enemyBase = world.baseAt(p.getX(), p.getY());
-        if (enemyBase != null && !PlayerRegistry.isLocal(enemyBase.playerId)) {
-            ProceduralAudio.play(SoundCue.ATTACK_ORDER);
-            orderAttack(CombatTarget.base(enemyBase));
-            return;
-        }
+        if (enemyBase != null && !PlayerRegistry.isLocal(enemyBase.playerId)) { ProceduralAudio.play(SoundCue.ATTACK_ORDER); orderAttack(CombatTarget.base(enemyBase)); return; }
         ResourceNode node = world.resourceAt(p.getX(), p.getY());
         if (node != null) {
             world.autoHarvestSelected(node);
@@ -235,45 +206,29 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
 
     private void orderAttack(String targetKey) {
         world.attackSelected(targetKey);
-        if (network != null) for (Unit u : world.selectedUnits()) {
-            if (PlayerRegistry.isLocal(u.playerId) && u.task == UnitTask.ATTACK && targetKey.equals(u.attackTarget)) {
-                network.attack(new AttackCommand(u.playerId, u.unitId, targetKey));
-            }
-        }
+        if (network != null) for (Unit u : world.selectedUnits()) if (PlayerRegistry.isLocal(u.playerId) && u.task == UnitTask.ATTACK && targetKey.equals(u.attackTarget)) network.attack(new AttackCommand(u.playerId, u.unitId, targetKey));
     }
 
     private void clearSelection() { for (Unit u : world.units.values()) u.selected = false; }
     private boolean canEditDev() { return network == null || network.statusLine().startsWith("HOST"); }
 
     @Override public void mouseDragged(MouseEvent e) {
-        if (dragStart != null) {
-            dragNow = e.getPoint();
-            repaint();
-            return;
-        }
+        if (dragStart != null) { dragNow = e.getPoint(); repaint(); return; }
         hangarHud.mouseDragged(e.getX(), e.getY(), getWidth(), getHeight());
-        if (devMode) {
-            aiDevPanel.drag(e.getX(), e.getY(), getWidth(), getHeight());
-            devMenu.drag(e.getX(), e.getY(), getWidth(), getHeight());
-        }
+        if (devMode) { aiDevPanel.drag(e.getX(), e.getY(), getWidth(), getHeight()); devMenu.drag(e.getX(), e.getY(), getWidth(), getHeight()); }
     }
 
     @Override public void mouseReleased(MouseEvent e) {
         if (SwingUtilities.isLeftMouseButton(e) && dragStart != null) {
             dragNow = e.getPoint();
-            if (isSelectionDrag()) {
-                world.selectBox(screenRectToWorldRect(dragStart, dragNow));
-                if (world.selectedCount() > 0) ProceduralAudio.play(SoundCue.SELECT);
-            } else clickLeft(e, screenToWorld(e.getPoint()));
+            if (isSelectionDrag()) { world.selectBox(screenRectToWorldRect(dragStart, dragNow)); if (world.selectedCount() > 0) ProceduralAudio.play(SoundCue.SELECT); }
+            else clickLeft(e, screenToWorld(e.getPoint()));
             dragStart = null;
             dragNow = null;
             repaint();
         }
         hangarHud.mouseReleased();
-        if (devMode) {
-            aiDevPanel.release();
-            devMenu.release();
-        }
+        if (devMode) { aiDevPanel.release(); devMenu.release(); }
     }
 
     @Override public void mouseWheelMoved(MouseWheelEvent e) { camera.zoomAt(e.getPoint(), e.getWheelRotation(), world, getWidth(), getHeight()); }
@@ -283,35 +238,15 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     @Override public void mouseExited(MouseEvent e) { }
     @Override public void keyTyped(KeyEvent e) { }
     @Override public void keyPressed(KeyEvent e) {
-        if (devMode && e.getKeyCode() == KeyEvent.VK_F3) {
-            AiDevSettings.overlay = !AiDevSettings.overlay;
-            world.status = "AI debug overlay: " + (AiDevSettings.overlay ? "ON" : "OFF") + ".";
-            repaint();
-            return;
-        }
-        if (e.getKeyCode() == KeyEvent.VK_M) {
-            boolean muted = ProceduralAudio.toggleMute();
-            world.status = muted ? "Audio muted." : "Audio enabled.";
-            repaint();
-            return;
-        }
-        if (e.getKeyCode() == KeyEvent.VK_F) {
-            formation = formation.next();
-            world.status = "Fleet formation: " + formation.label + ".";
-            ProceduralAudio.play(SoundCue.SELECT);
-            return;
-        }
-        if (e.getKeyCode() == KeyEvent.VK_R) {
-            UnitRenderer.toggleMiningRangeOverlay();
-            world.status = "Miner range overlay: " + (UnitRenderer.miningRangeOverlayVisible() ? "ON" : "OFF") + ".";
-            ProceduralAudio.play(SoundCue.SELECT);
-            repaint();
-            return;
-        }
+        if (devMode && e.getKeyCode() == KeyEvent.VK_F3) { AiDevSettings.overlay = !AiDevSettings.overlay; world.status = "AI debug overlay: " + (AiDevSettings.overlay ? "ON" : "OFF") + "."; repaint(); return; }
+        if (e.getKeyCode() == KeyEvent.VK_M) { boolean muted = ProceduralAudio.toggleMute(); world.status = muted ? "Audio muted." : "Audio enabled."; repaint(); return; }
+        if (e.getKeyCode() == KeyEvent.VK_F) { formation = formation.next(); world.status = "Fleet formation: " + formation.label + "."; ProceduralAudio.play(SoundCue.SELECT); return; }
+        if (e.getKeyCode() == KeyEvent.VK_R) { UnitRenderer.toggleMiningRangeOverlay(); world.status = "Miner range overlay: " + (UnitRenderer.miningRangeOverlayVisible() ? "ON" : "OFF") + "."; ProceduralAudio.play(SoundCue.SELECT); repaint(); return; }
         setCameraKey(e.getKeyCode(), true);
     }
     @Override public void keyReleased(KeyEvent e) { setCameraKey(e.getKeyCode(), false); }
 
+    private void setCameraKey(int code) { setCameraKey(code, true); }
     private void setCameraKey(int code, boolean down) {
         if (code == KeyEvent.VK_A || code == KeyEvent.VK_LEFT) cameraLeft = down;
         if (code == KeyEvent.VK_D || code == KeyEvent.VK_RIGHT) cameraRight = down;
