@@ -24,9 +24,16 @@ final class WorldNetAccess {
 
     static void apply(World world, Snapshot snapshot) {
         String local = PlayerRegistry.localId();
+        boolean snapshotHasLocalUnit = false;
+        boolean snapshotHasLocalBase = false;
+        for (UnitState s : snapshot.units()) if (s.playerId().equals(local)) snapshotHasLocalUnit = true;
+        for (BaseState b : snapshot.bases()) if (b.playerId().equals(local)) snapshotHasLocalBase = true;
         for (PlayerInfo p : snapshot.players()) {
             PlayerRegistry.register(p.id(), p.name(), p.rgb(), p.id().equals(local));
             if (!NpcRules.isNpcFaction(p.id())) world.ensurePlayerHome(p.id());
+        }
+        if (!snapshotHasLocalUnit && !snapshotHasLocalBase && !local.equals("SOLO") && !local.equals("WAIT")) {
+            if (noLocalFleet(world, local)) world.spawnPlayerGroup(local, separatedSlot(local, slot(local)));
         }
         Set<String> liveUnits = new HashSet<>();
         for (UnitState s : snapshot.units()) {
@@ -44,12 +51,13 @@ final class WorldNetAccess {
             Map.Entry<String, Unit> entry = unitIt.next();
             if (!liveUnits.contains(entry.getKey())) {
                 Unit unit = entry.getValue();
+                if (PlayerRegistry.isLocal(unit.playerId) && !snapshotHasLocalUnit) continue;
                 if (!wasConvertedToBase(unit, snapshot.bases())) world.explodeUnit(unit);
                 unitIt.remove();
             }
         }
         if (!snapshot.resources().isEmpty()) NetResourceSync.apply(world, snapshot.resources());
-        if (!snapshot.bases().isEmpty()) applyBases(world, snapshot.bases());
+        if (!snapshot.bases().isEmpty()) applyBases(world, snapshot.bases(), local, snapshotHasLocalBase);
         world.shots.clear();
         for (ShotState s : snapshot.shots()) {
             ProjectileShot shot = new ProjectileShot(s.id(), s.ownerId(), s.weaponId(), s.targetKey(), s.x(), s.y());
@@ -59,6 +67,12 @@ final class WorldNetAccess {
         }
         ItemSync.apply(world, snapshot.items());
         if (!snapshot.stocks().isEmpty()) CargoCodec.readInto(snapshot.stocks().get(0).cargo(), world.stockpile);
+    }
+
+    private static boolean noLocalFleet(World world, String local) {
+        for (Unit unit : world.units.values()) if (unit.playerId.equals(local)) return false;
+        for (Base base : world.bases.values()) if (base.playerId.equals(local)) return false;
+        return true;
     }
 
     private static boolean wasConvertedToBase(Unit unit, List<BaseState> bases) {
@@ -71,11 +85,17 @@ final class WorldNetAccess {
         return false;
     }
 
-    private static void applyBases(World world, List<BaseState> states) {
+    private static void applyBases(World world, List<BaseState> states, String local, boolean snapshotHasLocalBase) {
         Set<String> live = new HashSet<>();
         for (BaseState state : states) live.add(state.id());
-        for (Base base : world.bases.values()) if (!live.contains(base.id)) world.explodeBase(base);
-        world.bases.clear();
+        Iterator<Base> it = world.bases.values().iterator();
+        while (it.hasNext()) {
+            Base base = it.next();
+            if (live.contains(base.id)) continue;
+            if (base.playerId.equals(local) && !snapshotHasLocalBase) continue;
+            world.explodeBase(base);
+            it.remove();
+        }
         for (BaseState b : states) world.bases.put(b.id(), NetBaseSync.fromState(b));
     }
 
@@ -93,13 +113,6 @@ final class WorldNetAccess {
         world.status = PlayerRegistry.name(playerId) + " respawned in a home system.";
     }
 
-    private static int separatedSlot(String playerId, int preferredSlot) {
-        return preferredSlot + Math.floorMod(playerId == null ? 0 : playerId.hashCode(), SPAWN_SLOT_SEARCH);
-    }
-
-    private static int slot(String id) {
-        if (id == null || id.equals("SOLO") || id.equals("HOST")) return 0;
-        if (id.startsWith("P")) try { return Math.max(1, Integer.parseInt(id.substring(1))); } catch (NumberFormatException ignored) { }
-        return Math.floorMod(id.hashCode(), 8);
-    }
+    private static int separatedSlot(String playerId, int preferredSlot) { return preferredSlot + Math.floorMod(playerId == null ? 0 : playerId.hashCode(), SPAWN_SLOT_SEARCH); }
+    private static int slot(String id) { if (id == null || id.equals("SOLO") || id.equals("HOST")) return 0; if (id.startsWith("P")) try { return Math.max(1, Integer.parseInt(id.substring(1))); } catch (NumberFormatException ignored) { } return Math.floorMod(id.hashCode(), 8); }
 }
