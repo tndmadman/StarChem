@@ -211,13 +211,33 @@ final class GalaxyCoordinator {
 
     private void link(World world, WorldSystemState a, WorldSystemState b) {
         if (a == null || b == null || wormholeExists(a, b.id)) return;
-        double ax = a.width() * 0.78;
-        double ay = a.height() * 0.52;
-        double bx = b.width() * 0.22;
-        double by = b.height() * 0.52;
-        a.wormholes.add(new WormholeGate(a.id + "_to_" + b.id, a.id, b.id, ax, ay, bx + 180, by));
-        b.wormholes.add(new WormholeGate(b.id + "_to_" + a.id, b.id, a.id, bx, by, ax - 180, ay));
+        Point2D ap = wormholePoint(a, a.wormholes.size(), b.id);
+        Point2D bp = wormholePoint(b, b.wormholes.size(), a.id);
+        Point2D aExit = exitPoint(a, ap);
+        Point2D bExit = exitPoint(b, bp);
+        a.wormholes.add(new WormholeGate(a.id + "_to_" + b.id, a.id, b.id, ap.getX(), ap.getY(), bExit.getX(), bExit.getY()));
+        b.wormholes.add(new WormholeGate(b.id + "_to_" + a.id, b.id, a.id, bp.getX(), bp.getY(), aExit.getX(), aExit.getY()));
         if (a.id.equals(activeSystemId) || b.id.equals(activeSystemId)) loadActive(world);
+    }
+
+    private Point2D wormholePoint(WorldSystemState state, int index, String otherSystemId) {
+        int slot = Math.floorMod(index, 16);
+        double jitter = Math.floorMod(otherSystemId == null ? 0 : otherSystemId.hashCode(), 37) / 37.0 * 0.22;
+        double angle = -Math.PI / 2.0 + slot * (Math.PI * 2.0 / 16.0) + jitter;
+        double rx = state.width() * 0.36;
+        double ry = state.height() * 0.31;
+        double x = state.width() * 0.5 + Math.cos(angle) * rx;
+        double y = state.height() * 0.5 + Math.sin(angle) * ry;
+        return new Point2D.Double(Calc.clamp(x, 220, state.width() - 220), Calc.clamp(y, 220, state.height() - 220));
+    }
+
+    private Point2D exitPoint(WorldSystemState state, Point2D gate) {
+        double cx = state.width() * 0.5;
+        double cy = state.height() * 0.5;
+        double dx = cx - gate.getX();
+        double dy = cy - gate.getY();
+        double len = Math.max(1.0, Math.hypot(dx, dy));
+        return new Point2D.Double(Calc.clamp(gate.getX() + dx / len * 180.0, 0, state.width()), Calc.clamp(gate.getY() + dy / len * 180.0, 0, state.height()));
     }
 
     private boolean wormholeExists(WorldSystemState state, String to) { for (WormholeGate gate : state.wormholes) if (gate.toSystemId.equals(to)) return true; return false; }
