@@ -87,7 +87,7 @@ final class WorldNetAccess {
         world.shots.removeIf(shot -> shot.ownerId.equals(playerId));
         int salt = Math.max(5, world.units.size() + world.bases.size() + (int)Math.round(world.systemTime()));
         spawnGroup(world, playerId, separatedSlot(world, slot(playerId) + salt));
-        world.status = PlayerRegistry.name(playerId) + " respawned in a new sector.";
+        world.status = PlayerRegistry.name(playerId) + " respawned in " + world.systemName() + ".";
     }
 
     private static void spawnGroup(World world, String playerId, int slot) {
@@ -147,12 +147,8 @@ final class WorldNetAccess {
     }
 
     private static Point2D resourceStart(World world, int slot) {
-        Material material = switch (Math.floorMod(slot, 4)) {
-            case 1 -> Material.IRON;
-            case 2 -> Material.COPPER;
-            case 3 -> Material.SILICATES;
-            default -> Material.ICE;
-        };
+        List<Material> materials = world.spawnMaterials();
+        Material material = materials.isEmpty() ? Material.IRON : materials.get(Math.floorMod(slot, materials.size()));
         ResourceNode node = nthActiveResource(world, material, slot * 17);
         if (node == null) return Calc.basePoint(slot);
         double cx = world.width / 2.0;
