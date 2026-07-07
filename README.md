@@ -10,11 +10,13 @@ The package includes the runnable StarChem JAR file and the required config fold
 
 Java 17 or newer is required to play.
 
-To launch from a terminal inside the extracted StarChem folder, run:
+To launch normally, double-click the StarChem JAR file.
+
+If double-click does not open the game, Windows probably does not have JAR files associated with Java. Use Open with on the JAR file and choose your installed Java runtime as the default app for JAR files.
+
+Fallback terminal launch from the extracted StarChem folder:
 
 java -jar .\StarChem.jar
-
-Do not run `java .\StarChem.jar`. That makes Java look for a class named like the file path instead of launching the JAR.
 
 ## Development
 
