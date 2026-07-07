@@ -1,5 +1,7 @@
 package com.tndmadman.rts;
 
+import java.util.*;
+
 final class ViewSnapshotReset {
     private ViewSnapshotReset() { }
 
@@ -15,6 +17,22 @@ final class ViewSnapshotReset {
             if (!owner.isBlank()) world.ensurePlayerHome(owner);
             world.activateSystem(systemId);
         }
+    }
+
+    static void applyPreservingEntities(World world, String systemId, long seed, double time) {
+        Map<String, Unit> units = new LinkedHashMap<>(world.units);
+        Map<String, Base> bases = new LinkedHashMap<>(world.bases);
+        List<ProjectileShot> shots = new ArrayList<>(world.shots);
+        List<WorldItem> items = new ArrayList<>(world.items);
+        apply(world, systemId, seed, time);
+        world.units.clear();
+        world.units.putAll(units);
+        world.bases.clear();
+        world.bases.putAll(bases);
+        world.shots.clear();
+        world.shots.addAll(shots);
+        world.items.clear();
+        world.items.addAll(items);
     }
 
     private static String baseSystemId(String systemId) {
