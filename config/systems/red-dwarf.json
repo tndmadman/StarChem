@@ -1,0 +1,18 @@
+{
+  "id": "red_dwarf",
+  "name": "Red Dwarf Foundry",
+  "role": "industrial",
+  "width": 14000,
+  "height": 12500,
+  "spawnMaterials": ["IRON", "COPPER", "SILICATES"],
+  "bodies": [
+    {"id": "red_star", "name": "Red Dwarf", "parent": null, "orbit": 0, "radius": 160, "speed": 0, "color": "#FF5A45"},
+    {"id": "slag", "name": "Slag World", "parent": "red_star", "orbit": 1250, "radius": 52, "speed": 0.024, "color": "#B86B4B"},
+    {"id": "forge", "name": "Forge Planet", "parent": "red_star", "orbit": 2300, "radius": 76, "speed": -0.014, "color": "#8A5A44"}
+  ],
+  "resourceBelts": [
+    {"name": "Dense Iron Ring", "kind": "SILICATE_ROCK", "materials": ["IRON"], "orbit": 1650, "width": 230, "arc": 1.4, "count": 170, "amount": 26, "harvestRate": 8.0, "radius": 3.0},
+    {"name": "Copper Veins", "kind": "SILICATE_ROCK", "materials": ["COPPER"], "orbit": 2400, "width": 280, "arc": 1.1, "count": 130, "amount": 22, "harvestRate": 7.2, "radius": 2.8},
+    {"name": "Silicate Shards", "kind": "SILICATE_ROCK", "materials": ["SILICATES"], "orbit": 3300, "width": 320, "arc": 1.0, "count": 115, "amount": 20, "harvestRate": 7.0, "radius": 2.7}
+  ]
+}
