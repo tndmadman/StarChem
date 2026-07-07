@@ -6,6 +6,9 @@ on:
       - 'v*.*.*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   jar-release:
     name: Build StarChem release zip
@@ -44,3 +47,9 @@ jobs:
         with:
           name: StarChem-release
           path: ${{ env.RELEASE_ZIP }}
+
+      - name: Attach compiled zip to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.RELEASE_ZIP }}
