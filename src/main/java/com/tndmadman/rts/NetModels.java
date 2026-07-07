@@ -18,18 +18,21 @@ record BaseState(String id, String playerId, String typeId, double x, double y, 
 record StockState(String playerId, String cargo) { }
 record ShotState(int id, String ownerId, String weaponId, String targetKey, double x, double y, double lastX, double lastY) { }
 record ItemState(int id, String material, double amount, double x, double y, double vx, double vy, double angle, double spin) { }
-record Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks, List<ShotState> shots, List<ItemState> items, String systemId, double systemTime) {
+record Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks, List<ShotState> shots, List<ItemState> items, String systemId, double systemTime, String celestialState) {
+    Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks, List<ShotState> shots, List<ItemState> items, String systemId, double systemTime) {
+        this(sequence, players, units, resources, bases, stocks, shots, items, systemId, systemTime, "");
+    }
     Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks, List<ShotState> shots, List<ItemState> items, double systemTime) {
-        this(sequence, players, units, resources, bases, stocks, shots, items, "", systemTime);
+        this(sequence, players, units, resources, bases, stocks, shots, items, "", systemTime, "");
     }
     Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks, List<ShotState> shots, List<ItemState> items) {
-        this(sequence, players, units, resources, bases, stocks, shots, items, "", -1);
+        this(sequence, players, units, resources, bases, stocks, shots, items, "", -1, "");
     }
     Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks, List<ShotState> shots) {
-        this(sequence, players, units, resources, bases, stocks, shots, List.of(), "", -1);
+        this(sequence, players, units, resources, bases, stocks, shots, List.of(), "", -1, "");
     }
     Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks) {
-        this(sequence, players, units, resources, bases, stocks, List.of(), List.of(), "", -1);
+        this(sequence, players, units, resources, bases, stocks, List.of(), List.of(), "", -1, "");
     }
 }
 record NetPacket(String message, InetAddress address, int port) { }
