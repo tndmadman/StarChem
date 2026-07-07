@@ -59,11 +59,8 @@ final class GalaxyCoordinator {
         String existing = playerHomes.get(playerId);
         if (existing != null && systems.containsKey(existing)) return asGalaxySystem(systems.get(existing));
         WorldSystemState home;
-        if (world.localPlayerId.equals(playerId)) {
-            home = systems.computeIfAbsent(primary.id(), id -> createSystem(id, primary));
-        } else {
-            home = createSystem(playerHomeId(playerId), StarSystems.get(StarSystems.PLAYER_HOME_SYSTEM_ID));
-        }
+        if (world.localPlayerId.equals(playerId)) home = systems.computeIfAbsent(primary.id(), id -> createSystem(id, primary));
+        else home = createSystem(playerHomeId(playerId), StarSystems.get(StarSystems.PLAYER_HOME_SYSTEM_ID));
         playerHomes.put(playerId, home.id);
         WorldSystemState main = systems.get(primary.id());
         link(main, home);
@@ -71,11 +68,7 @@ final class GalaxyCoordinator {
     }
 
     String playerHomeSystemId(World world, String playerId, StarSystemDefinition primary) { return ensurePlayerHome(world, playerId, primary).id; }
-
-    List<Material> spawnMaterials(World world, String playerId, StarSystemDefinition primary) {
-        GalaxySystem home = ensurePlayerHome(world, playerId, primary);
-        return home.definition.spawnMaterials();
-    }
+    List<Material> spawnMaterials(World world, String playerId, StarSystemDefinition primary) { return ensurePlayerHome(world, playerId, primary).definition.spawnMaterials(); }
 
     Point2D startPoint(World world, String playerId, int slot, StarSystemDefinition primary) {
         ensurePlayerHome(world, playerId, primary);
@@ -96,16 +89,8 @@ final class GalaxyCoordinator {
         return new Point2D.Double(Math.max(padding, state.width() * 0.34), Math.max(padding, state.height() * 0.52));
     }
 
-    void update(World world, double dt) {
-        WorldSystemState state = active();
-        if (state != null) state.celestials.update(dt);
-    }
-
-    void draw(World world, Graphics2D g2) {
-        WorldSystemState state = active();
-        if (state != null) state.celestials.draw(g2);
-        for (WormholeGate gate : world.wormholes) gate.draw(g2);
-    }
+    void update(World world, double dt) { WorldSystemState state = active(); if (state != null) state.celestials.update(dt); }
+    void draw(World world, Graphics2D g2) { WorldSystemState state = active(); if (state != null) state.celestials.draw(g2); for (WormholeGate gate : world.wormholes) gate.draw(g2); }
 
     void drawMap(Graphics2D g2, int width, int height) {
         g2.setColor(new Color(9, 15, 24));
@@ -114,10 +99,7 @@ final class GalaxyCoordinator {
         for (int x = 0; x <= width; x += 160) g2.drawLine(x, 0, x, height);
         for (int y = 0; y <= height; y += 160) g2.drawLine(0, y, width, y);
         WorldSystemState state = active();
-        if (state != null) {
-            g2.setColor(new Color(220, 238, 250, 190));
-            g2.drawString(state.definition.name() + " [" + state.id + "]", 24, 32);
-        }
+        if (state != null) { g2.setColor(new Color(220, 238, 250, 190)); g2.drawString(state.definition.name() + " [" + state.id + "]", 24, 32); }
     }
 
     Base nearestBaseInSameSystem(World world, String playerId, double x, double y) {
@@ -137,13 +119,9 @@ final class GalaxyCoordinator {
         if (from == null || to == null) return false;
         List<Unit> moving = new ArrayList<>();
         if (travelers != null) moving.addAll(travelers);
-        if (moving.isEmpty()) {
-            for (Unit unit : world.units.values()) if (PlayerRegistry.isLocal(unit.playerId)) moving.add(unit);
-        }
-        if (moving.isEmpty()) {
-            world.status = "No local ship available to jump.";
-            return false;
-        }
+        if (moving.isEmpty()) for (Unit unit : world.units.values()) if (PlayerRegistry.isLocal(unit.playerId)) moving.add(unit);
+        if (moving.isEmpty()) for (Unit unit : world.units.values()) if (!NpcRules.isNpcFaction(unit.playerId)) moving.add(unit);
+        if (moving.isEmpty()) { world.status = "No ship available to jump."; return false; }
         for (Unit unit : moving) world.units.remove(unit.key());
         saveActive(world);
         activeSystemId = to.id;
@@ -236,11 +214,7 @@ final class GalaxyCoordinator {
 
     private WorldSystemState active() { return activeSystemId == null ? null : systems.get(activeSystemId); }
     private GalaxySystem asGalaxySystem(WorldSystemState state) { return new GalaxySystem(state.id, state.definition, 0, 0, state.celestials); }
-
-    private String playerHomeId(String playerId) {
-        String clean = playerId == null || playerId.isBlank() ? "player" : playerId.replaceAll("[^A-Za-z0-9_-]", "_");
-        return StarSystems.PLAYER_HOME_SYSTEM_ID + "_" + clean;
-    }
+    private String playerHomeId(String playerId) { String clean = playerId == null || playerId.isBlank() ? "player" : playerId.replaceAll("[^A-Za-z0-9_-]", "_"); return StarSystems.PLAYER_HOME_SYSTEM_ID + "_" + clean; }
 
     private Base movedBase(Base base, double dx, double dy, int width, int height) {
         Base moved = new Base(base.id, base.playerId, base.typeId, Calc.clamp(base.x + dx, 0, width), Calc.clamp(base.y + dy, 0, height));
