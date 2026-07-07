@@ -1,0 +1,19 @@
+{
+  "id": "ice_belt",
+  "name": "Ice Belt",
+  "role": "ice",
+  "width": 17500,
+  "height": 15500,
+  "spawnMaterials": ["ICE", "SILICATES", "HYDROGEN", "IRON"],
+  "bodies": [
+    {"id": "blue_star", "name": "Blue Star", "parent": null, "orbit": 0, "radius": 180, "speed": 0, "color": "#A8D8FF"},
+    {"id": "frost", "name": "Frost Planet", "parent": "blue_star", "orbit": 2700, "radius": 92, "speed": 0.011, "color": "#9ED6F0"},
+    {"id": "glass", "name": "Glass Moon", "parent": "frost", "orbit": 310, "radius": 20, "speed": -0.052, "color": "#D2F3FF"}
+  ],
+  "resourceBelts": [
+    {"name": "Ice Shelf", "kind": "SILICATE_ROCK", "materials": ["ICE"], "orbit": 2800, "width": 520, "arc": 1.5, "count": 180, "amount": 32, "harvestRate": 8.4, "radius": 3.2},
+    {"name": "Silicate Shelf", "kind": "SILICATE_ROCK", "materials": ["SILICATES"], "orbit": 3900, "width": 480, "arc": 1.1, "count": 145, "amount": 24, "harvestRate": 7.2, "radius": 3.0},
+    {"name": "Cold Hydrogen", "kind": "GAS_CLOUD", "materials": ["HYDROGEN"], "orbit": 5200, "width": 620, "arc": 1.2, "count": 125, "amount": 26, "harvestRate": 8.0, "radius": 4.7},
+    {"name": "Trace Metals", "kind": "SILICATE_ROCK", "materials": ["IRON", "COPPER"], "orbit": 1900, "width": 240, "arc": 0.6, "count": 65, "amount": 14, "harvestRate": 5.8, "radius": 2.4}
+  ]
+}
