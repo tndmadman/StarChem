@@ -6,6 +6,7 @@ final class ResourceViewSync {
     private ResourceViewSync() { }
 
     static void apply(World world, Iterable<ResourceState> states) {
+        CelestialPacketCache.apply(world);
         CelestialSystem celestials = activeCelestials(world);
         double cx = celestials == null ? world.width / 2.0 : celestials.sunX();
         double cy = celestials == null ? world.height / 2.0 : celestials.sunY();
