@@ -6,9 +6,6 @@ final class ResourceViewSync {
     private ResourceViewSync() { }
 
     static void apply(World world, Iterable<ResourceState> states) {
-        String systemId = CelestialPacketCache.receivedSystemId();
-        long seed = CelestialPacketCache.seed(world.systemSeed());
-        if (!systemId.isBlank()) ViewSnapshotReset.applyPreservingEntities(world, systemId, seed, world.systemTime());
         CelestialPacketCache.apply(world);
         CelestialSystem celestials = activeCelestials(world);
         double cx = celestials == null ? world.width / 2.0 : celestials.sunX();
