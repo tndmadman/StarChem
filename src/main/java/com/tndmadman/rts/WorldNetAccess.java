@@ -33,7 +33,11 @@ final class WorldNetAccess {
             if (!NpcRules.isNpcFaction(p.id())) world.ensurePlayerHome(p.id());
         }
         if (!snapshotHasLocalUnit && !snapshotHasLocalBase && !local.equals("SOLO") && !local.equals("WAIT")) {
+            world.ensurePlayerHome(local);
+            world.activateSystem(world.playerHomeSystemId(local));
             if (noLocalFleet(world, local)) world.spawnPlayerGroup(local, separatedSlot(local, slot(local)));
+            world.status = "Ignoring snapshot for another system; holding local fleet in " + world.activeSystemId() + ".";
+            return;
         }
         Set<String> liveUnits = new HashSet<>();
         for (UnitState s : snapshot.units()) {
@@ -51,13 +55,12 @@ final class WorldNetAccess {
             Map.Entry<String, Unit> entry = unitIt.next();
             if (!liveUnits.contains(entry.getKey())) {
                 Unit unit = entry.getValue();
-                if (PlayerRegistry.isLocal(unit.playerId) && !snapshotHasLocalUnit) continue;
                 if (!wasConvertedToBase(unit, snapshot.bases())) world.explodeUnit(unit);
                 unitIt.remove();
             }
         }
         if (!snapshot.resources().isEmpty()) NetResourceSync.apply(world, snapshot.resources());
-        if (!snapshot.bases().isEmpty()) applyBases(world, snapshot.bases(), local, snapshotHasLocalBase);
+        if (!snapshot.bases().isEmpty()) applyBases(world, snapshot.bases());
         world.shots.clear();
         for (ShotState s : snapshot.shots()) {
             ProjectileShot shot = new ProjectileShot(s.id(), s.ownerId(), s.weaponId(), s.targetKey(), s.x(), s.y());
@@ -85,14 +88,13 @@ final class WorldNetAccess {
         return false;
     }
 
-    private static void applyBases(World world, List<BaseState> states, String local, boolean snapshotHasLocalBase) {
+    private static void applyBases(World world, List<BaseState> states) {
         Set<String> live = new HashSet<>();
         for (BaseState state : states) live.add(state.id());
         Iterator<Base> it = world.bases.values().iterator();
         while (it.hasNext()) {
             Base base = it.next();
             if (live.contains(base.id)) continue;
-            if (base.playerId.equals(local) && !snapshotHasLocalBase) continue;
             world.explodeBase(base);
             it.remove();
         }
