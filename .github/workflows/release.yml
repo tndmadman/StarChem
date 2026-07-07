@@ -35,7 +35,7 @@ jobs:
           mkdir -p release/StarChem
           cp build/libs/starchem-0.1.0.jar release/StarChem/StarChem.jar
           cp -R config release/StarChem/config
-          cp packaging/run-starchem.bat release/StarChem/run-starchem.bat
+          cp packaging/*.bat release/StarChem/
           cd release
           zip -r StarChem-${GITHUB_REF_NAME}.zip StarChem
           cd ..
