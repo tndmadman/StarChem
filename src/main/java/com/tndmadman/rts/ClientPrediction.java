@@ -11,28 +11,12 @@ final class ClientPrediction {
     }
 
     private static void predictTarget(World world, Unit unit, double dt) {
-        if (unit.task == UnitTask.ATTACK) {
-            if (!CombatTarget.enemy(world, unit, unit.attackTarget)) return;
-            double range = WeaponRules.maxRange(unit.type());
-            if (range <= 0) return;
-            double tx = CombatTarget.x(world, unit.attackTarget);
-            double ty = CombatTarget.y(world, unit.attackTarget);
-            if (Calc.distance(unit.x, unit.y, tx, ty) > range * 0.92) world.moveTowardOrbit(unit, tx, ty, range * 0.82);
-            return;
-        }
-        if (unit.task == UnitTask.AUTO_HARVEST) {
-            ResourceNode node = world.findResource(unit.automationResourceId);
-            if (node == null || !node.active) return;
-            double orbit = node.radius + unit.type().orbitRadius;
-            if (MiningBeam.visible(unit, node)) world.orbitAround(unit, node.x, node.y, orbit, dt, 0.7);
-            else world.moveTowardOrbit(unit, node.x, node.y, orbit);
-            return;
-        }
-        if (unit.task == UnitTask.IDLE) {
-            Base base = world.nearestBase(unit.playerId, unit.x, unit.y);
-            if (base != null && Calc.distance(unit.x, unit.y, base.x, base.y) < base.type().unloadRange + 170) {
-                world.orbitAround(unit, base.x, base.y, unit.type().idleOrbitRadius, dt, 0.35);
-            }
-        }
+        if (unit.task != UnitTask.ATTACK) return;
+        if (!CombatTarget.enemy(world, unit, unit.attackTarget)) return;
+        double range = WeaponRules.maxRange(unit.type());
+        if (range <= 0) return;
+        double tx = CombatTarget.x(world, unit.attackTarget);
+        double ty = CombatTarget.y(world, unit.attackTarget);
+        if (Calc.distance(unit.x, unit.y, tx, ty) > range * 0.92) world.moveTowardOrbit(unit, tx, ty, range * 0.82);
     }
 }
