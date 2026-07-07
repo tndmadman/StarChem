@@ -79,6 +79,7 @@ final class PeerNetwork implements CommandSink {
     @Override public void build(String playerId, String baseId, String shipTypeId) { if (config.hostMode) { clientViews.applyChange(world, playerId, () -> { if (CommandAuth.base(world, playerId, baseId)) world.buildShip(baseId, shipTypeId); }); broadcastNow(); } else sendToServer("BUILD|" + playerId + "|" + baseId + "|" + shipTypeId); }
     @Override public void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { if (config.hostMode) { clientViews.applyChange(world, playerId, () -> { if (CommandAuth.pack(world, playerId, mode, baseOrUnitId)) applyPack(mode, baseOrUnitId, packageType); }); broadcastNow(); } else sendToServer("PACK|" + playerId + "|" + mode + "|" + baseOrUnitId + "|" + packageType); }
     void jump(String playerId, double x, double y) { if (config.hostMode) { clientViews.applyChange(world, playerId, () -> world.jumpThroughWormholeAt(x, y)); broadcastNow(); } else sendToServer("JUMP|" + playerId + "|" + Calc.round(x) + "|" + Calc.round(y)); }
+    void wormholeTouch(String playerId) { if (config.hostMode) { clientViews.applyChange(world, playerId, world::transferTouchingShips); broadcastNow(); } else sendToServer("WHTOUCH|" + playerId); }
 
     private void applyMove(MoveCommand c) { Unit u = world.units.get(Unit.key(c.playerId(), c.unitId())); if (u != null) u.moveTo(c.x(), c.y()); }
     private void applyWork(HarvestCommand c) { Unit u = world.units.get(Unit.key(c.playerId(), c.unitId())); if (u != null) u.startAutoHarvest(c.resourceId()); }
@@ -116,6 +117,7 @@ final class PeerNetwork implements CommandSink {
                 case "BUILD" -> { touch(ep); if (owns(ep, p[1])) clientViews.applyChange(world, p[1], () -> { if (CommandAuth.base(world, p[1], p[2])) world.buildShip(p[2], p[3]); }); }
                 case "PACK" -> { touch(ep); if (owns(ep, p[1])) clientViews.applyChange(world, p[1], () -> { if (CommandAuth.pack(world, p[1], p[2], p[3])) applyPack(p[2], p[3], p[4]); }); }
                 case "JUMP" -> { touch(ep); if (owns(ep, p[1])) clientViews.applyChange(world, p[1], () -> world.jumpThroughWormholeAt(Double.parseDouble(p[2]), Double.parseDouble(p[3]))); }
+                case "WHTOUCH" -> { touch(ep); if (owns(ep, p[1])) clientViews.applyChange(world, p[1], world::transferTouchingShips); }
                 case "LEAVE" -> removePeer(ep);
             }
         } catch (Exception ex) { System.err.println("Bad packet: " + m + " / " + ex.getMessage()); }
