@@ -53,7 +53,11 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         lastNanos = now;
         boolean hostOrSolo = network == null || network.statusLine().startsWith("HOST");
         if (hostOrSolo) world.update(dt);
-        else { world.updateEnvironment(dt); ClientPrediction.update(world, dt); }
+        else {
+            world.updateEnvironment(dt);
+            ClientPrediction.update(world, dt);
+            if (world.transferTouchingShips() && network != null) network.wormholeTouch(PlayerRegistry.localId());
+        }
         updateCameraControls(dt);
         camera.update(world, getWidth(), getHeight(), dt);
         repaint();
@@ -98,7 +102,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         g2.drawString(network == null ? "Solo" : network.statusLine(), 28, 80);
         String minerRanges = UnitRenderer.miningRangeOverlayVisible() ? "ON" : "OFF";
         String audio = ProceduralAudio.muted() ? "OFF" : "ON";
-        g2.drawString("Left-click wormhole to jump | Drag-select ships | Right-click order | Formation: " + formation.label + " (F) | Miner ranges: " + minerRanges + " (R) | Audio: " + audio + " (M)", 28, 102);
+        g2.drawString("Left-click wormhole to view system | Ships enter wormholes on contact | Right-click order | Formation: " + formation.label + " (F) | Miner ranges: " + minerRanges + " (R) | Audio: " + audio + " (M)", 28, 102);
     }
 
     private void drawSelectionBox(Graphics2D g2) {
