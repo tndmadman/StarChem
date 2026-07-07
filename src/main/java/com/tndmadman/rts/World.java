@@ -67,6 +67,7 @@ final class World {
     String systemId() { return starSystem.id(); }
     String systemName() { return starSystem.name(); }
     String activeSystemId() { return galaxy.activeSystemId(); }
+    boolean hasLiveAssets(String playerId) { return galaxy.hasLiveAssets(this, playerId); }
     String playerHomeSystemId(String playerId) { return galaxy.playerHomeSystemId(this, playerId, starSystem); }
     void activateSystem(String systemId) { celestials = galaxy.activate(this, systemId); }
     void saveActiveSystem() { galaxy.saveActive(this); }
