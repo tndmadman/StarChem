@@ -250,6 +250,179 @@ final class World {
         g2.setColor(new Color(9, 15, 24));
         g2.fillRect(0, 0, width, height);
         g2.setColor(new Color(22, 33, 48));
-        for (int x = 0; x <= width; x += 160) g2.drawLine(x, 0, y: 0, x, height);
+        for (int x = 0; x <= width; x += 160) g2.drawLine(x, 0, x, height);
+        for (int y = 0; y <= height; y += 160) g2.drawLine(0, y, width, y);
+    }
+
+    void selectAt(double x, double y) {
+        ResourceNode node = resourceAt(x, y);
+        if (node != null) { selectedResourceId = node.id; status = "Targeted " + node.name + ". Right-click to auto-harvest."; return; }
+        Unit unit = unitAt(x, y);
+        for (Unit u : units.values()) u.selected = false;
+        if (unit != null && PlayerRegistry.isLocal(unit.playerId)) { unit.selected = true; status = "Selected " + unit.type().name + " #" + unit.unitId + "."; }
+    }
+
+    void selectBox(Rectangle2D box) { for (Unit unit : units.values()) unit.selected = PlayerRegistry.isLocal(unit.playerId) && box.contains(unit.x, unit.y); status = selectedCount() + " ship(s) selected."; }
+    void moveSelected(double x, double y) { moveSelected(x, y, FleetFormation.GRID); }
+
+    void moveSelected(double x, double y, FleetFormation formation) {
+        List<Unit> selected = selectedUnits();
+        if (selected.isEmpty()) { status = "No ship selected."; return; }
+        for (int i = 0; i < selected.size(); i++) {
+            Unit unit = selected.get(i);
+            Point2D target = formationTarget(x, y, i, selected.size(), formation);
+            unit.moveTo(target.getX(), target.getY());
+        }
+        status = "Moving " + selected.size() + " ship(s) in " + formation.label + " formation.";
+    }
+
+    private Point2D formationTarget(double x, double y, int index, int count, FleetFormation formation) {
+        double spacing = 54;
+        double ox = 0;
+        double oy = 0;
+        switch (formation) {
+            case LINE -> ox = (index - (count - 1) / 2.0) * spacing;
+            case COLUMN -> oy = 0 + (index - (count - 1) / 2.0) * spacing;
+            case WEDGE -> {
+                if (index > 0) {
+                    int rank = (index + 1) / 2;
+                    int side = index % 2 == 1 ? -1 : 1;
+                    ox = side * rank * spacing;
+                    oy = rank * spacing;
+                }
+            }
+            case GRID -> {
+                int cols = (int)Math.ceil(Math.sqrt(count));
+                double rows = Math.ceil(count / (double)cols);
+                int col = index % cols;
+                int row = index / cols;
+                ox = (col - (cols - 1) / 2.0) * 42;
+                oy = (row - (rows - 1) / 2.0) * 42;
+            }
+        }
+        return new Point2D.Double(Calc.clamp(x + ox, 0, width), Calc.clamp(y + oy, 0, height));
+    }
+
+    void attackSelected(String targetKey) {
+        int started = 0;
+        int unarmed = 0;
+        for (Unit unit : selectedUnits()) {
+            if (!WeaponRules.armed(unit.type())) { unarmed++; continue; }
+            if (!CombatTarget.enemy(this, unit, targetKey)) continue;
+            unit.attack(targetKey);
+            started++;
+        }
+        if (started > 0) status = "Attacking target with " + started + " ship(s).";
+        else status = unarmed > 0 ? "Selected ship has no weapons." : "No valid attack target.";
+    }
+
+    void autoHarvestSelected(ResourceNode node) {
+        int started = 0;
+        for (Unit unit : selectedUnits()) {
+            if (!unit.type().harvestKinds.contains(node.kind)) continue;
+            unit.setMiningAnchor(node.x, node.y);
+            unit.startAutoHarvest(node.id);
+            started++;
+        }
+        status = started == 0 ? "Selected ship cannot harvest this node." : "Auto-harvesting " + node.name + ".";
+    }
+
+    void sendToNearestBase(Unit unit) {
+        Base base = nearestBase(unit.playerId, unit.x, unit.y);
+        Unit depot = MobileDepot.preferredFor(this, unit, base);
+        if (base == null && depot == null) return;
+        unit.task = UnitTask.RETURN_TO_STATION;
+        if (depot != null) moveTowardOrbit(unit, depot.x, depot.y, MobileDepot.range(depot) * 0.55);
+        else moveTowardOrbit(unit, base.x, base.y, base.type().unloadRange * 0.55);
+    }
+
+    boolean returnToMiningAnchor(Unit unit) {
+        if (unit == null || !unit.miningAnchorSet || unit.type().harvestKinds.isEmpty()) return false;
+        unit.moveTo(unit.miningAnchorX, unit.miningAnchorY);
+        return true;
+    }
+
+    boolean scoutRetarget(Unit unit, ResourceNode oldNode) { return oldNode != null && scoutSystem.retargetAfterDepletion(this, unit, oldNode); }
+
+    void orbitAround(Unit unit, double cx, double cy, double radius, double dt, double speed) {
+        unit.orbitAngle += dt * speed * (unit.unitId % 2 == 0 ? 1 : -1);
+        unit.targetX = Calc.clamp(cx + Math.cos(unit.orbitAngle) * radius, 0, width);
+        unit.targetY = Calc.clamp(cy + Math.sin(unit.orbitAngle) * radius, 0, height);
+        unit.orbitRetarget = 0;
+    }
+
+    void moveTowardOrbit(Unit unit, double cx, double cy, double radius) {
+        double angle = Math.atan2(unit.y - cy, unit.x - cx);
+        if (Double.isNaN(angle)) angle = unit.unitId;
+        unit.targetX = Calc.clamp(cx + Math.cos(angle) * radius, 0, width);
+        unit.targetY = Calc.clamp(cy + Math.sin(angle) * radius, 0, height);
+    }
+
+    void relocateResource(ResourceNode node) { ResourceSpawner.relocate(node, resources, bases.values(), celestials, random); }
+
+    private void cleanupDestroyed() {
+        Iterator<Unit> unitIt = units.values().iterator();
+        while (unitIt.hasNext()) {
+            Unit unit = unitIt.next();
+            if (unit.hp <= 0) {
+                dropLoot(unit);
+                explodeUnit(unit);
+                unitIt.remove();
+            }
+        }
+        Iterator<Base> baseIt = bases.values().iterator();
+        while (baseIt.hasNext()) {
+            Base base = baseIt.next();
+            if (base.hp <= 0) {
+                dropLoot(base);
+                explodeBase(base);
+                baseIt.remove();
+            }
+        }
+        NpcStationReplacementSystem.replaceMissingStations(this);
+        NpcCollapseSystem.removeShipsWithoutStations(this);
+        shots.removeIf(shot -> !CombatTarget.alive(this, shot.targetKey) || shot.weapon() == null);
+        for (Unit unit : units.values()) {
+            if (!unit.attackTarget.isBlank() && !CombatTarget.alive(this, unit.attackTarget)) {
+                unit.attackTarget = "";
+                if (unit.task == UnitTask.ATTACK) unit.task = UnitTask.IDLE;
+            }
+        }
+    }
+
+    private void dropLoot(Unit unit) {
+        int count = WorldLootDrops.scatter(this, SalvageDrops.fromUnit(unit), unit.x, unit.y, Math.max(1.0, unit.type().size.scale), lootSeed(unit.key(), unit.x, unit.y));
+        if (count > 0 && PlayerRegistry.isLocal(unit.playerId)) status = "Destroyed ship dropped cargo and salvage.";
+    }
+
+    private void dropLoot(Base base) {
+        double power = Math.max(2.4, base.type().maxHp / 900.0);
+        int count = WorldLootDrops.scatter(this, SalvageDrops.fromBase(base), base.x, base.y, power, lootSeed(base.id, base.x, base.y));
+        if (count > 0 && PlayerRegistry.isLocal(base.playerId)) status = "Destroyed station dropped hangar loot and salvage.";
+    }
+
+    private long lootSeed(String key, double x, double y) {
+        return System.nanoTime() ^ ((long)key.hashCode() << 32) ^ Double.doubleToLongBits(x * 37.0 + y * 41.0);
+    }
+
+    ResourceNode resourceAt(double x, double y) { ResourceNode best = null; double bestDist = Double.MAX_VALUE; for (ResourceNode node : resources) if (node.active) { double d = Calc.distance(x, y, node.x, node.y); if (d <= node.radius + 14 && d < bestDist) { best = node; bestDist = d; } } return best; }
+    Base baseAt(double x, double y) { for (Base base : bases.values()) if (base.contains(x, y)) return base; return null; }
+    Unit unitAt(double x, double y) { for (Unit unit : units.values()) if (unit.contains(x, y)) return unit; return null; }
+    ResourceNode findResource(int id) { for (ResourceNode node : resources) if (node.id == id) return node; return null; }
+    Base nearestBase(double x, double y) { return nearestBase(PlayerRegistry.localId(), x, y); }
+    Base nearestBase(String playerId, double x, double y) { Base best = null; double bestDist = Double.MAX_VALUE; for (Base base : bases.values()) if (base.playerId.equals(playerId)) { double d = Calc.distance(x, y, base.x, base.y); if (d < bestDist) { best = base; bestDist = d; } } return best; }
+    List<Unit> selectedUnits() { List<Unit> out = new ArrayList<>(); for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) out.add(unit); return out; }
+    Unit selectedUnit() { for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) return unit; return null; }
+    int selectedCount() { int count = 0; for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) count++; return count; }
+
+    boolean canAfford(List<Cost> cost) { for (Cost c : cost) if (stockpile.getOrDefault(c.material(), 0.0) + 0.001 < c.amount()) return false; return true; }
+    void spend(List<Cost> cost) { for (Cost c : cost) { double next = stockpile.getOrDefault(c.material(), 0.0) - c.amount(); if (next <= 0.05) stockpile.remove(c.material()); else stockpile.put(c.material(), next); } }
+
+    Rectangle2D localBounds() {
+        boolean found = false;
+        double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+        for (Unit u : units.values()) if (PlayerRegistry.isLocal(u.playerId)) { found = true; minX = Math.min(minX, u.x); minY = Math.min(minY, u.y); maxX = Math.max(maxX, u.x); maxY = Math.max(maxY, u.y); }
+        for (Base b : bases.values()) if (PlayerRegistry.isLocal(b.playerId)) { found = true; minX = Math.min(minX, b.x); minY = Math.min(minY, b.y); maxX = Math.max(maxX, b.x); maxY = Math.max(maxY, b.y); }
+        return found ? new Rectangle2D.Double(minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY)) : null;
     }
 }
