@@ -11,7 +11,7 @@ final class ResourceNode {
     final double harvestRate;
     final double radius;
     double x, y, amount, respawnTimer;
-    double orbitRadius, orbitAngle, orbitSpeed;
+    double orbitCenterX, orbitCenterY, orbitRadius, orbitAngle, orbitSpeed;
     boolean active = true;
     boolean orbiting;
 
@@ -21,18 +21,26 @@ final class ResourceNode {
     }
 
     void orbit(double centerX, double centerY, double orbitRadius, double orbitAngle, double orbitSpeed) {
+        this.orbitCenterX = centerX;
+        this.orbitCenterY = centerY;
         this.orbitRadius = orbitRadius;
         this.orbitAngle = orbitAngle;
         this.orbitSpeed = orbitSpeed;
         this.orbiting = true;
-        updateOrbit(centerX, centerY, 0);
+        updateOrbit(0);
     }
 
     void updateOrbit(double centerX, double centerY, double dt) {
+        orbitCenterX = centerX;
+        orbitCenterY = centerY;
+        updateOrbit(dt);
+    }
+
+    void updateOrbit(double dt) {
         if (!active || !orbiting) return;
         orbitAngle += orbitSpeed * dt;
-        x = centerX + Math.cos(orbitAngle) * orbitRadius;
-        y = centerY + Math.sin(orbitAngle) * orbitRadius;
+        x = orbitCenterX + Math.cos(orbitAngle) * orbitRadius;
+        y = orbitCenterY + Math.sin(orbitAngle) * orbitRadius;
     }
 
     void deplete() { active = false; amount = 0; respawnTimer = Rules.RESOURCE_RESPAWN.respawnDelaySeconds; }
