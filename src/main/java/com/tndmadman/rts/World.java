@@ -59,18 +59,48 @@ final class World {
         addBase(Rules.DEFAULT_BASE, basePoint.getX(), basePoint.getY());
         Point2D start = startShipPoint(basePoint);
         spawnShip(Rules.STARTING_SHIP, start.getX(), start.getY());
-        status = "Entered " + starSystem.name() + ". Wormhole gates connect active systems.";
+        status = "Entered " + starSystem.name() + ". Left-click a wormhole to jump systems.";
     }
 
     long systemSeed() { return systemSeed; }
     double systemTime() { return systemTime; }
     String systemId() { return starSystem.id(); }
     String systemName() { return starSystem.name(); }
+    String activeSystemId() { return galaxy.activeSystemId(); }
     List<Material> spawnMaterials() { return starSystem.spawnMaterials(); }
     List<Material> spawnMaterials(String playerId) { return galaxy.spawnMaterials(this, playerId, starSystem); }
     void ensurePlayerHome(String playerId) { galaxy.ensurePlayerHome(this, playerId, starSystem); }
     Point2D startPointForPlayer(String playerId, int slot) { return galaxy.startPoint(this, playerId, slot, starSystem); }
     Point2D npcSpawnPoint(String factionId, double padding) { return galaxy.npcSpawnPoint(this, factionId, padding); }
+    void movePlayerAssetsToSystem(String playerId, String targetSystemId) { galaxy.moveAssetsToSystem(this, playerId, targetSystemId); celestials = galaxy.activeCelestials(); }
+
+    boolean jumpThroughWormholeAt(double x, double y) {
+        WormholeGate gate = wormholeAt(x, y);
+        if (gate == null) return false;
+        boolean jumped = galaxy.jump(this, gate, selectedUnits());
+        celestials = galaxy.activeCelestials();
+        selectedResourceId = -1;
+        return jumped;
+    }
+
+    private WormholeGate wormholeAt(double x, double y) {
+        for (WormholeGate gate : wormholes) if (gate.contains(x, y)) return gate;
+        return null;
+    }
+
+    void spawnPlayerGroup(String playerId, int slot) {
+        String previous = activeSystemId();
+        galaxy.activate(this, previous);
+        ensurePlayerHome(playerId);
+        Point2D bp = startPointForPlayer(playerId, slot);
+        Point2D sp = startShipPoint(bp);
+        int baseId = nextBaseNumber(playerId);
+        int unitId = nextUnitNumber(playerId);
+        bases.put(playerId + ":B" + baseId, new Base(playerId + ":B" + baseId, playerId, Rules.DEFAULT_BASE, bp.getX(), bp.getY()));
+        units.put(Unit.key(playerId, unitId), new Unit(playerId, unitId, Rules.STARTING_SHIP, sp.getX(), sp.getY()));
+        galaxy.saveActive(this);
+        celestials = galaxy.activate(this, previous);
+    }
 
     void setDevFreeBuild(String playerId, boolean enabled) {
         if (playerId == null || playerId.isBlank()) return;
@@ -111,11 +141,7 @@ final class World {
         celestials = galaxy.rebuild(this, starSystem, seed);
     }
 
-    private void seedResources() { }
     private Point2D startShipPoint(Point2D basePoint) { return new Point2D.Double(basePoint.getX() + 180, basePoint.getY() - 80); }
-
-    private Point2D startBasePoint() { return startPointForPlayer(localPlayerId, 0); }
-    private ResourceNode firstResource(Material material) { for (ResourceNode node : resources) if (node.material == material) return node; return null; }
 
     void updateEnvironment(double dt) {
         advanceEnvironment(dt);
@@ -126,6 +152,7 @@ final class World {
     private void advanceEnvironment(double dt) {
         systemTime += dt;
         galaxy.update(this, dt);
+        celestials = galaxy.activeCelestials();
         ResourceSpawner.update(resources, celestials, dt);
     }
 
@@ -214,18 +241,8 @@ final class World {
     Unit spawnShip(String type, double x, double y) { Unit unit = new Unit(localPlayerId, nextUnitId++, type, x, y); units.put(unit.key(), unit); return unit; }
     ProjectileShot addShot(String ownerId, String weaponId, String targetKey, double x, double y) { ProjectileShot shot = new ProjectileShot(nextShotId++, ownerId, weaponId, targetKey, x, y); shots.add(shot); return shot; }
     WorldItem addWorldItem(Material material, double amount, double x, double y, double vx, double vy, double angle, double spin) { WorldItem item = new WorldItem(nextWorldItemId++, material, amount, x, y, vx, vy, angle, spin); if (!item.empty()) items.add(item); return item.empty() ? null : item; }
-    void explodeUnit(Unit unit) {
-        if (unit != null) {
-            explosions.add(ExplosionEffect.fromUnit(unit));
-            ProceduralAudio.playDestruction(unit.type().size.scale);
-        }
-    }
-    void explodeBase(Base base) {
-        if (base != null) {
-            explosions.add(ExplosionEffect.fromBase(base));
-            ProceduralAudio.playDestruction(Math.max(2.0, base.type().maxHp / 900.0));
-        }
-    }
+    void explodeUnit(Unit unit) { if (unit != null) { explosions.add(ExplosionEffect.fromUnit(unit)); ProceduralAudio.playDestruction(unit.type().size.scale); } }
+    void explodeBase(Base base) { if (base != null) { explosions.add(ExplosionEffect.fromBase(base)); ProceduralAudio.playDestruction(Math.max(2.0, base.type().maxHp / 900.0)); } }
 
     private void updateExplosions(double dt) { Iterator<ExplosionEffect> it = explosions.iterator(); while (it.hasNext()) if (!it.next().update(dt)) it.remove(); }
 
@@ -362,6 +379,9 @@ final class World {
     List<Unit> selectedUnits() { List<Unit> out = new ArrayList<>(); for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) out.add(unit); return out; }
     Unit selectedUnit() { for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) return unit; return null; }
     int selectedCount() { int count = 0; for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) count++; return count; }
+
+    private int nextBaseNumber(String playerId) { int max = 0; String prefix = playerId + ":B"; for (String id : bases.keySet()) if (id.startsWith(prefix)) try { max = Math.max(max, Integer.parseInt(id.substring(prefix.length()))); } catch (Exception ignored) { } return max + 1; }
+    private int nextUnitNumber(String playerId) { int max = 0; for (Unit unit : units.values()) if (unit.playerId.equals(playerId)) max = Math.max(max, unit.unitId); return max + 1; }
 
     boolean canAfford(List<Cost> cost) { for (Cost c : cost) if (stockpile.getOrDefault(c.material(), 0.0) + 0.001 < c.amount()) return false; return true; }
     void spend(List<Cost> cost) { for (Cost c : cost) { double next = stockpile.getOrDefault(c.material(), 0.0) - c.amount(); if (next <= 0.05) stockpile.remove(c.material()); else stockpile.put(c.material(), next); } }
