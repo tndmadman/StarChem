@@ -8,4 +8,8 @@ final class PeerSyncBatch {
         for (ServerPeer peer : peers) next = PeerSyncSender.sendOne(world, views, peer, next, SyncKind.REGULAR, out);
         return next;
     }
+
+    static long sendInitial(World world, ClientViewCache views, ServerPeer peer, long sequence, NetOutbound out) {
+        return PeerSyncSender.sendOne(world, views, peer, sequence, SyncKind.INITIAL, out);
+    }
 }
