@@ -8,7 +8,7 @@ on:
 
 jobs:
   jar-release:
-    name: Build runnable jar release
+    name: Build StarChem release zip
     runs-on: ubuntu-latest
 
     steps:
@@ -32,20 +32,15 @@ jobs:
           mkdir -p release/StarChem
           cp build/libs/starchem-0.1.0.jar release/StarChem/StarChem.jar
           cp -R config release/StarChem/config
-          cp README.md release/StarChem/README.md
-          cp PLAY.txt release/StarChem/PLAY.txt
+          cp packaging/run-starchem.bat release/StarChem/run-starchem.bat
           cd release
           zip -r StarChem-${GITHUB_REF_NAME}.zip StarChem
           cd ..
           cp release/StarChem-${GITHUB_REF_NAME}.zip .
-          cp build/libs/starchem-0.1.0.jar StarChem-${GITHUB_REF_NAME}.jar
           echo "RELEASE_ZIP=StarChem-${GITHUB_REF_NAME}.zip" >> "$GITHUB_ENV"
-          echo "RELEASE_JAR=StarChem-${GITHUB_REF_NAME}.jar" >> "$GITHUB_ENV"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: StarChem-release
-          path: |
-            ${{ env.RELEASE_ZIP }}
-            ${{ env.RELEASE_JAR }}
+          path: ${{ env.RELEASE_ZIP }}
