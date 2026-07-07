@@ -4,6 +4,17 @@ StarChem is a Java 2D top-down multiplayer RTS prototype.
 
 It is written in plain Java/Swing with a UDP host/client layer. The game opens into an in-game lobby, then swaps into the RTS view when you choose Solo, Host, or Join.
 
+## Download first release
+
+Download the latest Windows release ZIP from the GitHub Releases page.
+
+1. Download `StarChem-windows-v0.1.0.zip`.
+2. Extract the ZIP.
+3. Open the extracted `StarChem` folder.
+4. Double-click `StarChem.exe`.
+
+The Windows release package includes the Java runtime and game config files. Players do not need Gradle, a JDK, source files, or a `.bat` launcher.
+
 ## Playable right now
 
 - In-game lobby
@@ -31,6 +42,7 @@ It is written in plain Java/Swing with a UDP host/client layer. The game opens i
 - Manual WASD camera and mouse-wheel zoom
 - Procedural audio generated entirely in Java, with no sound files
 - UDP host/client synchronization for players, ships, stations, cargo, resources, world loot, and stockpiles
+- Phase-one NPC factions loaded from external config
 
 ## Controls
 
@@ -159,13 +171,15 @@ config/ships/industry.json
 config/ships/combat-line.json
 config/ships/capitals.json
 config/ships/megastructures.json
+config/research.json
+config/npcs.json
 ```
 
 `files.ships` in `config/starchem.json` may be either one JSON file or a list of JSON files. The loader merges all ship files in order, so new ship packs can be added without growing one huge config file.
 
 `files.craftables` may also be one JSON file or a list of JSON files. Each craftable item should live in its own JSON file with its required resources, output material, display name, description, style, color, and station types that can craft it.
 
-The Java build loads ships, stations, craftable recipes, resource belt spawning, and resource respawn timing from those files through `Rules.java`, `CraftingRules.java`, and `StationFuelRules.java`. This means ship stats, build costs, station build menus, station package costs, station fuel requirements, craftable recipe costs/outputs, and spawned resource belts can be changed without editing Java source.
+The Java build loads ships, stations, craftable recipes, resource belt spawning, resource respawn timing, research, and NPC faction data from those files. This means ship stats, build costs, station build menus, station package costs, station fuel requirements, craftable recipe costs/outputs, spawned resource belts, and NPC behavior can be changed without editing Java source.
 
 Important current limitation: materials are still backed by the Java `Material` enum in `Types.java`, so `materials.json` is currently documentation/metadata for the existing material IDs. A later pass should replace the enum with loaded material definitions if fully custom materials/colors are needed.
 
@@ -186,26 +200,35 @@ The current multiplayer model is host-authoritative UDP:
 - Receivers answer with `ACK|messageId`.
 - Unacked reliable messages are resent for a limited number of attempts.
 
-## Windows launch
+## Developer launch from source
 
-Double-click:
+Use this only if you are developing StarChem from source.
+
+Windows compile-and-run helper:
 
 ```bat
 run-starchem.bat
 ```
 
-If Windows says `javac` is not recognized, install a Java 17+ JDK and reopen Command Prompt or File Explorer before running the batch file again.
-
-## Run from terminal
-
-Lobby:
+Gradle lobby launch:
 
 ```bash
 gradle run
 ```
 
-Solo directly:
+Gradle solo launch:
 
 ```bash
 gradle run --args="--solo --name Player"
 ```
+
+## Publishing a release
+
+The repo includes a GitHub Actions release workflow. To publish the first public Windows release, create and push a version tag:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+GitHub Actions will build `StarChem.exe`, package the `config` folder with it, create `StarChem-windows-v0.1.0.zip`, and publish it on the GitHub Releases page.
