@@ -40,7 +40,7 @@ final class LocalHostSession {
         long now = System.nanoTime();
         double dt = Math.min(0.05, (now - lastNanos) / 1_000_000_000.0);
         lastNanos = now;
-        serverWorld.update(dt);
+        serverNetwork.updateServerWorlds(dt);
         serverNetwork.tick();
         clientNetwork.tick();
     }
