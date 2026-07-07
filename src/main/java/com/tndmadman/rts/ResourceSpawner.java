@@ -8,14 +8,19 @@ final class ResourceSpawner {
     private ResourceSpawner() { }
 
     static void seed(List<ResourceNode> resources, CelestialSystem celestials, Random random) {
-        seed(resources, celestials, random, Rules.RESOURCE_BELTS);
+        seed(resources, celestials, random, 1, Rules.RESOURCE_BELTS);
     }
 
     static void seed(List<ResourceNode> resources, CelestialSystem celestials, Random random, List<ResourceBelt> belts) {
-        int id = 1;
+        seed(resources, celestials, random, 1, belts);
+    }
+
+    static int seed(List<ResourceNode> resources, CelestialSystem celestials, Random random, int startId, List<ResourceBelt> belts) {
+        int id = startId;
         for (ResourceBelt belt : belts) {
             id = belt(resources, id, random, celestials, belt);
         }
+        return id;
     }
 
     static void update(List<ResourceNode> resources, CelestialSystem celestials, double dt) {
@@ -27,7 +32,7 @@ final class ResourceSpawner {
         double orbitRadius = anchor == null ? 2200 + random.nextDouble() * 4400 : anchor.orbitRadius + random.nextGaussian() * 90;
         double orbitAngle = anchor == null ? random.nextDouble() * Math.PI * 2 : anchor.orbitAngle + random.nextGaussian() * 0.18;
         double orbitSpeed = anchor == null ? speedFor(orbitRadius) : anchor.orbitSpeed * (0.94 + random.nextDouble() * 0.12);
-        activate(node, celestials, orbitRadius, orbitAngle, orbitSpeed);
+        activate(node, celestials == null ? node.orbitCenterX : celestials.sunX(), celestials == null ? node.orbitCenterY : celestials.sunY(), orbitRadius, orbitAngle, orbitSpeed);
     }
 
     private static int belt(List<ResourceNode> out, int id, Random random, CelestialSystem celestials, ResourceBelt belt) {
@@ -60,16 +65,17 @@ final class ResourceSpawner {
         int seen = 0;
         for (ResourceNode node : resources) {
             if (node.id == source.id || !node.active || node.material != source.material || node.kind != source.kind) continue;
+            if (Calc.distance(source.orbitCenterX, source.orbitCenterY, node.orbitCenterX, node.orbitCenterY) > 100) continue;
             if (random.nextInt(++seen) == 0) picked = node;
         }
         return picked;
     }
 
-    private static void activate(ResourceNode node, CelestialSystem celestials, double orbitRadius, double orbitAngle, double orbitSpeed) {
+    private static void activate(ResourceNode node, double centerX, double centerY, double orbitRadius, double orbitAngle, double orbitSpeed) {
         node.amount = node.maxAmount;
         node.active = true;
         node.respawnTimer = 0;
-        node.orbit(celestials.sunX(), celestials.sunY(), orbitRadius, orbitAngle, orbitSpeed);
+        node.orbit(centerX, centerY, orbitRadius, orbitAngle, orbitSpeed);
     }
 
     private static double speedFor(double orbitRadius) {
