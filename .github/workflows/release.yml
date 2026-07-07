@@ -77,28 +77,29 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         run: |
-          @"
-          # StarChem $env:RELEASE_TAG
-
-          First public playable release of StarChem.
-
-          ## Download
-
-          Download ``$env:RELEASE_ZIP``, extract it, open the ``StarChem`` folder, and double-click ``StarChem.exe``.
-
-          No Gradle install, no local compile, and no ``.bat`` launcher are required for players.
-
-          ## Included
-
-          - Java/Swing 2D RTS prototype
-          - Solo, host, and join flow
-          - UDP host/client multiplayer sync
-          - Resource harvesting and station building
-          - Shipyards, Research Labs, and Manufacturing Plants
-          - NPC faction config
-          - Procedural audio
-          - Packaged Java runtime
-          "@ | Set-Content -Encoding UTF8 RELEASE_NOTES.md
+          $notes = @(
+            "# StarChem $env:RELEASE_TAG",
+            "",
+            "First public playable release of StarChem.",
+            "",
+            "## Download",
+            "",
+            "Download ``$env:RELEASE_ZIP``, extract it, open the ``StarChem`` folder, and double-click ``StarChem.exe``.",
+            "",
+            "No Gradle install, no local compile, and no ``.bat`` launcher are required for players.",
+            "",
+            "## Included",
+            "",
+            "- Java/Swing 2D RTS prototype",
+            "- Solo, host, and join flow",
+            "- UDP host/client multiplayer sync",
+            "- Resource harvesting and station building",
+            "- Shipyards, Research Labs, and Manufacturing Plants",
+            "- NPC faction config",
+            "- Procedural audio",
+            "- Packaged Java runtime"
+          )
+          $notes | Set-Content -Encoding UTF8 RELEASE_NOTES.md
 
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/')
