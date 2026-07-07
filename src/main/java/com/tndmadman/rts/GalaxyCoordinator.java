@@ -58,8 +58,10 @@ final class GalaxyCoordinator {
         String existing = playerHomes.get(playerId);
         if (existing != null && systems.containsKey(existing)) return asGalaxySystem(systems.get(existing));
         WorldSystemState home;
-        if (world.localPlayerId.equals(playerId)) home = systems.computeIfAbsent(primary.id(), id -> createSystem(id, primary));
-        else home = createSystem(playerHomeId(playerId), StarSystems.get(StarSystems.PLAYER_HOME_SYSTEM_ID));
+        if (world.localPlayerId.equals(playerId)) {
+            home = systems.get(primary.id());
+            if (home == null) home = createSystem(primary.id(), primary);
+        } else home = createSystem(playerHomeId(playerId), StarSystems.get(StarSystems.PLAYER_HOME_SYSTEM_ID));
         playerHomes.put(playerId, home.id);
         WorldSystemState main = systems.get(primary.id());
         link(world, main, home);
@@ -115,6 +117,7 @@ final class GalaxyCoordinator {
     boolean viewThrough(World world, WormholeGate gate) {
         WorldSystemState to = systems.get(gate.toSystemId);
         if (to == null) return false;
+        saveActive(world);
         activeSystemId = to.id;
         loadActive(world);
         world.status = "Viewing " + to.definition.name() + ". Ships travel only when they touch the wormhole.";
