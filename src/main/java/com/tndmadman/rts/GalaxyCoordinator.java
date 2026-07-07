@@ -70,9 +70,7 @@ final class GalaxyCoordinator {
         return asGalaxySystem(home);
     }
 
-    String playerHomeSystemId(World world, String playerId, StarSystemDefinition primary) {
-        return ensurePlayerHome(world, playerId, primary).id;
-    }
+    String playerHomeSystemId(World world, String playerId, StarSystemDefinition primary) { return ensurePlayerHome(world, playerId, primary).id; }
 
     List<Material> spawnMaterials(World world, String playerId, StarSystemDefinition primary) {
         GalaxySystem home = ensurePlayerHome(world, playerId, primary);
@@ -137,11 +135,15 @@ final class GalaxyCoordinator {
         WorldSystemState from = active();
         WorldSystemState to = systems.get(gate.toSystemId);
         if (from == null || to == null) return false;
-        if (travelers == null || travelers.isEmpty()) {
-            world.status = "Select ship(s), then left-click the wormhole.";
+        List<Unit> moving = new ArrayList<>();
+        if (travelers != null) moving.addAll(travelers);
+        if (moving.isEmpty()) {
+            for (Unit unit : world.units.values()) if (PlayerRegistry.isLocal(unit.playerId)) moving.add(unit);
+        }
+        if (moving.isEmpty()) {
+            world.status = "No local ship available to jump.";
             return false;
         }
-        List<Unit> moving = new ArrayList<>(travelers);
         for (Unit unit : moving) world.units.remove(unit.key());
         saveActive(world);
         activeSystemId = to.id;
@@ -210,10 +212,7 @@ final class GalaxyCoordinator {
         b.wormholes.add(new WormholeGate(b.id + "_to_" + a.id, b.id, a.id, bx, by, ax - 180, ay));
     }
 
-    private boolean wormholeExists(WorldSystemState state, String to) {
-        for (WormholeGate gate : state.wormholes) if (gate.toSystemId.equals(to)) return true;
-        return false;
-    }
+    private boolean wormholeExists(WorldSystemState state, String to) { for (WormholeGate gate : state.wormholes) if (gate.toSystemId.equals(to)) return true; return false; }
 
     private ResourceNode nthActiveResource(WorldSystemState state, Material material, int skip) {
         List<ResourceNode> active = new ArrayList<>();
