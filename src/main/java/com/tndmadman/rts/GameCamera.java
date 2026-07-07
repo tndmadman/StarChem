@@ -17,11 +17,8 @@ final class GameCamera {
 
     void update(World world, int screenW, int screenH, double dt) {
         Set<String> currentLocalEntityKeys = localEntityKeys(world);
-        if (!initialized) {
-            initialized = centerOnLocal(world, screenW, screenH);
-        } else if (localEntitiesReplaced(currentLocalEntityKeys)) {
-            centerOnLocal(world, screenW, screenH);
-        }
+        if (!initialized) initialized = centerOnLocal(world, screenW, screenH);
+        else if (localEntitiesReplaced(currentLocalEntityKeys)) centerOnLocal(world, screenW, screenH);
         if (!currentLocalEntityKeys.isEmpty()) lastLocalEntityKeys = currentLocalEntityKeys;
         clampToWorld(world, screenW, screenH);
     }
@@ -55,6 +52,10 @@ final class GameCamera {
         return new Point2D.Double(p.x / zoom + x, p.y / zoom + y);
     }
 
+    Point2D worldToScreen(double wx, double wy) {
+        return new Point2D.Double((wx - x) * zoom, (wy - y) * zoom);
+    }
+
     private boolean centerOnLocal(World world, int screenW, int screenH) {
         Rectangle2D target = localTarget(world);
         if (target == null) return false;
@@ -67,20 +68,14 @@ final class GameCamera {
 
     private boolean localEntitiesReplaced(Set<String> currentLocalEntityKeys) {
         if (lastLocalEntityKeys.isEmpty() || currentLocalEntityKeys.isEmpty()) return false;
-        for (String key : currentLocalEntityKeys) {
-            if (lastLocalEntityKeys.contains(key)) return false;
-        }
+        for (String key : currentLocalEntityKeys) if (lastLocalEntityKeys.contains(key)) return false;
         return true;
     }
 
     private Set<String> localEntityKeys(World world) {
         Set<String> keys = new LinkedHashSet<>();
-        for (Unit u : world.units.values()) {
-            if (PlayerRegistry.isLocal(u.playerId)) keys.add("U:" + u.key());
-        }
-        for (Base b : world.bases.values()) {
-            if (PlayerRegistry.isLocal(b.playerId)) keys.add("B:" + b.id);
-        }
+        for (Unit u : world.units.values()) if (PlayerRegistry.isLocal(u.playerId)) keys.add("U:" + u.key());
+        for (Base b : world.bases.values()) if (PlayerRegistry.isLocal(b.playerId)) keys.add("B:" + b.id);
         return keys;
     }
 
