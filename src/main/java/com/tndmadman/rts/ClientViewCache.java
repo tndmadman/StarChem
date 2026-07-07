@@ -40,6 +40,7 @@ final class ClientViewCache {
             world.activateSystem(view(world, playerId));
             change.run();
             world.saveActiveSystem();
+            if (playerId != null && !playerId.isBlank()) viewByPlayer.put(playerId, world.activeSystemId());
         } finally {
             world.activateSystem(old);
         }
