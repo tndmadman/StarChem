@@ -6,13 +6,10 @@ on:
       - 'v*.*.*'
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
-  windows-release:
-    name: Build Windows release
-    runs-on: windows-latest
+  jar-release:
+    name: Build runnable jar release
+    runs-on: ubuntu-latest
 
     steps:
       - name: Check out source
@@ -24,91 +21,30 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Build StarChem app image
-        shell: pwsh
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build jar
+        run: gradle clean jar
+
+      - name: Stage release files
         run: |
-          $ErrorActionPreference = 'Stop'
-
-          $tag = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { 'dev' }
-          $version = $tag -replace '^v', ''
-          if ($version -eq 'dev' -or $version -notmatch '^\d+\.\d+\.\d+$') {
-            $version = '0.1.0'
-          }
-
-          Remove-Item build -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force build\classes, build\libs | Out-Null
-
-          Get-ChildItem -Recurse src\main\java -Filter *.java |
-            ForEach-Object { $_.FullName } |
-            Set-Content -Encoding UTF8 build\sources.txt
-
-          javac --release 17 -encoding UTF-8 -d build\classes '@build\sources.txt'
-
-          jar --create `
-            --file build\libs\starchem.jar `
-            --main-class com.tndmadman.rts.App `
-            -C build\classes .
-
-          jpackage `
-            --type app-image `
-            --name StarChem `
-            --input build\libs `
-            --main-jar starchem.jar `
-            --dest build\jpackage `
-            --app-version $version `
-            --vendor tndmadman
-
-          Copy-Item config build\jpackage\StarChem\config -Recurse -Force
-          Copy-Item README.md build\jpackage\StarChem\README.md -Force
-
-          $zipName = "StarChem-windows-$tag.zip"
-          Compress-Archive -Path build\jpackage\StarChem -DestinationPath $zipName -Force
-
-          "RELEASE_ZIP=$zipName" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
+          mkdir -p release/StarChem
+          cp build/libs/starchem-0.1.0.jar release/StarChem/StarChem.jar
+          cp -R config release/StarChem/config
+          cp README.md release/StarChem/README.md
+          cd release
+          zip -r StarChem-${GITHUB_REF_NAME}.zip StarChem
+          cd ..
+          cp release/StarChem-${GITHUB_REF_NAME}.zip .
+          cp build/libs/starchem-0.1.0.jar StarChem-${GITHUB_REF_NAME}.jar
+          echo "RELEASE_ZIP=StarChem-${GITHUB_REF_NAME}.zip" >> "$GITHUB_ENV"
+          echo "RELEASE_JAR=StarChem-${GITHUB_REF_NAME}.jar" >> "$GITHUB_ENV"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.RELEASE_ZIP }}
-          path: ${{ env.RELEASE_ZIP }}
-
-      - name: Write release notes
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: pwsh
-        run: |
-          $notes = @(
-            "# StarChem $env:RELEASE_TAG",
-            "",
-            "First public playable release of StarChem.",
-            "",
-            "## Download",
-            "",
-            "Download ``$env:RELEASE_ZIP``, extract it, open the ``StarChem`` folder, and double-click ``StarChem.exe``.",
-            "",
-            "No Gradle install, no local compile, and no ``.bat`` launcher are required for players.",
-            "",
-            "## Included",
-            "",
-            "- Java/Swing 2D RTS prototype",
-            "- Solo, host, and join flow",
-            "- UDP host/client multiplayer sync",
-            "- Resource harvesting and station building",
-            "- Shipyards, Research Labs, and Manufacturing Plants",
-            "- NPC faction config",
-            "- Procedural audio",
-            "- Packaged Java runtime"
-          )
-          $notes | Set-Content -Encoding UTF8 RELEASE_NOTES.md
-
-      - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          gh release create $env:RELEASE_TAG $env:RELEASE_ZIP `
-            --title "StarChem $env:RELEASE_TAG" `
-            --notes-file RELEASE_NOTES.md `
-            --latest
+          name: StarChem-release
+          path: |
+            ${{ env.RELEASE_ZIP }}
+            ${{ env.RELEASE_JAR }}
