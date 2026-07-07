@@ -3,6 +3,8 @@ package com.tndmadman.rts;
 import java.util.*;
 
 final class WorldSystemState {
+    private static final Set<WorldSystemState> LIVE = Collections.newSetFromMap(new WeakHashMap<>());
+
     final String id;
     final StarSystemDefinition definition;
     final CelestialSystem celestials;
@@ -17,6 +19,16 @@ final class WorldSystemState {
         this.id = id;
         this.definition = definition;
         this.celestials = celestials;
+        LIVE.add(this);
+    }
+
+    static void updateInactive(String activeId, double dt) {
+        if (dt == 0) return;
+        for (WorldSystemState state : new ArrayList<>(LIVE)) {
+            if (state == null || state.id.equals(activeId)) continue;
+            state.celestials.update(dt);
+            ResourceSpawner.update(state.resources, state.celestials, dt);
+        }
     }
 
     int width() { return definition.width(); }
