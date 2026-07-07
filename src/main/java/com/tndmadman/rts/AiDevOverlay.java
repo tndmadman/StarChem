@@ -19,7 +19,7 @@ final class AiDevOverlay {
         g2.setStroke(new BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 0, new float[]{14, 10}, 0));
         for (Unit u : world.units.values()) {
             if (!NpcRules.isNpcFaction(u.playerId)) continue;
-            Color c = new Color(PlayerRegistry.color(u.playerId));
+            Color c = PlayerRegistry.color(u.playerId);
             g2.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 140));
             if (!u.attackTarget.isBlank() && CombatTarget.alive(world, u.attackTarget)) {
                 g2.draw(new Line2D.Double(u.x, u.y, CombatTarget.x(world, u.attackTarget), CombatTarget.y(world, u.attackTarget)));
