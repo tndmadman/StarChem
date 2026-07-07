@@ -82,9 +82,9 @@ final class GalaxyCoordinator {
         updateJumps(world, dt);
     }
 
-    void draw(Graphics2D g2) {
+    void draw(World world, Graphics2D g2) {
         for (GalaxySystem system : systems) system.celestials.draw(g2);
-        for (WormholeGate gate : wormholes()) gate.draw(g2);
+        for (WormholeGate gate : world.wormholes) gate.draw(g2);
     }
 
     void drawMap(Graphics2D g2, int width, int height) {
@@ -114,8 +114,6 @@ final class GalaxyCoordinator {
         }
         return best;
     }
-
-    private List<WormholeGate> wormholes() { return CurrentWorldHolder.wormholes; }
 
     private GalaxySystem addSystem(World world, String instanceId, StarSystemDefinition definition) {
         GalaxySystem existing = system(instanceId);
@@ -197,9 +195,5 @@ final class GalaxyCoordinator {
         }
         world.width = (int)Math.ceil(maxX + 800);
         world.height = (int)Math.ceil(maxY + 800);
-    }
-
-    private static final class CurrentWorldHolder {
-        private static final List<WormholeGate> wormholes = List.of();
     }
 }
