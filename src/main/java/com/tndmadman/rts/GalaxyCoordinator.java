@@ -34,28 +34,23 @@ final class GalaxyCoordinator {
     }
 
     String activeSystemId() { return activeSystemId; }
+    CelestialSystem activeCelestials() { WorldSystemState state = active(); return state == null ? null : state.celestials; }
 
     void saveActive(World world) {
         WorldSystemState state = active();
         if (state == null) return;
-        state.resources.clear();
-        state.resources.addAll(world.resources);
-        state.units.clear();
-        state.units.putAll(world.units);
-        state.bases.clear();
-        state.bases.putAll(world.bases);
-        state.shots.clear();
-        state.shots.addAll(world.shots);
-        state.items.clear();
-        state.items.addAll(world.items);
-        state.wormholes.clear();
-        state.wormholes.addAll(world.wormholes);
+        state.resources.clear(); state.resources.addAll(world.resources);
+        state.units.clear(); state.units.putAll(world.units);
+        state.bases.clear(); state.bases.putAll(world.bases);
+        state.shots.clear(); state.shots.addAll(world.shots);
+        state.items.clear(); state.items.addAll(world.items);
+        state.wormholes.clear(); state.wormholes.addAll(world.wormholes);
     }
 
     CelestialSystem activate(World world, String systemId) {
         saveActive(world);
         WorldSystemState state = systems.get(systemId);
-        if (state == null) return active() == null ? null : active().celestials;
+        if (state == null) return activeCelestials();
         activeSystemId = state.id;
         loadActive(world);
         return state.celestials;
@@ -165,8 +160,7 @@ final class GalaxyCoordinator {
 
     void moveAssetsToSystem(World world, String playerId, String targetSystemId) {
         WorldSystemState target = systems.get(targetSystemId);
-        if (target == null) return;
-        if (activeSystemId.equals(targetSystemId)) return;
+        if (target == null || activeSystemId.equals(targetSystemId)) return;
         List<Unit> movingUnits = new ArrayList<>();
         List<Base> movingBases = new ArrayList<>();
         for (Unit unit : world.units.values()) if (unit.playerId.equals(playerId)) movingUnits.add(unit);
@@ -184,7 +178,7 @@ final class GalaxyCoordinator {
         double dx = anchor.getX() - sourceX;
         double dy = anchor.getY() - sourceY;
         for (Base base : movingBases) world.bases.put(base.id, movedBase(base, dx, dy, world.width, world.height));
-        for (Unit unit : movingUnits) moveUnit(unit, dx, dy, world.width, world.height);
+        for (Unit unit : movingUnits) { moveUnit(unit, dx, dy, world.width, world.height); world.units.put(unit.key(), unit); }
         saveActive(world);
         activeSystemId = previous;
         loadActive(world);
