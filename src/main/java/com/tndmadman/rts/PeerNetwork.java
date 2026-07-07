@@ -75,11 +75,11 @@ final class PeerNetwork implements CommandSink {
     @Override public void move(MoveCommand c) { if (config.hostMode) { clientViews.applyChange(world, c.playerId(), () -> applyMove(c)); broadcastNow(); } else sendToServer("MOVE|" + c.playerId() + "|" + c.unitId() + "|" + Calc.round(c.x()) + "|" + Calc.round(c.y())); }
     @Override public void work(HarvestCommand c) { if (config.hostMode) { clientViews.applyChange(world, c.playerId(), () -> applyWork(c)); broadcastNow(); } else sendToServer("WORK|" + c.playerId() + "|" + c.unitId() + "|" + c.resourceId()); }
     @Override public void attack(AttackCommand c) { if (config.hostMode) { clientViews.applyChange(world, c.playerId(), () -> applyAttack(c)); broadcastNow(); } else sendToServer("ATTACK|" + c.playerId() + "|" + c.unitId() + "|" + c.targetKey()); }
-    @Override public void respawn(String playerId) { if (config.hostMode) { WorldNetAccess.respawnPlayer(world, playerId); broadcastNow(); } else sendToServer("RESPAWN|" + playerId); }
+    @Override public void respawn(String playerId) { if (config.hostMode) { WorldNetAccess.respawnPlayer(world, playerId); broadcastNow(); } else reliableToServer("RESPAWN|" + playerId); }
     @Override public void build(String playerId, String baseId, String shipTypeId) { if (config.hostMode) { clientViews.applyChange(world, playerId, () -> { if (CommandAuth.base(world, playerId, baseId)) world.buildShip(baseId, shipTypeId); }); broadcastNow(); } else sendToServer("BUILD|" + playerId + "|" + baseId + "|" + shipTypeId); }
     @Override public void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { if (config.hostMode) { clientViews.applyChange(world, playerId, () -> { if (CommandAuth.pack(world, playerId, mode, baseOrUnitId)) applyPack(mode, baseOrUnitId, packageType); }); broadcastNow(); } else sendToServer("PACK|" + playerId + "|" + mode + "|" + baseOrUnitId + "|" + packageType); }
-    void jump(String playerId, double x, double y) { if (config.hostMode) { clientViews.applyChange(world, playerId, () -> world.jumpThroughWormholeAt(x, y)); broadcastNow(); } else sendToServer("JUMP|" + playerId + "|" + Calc.round(x) + "|" + Calc.round(y)); }
-    void wormholeTouch(String playerId) { if (config.hostMode) { clientViews.applyChange(world, playerId, () -> { world.transferTouchingShips(); }); broadcastNow(); } else sendToServer("WHTOUCH|" + playerId); }
+    void jump(String playerId, double x, double y) { if (config.hostMode) { clientViews.applyChange(world, playerId, () -> world.jumpThroughWormholeAt(x, y)); broadcastNow(); } else reliableToServer("JUMP|" + playerId + "|" + Calc.round(x) + "|" + Calc.round(y)); }
+    void wormholeTouch(String playerId) { if (config.hostMode) { clientViews.applyChange(world, playerId, () -> { world.transferTouchingShips(); }); broadcastNow(); } else reliableToServer("WHTOUCH|" + playerId); }
 
     private void applyMove(MoveCommand c) { Unit u = world.units.get(Unit.key(c.playerId(), c.unitId())); if (u != null) u.moveTo(c.x(), c.y()); }
     private void applyWork(HarvestCommand c) { Unit u = world.units.get(Unit.key(c.playerId(), c.unitId())); if (u != null) u.startAutoHarvest(c.resourceId()); }
@@ -116,8 +116,8 @@ final class PeerNetwork implements CommandSink {
                 case "RESPAWN" -> { touch(ep); if (owns(ep, p[1])) { clientViews.applyChange(world, p[1], () -> WorldNetAccess.respawnPlayer(world, p[1])); broadcastNow(); } }
                 case "BUILD" -> { touch(ep); if (owns(ep, p[1])) clientViews.applyChange(world, p[1], () -> { if (CommandAuth.base(world, p[1], p[2])) world.buildShip(p[2], p[3]); }); }
                 case "PACK" -> { touch(ep); if (owns(ep, p[1])) clientViews.applyChange(world, p[1], () -> { if (CommandAuth.pack(world, p[1], p[2], p[3])) applyPack(p[2], p[3], p[4]); }); }
-                case "JUMP" -> { touch(ep); if (owns(ep, p[1])) clientViews.applyChange(world, p[1], () -> world.jumpThroughWormholeAt(Double.parseDouble(p[2]), Double.parseDouble(p[3]))); }
-                case "WHTOUCH" -> { touch(ep); if (owns(ep, p[1])) clientViews.applyChange(world, p[1], () -> { world.transferTouchingShips(); }); }
+                case "JUMP" -> { touch(ep); if (owns(ep, p[1])) { clientViews.applyChange(world, p[1], () -> world.jumpThroughWormholeAt(Double.parseDouble(p[2]), Double.parseDouble(p[3]))); broadcastNow(); } }
+                case "WHTOUCH" -> { touch(ep); if (owns(ep, p[1])) { clientViews.applyChange(world, p[1], () -> { world.transferTouchingShips(); }); broadcastNow(); } }
                 case "LEAVE" -> removePeer(ep);
             }
         } catch (Exception ex) { System.err.println("Bad packet: " + m + " / " + ex.getMessage()); }
