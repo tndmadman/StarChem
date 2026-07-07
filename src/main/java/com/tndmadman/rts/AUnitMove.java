@@ -20,8 +20,8 @@ final class SideAOrders {
             case "RESPAWN" -> { s.touch(ep); if (s.owns(ep, p[1])) { s.change(p[1], () -> WorldNetAccess.respawnPlayer(s.world, p[1])); s.broadcastNow(); } }
             case "BUILD" -> { s.touch(ep); if (s.owns(ep, p[1])) s.change(p[1], () -> { if (CommandAuth.base(s.world, p[1], p[2])) s.world.buildShip(p[2], p[3]); }); }
             case "PACK" -> { s.touch(ep); if (s.owns(ep, p[1])) s.change(p[1], () -> { if (CommandAuth.pack(s.world, p[1], p[2], p[3])) AUnitPack.apply(s.world, p[2], p[3], p[4]); }); }
-            case "JUMP" -> { s.touch(ep); if (s.owns(ep, p[1])) { s.change(p[1], () -> s.world.jumpThroughWormholeAt(Double.parseDouble(p[2]), Double.parseDouble(p[3]))); s.broadcastNow(); } }
-            case "WHTOUCH" -> { s.touch(ep); if (s.owns(ep, p[1])) { s.change(p[1], s.world::transferTouchingShips); s.broadcastNow(); } }
+            case "JUMP" -> { s.touch(ep); if (s.owns(ep, p[1])) { s.change(p[1], () -> s.world.jumpThroughWormholeAt(Double.parseDouble(p[2]), Double.parseDouble(p[3]))); s.sendInitialTo(ep); } }
+            case "WHTOUCH" -> { s.touch(ep); if (s.owns(ep, p[1])) { s.change(p[1], s.world::transferTouchingShips); s.sendInitialTo(ep); } }
         }
     }
 }
