@@ -21,6 +21,7 @@ final class ResourceSync {
 
     static List<ResourceState> snapshot(World world) {
         CelestialPacketCache.capture(world);
+        if (ResourceSyncMode.consumeFull()) return all(world);
         int fullLeft = FULL.getOrDefault(world, 0);
         if (fullLeft > 0) {
             FULL.put(world, fullLeft - 1);
