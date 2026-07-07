@@ -20,6 +20,7 @@ final class PeerNetwork implements CommandSink {
     private final String reliablePrefix = Integer.toHexString(new SecureRandom().nextInt()).replace('-', 'N');
     private boolean running = true;
     private boolean joined;
+    private boolean viewSnapshotMode;
     private int nextPlayer = 1;
     private long nextReliable = 1, sequence = 1, lastJoin, lastPing, lastSnapshot, lastEnvSync;
     private String localPlayerId = "SOLO";
@@ -78,7 +79,7 @@ final class PeerNetwork implements CommandSink {
     @Override public void respawn(String playerId) { if (config.hostMode) { WorldNetAccess.respawnPlayer(world, playerId); broadcastNow(); } else reliableToServer("RESPAWN|" + playerId); }
     @Override public void build(String playerId, String baseId, String shipTypeId) { if (config.hostMode) { clientViews.applyChange(world, playerId, () -> { if (CommandAuth.base(world, playerId, baseId)) world.buildShip(baseId, shipTypeId); }); broadcastNow(); } else sendToServer("BUILD|" + playerId + "|" + baseId + "|" + shipTypeId); }
     @Override public void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { if (config.hostMode) { clientViews.applyChange(world, playerId, () -> { if (CommandAuth.pack(world, playerId, mode, baseOrUnitId)) applyPack(mode, baseOrUnitId, packageType); }); broadcastNow(); } else sendToServer("PACK|" + playerId + "|" + mode + "|" + baseOrUnitId + "|" + packageType); }
-    void jump(String playerId, double x, double y) { if (config.hostMode) { clientViews.applyChange(world, playerId, () -> world.jumpThroughWormholeAt(x, y)); broadcastNow(); } else reliableToServer("JUMP|" + playerId + "|" + Calc.round(x) + "|" + Calc.round(y)); }
+    void jump(String playerId, double x, double y) { if (config.hostMode) { clientViews.applyChange(world, playerId, () -> world.jumpThroughWormholeAt(x, y)); broadcastNow(); } else { viewSnapshotMode = true; reliableToServer("JUMP|" + playerId + "|" + Calc.round(x) + "|" + Calc.round(y)); } }
     void wormholeTouch(String playerId) { if (config.hostMode) { clientViews.applyChange(world, playerId, () -> { world.transferTouchingShips(); }); broadcastNow(); } else reliableToServer("WHTOUCH|" + playerId); }
 
     private void applyMove(MoveCommand c) { Unit u = world.units.get(Unit.key(c.playerId(), c.unitId())); if (u != null) u.moveTo(c.x(), c.y()); }
@@ -141,7 +142,15 @@ final class PeerNetwork implements CommandSink {
             world.status = "Joined " + world.activeSystemId() + " as " + p[2] + devStatus(devAllowed);
             return;
         }
-        if (p[0].equals("SNAPSHOT")) WorldNetAccess.apply(world, SnapshotReader.read(m));
+        if (p[0].equals("SNAPSHOT")) {
+            Snapshot snapshot = SnapshotReader.read(m);
+            if (viewSnapshotMode) {
+                WorldNetAccess.applyView(world, snapshot);
+                if (WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId)) viewSnapshotMode = false;
+            } else {
+                WorldNetAccess.apply(world, snapshot);
+            }
+        }
     }
 
     private void joinPeer(String ep, InetAddress address, int port, String name, boolean requestedDev) {
