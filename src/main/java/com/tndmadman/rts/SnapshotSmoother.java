@@ -31,9 +31,9 @@ final class SnapshotSmoother {
             return true;
         }
         double error = Calc.distance(unit.x, unit.y, state.x(), state.y());
-        double deadZone = local ? 34 : 24;
-        double snap = local ? 320 : 360;
-        double blend = local ? 0.06 : 0.08;
+        double deadZone = local ? 12 : 24;
+        double snap = local ? 600 : 360;
+        double blend = local ? 0.14 : 0.08;
         if (error <= deadZone) return false;
         if (error > snap) {
             unit.x = state.x();
