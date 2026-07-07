@@ -23,6 +23,15 @@ final class PeerServerSide {
         return "HOST " + world.systemName() + " UDP " + transport.localPort() + " | clients " + peers.size() + " | pending " + transport.pendingCount() + (config.devMode ? " | dev host" : "");
     }
 
+    void updateWorlds(double dt) {
+        String old = world.activeSystemId();
+        for (String systemId : views.systems(world)) {
+            world.activateSystem(systemId);
+            world.update(dt);
+        }
+        world.activateSystem(old);
+    }
+
     void tick(long now) {
         removeTimedOut(now);
         if (now - lastSnapshot >= SNAPSHOT_MS) { broadcastNow(); lastSnapshot = now; }
