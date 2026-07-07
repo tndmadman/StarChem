@@ -17,8 +17,12 @@ final class CelestialSystem {
     }
 
     CelestialSystem(StarSystemDefinition definition, Random random) {
-        sunX = definition.width() / 2.0;
-        sunY = definition.height() / 2.0;
+        this(definition, random, 0, 0);
+    }
+
+    CelestialSystem(StarSystemDefinition definition, Random random, double offsetX, double offsetY) {
+        sunX = offsetX + definition.width() / 2.0;
+        sunY = offsetY + definition.height() / 2.0;
         buildBodies(definition, random);
         update(0);
     }
