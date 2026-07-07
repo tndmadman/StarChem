@@ -6,6 +6,7 @@ final class NpcCollapseSystem {
     private NpcCollapseSystem() { }
 
     static void removeShipsWithoutStations(World world) {
+        NpcHomeSystem.keepCorsairsHome(world);
         for (NpcFaction faction : NpcRules.factions()) {
             if (!faction.enabled()) continue;
             if (hasLivingStation(world, faction.id())) continue;
