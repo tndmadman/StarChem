@@ -18,6 +18,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final LeaderboardHud leaderboardHud = new LeaderboardHud();
     private final ShieldDebugOverlay shieldDebugOverlay = new ShieldDebugOverlay();
     private final DevMenu devMenu = new DevMenu();
+    private final AiDevPanel aiDevPanel = new AiDevPanel();
+    private final AiDevOverlay aiDevOverlay = new AiDevOverlay();
     private final boolean devMode;
     private FleetFormation formation = FleetFormation.GRID;
     private Point dragStart;
@@ -82,13 +84,17 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         AffineTransform old = g2.getTransform();
         camera.apply(g2);
         world.draw(g2);
+        if (devMode) aiDevOverlay.drawWorld(g2, world);
         drawSelectionBox(g2);
         g2.setTransform(old);
         drawHud(g2);
         leaderboardHud.draw(g2, world, getWidth());
         hangarHud.draw(g2, world, getWidth());
         if (world.devFreeBuild) shieldDebugOverlay.draw(g2, world, getWidth());
-        if (devMode) devMenu.draw(g2, world, canEditDev());
+        if (devMode) {
+            devMenu.draw(g2, world, canEditDev());
+            aiDevPanel.draw(g2, world, canEditDev());
+        }
         buildMenu.draw(g2);
         g2.dispose();
     }
@@ -140,6 +146,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     @Override public void mousePressed(MouseEvent e) {
         requestFocusInWindow();
         if (buildMenu.click(e.getX(), e.getY())) return;
+        if (devMode && aiDevPanel.click(world, e.getX(), e.getY(), canEditDev())) return;
         if (devMode && devMenu.click(world, e.getX(), e.getY(), canEditDev())) return;
         if (hangarHud.mousePressed(world, e.getX(), e.getY())) return;
         if (SwingUtilities.isRightMouseButton(e)) {
@@ -158,13 +165,13 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         if (base != null) {
             ProceduralAudio.play(SoundCue.SELECT);
             if (PlayerRegistry.isLocal(base.playerId)) buildMenu.showForBase(world, network, base, e.getX(), e.getY());
-            else world.status = "Enemy base: " + PlayerRegistry.name(base.playerId);
+            else world.status = "Enemy base: " + PlayerRegistry.name(base.playerId) + " | " + base.type().name + " | " + base.id;
             return;
         }
         if (unit != null && !PlayerRegistry.isLocal(unit.playerId)) {
             ProceduralAudio.play(SoundCue.SELECT);
             clearSelection();
-            world.status = "Enemy ship: " + PlayerRegistry.name(unit.playerId);
+            world.status = "Enemy ship: " + PlayerRegistry.name(unit.playerId) + " | " + unit.type().name + " | " + unit.task;
             return;
         }
         if (unit != null && e.getClickCount() >= 2) {
@@ -245,7 +252,10 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
             return;
         }
         hangarHud.mouseDragged(e.getX(), e.getY(), getWidth(), getHeight());
-        if (devMode) devMenu.drag(e.getX(), e.getY(), getWidth(), getHeight());
+        if (devMode) {
+            aiDevPanel.drag(e.getX(), e.getY(), getWidth(), getHeight());
+            devMenu.drag(e.getX(), e.getY(), getWidth(), getHeight());
+        }
     }
 
     @Override public void mouseReleased(MouseEvent e) {
@@ -260,7 +270,10 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
             repaint();
         }
         hangarHud.mouseReleased();
-        if (devMode) devMenu.release();
+        if (devMode) {
+            aiDevPanel.release();
+            devMenu.release();
+        }
     }
 
     @Override public void mouseWheelMoved(MouseWheelEvent e) { camera.zoomAt(e.getPoint(), e.getWheelRotation(), world, getWidth(), getHeight()); }
@@ -270,6 +283,12 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     @Override public void mouseExited(MouseEvent e) { }
     @Override public void keyTyped(KeyEvent e) { }
     @Override public void keyPressed(KeyEvent e) {
+        if (devMode && e.getKeyCode() == KeyEvent.VK_F3) {
+            AiDevSettings.overlay = !AiDevSettings.overlay;
+            world.status = "AI debug overlay: " + (AiDevSettings.overlay ? "ON" : "OFF") + ".";
+            repaint();
+            return;
+        }
         if (e.getKeyCode() == KeyEvent.VK_M) {
             boolean muted = ProceduralAudio.toggleMute();
             world.status = muted ? "Audio muted." : "Audio enabled.";
