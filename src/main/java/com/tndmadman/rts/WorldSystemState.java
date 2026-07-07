@@ -27,7 +27,7 @@ final class WorldSystemState {
         for (WorldSystemState state : new ArrayList<>(LIVE)) {
             if (state == null || state.id.equals(activeId)) continue;
             state.celestials.update(dt);
-            ResourceSpawner.update(state.resources, state.celestials, dt);
+            for (ResourceNode node : state.resources) node.updateOrbit(state.celestials.sunX(), state.celestials.sunY(), dt);
         }
     }
 
