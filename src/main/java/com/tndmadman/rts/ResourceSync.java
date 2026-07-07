@@ -21,11 +21,17 @@ final class ResourceSync {
 
     static List<ResourceState> snapshot(World world) {
         CelestialPacketCache.capture(world);
-        if (ResourceSyncMode.consumeFull()) return all(world);
+        if (ResourceSyncMode.consumeFull()) {
+            List<ResourceState> out = all(world);
+            ResourceNetDebug.snapshotBuilt(world, "initial-full", out);
+            return out;
+        }
         int fullLeft = FULL.getOrDefault(world, 0);
         if (fullLeft > 0) {
             FULL.put(world, fullLeft - 1);
-            return all(world);
+            List<ResourceState> out = all(world);
+            ResourceNetDebug.snapshotBuilt(world, "marked-full-left-" + fullLeft, out);
+            return out;
         }
         Set<Integer> ids = new LinkedHashSet<>();
         Map<Integer, Integer> dirty = DIRTY.get(world);
@@ -37,6 +43,7 @@ final class ResourceSync {
             if (r != null) out.add(state(r));
         }
         decay(dirty);
+        ResourceNetDebug.snapshotBuilt(world, "partial-ids-" + ids.size(), out);
         return out;
     }
 
@@ -47,7 +54,7 @@ final class ResourceSync {
     }
 
     private static ResourceState state(ResourceNode r) {
-        return new ResourceState(r.id, r.name, r.kind.name(), r.material.name(), r.x, r.y, r.maxAmount, r.harvestRate, r.radius, r.amount, r.active, r.respawnTimer);
+        return new ResourceState(r.id, r.name, r.kind.name(), r.material.name(), r.x, r.y, r.maxAmount, r.harvestRate, r.radius, r.amount, r.active, r.respawnTimer, r.orbitCenterX, r.orbitCenterY, r.orbitRadius, r.orbitAngle, r.orbitSpeed, r.orbiting);
     }
 
     private static void decay(Map<Integer, Integer> dirty) {

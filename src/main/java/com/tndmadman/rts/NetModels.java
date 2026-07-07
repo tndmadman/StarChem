@@ -9,7 +9,11 @@ record UnitState(String playerId, int unitId, String shipTypeId, double x, doubl
         this(playerId, unitId, shipTypeId, x, y, targetX, targetY, heading, task, resourceId, packageType, cargo, hp, Rules.ship(shipTypeId).maxShield, attackTarget, weaponFlashTimer);
     }
 }
-record ResourceState(int id, String name, String kind, String material, double x, double y, double maxAmount, double harvestRate, double radius, double amount, boolean active, double respawnTimer) { }
+record ResourceState(int id, String name, String kind, String material, double x, double y, double maxAmount, double harvestRate, double radius, double amount, boolean active, double respawnTimer, double orbitCenterX, double orbitCenterY, double orbitRadius, double orbitAngle, double orbitSpeed, boolean orbiting) {
+    ResourceState(int id, String name, String kind, String material, double x, double y, double maxAmount, double harvestRate, double radius, double amount, boolean active, double respawnTimer) {
+        this(id, name, kind, material, x, y, maxAmount, harvestRate, radius, amount, active, respawnTimer, x, y, 0, 0, 0, false);
+    }
+}
 record BaseState(String id, String playerId, String typeId, double x, double y, double hp, double shield, String cargo) {
     BaseState(String id, String playerId, String typeId, double x, double y, double hp, String cargo) {
         this(id, playerId, typeId, x, y, hp, Rules.base(typeId).maxShield, cargo);

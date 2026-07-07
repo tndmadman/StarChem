@@ -3,7 +3,6 @@ package com.tndmadman.rts;
 import java.util.*;
 
 final class WorldSystemState {
-    private static final Set<WorldSystemState> LIVE = Collections.newSetFromMap(new WeakHashMap<>());
 
     final String id;
     final StarSystemDefinition definition;
@@ -19,16 +18,6 @@ final class WorldSystemState {
         this.id = id;
         this.definition = definition;
         this.celestials = celestials;
-        LIVE.add(this);
-    }
-
-    static void updateInactive(String activeId, double dt) {
-        if (dt == 0) return;
-        for (WorldSystemState state : new ArrayList<>(LIVE)) {
-            if (state == null || state.id.equals(activeId)) continue;
-            state.celestials.update(dt);
-            for (ResourceNode node : state.resources) node.updateOrbit(state.celestials.sunX(), state.celestials.sunY(), dt);
-        }
     }
 
     int width() { return definition.width(); }

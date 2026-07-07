@@ -1,5 +1,7 @@
 package com.tndmadman.rts;
 
+import java.util.Locale;
+
 final class SnapshotWriter {
     private SnapshotWriter() { }
 
@@ -27,7 +29,10 @@ final class SnapshotWriter {
                     .append(Calc.round(r.x())).append(',').append(Calc.round(r.y())).append(',')
                     .append(Calc.round(r.maxAmount())).append(',').append(Calc.round(r.harvestRate())).append(',')
                     .append(Calc.round(r.radius())).append(',').append(Calc.round(r.amount())).append(',')
-                    .append(r.active()).append(',').append(Calc.round(r.respawnTimer()));
+                    .append(r.active()).append(',').append(Calc.round(r.respawnTimer())).append(',')
+                    .append(precise(r.orbitCenterX())).append(',').append(precise(r.orbitCenterY())).append(',')
+                    .append(precise(r.orbitRadius())).append(',').append(precise(r.orbitAngle())).append(',')
+                    .append(precise(r.orbitSpeed())).append(',').append(r.orbiting());
         }
         StringBuilder bases = new StringBuilder();
         for (BaseState base : snapshot.bases()) {
@@ -59,5 +64,9 @@ final class SnapshotWriter {
                     .append(Calc.round(item.angle())).append(',').append(Calc.round(item.spin()));
         }
         return "SNAPSHOT|" + snapshot.sequence() + "|" + players + "|" + units + "|" + resources + "|" + bases + "|" + stocks + "|" + shots + "|" + items + "|" + snapshot.systemId() + "|" + Calc.round(snapshot.systemTime());
+    }
+
+    private static String precise(double value) {
+        return String.format(Locale.ROOT, "%.6f", value);
     }
 }

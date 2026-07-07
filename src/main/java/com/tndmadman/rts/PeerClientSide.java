@@ -7,7 +7,7 @@ final class PeerClientSide {
     final PeerTransport transport;
     private boolean joined;
     private boolean viewSnapshotMode;
-    private long lastJoin, lastPing;
+    private long lastJoin, lastPing, lastSnapshotSequence;
     private String localPlayerId = "SOLO";
 
     PeerClientSide(Config config, World world, PeerTransport transport) {
@@ -33,7 +33,7 @@ final class PeerClientSide {
 
     void handle(String message) { ClientPackets.handle(this, message); }
     void move(MoveCommand c) { reliableToServer("MOVE|" + c.playerId() + "|" + c.unitId() + "|" + Calc.round(c.x()) + "|" + Calc.round(c.y())); }
-    void work(HarvestCommand c) { reliableToServer("WORK|" + c.playerId() + "|" + c.unitId() + "|" + c.resourceId()); }
+    void work(HarvestCommand c) { ResourceNetDebug.clientWorkSend(world, c); reliableToServer("WORK|" + c.playerId() + "|" + c.unitId() + "|" + c.resourceId()); }
     void attack(AttackCommand c) { reliableToServer("ATTACK|" + c.playerId() + "|" + c.unitId() + "|" + c.targetKey()); }
     void respawn(String playerId) { reliableToServer("RESPAWN|" + playerId); }
     void build(String playerId, String baseId, String shipTypeId) { reliableToServer("BUILD|" + playerId + "|" + baseId + "|" + shipTypeId); }
@@ -58,6 +58,8 @@ final class PeerClientSide {
 
     void readSnapshot(String message) {
         Snapshot snapshot = SnapshotReader.read(message);
+        ResourceNetDebug.clientReceive("REGULAR", snapshot, lastSnapshotSequence, viewSnapshotMode);
+        if (stale(snapshot, "REGULAR")) return;
         if (viewSnapshotMode) {
             WorldNetAccess.applyView(world, snapshot);
             if (WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId)) viewSnapshotMode = false;
@@ -66,8 +68,21 @@ final class PeerClientSide {
 
     void readFullView(String message) {
         Snapshot snapshot = SyncFrame.read(message);
-        WorldNetAccess.applyView(world, snapshot);
+        ResourceNetDebug.clientReceive("FULL_VIEW", snapshot, lastSnapshotSequence, viewSnapshotMode);
+        if (snapshot.sequence() > lastSnapshotSequence) lastSnapshotSequence = snapshot.sequence();
+        WorldNetAccess.applyFullView(world, snapshot);
         if (WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId)) viewSnapshotMode = false;
+    }
+
+    private boolean stale(Snapshot snapshot, String kind) {
+        long sequence = snapshot.sequence();
+        if (sequence <= 0) return false;
+        if (sequence <= lastSnapshotSequence) {
+            ResourceNetDebug.staleSnapshot(kind, snapshot, lastSnapshotSequence);
+            return true;
+        }
+        lastSnapshotSequence = sequence;
+        return false;
     }
 
     private void syncEnv(String systemId, String seed, String time) { try { world.syncEnvironment(systemId, Long.parseLong(seed), Double.parseDouble(time)); } catch (NumberFormatException ignored) { } }

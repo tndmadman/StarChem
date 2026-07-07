@@ -27,7 +27,7 @@ final class PeerServerSide {
         String old = world.activeSystemId();
         for (String systemId : views.systems(world)) {
             world.activateSystem(systemId);
-            world.update(dt);
+            world.updateCurrentSystem(dt);
         }
         world.activateSystem(old);
     }

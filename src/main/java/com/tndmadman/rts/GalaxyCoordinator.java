@@ -95,6 +95,15 @@ final class GalaxyCoordinator {
     }
 
     void update(World world, double dt) { WorldSystemState state = active(); if (state != null) state.celestials.update(dt); }
+
+    void updateInactiveSystems(double dt) {
+        if (dt == 0) return;
+        for (WorldSystemState state : systems.values()) {
+            if (state == null || state.id.equals(activeSystemId)) continue;
+            state.celestials.update(dt);
+            for (ResourceNode node : state.resources) node.updateOrbit(state.celestials.sunX(), state.celestials.sunY(), dt);
+        }
+    }
     void draw(World world, Graphics2D g2) { WorldSystemState state = active(); if (state != null) state.celestials.draw(g2); for (WormholeGate gate : world.wormholes) gate.draw(g2); }
 
     void drawMap(Graphics2D g2, int width, int height) {

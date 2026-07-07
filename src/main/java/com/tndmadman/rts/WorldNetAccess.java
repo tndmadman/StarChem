@@ -29,17 +29,26 @@ final class WorldNetAccess {
         return false;
     }
 
-    static void apply(World world, Snapshot snapshot) { apply(world, snapshot, false); }
-    static void applyView(World world, Snapshot snapshot) { apply(world, snapshot, true); }
+    static void apply(World world, Snapshot snapshot) { apply(world, snapshot, false, false); }
+    static void applyView(World world, Snapshot snapshot) { apply(world, snapshot, true, false); }
+    static void applyFullView(World world, Snapshot snapshot) { apply(world, snapshot, true, true); }
 
-    private static void apply(World world, Snapshot snapshot, boolean allowNoLocalAssets) {
+    private static void apply(World world, Snapshot snapshot, boolean allowNoLocalAssets, boolean fullResourceView) {
         String local = PlayerRegistry.localId();
         String snapSystem = snapshot.systemId();
+        boolean snapshotHasLocalAssets = hasPlayerAssets(snapshot, local);
+        ResourceNetDebug.worldApplyStart(world, snapshot, allowNoLocalAssets, fullResourceView, snapshotHasLocalAssets);
+        if (fullResourceView && snapSystem != null && !snapSystem.isBlank() && !snapSystem.equals(world.activeSystemId())) {
+            long seed = CelestialPacketCache.seed(world.systemSeed());
+            double time = snapshot.systemTime() < 0 ? world.systemTime() : snapshot.systemTime();
+            ResourceNetDebug.viewReset(world, snapSystem, seed, time);
+            ViewSnapshotReset.apply(world, snapSystem, seed, time);
+        }
         if (snapSystem != null && !snapSystem.isBlank() && !snapSystem.equals(world.activeSystemId())) {
             world.status = "Ignoring stale snapshot for " + snapSystem + "; viewing " + world.activeSystemId() + ".";
+            ResourceNetDebug.ignoredSnapshot(world, snapshot, "system mismatch");
             return;
         }
-        boolean snapshotHasLocalAssets = hasPlayerAssets(snapshot, local);
         for (PlayerInfo p : snapshot.players()) {
             PlayerRegistry.register(p.id(), p.name(), p.rgb(), p.id().equals(local));
             if (!NpcRules.isNpcFaction(p.id())) world.ensurePlayerHome(p.id());
@@ -49,6 +58,7 @@ final class WorldNetAccess {
             world.activateSystem(world.playerHomeSystemId(local));
             if (noLocalFleet(world, local)) world.spawnPlayerGroup(local, separatedSlot(local, slot(local)));
             world.status = "Ignoring snapshot for another system; holding local fleet in " + world.activeSystemId() + ".";
+            ResourceNetDebug.ignoredSnapshot(world, snapshot, "no local assets");
             return;
         }
         if (snapshot.systemTime() >= 0) {
@@ -79,8 +89,16 @@ final class WorldNetAccess {
             }
         }
         if (!snapshot.resources().isEmpty()) {
-            if (allowNoLocalAssets) ResourceViewSync.apply(world, snapshot.resources());
-            else NetResourceSync.apply(world, snapshot.resources());
+            if (fullResourceView) {
+                ResourceNetDebug.resourceApplyPath(world, snapshot, "full-view-replace");
+                ResourceViewSync.replace(world, snapshot.resources());
+            } else if (allowNoLocalAssets) {
+                ResourceNetDebug.resourceApplyPath(world, snapshot, "view-merge");
+                ResourceViewSync.apply(world, snapshot.resources());
+            } else {
+                ResourceNetDebug.resourceApplyPath(world, snapshot, "regular-partial");
+                NetResourceSync.apply(world, snapshot.resources());
+            }
         }
         applyBases(world, snapshot.bases(), explodeMissing);
         world.shots.clear();
@@ -92,6 +110,7 @@ final class WorldNetAccess {
         }
         ItemSync.apply(world, snapshot.items());
         if (!snapshot.stocks().isEmpty()) CargoCodec.readInto(snapshot.stocks().get(0).cargo(), world.stockpile);
+        ResourceNetDebug.worldApplyEnd(world, snapshot);
     }
 
     private static boolean noLocalFleet(World world, String local) {

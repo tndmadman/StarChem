@@ -8,7 +8,7 @@ final class ClientSync {
     }
 
     static boolean initial(World world, Snapshot snapshot, String playerId) {
-        WorldNetAccess.applyView(world, snapshot);
+        WorldNetAccess.applyFullView(world, snapshot);
         return !WorldNetAccess.hasPlayerAssets(snapshot, playerId);
     }
 }
