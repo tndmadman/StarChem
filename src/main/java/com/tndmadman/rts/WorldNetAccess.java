@@ -22,23 +22,36 @@ final class WorldNetAccess {
         return new Snapshot(sequence, players, units, resources, bases, stocks, shots, items);
     }
 
+    static boolean hasPlayerAssets(Snapshot snapshot, String playerId) {
+        if (playerId == null || playerId.isBlank()) return false;
+        for (UnitState s : snapshot.units()) if (s.playerId().equals(playerId) && s.hp() > 0) return true;
+        for (BaseState b : snapshot.bases()) if (b.playerId().equals(playerId) && b.hp() > 0) return true;
+        return false;
+    }
+
     static void apply(World world, Snapshot snapshot) {
+        apply(world, snapshot, false);
+    }
+
+    static void applyView(World world, Snapshot snapshot) {
+        apply(world, snapshot, true);
+    }
+
+    private static void apply(World world, Snapshot snapshot, boolean allowNoLocalAssets) {
         String local = PlayerRegistry.localId();
-        boolean snapshotHasLocalUnit = false;
-        boolean snapshotHasLocalBase = false;
-        for (UnitState s : snapshot.units()) if (s.playerId().equals(local)) snapshotHasLocalUnit = true;
-        for (BaseState b : snapshot.bases()) if (b.playerId().equals(local)) snapshotHasLocalBase = true;
+        boolean snapshotHasLocalAssets = hasPlayerAssets(snapshot, local);
         for (PlayerInfo p : snapshot.players()) {
             PlayerRegistry.register(p.id(), p.name(), p.rgb(), p.id().equals(local));
             if (!NpcRules.isNpcFaction(p.id())) world.ensurePlayerHome(p.id());
         }
-        if (!snapshotHasLocalUnit && !snapshotHasLocalBase && !local.equals("SOLO") && !local.equals("WAIT")) {
+        if (!allowNoLocalAssets && !snapshotHasLocalAssets && !local.equals("SOLO") && !local.equals("WAIT")) {
             world.ensurePlayerHome(local);
             world.activateSystem(world.playerHomeSystemId(local));
             if (noLocalFleet(world, local)) world.spawnPlayerGroup(local, separatedSlot(local, slot(local)));
             world.status = "Ignoring snapshot for another system; holding local fleet in " + world.activeSystemId() + ".";
             return;
         }
+        boolean explodeMissing = !allowNoLocalAssets;
         Set<String> liveUnits = new HashSet<>();
         for (UnitState s : snapshot.units()) {
             String key = Unit.key(s.playerId(), s.unitId());
@@ -55,12 +68,12 @@ final class WorldNetAccess {
             Map.Entry<String, Unit> entry = unitIt.next();
             if (!liveUnits.contains(entry.getKey())) {
                 Unit unit = entry.getValue();
-                if (!wasConvertedToBase(unit, snapshot.bases())) world.explodeUnit(unit);
+                if (explodeMissing && !wasConvertedToBase(unit, snapshot.bases())) world.explodeUnit(unit);
                 unitIt.remove();
             }
         }
         if (!snapshot.resources().isEmpty()) NetResourceSync.apply(world, snapshot.resources());
-        if (!snapshot.bases().isEmpty()) applyBases(world, snapshot.bases());
+        applyBases(world, snapshot.bases(), explodeMissing);
         world.shots.clear();
         for (ShotState s : snapshot.shots()) {
             ProjectileShot shot = new ProjectileShot(s.id(), s.ownerId(), s.weaponId(), s.targetKey(), s.x(), s.y());
@@ -88,14 +101,14 @@ final class WorldNetAccess {
         return false;
     }
 
-    private static void applyBases(World world, List<BaseState> states) {
+    private static void applyBases(World world, List<BaseState> states, boolean explodeMissing) {
         Set<String> live = new HashSet<>();
         for (BaseState state : states) live.add(state.id());
         Iterator<Base> it = world.bases.values().iterator();
         while (it.hasNext()) {
             Base base = it.next();
             if (live.contains(base.id)) continue;
-            world.explodeBase(base);
+            if (explodeMissing) world.explodeBase(base);
             it.remove();
         }
         for (BaseState b : states) world.bases.put(b.id(), NetBaseSync.fromState(b));
