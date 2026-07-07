@@ -33,6 +33,7 @@ final class PeerServerSide {
     void sendInitial(ServerPeer peer) { sequence = PeerSyncBatch.sendInitial(world, views, peer, sequence, transport::send); }
     void sendInitialTo(String endpoint) { sendInitial(peers.get(endpoint)); }
     void change(String playerId, Runnable action) { views.applyChange(world, playerId, action); }
+    String ownerId(String endpoint, String fallback) { ServerPeer peer = peers.get(endpoint); return peer == null ? fallback : peer.playerId(); }
     boolean owns(String endpoint, String playerId) { ServerPeer peer = peers.get(endpoint); return peer != null && playerId != null && playerId.equals(peer.playerId()); }
     void touch(String endpoint) { ServerPeer p = peers.get(endpoint); if (p != null) peers.put(endpoint, new ServerPeer(p.playerId(), p.address(), p.port(), System.currentTimeMillis(), p.devFreeBuild())); }
 
