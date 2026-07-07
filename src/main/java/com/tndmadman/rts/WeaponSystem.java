@@ -13,10 +13,13 @@ final class WeaponSystem {
             unit.weaponCooldown = Math.max(0, unit.weaponCooldown - dt);
             unit.weaponFlashTimer = Math.max(0, unit.weaponFlashTimer - dt);
         }
+        if (AiDevSettings.disableAttacks) return;
         for (Unit unit : new ArrayList<>(world.units.values())) {
+            if (AiDevSettings.freezeNpcCombat && NpcRules.isNpcFaction(unit.playerId)) continue;
             if (!WeaponRules.screenWeapons(unit.type()).isEmpty()) screenShots(world, unit);
         }
         for (Unit unit : new ArrayList<>(world.units.values())) {
+            if (AiDevSettings.freezeNpcCombat && NpcRules.isNpcFaction(unit.playerId)) continue;
             if (!WeaponRules.armed(unit.type())) continue;
             if (unit.task == UnitTask.IDLE && unit.attackTarget.isBlank()) acquireTarget(world, unit);
             if (unit.task == UnitTask.ATTACK) updateAttack(world, unit);
