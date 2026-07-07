@@ -103,6 +103,16 @@ final class GalaxyCoordinator {
         if (state != null) { g2.setColor(new Color(220, 238, 250, 190)); g2.drawString(state.definition.name() + " [" + state.id + "]", 24, 32); }
     }
 
+    boolean hasLiveAssets(World world, String playerId) {
+        saveActive(world);
+        if (playerId == null || playerId.isBlank() || "WAIT".equals(playerId)) return true;
+        for (WorldSystemState state : systems.values()) {
+            for (Unit unit : state.units.values()) if (unit.playerId.equals(playerId) && unit.hp > 0) return true;
+            for (Base base : state.bases.values()) if (base.playerId.equals(playerId) && base.hp > 0) return true;
+        }
+        return false;
+    }
+
     Base nearestBaseInSameSystem(World world, String playerId, double x, double y) {
         Base best = null;
         double bestDist = Double.MAX_VALUE;
@@ -135,10 +145,7 @@ final class GalaxyCoordinator {
         return moved;
     }
 
-    private WormholeGate touchingGate(World world, Unit unit) {
-        for (WormholeGate gate : world.wormholes) if (gate.contains(unit.x, unit.y)) return gate;
-        return null;
-    }
+    private WormholeGate touchingGate(World world, Unit unit) { for (WormholeGate gate : world.wormholes) if (gate.contains(unit.x, unit.y)) return gate; return null; }
 
     private boolean transferUnit(World world, WormholeGate gate, Unit unit) {
         WorldSystemState from = active();
