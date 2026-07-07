@@ -73,8 +73,14 @@ final class Config {
     static Config host(String name, int port, boolean dev, Set<String> disabledNpcFactionIds, String systemId) { return new Config(clean(name), false, true, dev, port, null, disabledNpcFactionIds, systemId); }
     static Config join(String name, String host, int port, boolean dev, Set<String> disabledNpcFactionIds, String systemId) { return new Config(clean(name), false, false, dev, 0, new InetSocketAddress(host, port), disabledNpcFactionIds, systemId); }
 
+    NetworkRole role() {
+        if (hostMode) return NetworkRole.SERVER;
+        if (clientMode()) return NetworkRole.CLIENT;
+        return NetworkRole.SOLO;
+    }
+
     boolean clientMode() { return serverAddress != null; }
-    String modeLabel() { return hostMode ? "Host" : clientMode() ? "Client" : "Solo"; }
+    String modeLabel() { return switch (role()) { case SERVER -> "Host"; case CLIENT -> "Client"; case SOLO -> "Solo"; }; }
 
     static int parsePort(String value) {
         try {
