@@ -4,7 +4,27 @@ import java.lang.reflect.Field;
 import java.util.List;
 
 final class CelestialSnapshotSync {
+    private static final String SEP = "~";
+
     private CelestialSnapshotSync() { }
+
+    static String pack(World world, String systemId) {
+        String state = write(world);
+        return state.isBlank() ? clean(systemId) : clean(systemId) + SEP + state;
+    }
+
+    static String systemId(String packed) {
+        if (packed == null) return "";
+        int cut = packed.indexOf(SEP);
+        return cut < 0 ? packed : packed.substring(0, cut);
+    }
+
+    static void applyPacked(World world, String packed) {
+        if (packed == null) return;
+        int cut = packed.indexOf(SEP);
+        if (cut < 0 || cut + 1 >= packed.length()) return;
+        apply(world, packed.substring(cut + 1));
+    }
 
     static String write(World world) {
         CelestialSystem system = activeCelestials(world);
@@ -34,6 +54,10 @@ final class CelestialSnapshotSync {
             set(body, "y", parse(c[1]));
             set(body, "angle", parse(c[2]));
         }
+    }
+
+    private static String clean(String systemId) {
+        return systemId == null ? "" : systemId;
     }
 
     private static CelestialSystem activeCelestials(World world) {
