@@ -8,14 +8,18 @@ final class ResourceSpawner {
     private ResourceSpawner() { }
 
     static void seed(List<ResourceNode> resources, CelestialSystem celestials, Random random) {
+        seed(resources, celestials, random, Rules.RESOURCE_BELTS);
+    }
+
+    static void seed(List<ResourceNode> resources, CelestialSystem celestials, Random random, List<ResourceBelt> belts) {
         int id = 1;
-        for (ResourceBelt belt : Rules.RESOURCE_BELTS) {
+        for (ResourceBelt belt : belts) {
             id = belt(resources, id, random, celestials, belt);
         }
     }
 
     static void update(List<ResourceNode> resources, CelestialSystem celestials, double dt) {
-        for (ResourceNode node : resources) node.updateOrbit(celestials.sunX(), celestials.sunY(), dt);
+        for (ResourceNode node : resources) node.updateOrbit(dt);
     }
 
     static void relocate(ResourceNode node, List<ResourceNode> resources, Collection<Base> bases, CelestialSystem celestials, Random random) {
