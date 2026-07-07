@@ -7,8 +7,8 @@ import java.util.*;
 import java.util.List;
 
 final class World {
-    final int width = 18000;
-    final int height = 16000;
+    int width;
+    int height;
     final String localPlayerId = "SOLO";
     final String localPlayerName;
     final Color localColor = new Color(0x50BEFF);
@@ -24,6 +24,7 @@ final class World {
     private final Set<String> devFreeBuildPlayers = new LinkedHashSet<>();
     boolean devFreeBuild;
 
+    private StarSystemDefinition starSystem;
     private long systemSeed;
     private double systemTime;
     private Random random;
@@ -43,21 +44,27 @@ final class World {
     int selectedResourceId = -1;
     String status = "Right-click a resource with a ship selected to auto-harvest.";
 
-    World(String localPlayerName) { this(localPlayerName, Set.of()); }
+    World(String localPlayerName) { this(localPlayerName, Set.of(), StarSystems.DEFAULT_SYSTEM_ID); }
+    World(String localPlayerName, Set<String> disabledNpcFactionIds) { this(localPlayerName, disabledNpcFactionIds, StarSystems.DEFAULT_SYSTEM_ID); }
 
-    World(String localPlayerName, Set<String> disabledNpcFactionIds) {
+    World(String localPlayerName, Set<String> disabledNpcFactionIds, String systemId) {
         this.localPlayerName = Config.clean(localPlayerName);
         this.npcSystem = new NpcSystem(disabledNpcFactionIds);
+        setStarSystem(systemId);
         setSystemSeed(System.nanoTime() ^ System.currentTimeMillis());
         seedResources();
         Point2D basePoint = startBasePoint();
         addBase(Rules.DEFAULT_BASE, basePoint.getX(), basePoint.getY());
         Point2D start = startShipPoint(basePoint);
         spawnShip(Rules.STARTING_SHIP, start.getX(), start.getY());
+        status = "Entered " + starSystem.name() + ". Right-click a resource with a ship selected to auto-harvest.";
     }
 
     long systemSeed() { return systemSeed; }
     double systemTime() { return systemTime; }
+    String systemId() { return starSystem.id(); }
+    String systemName() { return starSystem.name(); }
+    List<Material> spawnMaterials() { return starSystem.spawnMaterials(); }
 
     void setDevFreeBuild(String playerId, boolean enabled) {
         if (playerId == null || playerId.isBlank()) return;
@@ -78,10 +85,14 @@ final class World {
         completedResearch.computeIfAbsent(playerId, ignored -> new LinkedHashSet<>()).add(topicId);
     }
 
-    void useSystemSeed(long seed) { if (seed != systemSeed) syncEnvironment(seed, 0); }
+    void useSystemSeed(long seed) { if (seed != systemSeed) syncEnvironment(systemId(), seed, 0); }
 
-    void syncEnvironment(long seed, double hostTime) {
-        if (seed != systemSeed) {
+    void syncEnvironment(long seed, double hostTime) { syncEnvironment(systemId(), seed, hostTime); }
+
+    void syncEnvironment(String newSystemId, long seed, double hostTime) {
+        boolean systemChanged = !StarSystems.get(newSystemId).id().equals(systemId());
+        if (systemChanged) setStarSystem(newSystemId);
+        if (systemChanged || seed != systemSeed) {
             setSystemSeed(seed);
             resources.clear();
             seedResources();
@@ -90,14 +101,20 @@ final class World {
         if (Math.abs(delta) > 0.25) advanceEnvironment(delta);
     }
 
+    private void setStarSystem(String systemId) {
+        starSystem = StarSystems.get(systemId);
+        width = starSystem.width();
+        height = starSystem.height();
+    }
+
     private void setSystemSeed(long seed) {
         systemSeed = seed;
         systemTime = 0;
         random = new Random(seed);
-        celestials = new CelestialSystem(width, height, random);
+        celestials = new CelestialSystem(starSystem, random);
     }
 
-    private void seedResources() { ResourceSpawner.seed(resources, celestials, random); }
+    private void seedResources() { ResourceSpawner.seed(resources, celestials, random, starSystem.resourceBelts()); }
     private Point2D startShipPoint(Point2D basePoint) { return new Point2D.Double(basePoint.getX() + 180, basePoint.getY() - 80); }
 
     private Point2D startBasePoint() {
