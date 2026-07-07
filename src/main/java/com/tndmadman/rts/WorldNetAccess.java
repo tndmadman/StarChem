@@ -19,7 +19,7 @@ final class WorldNetAccess {
         for (ProjectileShot shot : world.shots) shots.add(new ShotState(shot.id, shot.ownerId, shot.weaponId, shot.targetKey, shot.x, shot.y, shot.lastX, shot.lastY));
         List<ItemState> items = new ArrayList<>();
         for (WorldItem item : world.items) items.add(new ItemState(item.id, item.material.name(), item.amount, item.x, item.y, item.vx, item.vy, item.angle, item.spin));
-        return new Snapshot(sequence, players, units, resources, bases, stocks, shots, items);
+        return new Snapshot(sequence, players, units, resources, bases, stocks, shots, items, world.systemTime());
     }
 
     static boolean hasPlayerAssets(Snapshot snapshot, String playerId) {
@@ -51,6 +51,7 @@ final class WorldNetAccess {
             world.status = "Ignoring snapshot for another system; holding local fleet in " + world.activeSystemId() + ".";
             return;
         }
+        if (snapshot.systemTime() >= 0) world.syncEnvironment(world.systemId(), world.systemSeed(), snapshot.systemTime());
         boolean explodeMissing = !allowNoLocalAssets;
         Set<String> liveUnits = new HashSet<>();
         for (UnitState s : snapshot.units()) {
