@@ -44,11 +44,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         timer = new Timer(16, e -> tick());
     }
 
-    void start() {
-        requestFocusInWindow();
-        ProceduralAudio.prime();
-        timer.start();
-    }
+    void start() { requestFocusInWindow(); ProceduralAudio.prime(); timer.start(); }
     void stop() { timer.stop(); }
 
     private void tick() {
@@ -57,19 +53,14 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         lastNanos = now;
         boolean hostOrSolo = network == null || network.statusLine().startsWith("HOST");
         if (hostOrSolo) world.update(dt);
-        else {
-            world.updateEnvironment(dt);
-            ClientPrediction.update(world, dt);
-        }
+        else { world.updateEnvironment(dt); ClientPrediction.update(world, dt); }
         updateCameraControls(dt);
         camera.update(world, getWidth(), getHeight(), dt);
         repaint();
     }
 
     private void updateCameraControls(double dt) {
-        double dx = 0;
-        double dy = 0;
-        double step = CAMERA_PAN_SPEED * dt;
+        double dx = 0, dy = 0, step = CAMERA_PAN_SPEED * dt;
         if (cameraLeft) dx -= step;
         if (cameraRight) dx += step;
         if (cameraUp) dy -= step;
@@ -91,10 +82,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         leaderboardHud.draw(g2, world, getWidth());
         hangarHud.draw(g2, world, getWidth());
         if (world.devFreeBuild) shieldDebugOverlay.draw(g2, world, getWidth());
-        if (devMode) {
-            devMenu.draw(g2, world, canEditDev());
-            aiDevPanel.draw(g2, world, canEditDev());
-        }
+        if (devMode) { devMenu.draw(g2, world, canEditDev()); aiDevPanel.draw(g2, world, canEditDev()); }
         buildMenu.draw(g2);
         g2.dispose();
     }
@@ -125,12 +113,9 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private Point2D screenToWorld(Point p) { return camera.screenToWorld(p); }
 
     private Rectangle2D screenRectToWorldRect(Point a, Point b) {
-        Point2D aw = screenToWorld(a);
-        Point2D bw = screenToWorld(b);
-        double x = Math.min(aw.getX(), bw.getX());
-        double y = Math.min(aw.getY(), bw.getY());
-        double w = Math.abs(aw.getX() - bw.getX());
-        double h = Math.abs(aw.getY() - bw.getY());
+        Point2D aw = screenToWorld(a), bw = screenToWorld(b);
+        double x = Math.min(aw.getX(), bw.getX()), y = Math.min(aw.getY(), bw.getY());
+        double w = Math.abs(aw.getX() - bw.getX()), h = Math.abs(aw.getY() - bw.getY());
         return new Rectangle2D.Double(x, y, w, h);
     }
 
@@ -149,6 +134,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
 
     private void clickLeft(MouseEvent e, Point2D p) {
         if (world.jumpThroughWormholeAt(p.getX(), p.getY())) {
+            if (network != null && !network.statusLine().startsWith("HOST")) network.jump(PlayerRegistry.localId(), p.getX(), p.getY());
             ProceduralAudio.play(SoundCue.SELECT);
             return;
         }
@@ -160,12 +146,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
             else world.status = "Enemy base: " + PlayerRegistry.name(base.playerId) + " | " + base.type().name + " | " + base.id;
             return;
         }
-        if (unit != null && !PlayerRegistry.isLocal(unit.playerId)) {
-            ProceduralAudio.play(SoundCue.SELECT);
-            clearSelection();
-            world.status = "Enemy ship: " + PlayerRegistry.name(unit.playerId) + " | " + unit.type().name + " | " + unit.task;
-            return;
-        }
+        if (unit != null && !PlayerRegistry.isLocal(unit.playerId)) { ProceduralAudio.play(SoundCue.SELECT); clearSelection(); world.status = "Enemy ship: " + PlayerRegistry.name(unit.playerId) + " | " + unit.type().name + " | " + unit.task; return; }
         if (unit != null && e.getClickCount() >= 2) { ProceduralAudio.play(SoundCue.SELECT); selectVisibleShipsOfSameType(unit); return; }
         if (unit != null && !unit.basePackageType.isBlank()) { ProceduralAudio.play(SoundCue.SELECT); clickPackageCarrier(e, p, unit); return; }
         world.selectAt(p.getX(), p.getY());
