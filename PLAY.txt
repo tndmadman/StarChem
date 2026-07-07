@@ -2,8 +2,21 @@ StarChem launch instructions
 
 1. Install Java 17 or newer.
 2. Extract the StarChem release ZIP.
-3. Open a terminal in the extracted StarChem folder.
-4. Run this command:
+3. Double-click StarChem.jar.
+
+If double-click does not open the game, Windows probably does not have .jar files associated with Java.
+
+Fix without using commands:
+
+1. Right-click StarChem.jar.
+2. Choose Open with.
+3. Choose Java Platform SE Binary or OpenJDK Platform Binary.
+4. Check Always use this app to open .jar files.
+5. Click OK.
+
+After that, double-clicking StarChem.jar should launch the game.
+
+Fallback terminal launch:
 
 java -jar .\StarChem.jar
 
@@ -11,4 +24,4 @@ Do not run this:
 
 java .\StarChem.jar
 
-The -jar flag is required. Without it, Java tries to load the file path as a class name.
+The -jar flag is required when launching from a terminal.
