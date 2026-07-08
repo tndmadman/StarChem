@@ -17,6 +17,11 @@ final class ClientViewCache {
         viewByPlayer.remove(playerId);
     }
 
+    void removeSystems(Set<String> systemIds) {
+        if (systemIds == null || systemIds.isEmpty()) return;
+        viewByPlayer.values().removeIf(systemIds::contains);
+    }
+
     String[] systems(World world) {
         Set<String> out = new LinkedHashSet<>(viewByPlayer.values());
         for (PlayerInfo player : PlayerRegistry.snapshotPlayers()) {
