@@ -27,7 +27,7 @@ final class SideAOrders {
             case "BUILD" -> { s.touch(ep); if (s.owns(ep, id)) s.change(id, () -> { if (CommandAuth.base(s.world, id, p[2])) s.world.buildShip(p[2], p[3]); }); }
             case "PACK" -> { s.touch(ep); if (s.owns(ep, id)) s.change(id, () -> { if (CommandAuth.pack(s.world, id, p[2], p[3])) AUnitPack.apply(s.world, p[2], p[3], p[4]); }); }
             case "JUMP" -> { s.touch(ep); if (s.owns(ep, id)) { s.change(id, () -> applyJump(s.world, p)); s.sendInitialTo(ep); } }
-            case "WHTOUCH" -> { s.touch(ep); if (s.owns(ep, id)) { s.change(id, s.world::transferTouchingShips); s.sendInitialTo(ep); } }
+            case "WHTOUCH" -> { s.touch(ep); if (s.owns(ep, id)) { s.change(id, () -> s.world.transferTouchingShips(id)); s.sendInitialTo(ep); } }
         }
     }
 
