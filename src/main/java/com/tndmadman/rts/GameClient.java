@@ -1,8 +1,10 @@
 package com.tndmadman.rts;
 
 final class GameClient {
+    private static final double WORMHOLE_TOUCH_REQUEST_SECONDS = 0.4;
     private final World world;
     private final PeerNetwork network;
+    private double wormholeTouchRequestCooldown;
 
     private GameClient(World world, PeerNetwork network) {
         this.world = world;
@@ -19,7 +21,12 @@ final class GameClient {
         // Server snapshots carry authoritative systemTime; WorldNetAccess.apply()
         // advances the client environment by that snapshot delta instead.
         ClientPrediction.update(world, dt);
-        if (world.transferTouchingShips()) network.wormholeTouch(PlayerRegistry.localId());
+        wormholeTouchRequestCooldown = Math.max(0, wormholeTouchRequestCooldown - dt);
+        String playerId = network.localPlayerId();
+        if (wormholeTouchRequestCooldown <= 0 && world.playerShipTouchingWormhole(playerId)) {
+            network.wormholeTouch(playerId);
+            wormholeTouchRequestCooldown = WORMHOLE_TOUCH_REQUEST_SECONDS;
+        }
     }
 
     String statusLine() {
