@@ -26,8 +26,19 @@ final class SideAOrders {
             case "RESPAWN" -> { s.touch(ep); if (s.owns(ep, id)) { s.change(id, () -> WorldNetAccess.respawnPlayer(s.world, id)); s.broadcastNow(); } }
             case "BUILD" -> { s.touch(ep); if (s.owns(ep, id)) s.change(id, () -> { if (CommandAuth.base(s.world, id, p[2])) s.world.buildShip(p[2], p[3]); }); }
             case "PACK" -> { s.touch(ep); if (s.owns(ep, id)) s.change(id, () -> { if (CommandAuth.pack(s.world, id, p[2], p[3])) AUnitPack.apply(s.world, p[2], p[3], p[4]); }); }
-            case "JUMP" -> { s.touch(ep); if (s.owns(ep, id)) { s.change(id, () -> s.world.jumpThroughWormholeAt(Double.parseDouble(p[2]), Double.parseDouble(p[3]))); s.sendInitialTo(ep); } }
+            case "JUMP" -> { s.touch(ep); if (s.owns(ep, id)) { s.change(id, () -> applyJump(s.world, p)); s.sendInitialTo(ep); } }
             case "WHTOUCH" -> { s.touch(ep); if (s.owns(ep, id)) { s.change(id, s.world::transferTouchingShips); s.sendInitialTo(ep); } }
         }
+    }
+
+    private static void applyJump(World world, String[] p) {
+        if (p.length >= 5) {
+            String targetSystemId = p[2];
+            double x = Double.parseDouble(p[3]);
+            double y = Double.parseDouble(p[4]);
+            if (!world.viewSystemThroughWormhole(targetSystemId)) world.jumpThroughWormholeAt(x, y);
+            return;
+        }
+        if (p.length >= 4) world.jumpThroughWormholeAt(Double.parseDouble(p[2]), Double.parseDouble(p[3]));
     }
 }
