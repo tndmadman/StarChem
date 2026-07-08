@@ -9,7 +9,7 @@ final class ClientViewCache {
     private final Map<String, String> viewByPlayer = new LinkedHashMap<>();
 
     void setHome(World world, String playerId) {
-        if (playerId == null || playerId.isBlank()) return;
+        if (!realPlayerId(playerId)) return;
         viewByPlayer.put(playerId, world.playerHomeSystemId(playerId));
     }
 
@@ -19,14 +19,18 @@ final class ClientViewCache {
 
     String[] systems(World world) {
         Set<String> out = new LinkedHashSet<>(viewByPlayer.values());
+        for (PlayerInfo player : PlayerRegistry.snapshotPlayers()) {
+            if (realPlayerId(player.id())) out.add(world.playerHomeSystemId(player.id()));
+        }
         out.add(world.activeSystemId());
+        out.removeIf(systemId -> systemId == null || systemId.isBlank() || systemId.contains("WAIT"));
         return out.toArray(new String[0]);
     }
 
     String view(World world, String playerId) {
-        if (playerId == null || playerId.isBlank()) return world.activeSystemId();
+        if (!realPlayerId(playerId)) return world.activeSystemId();
         String existing = viewByPlayer.get(playerId);
-        if (existing != null) return existing;
+        if (existing != null && !existing.contains("WAIT")) return existing;
         String home = world.playerHomeSystemId(playerId);
         viewByPlayer.put(playerId, home);
         return home;
@@ -48,9 +52,13 @@ final class ClientViewCache {
             world.activateSystem(view(world, playerId));
             change.run();
             world.saveActiveSystem();
-            if (playerId != null && !playerId.isBlank()) viewByPlayer.put(playerId, world.activeSystemId());
+            if (realPlayerId(playerId) && !world.activeSystemId().contains("WAIT")) viewByPlayer.put(playerId, world.activeSystemId());
         } finally {
             world.activateSystem(old);
         }
+    }
+
+    private boolean realPlayerId(String id) {
+        return id != null && !id.isBlank() && !"WAIT".equals(id) && !NpcRules.isNpcFaction(id);
     }
 }
