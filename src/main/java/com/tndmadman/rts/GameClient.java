@@ -15,7 +15,9 @@ final class GameClient {
     }
 
     void tick(double dt) {
-        world.updateEnvironment(dt);
+        // Do not advance the world environment on the client render tick.
+        // Server snapshots carry authoritative systemTime; WorldNetAccess.apply()
+        // advances the client environment by that snapshot delta instead.
         ClientPrediction.update(world, dt);
         if (world.transferTouchingShips()) network.wormholeTouch(PlayerRegistry.localId());
     }
