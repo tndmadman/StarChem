@@ -65,8 +65,8 @@ final class PeerClientSide {
     void readSnapshot(String message) {
         Snapshot snapshot = SnapshotReader.read(message);
         ResourceNetDebug.clientReceive("REGULAR", snapshot, lastSnapshotSequence, viewSnapshotMode);
-        if (stale(snapshot, "REGULAR")) return;
         if (holdingDifferentView(snapshot)) return;
+        if (stale(snapshot, "REGULAR")) return;
         if (viewSnapshotMode) WorldNetAccess.applyView(world, snapshot);
         else WorldNetAccess.apply(world, snapshot);
     }
@@ -75,6 +75,7 @@ final class PeerClientSide {
         Snapshot snapshot = SyncFrame.read(message);
         boolean requestedView = viewSnapshotMode;
         ResourceNetDebug.clientReceive("FULL_VIEW", snapshot, lastSnapshotSequence, viewSnapshotMode);
+        if (holdingDifferentView(snapshot)) return;
         if (snapshot.sequence() > lastSnapshotSequence) lastSnapshotSequence = snapshot.sequence();
         if (requestedView && snapshot.systemId() != null && !snapshot.systemId().isBlank()) viewedSystemId = snapshot.systemId();
         WorldNetAccess.applyFullView(world, snapshot);
@@ -84,7 +85,9 @@ final class PeerClientSide {
     private boolean holdingDifferentView(Snapshot snapshot) {
         if (!viewSnapshotMode || viewedSystemId == null || viewedSystemId.isBlank()) return false;
         String systemId = snapshot.systemId();
-        return systemId != null && !systemId.isBlank() && !systemId.equals(viewedSystemId) && !systemId.equals(world.activeSystemId());
+        if (systemId == null || systemId.isBlank() || systemId.equals(viewedSystemId)) return false;
+        ResourceNetDebug.ignoredSnapshot(world, snapshot, "holding requested view " + viewedSystemId);
+        return true;
     }
 
     private boolean stale(Snapshot snapshot, String kind) {
