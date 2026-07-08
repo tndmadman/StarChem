@@ -158,10 +158,14 @@ final class GalaxyCoordinator {
         return true;
     }
 
-    boolean transferTouchingShips(World world) {
+    boolean transferTouchingShips(World world) { return transferTouchingShips(world, ""); }
+
+    boolean transferTouchingShips(World world, String playerId) {
         List<Unit> unitsToMove = new ArrayList<>(world.units.values());
         boolean moved = false;
+        boolean allPlayers = playerId == null || playerId.isBlank();
         for (Unit unit : unitsToMove) {
+            if (!allPlayers && !playerId.equals(unit.playerId)) continue;
             if (unit.wormholeCooldown > 0) continue;
             WormholeGate gate = touchingGate(world, unit);
             if (gate == null) continue;
@@ -178,11 +182,13 @@ final class GalaxyCoordinator {
         if (from == null || to == null || unit == null) return false;
         if (!world.units.containsKey(unit.key())) return false;
         String previous = activeSystemId;
+        double rawExitX = gate.exitX;
+        double rawExitY = gate.exitY;
         world.units.remove(unit.key());
         saveActive(world);
         activeSystemId = to.id;
         loadActive(world);
-        Point2D exit = safeExitPoint(world, unit, gate.exitX, gate.exitY);
+        Point2D exit = safeExitPoint(world, unit, rawExitX, rawExitY);
         unit.x = exit.getX();
         unit.y = exit.getY();
         unit.targetX = unit.x;
@@ -198,6 +204,7 @@ final class GalaxyCoordinator {
         activeSystemId = previous;
         loadActive(world);
         world.status = unit.type().name + " entered wormhole to " + to.definition.name() + ".";
+        System.out.println("WORMHOLE TRANSFER unit=" + unit.key() + " from=" + from.id + " to=" + to.id + " raw=(" + Calc.round(rawExitX) + "," + Calc.round(rawExitY) + ") safe=(" + Calc.round(exit.getX()) + "," + Calc.round(exit.getY()) + ") cooldown=" + Calc.round(unit.wormholeCooldown));
         return true;
     }
 
