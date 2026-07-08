@@ -78,6 +78,21 @@ final class World {
     Point2D npcSpawnPoint(String factionId, double padding) { return galaxy.npcSpawnPoint(this, factionId, padding); }
     void movePlayerAssetsToSystem(String playerId, String targetSystemId) { galaxy.moveAssetsToSystem(this, playerId, targetSystemId); celestials = galaxy.activeCelestials(); systemTime = galaxy.activeSystemTime(); }
 
+    String wormholeTargetAt(double x, double y) {
+        WormholeGate gate = wormholeAt(x, y);
+        return gate == null ? "" : gate.toSystemId;
+    }
+
+    boolean viewSystemThroughWormhole(String targetSystemId) {
+        WormholeGate gate = wormholeTo(targetSystemId);
+        if (gate == null) return false;
+        boolean viewed = galaxy.viewThrough(this, gate);
+        celestials = galaxy.activeCelestials();
+        systemTime = galaxy.activeSystemTime();
+        selectedResourceId = -1;
+        return viewed;
+    }
+
     boolean jumpThroughWormholeAt(double x, double y) {
         WormholeGate gate = wormholeAt(x, y);
         if (gate == null) return false;
@@ -90,6 +105,7 @@ final class World {
 
     boolean transferTouchingShips() { boolean moved = galaxy.transferTouchingShips(this); celestials = galaxy.activeCelestials(); systemTime = galaxy.activeSystemTime(); return moved; }
     private WormholeGate wormholeAt(double x, double y) { for (WormholeGate gate : wormholes) if (gate.contains(x, y)) return gate; return null; }
+    private WormholeGate wormholeTo(String targetSystemId) { if (targetSystemId == null || targetSystemId.isBlank()) return null; for (WormholeGate gate : wormholes) if (targetSystemId.equals(gate.toSystemId)) return gate; return null; }
 
     void spawnPlayerGroup(String playerId, int slot) {
         String previous = activeSystemId();
@@ -113,17 +129,7 @@ final class World {
     void completeResearch(String playerId, String topicId) { if (playerId == null || playerId.isBlank() || topicId == null || topicId.isBlank()) return; completedResearch.computeIfAbsent(playerId, ignored -> new LinkedHashSet<>()).add(topicId); }
     void useSystemSeed(long seed) { if (seed != systemSeed) syncEnvironment(systemId(), seed, 0); }
     void syncEnvironment(long seed, double hostTime) { syncEnvironment(systemId(), seed, hostTime); }
-    void syncEnvironment(String newSystemId, long seed, double hostTime) {
-        boolean changed = !StarSystems.get(newSystemId).id().equals(systemId());
-        if (changed) setStarSystem(newSystemId);
-        if (changed || seed != systemSeed) setSystemSeed(seed);
-        double delta = hostTime - systemTime;
-        if (Math.abs(delta) > 0.02) advanceEnvironment(delta);
-        else {
-            systemTime = hostTime;
-            galaxy.setActiveSystemTime(hostTime);
-        }
-    }
+    void syncEnvironment(String newSystemId, long seed, double hostTime) { boolean changed = !StarSystems.get(newSystemId).id().equals(systemId()); if (changed) setStarSystem(newSystemId); if (changed || seed != systemSeed) setSystemSeed(seed); double delta = hostTime - systemTime; if (Math.abs(delta) > 0.02) advanceEnvironment(delta); else { systemTime = hostTime; galaxy.setActiveSystemTime(hostTime); } }
     private void setStarSystem(String systemId) { starSystem = StarSystems.get(systemId); }
     private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); celestials = galaxy.rebuild(this, starSystem, seed); }
     private Point2D startShipPoint(Point2D basePoint) { return new Point2D.Double(basePoint.getX() + 180, basePoint.getY() - 80); }
