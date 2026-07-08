@@ -77,6 +77,7 @@ final class PeerNetwork implements CommandSink {
     void jump(String playerId, double x, double y) { jump(playerId, "", x, y); }
     void jump(String playerId, String targetSystemId, double x, double y) { if (server != null) serverCommand(() -> { if (!server.world.viewSystemThroughWormhole(targetSystemId)) server.world.jumpThroughWormholeAt(x, y); }, playerId); else client.jump(playerId, targetSystemId, x, y); }
     void wormholeTouch(String playerId) { if (server != null) serverCommand(server.world::transferTouchingShips, playerId); else client.wormholeTouch(playerId); }
+    void wormholeTouch(WormholeTouchRequest request) { if (request == null || !request.valid()) return; if (server != null) serverCommand(() -> server.world.transferTouchingShips(request.playerId()), request.playerId()); else client.wormholeTouch(request); }
 
     private void serverCommand(Runnable action, String playerId) {
         server.change(playerId, action);
