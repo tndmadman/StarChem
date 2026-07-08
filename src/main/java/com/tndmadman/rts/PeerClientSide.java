@@ -9,6 +9,7 @@ final class PeerClientSide {
     private boolean viewSnapshotMode;
     private long lastJoin, lastPing, lastSnapshotSequence;
     private String localPlayerId = "SOLO";
+    private String viewedSystemId = "";
 
     PeerClientSide(Config config, World world, PeerTransport transport) {
         this.config = config;
@@ -38,7 +39,11 @@ final class PeerClientSide {
     void respawn(String playerId) { reliableToServer("RESPAWN|" + playerId); }
     void build(String playerId, String baseId, String shipTypeId) { reliableToServer("BUILD|" + playerId + "|" + baseId + "|" + shipTypeId); }
     void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { reliableToServer("PACK|" + playerId + "|" + mode + "|" + baseOrUnitId + "|" + packageType); }
-    void jump(String playerId, double x, double y) { viewSnapshotMode = true; reliableToServer("JUMP|" + playerId + "|" + Calc.round(x) + "|" + Calc.round(y)); }
+    void jump(String playerId, double x, double y) {
+        viewSnapshotMode = true;
+        viewedSystemId = world.activeSystemId();
+        reliableToServer("JUMP|" + playerId + "|" + Calc.round(x) + "|" + Calc.round(y));
+    }
     void wormholeTouch(String playerId) { reliableToServer("WHTOUCH|" + playerId); }
 
     void readEnv(String[] p) { if (p.length >= 4) syncEnv(p[1], p[2], p[3]); else if (p.length >= 3) syncEnv(world.systemId(), p[1], p[2]); }
@@ -51,6 +56,7 @@ final class PeerClientSide {
         PlayerRegistry.register(localPlayerId, p[2], Integer.parseInt(p[3]), true);
         world.ensurePlayerHome(localPlayerId);
         world.activateSystem(world.playerHomeSystemId(localPlayerId));
+        viewedSystemId = world.activeSystemId();
         boolean devAllowed = p.length >= 9 && "DEV".equals(p[7]) && flag(p[8]);
         world.setDevFreeBuild(localPlayerId, devAllowed);
         world.status = "Joined " + world.activeSystemId() + " as " + p[2] + devStatus(devAllowed);
@@ -60,18 +66,25 @@ final class PeerClientSide {
         Snapshot snapshot = SnapshotReader.read(message);
         ResourceNetDebug.clientReceive("REGULAR", snapshot, lastSnapshotSequence, viewSnapshotMode);
         if (stale(snapshot, "REGULAR")) return;
-        if (viewSnapshotMode) {
-            WorldNetAccess.applyView(world, snapshot);
-            if (WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId)) viewSnapshotMode = false;
-        } else WorldNetAccess.apply(world, snapshot);
+        if (holdingDifferentView(snapshot)) return;
+        if (viewSnapshotMode) WorldNetAccess.applyView(world, snapshot);
+        else WorldNetAccess.apply(world, snapshot);
     }
 
     void readFullView(String message) {
         Snapshot snapshot = SyncFrame.read(message);
+        boolean requestedView = viewSnapshotMode;
         ResourceNetDebug.clientReceive("FULL_VIEW", snapshot, lastSnapshotSequence, viewSnapshotMode);
         if (snapshot.sequence() > lastSnapshotSequence) lastSnapshotSequence = snapshot.sequence();
+        if (requestedView && snapshot.systemId() != null && !snapshot.systemId().isBlank()) viewedSystemId = snapshot.systemId();
         WorldNetAccess.applyFullView(world, snapshot);
-        if (WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId)) viewSnapshotMode = false;
+        if (!requestedView && WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId)) viewedSystemId = world.activeSystemId();
+    }
+
+    private boolean holdingDifferentView(Snapshot snapshot) {
+        if (!viewSnapshotMode || viewedSystemId == null || viewedSystemId.isBlank()) return false;
+        String systemId = snapshot.systemId();
+        return systemId != null && !systemId.isBlank() && !systemId.equals(viewedSystemId) && !systemId.equals(world.activeSystemId());
     }
 
     private boolean stale(Snapshot snapshot, String kind) {
