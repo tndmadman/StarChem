@@ -69,11 +69,14 @@ final class PeerServerSide {
     void removePeer(String endpoint) {
         ServerPeer peer = peers.remove(endpoint);
         if (peer == null) return;
-        world.setDevFreeBuild(peer.playerId(), false);
-        world.units.values().removeIf(u -> u.playerId.equals(peer.playerId()));
-        world.bases.values().removeIf(b -> b.playerId.equals(peer.playerId()));
-        views.remove(peer.playerId());
-        PlayerRegistry.remove(peer.playerId());
+        String playerId = peer.playerId();
+        world.setDevFreeBuild(playerId, false);
+        PlayerRegistry.remove(playerId);
+        views.remove(playerId);
+        Set<String> deletedSystems = world.removePlayerAndPruneEmptySystems(playerId);
+        views.removeSystems(deletedSystems);
+        if (!deletedSystems.isEmpty()) world.status = "Removed " + deletedSystems.size() + " abandoned system(s) after " + playerId + " left.";
+        broadcastNow();
     }
 
     boolean requestedDev(String[] parts) { return parts.length > 2 && flag(parts[2]); }
