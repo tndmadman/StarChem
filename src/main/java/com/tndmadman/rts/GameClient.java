@@ -23,8 +23,9 @@ final class GameClient {
         ClientPrediction.update(world, dt);
         wormholeTouchRequestCooldown = Math.max(0, wormholeTouchRequestCooldown - dt);
         String playerId = network.localPlayerId();
-        if (wormholeTouchRequestCooldown <= 0 && world.playerShipTouchingWormhole(playerId)) {
-            network.wormholeTouch(playerId);
+        WormholeTouchRequest request = WormholeTouchRequest.detect(world, playerId);
+        if (wormholeTouchRequestCooldown <= 0 && request != null && request.valid()) {
+            network.wormholeTouch(request);
             wormholeTouchRequestCooldown = WORMHOLE_TOUCH_REQUEST_SECONDS;
         }
     }
