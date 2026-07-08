@@ -185,6 +185,33 @@ final class GalaxyCoordinator {
         return false;
     }
 
+    Set<String> removePlayerAndPruneEmptySystems(World world, String playerId) {
+        if (playerId == null || playerId.isBlank() || "WAIT".equals(playerId)) return Set.of();
+        saveActive(world);
+        for (WorldSystemState state : systems.values()) {
+            state.units.values().removeIf(unit -> playerId.equals(unit.playerId));
+            state.bases.values().removeIf(base -> playerId.equals(base.playerId));
+            state.shots.removeIf(shot -> playerId.equals(shot.ownerId) || targetsPlayer(shot.targetKey, playerId));
+        }
+        playerHomes.remove(playerId);
+
+        Set<String> deleted = new LinkedHashSet<>();
+        for (WorldSystemState state : new ArrayList<>(systems.values())) {
+            if (canPruneSystem(state) && !hasPlayerAssets(state)) deleted.add(state.id);
+        }
+        if (deleted.isEmpty()) {
+            loadActive(world);
+            return Set.of();
+        }
+
+        for (String systemId : deleted) systems.remove(systemId);
+        playerHomes.values().removeIf(deleted::contains);
+        for (WorldSystemState state : systems.values()) state.wormholes.removeIf(gate -> deleted.contains(gate.toSystemId));
+        if (activeSystemId == null || deleted.contains(activeSystemId) || !systems.containsKey(activeSystemId)) activeSystemId = fallbackActiveSystemId();
+        loadActive(world);
+        return Set.copyOf(deleted);
+    }
+
     Base nearestBaseInSameSystem(World world, String playerId, double x, double y) {
         Base best = null;
         double bestDist = Double.MAX_VALUE;
@@ -343,6 +370,31 @@ final class GalaxyCoordinator {
     private boolean removeWormholeTo(WorldSystemState state, String toSystemId) {
         if (state == null || toSystemId == null || toSystemId.isBlank()) return false;
         return state.wormholes.removeIf(gate -> toSystemId.equals(gate.toSystemId));
+    }
+
+    private boolean targetsPlayer(String targetKey, String playerId) {
+        return targetKey != null && playerId != null && targetKey.startsWith(playerId + ":");
+    }
+
+    private boolean canPruneSystem(WorldSystemState state) {
+        return state != null && isPlayerHome(state.id);
+    }
+
+    private boolean hasPlayerAssets(WorldSystemState state) {
+        if (state == null) return false;
+        for (Unit unit : state.units.values()) if (isPlayerAssetOwner(unit.playerId) && unit.hp > 0) return true;
+        for (Base base : state.bases.values()) if (isPlayerAssetOwner(base.playerId) && base.hp > 0) return true;
+        return false;
+    }
+
+    private boolean isPlayerAssetOwner(String playerId) {
+        return playerId != null && !playerId.isBlank() && !"WAIT".equals(playerId) && !NpcRules.isNpcFaction(playerId);
+    }
+
+    private String fallbackActiveSystemId() {
+        if (systems.containsKey(StarSystems.DEFAULT_SYSTEM_ID)) return StarSystems.DEFAULT_SYSTEM_ID;
+        if (systems.containsKey(StarSystems.CORSAIR_SYSTEM_ID)) return StarSystems.CORSAIR_SYSTEM_ID;
+        return systems.isEmpty() ? null : systems.keySet().iterator().next();
     }
 
     private Point2D wormholePoint(WorldSystemState state, int index, String otherSystemId) {
