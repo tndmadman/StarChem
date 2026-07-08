@@ -13,6 +13,7 @@ final class WorldSystemState {
     final List<ProjectileShot> shots = new ArrayList<>();
     final List<WorldItem> items = new ArrayList<>();
     final List<WormholeGate> wormholes = new ArrayList<>();
+    double systemTime;
 
     WorldSystemState(String id, StarSystemDefinition definition, CelestialSystem celestials) {
         this.id = id;
