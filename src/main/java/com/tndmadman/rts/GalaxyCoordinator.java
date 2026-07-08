@@ -294,7 +294,7 @@ final class GalaxyCoordinator {
     }
 
     private WorldSystemState active() { return activeSystemId == null ? null : systems.get(activeSystemId); }
-    private GalaxySystem asGalaxySystem(WorldSystemState state) { return new GalaxySystem(state.id, state.definition, state.systemTime, 0, state.celestials); }
+    private GalaxySystem asGalaxySystem(WorldSystemState state) { return new GalaxySystem(state.id, state.definition, state.systemTime, state.celestials); }
     private String playerHomeId(String playerId) { String clean = playerId == null || playerId.isBlank() ? "player" : playerId.replaceAll("[^A-Za-z0-9_-]", "_"); return StarSystems.PLAYER_HOME_SYSTEM_ID + "_" + clean; }
 
     private Base movedBase(Base base, double dx, double dy, int width, int height) {
