@@ -32,7 +32,7 @@ final class PeerClientSide {
         if (joined) for (int i = 0; i < 3; i++) sendToServer("LEAVE|" + localPlayerId);
     }
 
-    void handle(String message) { ClientPackets.handle(this, message); }
+    void handle(String message) { if (!readSystemDelete(message)) ClientPackets.handle(this, message); }
     void move(MoveCommand c) { reliableToServer("MOVE|" + c.playerId() + "|" + c.unitId() + "|" + Calc.round(c.x()) + "|" + Calc.round(c.y())); }
     void work(HarvestCommand c) { ResourceNetDebug.clientWorkSend(world, c); reliableToServer("WORK|" + c.playerId() + "|" + c.unitId() + "|" + c.resourceId()); }
     void attack(AttackCommand c) { reliableToServer("ATTACK|" + c.playerId() + "|" + c.unitId() + "|" + c.targetKey()); }
@@ -84,6 +84,36 @@ final class PeerClientSide {
         if (requestedView && snapshot.systemId() != null && !snapshot.systemId().isBlank()) viewedSystemId = snapshot.systemId();
         WorldNetAccess.applyFullView(world, snapshot);
         if (!requestedView && WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId)) viewedSystemId = world.activeSystemId();
+    }
+
+    private boolean readSystemDelete(String message) {
+        if (message == null || !message.startsWith("SYSDEL|")) return false;
+        boolean deletedViewedSystem = false;
+        boolean deletedActiveSystem = false;
+        String body = message.length() > 7 ? message.substring(7) : "";
+        for (String raw : body.split(";")) {
+            String systemId = cleanSystemId(raw);
+            if (systemId.isBlank()) continue;
+            deletedViewedSystem |= systemId.equals(viewedSystemId);
+            deletedActiveSystem |= systemId.equals(world.activeSystemId());
+            String owner = ownerFromHomeSystem(systemId);
+            if (owner.isBlank() || owner.equals(localPlayerId)) continue;
+            PlayerRegistry.remove(owner);
+            world.removePlayerAndPruneEmptySystems(owner);
+        }
+        if (deletedViewedSystem || deletedActiveSystem) {
+            viewSnapshotMode = false;
+            world.ensurePlayerHome(localPlayerId);
+            world.activateSystem(world.playerHomeSystemId(localPlayerId));
+            viewedSystemId = world.activeSystemId();
+        }
+        world.status = "Removed abandoned system from galaxy map.";
+        return true;
+    }
+
+    private String ownerFromHomeSystem(String systemId) {
+        String prefix = StarSystems.PLAYER_HOME_SYSTEM_ID + "_";
+        return systemId != null && systemId.startsWith(prefix) ? systemId.substring(prefix.length()) : "";
     }
 
     private boolean holdingDifferentView(Snapshot snapshot) {
