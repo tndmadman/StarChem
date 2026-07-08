@@ -158,7 +158,7 @@ final class World {
     boolean loadBasePackage(String baseId, String packageType) { return buildSystem.loadBasePackage(this, baseId, packageType); }
     boolean placePackage(Unit unit) { return buildSystem.placePackage(this, unit); }
     boolean craftItem(String baseId, String craftableId) { return buildSystem.craftItem(this, baseId, craftableId); }
-    boolean research(String baseId, String topicId) { return buildSystem.research(this, topicId); }
+    boolean research(String baseId, String topicId) { return buildSystem.research(this, baseId, topicId); }
     void draw(Graphics2D g2) { drawMap(g2); galaxy.draw(this, g2); for (Base base : bases.values()) base.draw(g2, localColor, stockpile, true); for (ResourceNode node : resources) node.draw(g2, node.id == selectedResourceId); for (WorldItem item : items) item.draw(g2); for (Unit unit : units.values()) { ResourceNode node = findResource(unit.automationResourceId); if (MiningBeam.visible(unit, node)) UnitRenderer.drawWorkLine(g2, unit, node); if (shouldDrawRoute(unit)) UnitRenderer.drawRoute(g2, unit, localColor); } weaponSystem.draw(g2, this); for (ExplosionEffect explosion : explosions) explosion.draw(g2); for (Unit unit : units.values()) UnitRenderer.draw(g2, unit, localColor, true); }
     private boolean shouldDrawRoute(Unit unit) { return PlayerRegistry.isLocal(unit.playerId) && (unit.task == UnitTask.MOVE || unit.task == UnitTask.RETURN_TO_STATION || unit.task == UnitTask.ATTACK); }
     private void drawMap(Graphics2D g2) { galaxy.drawMap(g2, width, height); }
