@@ -103,7 +103,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         g2.drawString(network == null ? "Solo" : network.statusLine(), 28, 80);
         String minerRanges = UnitRenderer.miningRangeOverlayVisible() ? "ON" : "OFF";
         String audio = ProceduralAudio.muted() ? "OFF" : "ON";
-        g2.drawString("Left-click wormhole to view system | Ships enter wormholes on contact | Right-click order | Formation: " + formation.label + " (F) | Miner ranges: " + minerRanges + " (R) | Audio: " + audio + " (M)", 28, 102);
+        g2.drawString("Left-click wormhole to view system | Right-click wormhole sends selected ships straight in | Right-click order | Formation: " + formation.label + " (F) | Miner ranges: " + minerRanges + " (R) | Audio: " + audio + " (M)", 28, 102);
     }
 
     private void drawSelectionBox(Graphics2D g2) {
@@ -178,6 +178,20 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         if (enemyUnit != null && !PlayerRegistry.isLocal(enemyUnit.playerId)) { ProceduralAudio.play(SoundCue.ATTACK_ORDER); orderAttack(CombatTarget.unit(enemyUnit)); return; }
         Base enemyBase = world.baseAt(p.getX(), p.getY());
         if (enemyBase != null && !PlayerRegistry.isLocal(enemyBase.playerId)) { ProceduralAudio.play(SoundCue.ATTACK_ORDER); orderAttack(CombatTarget.base(enemyBase)); return; }
+        WormholeGate gate = wormholeAt(p);
+        if (gate != null) {
+            int selected = world.selectedCount();
+            if (selected <= 0) {
+                world.status = "No ship selected.";
+                ProceduralAudio.play(SoundCue.ERROR);
+                return;
+            }
+            for (Unit u : world.selectedUnits()) u.moveTo(gate.x, gate.y);
+            world.status = "Moving " + selected + " ship(s) straight into wormhole to " + StarSystems.get(gate.toSystemId).name() + ".";
+            ProceduralAudio.play(SoundCue.MOVE_ORDER);
+            if (network != null) for (Unit u : world.selectedUnits()) if (PlayerRegistry.isLocal(u.playerId)) network.move(new MoveCommand(u.playerId, u.unitId, u.targetX, u.targetY));
+            return;
+        }
         ResourceNode node = world.resourceAt(p.getX(), p.getY());
         if (node != null) {
             world.autoHarvestSelected(node);
@@ -189,6 +203,11 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
             ProceduralAudio.play(selected > 0 ? SoundCue.MOVE_ORDER : SoundCue.ERROR);
             if (network != null) for (Unit u : world.selectedUnits()) if (PlayerRegistry.isLocal(u.playerId)) network.move(new MoveCommand(u.playerId, u.unitId, u.targetX, u.targetY));
         }
+    }
+
+    private WormholeGate wormholeAt(Point2D p) {
+        for (WormholeGate gate : world.wormholes) if (gate.contains(p.getX(), p.getY())) return gate;
+        return null;
     }
 
     private void orderAttack(String targetKey) {
