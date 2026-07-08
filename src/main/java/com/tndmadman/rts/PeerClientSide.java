@@ -43,10 +43,11 @@ final class PeerClientSide {
     void jump(String playerId, String targetSystemId, double x, double y) {
         viewSnapshotMode = true;
         viewedSystemId = cleanSystemId(targetSystemId);
-        if (viewedSystemId.isBlank()) viewedSystemId = world.activeSystemId();
+        if (invalidSystemId(viewedSystemId)) { viewSnapshotMode = false; viewedSystemId = world.activeSystemId(); return; }
         reliableToServer("JUMP|" + playerId + "|" + viewedSystemId + "|" + Calc.round(x) + "|" + Calc.round(y));
     }
     void wormholeTouch(String playerId) { reliableToServer("WHTOUCH|" + playerId); }
+    void wormholeTouch(WormholeTouchRequest request) { if (request != null && request.valid()) reliableToServer(request.packet()); }
 
     void readEnv(String[] p) { if (p.length >= 4) syncEnv(p[1], p[2], p[3]); else if (p.length >= 3) syncEnv(world.systemId(), p[1], p[2]); }
     void readSeed(String seed) { try { world.useSystemSeed(Long.parseLong(seed)); } catch (NumberFormatException ignored) { } }
@@ -59,6 +60,7 @@ final class PeerClientSide {
         world.ensurePlayerHome(localPlayerId);
         world.activateSystem(world.playerHomeSystemId(localPlayerId));
         viewedSystemId = world.activeSystemId();
+        viewSnapshotMode = false;
         boolean devAllowed = p.length >= 9 && "DEV".equals(p[7]) && flag(p[8]);
         world.setDevFreeBuild(localPlayerId, devAllowed);
         world.status = "Joined " + world.activeSystemId() + " as " + p[2] + devStatus(devAllowed);
@@ -86,6 +88,7 @@ final class PeerClientSide {
 
     private boolean holdingDifferentView(Snapshot snapshot) {
         if (!viewSnapshotMode || viewedSystemId == null || viewedSystemId.isBlank()) return false;
+        if (invalidSystemId(viewedSystemId)) { viewSnapshotMode = false; viewedSystemId = world.activeSystemId(); return false; }
         String systemId = snapshot.systemId();
         if (systemId == null || systemId.isBlank() || systemId.equals(viewedSystemId)) return false;
         ResourceNetDebug.ignoredSnapshot(world, snapshot, "holding requested view " + viewedSystemId);
@@ -104,6 +107,7 @@ final class PeerClientSide {
     }
 
     private String cleanSystemId(String value) { return value == null ? "" : value.replace("|", "").trim(); }
+    private boolean invalidSystemId(String value) { return value == null || value.isBlank() || value.contains("WAIT"); }
     private void syncEnv(String systemId, String seed, String time) { try { world.syncEnvironment(systemId, Long.parseLong(seed), Double.parseDouble(time)); } catch (NumberFormatException ignored) { } }
     private void sendToServer(String message) { transport.send(message, config.serverAddress.getAddress(), config.serverAddress.getPort()); }
     private void reliableToServer(String payload) { transport.reliable(payload, config.serverAddress.getAddress(), config.serverAddress.getPort()); }
