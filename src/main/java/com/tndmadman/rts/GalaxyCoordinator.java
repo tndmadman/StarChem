@@ -34,10 +34,13 @@ final class GalaxyCoordinator {
 
     String activeSystemId() { return activeSystemId; }
     CelestialSystem activeCelestials() { WorldSystemState state = active(); return state == null ? null : state.celestials; }
+    double activeSystemTime() { WorldSystemState state = active(); return state == null ? 0 : state.systemTime; }
+    void setActiveSystemTime(double time) { WorldSystemState state = active(); if (state != null) state.systemTime = Math.max(0, time); }
 
     void saveActive(World world) {
         WorldSystemState state = active();
         if (state == null) return;
+        state.systemTime = world.systemTime();
         state.resources.clear(); state.resources.addAll(world.resources);
         state.units.clear(); state.units.putAll(world.units);
         state.bases.clear(); state.bases.putAll(world.bases);
@@ -94,12 +97,18 @@ final class GalaxyCoordinator {
         return new Point2D.Double(Math.max(padding, state.width() * 0.34), Math.max(padding, state.height() * 0.52));
     }
 
-    void update(World world, double dt) { WorldSystemState state = active(); if (state != null) state.celestials.update(dt); }
+    void update(World world, double dt) {
+        WorldSystemState state = active();
+        if (state == null || dt == 0) return;
+        state.systemTime += dt;
+        state.celestials.update(dt);
+    }
 
     void updateInactiveSystems(double dt) {
         if (dt == 0) return;
         for (WorldSystemState state : systems.values()) {
             if (state == null || state.id.equals(activeSystemId)) continue;
+            state.systemTime += dt;
             state.celestials.update(dt);
             for (ResourceNode node : state.resources) node.updateOrbit(state.celestials.sunX(), state.celestials.sunY(), dt);
         }
@@ -258,7 +267,7 @@ final class GalaxyCoordinator {
         double dx = cx - gate.getX();
         double dy = cy - gate.getY();
         double len = Math.max(1.0, Math.hypot(dx, dy));
-        return new Point2D.Double(Calc.clamp(gate.getX() + dx / len * 180.0, 0, state.width()), Calc.clamp(gate.getY() + dy / len * 180.0, 0, state.height()));
+        return new Point2D.Double(Calc.clamp(gate.getX() + dx / len * 520, 120, state.width() - 120), Calc.clamp(gate.getY() + dy / len * 520, 120, state.height() - 120));
     }
 
     private boolean wormholeExists(WorldSystemState state, String to) { for (WormholeGate gate : state.wormholes) if (gate.toSystemId.equals(to)) return true; return false; }
@@ -273,6 +282,7 @@ final class GalaxyCoordinator {
     private void loadActive(World world) {
         WorldSystemState state = active();
         if (state == null) return;
+        world.systemTime = state.systemTime;
         world.resources.clear(); world.resources.addAll(state.resources);
         world.units.clear(); world.units.putAll(state.units);
         world.bases.clear(); world.bases.putAll(state.bases);
@@ -284,7 +294,7 @@ final class GalaxyCoordinator {
     }
 
     private WorldSystemState active() { return activeSystemId == null ? null : systems.get(activeSystemId); }
-    private GalaxySystem asGalaxySystem(WorldSystemState state) { return new GalaxySystem(state.id, state.definition, 0, 0, state.celestials); }
+    private GalaxySystem asGalaxySystem(WorldSystemState state) { return new GalaxySystem(state.id, state.definition, state.systemTime, 0, state.celestials); }
     private String playerHomeId(String playerId) { String clean = playerId == null || playerId.isBlank() ? "player" : playerId.replaceAll("[^A-Za-z0-9_-]", "_"); return StarSystems.PLAYER_HOME_SYSTEM_ID + "_" + clean; }
 
     private Base movedBase(Base base, double dx, double dy, int width, int height) {
