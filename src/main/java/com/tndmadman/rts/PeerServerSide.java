@@ -26,11 +26,15 @@ final class PeerServerSide {
     void updateWorlds(double dt) {
         String old = world.activeSystemId();
         String[] systems = views.systems(world);
+        Set<String> deletedSystems = new LinkedHashSet<>();
         ResourceNetDebug.serverUpdateSystems(world, systems, dt);
         for (String systemId : systems) {
             world.activateSystem(systemId);
             world.updateCurrentSystem(dt);
+            deletedSystems.addAll(world.pruneEmptyDynamicSystems());
         }
+        views.removeSystems(deletedSystems);
+        if (deletedSystems.contains(old)) old = world.activeSystemId();
         world.activateSystem(old);
     }
 
@@ -43,7 +47,7 @@ final class PeerServerSide {
     void broadcastNow() { sequence = PeerSyncBatch.send(world, views, PeerSyncTargets.array(peers.values()), sequence, transport::send); }
     void sendInitial(ServerPeer peer) { sequence = PeerSyncBatch.sendInitial(world, views, peer, sequence, transport::send); }
     void sendInitialTo(String endpoint) { sendInitial(peers.get(endpoint)); }
-    void change(String playerId, Runnable action) { views.applyChange(world, playerId, action); }
+    void change(String playerId, Runnable action) { views.applyChange(world, playerId, action); Set<String> deletedSystems = world.pruneEmptyDynamicSystems(); views.removeSystems(deletedSystems); if (!deletedSystems.isEmpty()) world.status = "Removed " + deletedSystems.size() + " abandoned system(s)."; }
     String ownerId(String endpoint, String fallback) { ServerPeer peer = peers.get(endpoint); return peer == null ? fallback : peer.playerId(); }
     boolean owns(String endpoint, String playerId) { ServerPeer peer = peers.get(endpoint); return peer != null && playerId != null && playerId.equals(peer.playerId()); }
     void touch(String endpoint) { ServerPeer p = peers.get(endpoint); if (p != null) peers.put(endpoint, new ServerPeer(p.playerId(), p.address(), p.port(), System.currentTimeMillis(), p.devFreeBuild())); }
