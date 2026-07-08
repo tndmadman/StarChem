@@ -5,6 +5,7 @@ final class ClientPrediction {
 
     static void update(World world, double dt) {
         for (Unit unit : world.units.values()) {
+            unit.wormholeCooldown = Math.max(0, unit.wormholeCooldown - dt);
             if (PlayerRegistry.isLocal(unit.playerId)) predictTarget(world, unit, dt);
             unit.updatePosition(dt, world.width, world.height);
         }
