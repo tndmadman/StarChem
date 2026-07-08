@@ -6,6 +6,8 @@ import java.util.*;
 import java.util.List;
 
 final class GalaxyCoordinator {
+    private static final double WORMHOLE_EXIT_BUFFER = 96.0;
+    private static final double WORMHOLE_COOLDOWN_SECONDS = 0.75;
     private final Map<String, WorldSystemState> systems = new LinkedHashMap<>();
     private final Map<String, String> playerHomes = new LinkedHashMap<>();
     private String activeSystemId;
@@ -160,6 +162,7 @@ final class GalaxyCoordinator {
         List<Unit> unitsToMove = new ArrayList<>(world.units.values());
         boolean moved = false;
         for (Unit unit : unitsToMove) {
+            if (unit.wormholeCooldown > 0) continue;
             WormholeGate gate = touchingGate(world, unit);
             if (gate == null) continue;
             moved |= transferUnit(world, gate, unit);
@@ -179,13 +182,17 @@ final class GalaxyCoordinator {
         saveActive(world);
         activeSystemId = to.id;
         loadActive(world);
-        unit.x = Calc.clamp(gate.exitX, 0, world.width);
-        unit.y = Calc.clamp(gate.exitY, 0, world.height);
+        Point2D exit = safeExitPoint(world, unit, gate.exitX, gate.exitY);
+        unit.x = exit.getX();
+        unit.y = exit.getY();
         unit.targetX = unit.x;
         unit.targetY = unit.y;
+        unit.miningAnchorX = unit.x;
+        unit.miningAnchorY = unit.y;
         unit.automationResourceId = -1;
         unit.attackTarget = "";
         unit.task = UnitTask.IDLE;
+        unit.wormholeCooldown = WORMHOLE_COOLDOWN_SECONDS;
         world.units.put(unit.key(), unit);
         saveActive(world);
         activeSystemId = previous;
@@ -270,6 +277,35 @@ final class GalaxyCoordinator {
         return new Point2D.Double(Calc.clamp(gate.getX() + dx / len * 520, 120, state.width() - 120), Calc.clamp(gate.getY() + dy / len * 520, 120, state.height() - 120));
     }
 
+    private Point2D safeExitPoint(World world, Unit unit, double startX, double startY) {
+        double clearance = unitClearance(unit);
+        double x = Calc.clamp(startX, clearance, world.width - clearance);
+        double y = Calc.clamp(startY, clearance, world.height - clearance);
+        int passes = Math.max(1, world.wormholes.size() + 4);
+        for (int pass = 0; pass < passes; pass++) {
+            boolean adjusted = false;
+            for (WormholeGate gate : world.wormholes) {
+                double minDistance = gate.radius + clearance;
+                double dx = x - gate.x;
+                double dy = y - gate.y;
+                double dist = Math.hypot(dx, dy);
+                if (dist >= minDistance) continue;
+                if (dist < 1.0) {
+                    dx = x - world.width * 0.5;
+                    dy = y - world.height * 0.5;
+                    dist = Math.hypot(dx, dy);
+                    if (dist < 1.0) { dx = 1.0; dy = 0.0; dist = 1.0; }
+                }
+                x = Calc.clamp(gate.x + dx / dist * minDistance, clearance, world.width - clearance);
+                y = Calc.clamp(gate.y + dy / dist * minDistance, clearance, world.height - clearance);
+                adjusted = true;
+            }
+            if (!adjusted) break;
+        }
+        return new Point2D.Double(x, y);
+    }
+
+    private double unitClearance(Unit unit) { return 28.0 * unit.type().size.scale + WORMHOLE_EXIT_BUFFER; }
     private boolean wormholeExists(WorldSystemState state, String to) { for (WormholeGate gate : state.wormholes) if (gate.toSystemId.equals(to)) return true; return false; }
 
     private ResourceNode nthActiveResource(WorldSystemState state, Material material, int skip) {
