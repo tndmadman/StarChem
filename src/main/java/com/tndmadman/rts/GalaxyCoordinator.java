@@ -247,11 +247,15 @@ final class GalaxyCoordinator {
 
     private void linkAllKnown(World world, WorldSystemState state) {
         if (state == null) return;
-        for (WorldSystemState other : new ArrayList<>(systems.values())) link(world, state, other);
+        for (WorldSystemState other : new ArrayList<>(systems.values())) {
+            if (shouldAutoLink(state, other)) link(world, state, other);
+            else unlink(world, state, other);
+        }
     }
 
     private void link(World world, WorldSystemState a, WorldSystemState b) {
         if (a == null || b == null || a == b || a.id.equals(b.id)) return;
+        if (!shouldAutoLink(a, b)) { unlink(world, a, b); return; }
         boolean aHas = wormholeExists(a, b.id);
         boolean bHas = wormholeExists(b, a.id);
         if (aHas && bHas) return;
@@ -262,6 +266,35 @@ final class GalaxyCoordinator {
         if (!aHas) a.wormholes.add(new WormholeGate(a.id + "_to_" + b.id, a.id, b.id, ap.getX(), ap.getY(), bExit.getX(), bExit.getY()));
         if (!bHas) b.wormholes.add(new WormholeGate(b.id + "_to_" + a.id, b.id, a.id, bp.getX(), bp.getY(), aExit.getX(), aExit.getY()));
         if (a.id.equals(activeSystemId) || b.id.equals(activeSystemId)) loadActive(world);
+    }
+
+    private boolean shouldAutoLink(WorldSystemState a, WorldSystemState b) {
+        if (a == null || b == null || a == b || a.id.equals(b.id)) return false;
+        if (StarSystems.DEFAULT_SYSTEM_ID.equals(a.id) || StarSystems.DEFAULT_SYSTEM_ID.equals(b.id)) return false;
+        boolean aHome = isPlayerHome(a.id);
+        boolean bHome = isPlayerHome(b.id);
+        if (aHome && bHome) return true;
+        return (aHome && isSpecialLinkSystem(b.id)) || (bHome && isSpecialLinkSystem(a.id));
+    }
+
+    private boolean isPlayerHome(String systemId) {
+        return systemId != null && systemId.startsWith(StarSystems.PLAYER_HOME_SYSTEM_ID + "_");
+    }
+
+    private boolean isSpecialLinkSystem(String systemId) {
+        return StarSystems.CORSAIR_SYSTEM_ID.equals(systemId);
+    }
+
+    private void unlink(World world, WorldSystemState a, WorldSystemState b) {
+        if (a == null || b == null || a == b || a.id.equals(b.id)) return;
+        boolean changed = removeWormholeTo(a, b.id);
+        changed = removeWormholeTo(b, a.id) || changed;
+        if (changed && (a.id.equals(activeSystemId) || b.id.equals(activeSystemId))) loadActive(world);
+    }
+
+    private boolean removeWormholeTo(WorldSystemState state, String toSystemId) {
+        if (state == null || toSystemId == null || toSystemId.isBlank()) return false;
+        return state.wormholes.removeIf(gate -> toSystemId.equals(gate.toSystemId));
     }
 
     private Point2D wormholePoint(WorldSystemState state, int index, String otherSystemId) {
