@@ -17,6 +17,10 @@ final class GalaxySystem {
         this.celestials = celestials;
     }
 
+    GalaxySystem(String id, StarSystemDefinition definition, double ignoredSystemTime, CelestialSystem celestials) {
+        this(id, definition, 0, 0, celestials);
+    }
+
     double width() { return definition.width(); }
     double height() { return definition.height(); }
     double maxX() { return offsetX + width(); }
