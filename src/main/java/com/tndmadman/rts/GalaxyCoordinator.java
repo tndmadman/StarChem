@@ -194,22 +194,12 @@ final class GalaxyCoordinator {
             state.shots.removeIf(shot -> playerId.equals(shot.ownerId) || targetsPlayer(shot.targetKey, playerId));
         }
         playerHomes.remove(playerId);
+        return pruneAbandonedSystemsAfterSave(world);
+    }
 
-        Set<String> deleted = new LinkedHashSet<>();
-        for (WorldSystemState state : new ArrayList<>(systems.values())) {
-            if (canPruneSystem(state) && !hasPlayerAssets(state)) deleted.add(state.id);
-        }
-        if (deleted.isEmpty()) {
-            loadActive(world);
-            return Set.of();
-        }
-
-        for (String systemId : deleted) systems.remove(systemId);
-        playerHomes.values().removeIf(deleted::contains);
-        for (WorldSystemState state : systems.values()) state.wormholes.removeIf(gate -> deleted.contains(gate.toSystemId));
-        if (activeSystemId == null || deleted.contains(activeSystemId) || !systems.containsKey(activeSystemId)) activeSystemId = fallbackActiveSystemId();
-        loadActive(world);
-        return Set.copyOf(deleted);
+    Set<String> pruneAbandonedSystems(World world) {
+        saveActive(world);
+        return pruneAbandonedSystemsAfterSave(world);
     }
 
     Base nearestBaseInSameSystem(World world, String playerId, double x, double y) {
@@ -370,6 +360,27 @@ final class GalaxyCoordinator {
     private boolean removeWormholeTo(WorldSystemState state, String toSystemId) {
         if (state == null || toSystemId == null || toSystemId.isBlank()) return false;
         return state.wormholes.removeIf(gate -> toSystemId.equals(gate.toSystemId));
+    }
+
+    private Set<String> pruneAbandonedSystemsAfterSave(World world) {
+        Set<String> deleted = new LinkedHashSet<>();
+        for (WorldSystemState state : new ArrayList<>(systems.values())) {
+            if (canPruneSystem(state) && !hasPlayerAssets(state)) deleted.add(state.id);
+        }
+        if (deleted.isEmpty()) {
+            loadActive(world);
+            return Set.of();
+        }
+        deleteSystems(world, deleted);
+        return Set.copyOf(deleted);
+    }
+
+    private void deleteSystems(World world, Set<String> deleted) {
+        for (String systemId : deleted) systems.remove(systemId);
+        playerHomes.values().removeIf(deleted::contains);
+        for (WorldSystemState state : systems.values()) state.wormholes.removeIf(gate -> deleted.contains(gate.toSystemId));
+        if (activeSystemId == null || deleted.contains(activeSystemId) || !systems.containsKey(activeSystemId)) activeSystemId = fallbackActiveSystemId();
+        loadActive(world);
     }
 
     private boolean targetsPlayer(String targetKey, String playerId) {
