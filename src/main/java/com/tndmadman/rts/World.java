@@ -80,6 +80,7 @@ final class World {
     Point2D npcSpawnPoint(String factionId, double padding) { return galaxy.npcSpawnPoint(this, factionId, padding); }
     void movePlayerAssetsToSystem(String playerId, String targetSystemId) { galaxy.moveAssetsToSystem(this, playerId, targetSystemId); celestials = galaxy.activeCelestials(); systemTime = galaxy.activeSystemTime(); }
     Set<String> removePlayerAndPruneEmptySystems(String playerId) { completedResearch.remove(playerId); Set<String> deleted = galaxy.removePlayerAndPruneEmptySystems(this, playerId); celestials = galaxy.activeCelestials(); systemTime = galaxy.activeSystemTime(); selectedResourceId = -1; return deleted; }
+    Set<String> pruneEmptyDynamicSystems() { Set<String> deleted = galaxy.pruneAbandonedSystems(this); celestials = galaxy.activeCelestials(); systemTime = galaxy.activeSystemTime(); selectedResourceId = -1; return deleted; }
 
     String wormholeTargetAt(double x, double y) {
         WormholeGate gate = wormholeAt(x, y);
