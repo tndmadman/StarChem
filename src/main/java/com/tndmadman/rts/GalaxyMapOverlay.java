@@ -8,17 +8,19 @@ import java.awt.RenderingHints;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Line2D;
 import java.awt.geom.Point2D;
-import java.awt.geom.Rectangle2D;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 final class GalaxyMapOverlay {
     private static final double NODE_RADIUS = 34.0;
     private static final double ACTIVE_NODE_RADIUS = 42.0;
 
     void draw(Graphics2D g2, GalaxyMapSnapshot snapshot, int width, int height) {
+        snapshot = visibleSnapshot(snapshot);
         Graphics2D g = (Graphics2D) g2.create();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setColor(new Color(2, 5, 10, 224));
@@ -53,6 +55,7 @@ final class GalaxyMapOverlay {
     }
 
     String systemAt(GalaxyMapSnapshot snapshot, int screenX, int screenY, int width, int height) {
+        snapshot = visibleSnapshot(snapshot);
         if (snapshot == null || snapshot.empty()) return "";
         Map<String, NodeLayout> layout = layout(snapshot, width, height);
         for (GalaxyMapSystem system : snapshot.systems()) {
@@ -62,6 +65,43 @@ final class GalaxyMapOverlay {
             if (Point2D.distance(screenX, screenY, node.x, node.y) <= radius + 10) return system.id();
         }
         return "";
+    }
+
+    private GalaxyMapSnapshot visibleSnapshot(GalaxyMapSnapshot snapshot) {
+        if (snapshot == null || snapshot.empty()) return snapshot;
+
+        Set<String> linkedSystemIds = new LinkedHashSet<>();
+        if (snapshot.links() != null) {
+            for (GalaxyMapLink link : snapshot.links()) {
+                linkedSystemIds.add(link.fromSystemId());
+                linkedSystemIds.add(link.toSystemId());
+            }
+        }
+
+        List<GalaxyMapSystem> visibleSystems = new ArrayList<>();
+        Set<String> visibleIds = new LinkedHashSet<>();
+        for (GalaxyMapSystem system : snapshot.systems()) {
+            if (isVisibleSystem(system, linkedSystemIds)) {
+                visibleSystems.add(system);
+                visibleIds.add(system.id());
+            }
+        }
+
+        List<GalaxyMapLink> visibleLinks = new ArrayList<>();
+        if (snapshot.links() != null) {
+            for (GalaxyMapLink link : snapshot.links()) {
+                if (visibleIds.contains(link.fromSystemId()) && visibleIds.contains(link.toSystemId())) visibleLinks.add(link);
+            }
+        }
+        return new GalaxyMapSnapshot(snapshot.activeSystemId(), List.copyOf(visibleSystems), List.copyOf(visibleLinks));
+    }
+
+    private boolean isVisibleSystem(GalaxyMapSystem system, Set<String> linkedSystemIds) {
+        if (system == null) return false;
+        if (linkedSystemIds.contains(system.id())) return true;
+        if (system.home() || system.special()) return true;
+        if (system.ships() > 0 || system.bases() > 0 || system.hasLocalAssets()) return true;
+        return false;
     }
 
     private void drawGrid(Graphics2D g, int width, int height) {
