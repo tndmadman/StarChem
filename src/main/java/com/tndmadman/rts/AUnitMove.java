@@ -27,7 +27,7 @@ final class SideAOrders {
             case "BUILD" -> { s.touch(ep); if (s.owns(ep, id)) s.change(id, () -> { if (CommandAuth.base(s.world, id, p[2])) s.world.buildShip(p[2], p[3]); }); }
             case "PACK" -> { s.touch(ep); if (s.owns(ep, id)) s.change(id, () -> { if (CommandAuth.pack(s.world, id, p[2], p[3])) AUnitPack.apply(s.world, p[2], p[3], p[4]); }); }
             case "JUMP" -> { s.touch(ep); if (s.owns(ep, id)) { s.change(id, () -> applyJump(s.world, p)); s.sendInitialTo(ep); } }
-            case "WHTOUCH" -> { s.touch(ep); if (s.owns(ep, id)) { s.change(id, () -> s.world.transferTouchingShips(id)); s.sendInitialTo(ep); } }
+            case "WHTOUCH" -> { s.touch(ep); if (s.owns(ep, id)) { s.change(id, () -> applyWormholeTouch(s.world, id, p)); s.sendInitialTo(ep); } }
         }
     }
 
@@ -40,5 +40,37 @@ final class SideAOrders {
             return;
         }
         if (p.length >= 4) world.jumpThroughWormholeAt(Double.parseDouble(p[2]), Double.parseDouble(p[3]));
+    }
+
+    private static void applyWormholeTouch(World world, String playerId, String[] p) {
+        if (p.length < 5) {
+            world.transferTouchingShips(playerId);
+            return;
+        }
+        try {
+            int unitId = Integer.parseInt(p[2]);
+            String fromSystemId = p[3];
+            String gateId = p[4];
+            if (!WormholeTouchRequest.validPlayerId(playerId) || !WormholeTouchRequest.validSystemId(fromSystemId)) return;
+            String old = world.activeSystemId();
+            world.activateSystem(fromSystemId);
+            try {
+                Unit unit = world.units.get(Unit.key(playerId, unitId));
+                WormholeGate gate = WormholeTouchRequest.gateById(world, gateId);
+                if (unit == null || !playerId.equals(unit.playerId) || unit.wormholeCooldown > 0 || gate == null || !gate.contains(unit.x, unit.y)) {
+                    System.out.println("WORMHOLE TOUCH MISS player=" + playerId + " unit=" + unitId + " from=" + fromSystemId + " gate=" + gateId + " worldSys=" + world.activeSystemId());
+                    return;
+                }
+                if (!fromSystemId.equals(gate.fromSystemId) || !WormholeTouchRequest.validSystemId(gate.toSystemId)) {
+                    System.out.println("WORMHOLE TOUCH REJECT player=" + playerId + " unit=" + unitId + " from=" + fromSystemId + " gate=" + gateId + " gateFrom=" + gate.fromSystemId + " gateTo=" + gate.toSystemId);
+                    return;
+                }
+                world.transferTouchingShips(playerId);
+            } finally {
+                world.activateSystem(old);
+            }
+        } catch (RuntimeException ignored) {
+            System.out.println("WORMHOLE TOUCH BAD PACKET");
+        }
     }
 }
