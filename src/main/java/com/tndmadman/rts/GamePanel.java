@@ -22,12 +22,14 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final DevMenu devMenu = new DevMenu();
     private final AiDevPanel aiDevPanel = new AiDevPanel();
     private final AiDevOverlay aiDevOverlay = new AiDevOverlay();
+    private final GalaxyMapOverlay galaxyMapOverlay = new GalaxyMapOverlay();
     private final boolean devMode;
     private FleetFormation formation = FleetFormation.GRID;
     private Point dragStart;
     private Point dragNow;
     private long lastNanos = System.nanoTime();
     private boolean cameraLeft, cameraRight, cameraUp, cameraDown;
+    private boolean galaxyMapOpen;
 
     GamePanel(World world, GameFrame owner) { this(world, owner, null, false); }
     GamePanel(World world, GameFrame owner, PeerNetwork network) { this(world, owner, network, false); }
@@ -58,7 +60,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         if (server != null) server.tick(dt);
         else if (client != null) client.tick(dt);
         else world.update(dt);
-        updateCameraControls(dt);
+        if (!galaxyMapOpen) updateCameraControls(dt);
         camera.update(world, getWidth(), getHeight(), dt);
         repaint();
     }
@@ -89,12 +91,13 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         if (world.devFreeBuild) shieldDebugOverlay.draw(g2, world, getWidth());
         if (devMode) { devMenu.draw(g2, world, canEditDev()); aiDevPanel.draw(g2, world, canEditDev()); }
         buildMenu.draw(g2);
+        if (galaxyMapOpen) galaxyMapOverlay.draw(g2, world.galaxyMapSnapshot(), getWidth(), getHeight());
         g2.dispose();
     }
 
     private void drawHud(Graphics2D g2) {
         g2.setColor(new Color(0,0,0,175));
-        g2.fillRoundRect(12, 12, 980, 112, 14, 14);
+        g2.fillRoundRect(12, 12, 1030, 112, 14, 14);
         g2.setColor(Color.WHITE);
         String dev = world.devFreeBuild ? " | FREE CRAFTING" : "";
         g2.drawString("StarChem | " + PlayerRegistry.name(PlayerRegistry.localId()) + " | System: " + world.activeSystemId() + " | Selected: " + world.selectedCount() + dev, 28, 36);
@@ -103,7 +106,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         g2.drawString(network == null ? "Solo" : network.statusLine(), 28, 80);
         String minerRanges = UnitRenderer.miningRangeOverlayVisible() ? "ON" : "OFF";
         String audio = ProceduralAudio.muted() ? "OFF" : "ON";
-        g2.drawString("Left-click wormhole to view system | Right-click wormhole sends selected ships straight in | Right-click order | Formation: " + formation.label + " (F) | Miner ranges: " + minerRanges + " (R) | Audio: " + audio + " (M)", 28, 102);
+        g2.drawString("Galaxy map: M | Left-click wormhole to view system | Right-click wormhole sends ships straight in | Formation: " + formation.label + " (F) | Miner ranges: " + minerRanges + " (R) | Audio: " + audio + " (Ctrl+M)", 28, 102);
     }
 
     private void drawSelectionBox(Graphics2D g2) {
@@ -129,12 +132,27 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
 
     @Override public void mousePressed(MouseEvent e) {
         requestFocusInWindow();
+        if (galaxyMapOpen) { clickGalaxyMap(e); return; }
         if (buildMenu.click(e.getX(), e.getY())) return;
         if (devMode && aiDevPanel.click(world, e.getX(), e.getY(), canEditDev())) return;
         if (devMode && devMenu.click(world, e.getX(), e.getY(), canEditDev())) return;
         if (hangarHud.mousePressed(world, e.getX(), e.getY())) return;
         if (SwingUtilities.isRightMouseButton(e)) { clickRight(screenToWorld(e.getPoint())); return; }
         if (SwingUtilities.isLeftMouseButton(e)) { dragStart = e.getPoint(); dragNow = e.getPoint(); }
+    }
+
+    private void clickGalaxyMap(MouseEvent e) {
+        if (!SwingUtilities.isLeftMouseButton(e)) return;
+        GalaxyMapSnapshot snapshot = world.galaxyMapSnapshot();
+        String systemId = galaxyMapOverlay.systemAt(snapshot, e.getX(), e.getY(), getWidth(), getHeight());
+        if (systemId == null || systemId.isBlank()) return;
+        if (world.viewGalaxySystem(systemId)) {
+            if (network != null && !network.statusLine().startsWith("HOST")) network.jump(network.localPlayerId(), systemId, 0, 0);
+            ProceduralAudio.play(SoundCue.SELECT);
+            galaxyMapOpen = false;
+            clearCameraKeys();
+            repaint();
+        }
     }
 
     private void clickLeft(MouseEvent e, Point2D p) {
@@ -219,12 +237,14 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private boolean canEditDev() { return network == null || network.statusLine().startsWith("HOST"); }
 
     @Override public void mouseDragged(MouseEvent e) {
+        if (galaxyMapOpen) return;
         if (dragStart != null) { dragNow = e.getPoint(); repaint(); return; }
         hangarHud.mouseDragged(e.getX(), e.getY(), getWidth(), getHeight());
         if (devMode) { aiDevPanel.drag(e.getX(), e.getY(), getWidth(), getHeight()); devMenu.drag(e.getX(), e.getY(), getWidth(), getHeight()); }
     }
 
     @Override public void mouseReleased(MouseEvent e) {
+        if (galaxyMapOpen) { dragStart = null; dragNow = null; return; }
         if (SwingUtilities.isLeftMouseButton(e) && dragStart != null) {
             dragNow = e.getPoint();
             if (isSelectionDrag()) { world.selectBox(screenRectToWorldRect(dragStart, dragNow)); if (world.selectedCount() > 0) ProceduralAudio.play(SoundCue.SELECT); }
@@ -237,21 +257,44 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         if (devMode) { aiDevPanel.release(); devMenu.release(); }
     }
 
-    @Override public void mouseWheelMoved(MouseWheelEvent e) { camera.zoomAt(e.getPoint(), e.getWheelRotation(), world, getWidth(), getHeight()); }
+    @Override public void mouseWheelMoved(MouseWheelEvent e) { if (!galaxyMapOpen) camera.zoomAt(e.getPoint(), e.getWheelRotation(), world, getWidth(), getHeight()); }
     @Override public void mouseMoved(MouseEvent e) { }
     @Override public void mouseClicked(MouseEvent e) { }
     @Override public void mouseEntered(MouseEvent e) { }
     @Override public void mouseExited(MouseEvent e) { }
     @Override public void keyTyped(KeyEvent e) { }
     @Override public void keyPressed(KeyEvent e) {
+        if (e.getKeyCode() == KeyEvent.VK_M && e.isControlDown()) { boolean muted = ProceduralAudio.toggleMute(); world.status = muted ? "Audio muted." : "Audio enabled."; repaint(); return; }
+        if (e.getKeyCode() == KeyEvent.VK_M) { toggleGalaxyMap(); return; }
+        if (galaxyMapOpen && e.getKeyCode() == KeyEvent.VK_ESCAPE) { closeGalaxyMap(); return; }
+        if (galaxyMapOpen) return;
         if (devMode && e.getKeyCode() == KeyEvent.VK_F3) { AiDevSettings.overlay = !AiDevSettings.overlay; world.status = "AI debug overlay: " + (AiDevSettings.overlay ? "ON" : "OFF") + "."; repaint(); return; }
-        if (e.getKeyCode() == KeyEvent.VK_M) { boolean muted = ProceduralAudio.toggleMute(); world.status = muted ? "Audio muted." : "Audio enabled."; repaint(); return; }
         if (e.getKeyCode() == KeyEvent.VK_F) { formation = formation.next(); world.status = "Fleet formation: " + formation.label + "."; ProceduralAudio.play(SoundCue.SELECT); return; }
         if (e.getKeyCode() == KeyEvent.VK_R) { UnitRenderer.toggleMiningRangeOverlay(); world.status = "Miner range overlay: " + (UnitRenderer.miningRangeOverlayVisible() ? "ON" : "OFF") + "."; ProceduralAudio.play(SoundCue.SELECT); repaint(); return; }
         setCameraKey(e.getKeyCode(), true);
     }
     @Override public void keyReleased(KeyEvent e) { setCameraKey(e.getKeyCode(), false); }
 
+    private void toggleGalaxyMap() {
+        galaxyMapOpen = !galaxyMapOpen;
+        dragStart = null;
+        dragNow = null;
+        clearCameraKeys();
+        world.status = galaxyMapOpen ? "Galaxy map open. Click a system to travel/view it." : "Galaxy map closed.";
+        ProceduralAudio.play(SoundCue.SELECT);
+        repaint();
+    }
+
+    private void closeGalaxyMap() {
+        galaxyMapOpen = false;
+        dragStart = null;
+        dragNow = null;
+        clearCameraKeys();
+        world.status = "Galaxy map closed.";
+        repaint();
+    }
+
+    private void clearCameraKeys() { cameraLeft = cameraRight = cameraUp = cameraDown = false; }
     private void setCameraKey(int code) { setCameraKey(code, true); }
     private void setCameraKey(int code, boolean down) {
         if (code == KeyEvent.VK_A || code == KeyEvent.VK_LEFT) cameraLeft = down;
