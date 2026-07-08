@@ -120,7 +120,7 @@ final class GalaxyCoordinator {
         g2.fillRect(0, 0, width, height);
         g2.setColor(new Color(22, 33, 48));
         for (int x = 0; x <= width; x += 160) g2.drawLine(x, 0, x, height);
-        for (int y = 0; y <= height; y += 160) g2.drawLine(0, y, width, height);
+        for (int y = 0; y <= height; y += 160) g2.drawLine(0, y, width, y);
         WorldSystemState state = active();
         if (state != null) { g2.setColor(new Color(220, 238, 250, 190)); g2.drawString(state.definition.name() + " [" + state.id + "]", 24, 32); }
     }
