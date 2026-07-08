@@ -1,5 +1,7 @@
 package com.tndmadman.rts;
 
+import java.util.Iterator;
+
 final class ClientPrediction {
     private ClientPrediction() { }
 
@@ -9,6 +11,12 @@ final class ClientPrediction {
             if (PlayerRegistry.isLocal(unit.playerId)) predictTarget(world, unit, dt);
             unit.updatePosition(dt, world.width, world.height);
         }
+        updateExplosions(world, dt);
+    }
+
+    private static void updateExplosions(World world, double dt) {
+        Iterator<ExplosionEffect> it = world.explosions.iterator();
+        while (it.hasNext()) if (!it.next().update(dt)) it.remove();
     }
 
     private static void predictTarget(World world, Unit unit, double dt) {
