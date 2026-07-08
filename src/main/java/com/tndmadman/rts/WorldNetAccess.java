@@ -43,6 +43,7 @@ final class WorldNetAccess {
             long seed = CelestialPacketCache.seed(world.systemSeed());
             double time = snapshot.systemTime() < 0 ? world.systemTime() : snapshot.systemTime();
             ResourceNetDebug.viewReset(world, snapSystem, seed, time);
+            world.explosions.clear();
             ViewSnapshotReset.apply(world, snapSystem, seed, time);
         }
         if (snapSystem != null && !snapSystem.isBlank() && !snapSystem.equals(world.activeSystemId())) {
@@ -68,7 +69,6 @@ final class WorldNetAccess {
             CelestialViewSync.apply(world, snapshot.systemId(), snapshot.systemTime());
         }
         boolean forceLocal = allowNoLocalAssets;
-        boolean explodeMissing = !allowNoLocalAssets;
         Set<String> liveUnits = new HashSet<>();
         for (UnitState s : snapshot.units()) {
             String key = Unit.key(s.playerId(), s.unitId());
@@ -84,11 +84,7 @@ final class WorldNetAccess {
         Iterator<Map.Entry<String, Unit>> unitIt = world.units.entrySet().iterator();
         while (unitIt.hasNext()) {
             Map.Entry<String, Unit> entry = unitIt.next();
-            if (!liveUnits.contains(entry.getKey())) {
-                Unit unit = entry.getValue();
-                if (explodeMissing && !wasConvertedToBase(unit, snapshot.bases())) world.explodeUnit(unit);
-                unitIt.remove();
-            }
+            if (!liveUnits.contains(entry.getKey())) unitIt.remove();
         }
         if (!snapshot.resources().isEmpty()) {
             if (fullResourceView) {
@@ -102,7 +98,7 @@ final class WorldNetAccess {
                 NetResourceSync.apply(world, snapshot.resources());
             }
         }
-        applyBases(world, snapshot.bases(), explodeMissing);
+        applyBases(world, snapshot.bases());
         world.shots.clear();
         for (ShotState s : snapshot.shots()) {
             ProjectileShot shot = new ProjectileShot(s.id(), s.ownerId(), s.weaponId(), s.targetKey(), s.x(), s.y());
@@ -121,24 +117,13 @@ final class WorldNetAccess {
         return true;
     }
 
-    private static boolean wasConvertedToBase(Unit unit, List<BaseState> bases) {
-        if (unit.basePackageType == null || unit.basePackageType.isBlank()) return false;
-        for (BaseState base : bases) {
-            if (!base.playerId().equals(unit.playerId)) continue;
-            if (!base.typeId().equals(unit.basePackageType)) continue;
-            if (Calc.distance(unit.x, unit.y, base.x(), base.y()) <= 48.0) return true;
-        }
-        return false;
-    }
-
-    private static void applyBases(World world, List<BaseState> states, boolean explodeMissing) {
+    private static void applyBases(World world, List<BaseState> states) {
         Set<String> live = new HashSet<>();
         for (BaseState state : states) live.add(state.id());
         Iterator<Base> it = world.bases.values().iterator();
         while (it.hasNext()) {
             Base base = it.next();
             if (live.contains(base.id)) continue;
-            if (explodeMissing) world.explodeBase(base);
             it.remove();
         }
         for (BaseState b : states) world.bases.put(b.id(), NetBaseSync.fromState(b));
