@@ -75,8 +75,15 @@ final class PeerServerSide {
         views.remove(playerId);
         Set<String> deletedSystems = world.removePlayerAndPruneEmptySystems(playerId);
         views.removeSystems(deletedSystems);
+        sendDeletedSystems(deletedSystems);
         if (!deletedSystems.isEmpty()) world.status = "Removed " + deletedSystems.size() + " abandoned system(s) after " + playerId + " left.";
         broadcastNow();
+    }
+
+    private void sendDeletedSystems(Set<String> deletedSystems) {
+        if (deletedSystems == null || deletedSystems.isEmpty() || peers.isEmpty()) return;
+        String message = "SYSDEL|" + String.join(";", deletedSystems);
+        for (ServerPeer peer : peers.values()) transport.reliable(message, peer.address(), peer.port());
     }
 
     boolean requestedDev(String[] parts) { return parts.length > 2 && flag(parts[2]); }
