@@ -30,6 +30,7 @@ final class PeerServerSide {
         ResourceNetDebug.serverUpdateSystems(world, systems, dt);
         for (String systemId : systems) {
             world.activateSystem(systemId);
+            if (!systemId.equals(world.activeSystemId())) continue;
             world.updateCurrentSystem(dt);
             deletedSystems.addAll(world.pruneEmptyDynamicSystems());
         }
