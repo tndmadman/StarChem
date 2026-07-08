@@ -59,6 +59,53 @@ final class GalaxyCoordinator {
         return state.celestials;
     }
 
+    boolean viewSystem(World world, String systemId) {
+        saveActive(world);
+        WorldSystemState state = systems.get(systemId);
+        if (state == null) return false;
+        activeSystemId = state.id;
+        loadActive(world);
+        world.status = "Galaxy map: travelled to " + state.definition.name() + ".";
+        return true;
+    }
+
+    GalaxyMapSnapshot mapSnapshot(World world) {
+        saveActive(world);
+        List<GalaxyMapSystem> mapSystems = new ArrayList<>();
+        for (WorldSystemState state : systems.values()) {
+            int activeResources = 0;
+            for (ResourceNode node : state.resources) if (node.active) activeResources++;
+            int localShips = 0;
+            for (Unit unit : state.units.values()) if (PlayerRegistry.isLocal(unit.playerId) && unit.hp > 0) localShips++;
+            int localBases = 0;
+            for (Base base : state.bases.values()) if (PlayerRegistry.isLocal(base.playerId) && base.hp > 0) localBases++;
+            mapSystems.add(new GalaxyMapSystem(
+                    state.id,
+                    state.definition.name(),
+                    state.units.size(),
+                    state.bases.size(),
+                    activeResources,
+                    localShips,
+                    localBases,
+                    state.id.equals(activeSystemId),
+                    isPlayerHome(state.id),
+                    isSpecialLinkSystem(state.id)));
+        }
+
+        List<GalaxyMapLink> links = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (WorldSystemState state : systems.values()) {
+            for (WormholeGate gate : state.wormholes) {
+                if (!systems.containsKey(gate.toSystemId)) continue;
+                String a = state.id.compareTo(gate.toSystemId) <= 0 ? state.id : gate.toSystemId;
+                String b = state.id.compareTo(gate.toSystemId) <= 0 ? gate.toSystemId : state.id;
+                String key = a + "->" + b;
+                if (seen.add(key)) links.add(new GalaxyMapLink(a, b));
+            }
+        }
+        return new GalaxyMapSnapshot(activeSystemId, List.copyOf(mapSystems), List.copyOf(links));
+    }
+
     GalaxySystem ensurePlayerHome(World world, String playerId, StarSystemDefinition primary) {
         if (playerId == null || playerId.isBlank()) playerId = world.localPlayerId;
         String existing = playerHomes.get(playerId);
@@ -115,6 +162,7 @@ final class GalaxyCoordinator {
             for (ResourceNode node : state.resources) node.updateOrbit(state.celestials.sunX(), state.celestials.sunY(), dt);
         }
     }
+
     void draw(World world, Graphics2D g2) { WorldSystemState state = active(); if (state != null) state.celestials.draw(g2); for (WormholeGate gate : world.wormholes) gate.draw(g2); }
 
     void drawMap(Graphics2D g2, int width, int height) {
