@@ -6,7 +6,7 @@ final class ViewSnapshotReset {
     private ViewSnapshotReset() { }
 
     static void apply(World world, String systemId, long seed, double time) {
-        if (world == null || systemId == null || systemId.isBlank() || time < 0) return;
+        if (world == null || systemId == null || systemId.isBlank() || systemId.contains("WAIT") || time < 0) return;
         long temporary = seed ^ 0x5DEECE66DL;
         if (temporary == seed) temporary++;
         String syncId = baseSystemId(systemId);
@@ -14,7 +14,7 @@ final class ViewSnapshotReset {
         world.syncEnvironment(syncId, seed, time);
         if (!systemId.equals(syncId)) {
             String owner = ownerFromHome(systemId);
-            if (!owner.isBlank()) world.ensurePlayerHome(owner);
+            if (!owner.isBlank() && !"WAIT".equals(owner)) world.ensurePlayerHome(owner);
             world.activateSystem(systemId);
         }
     }
