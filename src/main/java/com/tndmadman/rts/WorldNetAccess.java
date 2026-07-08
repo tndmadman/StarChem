@@ -8,7 +8,8 @@ final class WorldNetAccess {
     private WorldNetAccess() { }
 
     static Snapshot snapshot(World world, long sequence) {
-        List<PlayerInfo> players = PlayerRegistry.snapshotPlayers();
+        List<PlayerInfo> players = new ArrayList<>();
+        for (PlayerInfo player : PlayerRegistry.snapshotPlayers()) if (realPlayerId(player.id()) || "SOLO".equals(player.id())) players.add(player);
         List<UnitState> units = new ArrayList<>();
         for (Unit u : world.units.values()) units.add(new UnitState(u.playerId, u.unitId, u.shipTypeId, u.x, u.y, u.targetX, u.targetY, u.heading, u.task.name(), u.automationResourceId, u.basePackageType, CargoCodec.write(u.inventory), u.hp, u.shield, u.attackTarget, u.weaponFlashTimer));
         List<ResourceState> resources = ResourceSync.snapshot(world);
@@ -50,8 +51,9 @@ final class WorldNetAccess {
             return;
         }
         for (PlayerInfo p : snapshot.players()) {
+            if (!realPlayerId(p.id()) && !"SOLO".equals(p.id())) continue;
             PlayerRegistry.register(p.id(), p.name(), p.rgb(), p.id().equals(local));
-            if (!NpcRules.isNpcFaction(p.id())) world.ensurePlayerHome(p.id());
+            if (realPlayerId(p.id()) || "SOLO".equals(p.id())) world.ensurePlayerHome(p.id());
         }
         if (!allowNoLocalAssets && !snapshotHasLocalAssets && !local.equals("SOLO") && !local.equals("WAIT")) {
             world.ensurePlayerHome(local);
@@ -143,11 +145,13 @@ final class WorldNetAccess {
     }
 
     static void addPeerGroup(World world, String playerId) {
+        if (!realPlayerId(playerId)) return;
         world.ensurePlayerHome(playerId);
         world.spawnPlayerGroup(playerId, separatedSlot(playerId, slot(playerId)));
     }
 
     static void respawnPlayer(World world, String playerId) {
+        if (!realPlayerId(playerId) && !"SOLO".equals(playerId)) return;
         world.units.values().removeIf(unit -> unit.playerId.equals(playerId));
         world.bases.values().removeIf(base -> base.playerId.equals(playerId));
         world.shots.removeIf(shot -> shot.ownerId.equals(playerId));
@@ -156,6 +160,7 @@ final class WorldNetAccess {
         world.status = PlayerRegistry.name(playerId) + " respawned in a home system.";
     }
 
+    private static boolean realPlayerId(String id) { return id != null && !id.isBlank() && !"WAIT".equals(id) && !NpcRules.isNpcFaction(id); }
     private static int separatedSlot(String playerId, int preferredSlot) { return preferredSlot + Math.floorMod(playerId == null ? 0 : playerId.hashCode(), SPAWN_SLOT_SEARCH); }
     private static int slot(String id) { if (id == null || id.equals("SOLO") || id.equals("HOST")) return 0; if (id.startsWith("P")) try { return Math.max(1, Integer.parseInt(id.substring(1))); } catch (NumberFormatException ignored) { } return Math.floorMod(id.hashCode(), 8); }
 }
