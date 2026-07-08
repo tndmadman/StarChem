@@ -39,10 +39,12 @@ final class PeerClientSide {
     void respawn(String playerId) { reliableToServer("RESPAWN|" + playerId); }
     void build(String playerId, String baseId, String shipTypeId) { reliableToServer("BUILD|" + playerId + "|" + baseId + "|" + shipTypeId); }
     void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { reliableToServer("PACK|" + playerId + "|" + mode + "|" + baseOrUnitId + "|" + packageType); }
-    void jump(String playerId, double x, double y) {
+    void jump(String playerId, double x, double y) { jump(playerId, "", x, y); }
+    void jump(String playerId, String targetSystemId, double x, double y) {
         viewSnapshotMode = true;
-        viewedSystemId = world.activeSystemId();
-        reliableToServer("JUMP|" + playerId + "|" + Calc.round(x) + "|" + Calc.round(y));
+        viewedSystemId = cleanSystemId(targetSystemId);
+        if (viewedSystemId.isBlank()) viewedSystemId = world.activeSystemId();
+        reliableToServer("JUMP|" + playerId + "|" + viewedSystemId + "|" + Calc.round(x) + "|" + Calc.round(y));
     }
     void wormholeTouch(String playerId) { reliableToServer("WHTOUCH|" + playerId); }
 
@@ -101,6 +103,7 @@ final class PeerClientSide {
         return false;
     }
 
+    private String cleanSystemId(String value) { return value == null ? "" : value.replace("|", "").trim(); }
     private void syncEnv(String systemId, String seed, String time) { try { world.syncEnvironment(systemId, Long.parseLong(seed), Double.parseDouble(time)); } catch (NumberFormatException ignored) { } }
     private void sendToServer(String message) { transport.send(message, config.serverAddress.getAddress(), config.serverAddress.getPort()); }
     private void reliableToServer(String payload) { transport.reliable(payload, config.serverAddress.getAddress(), config.serverAddress.getPort()); }
