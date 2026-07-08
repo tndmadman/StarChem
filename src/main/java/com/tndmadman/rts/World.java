@@ -27,7 +27,7 @@ final class World {
     boolean devFreeBuild;
     private StarSystemDefinition starSystem;
     private long systemSeed;
-    private double systemTime;
+    double systemTime;
     private Random random;
     private CelestialSystem celestials;
     private final WorkSystem workSystem = new WorkSystem();
@@ -69,31 +69,33 @@ final class World {
     String activeSystemId() { return galaxy.activeSystemId(); }
     boolean hasLiveAssets(String playerId) { return galaxy.hasLiveAssets(this, playerId); }
     String playerHomeSystemId(String playerId) { return galaxy.playerHomeSystemId(this, playerId, starSystem); }
-    void activateSystem(String systemId) { celestials = galaxy.activate(this, systemId); }
+    void activateSystem(String systemId) { celestials = galaxy.activate(this, systemId); systemTime = galaxy.activeSystemTime(); }
     void saveActiveSystem() { galaxy.saveActive(this); }
     List<Material> spawnMaterials() { return starSystem.spawnMaterials(); }
     List<Material> spawnMaterials(String playerId) { return galaxy.spawnMaterials(this, playerId, starSystem); }
     void ensurePlayerHome(String playerId) { galaxy.ensurePlayerHome(this, playerId, starSystem); }
     Point2D startPointForPlayer(String playerId, int slot) { return galaxy.startPoint(this, playerId, slot, starSystem); }
     Point2D npcSpawnPoint(String factionId, double padding) { return galaxy.npcSpawnPoint(this, factionId, padding); }
-    void movePlayerAssetsToSystem(String playerId, String targetSystemId) { galaxy.moveAssetsToSystem(this, playerId, targetSystemId); celestials = galaxy.activeCelestials(); }
+    void movePlayerAssetsToSystem(String playerId, String targetSystemId) { galaxy.moveAssetsToSystem(this, playerId, targetSystemId); celestials = galaxy.activeCelestials(); systemTime = galaxy.activeSystemTime(); }
 
     boolean jumpThroughWormholeAt(double x, double y) {
         WormholeGate gate = wormholeAt(x, y);
         if (gate == null) return false;
         boolean viewed = galaxy.viewThrough(this, gate);
         celestials = galaxy.activeCelestials();
+        systemTime = galaxy.activeSystemTime();
         selectedResourceId = -1;
         return viewed;
     }
 
-    boolean transferTouchingShips() { boolean moved = galaxy.transferTouchingShips(this); celestials = galaxy.activeCelestials(); return moved; }
+    boolean transferTouchingShips() { boolean moved = galaxy.transferTouchingShips(this); celestials = galaxy.activeCelestials(); systemTime = galaxy.activeSystemTime(); return moved; }
     private WormholeGate wormholeAt(double x, double y) { for (WormholeGate gate : wormholes) if (gate.contains(x, y)) return gate; return null; }
 
     void spawnPlayerGroup(String playerId, int slot) {
         String previous = activeSystemId();
         GalaxySystem home = galaxy.ensurePlayerHome(this, playerId, starSystem);
         celestials = galaxy.activate(this, home.id);
+        systemTime = galaxy.activeSystemTime();
         Point2D bp = startPointForPlayer(playerId, slot);
         Point2D sp = startShipPoint(bp);
         int baseId = nextBaseNumber(playerId);
@@ -102,6 +104,7 @@ final class World {
         units.put(Unit.key(playerId, unitId), new Unit(playerId, unitId, Rules.STARTING_SHIP, sp.getX(), sp.getY()));
         galaxy.saveActive(this);
         celestials = galaxy.activate(this, previous);
+        systemTime = galaxy.activeSystemTime();
     }
 
     void setDevFreeBuild(String playerId, boolean enabled) { if (playerId == null || playerId.isBlank()) return; if (enabled) devFreeBuildPlayers.add(playerId); else devFreeBuildPlayers.remove(playerId); if (PlayerRegistry.isLocal(playerId)) devFreeBuild = enabled; }
@@ -110,13 +113,23 @@ final class World {
     void completeResearch(String playerId, String topicId) { if (playerId == null || playerId.isBlank() || topicId == null || topicId.isBlank()) return; completedResearch.computeIfAbsent(playerId, ignored -> new LinkedHashSet<>()).add(topicId); }
     void useSystemSeed(long seed) { if (seed != systemSeed) syncEnvironment(systemId(), seed, 0); }
     void syncEnvironment(long seed, double hostTime) { syncEnvironment(systemId(), seed, hostTime); }
-    void syncEnvironment(String newSystemId, long seed, double hostTime) { boolean changed = !StarSystems.get(newSystemId).id().equals(systemId()); if (changed) setStarSystem(newSystemId); if (changed || seed != systemSeed) setSystemSeed(seed); double delta = hostTime - systemTime; if (Math.abs(delta) > 0.02) advanceEnvironment(delta); }
+    void syncEnvironment(String newSystemId, long seed, double hostTime) {
+        boolean changed = !StarSystems.get(newSystemId).id().equals(systemId());
+        if (changed) setStarSystem(newSystemId);
+        if (changed || seed != systemSeed) setSystemSeed(seed);
+        double delta = hostTime - systemTime;
+        if (Math.abs(delta) > 0.02) advanceEnvironment(delta);
+        else {
+            systemTime = hostTime;
+            galaxy.setActiveSystemTime(hostTime);
+        }
+    }
     private void setStarSystem(String systemId) { starSystem = StarSystems.get(systemId); }
     private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); celestials = galaxy.rebuild(this, starSystem, seed); }
     private Point2D startShipPoint(Point2D basePoint) { return new Point2D.Double(basePoint.getX() + 180, basePoint.getY() - 80); }
 
     void updateEnvironment(double dt) { advanceEnvironment(dt); updateItems(dt); updateExplosions(dt); }
-    private void advanceEnvironment(double dt) { systemTime += dt; galaxy.update(this, dt); celestials = galaxy.activeCelestials(); ResourceSpawner.update(resources, celestials, dt); ResourceNetDebug.worldTick(this, dt); }
+    private void advanceEnvironment(double dt) { galaxy.update(this, dt); systemTime = galaxy.activeSystemTime(); celestials = galaxy.activeCelestials(); ResourceSpawner.update(resources, celestials, dt); ResourceNetDebug.worldTick(this, dt); }
     private void updateItems(double dt) { Iterator<WorldItem> it = items.iterator(); while (it.hasNext()) { WorldItem item = it.next(); item.update(dt, width, height); if (item.empty()) it.remove(); } }
     void update(double dt) { update(dt, true); }
     void updateCurrentSystem(double dt) { update(dt, false); }
@@ -146,14 +159,14 @@ final class World {
     void moveSelected(double x, double y) { moveSelected(x, y, FleetFormation.GRID); }
     void moveSelected(double x, double y, FleetFormation formation) { List<Unit> selected = selectedUnits(); if (selected.isEmpty()) { status = "No ship selected."; return; } for (int i = 0; i < selected.size(); i++) { Unit unit = selected.get(i); Point2D target = formationTarget(x, y, i, selected.size(), formation); unit.moveTo(target.getX(), target.getY()); } status = "Moving " + selected.size() + " ship(s) in " + formation.label + " formation."; }
     private Point2D formationTarget(double x, double y, int index, int count, FleetFormation formation) { double spacing = 54, ox = 0, oy = 0; switch (formation) { case LINE -> ox = (index - (count - 1) / 2.0) * spacing; case COLUMN -> oy = (index - (count - 1) / 2.0) * spacing; case WEDGE -> { if (index > 0) { int rank = (index + 1) / 2; int side = index % 2 == 1 ? -1 : 1; ox = side * rank * spacing; oy = rank * spacing; } } case GRID -> { int cols = (int)Math.ceil(Math.sqrt(count)); double rows = Math.ceil(count / (double)cols); int col = index % cols; int row = index / cols; ox = (col - (cols - 1) / 2.0) * 42; oy = (row - (rows - 1) / 2.0) * 42; } } return new Point2D.Double(Calc.clamp(x + ox, 0, width), Calc.clamp(y + oy, 0, height)); }
-    void attackSelected(String targetKey) { int started = 0, unarmed = 0; for (Unit unit : selectedUnits()) { if (!WeaponRules.armed(unit.type())) { unarmed++; continue; } if (!CombatTarget.enemy(this, unit, targetKey)) continue; unit.attack(targetKey); started++; } if (started > 0) status = "Attacking target with " + started + " ship(s)."; else status = unarmed > 0 ? "Selected ship has no weapons." : "No valid attack target."; }
-    void autoHarvestSelected(ResourceNode node) { List<Unit> selected = selectedUnits(); ResourceNetDebug.autoHarvest(this, node, selected); int started = 0; for (Unit unit : selected) { if (!unit.type().harvestKinds.contains(node.kind)) continue; unit.setMiningAnchor(node.x, node.y); unit.startAutoHarvest(node.id); started++; } status = started == 0 ? "Selected ship cannot harvest this node." : "Auto-harvesting " + node.name + "."; }
+    void attackSelected(String targetKey) { int started = 0, unarmed = 0; for (Unit unit : selectedUnits()) { if (!WeaponRules.armed(unit.type())) { unarmed++; continue; } if (!CombatTarget.enemy(this, unit, targetKey)) continue; unit.attack(targetKey); started++; } status = started > 0 ? "Attacking target with " + started + " ship(s)." : unarmed > 0 ? "Selected ship has no weapons." : "No valid attack target."; }
+    void autoHarvestSelected(ResourceNode node) { int started = 0; for (Unit unit : selectedUnits()) { if (!unit.type().harvestKinds.contains(node.kind)) continue; unit.setMiningAnchor(node.x, node.y); unit.startAutoHarvest(node.id); started++; } status = started == 0 ? "Selected ship cannot harvest this node." : "Auto-harvesting " + node.name + "."; }
     void sendToNearestBase(Unit unit) { Base base = nearestBase(unit.playerId, unit.x, unit.y); Unit depot = MobileDepot.preferredFor(this, unit, base); if (base == null && depot == null) return; unit.task = UnitTask.RETURN_TO_STATION; if (depot != null) moveTowardOrbit(unit, depot.x, depot.y, MobileDepot.range(depot) * 0.55); else moveTowardOrbit(unit, base.x, base.y, base.type().unloadRange * 0.55); }
     boolean returnToMiningAnchor(Unit unit) { if (unit == null || !unit.miningAnchorSet || unit.type().harvestKinds.isEmpty()) return false; unit.moveTo(unit.miningAnchorX, unit.miningAnchorY); return true; }
     boolean scoutRetarget(Unit unit, ResourceNode oldNode) { return oldNode != null && scoutSystem.retargetAfterDepletion(this, unit, oldNode); }
     void orbitAround(Unit unit, double cx, double cy, double radius, double dt, double speed) { unit.orbitAngle += dt * speed * (unit.unitId % 2 == 0 ? 1 : -1); unit.targetX = Calc.clamp(cx + Math.cos(unit.orbitAngle) * radius, 0, width); unit.targetY = Calc.clamp(cy + Math.sin(unit.orbitAngle) * radius, 0, height); unit.orbitRetarget = 0; }
     void moveTowardOrbit(Unit unit, double cx, double cy, double radius) { double angle = Math.atan2(unit.y - cy, unit.x - cx); if (Double.isNaN(angle)) angle = unit.unitId; unit.targetX = Calc.clamp(cx + Math.cos(angle) * radius, 0, width); unit.targetY = Calc.clamp(cy + Math.sin(angle) * radius, 0, height); }
-    void relocateResource(ResourceNode node) { ResourceSpawner.relocate(node, resources, bases.values(), null, random); }
+    void relocateResource(ResourceNode node) { ResourceSpawner.relocate(node, resources, bases.values(), celestials, random); }
     private void cleanupDestroyed() { Iterator<Unit> unitIt = units.values().iterator(); while (unitIt.hasNext()) { Unit unit = unitIt.next(); if (unit.hp <= 0) { dropLoot(unit); explodeUnit(unit); unitIt.remove(); } } Iterator<Base> baseIt = bases.values().iterator(); while (baseIt.hasNext()) { Base base = baseIt.next(); if (base.hp <= 0) { dropLoot(base); explodeBase(base); baseIt.remove(); } } NpcStationReplacementSystem.replaceMissingStations(this); NpcCollapseSystem.removeShipsWithoutStations(this); shots.removeIf(shot -> !CombatTarget.alive(this, shot.targetKey) || shot.weapon() == null); for (Unit unit : units.values()) if (!unit.attackTarget.isBlank() && !CombatTarget.alive(this, unit.attackTarget)) { unit.attackTarget = ""; if (unit.task == UnitTask.ATTACK) unit.task = UnitTask.IDLE; } }
     private void dropLoot(Unit unit) { int count = WorldLootDrops.scatter(this, SalvageDrops.fromUnit(unit), unit.x, unit.y, Math.max(1.0, unit.type().size.scale), lootSeed(unit.key(), unit.x, unit.y)); if (count > 0 && PlayerRegistry.isLocal(unit.playerId)) status = "Destroyed ship dropped cargo and salvage."; }
     private void dropLoot(Base base) { double power = Math.max(2.4, base.type().maxHp / 900.0); int count = WorldLootDrops.scatter(this, SalvageDrops.fromBase(base), base.x, base.y, power, lootSeed(base.id, base.x, base.y)); if (count > 0 && PlayerRegistry.isLocal(base.playerId)) status = "Destroyed station dropped hangar loot and salvage."; }
@@ -167,8 +180,6 @@ final class World {
     List<Unit> selectedUnits() { List<Unit> out = new ArrayList<>(); for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) out.add(unit); return out; }
     Unit selectedUnit() { for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) return unit; return null; }
     int selectedCount() { int count = 0; for (Unit unit : units.values()) if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) count++; return count; }
-    private int nextBaseNumber(String playerId) { int max = 0; String prefix = playerId + ":B"; for (String id : bases.keySet()) if (id.startsWith(prefix)) try { max = Math.max(max, Integer.parseInt(id.substring(prefix.length()))); } catch (Exception ignored) { } return max + 1; }
-    private int nextUnitNumber(String playerId) { int max = 0; for (Unit unit : units.values()) if (unit.playerId.equals(playerId)) max = Math.max(max, unit.unitId); return max + 1; }
     boolean canAfford(List<Cost> cost) { for (Cost c : cost) if (stockpile.getOrDefault(c.material(), 0.0) + 0.001 < c.amount()) return false; return true; }
     void spend(List<Cost> cost) { for (Cost c : cost) { double next = stockpile.getOrDefault(c.material(), 0.0) - c.amount(); if (next <= 0.05) stockpile.remove(c.material()); else stockpile.put(c.material(), next); } }
     Rectangle2D localBounds() { boolean found = false; double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE; for (Unit u : units.values()) if (PlayerRegistry.isLocal(u.playerId)) { found = true; minX = Math.min(minX, u.x); minY = Math.min(minY, u.y); maxX = Math.max(maxX, u.x); maxY = Math.max(maxY, u.y); } for (Base b : bases.values()) if (PlayerRegistry.isLocal(b.playerId)) { found = true; minX = Math.min(minX, b.x); minY = Math.min(minY, b.y); maxX = Math.max(maxX, b.x); maxY = Math.max(maxY, b.y); } return found ? new Rectangle2D.Double(minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY)) : null; }
