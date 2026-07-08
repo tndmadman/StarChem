@@ -104,6 +104,8 @@ final class World {
     }
 
     boolean transferTouchingShips() { boolean moved = galaxy.transferTouchingShips(this); celestials = galaxy.activeCelestials(); systemTime = galaxy.activeSystemTime(); return moved; }
+    boolean transferTouchingShips(String playerId) { boolean moved = galaxy.transferTouchingShips(this, playerId); celestials = galaxy.activeCelestials(); systemTime = galaxy.activeSystemTime(); return moved; }
+    boolean playerShipTouchingWormhole(String playerId) { if (playerId == null || playerId.isBlank()) return false; for (Unit unit : units.values()) if (playerId.equals(unit.playerId) && unit.wormholeCooldown <= 0 && wormholeAt(unit.x, unit.y) != null) return true; return false; }
     private WormholeGate wormholeAt(double x, double y) { for (WormholeGate gate : wormholes) if (gate.contains(x, y)) return gate; return null; }
     private WormholeGate wormholeTo(String targetSystemId) { if (targetSystemId == null || targetSystemId.isBlank()) return null; for (WormholeGate gate : wormholes) if (targetSystemId.equals(gate.toSystemId)) return gate; return null; }
 
