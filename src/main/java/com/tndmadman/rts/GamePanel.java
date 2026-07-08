@@ -138,8 +138,9 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     }
 
     private void clickLeft(MouseEvent e, Point2D p) {
+        String targetSystemId = world.wormholeTargetAt(p.getX(), p.getY());
         if (world.jumpThroughWormholeAt(p.getX(), p.getY())) {
-            if (network != null && !network.statusLine().startsWith("HOST")) network.jump(network.localPlayerId(), p.getX(), p.getY());
+            if (network != null && !network.statusLine().startsWith("HOST")) network.jump(network.localPlayerId(), targetSystemId, p.getX(), p.getY());
             ProceduralAudio.play(SoundCue.SELECT);
             return;
         }
