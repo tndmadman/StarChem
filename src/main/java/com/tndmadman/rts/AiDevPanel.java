@@ -24,7 +24,7 @@ final class AiDevPanel {
             case 6 -> AiDevSettings.freezeNpcCombat = !AiDevSettings.freezeNpcCombat;
             case 7 -> AiDevSettings.disableAttacks = !AiDevSettings.disableAttacks;
             case 8 -> AiDevSettings.disableEconomy = !AiDevSettings.disableEconomy;
-            case 9 -> NpcDifficultyPreset.togglePreset();
+            case 9 -> AiDevSettings.togglePreset();
             case 10 -> runDevCommand(world, devAuthorityNetwork, "spawnCorsairs", () -> AiDevCommands.spawnCorsairs(world));
             case 11 -> runDevCommand(world, devAuthorityNetwork, "killCorsairs", () -> AiDevCommands.killCorsairs(world));
             case 12 -> runDevCommand(world, devAuthorityNetwork, "resetCorsairs", () -> AiDevCommands.resetCorsairs(world));
