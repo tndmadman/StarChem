@@ -2,10 +2,13 @@ package com.tndmadman.rts;
 
 final class PeerClientSide {
     private static final long HEARTBEAT_MS = 1000;
+    private static final long JOIN_TIMEOUT_MS = 8000;
     final Config config;
     final World world;
     final PeerTransport transport;
+    private final long joinStarted = System.currentTimeMillis();
     private boolean joined;
+    private boolean joinFailed;
     private boolean viewSnapshotMode;
     private long lastJoin, lastPing, lastSnapshotSequence;
     private String localPlayerId = "SOLO";
@@ -18,12 +21,15 @@ final class PeerClientSide {
     }
 
     String statusLine() {
-        return "CLIENT " + (joined ? localPlayerId : "joining") + " -> " + config.serverAddress + " | " + world.activeSystemId() + " | pending " + transport.pendingCount() + (world.devFreeBuild ? " | dev" : "");
+        String state = joinFailed ? "failed" : joined ? localPlayerId : "joining";
+        return "CLIENT " + state + " -> " + config.serverAddress + " | " + world.activeSystemId() + " | pending " + transport.pendingCount() + (world.devFreeBuild ? " | dev" : "");
     }
 
     String localPlayerId() { return localPlayerId; }
 
     void tick(long now) {
+        if (joinFailed) return;
+        if (!joined && now - joinStarted >= JOIN_TIMEOUT_MS) { failJoin(); return; }
         if (!joined && now - lastJoin >= HEARTBEAT_MS) { reliableToServer("JOIN|" + config.playerName + "|" + (config.devMode ? "DEV" : "NODEV")); lastJoin = now; }
         if (joined && now - lastPing >= HEARTBEAT_MS) { sendToServer("PING|" + localPlayerId); lastPing = now; }
     }
@@ -55,6 +61,7 @@ final class PeerClientSide {
         if (p.length < 4) return;
         localPlayerId = p[1];
         joined = true;
+        joinFailed = false;
         if (p.length >= 7) syncEnv(p[4], p[5], p[6]); else if (p.length >= 6) syncEnv(world.systemId(), p[4], p[5]); else if (p.length >= 5) readSeed(p[4]);
         PlayerRegistry.register(localPlayerId, p[2], Integer.parseInt(p[3]), true);
         world.ensurePlayerHome(localPlayerId);
@@ -136,11 +143,18 @@ final class PeerClientSide {
         return false;
     }
 
+    private void failJoin() {
+        joinFailed = true;
+        transport.clearPending();
+        world.status = "Connection failed: no response from server at " + config.serverAddress + ".";
+    }
+
+    private boolean canSendToServer() { return !joinFailed && config.serverAddress != null && config.serverAddress.getAddress() != null; }
     private String cleanSystemId(String value) { return value == null ? "" : value.replace("|", "").trim(); }
     private boolean invalidSystemId(String value) { return value == null || value.isBlank() || value.contains("WAIT"); }
     private void syncEnv(String systemId, String seed, String time) { try { world.syncEnvironment(systemId, Long.parseLong(seed), Double.parseDouble(time)); } catch (NumberFormatException ignored) { } }
-    private void sendToServer(String message) { transport.send(message, config.serverAddress.getAddress(), config.serverAddress.getPort()); }
-    private void reliableToServer(String payload) { transport.reliable(payload, config.serverAddress.getAddress(), config.serverAddress.getPort()); }
+    private void sendToServer(String message) { if (canSendToServer()) transport.send(message, config.serverAddress.getAddress(), config.serverAddress.getPort()); }
+    private void reliableToServer(String payload) { if (canSendToServer()) transport.reliable(payload, config.serverAddress.getAddress(), config.serverAddress.getPort()); }
     private boolean flag(String value) { return "1".equals(value) || "true".equalsIgnoreCase(value) || "DEV".equalsIgnoreCase(value) || "YES".equalsIgnoreCase(value); }
     private String devStatus(boolean allowed) { if (allowed) return " (dev mode enabled by host)"; return config.devMode ? " (dev mode denied by host)" : ""; }
 }
