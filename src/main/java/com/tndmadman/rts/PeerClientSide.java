@@ -13,6 +13,7 @@ final class PeerClientSide {
     private long lastJoin, lastPing, lastSnapshotSequence;
     private String localPlayerId = "SOLO";
     private String viewedSystemId = "";
+    private String failureMessage = "";
 
     PeerClientSide(Config config, World world, PeerTransport transport) {
         this.config = config;
@@ -26,6 +27,8 @@ final class PeerClientSide {
     }
 
     String localPlayerId() { return localPlayerId; }
+    boolean connectionFailed() { return joinFailed; }
+    String failureMessage() { return failureMessage.isBlank() ? "Connection failed." : failureMessage; }
 
     void tick(long now) {
         if (joinFailed) return;
@@ -62,6 +65,7 @@ final class PeerClientSide {
         localPlayerId = p[1];
         joined = true;
         joinFailed = false;
+        failureMessage = "";
         if (p.length >= 7) syncEnv(p[4], p[5], p[6]); else if (p.length >= 6) syncEnv(world.systemId(), p[4], p[5]); else if (p.length >= 5) readSeed(p[4]);
         PlayerRegistry.register(localPlayerId, p[2], Integer.parseInt(p[3]), true);
         world.ensurePlayerHome(localPlayerId);
@@ -145,8 +149,9 @@ final class PeerClientSide {
 
     private void failJoin() {
         joinFailed = true;
+        failureMessage = "Connection failed: no response from server at " + config.serverAddress + ".";
         transport.clearPending();
-        world.status = "Connection failed: no response from server at " + config.serverAddress + ".";
+        world.status = failureMessage;
     }
 
     private boolean canSendToServer() { return !joinFailed && config.serverAddress != null && config.serverAddress.getAddress() != null; }
