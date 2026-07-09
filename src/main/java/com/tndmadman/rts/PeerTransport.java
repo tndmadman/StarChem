@@ -14,12 +14,14 @@ final class PeerTransport {
     private final Map<String, PendingReliable> pending = new LinkedHashMap<>();
     private final Set<String> delivered = new LinkedHashSet<>();
     private final String prefix = Integer.toHexString(new SecureRandom().nextInt()).replace('-', 'N');
+    private final PacketChunks packetChunks;
     private boolean running = true;
     private long nextReliable = 1;
 
     PeerTransport(DatagramSocket socket) throws SocketException {
         this.socket = socket;
         this.socket.setSoTimeout(250);
+        this.packetChunks = new PacketChunks(prefix);
     }
 
     void start() {
@@ -33,7 +35,7 @@ final class PeerTransport {
     int localPort() { return socket.getLocalPort(); }
 
     void send(String message, InetAddress address, int port) {
-        try { PacketChunks.send(socket, message, address, port); }
+        try { packetChunks.send(socket, message, address, port); }
         catch (IOException ex) { if (running) System.err.println("Send failed: " + ex.getMessage()); }
     }
 
@@ -80,7 +82,7 @@ final class PeerTransport {
             try {
                 socket.receive(p);
                 String raw = new String(p.getData(), p.getOffset(), p.getLength(), StandardCharsets.UTF_8);
-                String message = PacketChunks.receive(raw, p.getAddress(), p.getPort());
+                String message = packetChunks.receive(raw, p.getAddress(), p.getPort());
                 if (message != null) inbox.add(new NetPacket(message, p.getAddress(), p.getPort()));
             } catch (SocketTimeoutException ignored) { }
             catch (Exception ex) { if (running) System.err.println("UDP failed: " + ex.getMessage()); }
