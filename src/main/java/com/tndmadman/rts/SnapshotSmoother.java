@@ -4,11 +4,15 @@ final class SnapshotSmoother {
     private SnapshotSmoother() { }
 
     static void apply(Unit unit, UnitState state) {
+        apply(unit, state, false);
+    }
+
+    static void apply(Unit unit, UnitState state, boolean forceLocalAuthority) {
         boolean local = PlayerRegistry.isLocal(unit.playerId);
         UnitTask serverTask = safeTask(state.task(), unit.task);
-        boolean snapped = correctPosition(unit, state, local);
-        applyTarget(unit, state, serverTask, local);
-        if (!local || snapped) unit.heading = state.heading();
+        boolean snapped = correctPosition(unit, state, local, forceLocalAuthority);
+        applyTarget(unit, state, serverTask, local, forceLocalAuthority);
+        if (!local || snapped || forceLocalAuthority) unit.heading = state.heading();
         unit.shipTypeId = state.shipTypeId();
         unit.task = serverTask;
         unit.automationResourceId = state.resourceId();
@@ -20,11 +24,16 @@ final class SnapshotSmoother {
         CargoCodec.readInto(state.cargo(), unit.inventory);
     }
 
-    private static boolean correctPosition(Unit unit, UnitState state, boolean local) {
+    private static boolean correctPosition(Unit unit, UnitState state, boolean local, boolean forceLocalAuthority) {
+        if (local && forceLocalAuthority) {
+            unit.x = state.x();
+            unit.y = state.y();
+            return true;
+        }
         double error = Calc.distance(unit.x, unit.y, state.x(), state.y());
-        double deadZone = local ? 34 : 24;
-        double snap = local ? 320 : 360;
-        double blend = local ? 0.06 : 0.08;
+        double deadZone = local ? 12 : 24;
+        double snap = local ? 600 : 360;
+        double blend = local ? 0.14 : 0.08;
         if (error <= deadZone) return false;
         if (error > snap) {
             unit.x = state.x();
@@ -36,8 +45,7 @@ final class SnapshotSmoother {
         return false;
     }
 
-    private static void applyTarget(Unit unit, UnitState state, UnitTask serverTask, boolean local) {
-        if (local && (serverTask == UnitTask.AUTO_HARVEST || serverTask == UnitTask.IDLE)) return;
+    private static void applyTarget(Unit unit, UnitState state, UnitTask serverTask, boolean local, boolean forceLocalAuthority) {
         unit.targetX = state.targetX();
         unit.targetY = state.targetY();
     }

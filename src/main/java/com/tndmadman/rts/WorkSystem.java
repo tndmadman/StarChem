@@ -5,6 +5,7 @@ final class WorkSystem {
         if (unit.task != UnitTask.AUTO_HARVEST) return;
         ResourceNode node = world.findResource(unit.automationResourceId);
         if (node == null || !node.active) {
+            ResourceNetDebug.workState(world, unit, node, node == null ? "target-missing" : "target-inactive");
             if (unit.freeCargo() <= 0.05) {
                 world.sendToNearestBase(unit);
                 return;
@@ -25,9 +26,11 @@ final class WorkSystem {
         }
         double range = type.harvestRange + node.radius;
         if (Calc.distance(unit.x, unit.y, node.x, node.y) > range) {
+            ResourceNetDebug.workState(world, unit, node, "moving-to-resource");
             world.moveTowardOrbit(unit, node.x, node.y, node.radius + type.orbitRadius);
             return;
         }
+        ResourceNetDebug.workState(world, unit, node, "mining");
         double gain = Math.min(node.harvestRate * dt, Math.min(node.amount, unit.freeCargo()));
         if (gain > 0) {
             node.amount -= gain;

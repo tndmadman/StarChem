@@ -138,8 +138,8 @@
       "replaceWorkers": true,
       "harassWorkers": true,
       "preferWorkerTargets": true,
-      "requirePlayerCombatShips": true,
-      "minPlayerCombatShips": 1,
+      "requirePlayerCombatShips": false,
+      "minPlayerCombatShips": 0,
       "spawnMessage": "Corsair Syndicate has established a foothold."
     }
   ]

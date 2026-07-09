@@ -10,6 +10,7 @@ final class LobbyPanel extends JPanel {
     private final JTextField nameField = new JTextField(System.getProperty("user.name", "Player"), 18);
     private final JTextField addressField = new JTextField("127.0.0.1", 18);
     private final JTextField portField = new JTextField("50000", 8);
+    private final JComboBox<StarSystemDefinition> systemBox = new JComboBox<>();
     private final JCheckBox devBox = new JCheckBox("Dev mode");
     private final JCheckBox spawnRaidersBox = new JCheckBox("Raiders", true);
     private final JCheckBox spawnFreeMinersBox = new JCheckBox("Free Miners", true);
@@ -24,6 +25,8 @@ final class LobbyPanel extends JPanel {
         styleField(nameField);
         styleField(addressField);
         styleField(portField);
+        styleCombo(systemBox);
+        for (StarSystemDefinition system : StarSystems.options()) systemBox.addItem(system);
         styleCheck(devBox);
         styleCheck(spawnRaidersBox);
         styleCheck(spawnFreeMinersBox);
@@ -48,6 +51,8 @@ final class LobbyPanel extends JPanel {
         box.add(addressField);
         box.add(label("Port"));
         box.add(portField);
+        box.add(label("System"));
+        box.add(systemBox);
         box.add(label("Options"));
         box.add(devBox);
         box.add(label("NPC Spawns"));
@@ -71,7 +76,7 @@ final class LobbyPanel extends JPanel {
         card.add(box, BorderLayout.CENTER);
         add(card, BorderLayout.CENTER);
 
-        solo.addActionListener(e -> owner.launchGame(Config.solo(nameField.getText(), devBox.isSelected(), disabledNpcFactions())));
+        solo.addActionListener(e -> owner.launchGame(Config.solo(nameField.getText(), devBox.isSelected(), disabledNpcFactions(), selectedSystemId())));
         serve.addActionListener(e -> startServer());
         connect.addActionListener(e -> startClient());
     }
@@ -92,10 +97,21 @@ final class LobbyPanel extends JPanel {
                 BorderFactory.createEmptyBorder(8, 10, 8, 10)));
     }
 
+    private void styleCombo(JComboBox<?> box) {
+        box.setForeground(Color.WHITE);
+        box.setBackground(new Color(9, 18, 31));
+        box.setBorder(BorderFactory.createLineBorder(new Color(70, 135, 180)));
+    }
+
     private void styleCheck(JCheckBox box) {
         box.setOpaque(false);
         box.setForeground(new Color(220, 238, 250));
         box.setFont(box.getFont().deriveFont(Font.BOLD, 13f));
+    }
+
+    private String selectedSystemId() {
+        Object selected = systemBox.getSelectedItem();
+        return selected instanceof StarSystemDefinition system ? system.id() : StarSystems.DEFAULT_SYSTEM_ID;
     }
 
     private Set<String> disabledNpcFactions() {
@@ -107,12 +123,12 @@ final class LobbyPanel extends JPanel {
     }
 
     private void startServer() {
-        try { owner.launchGame(Config.host(nameField.getText(), Config.parsePort(portField.getText()), devBox.isSelected(), disabledNpcFactions())); }
+        try { owner.launchGame(Config.host(nameField.getText(), Config.parsePort(portField.getText()), devBox.isSelected(), disabledNpcFactions(), selectedSystemId())); }
         catch (RuntimeException ex) { setStatus(ex.getMessage()); }
     }
 
     private void startClient() {
-        try { owner.launchGame(Config.join(nameField.getText(), addressField.getText().trim(), Config.parsePort(portField.getText()), devBox.isSelected(), disabledNpcFactions())); }
+        try { owner.launchGame(Config.join(nameField.getText(), addressField.getText().trim(), Config.parsePort(portField.getText()), devBox.isSelected(), disabledNpcFactions(), selectedSystemId())); }
         catch (RuntimeException ex) { setStatus(ex.getMessage()); }
     }
 

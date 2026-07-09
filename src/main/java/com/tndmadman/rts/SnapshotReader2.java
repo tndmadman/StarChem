@@ -24,7 +24,12 @@ final class SnapshotReader2 {
             double amount = Double.parseDouble(c[9]);
             boolean active = Boolean.parseBoolean(c[10]);
             double timer = Double.parseDouble(c[11]);
-            out.add(new ResourceState(id, name, kind, mat, x, y, max, rate, radius, amount, active, timer));
+            ResourceNetDebug.resourceSchema(c.length);
+            if (c.length >= 18) {
+                out.add(new ResourceState(id, name, kind, mat, x, y, max, rate, radius, amount, active, timer,
+                        Double.parseDouble(c[12]), Double.parseDouble(c[13]), Double.parseDouble(c[14]),
+                        Double.parseDouble(c[15]), Double.parseDouble(c[16]), Boolean.parseBoolean(c[17])));
+            } else out.add(new ResourceState(id, name, kind, mat, x, y, max, rate, radius, amount, active, timer));
         }
         return out;
     }

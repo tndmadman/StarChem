@@ -13,7 +13,7 @@ final class Unit {
     String logisticsRequestId = "";
     UnitTask task = UnitTask.IDLE;
     double x, y, targetX, targetY, heading = -Math.PI / 2, orbitAngle, orbitRetarget;
-    double weaponCooldown, weaponFlashTimer;
+    double weaponCooldown, weaponFlashTimer, wormholeCooldown;
     double hp, shield, shieldDelayTimer;
     double miningAnchorX, miningAnchorY;
     int automationResourceId = -1;

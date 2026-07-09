@@ -20,7 +20,12 @@ final class PlayerRegistry {
 
     static void register(String id, String name, int rgb, boolean local) {
         if (id == null || id.isBlank()) return;
-        if (local) localId = id;
+        if (!local && "WAIT".equals(id)) return;
+        if (local) {
+            if (!id.equals(localId)) PLAYERS.remove(localId);
+            localId = id;
+            if (!"WAIT".equals(id)) PLAYERS.remove("WAIT");
+        }
         PLAYERS.put(id, new PlayerInfo(id, Config.clean(name), rgb, local));
     }
 

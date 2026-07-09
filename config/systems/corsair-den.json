@@ -1,0 +1,18 @@
+{
+  "id": "corsair_den",
+  "name": "Corsair Den",
+  "role": "corsair_home",
+  "width": 16000,
+  "height": 14500,
+  "spawnMaterials": ["IRON", "COPPER", "SILICATES", "METHANE"],
+  "bodies": [
+    {"id": "black_star", "name": "Low Star", "parent": null, "orbit": 0, "radius": 150, "speed": 0, "color": "#9B6BFF"},
+    {"id": "hideout", "name": "Hideout World", "parent": "black_star", "orbit": 2350, "radius": 74, "speed": 0.013, "color": "#6B4A88"},
+    {"id": "knife", "name": "Knife Moon", "parent": "hideout", "orbit": 260, "radius": 18, "speed": -0.058, "color": "#9990AA"}
+  ],
+  "resourceBelts": [
+    {"name": "Raider Iron", "kind": "SILICATE_ROCK", "materials": ["IRON"], "orbit": 1800, "width": 260, "arc": 1.1, "count": 115, "amount": 22, "harvestRate": 7.2, "radius": 2.8},
+    {"name": "Hidden Copper", "kind": "SILICATE_ROCK", "materials": ["COPPER"], "orbit": 2500, "width": 310, "arc": 1.0, "count": 110, "amount": 20, "harvestRate": 6.8, "radius": 2.7},
+    {"name": "Black Gas", "kind": "GAS_CLOUD", "materials": ["METHANE", "AMMONIA", "HYDROGEN"], "orbit": 4350, "width": 620, "arc": 1.4, "count": 155, "amount": 30, "harvestRate": 8.6, "radius": 4.9}
+  ]
+}

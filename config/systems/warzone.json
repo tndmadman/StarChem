@@ -1,0 +1,18 @@
+{
+  "id": "warzone",
+  "name": "Warzone",
+  "role": "danger",
+  "width": 16500,
+  "height": 15000,
+  "spawnMaterials": ["IRON", "COPPER", "SILICATES", "HYDROGEN"],
+  "bodies": [
+    {"id": "ember", "name": "Ember Star", "parent": null, "orbit": 0, "radius": 185, "speed": 0, "color": "#FFB347"},
+    {"id": "scar", "name": "Scar Planet", "parent": "ember", "orbit": 2100, "radius": 84, "speed": 0.014, "color": "#D15C4A"},
+    {"id": "ash", "name": "Ash Moon", "parent": "scar", "orbit": 280, "radius": 22, "speed": 0.05, "color": "#777777"}
+  ],
+  "resourceBelts": [
+    {"name": "Contested Iron", "kind": "SILICATE_ROCK", "materials": ["IRON"], "orbit": 1900, "width": 300, "arc": 1.2, "count": 145, "amount": 34, "harvestRate": 8.4, "radius": 3.1},
+    {"name": "Contested Copper", "kind": "SILICATE_ROCK", "materials": ["COPPER"], "orbit": 2750, "width": 340, "arc": 1.1, "count": 120, "amount": 28, "harvestRate": 7.8, "radius": 2.9},
+    {"name": "Outer Salvage Gas", "kind": "GAS_CLOUD", "materials": ["HYDROGEN", "METHANE"], "orbit": 4750, "width": 600, "arc": 1.4, "count": 150, "amount": 30, "harvestRate": 8.8, "radius": 4.8}
+  ]
+}

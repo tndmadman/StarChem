@@ -15,6 +15,7 @@ final class GameFrame extends JFrame {
     private GamePanel gamePanel;
     private EndStatePanel endStatePanel;
     private PeerNetwork network;
+    private LocalHostSession localHostSession;
     private Timer networkTimer;
 
     GameFrame(Config config) {
@@ -48,8 +49,9 @@ final class GameFrame extends JFrame {
     }
 
     void launchGame(Config config) {
+        if (config.role() == NetworkRole.SERVER) { launchLocalHostGame(config); return; }
         stopActiveGame();
-        World world = new World(config.playerName, config.disabledNpcFactionIds);
+        World world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId, config.role() == NetworkRole.SOLO);
         try {
             network = PeerNetwork.start(config, world);
         } catch (IOException ex) {
@@ -61,12 +63,28 @@ final class GameFrame extends JFrame {
             networkTimer = new Timer(16, e -> peer.tick());
             networkTimer.start();
         }
-        gamePanel = new GamePanel(world, this, network, config.devMode);
-        endStatePanel = new EndStatePanel(world, this, network);
+        showGame(config, world, network);
+    }
+
+    private void launchLocalHostGame(Config config) {
+        stopActiveGame();
+        try {
+            localHostSession = LocalHostSession.start(config);
+        } catch (IOException ex) {
+            showLobby("Local host failed: " + ex.getMessage());
+            return;
+        }
+        network = localHostSession.clientNetwork;
+        showGame(config, localHostSession.clientWorld, network);
+    }
+
+    private void showGame(Config config, World world, PeerNetwork activeNetwork) {
+        gamePanel = new GamePanel(world, this, activeNetwork, config.devMode);
+        endStatePanel = new EndStatePanel(world, this, activeNetwork);
         root.removeAll();
         root.add(gamePanel, JLayeredPane.DEFAULT_LAYER);
         root.add(endStatePanel, JLayeredPane.MODAL_LAYER);
-        setTitle("StarChem - " + config.modeLabel() + " - " + config.playerName + (config.devMode ? " - DEV" : ""));
+        setTitle("StarChem - " + config.modeLabel() + " - " + config.playerName + " - " + world.systemName() + (config.devMode ? " - DEV" : ""));
         layoutLayers();
         root.revalidate();
         root.repaint();
@@ -77,10 +95,12 @@ final class GameFrame extends JFrame {
         if (gamePanel != null) gamePanel.stop();
         if (endStatePanel != null) endStatePanel.stop();
         if (networkTimer != null) networkTimer.stop();
-        if (network != null) network.shutdown();
+        if (localHostSession != null) localHostSession.stop();
+        else if (network != null) network.shutdown();
         gamePanel = null;
         endStatePanel = null;
         network = null;
+        localHostSession = null;
         networkTimer = null;
     }
 
@@ -91,7 +111,7 @@ final class GameFrame extends JFrame {
         if (gamePanel != null) gamePanel.setBounds(0, 0, w, h);
         if (endStatePanel != null) endStatePanel.setBounds(0, 0, w, h);
         int mw = Math.min(760, Math.max(560, w - 160));
-        int mh = Math.min(620, Math.max(520, h - 120));
+        int mh = Math.min(660, Math.max(540, h - 120));
         menuPanel.setBounds((w - mw) / 2, (h - mh) / 2, mw, mh);
     }
 }

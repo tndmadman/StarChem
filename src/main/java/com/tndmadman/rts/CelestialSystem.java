@@ -2,7 +2,9 @@ package com.tndmadman.rts;
 
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
 final class CelestialSystem {
@@ -11,21 +13,40 @@ final class CelestialSystem {
     private final double sunY;
 
     CelestialSystem(int worldW, int worldH, Random random) {
-        sunX = worldW / 2.0;
-        sunY = worldH / 2.0;
-        bodies.add(new Body("Sun", null, sunX, sunY, 0, 0, 0, 210, new Color(255, 205, 80)));
-        Body inner = planet(random, "Inner Planet", 1450, 46, 0.018, new Color(80, 145, 210));
-        planet(random, "Rock Planet", 2600, 68, -0.012, new Color(160, 115, 75));
-        Body giant = planet(random, "Gas Giant", 4100, 110, 0.007, new Color(205, 150, 95));
-        planet(random, "Outer Ice Planet", 5750, 78, -0.0045, new Color(150, 205, 230));
-        moon(random, inner, "Inner Moon", 210, 18, 0.06, new Color(180, 185, 190));
-        moon(random, giant, "Giant Moon A", 260, 24, -0.045, new Color(190, 175, 145));
-        moon(random, giant, "Giant Moon B", 390, 18, 0.035, new Color(145, 165, 190));
+        this(StarSystems.defaultSystem(), random);
+    }
+
+    CelestialSystem(StarSystemDefinition definition, Random random) {
+        this(definition, random, 0, 0);
+    }
+
+    CelestialSystem(StarSystemDefinition definition, Random random, double offsetX, double offsetY) {
+        sunX = offsetX + definition.width() / 2.0;
+        sunY = offsetY + definition.height() / 2.0;
+        buildBodies(definition, random);
         update(0);
     }
 
+    private void buildBodies(StarSystemDefinition definition, Random random) {
+        Map<String, Body> byId = new LinkedHashMap<>();
+        for (CelestialBodyDefinition bodyDef : definition.bodies()) {
+            Body parent = bodyDef.parentId() == null ? null : byId.get(bodyDef.parentId());
+            double x = parent == null ? sunX : 0;
+            double y = parent == null ? sunY : 0;
+            double angle = bodyDef.orbitRadius() <= 0 ? 0 : random.nextDouble() * Math.PI * 2;
+            Body body = new Body(bodyDef.id(), bodyDef.name(), parent, x, y, bodyDef.orbitRadius(), angle,
+                    bodyDef.orbitSpeed(), bodyDef.radius(), bodyDef.color());
+            bodies.add(body);
+            byId.put(bodyDef.id(), body);
+        }
+        if (bodies.isEmpty()) {
+            Body sun = new Body("sun", "Sun", null, sunX, sunY, 0, 0, 0, 210, new Color(255, 205, 80));
+            bodies.add(sun);
+        }
+    }
+
     void update(double dt) {
-        for (int i = 1; i < bodies.size(); i++) bodies.get(i).update(dt);
+        for (Body body : bodies) if (body.parent != null) body.update(dt);
     }
 
     void draw(Graphics2D g2) {
@@ -40,16 +61,6 @@ final class CelestialSystem {
     double sunX() { return sunX; }
     double sunY() { return sunY; }
 
-    private Body planet(Random random, String name, double orbit, double radius, double speed, Color color) {
-        Body body = new Body(name, bodies.get(0), 0, 0, orbit, random.nextDouble() * Math.PI * 2, speed, radius, color);
-        bodies.add(body);
-        return body;
-    }
-
-    private void moon(Random random, Body parent, String name, double orbit, double radius, double speed, Color color) {
-        bodies.add(new Body(name, parent, 0, 0, orbit, random.nextDouble() * Math.PI * 2, speed, radius, color));
-    }
-
     private void drawOrbit(Graphics2D g2, Body body) {
         double cx = body.parent.x;
         double cy = body.parent.y;
@@ -59,6 +70,7 @@ final class CelestialSystem {
     }
 
     private static final class Body {
+        final String id;
         final String name;
         final Body parent;
         final double orbitRadius;
@@ -69,7 +81,8 @@ final class CelestialSystem {
         double y;
         double angle;
 
-        Body(String name, Body parent, double x, double y, double orbitRadius, double angle, double orbitSpeed, double radius, Color color) {
+        Body(String id, String name, Body parent, double x, double y, double orbitRadius, double angle, double orbitSpeed, double radius, Color color) {
+            this.id = id;
             this.name = name;
             this.parent = parent;
             this.x = x;

@@ -4,7 +4,9 @@ import java.util.*;
 
 final class ResourceSync {
     private static final int DIRTY_SENDS = 12;
+    private static final int FULL_SENDS = 3;
     private static final Map<World, Map<Integer, Integer>> DIRTY = new WeakHashMap<>();
+    private static final Map<World, Integer> FULL = new WeakHashMap<>();
 
     private ResourceSync() { }
 
@@ -13,7 +15,24 @@ final class ResourceSync {
         DIRTY.computeIfAbsent(world, w -> new LinkedHashMap<>()).put(node.id, DIRTY_SENDS);
     }
 
+    static void markFull(World world) {
+        if (world != null) FULL.put(world, FULL_SENDS);
+    }
+
     static List<ResourceState> snapshot(World world) {
+        CelestialPacketCache.capture(world);
+        if (ResourceSyncMode.consumeFull()) {
+            List<ResourceState> out = all(world);
+            ResourceNetDebug.snapshotBuilt(world, "initial-full", out);
+            return out;
+        }
+        int fullLeft = FULL.getOrDefault(world, 0);
+        if (fullLeft > 0) {
+            FULL.put(world, fullLeft - 1);
+            List<ResourceState> out = all(world);
+            ResourceNetDebug.snapshotBuilt(world, "marked-full-left-" + fullLeft, out);
+            return out;
+        }
         Set<Integer> ids = new LinkedHashSet<>();
         Map<Integer, Integer> dirty = DIRTY.get(world);
         if (dirty != null) ids.addAll(dirty.keySet());
@@ -21,10 +40,21 @@ final class ResourceSync {
         List<ResourceState> out = new ArrayList<>();
         for (Integer id : ids) {
             ResourceNode r = world.findResource(id);
-            if (r != null) out.add(new ResourceState(r.id, r.name, r.kind.name(), r.material.name(), r.x, r.y, r.maxAmount, r.harvestRate, r.radius, r.amount, r.active, r.respawnTimer));
+            if (r != null) out.add(state(r));
         }
         decay(dirty);
+        ResourceNetDebug.snapshotBuilt(world, "partial-ids-" + ids.size(), out);
         return out;
+    }
+
+    private static List<ResourceState> all(World world) {
+        List<ResourceState> out = new ArrayList<>();
+        for (ResourceNode r : world.resources) out.add(state(r));
+        return out;
+    }
+
+    private static ResourceState state(ResourceNode r) {
+        return new ResourceState(r.id, r.name, r.kind.name(), r.material.name(), r.x, r.y, r.maxAmount, r.harvestRate, r.radius, r.amount, r.active, r.respawnTimer, r.orbitCenterX, r.orbitCenterY, r.orbitRadius, r.orbitAngle, r.orbitSpeed, r.orbiting);
     }
 
     private static void decay(Map<Integer, Integer> dirty) {

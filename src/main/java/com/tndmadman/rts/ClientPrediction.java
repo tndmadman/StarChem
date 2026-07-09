@@ -1,38 +1,31 @@
 package com.tndmadman.rts;
 
+import java.util.Iterator;
+
 final class ClientPrediction {
     private ClientPrediction() { }
 
     static void update(World world, double dt) {
         for (Unit unit : world.units.values()) {
+            unit.wormholeCooldown = Math.max(0, unit.wormholeCooldown - dt);
             if (PlayerRegistry.isLocal(unit.playerId)) predictTarget(world, unit, dt);
             unit.updatePosition(dt, world.width, world.height);
         }
+        updateExplosions(world, dt);
+    }
+
+    private static void updateExplosions(World world, double dt) {
+        Iterator<ExplosionEffect> it = world.explosions.iterator();
+        while (it.hasNext()) if (!it.next().update(dt)) it.remove();
     }
 
     private static void predictTarget(World world, Unit unit, double dt) {
-        if (unit.task == UnitTask.ATTACK) {
-            if (!CombatTarget.enemy(world, unit, unit.attackTarget)) return;
-            double range = WeaponRules.maxRange(unit.type());
-            if (range <= 0) return;
-            double tx = CombatTarget.x(world, unit.attackTarget);
-            double ty = CombatTarget.y(world, unit.attackTarget);
-            if (Calc.distance(unit.x, unit.y, tx, ty) > range * 0.92) world.moveTowardOrbit(unit, tx, ty, range * 0.82);
-            return;
-        }
-        if (unit.task == UnitTask.AUTO_HARVEST) {
-            ResourceNode node = world.findResource(unit.automationResourceId);
-            if (node == null || !node.active) return;
-            double orbit = node.radius + unit.type().orbitRadius;
-            if (MiningBeam.visible(unit, node)) world.orbitAround(unit, node.x, node.y, orbit, dt, 0.7);
-            else world.moveTowardOrbit(unit, node.x, node.y, orbit);
-            return;
-        }
-        if (unit.task == UnitTask.IDLE) {
-            Base base = world.nearestBase(unit.playerId, unit.x, unit.y);
-            if (base != null && Calc.distance(unit.x, unit.y, base.x, base.y) < base.type().unloadRange + 170) {
-                world.orbitAround(unit, base.x, base.y, unit.type().idleOrbitRadius, dt, 0.35);
-            }
-        }
+        if (unit.task != UnitTask.ATTACK) return;
+        if (!CombatTarget.enemy(world, unit, unit.attackTarget)) return;
+        double range = WeaponRules.maxRange(unit.type());
+        if (range <= 0) return;
+        double tx = CombatTarget.x(world, unit.attackTarget);
+        double ty = CombatTarget.y(world, unit.attackTarget);
+        if (Calc.distance(unit.x, unit.y, tx, ty) > range * 0.92) world.moveTowardOrbit(unit, tx, ty, range * 0.82);
     }
 }
