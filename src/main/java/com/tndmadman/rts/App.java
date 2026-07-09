@@ -8,15 +8,17 @@ public final class App {
         Config config = Config.parse(args);
         ResourceNetDebug.resetLogs(config);
         if (config.dedicatedServerMode()) {
-            runServer(config);
+            int exitCode = runServer(config);
+            if (exitCode != 0) System.exit(exitCode);
             return;
         }
         SwingUtilities.invokeLater(() -> new GameFrame(config).setVisible(true));
     }
 
-    private static void runServer(Config config) {
+    private static int runServer(Config config) {
+        HeadlessGameServer server = null;
         try {
-            HeadlessGameServer server = HeadlessGameServer.start(config);
+            server = HeadlessGameServer.start(config);
             long last = System.nanoTime();
             while (true) {
                 long now = System.nanoTime();
@@ -25,8 +27,16 @@ public final class App {
                 server.tick(dt);
                 Thread.sleep(16);
             }
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            System.err.println("Server interrupted; shutting down.");
+            return 0;
         } catch (Exception ex) {
-            System.err.println("Server failed: " + ex.getMessage());
+            System.err.println("Server failed:");
+            ex.printStackTrace(System.err);
+            return 1;
+        } finally {
+            if (server != null) server.stop();
         }
     }
 }
