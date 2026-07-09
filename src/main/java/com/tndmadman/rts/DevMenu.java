@@ -12,7 +12,7 @@ final class DevMenu {
     private final HudWindow window = new HudWindow(18, 205, 292);
     private int targetIndex;
 
-    boolean click(World world, int sx, int sy, boolean canEdit) {
+    boolean click(World world, PeerNetwork devAuthorityNetwork, int sx, int sy, boolean canEdit) {
         if (!window.contains(sx, sy, bodyHeight())) return false;
         if (sy <= window.y + 28) return window.press(sx, sy, bodyHeight());
         if (window.collapsed || !canEdit) return true;
@@ -22,7 +22,7 @@ final class DevMenu {
             return true;
         }
         if (hit(localY, TOGGLE_Y)) {
-            toggleFreeCrafting(world);
+            toggleFreeCrafting(world, devAuthorityNetwork);
             return true;
         }
         Base base = target(world);
@@ -30,7 +30,8 @@ final class DevMenu {
         int row = (localY - (RESOURCE_Y - 14)) / ROW_H;
         if (row >= 0 && row < Material.values().length) {
             Material material = Material.values()[row];
-            HangarStore.add(base.inventory, material, SPAWN_AMOUNT);
+            if (devAuthorityNetwork != null) devAuthorityNetwork.devAddHangarResource(PlayerRegistry.localId(), base.id, material, SPAWN_AMOUNT);
+            else HangarStore.add(base.inventory, material, SPAWN_AMOUNT);
             world.status = "Dev added " + (int)SPAWN_AMOUNT + " " + material.label + " to " + base.id + " hangar.";
         }
         return true;
@@ -81,10 +82,11 @@ final class DevMenu {
         g2.drawString((enabled ? "[x]" : "[ ]") + " Free crafting", x, y);
     }
 
-    private void toggleFreeCrafting(World world) {
+    private void toggleFreeCrafting(World world, PeerNetwork devAuthorityNetwork) {
         String playerId = PlayerRegistry.localId();
         boolean next = !world.devFreeBuildFor(playerId);
         world.setDevFreeBuild(playerId, next);
+        if (devAuthorityNetwork != null) devAuthorityNetwork.devSetFreeCrafting(playerId, next);
         world.status = "Free crafting " + (next ? "enabled." : "disabled.");
     }
 
