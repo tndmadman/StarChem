@@ -51,6 +51,8 @@ final class PeerTransport {
         }
     }
 
+    void clearPending() { pending.clear(); }
+
     String unwrapReliable(NetPacket packet) {
         String message = packet.message();
         if (message.startsWith("ACK|")) { pending.remove(message.substring(4)); return null; }
