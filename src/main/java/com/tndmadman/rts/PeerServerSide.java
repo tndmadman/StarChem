@@ -5,6 +5,7 @@ import java.util.*;
 
 final class PeerServerSide {
     private static final long SNAPSHOT_MS = 100, TIMEOUT_MS = 4000;
+    private static final double MAX_DEV_RESOURCE_AMOUNT = 100_000.0;
     final World world;
     final Config config;
     final PeerTransport transport;
@@ -46,6 +47,11 @@ final class PeerServerSide {
     void change(String playerId, Runnable action) { views.applyChange(world, playerId, action); }
     String ownerId(String endpoint, String fallback) { ServerPeer peer = peers.get(endpoint); return peer == null ? fallback : peer.playerId(); }
     boolean owns(String endpoint, String playerId) { ServerPeer peer = peers.get(endpoint); return peer != null && playerId != null && playerId.equals(peer.playerId()); }
+    boolean devAllowed(String endpoint, String playerId) {
+        ServerPeer peer = peers.get(endpoint);
+        return config.devMode && peer != null && playerId != null && playerId.equals(peer.playerId()) && peer.devFreeBuild();
+    }
+    boolean localDevAllowed(String playerId) { return config.devMode && playerId != null && !playerId.isBlank() && !"WAIT".equals(playerId); }
     void touch(String endpoint) { ServerPeer p = peers.get(endpoint); if (p != null) peers.put(endpoint, new ServerPeer(p.playerId(), p.address(), p.port(), System.currentTimeMillis(), p.devFreeBuild())); }
 
     void join(String endpoint, InetAddress address, int port, String name, boolean requestedDev) {
@@ -66,6 +72,32 @@ final class PeerServerSide {
         sendInitial(peer);
     }
 
+    void applyDevFreeCrafting(String playerId, boolean enabled) {
+        change(playerId, () -> {
+            world.setDevFreeBuild(playerId, enabled);
+            world.status = "Dev free crafting " + (enabled ? "enabled" : "disabled") + " for " + playerId + ".";
+        });
+        broadcastNow();
+    }
+
+    void applyDevHangarResource(String playerId, String baseId, Material material, double amount) {
+        if (baseId == null || baseId.isBlank() || material == null || amount <= 0 || Double.isNaN(amount) || Double.isInfinite(amount)) return;
+        double safeAmount = Math.min(amount, MAX_DEV_RESOURCE_AMOUNT);
+        change(playerId, () -> {
+            Base base = world.bases.get(baseId);
+            if (base == null || !playerId.equals(base.playerId)) return;
+            HangarStore.add(base.inventory, material, safeAmount);
+            world.status = "Dev added " + (int)safeAmount + " " + material.label + " to " + base.id + " hangar.";
+        });
+        broadcastNow();
+    }
+
+    void applyDevAiCommand(String playerId, String command) {
+        if (command == null || command.isBlank()) return;
+        change(playerId, () -> applyAiCommand(command));
+        broadcastNow();
+    }
+
     void removePeer(String endpoint) {
         ServerPeer peer = peers.remove(endpoint);
         if (peer == null) return;
@@ -78,6 +110,31 @@ final class PeerServerSide {
         sendDeletedSystems(deletedSystems);
         if (!deletedSystems.isEmpty()) world.status = "Removed " + deletedSystems.size() + " abandoned system(s) after " + playerId + " left.";
         broadcastNow();
+    }
+
+    private void applyAiCommand(String command) {
+        switch (command) {
+            case "togglePauseAi" -> AiDevSettings.pauseAi = !AiDevSettings.pauseAi;
+            case "stepAi" -> AiDevSettings.stepAi = true;
+            case "toggleFastAi" -> AiDevSettings.fastAi = !AiDevSettings.fastAi;
+            case "toggleFreezePlayerUnits" -> AiDevSettings.freezePlayerUnits = !AiDevSettings.freezePlayerUnits;
+            case "toggleFreezeNpcCombat" -> AiDevSettings.freezeNpcCombat = !AiDevSettings.freezeNpcCombat;
+            case "toggleDisableAttacks" -> AiDevSettings.disableAttacks = !AiDevSettings.disableAttacks;
+            case "toggleDisableEconomy" -> AiDevSettings.disableEconomy = !AiDevSettings.disableEconomy;
+            case "togglePreset" -> AiDevSettings.togglePreset();
+            case "spawnCorsairs" -> AiDevCommands.spawnCorsairs(world);
+            case "killCorsairs" -> AiDevCommands.killCorsairs(world);
+            case "resetCorsairs" -> AiDevCommands.resetCorsairs(world);
+            case "giveCorsairResources" -> AiDevCommands.giveCorsairResources(world);
+            case "givePlayerResources" -> AiDevCommands.givePlayerResources(world);
+            case "spawnLootField" -> AiDevCommands.spawnLootField(world);
+            case "spawnAttackWave" -> AiDevCommands.spawnAttackWave(world);
+            case "forceRaid" -> AiDevCommands.forceRaid(world);
+            case "forceStation" -> AiDevCommands.forceStation(world);
+            case "forceResearch" -> AiDevCommands.forceResearch(world);
+            case "forceCraft" -> AiDevCommands.forceCraft(world);
+            default -> { }
+        }
     }
 
     private void sendDeletedSystems(Set<String> deletedSystems) {

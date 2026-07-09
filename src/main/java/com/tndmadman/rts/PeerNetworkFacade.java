@@ -53,6 +53,25 @@ final class PeerNetwork implements CommandSink {
     boolean connectionFailed() { return client != null && client.connectionFailed(); }
     String failureMessage() { return client != null ? client.failureMessage() : "Connection failed."; }
     void updateServerWorlds(double dt) { if (server != null) server.updateWorlds(dt); }
+    boolean devToolsAllowed() { return server != null ? config.devMode : client != null && client.devToolsAllowed(); }
+
+    void devSetFreeCrafting(String playerId, boolean enabled) {
+        if (server != null) {
+            if (server.localDevAllowed(playerId)) server.applyDevFreeCrafting(playerId, enabled);
+        } else if (client != null) client.devSetFreeCrafting(playerId, enabled);
+    }
+
+    void devAddHangarResource(String playerId, String baseId, Material material, double amount) {
+        if (server != null) {
+            if (server.localDevAllowed(playerId)) server.applyDevHangarResource(playerId, baseId, material, amount);
+        } else if (client != null) client.devAddHangarResource(playerId, baseId, material, amount);
+    }
+
+    void devAiCommand(String playerId, String command) {
+        if (server != null) {
+            if (server.localDevAllowed(playerId)) server.applyDevAiCommand(playerId, command);
+        } else if (client != null) client.devAiCommand(playerId, command);
+    }
 
     void tick() {
         long now = System.currentTimeMillis();

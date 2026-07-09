@@ -8,7 +8,7 @@ final class AiDevPanel {
     private static final int ROW_BASELINE_Y = 96;
     private final HudWindow window = new HudWindow(330, 205, 430);
 
-    boolean click(World world, int sx, int sy, boolean canEdit) {
+    boolean click(World world, PeerNetwork devAuthorityNetwork, int sx, int sy, boolean canEdit) {
         if (!window.contains(sx, sy, bodyHeight())) return false;
         if (sy <= window.y + 28) return window.press(sx, sy, bodyHeight());
         if (window.collapsed || !canEdit) return true;
@@ -17,25 +17,25 @@ final class AiDevPanel {
         switch (row) {
             case 0 -> AiDevSettings.overlay = !AiDevSettings.overlay;
             case 1 -> AiDevSettings.pathLines = !AiDevSettings.pathLines;
-            case 2 -> AiDevSettings.pauseAi = !AiDevSettings.pauseAi;
-            case 3 -> AiDevSettings.stepAi = true;
-            case 4 -> AiDevSettings.fastAi = !AiDevSettings.fastAi;
-            case 5 -> AiDevSettings.freezePlayerUnits = !AiDevSettings.freezePlayerUnits;
-            case 6 -> AiDevSettings.freezeNpcCombat = !AiDevSettings.freezeNpcCombat;
-            case 7 -> AiDevSettings.disableAttacks = !AiDevSettings.disableAttacks;
-            case 8 -> AiDevSettings.disableEconomy = !AiDevSettings.disableEconomy;
-            case 9 -> AiDevSettings.togglePreset();
-            case 10 -> AiDevCommands.spawnCorsairs(world);
-            case 11 -> AiDevCommands.killCorsairs(world);
-            case 12 -> AiDevCommands.resetCorsairs(world);
-            case 13 -> AiDevCommands.giveCorsairResources(world);
-            case 14 -> AiDevCommands.givePlayerResources(world);
-            case 15 -> AiDevCommands.spawnLootField(world);
-            case 16 -> AiDevCommands.spawnAttackWave(world);
-            case 17 -> AiDevCommands.forceRaid(world);
-            case 18 -> AiDevCommands.forceStation(world);
-            case 19 -> AiDevCommands.forceResearch(world);
-            case 20 -> AiDevCommands.forceCraft(world);
+            case 2 -> runDevCommand(world, devAuthorityNetwork, "togglePauseAi", () -> AiDevSettings.pauseAi = !AiDevSettings.pauseAi);
+            case 3 -> runDevCommand(world, devAuthorityNetwork, "stepAi", () -> AiDevSettings.stepAi = true);
+            case 4 -> runDevCommand(world, devAuthorityNetwork, "toggleFastAi", () -> AiDevSettings.fastAi = !AiDevSettings.fastAi);
+            case 5 -> runDevCommand(world, devAuthorityNetwork, "toggleFreezePlayerUnits", () -> AiDevSettings.freezePlayerUnits = !AiDevSettings.freezePlayerUnits);
+            case 6 -> runDevCommand(world, devAuthorityNetwork, "toggleFreezeNpcCombat", () -> AiDevSettings.freezeNpcCombat = !AiDevSettings.freezeNpcCombat);
+            case 7 -> runDevCommand(world, devAuthorityNetwork, "toggleDisableAttacks", () -> AiDevSettings.disableAttacks = !AiDevSettings.disableAttacks);
+            case 8 -> runDevCommand(world, devAuthorityNetwork, "toggleDisableEconomy", () -> AiDevSettings.disableEconomy = !AiDevSettings.disableEconomy);
+            case 9 -> runDevCommand(world, devAuthorityNetwork, "togglePreset", AiDevSettings::togglePreset);
+            case 10 -> runDevCommand(world, devAuthorityNetwork, "spawnCorsairs", () -> AiDevCommands.spawnCorsairs(world));
+            case 11 -> runDevCommand(world, devAuthorityNetwork, "killCorsairs", () -> AiDevCommands.killCorsairs(world));
+            case 12 -> runDevCommand(world, devAuthorityNetwork, "resetCorsairs", () -> AiDevCommands.resetCorsairs(world));
+            case 13 -> runDevCommand(world, devAuthorityNetwork, "giveCorsairResources", () -> AiDevCommands.giveCorsairResources(world));
+            case 14 -> runDevCommand(world, devAuthorityNetwork, "givePlayerResources", () -> AiDevCommands.givePlayerResources(world));
+            case 15 -> runDevCommand(world, devAuthorityNetwork, "spawnLootField", () -> AiDevCommands.spawnLootField(world));
+            case 16 -> runDevCommand(world, devAuthorityNetwork, "spawnAttackWave", () -> AiDevCommands.spawnAttackWave(world));
+            case 17 -> runDevCommand(world, devAuthorityNetwork, "forceRaid", () -> AiDevCommands.forceRaid(world));
+            case 18 -> runDevCommand(world, devAuthorityNetwork, "forceStation", () -> AiDevCommands.forceStation(world));
+            case 19 -> runDevCommand(world, devAuthorityNetwork, "forceResearch", () -> AiDevCommands.forceResearch(world));
+            case 20 -> runDevCommand(world, devAuthorityNetwork, "forceCraft", () -> AiDevCommands.forceCraft(world));
             case 21 -> AiDevCommands.copySnapshot(world);
             case 22 -> AiDevCommands.hotReload(world);
             default -> { }
@@ -52,7 +52,7 @@ final class AiDevPanel {
         int x = window.x + 12;
         int y = window.bodyY();
         g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f));
-        if (!canEdit) { g2.setColor(new Color(255, 225, 150)); g2.drawString("Host/solo only", x, y + 16); return; }
+        if (!canEdit) { g2.setColor(new Color(255, 225, 150)); g2.drawString("Host dev approval required", x, y + 16); return; }
 
         NpcFaction f = AiDevSnapshot.corsairs();
         g2.setColor(Color.WHITE);
@@ -99,6 +99,11 @@ final class AiDevPanel {
                 "Copy AI snapshot",
                 "Reload npc config request"
         };
+    }
+
+    private void runDevCommand(World world, PeerNetwork devAuthorityNetwork, String command, Runnable localAction) {
+        if (devAuthorityNetwork != null) devAuthorityNetwork.devAiCommand(PlayerRegistry.localId(), command);
+        else localAction.run();
     }
 
     private int clickedRow(int localY) {

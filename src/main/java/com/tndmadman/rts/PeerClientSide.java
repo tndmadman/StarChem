@@ -9,6 +9,7 @@ final class PeerClientSide {
     private final long joinStarted = System.currentTimeMillis();
     private boolean joined;
     private boolean joinFailed;
+    private boolean devApproved;
     private boolean viewSnapshotMode;
     private long lastJoin, lastPing, lastSnapshotSequence;
     private String localPlayerId = "SOLO";
@@ -23,11 +24,12 @@ final class PeerClientSide {
 
     String statusLine() {
         String state = joinFailed ? "failed" : joined ? localPlayerId : "joining";
-        return "CLIENT " + state + " -> " + config.serverAddress + " | " + world.activeSystemId() + " | pending " + transport.pendingCount() + (world.devFreeBuild ? " | dev" : "");
+        return "CLIENT " + state + " -> " + config.serverAddress + " | " + world.activeSystemId() + " | pending " + transport.pendingCount() + (devApproved ? " | dev" : "");
     }
 
     String localPlayerId() { return localPlayerId; }
     boolean connectionFailed() { return joinFailed; }
+    boolean devToolsAllowed() { return joined && devApproved; }
     String failureMessage() { return failureMessage.isBlank() ? "Connection failed." : failureMessage; }
 
     void tick(long now) {
@@ -48,6 +50,12 @@ final class PeerClientSide {
     void respawn(String playerId) { reliableToServer("RESPAWN|" + playerId); }
     void build(String playerId, String baseId, String shipTypeId) { reliableToServer("BUILD|" + playerId + "|" + baseId + "|" + shipTypeId); }
     void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { reliableToServer("PACK|" + playerId + "|" + mode + "|" + baseOrUnitId + "|" + packageType); }
+    void devSetFreeCrafting(String playerId, boolean enabled) { reliableToServer("DEVFREE|" + cleanPacketPart(playerId) + "|" + (enabled ? "1" : "0")); }
+    void devAddHangarResource(String playerId, String baseId, Material material, double amount) {
+        if (material == null || amount <= 0 || Double.isNaN(amount) || Double.isInfinite(amount)) return;
+        reliableToServer("DEVHANGAR|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(baseId) + "|" + material.name() + "|" + Calc.round(amount));
+    }
+    void devAiCommand(String playerId, String command) { reliableToServer("DEVAI|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(command)); }
     void jump(String playerId, double x, double y) { jump(playerId, "", x, y); }
     void jump(String playerId, String targetSystemId, double x, double y) {
         viewSnapshotMode = true;
@@ -72,9 +80,9 @@ final class PeerClientSide {
         world.activateSystem(world.playerHomeSystemId(localPlayerId));
         viewedSystemId = world.activeSystemId();
         viewSnapshotMode = false;
-        boolean devAllowed = p.length >= 9 && "DEV".equals(p[7]) && flag(p[8]);
-        world.setDevFreeBuild(localPlayerId, devAllowed);
-        world.status = "Joined " + world.activeSystemId() + " as " + p[2] + devStatus(devAllowed);
+        devApproved = p.length >= 9 && "DEV".equals(p[7]) && flag(p[8]);
+        world.setDevFreeBuild(localPlayerId, devApproved);
+        world.status = "Joined " + world.activeSystemId() + " as " + p[2] + devStatus(devApproved);
     }
 
     void readSnapshot(String message) {
@@ -155,6 +163,7 @@ final class PeerClientSide {
     }
 
     private boolean canSendToServer() { return !joinFailed && config.serverAddress != null && config.serverAddress.getAddress() != null; }
+    private String cleanPacketPart(String value) { return value == null ? "" : value.replace("|", "").trim(); }
     private String cleanSystemId(String value) { return value == null ? "" : value.replace("|", "").trim(); }
     private boolean invalidSystemId(String value) { return value == null || value.isBlank() || value.contains("WAIT"); }
     private void syncEnv(String systemId, String seed, String time) { try { world.syncEnvironment(systemId, Long.parseLong(seed), Double.parseDouble(time)); } catch (NumberFormatException ignored) { } }

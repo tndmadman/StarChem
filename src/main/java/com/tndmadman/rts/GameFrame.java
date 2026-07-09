@@ -66,7 +66,7 @@ final class GameFrame extends JFrame {
             });
             networkTimer.start();
         }
-        showGame(config, world, network);
+        showGame(config, world, network, null);
     }
 
     private void launchLocalHostGame(Config config) {
@@ -78,11 +78,11 @@ final class GameFrame extends JFrame {
             return;
         }
         network = localHostSession.clientNetwork;
-        showGame(config, localHostSession.clientWorld, network);
+        showGame(config, localHostSession.clientWorld, network, localHostSession.devAuthorityNetwork());
     }
 
-    private void showGame(Config config, World world, PeerNetwork activeNetwork) {
-        gamePanel = new GamePanel(world, this, activeNetwork, config.devMode);
+    private void showGame(Config config, World world, PeerNetwork activeNetwork, PeerNetwork devAuthorityNetwork) {
+        gamePanel = new GamePanel(world, this, activeNetwork, config.devMode, devAuthorityNetwork);
         endStatePanel = new EndStatePanel(world, this, activeNetwork);
         root.removeAll();
         root.add(gamePanel, JLayeredPane.DEFAULT_LAYER);
