@@ -30,6 +30,8 @@ final class LocalHostSession {
         return session;
     }
 
+    PeerNetwork devAuthorityNetwork() { return serverNetwork; }
+
     void stop() {
         timer.stop();
         clientNetwork.shutdown();
