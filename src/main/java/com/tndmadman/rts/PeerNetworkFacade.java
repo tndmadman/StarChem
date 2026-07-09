@@ -24,6 +24,9 @@ final class PeerNetwork implements CommandSink {
             if (config.devMode) world.status = "Solo dev mode enabled.";
             return null;
         }
+        if (config.clientMode() && config.serverAddress.isUnresolved()) {
+            throw new IOException("Could not resolve server host: " + config.serverAddress.getHostString());
+        }
         DatagramSocket socket = config.hostMode ? new DatagramSocket(config.port) : new DatagramSocket();
         PeerTransport transport = new PeerTransport(socket);
         PeerServerSide server = null;
