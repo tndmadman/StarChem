@@ -17,14 +17,14 @@ final class AiDevPanel {
         switch (row) {
             case 0 -> AiDevSettings.overlay = !AiDevSettings.overlay;
             case 1 -> AiDevSettings.pathLines = !AiDevSettings.pathLines;
-            case 2 -> AiDevSettings.pauseAi = !AiDevSettings.pauseAi;
-            case 3 -> AiDevSettings.stepAi = true;
-            case 4 -> AiDevSettings.fastAi = !AiDevSettings.fastAi;
-            case 5 -> AiDevSettings.freezePlayerUnits = !AiDevSettings.freezePlayerUnits;
-            case 6 -> AiDevSettings.freezeNpcCombat = !AiDevSettings.freezeNpcCombat;
-            case 7 -> AiDevSettings.disableAttacks = !AiDevSettings.disableAttacks;
-            case 8 -> AiDevSettings.disableEconomy = !AiDevSettings.disableEconomy;
-            case 9 -> AiDevSettings.togglePreset();
+            case 2 -> runDevCommand(world, devAuthorityNetwork, "togglePauseAi", () -> AiDevSettings.pauseAi = !AiDevSettings.pauseAi);
+            case 3 -> runDevCommand(world, devAuthorityNetwork, "stepAi", () -> AiDevSettings.stepAi = true);
+            case 4 -> runDevCommand(world, devAuthorityNetwork, "toggleFastAi", () -> AiDevSettings.fastAi = !AiDevSettings.fastAi);
+            case 5 -> runDevCommand(world, devAuthorityNetwork, "toggleFreezePlayerUnits", () -> AiDevSettings.freezePlayerUnits = !AiDevSettings.freezePlayerUnits);
+            case 6 -> runDevCommand(world, devAuthorityNetwork, "toggleFreezeNpcCombat", () -> AiDevSettings.freezeNpcCombat = !AiDevSettings.freezeNpcCombat);
+            case 7 -> runDevCommand(world, devAuthorityNetwork, "toggleDisableAttacks", () -> AiDevSettings.disableAttacks = !AiDevSettings.disableAttacks);
+            case 8 -> runDevCommand(world, devAuthorityNetwork, "toggleDisableEconomy", () -> AiDevSettings.disableEconomy = !AiDevSettings.disableEconomy);
+            case 9 -> runDevCommand(world, devAuthorityNetwork, "togglePreset", AiDevSettings::togglePreset);
             case 10 -> runDevCommand(world, devAuthorityNetwork, "spawnCorsairs", () -> AiDevCommands.spawnCorsairs(world));
             case 11 -> runDevCommand(world, devAuthorityNetwork, "killCorsairs", () -> AiDevCommands.killCorsairs(world));
             case 12 -> runDevCommand(world, devAuthorityNetwork, "resetCorsairs", () -> AiDevCommands.resetCorsairs(world));
@@ -52,7 +52,7 @@ final class AiDevPanel {
         int x = window.x + 12;
         int y = window.bodyY();
         g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f));
-        if (!canEdit) { g2.setColor(new Color(255, 225, 150)); g2.drawString("Host/solo only", x, y + 16); return; }
+        if (!canEdit) { g2.setColor(new Color(255, 225, 150)); g2.drawString("Host dev approval required", x, y + 16); return; }
 
         NpcFaction f = AiDevSnapshot.corsairs();
         g2.setColor(Color.WHITE);
