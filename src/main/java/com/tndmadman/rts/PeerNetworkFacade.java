@@ -53,6 +53,30 @@ final class PeerNetwork implements CommandSink {
     boolean connectionFailed() { return client != null && client.connectionFailed(); }
     String failureMessage() { return client != null ? client.failureMessage() : "Connection failed."; }
     void updateServerWorlds(double dt) { if (server != null) server.updateWorlds(dt); }
+    boolean devToolsAllowed() { return server != null && config.devMode; }
+
+    void devSetFreeCrafting(String playerId, boolean enabled) {
+        if (!canApplyDevCommand(playerId)) return;
+        server.change(playerId, () -> server.world.setDevFreeBuild(playerId, enabled));
+        server.broadcastNow();
+    }
+
+    void devAddHangarResource(String playerId, String baseId, Material material, double amount) {
+        if (!canApplyDevCommand(playerId) || baseId == null || baseId.isBlank() || material == null || amount <= 0) return;
+        server.change(playerId, () -> {
+            Base base = server.world.bases.get(baseId);
+            if (base == null || !playerId.equals(base.playerId)) return;
+            HangarStore.add(base.inventory, material, amount);
+            server.world.status = "Dev added " + (int)amount + " " + material.label + " to " + base.id + " hangar.";
+        });
+        server.broadcastNow();
+    }
+
+    void devAiCommand(String playerId, String command) {
+        if (!canApplyDevCommand(playerId) || command == null || command.isBlank()) return;
+        server.change(playerId, () -> applyDevAiCommand(command));
+        server.broadcastNow();
+    }
 
     void tick() {
         long now = System.currentTimeMillis();
@@ -83,6 +107,27 @@ final class PeerNetwork implements CommandSink {
     void jump(String playerId, String targetSystemId, double x, double y) { if (server != null) serverCommand(() -> { if (!server.world.viewSystemThroughWormhole(targetSystemId)) server.world.jumpThroughWormholeAt(x, y); }, playerId); else client.jump(playerId, targetSystemId, x, y); }
     void wormholeTouch(String playerId) { if (server != null) serverCommand(server.world::transferTouchingShips, playerId); else client.wormholeTouch(playerId); }
     void wormholeTouch(WormholeTouchRequest request) { if (request == null || !request.valid()) return; if (server != null) serverCommand(() -> server.world.transferTouchingShips(request.playerId()), request.playerId()); else client.wormholeTouch(request); }
+
+    private boolean canApplyDevCommand(String playerId) {
+        return server != null && config.devMode && playerId != null && !playerId.isBlank() && !"WAIT".equals(playerId);
+    }
+
+    private void applyDevAiCommand(String command) {
+        switch (command) {
+            case "spawnCorsairs" -> AiDevCommands.spawnCorsairs(server.world);
+            case "killCorsairs" -> AiDevCommands.killCorsairs(server.world);
+            case "resetCorsairs" -> AiDevCommands.resetCorsairs(server.world);
+            case "giveCorsairResources" -> AiDevCommands.giveCorsairResources(server.world);
+            case "givePlayerResources" -> AiDevCommands.givePlayerResources(server.world);
+            case "spawnLootField" -> AiDevCommands.spawnLootField(server.world);
+            case "spawnAttackWave" -> AiDevCommands.spawnAttackWave(server.world);
+            case "forceRaid" -> AiDevCommands.forceRaid(server.world);
+            case "forceStation" -> AiDevCommands.forceStation(server.world);
+            case "forceResearch" -> AiDevCommands.forceResearch(server.world);
+            case "forceCraft" -> AiDevCommands.forceCraft(server.world);
+            default -> { }
+        }
+    }
 
     private void serverCommand(Runnable action, String playerId) {
         server.change(playerId, action);
