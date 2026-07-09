@@ -60,7 +60,10 @@ final class GameFrame extends JFrame {
         }
         if (network != null) {
             PeerNetwork peer = network;
-            networkTimer = new Timer(16, e -> peer.tick());
+            networkTimer = new Timer(16, e -> {
+                peer.tick();
+                if (peer.connectionFailed()) showLobby(peer.failureMessage());
+            });
             networkTimer.start();
         }
         showGame(config, world, network);
