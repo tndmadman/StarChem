@@ -11,6 +11,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final World world;
     private final GameFrame owner;
     private final PeerNetwork network;
+    private final PeerNetwork devAuthorityNetwork;
     private final GameServer server;
     private final GameClient client;
     private final Timer timer;
@@ -31,13 +32,15 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private boolean cameraLeft, cameraRight, cameraUp, cameraDown;
     private boolean galaxyMapOpen;
 
-    GamePanel(World world, GameFrame owner) { this(world, owner, null, false); }
-    GamePanel(World world, GameFrame owner, PeerNetwork network) { this(world, owner, network, false); }
+    GamePanel(World world, GameFrame owner) { this(world, owner, null, false, null); }
+    GamePanel(World world, GameFrame owner, PeerNetwork network) { this(world, owner, network, false, null); }
+    GamePanel(World world, GameFrame owner, PeerNetwork network, boolean devMode) { this(world, owner, network, devMode, null); }
 
-    GamePanel(World world, GameFrame owner, PeerNetwork network, boolean devMode) {
+    GamePanel(World world, GameFrame owner, PeerNetwork network, boolean devMode, PeerNetwork devAuthorityNetwork) {
         this.world = world;
         this.owner = owner;
         this.network = network;
+        this.devAuthorityNetwork = devAuthorityNetwork;
         this.server = GameServer.forNetwork(world, network);
         this.client = GameClient.forNetwork(world, network);
         this.devMode = devMode;
@@ -122,7 +125,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
 
     private Rectangle2D screenRectToWorldRect(Point a, Point b) {
         Point2D aw = screenToWorld(a), bw = screenToWorld(b);
-        double x = Math.min(aw.getX(), bw.getX()), y = Math.min(aw.getY(), bw.getY());
+        double x = Math.min(aw.getX(), bw.getY()), y = Math.min(aw.getY(), bw.getY());
         double w = Math.abs(aw.getX() - bw.getX()), h = Math.abs(aw.getY() - bw.getY());
         return new Rectangle2D.Double(x, y, w, h);
     }
@@ -134,8 +137,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         requestFocusInWindow();
         if (galaxyMapOpen) { clickGalaxyMap(e); return; }
         if (buildMenu.click(e.getX(), e.getY())) return;
-        if (devMode && aiDevPanel.click(world, e.getX(), e.getY(), canEditDev())) return;
-        if (devMode && devMenu.click(world, e.getX(), e.getY(), canEditDev())) return;
+        if (devMode && aiDevPanel.click(world, devAuthorityNetwork, e.getX(), e.getY(), canEditDev())) return;
+        if (devMode && devMenu.click(world, devAuthorityNetwork, e.getX(), e.getY(), canEditDev())) return;
         if (hangarHud.mousePressed(world, e.getX(), e.getY())) return;
         if (SwingUtilities.isRightMouseButton(e)) { clickRight(screenToWorld(e.getPoint())); return; }
         if (SwingUtilities.isLeftMouseButton(e)) { dragStart = e.getPoint(); dragNow = e.getPoint(); }
@@ -234,7 +237,12 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     }
 
     private void clearSelection() { for (Unit u : world.units.values()) u.selected = false; }
-    private boolean canEditDev() { return network == null || network.statusLine().startsWith("HOST"); }
+    private boolean canEditDev() {
+        if (!devMode) return false;
+        if (network == null) return true;
+        if (devAuthorityNetwork != null) return devAuthorityNetwork.devToolsAllowed();
+        return network.statusLine().startsWith("HOST") && network.devToolsAllowed();
+    }
 
     @Override public void mouseDragged(MouseEvent e) {
         if (galaxyMapOpen) return;
