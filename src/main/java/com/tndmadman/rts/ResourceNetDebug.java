@@ -308,9 +308,9 @@ final class ResourceNetDebug {
     private static boolean readEnabled() {
         String value = System.getProperty("starchem.debug.resources");
         if (value == null || value.isBlank()) value = System.getenv("STARCHEM_DEBUG_RESOURCES");
-        if (value == null || value.isBlank()) return true;
+        if (value == null || value.isBlank()) return false;
         String normalized = value.trim().toLowerCase(Locale.ROOT);
-        return !normalized.equals("0") && !normalized.equals("false") && !normalized.equals("off") && !normalized.equals("no");
+        return normalized.equals("1") || normalized.equals("true") || normalized.equals("on") || normalized.equals("yes");
     }
 
     private static boolean resetClientLog(Config config) {

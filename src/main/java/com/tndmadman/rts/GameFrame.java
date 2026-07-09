@@ -51,7 +51,7 @@ final class GameFrame extends JFrame {
     void launchGame(Config config) {
         if (config.role() == NetworkRole.SERVER) { launchLocalHostGame(config); return; }
         stopActiveGame();
-        World world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId);
+        World world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId, config.role() == NetworkRole.SOLO);
         try {
             network = PeerNetwork.start(config, world);
         } catch (IOException ex) {

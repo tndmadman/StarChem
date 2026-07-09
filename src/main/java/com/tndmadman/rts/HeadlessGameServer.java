@@ -12,7 +12,7 @@ final class HeadlessGameServer {
     }
 
     static HeadlessGameServer start(Config config) throws IOException {
-        World world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId);
+        World world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId, false);
         PeerNetwork network = PeerNetwork.start(config, world);
         return new HeadlessGameServer(world, network);
     }

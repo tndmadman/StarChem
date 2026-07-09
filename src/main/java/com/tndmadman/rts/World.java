@@ -49,17 +49,25 @@ final class World {
     World(String localPlayerName, Set<String> disabledNpcFactionIds) { this(localPlayerName, disabledNpcFactionIds, StarSystems.DEFAULT_SYSTEM_ID); }
 
     World(String localPlayerName, Set<String> disabledNpcFactionIds, String systemId) {
+        this(localPlayerName, disabledNpcFactionIds, systemId, true);
+    }
+
+    World(String localPlayerName, Set<String> disabledNpcFactionIds, String systemId, boolean spawnLocalPlayer) {
         this.localPlayerName = Config.clean(localPlayerName);
         this.npcSystem = new NpcSystem(disabledNpcFactionIds);
         setStarSystem(systemId);
         setSystemSeed(System.nanoTime() ^ System.currentTimeMillis());
-        ensurePlayerHome(localPlayerId);
-        Point2D basePoint = startPointForPlayer(localPlayerId, 0);
-        addBase(Rules.DEFAULT_BASE, basePoint.getX(), basePoint.getY());
-        Point2D start = startShipPoint(basePoint);
-        spawnShip(Rules.STARTING_SHIP, start.getX(), start.getY());
+        if (spawnLocalPlayer) {
+            ensurePlayerHome(localPlayerId);
+            Point2D basePoint = startPointForPlayer(localPlayerId, 0);
+            addBase(Rules.DEFAULT_BASE, basePoint.getX(), basePoint.getY());
+            Point2D start = startShipPoint(basePoint);
+            spawnShip(Rules.STARTING_SHIP, start.getX(), start.getY());
+        }
         saveActiveSystem();
-        status = "Entered " + starSystem.name() + ". Left-click a wormhole to view that system; ships travel on contact.";
+        status = spawnLocalPlayer
+                ? "Entered " + starSystem.name() + ". Left-click a wormhole to view that system; ships travel on contact."
+                : "Waiting for player assignment in " + starSystem.name() + ".";
     }
 
     long systemSeed() { return systemSeed; }
