@@ -125,7 +125,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
 
     private Rectangle2D screenRectToWorldRect(Point a, Point b) {
         Point2D aw = screenToWorld(a), bw = screenToWorld(b);
-        double x = Math.min(aw.getX(), bw.getY()), y = Math.min(aw.getY(), bw.getY());
+        double x = Math.min(aw.getX(), bw.getX()), y = Math.min(aw.getY(), bw.getY());
         double w = Math.abs(aw.getX() - bw.getX()), h = Math.abs(aw.getY() - bw.getY());
         return new Rectangle2D.Double(x, y, w, h);
     }
