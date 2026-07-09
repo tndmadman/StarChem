@@ -137,8 +137,9 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         requestFocusInWindow();
         if (galaxyMapOpen) { clickGalaxyMap(e); return; }
         if (buildMenu.click(e.getX(), e.getY())) return;
-        if (devMode && aiDevPanel.click(world, devAuthorityNetwork, e.getX(), e.getY(), canEditDev())) return;
-        if (devMode && devMenu.click(world, devAuthorityNetwork, e.getX(), e.getY(), canEditDev())) return;
+        PeerNetwork devNetwork = devNetwork();
+        if (devMode && aiDevPanel.click(world, devNetwork, e.getX(), e.getY(), canEditDev())) return;
+        if (devMode && devMenu.click(world, devNetwork, e.getX(), e.getY(), canEditDev())) return;
         if (hangarHud.mousePressed(world, e.getX(), e.getY())) return;
         if (SwingUtilities.isRightMouseButton(e)) { clickRight(screenToWorld(e.getPoint())); return; }
         if (SwingUtilities.isLeftMouseButton(e)) { dragStart = e.getPoint(); dragNow = e.getPoint(); }
@@ -237,11 +238,12 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     }
 
     private void clearSelection() { for (Unit u : world.units.values()) u.selected = false; }
+    private PeerNetwork devNetwork() { return devAuthorityNetwork != null ? devAuthorityNetwork : network; }
     private boolean canEditDev() {
         if (!devMode) return false;
         if (network == null) return true;
-        if (devAuthorityNetwork != null) return devAuthorityNetwork.devToolsAllowed();
-        return network.statusLine().startsWith("HOST") && network.devToolsAllowed();
+        PeerNetwork devNetwork = devNetwork();
+        return devNetwork != null && devNetwork.devToolsAllowed();
     }
 
     @Override public void mouseDragged(MouseEvent e) {
