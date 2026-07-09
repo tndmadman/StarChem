@@ -5,7 +5,7 @@ import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.*;
 
-final class GamePanel extends JPanel implements KeyListener, MouseListener, MouseMotionListener, MouseWheelListener {
+final class GamePanel extends JPanel implements KeyListener, MouseListener, MouseMotionListener, MouseWheelListener, FocusListener {
     private static final double CAMERA_PAN_SPEED = 640.0;
     private static final int SELECT_DRAG_PX = 7;
     private final World world;
@@ -50,6 +50,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         addMouseListener(this);
         addMouseMotionListener(this);
         addMouseWheelListener(this);
+        addFocusListener(this);
         timer = new Timer(16, e -> tick());
     }
 
@@ -284,6 +285,12 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         setCameraKey(e.getKeyCode(), true);
     }
     @Override public void keyReleased(KeyEvent e) { setCameraKey(e.getKeyCode(), false); }
+    @Override public void focusGained(FocusEvent e) { }
+    @Override public void focusLost(FocusEvent e) {
+        clearCameraKeys();
+        dragStart = null;
+        dragNow = null;
+    }
 
     private void toggleGalaxyMap() {
         galaxyMapOpen = !galaxyMapOpen;
