@@ -54,6 +54,11 @@ final class PeerClientSide {
     void move(MoveCommand c) { reliableToServer("MOVE|" + c.playerId() + "|" + c.unitId() + "|" + Calc.round(c.x()) + "|" + Calc.round(c.y())); }
     void work(HarvestCommand c) { ResourceNetDebug.clientWorkSend(world, c); reliableToServer("WORK|" + c.playerId() + "|" + c.unitId() + "|" + c.resourceId()); }
     void attack(AttackCommand c) { reliableToServer("ATTACK|" + c.playerId() + "|" + c.unitId() + "|" + c.targetKey()); }
+    void order(UnitOrderCommand c) {
+        reliableToServer("ORDER|" + c.playerId() + "|" + c.unitId() + "|" + c.type().name() + "|"
+                + Calc.round(c.x1()) + "|" + Calc.round(c.y1()) + "|" + Calc.round(c.x2()) + "|" + Calc.round(c.y2()) + "|"
+                + Calc.round(c.radius()) + "|" + cleanPacketPart(c.targetKey()) + "|" + c.phase());
+    }
     void respawn(String playerId) { reliableToServer("RESPAWN|" + playerId); }
     void build(String playerId, String baseId, String shipTypeId) { reliableToServer("BUILD|" + playerId + "|" + baseId + "|" + shipTypeId); }
     void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { reliableToServer("PACK|" + playerId + "|" + mode + "|" + baseOrUnitId + "|" + packageType); }
