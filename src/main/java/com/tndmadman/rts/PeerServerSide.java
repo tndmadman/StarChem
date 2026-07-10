@@ -20,6 +20,7 @@ final class PeerServerSide {
         this.world = world;
         this.transport = transport;
         PlayerRegistry.activate(world);
+        SystemAudio.markNonRendered(world);
     }
 
     String statusLine() {
@@ -32,11 +33,14 @@ final class PeerServerSide {
         String old = world.activeSystemId();
         String[] systems = allKnownSystems();
         ResourceNetDebug.serverUpdateSystems(world, systems, dt);
-        for (String systemId : systems) {
-            world.activateSystem(systemId);
-            world.updateCurrentSystem(dt);
+        try {
+            for (String systemId : systems) {
+                world.activateSystem(systemId);
+                world.updateCurrentSystem(dt);
+            }
+        } finally {
+            world.activateSystem(old);
         }
-        world.activateSystem(old);
     }
 
     private String[] allKnownSystems() {

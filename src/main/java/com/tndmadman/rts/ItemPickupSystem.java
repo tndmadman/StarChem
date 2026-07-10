@@ -31,9 +31,9 @@ final class ItemPickupSystem {
             assigned.add(item);
             tractor(item, unit);
             tractorActive = true;
-            if (Calc.distance(unit.x, unit.y, item.x, item.y) <= item.pickupRange(unit)) transfer(item, unit);
+            if (Calc.distance(unit.x, unit.y, item.x, item.y) <= item.pickupRange(unit)) transfer(world, item, unit);
         }
-        if (tractorActive && PlayerRegistry.isLocal(unit.playerId)) playTractorPulse(unit);
+        if (tractorActive) playTractorPulse(world, unit);
     }
 
     private WorldItem nearestItem(World world, Unit unit, Set<WorldItem> assigned) {
@@ -62,22 +62,21 @@ final class ItemPickupSystem {
         item.vy = dy / dist * TRACTOR_PULL_PER_TICK;
     }
 
-    private void transfer(WorldItem item, Unit unit) {
+    private void transfer(World world, WorldItem item, Unit unit) {
         double take = item.take(unit.freeCargo());
         if (take <= EPS) return;
         unit.addCargo(item.material, take);
-        if (PlayerRegistry.isLocal(unit.playerId)) {
-            unit.unloadingThisFrame = true;
-            ProceduralAudio.play(SoundCue.ITEM_PICKUP);
-        }
+        if (PlayerRegistry.isLocal(unit.playerId)) unit.unloadingThisFrame = true;
+        SystemAudio.play(world, SoundCue.ITEM_PICKUP);
     }
 
-    private void playTractorPulse(Unit unit) {
+    private void playTractorPulse(World world, Unit unit) {
+        if (!SystemAudio.audible(world)) return;
         long now = System.nanoTime();
         String key = unit.key();
         long last = lastTractorSoundNanos.getOrDefault(key, 0L);
         if (now - last < TRACTOR_SOUND_COOLDOWN_NANOS) return;
         lastTractorSoundNanos.put(key, now);
-        ProceduralAudio.play(SoundCue.TRACTOR_BEAM);
+        SystemAudio.play(world, SoundCue.TRACTOR_BEAM);
     }
 }

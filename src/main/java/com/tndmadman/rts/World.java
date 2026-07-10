@@ -65,6 +65,7 @@ final class World {
             spawnShip(Rules.STARTING_SHIP, start.getX(), start.getY());
         }
         saveActiveSystem();
+        SystemAudio.listenTo(this);
         status = spawnLocalPlayer
                 ? "Entered " + starSystem.name() + ". Left-click a wormhole to view that system; ships travel on contact."
                 : "Waiting for player assignment in " + starSystem.name() + ".";
@@ -76,7 +77,7 @@ final class World {
     String systemName() { return starSystem.name(); }
     String activeSystemId() { return galaxy.activeSystemId(); }
     GalaxyMapSnapshot galaxyMapSnapshot() { return galaxy.mapSnapshot(this); }
-    boolean viewGalaxySystem(String systemId) { boolean viewed = galaxy.viewSystem(this, systemId); celestials = galaxy.activeCelestials(); systemTime = galaxy.activeSystemTime(); selectedResourceId = -1; return viewed; }
+    boolean viewGalaxySystem(String systemId) { boolean viewed = galaxy.viewSystem(this, systemId); celestials = galaxy.activeCelestials(); systemTime = galaxy.activeSystemTime(); selectedResourceId = -1; if (viewed) SystemAudio.listenTo(this); return viewed; }
     boolean hasLiveAssets(String playerId) { return galaxy.hasLiveAssets(this, playerId); }
     String playerHomeSystemId(String playerId) { return galaxy.playerHomeSystemId(this, playerId, starSystem); }
     void activateSystem(String systemId) { celestials = galaxy.activate(this, systemId); systemTime = galaxy.activeSystemTime(); }
@@ -102,6 +103,7 @@ final class World {
         celestials = galaxy.activeCelestials();
         systemTime = galaxy.activeSystemTime();
         selectedResourceId = -1;
+        if (viewed) SystemAudio.listenTo(this);
         return viewed;
     }
 
@@ -112,23 +114,46 @@ final class World {
         celestials = galaxy.activeCelestials();
         systemTime = galaxy.activeSystemTime();
         selectedResourceId = -1;
+        if (viewed) SystemAudio.listenTo(this);
         return viewed;
     }
 
     boolean transferTouchingShips() {
+        String sourceSystemId = activeSystemId();
+        Set<String> destinations = wormholeDestinationsTouching("");
         boolean moved = galaxy.transferTouchingShips(this);
         celestials = galaxy.activeCelestials();
         systemTime = galaxy.activeSystemTime();
-        if (moved) WormholeTransitNotice.play();
+        if (moved) {
+            WormholeTransitNotice.play(this, sourceSystemId);
+            for (String destination : destinations) WormholeTransitNotice.incoming(destination);
+        }
         return moved;
     }
 
     boolean transferTouchingShips(String playerId) {
+        String sourceSystemId = activeSystemId();
+        Set<String> destinations = wormholeDestinationsTouching(playerId);
         boolean moved = galaxy.transferTouchingShips(this, playerId);
         celestials = galaxy.activeCelestials();
         systemTime = galaxy.activeSystemTime();
-        if (moved && PlayerRegistry.isLocal(playerId)) WormholeTransitNotice.play();
+        if (moved) {
+            if (PlayerRegistry.isLocal(playerId)) WormholeTransitNotice.play(this, sourceSystemId);
+            for (String destination : destinations) WormholeTransitNotice.incoming(destination);
+        }
         return moved;
+    }
+
+    private Set<String> wormholeDestinationsTouching(String playerId) {
+        Set<String> destinations = new LinkedHashSet<>();
+        boolean allPlayers = playerId == null || playerId.isBlank();
+        for (Unit unit : units.values()) {
+            if (!allPlayers && !playerId.equals(unit.playerId)) continue;
+            if (unit.wormholeCooldown > 0) continue;
+            WormholeGate gate = wormholeAt(unit.x, unit.y);
+            if (gate != null && gate.toSystemId != null && !gate.toSystemId.isBlank()) destinations.add(gate.toSystemId);
+        }
+        return destinations;
     }
 
     boolean playerShipTouchingWormhole(String playerId) { if (playerId == null || playerId.isBlank()) return false; for (Unit unit : units.values()) if (playerId.equals(unit.playerId) && unit.wormholeCooldown <= 0 && wormholeAt(unit.x, unit.y) != null) return true; return false; }
@@ -165,10 +190,26 @@ final class World {
     void updateEnvironment(double dt) { advanceEnvironment(dt); updateItems(dt); updateExplosions(dt); }
     private void advanceEnvironment(double dt) { galaxy.update(this, dt); systemTime = galaxy.activeSystemTime(); celestials = galaxy.activeCelestials(); ResourceSpawner.update(resources, celestials, dt); ResourceNetDebug.worldTick(this, dt); }
     private void updateItems(double dt) { Iterator<WorldItem> it = items.iterator(); while (it.hasNext()) { WorldItem item = it.next(); item.update(dt, width, height); if (item.empty()) it.remove(); } }
-    void update(double dt) { update(dt, true); }
+    void update(double dt) { SystemAudio.listenTo(this); update(dt, true); }
     void updateCurrentSystem(double dt) { update(dt, false); }
     private void update(double dt, boolean updateInactiveSystems) { updateEnvironment(dt); resourceRespawnSystem.update(this, dt); StationFuelRules.consume(this, dt); logisticsSystem.update(this, dt); itemPickupSystem.update(this); scoutSystem.update(this); npcSystem.update(this, dt); for (Unit unit : new ArrayList<>(units.values())) updateUnit(unit, dt); transferTouchingShips(); weaponSystem.update(this, dt); cleanupDestroyed(); saveActiveSystem(); if (updateInactiveSystems) updateInactiveSystems(dt); }
-    private void updateInactiveSystems(double dt) { if (dt == 0) return; String previousSystemId = activeSystemId(); String previousStatus = status; GalaxyMapSnapshot snapshot = galaxyMapSnapshot(); if (snapshot.empty()) return; for (GalaxyMapSystem system : snapshot.systems()) { if (system == null || system.id() == null || system.id().isBlank() || system.id().equals(previousSystemId)) continue; activateSystem(system.id()); updateCurrentSystem(dt); } if (previousSystemId != null && !previousSystemId.isBlank()) activateSystem(previousSystemId); status = previousStatus; }
+    private void updateInactiveSystems(double dt) {
+        if (dt == 0) return;
+        String previousSystemId = activeSystemId();
+        String previousStatus = status;
+        GalaxyMapSnapshot snapshot = galaxyMapSnapshot();
+        if (snapshot.empty()) return;
+        try {
+            for (GalaxyMapSystem system : snapshot.systems()) {
+                if (system == null || system.id() == null || system.id().isBlank() || system.id().equals(previousSystemId)) continue;
+                activateSystem(system.id());
+                updateCurrentSystem(dt);
+            }
+        } finally {
+            if (previousSystemId != null && !previousSystemId.isBlank()) activateSystem(previousSystemId);
+            status = previousStatus;
+        }
+    }
     private void updateUnit(Unit unit, double dt) { unit.unloadingThisFrame = false; unit.wormholeCooldown = Math.max(0, unit.wormholeCooldown - dt); sendFullHarvestCargoToUnload(unit); autoUnload(unit, dt); haulerSystem.update(this, unit, dt); workSystem.update(this, unit, dt); UnitOrderSystem.update(this, unit, dt); if (unit.task == UnitTask.RETURN_TO_STATION) updateReturn(unit); if (unit.task == UnitTask.IDLE && unit.orderType == UnitOrderType.NONE) idleNearBase(unit, dt); if (unit.task == UnitTask.MOVE && Calc.distance(unit.x, unit.y, unit.targetX, unit.targetY) < 5) unit.task = UnitTask.IDLE; unit.updatePosition(dt, width, height); }
     private void sendFullHarvestCargoToUnload(Unit unit) { if (unit.type().harvestKinds.isEmpty() || unit.task == UnitTask.RETURN_TO_STATION || unit.cargoUsed() <= 0.05 || unit.freeCargo() > 0.05) return; sendToNearestBase(unit); }
     private void updateReturn(Unit unit) { Base base = nearestBase(unit.playerId, unit.x, unit.y); Unit depot = MobileDepot.preferredFor(this, unit, base); if (base == null && depot == null) { unit.task = UnitTask.IDLE; return; } if (unit.cargoUsed() <= 0.05) { ResourceNode resume = findResource(unit.automationResourceId); if (resume != null && resume.active) unit.task = UnitTask.AUTO_HARVEST; else if (!returnToMiningAnchor(unit)) unit.task = UnitTask.IDLE; return; } if (depot != null) moveTowardOrbit(unit, depot.x, depot.y, MobileDepot.range(depot) * 0.55); else moveTowardOrbit(unit, base.x, base.y, base.type().unloadRange * 0.55); }
@@ -180,8 +221,8 @@ final class World {
     private int nextUnitNumber(String playerId) { int next = 1; for (Unit unit : units.values()) if (unit.playerId.equals(playerId)) next = Math.max(next, unit.unitId + 1); return next; }
     ProjectileShot addShot(String ownerId, String weaponId, String targetKey, double x, double y) { ProjectileShot shot = new ProjectileShot(nextShotId++, ownerId, weaponId, targetKey, x, y); shots.add(shot); return shot; }
     WorldItem addWorldItem(Material material, double amount, double x, double y, double vx, double vy, double angle, double spin) { WorldItem item = new WorldItem(nextWorldItemId++, material, amount, x, y, vx, vy, angle, spin); if (!item.empty()) items.add(item); return item.empty() ? null : item; }
-    void explodeUnit(Unit unit) { if (unit != null) { explosions.add(ExplosionEffect.fromUnit(unit)); ProceduralAudio.playDestruction(unit.type().size.scale); } }
-    void explodeBase(Base base) { if (base != null) { explosions.add(ExplosionEffect.fromBase(base)); ProceduralAudio.playDestruction(Math.max(2.0, base.type().maxHp / 900.0)); } }
+    void explodeUnit(Unit unit) { if (unit != null) { explosions.add(ExplosionEffect.fromUnit(unit)); SystemAudio.playDestruction(this, unit.type().size.scale); } }
+    void explodeBase(Base base) { if (base != null) { explosions.add(ExplosionEffect.fromBase(base)); SystemAudio.playDestruction(this, Math.max(2.0, base.type().maxHp / 900.0)); } }
     private void updateExplosions(double dt) { Iterator<ExplosionEffect> it = explosions.iterator(); while (it.hasNext()) if (!it.next().update(dt)) it.remove(); }
     boolean buildShip(String baseId, String shipTypeId) { return buildSystem.buildShip(this, baseId, shipTypeId); }
     boolean loadBasePackage(String baseId, String packageType) { return buildSystem.loadBasePackage(this, baseId, packageType); }
