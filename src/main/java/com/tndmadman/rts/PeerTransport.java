@@ -69,7 +69,14 @@ final class PeerTransport {
 
     String unwrapReliable(NetPacket packet) {
         String message = packet.message();
-        if (message.startsWith("ACK|")) { pending.remove(message.substring(4)); return null; }
+        if (message.startsWith("ACK|")) {
+            PendingReliable acknowledged = pending.remove(message.substring(4));
+            if (acknowledged != null && acknowledged.lastSent() > 0) {
+                long elapsedMs = Math.max(0, System.currentTimeMillis() - acknowledged.lastSent());
+                perfStats.recordRtt(elapsedMs * 1_000_000L);
+            }
+            return null;
+        }
         if (!message.startsWith("REL|")) return message;
         String[] parts = message.split("\\|", 3);
         if (parts.length < 3) return null;
