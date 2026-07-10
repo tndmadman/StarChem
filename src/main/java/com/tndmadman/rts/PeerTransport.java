@@ -15,13 +15,17 @@ final class PeerTransport {
     private final Set<String> delivered = new LinkedHashSet<>();
     private final String prefix = Integer.toHexString(new SecureRandom().nextInt()).replace('-', 'N');
     private final PacketChunks packetChunks;
+    private final PerfStats perfStats;
     private boolean running = true;
     private long nextReliable = 1;
 
-    PeerTransport(DatagramSocket socket) throws SocketException {
+    PeerTransport(DatagramSocket socket) throws SocketException { this(socket, new PerfStats()); }
+
+    PeerTransport(DatagramSocket socket, PerfStats perfStats) throws SocketException {
         this.socket = socket;
+        this.perfStats = perfStats == null ? new PerfStats() : perfStats;
         this.socket.setSoTimeout(250);
-        this.packetChunks = new PacketChunks(prefix);
+        this.packetChunks = new PacketChunks(prefix, this.perfStats);
     }
 
     void start() {
@@ -33,10 +37,15 @@ final class PeerTransport {
     NetPacket poll() { return inbox.poll(); }
     int pendingCount() { return pending.size(); }
     int localPort() { return socket.getLocalPort(); }
+    PerfSnapshot perfSnapshot() { perfStats.setPendingReliable(pending.size()); return perfStats.snapshot(); }
 
     void send(String message, InetAddress address, int port) {
-        try { packetChunks.send(socket, message, address, port); }
-        catch (IOException ex) { if (running) System.err.println("Send failed: " + ex.getMessage()); }
+        try {
+            if (isSnapshot(message)) perfStats.recordSnapshotSent(utf8Length(message));
+            packetChunks.send(socket, message, address, port);
+        } catch (IOException ex) {
+            if (running) System.err.println("Send failed: " + ex.getMessage());
+        }
     }
 
     void reliable(String payload, InetAddress address, int port) {
@@ -49,7 +58,10 @@ final class PeerTransport {
     void resend(long now) {
         for (PendingReliable p : new ArrayList<>(pending.values())) {
             if (p.attempts() > 40) pending.remove(p.id());
-            else if (now - p.lastSent() >= RELIABLE_MS) sendReliable(p);
+            else if (now - p.lastSent() >= RELIABLE_MS) {
+                perfStats.recordReliableResend();
+                sendReliable(p);
+            }
         }
     }
 
@@ -81,11 +93,21 @@ final class PeerTransport {
             DatagramPacket p = new DatagramPacket(buf, buf.length);
             try {
                 socket.receive(p);
+                perfStats.recordPacketReceived(p.getLength());
                 String raw = new String(p.getData(), p.getOffset(), p.getLength(), StandardCharsets.UTF_8);
                 String message = packetChunks.receive(raw, p.getAddress(), p.getPort());
-                if (message != null) inbox.add(new NetPacket(message, p.getAddress(), p.getPort()));
+                if (message != null) {
+                    if (isSnapshot(message)) perfStats.recordSnapshotReceived(utf8Length(message));
+                    inbox.add(new NetPacket(message, p.getAddress(), p.getPort()));
+                }
             } catch (SocketTimeoutException ignored) { }
             catch (Exception ex) { if (running) System.err.println("UDP failed: " + ex.getMessage()); }
         }
     }
+
+    private boolean isSnapshot(String message) {
+        return message != null && (message.startsWith("SNAPSHOT|") || SyncFrame.matches(message));
+    }
+
+    private int utf8Length(String message) { return message.getBytes(StandardCharsets.UTF_8).length; }
 }
