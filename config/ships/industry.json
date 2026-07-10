@@ -11,7 +11,7 @@
       "harvestRange": 70,
       "orbitRadius": 84,
       "idleStationOrbitRadius": 120,
-      "buildTimeSeconds": 0,
+      "buildTimeSeconds": 10,
       "buildCost": { "IRON": 150, "COPPER": 60, "SILICATES": 80 },
       "canHarvest": []
     },
@@ -27,7 +27,7 @@
       "orbitRadius": 86,
       "idleStationOrbitRadius": 120,
       "scoutRange": 360,
-      "buildTimeSeconds": 0,
+      "buildTimeSeconds": 14,
       "buildCost": { "IRON": 180, "COPPER": 110, "SILICATES": 140, "ICE": 60 },
       "canHarvest": ["SILICATE_ROCK"]
     },
@@ -43,7 +43,7 @@
       "orbitRadius": 92,
       "idleStationOrbitRadius": 120,
       "scoutRange": 360,
-      "buildTimeSeconds": 0,
+      "buildTimeSeconds": 14,
       "buildCost": { "IRON": 120, "COPPER": 150, "SILICATES": 60, "ICE": 80, "HYDROGEN": 80 },
       "canHarvest": ["GAS_CLOUD"]
     },
@@ -58,7 +58,7 @@
       "harvestRange": 0,
       "orbitRadius": 110,
       "idleStationOrbitRadius": 155,
-      "buildTimeSeconds": 0,
+      "buildTimeSeconds": 24,
       "buildCost": { "IRON": 420, "COPPER": 200, "SILICATES": 300, "ICE": 140 },
       "canHarvest": []
     },
@@ -78,7 +78,7 @@
       "tractorRange": 360,
       "orbitRadius": 88,
       "idleStationOrbitRadius": 120,
-      "buildTimeSeconds": 0,
+      "buildTimeSeconds": 16,
       "buildCost": { "IRON": 160, "COPPER": 120, "SILICATES": 90 },
       "canHarvest": []
     }
