@@ -120,20 +120,40 @@ final class World {
 
     boolean transferTouchingShips() {
         String sourceSystemId = activeSystemId();
+        Set<String> destinations = wormholeDestinationsTouching("");
         boolean moved = galaxy.transferTouchingShips(this);
         celestials = galaxy.activeCelestials();
         systemTime = galaxy.activeSystemTime();
-        if (moved) WormholeTransitNotice.play(this, sourceSystemId);
+        if (moved) {
+            WormholeTransitNotice.play(this, sourceSystemId);
+            for (String destination : destinations) WormholeTransitNotice.incoming(destination);
+        }
         return moved;
     }
 
     boolean transferTouchingShips(String playerId) {
         String sourceSystemId = activeSystemId();
+        Set<String> destinations = wormholeDestinationsTouching(playerId);
         boolean moved = galaxy.transferTouchingShips(this, playerId);
         celestials = galaxy.activeCelestials();
         systemTime = galaxy.activeSystemTime();
-        if (moved && PlayerRegistry.isLocal(playerId)) WormholeTransitNotice.play(this, sourceSystemId);
+        if (moved) {
+            if (PlayerRegistry.isLocal(playerId)) WormholeTransitNotice.play(this, sourceSystemId);
+            for (String destination : destinations) WormholeTransitNotice.incoming(destination);
+        }
         return moved;
+    }
+
+    private Set<String> wormholeDestinationsTouching(String playerId) {
+        Set<String> destinations = new LinkedHashSet<>();
+        boolean allPlayers = playerId == null || playerId.isBlank();
+        for (Unit unit : units.values()) {
+            if (!allPlayers && !playerId.equals(unit.playerId)) continue;
+            if (unit.wormholeCooldown > 0) continue;
+            WormholeGate gate = wormholeAt(unit.x, unit.y);
+            if (gate != null && gate.toSystemId != null && !gate.toSystemId.isBlank()) destinations.add(gate.toSystemId);
+        }
+        return destinations;
     }
 
     boolean playerShipTouchingWormhole(String playerId) { if (playerId == null || playerId.isBlank()) return false; for (Unit unit : units.values()) if (playerId.equals(unit.playerId) && unit.wormholeCooldown <= 0 && wormholeAt(unit.x, unit.y) != null) return true; return false; }
@@ -209,7 +229,7 @@ final class World {
     boolean placePackage(Unit unit) { return buildSystem.placePackage(this, unit); }
     boolean craftItem(String baseId, String craftableId) { return buildSystem.craftItem(this, baseId, craftableId); }
     boolean research(String baseId, String topicId) { return buildSystem.research(this, baseId, topicId); }
-    void draw(Graphics2D g2) { drawMap(g2); galaxy.draw(this, g2); for (Base base : bases.values()) base.draw(g2, localColor, stockpile, true); for (ResourceNode node : resources) node.draw(g2, node.id == selectedResourceId); for (WorldItem item : items) item.draw(g2); for (Unit unit : units.values()) { ResourceNode node = findResource(unit.automationResourceId); if (MiningBeam.visible(unit, node)) UnitRenderer.drawWorkLine(g2, unit, node); if (shouldDrawRoute(unit)) UnitRenderer.drawRoute(g2, unit, localColor); UnitOrderRenderer.draw(g2, this, unit); } weaponSystem.draw(g2, this); for (ExplosionEffect explosion : explosions) explosion.draw(g2); for (Unit unit : units.values()) UnitRenderer.draw(g2, unit, localColor, true); }
+    void draw(Graphics2D g2) { drawMap(g2); galaxy.draw(this, g2); for (Base base : bases.values()) base.draw(g2, localColor, stockpile, true); for (ResourceNode node : resources) node.draw(g2, node.id == selectedResourceId); for (WorldItem item : items) item.draw(g2); for (Unit unit : units.values()) { ResourceNode node = findResource(unit.automationResourceId); if (MiningBeam.visible(unit, node)) UnitRenderer.drawWorkLine(g2, unit, node); if (shouldDrawRoute(unit)) UnitRenderer.drawRoute(g2, this, unit); } weaponSystem.draw(g2, this); for (ExplosionEffect explosion : explosions) explosion.draw(g2); for (Unit unit : units.values()) UnitRenderer.draw(g2, unit, localColor, true); }
     private boolean shouldDrawRoute(Unit unit) { return PlayerRegistry.isLocal(unit.playerId) && (unit.task == UnitTask.MOVE || unit.task == UnitTask.RETURN_TO_STATION || unit.task == UnitTask.ATTACK); }
     private void drawMap(Graphics2D g2) { galaxy.drawMap(g2, width, height); }
     void selectAt(double x, double y) { ResourceNode node = resourceAt(x, y); ResourceNetDebug.select(this, x, y, node); if (node != null) { selectedResourceId = node.id; status = "Targeted " + node.name + ". Right-click to auto-harvest."; return; } Unit unit = unitAt(x, y); for (Unit u : units.values()) u.selected = false; if (unit != null && PlayerRegistry.isLocal(unit.playerId)) { unit.selected = true; status = "Selected " + unit.type().name + " #" + unit.unitId + "."; } }
