@@ -30,7 +30,6 @@ final class PeerServerSide {
     void updateWorlds(double dt) {
         PlayerRegistry.activate(world);
         String old = world.activeSystemId();
-        SystemAudio.listenTo(world, old);
         String[] systems = allKnownSystems();
         ResourceNetDebug.serverUpdateSystems(world, systems, dt);
         try {
