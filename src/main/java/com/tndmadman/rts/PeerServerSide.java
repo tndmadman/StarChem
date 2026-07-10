@@ -19,13 +19,16 @@ final class PeerServerSide {
         this.config = config;
         this.world = world;
         this.transport = transport;
+        PlayerRegistry.activate(world);
     }
 
     String statusLine() {
-        return "HOST " + world.systemName() + " UDP " + transport.localPort() + " | clients " + peers.size() + " | pending " + transport.pendingCount() + (config.devMode ? " | dev host" : "");
+        String result = "HOST " + world.systemName() + " UDP " + transport.localPort() + " | clients " + peers.size() + " | pending " + transport.pendingCount();
+        return result + (config.devMode ? " | dev host" : "");
     }
 
     void updateWorlds(double dt) {
+        PlayerRegistry.activate(world);
         String old = world.activeSystemId();
         String[] systems = allKnownSystems();
         ResourceNetDebug.serverUpdateSystems(world, systems, dt);
@@ -51,11 +54,15 @@ final class PeerServerSide {
     }
 
     void tick(long now) {
+        PlayerRegistry.activate(world);
         removeTimedOut(now);
         if (now - lastSnapshot >= SNAPSHOT_MS) { broadcastNow(); lastSnapshot = now; }
     }
 
-    void handle(String message, NetPacket packet) { PeerServerPackets.handle(this, message, packet); }
+    void handle(String message, NetPacket packet) {
+        PlayerRegistry.activate(world);
+        PeerServerPackets.handle(this, message, packet);
+    }
     void broadcastNow() { sequence = PeerSyncBatch.send(world, views, PeerSyncTargets.array(peers.values()), sequence, transport::send); }
     void sendInitial(ServerPeer peer) { sequence = PeerSyncBatch.sendInitial(world, views, peer, sequence, transport::send); }
     void sendInitialTo(String endpoint) { sendInitial(peers.get(endpoint)); }
@@ -168,13 +175,12 @@ final class PeerServerSide {
         for (ServerPeer peer : peers.values()) transport.reliable(message, peer.address(), peer.port());
     }
 
+    private String normalizedName(String name) { return Config.clean(name).toLowerCase(Locale.ROOT); }
     private boolean nameInUse(String name) {
         String wanted = normalizedName(name);
         for (String peerName : peerNames.values()) if (wanted.equals(normalizedName(peerName))) return true;
         return false;
     }
-
-    private String normalizedName(String name) { return Config.clean(name).toLowerCase(Locale.ROOT); }
     private String joinDenied(String message) { return "JOIN_DENIED|" + packetPart(message); }
     private String packetPart(String value) { return value == null ? "" : value.replace('|', ' ').replace('\n', ' ').replace('\r', ' ').trim(); }
     boolean requestedDev(String[] parts) { return parts.length > 2 && flag(parts[2]); }
