@@ -20,6 +20,7 @@ final class PeerClientSide {
         this.config = config;
         this.world = world;
         this.transport = transport;
+        PlayerRegistry.activate(world);
     }
 
     String statusLine() {
@@ -33,6 +34,7 @@ final class PeerClientSide {
     String failureMessage() { return failureMessage.isBlank() ? "Connection failed." : failureMessage; }
 
     void tick(long now) {
+        PlayerRegistry.activate(world);
         if (joinFailed) return;
         if (!joined && now - joinStarted >= JOIN_TIMEOUT_MS) { failJoin(); return; }
         if (!joined && now - lastJoin >= HEARTBEAT_MS) { reliableToServer("JOIN|" + config.playerName + "|" + (config.devMode ? "DEV" : "NODEV")); lastJoin = now; }
@@ -40,10 +42,14 @@ final class PeerClientSide {
     }
 
     void shutdown() {
+        PlayerRegistry.activate(world);
         if (joined) for (int i = 0; i < 3; i++) sendToServer("LEAVE|" + localPlayerId);
     }
 
-    void handle(String message) { if (!readJoinDenied(message) && !readSystemDelete(message)) ClientPackets.handle(this, message); }
+    void handle(String message) {
+        PlayerRegistry.activate(world);
+        if (!readJoinDenied(message) && !readSystemDelete(message)) ClientPackets.handle(this, message);
+    }
     void move(MoveCommand c) { reliableToServer("MOVE|" + c.playerId() + "|" + c.unitId() + "|" + Calc.round(c.x()) + "|" + Calc.round(c.y())); }
     void work(HarvestCommand c) { ResourceNetDebug.clientWorkSend(world, c); reliableToServer("WORK|" + c.playerId() + "|" + c.unitId() + "|" + c.resourceId()); }
     void attack(AttackCommand c) { reliableToServer("ATTACK|" + c.playerId() + "|" + c.unitId() + "|" + c.targetKey()); }
