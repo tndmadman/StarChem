@@ -31,6 +31,6 @@ final class ResearchSystem {
     }
 
     static void update(World world, double dt) {
-        // Research is advanced by ProductionSystem with all other station jobs.
+        ProductionSystem.update(world, dt);
     }
 }
