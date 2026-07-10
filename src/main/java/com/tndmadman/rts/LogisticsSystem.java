@@ -191,10 +191,6 @@ final class LogisticsSystem {
                 continue;
             }
             if (!request.ready()) continue;
-            if (!StationFuelRules.isOperational(target)) {
-                target.logisticsStatus = target.type().name + " waiting on fuel: " + request.itemName;
-                continue;
-            }
             if (!HangarStore.canAfford(target.inventory, request.cost)) {
                 target.logisticsStatus = "Resources delivered; still short: " + request.itemName;
                 continue;
@@ -216,26 +212,17 @@ final class LogisticsSystem {
 
     private boolean finishShip(World world, Base target, LogisticsRequest request) {
         ShipType ship = Rules.ship(request.itemId);
-        HangarStore.spend(target.inventory, request.cost);
-        int n = nextUnitId(world, target.playerId);
-        double a = n * 1.35;
-        Unit unit = new Unit(target.playerId, n, request.itemId, target.x + Math.cos(a) * (target.type().buildRadius + 40), target.y + Math.sin(a) * (target.type().buildRadius + 40));
-        world.units.put(unit.key(), unit);
-        world.status = "Logistics delivered resources. Built " + ship.name + ".";
-        return true;
+        boolean queued = ProductionSystem.enqueueShip(world, target, ship, false);
+        if (queued) world.status = "Logistics delivered resources. Queued " + ship.name + ".";
+        return queued;
     }
 
     private boolean finishStationPackage(World world, Base target, LogisticsRequest request) {
-        Unit carrier = nearestEmptyBuilder(world, target);
-        if (carrier == null) {
-            target.logisticsStatus = "Resources ready; move empty Deployer in range.";
-            return false;
-        }
         BaseType station = Rules.base(request.itemId);
-        HangarStore.spend(target.inventory, request.cost);
-        carrier.basePackageType = request.itemId;
-        world.status = "Logistics delivered resources. Loaded " + station.name + " package into Deployer.";
-        return true;
+        boolean queued = ProductionSystem.enqueuePackage(world, target, station, false);
+        if (queued) world.status = "Logistics delivered resources. Queued " + station.name + " package.";
+        else target.logisticsStatus = "Resources ready; " + world.status;
+        return queued;
     }
 
     private boolean finishCraftable(World world, Base target, LogisticsRequest request) {
@@ -244,10 +231,9 @@ final class LogisticsSystem {
             world.status = "Logistics request failed: unknown craftable " + request.itemId + ".";
             return true;
         }
-        HangarStore.spend(target.inventory, request.cost);
-        HangarStore.add(target.inventory, item.outputMaterial, item.outputAmount);
-        world.status = "Logistics delivered resources. Manufactured " + item.outputLabel() + ".";
-        return true;
+        boolean queued = ProductionSystem.enqueueCraftable(world, target, item, false);
+        if (queued) world.status = "Logistics delivered resources. Queued " + item.name + ".";
+        return queued;
     }
 
     private boolean finishResearch(World world, Base target, LogisticsRequest request) {
@@ -256,10 +242,10 @@ final class LogisticsSystem {
             world.status = "Logistics request failed: unknown research " + request.itemId + ".";
             return true;
         }
-        if (world.hasResearch(target.playerId, topic.id) || ResearchSystem.active(world, target.playerId, topic.id)) return true;
-        HangarStore.spend(target.inventory, request.cost);
-        ResearchSystem.start(world, target, topic);
-        return true;
+        if (world.hasResearch(target.playerId, topic.id) || ProductionSystem.researchQueued(world, target.playerId, topic.id)) return true;
+        boolean queued = ProductionSystem.enqueueResearch(world, target, topic, false);
+        if (queued) world.status = "Logistics delivered resources. Queued " + topic.name + " research.";
+        return queued;
     }
 
     private void cleanupDeadRequests(World world) {
@@ -292,21 +278,6 @@ final class LogisticsSystem {
     private LogisticsRequest requestById(String id) {
         for (LogisticsRequest request : requests) if (request.id.equals(id)) return request;
         return null;
-    }
-
-    private Unit nearestEmptyBuilder(World world, Base base) {
-        Unit best = null;
-        double bestDist = Double.MAX_VALUE;
-        for (Unit unit : world.units.values()) {
-            if (!unit.playerId.equals(base.playerId)) continue;
-            if (!unit.type().baseBuilder || !unit.basePackageType.isBlank()) continue;
-            double d = Calc.distance(unit.x, unit.y, base.x, base.y);
-            if (d <= base.type().unloadRange && d < bestDist) {
-                best = unit;
-                bestDist = d;
-            }
-        }
-        return best;
     }
 
     private void moveToward(Unit shuttle, Base target) {
