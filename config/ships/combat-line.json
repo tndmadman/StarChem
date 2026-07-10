@@ -14,7 +14,7 @@
       "harvestRange": 0,
       "orbitRadius": 82,
       "idleStationOrbitRadius": 120,
-      "buildTimeSeconds": 0,
+      "buildTimeSeconds": 12,
       "buildCost": { "IRON": 160, "COPPER": 120, "SILICATES": 60 },
       "canHarvest": []
     },
@@ -32,7 +32,7 @@
       "harvestRange": 0,
       "orbitRadius": 95,
       "idleStationOrbitRadius": 130,
-      "buildTimeSeconds": 0,
+      "buildTimeSeconds": 18,
       "buildCost": { "IRON": 280, "COPPER": 190, "SILICATES": 120, "HYDROGEN": 40 },
       "canHarvest": []
     },
@@ -50,7 +50,7 @@
       "harvestRange": 0,
       "orbitRadius": 115,
       "idleStationOrbitRadius": 150,
-      "buildTimeSeconds": 0,
+      "buildTimeSeconds": 28,
       "buildCost": { "IRON": 520, "COPPER": 340, "SILICATES": 260, "ICE": 90, "HYDROGEN": 80 },
       "canHarvest": []
     },
@@ -68,7 +68,7 @@
       "harvestRange": 0,
       "orbitRadius": 135,
       "idleStationOrbitRadius": 175,
-      "buildTimeSeconds": 0,
+      "buildTimeSeconds": 40,
       "buildCost": { "IRON": 900, "COPPER": 520, "SILICATES": 450, "ICE": 160, "HYDROGEN": 130 },
       "canHarvest": []
     },
@@ -86,7 +86,7 @@
       "harvestRange": 0,
       "orbitRadius": 160,
       "idleStationOrbitRadius": 210,
-      "buildTimeSeconds": 0,
+      "buildTimeSeconds": 55,
       "buildCost": { "IRON": 1600, "COPPER": 850, "SILICATES": 900, "ICE": 320, "HYDROGEN": 220, "HELIUM": 90 },
       "canHarvest": []
     }
