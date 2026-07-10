@@ -11,12 +11,16 @@ final class Unit {
     String attackTarget = "";
     String logisticsTargetBaseId = "";
     String logisticsRequestId = "";
+    String orderTarget = "";
     UnitTask task = UnitTask.IDLE;
+    UnitOrderType orderType = UnitOrderType.NONE;
     double x, y, targetX, targetY, heading = -Math.PI / 2, orbitAngle, orbitRetarget;
     double weaponCooldown, weaponFlashTimer, wormholeCooldown;
     double hp, shield, shieldDelayTimer;
     double miningAnchorX, miningAnchorY;
+    double orderX1, orderY1, orderX2, orderY2, orderRadius;
     int automationResourceId = -1;
+    int orderPhase;
     boolean selected, unloadingThisFrame, miningAnchorSet;
 
     Unit(String playerId, int unitId, String shipTypeId, double x, double y) {
@@ -39,13 +43,23 @@ final class Unit {
     ShipType type() { return Rules.ship(shipTypeId); }
     boolean contains(double wx, double wy) { return Calc.distance(wx, wy, x, y) <= 28 * type().size.scale; }
 
+    void issueMove(double tx, double ty) {
+        clearOrder();
+        if (canAutoMineLocally()) setMiningAnchor(tx, ty);
+        moveTo(tx, ty);
+    }
+
     void moveTo(double tx, double ty) {
         targetX = tx;
         targetY = ty;
         task = UnitTask.MOVE;
         automationResourceId = -1;
         attackTarget = "";
-        if (canAutoMineLocally()) setMiningAnchor(tx, ty);
+    }
+
+    void issueAttack(String targetKey) {
+        clearOrder();
+        attack(targetKey);
     }
 
     void attack(String targetKey) {
@@ -55,9 +69,41 @@ final class Unit {
     }
 
     void startAutoHarvest(int resourceId) {
+        clearOrder();
         automationResourceId = resourceId;
         attackTarget = "";
         task = UnitTask.AUTO_HARVEST;
+    }
+
+    void setOrder(UnitOrderCommand command) {
+        if (command == null || command.type() == UnitOrderType.NONE) {
+            clearOrder();
+            return;
+        }
+        orderType = command.type();
+        orderX1 = command.x1();
+        orderY1 = command.y1();
+        orderX2 = command.x2();
+        orderY2 = command.y2();
+        orderRadius = command.radius();
+        orderTarget = command.targetKey();
+        orderPhase = command.phase();
+        automationResourceId = -1;
+        attackTarget = "";
+        logisticsTargetBaseId = "";
+        logisticsRequestId = "";
+        task = UnitTask.IDLE;
+    }
+
+    UnitOrderCommand orderCommand() {
+        return new UnitOrderCommand(playerId, unitId, orderType, orderX1, orderY1, orderX2, orderY2, orderRadius, orderTarget, orderPhase);
+    }
+
+    void clearOrder() {
+        orderType = UnitOrderType.NONE;
+        orderX1 = orderY1 = orderX2 = orderY2 = orderRadius = 0;
+        orderTarget = "";
+        orderPhase = 0;
     }
 
     void setMiningAnchor(double x, double y) {
