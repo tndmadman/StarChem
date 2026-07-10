@@ -341,7 +341,7 @@ final class BuildMenu {
         return Math.max(0, Math.min(offset, max));
     }
 
-    private boolean hasOverflow() { return entries.size() > scrollOffset + visibleRows; }
+    private boolean hasOverflow() { return scrollOffset > 0 || entries.size() > scrollOffset + visibleRows; }
 
     private Rectangle menuBounds() { return new Rectangle(x, y, WIDTH, menuHeight); }
 
