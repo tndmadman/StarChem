@@ -28,6 +28,7 @@
       "unloadRange": 150,
       "unloadRate": 160,
       "buildRadius": 100,
+      "buildTimeSeconds": 45,
       "buildCost": {
         "IRON": 500,
         "COPPER": 250,
@@ -68,6 +69,7 @@
       "unloadRange": 130,
       "unloadRate": 110,
       "buildRadius": 84,
+      "buildTimeSeconds": 35,
       "buildCost": {
         "IRON": 350,
         "COPPER": 220,
@@ -93,6 +95,7 @@
       "unloadRange": 145,
       "unloadRate": 145,
       "buildRadius": 96,
+      "buildTimeSeconds": 40,
       "buildCost": {
         "IRON": 450,
         "COPPER": 240,
