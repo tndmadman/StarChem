@@ -48,6 +48,7 @@ final class PeerClientSide {
 
     void handle(String message) {
         PlayerRegistry.activate(world);
+        if (readLeaderboard(message)) return;
         if (!readJoinDenied(message) && !readSystemDelete(message)) ClientPackets.handle(this, message);
     }
     void move(MoveCommand c) { reliableToServer("MOVE|" + c.playerId() + "|" + c.unitId() + "|" + Calc.round(c.x()) + "|" + Calc.round(c.y())); }
@@ -109,6 +110,12 @@ final class PeerClientSide {
         if (requestedView && snapshot.systemId() != null && !snapshot.systemId().isBlank()) viewedSystemId = snapshot.systemId();
         WorldNetAccess.applyFullView(world, snapshot);
         if (!requestedView && WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId)) viewedSystemId = world.activeSystemId();
+    }
+
+    private boolean readLeaderboard(String message) {
+        if (message == null || !message.startsWith("LEADER|")) return false;
+        GlobalLeaderboard.set(world, GlobalLeaderboard.decode(message));
+        return true;
     }
 
     private boolean readJoinDenied(String message) {
