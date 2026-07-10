@@ -18,5 +18,6 @@ enum SoundCue {
     RESOURCE_DEPLETED,
     TRACTOR_BEAM,
     ITEM_PICKUP,
+    WORMHOLE_ALERT,
     MUTE_OFF
 }
