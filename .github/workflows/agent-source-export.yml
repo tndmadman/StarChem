@@ -3,7 +3,7 @@ name: Agent Source Export
 on:
   pull_request:
     branches: [main]
-  workflow_dispatch:
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
