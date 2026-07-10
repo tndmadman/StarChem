@@ -198,8 +198,14 @@ final class ProductionSystem {
             ProductionJob job = base.productionQueue.get(i);
             if (!job.id.equals(jobId)) continue;
             base.productionQueue.remove(i);
-            if (job.resourcesReserved) refund(base, costFor(job));
-            world.status = "Cancelled " + displayName(job) + (job.resourcesReserved ? " and refunded reserved resources." : ".");
+            if (!validResearchOrder(world, base)) {
+                base.productionQueue.add(i, job);
+                world.status = "Cancel dependent research first.";
+                return false;
+            }
+            boolean refunded = job.resourcesReserved;
+            if (refunded) refund(base, costFor(job));
+            world.status = "Cancelled " + displayName(job) + (refunded ? " and refunded reserved resources." : ".");
             processBase(world, base, 0);
             return true;
         }
@@ -397,7 +403,8 @@ final class ProductionQueueCodec {
             if (!out.isEmpty()) out.append('~');
             out.append(clean(job.id)).append('^').append(job.kind.name()).append('^').append(clean(job.itemId)).append('^')
                     .append(job.duration).append('^').append(job.remaining).append('^')
-                    .append(job.resourcesReserved ? '1' : '0').append('^').append(clean(job.reservedUnitKey));
+                    .append(job.resourcesReserved ? '1' : '0').append('^').append(clean(job.reservedUnitKey)).append('^')
+                    .append(clean(job.blockedReason));
         }
         return out.toString();
     }
@@ -414,6 +421,7 @@ final class ProductionQueueCodec {
                 ProductionJobKind kind = ProductionJobKind.valueOf(c[1]);
                 ProductionJob job = new ProductionJob(id, kind, c[2], Double.parseDouble(c[3]),
                         Double.parseDouble(c[4]), "1".equals(c[5]), unclean(c[6]));
+                if (c.length >= 8) job.blockedReason = unclean(c[7]);
                 base.productionQueue.add(job);
                 base.nextProductionJobId = Math.max(base.nextProductionJobId, numericSuffix(id) + 1);
             } catch (RuntimeException ignored) { }
