@@ -12,6 +12,7 @@ final class LobbyPanel extends JPanel {
     private final JTextField portField = new JTextField("50000", 8);
     private final JComboBox<StarSystemDefinition> systemBox = new JComboBox<>();
     private final JCheckBox devBox = new JCheckBox("Dev mode");
+    private final JCheckBox disableTimersBox = new JCheckBox("Disable production timers", true);
     private final JCheckBox spawnRaidersBox = new JCheckBox("Raiders", true);
     private final JCheckBox spawnFreeMinersBox = new JCheckBox("Free Miners", true);
     private final JCheckBox spawnCorsairsBox = new JCheckBox("Corsair Syndicate", true);
@@ -28,9 +29,12 @@ final class LobbyPanel extends JPanel {
         styleCombo(systemBox);
         for (StarSystemDefinition system : StarSystems.options()) systemBox.addItem(system);
         styleCheck(devBox);
+        styleCheck(disableTimersBox);
         styleCheck(spawnRaidersBox);
         styleCheck(spawnFreeMinersBox);
         styleCheck(spawnCorsairsBox);
+        disableTimersBox.setEnabled(false);
+        devBox.addActionListener(e -> disableTimersBox.setEnabled(devBox.isSelected()));
 
         JLabel title = new JLabel("STAR  CHEM");
         title.setForeground(new Color(230, 248, 255));
@@ -55,6 +59,8 @@ final class LobbyPanel extends JPanel {
         box.add(systemBox);
         box.add(label("Options"));
         box.add(devBox);
+        box.add(label(""));
+        box.add(disableTimersBox);
         box.add(label("NPC Spawns"));
         box.add(spawnRaidersBox);
         box.add(label(""));
@@ -76,7 +82,7 @@ final class LobbyPanel extends JPanel {
         card.add(box, BorderLayout.CENTER);
         add(card, BorderLayout.CENTER);
 
-        solo.addActionListener(e -> owner.launchGame(Config.solo(nameField.getText(), devBox.isSelected(), disabledNpcFactions(), selectedSystemId())));
+        solo.addActionListener(e -> owner.launchGame(Config.solo(nameField.getText(), devBox.isSelected(), disableProductionTimers(), disabledNpcFactions(), selectedSystemId())));
         serve.addActionListener(e -> startServer());
         connect.addActionListener(e -> startClient());
     }
@@ -114,6 +120,10 @@ final class LobbyPanel extends JPanel {
         return selected instanceof StarSystemDefinition system ? system.id() : StarSystems.DEFAULT_SYSTEM_ID;
     }
 
+    private boolean disableProductionTimers() {
+        return devBox.isSelected() && disableTimersBox.isSelected();
+    }
+
     private Set<String> disabledNpcFactions() {
         Set<String> disabled = new LinkedHashSet<>();
         if (!spawnRaidersBox.isSelected()) disabled.add(Config.RAIDERS_ID);
@@ -123,12 +133,12 @@ final class LobbyPanel extends JPanel {
     }
 
     private void startServer() {
-        try { owner.launchGame(Config.host(nameField.getText(), Config.parsePort(portField.getText()), devBox.isSelected(), disabledNpcFactions(), selectedSystemId())); }
+        try { owner.launchGame(Config.host(nameField.getText(), Config.parsePort(portField.getText()), devBox.isSelected(), disableProductionTimers(), disabledNpcFactions(), selectedSystemId())); }
         catch (RuntimeException ex) { setStatus(ex.getMessage()); }
     }
 
     private void startClient() {
-        try { owner.launchGame(Config.join(nameField.getText(), addressField.getText().trim(), Config.parsePort(portField.getText()), devBox.isSelected(), disabledNpcFactions(), selectedSystemId())); }
+        try { owner.launchGame(Config.join(nameField.getText(), addressField.getText().trim(), Config.parsePort(portField.getText()), devBox.isSelected(), disableProductionTimers(), disabledNpcFactions(), selectedSystemId())); }
         catch (RuntimeException ex) { setStatus(ex.getMessage()); }
     }
 
