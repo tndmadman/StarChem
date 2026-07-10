@@ -111,7 +111,7 @@ final class PeerServerSide {
         world.setDevFreeBuild(id, devAllowed);
         WorldNetAccess.addPeerGroup(world, id);
         views.setHome(world, id);
-        transport.reliable(welcome(id, cleanName, rgb, devAllowed()), address, port);
+        transport.reliable(welcome(id, cleanName, rgb, devAllowed), address, port);
         transport.reliable(envMessage(), address, port);
         sendInitial(peer);
     }
