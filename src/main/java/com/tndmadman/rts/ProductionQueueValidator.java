@@ -73,6 +73,17 @@ public final class ProductionQueueValidator {
         ProductionSystem.update(world, 1000);
         require(world.hasResearch(playerId, "advanced_industry"), "first research did not complete");
         require(world.hasResearch(playerId, "combat_doctrine"), "chained research did not complete");
+
+        World instantWorld = new World("Instant Queue Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        String instantPlayerId = "INSTANT_TEST";
+        Base instantYard = base(instantWorld, instantPlayerId + ":B1", instantPlayerId, "shipyard", 100, 100);
+        fill(instantYard);
+        DevTimerSettings.configure(instantWorld, true);
+        require(instantWorld.buildShip(instantYard.id, "prospector"), "instant ship should enqueue");
+        require(instantYard.productionQueue.size() == 1, "instant ship queue missing before tick");
+        ResearchSystem.update(instantWorld, 0.016);
+        require(instantYard.productionQueue.isEmpty(), "disabled timers did not drain production");
+        require(countUnits(instantWorld, instantPlayerId, "prospector") == 1, "disabled timers did not produce ship");
     }
 
     private static Base base(World world, String id, String playerId, String typeId, double x, double y) {
