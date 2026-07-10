@@ -15,22 +15,12 @@ final class BuildSystem {
             world.status = shipType.name + " requires research" + (topic == null ? "." : ": " + topic.name + ".");
             return false;
         }
-        if (!StationFuelRules.isOperational(base)) {
-            world.status = base.type().name + " needs " + StationFuelRules.requirement(base.typeId).material().label + " to run.";
-            return false;
-        }
         if (!free && !HangarStore.canAfford(base.inventory, shipType.buildCost)) {
             if (world.logisticsSystem.queueBuildShip(world, base, shipType)) return true;
             world.status = "Need " + Rules.formatCost(shipType.buildCost) + " in " + base.type().name + " hangar.";
             return false;
         }
-        if (!free) HangarStore.spend(base.inventory, shipType.buildCost);
-        int n = nextUnitId(world, base.playerId);
-        double a = n * 1.35;
-        spawnShipFor(world, base.playerId, n, shipTypeId, base.x + Math.cos(a) * (base.type().buildRadius + 40), base.y + Math.sin(a) * (base.type().buildRadius + 40));
-        world.status = free ? "Dev built " + shipType.name + " for free." : "Built " + shipType.name + ".";
-        if (PlayerRegistry.isLocal(base.playerId)) ProceduralAudio.play(SoundCue.BUILD_SHIP);
-        return true;
+        return ProductionSystem.enqueueShip(world, base, shipType, free);
     }
 
     boolean loadBasePackage(World world, String baseId, String packageType) {
@@ -40,10 +30,6 @@ final class BuildSystem {
             world.status = base.type().name + " cannot craft that package.";
             return false;
         }
-        if (!StationFuelRules.isOperational(base)) {
-            world.status = base.type().name + " needs " + StationFuelRules.requirement(base.typeId).material().label + " to run.";
-            return false;
-        }
         BaseType pkg = Rules.base(packageType);
         boolean free = freeBuild(world, base);
         if (!free && !HangarStore.canAfford(base.inventory, pkg.buildCost)) {
@@ -51,16 +37,7 @@ final class BuildSystem {
             world.status = "Need " + Rules.formatCost(pkg.buildCost) + " in " + base.type().name + " hangar.";
             return false;
         }
-        Unit carrier = nearestEmptyBuilder(world, base);
-        if (carrier == null) {
-            world.status = "Move an empty Deployer into base range first.";
-            return false;
-        }
-        if (!free) HangarStore.spend(base.inventory, pkg.buildCost);
-        carrier.basePackageType = packageType;
-        world.status = free ? "Dev loaded " + pkg.name + " package for free." : "Loaded " + pkg.name + " package into Deployer.";
-        if (PlayerRegistry.isLocal(base.playerId)) ProceduralAudio.play(SoundCue.PACKAGE_LOAD);
-        return true;
+        return ProductionSystem.enqueuePackage(world, base, pkg, free);
     }
 
     boolean placePackage(World world, Unit carrier) {
@@ -89,21 +66,13 @@ final class BuildSystem {
             world.status = base.type().name + " cannot manufacture " + item.name + ".";
             return false;
         }
-        if (!StationFuelRules.isOperational(base)) {
-            world.status = base.type().name + " needs " + StationFuelRules.requirement(base.typeId).material().label + " to run.";
-            return false;
-        }
         boolean free = freeBuild(world, base);
         if (!free && !HangarStore.canAfford(base.inventory, item.requiredResources)) {
             if (world.logisticsSystem.queueCraftable(world, base, item)) return true;
             world.status = "Need " + Rules.formatCost(item.requiredResources) + " in " + base.type().name + " hangar.";
             return false;
         }
-        if (!free) HangarStore.spend(base.inventory, item.requiredResources);
-        HangarStore.add(base.inventory, item.outputMaterial, item.outputAmount);
-        world.status = free ? "Dev manufactured " + item.outputLabel() + " for free." : "Manufactured " + item.outputLabel() + ".";
-        if (PlayerRegistry.isLocal(base.playerId)) ProceduralAudio.play(SoundCue.CRAFT_ITEM);
-        return true;
+        return ProductionSystem.enqueueCraftable(world, base, item, free);
     }
 
     boolean research(World world, String baseId, String topicId) {
@@ -122,17 +91,13 @@ final class BuildSystem {
             world.status = topic.name + " already researched.";
             return false;
         }
-        if (ResearchSystem.active(world, base.playerId, topic.id)) {
-            world.status = topic.name + " is already researching.";
+        if (ProductionSystem.researchQueued(world, base.playerId, topic.id)) {
+            world.status = topic.name + " is already queued.";
             return false;
         }
-        String missing = ResearchRules.missingPrerequisite(world, base.playerId, topic);
+        String missing = ProductionSystem.missingResearchPrerequisite(world, base, topic);
         if (!missing.isBlank()) {
             world.status = topic.name + " requires " + missing + " first.";
-            return false;
-        }
-        if (!StationFuelRules.isOperational(base)) {
-            world.status = base.type().name + " needs " + StationFuelRules.requirement(base.typeId).material().label + " to run.";
             return false;
         }
         boolean free = freeBuild(world, base);
@@ -141,40 +106,11 @@ final class BuildSystem {
             world.status = "Need " + Rules.formatCost(topic.requiredResources) + " in " + base.type().name + " hangar.";
             return false;
         }
-        if (!free) HangarStore.spend(base.inventory, topic.requiredResources);
-        ResearchSystem.start(world, base, topic);
-        if (PlayerRegistry.isLocal(base.playerId)) ProceduralAudio.play(SoundCue.CRAFT_ITEM);
-        return true;
+        return ProductionSystem.enqueueResearch(world, base, topic, free);
     }
 
     private boolean freeBuild(World world, Base base) {
         return world.devFreeBuildFor(base.playerId);
-    }
-
-    private Unit nearestEmptyBuilder(World world, Base base) {
-        Unit best = null;
-        double bestDist = Double.MAX_VALUE;
-        for (Unit unit : world.units.values()) {
-            if (!unit.playerId.equals(base.playerId)) continue;
-            if (!unit.type().baseBuilder || !unit.basePackageType.isBlank()) continue;
-            double d = Calc.distance(unit.x, unit.y, base.x, base.y);
-            if (d <= base.type().unloadRange && d < bestDist) {
-                best = unit;
-                bestDist = d;
-            }
-        }
-        return best;
-    }
-
-    private void spawnShipFor(World world, String playerId, int unitId, String type, double x, double y) {
-        Unit unit = new Unit(playerId, unitId, type, x, y);
-        world.units.put(unit.key(), unit);
-    }
-
-    private int nextUnitId(World world, String playerId) {
-        int max = 0;
-        for (Unit unit : world.units.values()) if (unit.playerId.equals(playerId)) max = Math.max(max, unit.unitId);
-        return max + 1;
     }
 
     private String nextBaseId(World world, String playerId) {
