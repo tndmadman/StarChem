@@ -21,6 +21,14 @@ final class SnapshotSmoother {
         unit.shield = state.shield();
         unit.attackTarget = state.attackTarget();
         unit.weaponFlashTimer = state.weaponFlashTimer();
+        unit.orderType = safeOrder(state.orderType());
+        unit.orderX1 = state.orderX1();
+        unit.orderY1 = state.orderY1();
+        unit.orderX2 = state.orderX2();
+        unit.orderY2 = state.orderY2();
+        unit.orderRadius = state.orderRadius();
+        unit.orderTarget = state.orderTarget();
+        unit.orderPhase = state.orderPhase();
         CargoCodec.readInto(state.cargo(), unit.inventory);
     }
 
@@ -53,5 +61,10 @@ final class SnapshotSmoother {
     private static UnitTask safeTask(String task, UnitTask fallback) {
         try { return UnitTask.valueOf(task); }
         catch (Exception ignored) { return fallback; }
+    }
+
+    private static UnitOrderType safeOrder(String order) {
+        try { return UnitOrderType.valueOf(order); }
+        catch (Exception ignored) { return UnitOrderType.NONE; }
     }
 }
