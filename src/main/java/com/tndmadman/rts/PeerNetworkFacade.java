@@ -8,12 +8,14 @@ final class PeerNetwork implements CommandSink {
     private final PeerTransport transport;
     private final PeerServerSide server;
     private final PeerClientSide client;
+    private final PerfStats perfStats;
 
-    private PeerNetwork(Config config, PeerTransport transport, PeerServerSide server, PeerClientSide client) {
+    private PeerNetwork(Config config, PeerTransport transport, PeerServerSide server, PeerClientSide client, PerfStats perfStats) {
         this.config = config;
         this.transport = transport;
         this.server = server;
         this.client = client;
+        this.perfStats = perfStats;
     }
 
     static PeerNetwork start(Config config, World world) throws IOException {
@@ -28,7 +30,8 @@ final class PeerNetwork implements CommandSink {
             throw new IOException("Could not resolve server host: " + config.serverAddress.getHostString());
         }
         DatagramSocket socket = config.hostMode ? new DatagramSocket(config.port) : new DatagramSocket();
-        PeerTransport transport = new PeerTransport(socket);
+        PerfStats perfStats = new PerfStats();
+        PeerTransport transport = new PeerTransport(socket, perfStats);
         PeerServerSide server = null;
         PeerClientSide client = null;
         if (config.hostMode) {
@@ -45,14 +48,22 @@ final class PeerNetwork implements CommandSink {
             client = new PeerClientSide(config, world, transport);
         }
         transport.start();
-        return new PeerNetwork(config, transport, server, client);
+        return new PeerNetwork(config, transport, server, client, perfStats);
     }
 
     String statusLine() { return server != null ? server.statusLine() : client.statusLine(); }
     String localPlayerId() { return client != null ? client.localPlayerId() : "SOLO"; }
     boolean connectionFailed() { return client != null && client.connectionFailed(); }
     String failureMessage() { return client != null ? client.failureMessage() : "Connection failed."; }
-    void updateServerWorlds(double dt) { if (server != null) server.updateWorlds(dt); }
+    PerfSnapshot perfSnapshot() { return transport.perfSnapshot(); }
+
+    void updateServerWorlds(double dt) {
+        if (server == null) return;
+        long started = System.nanoTime();
+        server.updateWorlds(dt);
+        perfStats.recordServerUpdate(System.nanoTime() - started);
+    }
+
     boolean devToolsAllowed() { return server != null ? config.devMode : client != null && client.devToolsAllowed(); }
 
     void devSetFreeCrafting(String playerId, boolean enabled) {
@@ -74,17 +85,22 @@ final class PeerNetwork implements CommandSink {
     }
 
     void tick() {
-        long now = System.currentTimeMillis();
-        NetPacket packet;
-        while ((packet = transport.poll()) != null) {
-            String message = transport.unwrapReliable(packet);
-            if (message == null) continue;
-            if (server != null) server.handle(message, packet);
-            else client.handle(message);
+        long started = System.nanoTime();
+        try {
+            long now = System.currentTimeMillis();
+            NetPacket packet;
+            while ((packet = transport.poll()) != null) {
+                String message = transport.unwrapReliable(packet);
+                if (message == null) continue;
+                if (server != null) server.handle(message, packet);
+                else client.handle(message);
+            }
+            transport.resend(now);
+            if (server != null) server.tick(now);
+            else client.tick(now);
+        } finally {
+            perfStats.recordNetwork(System.nanoTime() - started);
         }
-        transport.resend(now);
-        if (server != null) server.tick(now);
-        else client.tick(now);
     }
 
     void shutdown() {
