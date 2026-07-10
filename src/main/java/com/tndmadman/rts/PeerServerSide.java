@@ -26,13 +26,27 @@ final class PeerServerSide {
 
     void updateWorlds(double dt) {
         String old = world.activeSystemId();
-        String[] systems = views.systems(world);
+        String[] systems = allKnownSystems();
         ResourceNetDebug.serverUpdateSystems(world, systems, dt);
         for (String systemId : systems) {
             world.activateSystem(systemId);
             world.updateCurrentSystem(dt);
         }
         world.activateSystem(old);
+    }
+
+    private String[] allKnownSystems() {
+        Set<String> out = new LinkedHashSet<>();
+        GalaxyMapSnapshot snapshot = world.galaxyMapSnapshot();
+        if (snapshot != null && !snapshot.empty()) {
+            for (GalaxyMapSystem system : snapshot.systems()) {
+                if (system == null || system.id() == null || system.id().isBlank()) continue;
+                out.add(system.id());
+            }
+        }
+        if (out.isEmpty()) out.add(world.activeSystemId());
+        out.removeIf(systemId -> systemId == null || systemId.isBlank() || systemId.contains("WAIT"));
+        return out.toArray(new String[0]);
     }
 
     void tick(long now) {
