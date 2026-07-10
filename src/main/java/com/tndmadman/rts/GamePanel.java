@@ -24,6 +24,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final AiDevPanel aiDevPanel = new AiDevPanel();
     private final AiDevOverlay aiDevOverlay = new AiDevOverlay();
     private final GalaxyMapOverlay galaxyMapOverlay = new GalaxyMapOverlay();
+    private final PerfStats perfStats = new PerfStats();
+    private final PerfOverlay perfOverlay = new PerfOverlay();
     private final boolean devMode;
     private FleetFormation formation = FleetFormation.GRID;
     private Point dragStart;
@@ -31,6 +33,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private long lastNanos = System.nanoTime();
     private boolean cameraLeft, cameraRight, cameraUp, cameraDown;
     private boolean galaxyMapOpen;
+    private boolean perfOverlayVisible;
 
     GamePanel(World world, GameFrame owner) { this(world, owner, null, false, null); }
     GamePanel(World world, GameFrame owner, PeerNetwork network) { this(world, owner, network, false, null); }
@@ -61,9 +64,11 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         long now = System.nanoTime();
         double dt = Math.min(0.05, (now - lastNanos) / 1_000_000_000.0);
         lastNanos = now;
+        long updateStarted = System.nanoTime();
         if (server != null) server.tick(dt);
         else if (client != null) client.tick(dt);
         else world.update(dt);
+        perfStats.recordUpdate(System.nanoTime() - updateStarted);
         if (!galaxyMapOpen) updateCameraControls(dt);
         camera.update(world, getWidth(), getHeight(), dt);
         repaint();
@@ -79,6 +84,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     }
 
     @Override protected void paintComponent(Graphics g) {
+        long paintStarted = System.nanoTime();
+        perfStats.frameStarted(paintStarted);
         super.paintComponent(g);
         Graphics2D g2 = (Graphics2D) g.create();
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -96,7 +103,19 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         if (devMode) { devMenu.draw(g2, world, canEditDev()); aiDevPanel.draw(g2, world, canEditDev()); }
         buildMenu.draw(g2);
         if (galaxyMapOpen) galaxyMapOverlay.draw(g2, world.galaxyMapSnapshot(), getWidth(), getHeight());
+        if (devMode && perfOverlayVisible) {
+            PerfSnapshot networkStats = network == null ? null : network.perfSnapshot();
+            PerfSnapshot hostStats = devAuthorityNetwork == null ? null : devAuthorityNetwork.perfSnapshot();
+            perfOverlay.draw(g2, world, getWidth(), updateLabel(), perfStats.snapshot(), networkStats, hostStats);
+        }
         g2.dispose();
+        perfStats.recordDraw(System.nanoTime() - paintStarted);
+    }
+
+    private String updateLabel() {
+        if (network == null) return "Solo world update";
+        if (devAuthorityNetwork != null || network.statusLine().startsWith("CLIENT")) return "Client prediction";
+        return "World update";
     }
 
     private void drawHud(Graphics2D g2) {
@@ -110,7 +129,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         g2.drawString(network == null ? "Solo" : network.statusLine(), 28, 80);
         String minerRanges = UnitRenderer.miningRangeOverlayVisible() ? "ON" : "OFF";
         String audio = ProceduralAudio.muted() ? "OFF" : "ON";
-        g2.drawString("Galaxy map: M | Left-click wormhole to view system | Right-click wormhole sends ships straight in | Formation: " + formation.label + " (F) | Miner ranges: " + minerRanges + " (R) | Audio: " + audio + " (Ctrl+M)", 28, 102);
+        String perf = devMode ? " | Performance: F4" : "";
+        g2.drawString("Galaxy map: M | Left-click wormhole to view system | Right-click wormhole sends ships straight in | Formation: " + formation.label + " (F) | Miner ranges: " + minerRanges + " (R) | Audio: " + audio + " (Ctrl+M)" + perf, 28, 102);
     }
 
     private void drawSelectionBox(Graphics2D g2) {
@@ -280,6 +300,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         if (galaxyMapOpen && e.getKeyCode() == KeyEvent.VK_ESCAPE) { closeGalaxyMap(); return; }
         if (galaxyMapOpen) return;
         if (devMode && e.getKeyCode() == KeyEvent.VK_F3) { AiDevSettings.overlay = !AiDevSettings.overlay; world.status = "AI debug overlay: " + (AiDevSettings.overlay ? "ON" : "OFF") + "."; repaint(); return; }
+        if (devMode && e.getKeyCode() == KeyEvent.VK_F4) { perfOverlayVisible = !perfOverlayVisible; world.status = "Performance overlay: " + (perfOverlayVisible ? "ON" : "OFF") + "."; repaint(); return; }
         if (e.getKeyCode() == KeyEvent.VK_F) { formation = formation.next(); world.status = "Fleet formation: " + formation.label + "."; ProceduralAudio.play(SoundCue.SELECT); return; }
         if (e.getKeyCode() == KeyEvent.VK_R) { UnitRenderer.toggleMiningRangeOverlay(); world.status = "Miner range overlay: " + (UnitRenderer.miningRangeOverlayVisible() ? "ON" : "OFF") + "."; ProceduralAudio.play(SoundCue.SELECT); repaint(); return; }
         setCameraKey(e.getKeyCode(), true);

@@ -18,15 +18,19 @@ final class PacketChunks {
 
     private final String idPrefix;
     private final Map<String, Assembly> assemblies = new LinkedHashMap<>();
+    private final PerfStats perfStats;
 
-    PacketChunks(String idPrefix) {
+    PacketChunks(String idPrefix) { this(idPrefix, null); }
+
+    PacketChunks(String idPrefix, PerfStats perfStats) {
         this.idPrefix = idPrefix == null || idPrefix.isBlank() ? "" : idPrefix + '-';
+        this.perfStats = perfStats;
     }
 
     void send(DatagramSocket socket, String message, InetAddress address, int port) throws IOException {
         byte[] bytes = message.getBytes(StandardCharsets.UTF_8);
         if (bytes.length <= MAX_BYTES) {
-            socket.send(new DatagramPacket(bytes, bytes.length, address, port));
+            sendDatagram(socket, bytes, address, port);
             return;
         }
         String id = idPrefix + Long.toHexString(System.nanoTime()) + Integer.toHexString(message.hashCode());
@@ -36,7 +40,7 @@ final class PacketChunks {
             int end = Math.min(message.length(), start + CHUNK_CHARS);
             String chunk = "CHUNK|" + id + "|" + i + "|" + total + "|" + message.substring(start, end);
             byte[] chunkBytes = chunk.getBytes(StandardCharsets.UTF_8);
-            socket.send(new DatagramPacket(chunkBytes, chunkBytes.length, address, port));
+            sendDatagram(socket, chunkBytes, address, port);
         }
     }
 
@@ -75,6 +79,11 @@ final class PacketChunks {
             out.append(part);
         }
         return out.toString();
+    }
+
+    private void sendDatagram(DatagramSocket socket, byte[] bytes, InetAddress address, int port) throws IOException {
+        socket.send(new DatagramPacket(bytes, bytes.length, address, port));
+        if (perfStats != null) perfStats.recordPacketSent(bytes.length);
     }
 
     private void trimAssemblies(long now) {
