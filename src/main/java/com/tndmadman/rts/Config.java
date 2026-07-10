@@ -13,18 +13,21 @@ final class Config {
     final boolean hostMode;
     final boolean dedicatedServer;
     final boolean devMode;
+    final boolean disableProductionTimers;
     final int port;
     final InetSocketAddress serverAddress;
     final Set<String> disabledNpcFactionIds;
     final String systemId;
 
-    private Config(String playerName, boolean showLobby, boolean hostMode, boolean dedicatedServer, boolean devMode, int port,
-                   InetSocketAddress serverAddress, Set<String> disabledNpcFactionIds, String systemId) {
+    private Config(String playerName, boolean showLobby, boolean hostMode, boolean dedicatedServer, boolean devMode,
+                   boolean disableProductionTimers, int port, InetSocketAddress serverAddress,
+                   Set<String> disabledNpcFactionIds, String systemId) {
         this.playerName = playerName;
         this.showLobby = showLobby;
         this.hostMode = hostMode;
         this.dedicatedServer = dedicatedServer;
         this.devMode = devMode;
+        this.disableProductionTimers = devMode && disableProductionTimers;
         this.port = port;
         this.serverAddress = serverAddress;
         this.disabledNpcFactionIds = disabledNpcFactionIds == null ? Set.of() : Set.copyOf(disabledNpcFactionIds);
@@ -38,13 +41,16 @@ final class Config {
         boolean host = false;
         boolean dedicated = false;
         boolean dev = false;
+        boolean disableProductionTimers = false;
         int port = 0;
         InetSocketAddress server = null;
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--name", "--id" -> { if (i + 1 < args.length) name = clean(args[++i]); }
                 case "--system" -> { if (i + 1 < args.length) system = cleanSystem(args[++i]); }
-                case "--dev" -> dev = true;
+                case "--dev" -> { dev = true; disableProductionTimers = true; }
+                case "--disable-timers" -> disableProductionTimers = true;
+                case "--enable-timers" -> disableProductionTimers = false;
                 case "--server" -> { dedicated = true; host = true; if (i + 1 < args.length && !args[i + 1].startsWith("--")) port = parsePort(args[++i]); }
                 case "--host" -> { if (i + 1 < args.length) { host = true; port = parsePort(args[++i]); } }
                 case "--join" -> {
@@ -58,13 +64,13 @@ final class Config {
                 default -> { }
             }
         }
-        if (dedicated) return dedicatedServer(name, port == 0 ? 50000 : port, dev, Set.of(), system);
-        if (host) return host(name, port == 0 ? 50000 : port, dev, Set.of(), system);
-        if (server != null) return join(name, server.getHostString(), server.getPort(), dev, Set.of(), system);
-        return solo(name, dev, Set.of(), system);
+        if (dedicated) return dedicatedServer(name, port == 0 ? 50000 : port, dev, disableProductionTimers, Set.of(), system);
+        if (host) return host(name, port == 0 ? 50000 : port, dev, disableProductionTimers, Set.of(), system);
+        if (server != null) return join(name, server.getHostString(), server.getPort(), dev, disableProductionTimers, Set.of(), system);
+        return solo(name, dev, disableProductionTimers, Set.of(), system);
     }
 
-    static Config lobby() { return new Config(defaultName(), true, false, false, false, 0, null, Set.of(), StarSystems.DEFAULT_SYSTEM_ID); }
+    static Config lobby() { return new Config(defaultName(), true, false, false, false, false, 0, null, Set.of(), StarSystems.DEFAULT_SYSTEM_ID); }
     static Config solo(String name) { return solo(name, false); }
     static Config host(String name, int port) { return host(name, port, false); }
     static Config join(String name, String host, int port) { return join(name, host, port, false); }
@@ -74,10 +80,14 @@ final class Config {
     static Config solo(String name, boolean dev, Set<String> disabledNpcFactionIds) { return solo(name, dev, disabledNpcFactionIds, StarSystems.DEFAULT_SYSTEM_ID); }
     static Config host(String name, int port, boolean dev, Set<String> disabledNpcFactionIds) { return host(name, port, dev, disabledNpcFactionIds, StarSystems.DEFAULT_SYSTEM_ID); }
     static Config join(String name, String host, int port, boolean dev, Set<String> disabledNpcFactionIds) { return join(name, host, port, dev, disabledNpcFactionIds, StarSystems.DEFAULT_SYSTEM_ID); }
-    static Config solo(String name, boolean dev, Set<String> disabledNpcFactionIds, String systemId) { return new Config(clean(name), false, false, false, dev, 0, null, disabledNpcFactionIds, systemId); }
-    static Config host(String name, int port, boolean dev, Set<String> disabledNpcFactionIds, String systemId) { return new Config(clean(name), false, true, false, dev, port, null, disabledNpcFactionIds, systemId); }
-    static Config dedicatedServer(String name, int port, boolean dev, Set<String> disabledNpcFactionIds, String systemId) { return new Config(clean(name), false, true, true, dev, port, null, disabledNpcFactionIds, systemId); }
-    static Config join(String name, String host, int port, boolean dev, Set<String> disabledNpcFactionIds, String systemId) { return new Config(clean(name), false, false, false, dev, 0, new InetSocketAddress(host, port), disabledNpcFactionIds, systemId); }
+    static Config solo(String name, boolean dev, Set<String> disabledNpcFactionIds, String systemId) { return solo(name, dev, dev, disabledNpcFactionIds, systemId); }
+    static Config host(String name, int port, boolean dev, Set<String> disabledNpcFactionIds, String systemId) { return host(name, port, dev, dev, disabledNpcFactionIds, systemId); }
+    static Config dedicatedServer(String name, int port, boolean dev, Set<String> disabledNpcFactionIds, String systemId) { return dedicatedServer(name, port, dev, dev, disabledNpcFactionIds, systemId); }
+    static Config join(String name, String host, int port, boolean dev, Set<String> disabledNpcFactionIds, String systemId) { return join(name, host, port, dev, dev, disabledNpcFactionIds, systemId); }
+    static Config solo(String name, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId) { return new Config(clean(name), false, false, false, dev, disableProductionTimers, 0, null, disabledNpcFactionIds, systemId); }
+    static Config host(String name, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId) { return new Config(clean(name), false, true, false, dev, disableProductionTimers, port, null, disabledNpcFactionIds, systemId); }
+    static Config dedicatedServer(String name, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId) { return new Config(clean(name), false, true, true, dev, disableProductionTimers, port, null, disabledNpcFactionIds, systemId); }
+    static Config join(String name, String host, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId) { return new Config(clean(name), false, false, false, dev, disableProductionTimers, 0, new InetSocketAddress(host, port), disabledNpcFactionIds, systemId); }
 
     NetworkRole role() {
         if (hostMode) return NetworkRole.SERVER;
