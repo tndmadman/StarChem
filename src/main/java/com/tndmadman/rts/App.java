@@ -1,11 +1,13 @@
 package com.tndmadman.rts;
 
+import java.nio.file.Path;
 import javax.swing.SwingUtilities;
 
 public final class App {
     private App() { }
     public static void main(String[] args) {
         Config config = Config.parse(args);
+        if (config.devMode) RulesValidator.validateOrThrow(Path.of("config/starchem.json"));
         ResourceNetDebug.resetLogs(config);
         if (config.dedicatedServerMode()) {
             int exitCode = runServer(config);
