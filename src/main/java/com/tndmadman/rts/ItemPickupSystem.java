@@ -33,7 +33,7 @@ final class ItemPickupSystem {
             tractorActive = true;
             if (Calc.distance(unit.x, unit.y, item.x, item.y) <= item.pickupRange(unit)) transfer(world, item, unit);
         }
-        if (tractorActive && PlayerRegistry.isLocal(unit.playerId)) playTractorPulse(world, unit);
+        if (tractorActive) playTractorPulse(world, unit);
     }
 
     private WorldItem nearestItem(World world, Unit unit, Set<WorldItem> assigned) {
@@ -66,13 +66,12 @@ final class ItemPickupSystem {
         double take = item.take(unit.freeCargo());
         if (take <= EPS) return;
         unit.addCargo(item.material, take);
-        if (PlayerRegistry.isLocal(unit.playerId)) {
-            unit.unloadingThisFrame = true;
-            SystemAudio.play(world, SoundCue.ITEM_PICKUP);
-        }
+        if (PlayerRegistry.isLocal(unit.playerId)) unit.unloadingThisFrame = true;
+        SystemAudio.play(world, SoundCue.ITEM_PICKUP);
     }
 
     private void playTractorPulse(World world, Unit unit) {
+        if (!SystemAudio.audible(world)) return;
         long now = System.nanoTime();
         String key = unit.key();
         long last = lastTractorSoundNanos.getOrDefault(key, 0L);
