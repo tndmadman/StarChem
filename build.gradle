@@ -15,6 +15,18 @@ application {
     mainClass = 'com.tndmadman.rts.App'
 }
 
+tasks.register('validateRules', JavaExec) {
+    group = 'verification'
+    description = 'Validate StarChem rules and config files.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.RulesValidator'
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('validateRules')
+}
+
 tasks.named('jar') {
     manifest {
         attributes('Main-Class': application.mainClass.get())
