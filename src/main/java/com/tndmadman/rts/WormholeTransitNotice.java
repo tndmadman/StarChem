@@ -6,13 +6,19 @@ final class WormholeTransitNotice {
     private WormholeTransitNotice() { }
 
     static void alert(World world, String targetSystemId) {
+        String sourceSystemId = world == null ? "" : world.activeSystemId();
         if (world != null && targetSystemId != null && !targetSystemId.isBlank()) {
             world.status = "Wormhole transit: entering " + StarSystems.get(targetSystemId).name() + ".";
         }
-        play();
+        play(world, sourceSystemId, targetSystemId);
     }
 
-    static void play() {
+    static void play(World world, String systemId) {
+        play(world, systemId, systemId);
+    }
+
+    private static void play(World world, String entrySystemId, String exitSystemId) {
+        if (!SystemAudio.audible(world, entrySystemId)) return;
         ProceduralAudio.play(SoundCue.TRACTOR_BEAM);
         Thread exit = new Thread(() -> {
             try {
@@ -21,7 +27,7 @@ final class WormholeTransitNotice {
                 Thread.currentThread().interrupt();
                 return;
             }
-            ProceduralAudio.play(SoundCue.ITEM_PICKUP);
+            SystemAudio.play(world, exitSystemId, SoundCue.ITEM_PICKUP);
         }, "StarChem Wormhole Exit Audio");
         exit.setDaemon(true);
         exit.start();
