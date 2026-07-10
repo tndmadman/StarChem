@@ -61,6 +61,9 @@ public final class ProductionQueueValidator {
         require(research.remaining < researchRemaining, "research did not resume after refueling");
         require(world.research(lab.id, "combat_doctrine"), "research prerequisite chain should enqueue");
         require(lab.productionQueue.size() == 2, "research chain queue missing");
+        require(!ProductionSystem.cancel(world, playerId, lab.id, lab.productionQueue.get(0).id),
+                "prerequisite research cancellation should be rejected while dependents remain");
+        require(lab.productionQueue.size() == 2, "rejected prerequisite cancellation changed the queue");
 
         BaseState state = NetBaseSync.toState(lab);
         Base restored = NetBaseSync.fromState(state);
