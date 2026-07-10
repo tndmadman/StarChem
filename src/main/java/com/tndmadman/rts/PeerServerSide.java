@@ -11,6 +11,7 @@ final class PeerServerSide {
     final PeerTransport transport;
     final ClientViewCache views = new ClientViewCache();
     private final Map<String, ServerPeer> peers = new LinkedHashMap<>();
+    private final Map<String, String> peerNames = new LinkedHashMap<>();
     private int nextPlayer = 1;
     private long sequence = 1, lastSnapshot;
 
@@ -69,14 +70,23 @@ final class PeerServerSide {
     void touch(String endpoint) { ServerPeer p = peers.get(endpoint); if (p != null) peers.put(endpoint, new ServerPeer(p.playerId(), p.address(), p.port(), System.currentTimeMillis(), p.devFreeBuild())); }
 
     void join(String endpoint, InetAddress address, int port, String name, boolean requestedDev) {
+        String cleanName = Config.clean(name);
         ServerPeer old = peers.get(endpoint);
-        if (old != null) { transport.reliable(welcome(old.playerId(), name, colorFor(peers.size()), old.devFreeBuild()), address, port); return; }
+        if (old != null) {
+            String existingName = peerNames.getOrDefault(endpoint, cleanName);
+            transport.reliable(welcome(old.playerId(), existingName, colorFor(peers.size()), old.devFreeBuild()), address, port);
+            return;
+        }
+        if (nameInUse(cleanName)) {
+            transport.reliable(joinDenied("Name already in use: " + cleanName), address, port);
+            return;
+        }
         String id = "P" + nextPlayer++;
         int rgb = colorFor(peers.size() + 1);
-        String cleanName = Config.clean(name);
         boolean devAllowed = config.devMode && requestedDev;
         ServerPeer peer = new ServerPeer(id, address, port, System.currentTimeMillis(), devAllowed);
         peers.put(endpoint, peer);
+        peerNames.put(endpoint, cleanName);
         PlayerRegistry.register(id, cleanName, rgb, false);
         world.setDevFreeBuild(id, devAllowed);
         WorldNetAccess.addPeerGroup(world, id);
@@ -113,6 +123,7 @@ final class PeerServerSide {
     }
 
     void removePeer(String endpoint) {
+        peerNames.remove(endpoint);
         ServerPeer peer = peers.remove(endpoint);
         if (peer == null) return;
         String playerId = peer.playerId();
@@ -157,6 +168,16 @@ final class PeerServerSide {
         for (ServerPeer peer : peers.values()) transport.reliable(message, peer.address(), peer.port());
     }
 
+    private boolean nameInUse(String name) {
+        String wanted = normalizedName(name);
+        if (wanted.equals(normalizedName(config.playerName))) return true;
+        for (String peerName : peerNames.values()) if (wanted.equals(normalizedName(peerName))) return true;
+        return false;
+    }
+
+    private String normalizedName(String name) { return Config.clean(name).toLowerCase(Locale.ROOT); }
+    private String joinDenied(String message) { return "JOIN_DENIED|" + packetPart(message); }
+    private String packetPart(String value) { return value == null ? "" : value.replace('|', ' ').replace('\n', ' ').replace('\r', ' ').trim(); }
     boolean requestedDev(String[] parts) { return parts.length > 2 && flag(parts[2]); }
     String endpoint(InetAddress address, int port) { return address.getHostAddress() + ':' + port; }
     private void removeTimedOut(long now) { for (String ep : new ArrayList<>(peers.keySet())) if (now - peers.get(ep).lastSeen() > TIMEOUT_MS) removePeer(ep); }
