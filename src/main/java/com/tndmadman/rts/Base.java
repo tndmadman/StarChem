@@ -1,6 +1,7 @@
 package com.tndmadman.rts;
 
 import java.awt.*;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 
@@ -10,6 +11,8 @@ final class Base {
     final String typeId;
     final double x, y;
     final EnumMap<Material, Double> inventory = new EnumMap<>(Material.class);
+    final List<ProductionJob> productionQueue = new ArrayList<>();
+    long nextProductionJobId = 1;
     String logisticsStatus = "";
     double hp, shield, shieldDelayTimer;
 
@@ -50,6 +53,7 @@ final class Base {
         drawLabel(s, def, radius, playerColor);
         drawFuelState(s, radius);
         drawLogistics(s, radius);
+        drawProduction(s, radius);
         if (local) drawHangar(s, radius);
         s.dispose();
     }
@@ -133,6 +137,26 @@ final class Base {
         s.fillRoundRect(px, py, tw + 12, 18, 8, 8);
         s.setColor(new Color(140, 225, 255));
         s.drawString(label, px + 6, py + 13);
+    }
+
+    private void drawProduction(Graphics2D s, double radius) {
+        ProductionJob job = ProductionSystem.active(this);
+        if (job == null) return;
+        String label = ProductionSystem.displayName(job) + " | " + ProductionSystem.detail(this, job);
+        if (productionQueue.size() > 1) label += " | +" + (productionQueue.size() - 1);
+        if (label.length() > 48) label = label.substring(0, 45) + "...";
+        int tw = s.getFontMetrics().stringWidth(label);
+        int w = Math.max(94, tw + 12);
+        int px = (int)(x - w / 2.0);
+        int py = (int)(y - radius - 116);
+        s.setColor(new Color(0,0,0,178));
+        s.fillRoundRect(px, py, w, 24, 8, 8);
+        s.setColor(new Color(255, 205, 105));
+        s.drawString(label, px + 6, py + 13);
+        s.setColor(new Color(30, 35, 42));
+        s.fillRect(px + 5, py + 17, w - 10, 4);
+        s.setColor(job.blockedReason == null || job.blockedReason.isBlank() ? new Color(110, 230, 150) : new Color(255, 165, 75));
+        s.fillRect(px + 5, py + 17, (int)Math.round((w - 10) * Math.max(0, Math.min(1, job.progress()))), 4);
     }
 
     private void drawHangar(Graphics2D s, double radius) {
