@@ -41,6 +41,22 @@ final class LeaderboardHud {
     }
 
     private List<Row> rows(World world) {
+        List<LeaderboardEntry> global = GlobalLeaderboard.get(world);
+        if (!global.isEmpty()) return globalRows(global);
+        return activeSystemRows(world);
+    }
+
+    private List<Row> globalRows(List<LeaderboardEntry> entries) {
+        List<Row> out = new ArrayList<>();
+        for (LeaderboardEntry entry : entries) {
+            if (entry.units() + entry.bases() <= 0) continue;
+            out.add(new Row(entry.playerId(), PlayerRegistry.name(entry.playerId()), entry.units(), entry.bases(), entry.score()));
+        }
+        out.sort(Comparator.comparingInt(Row::score).reversed());
+        return out;
+    }
+
+    private List<Row> activeSystemRows(World world) {
         List<Row> out = new ArrayList<>();
         for (PlayerInfo player : PlayerRegistry.snapshotPlayers()) {
             int units = 0;

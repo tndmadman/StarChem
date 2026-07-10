@@ -21,9 +21,11 @@ final class LocalHostSession {
 
     static LocalHostSession start(Config hostConfig) throws IOException {
         World serverWorld = new World(hostConfig.playerName, hostConfig.disabledNpcFactionIds, hostConfig.systemId, false);
+        PlayerRegistry.activate(serverWorld);
         PeerNetwork serverNetwork = PeerNetwork.start(hostConfig, serverWorld);
         Config clientConfig = Config.join(hostConfig.playerName, "127.0.0.1", hostConfig.port, hostConfig.devMode, hostConfig.disabledNpcFactionIds, hostConfig.systemId);
         World clientWorld = new World(clientConfig.playerName, clientConfig.disabledNpcFactionIds, clientConfig.systemId, false);
+        PlayerRegistry.activate(clientWorld);
         PeerNetwork clientNetwork = PeerNetwork.start(clientConfig, clientWorld);
         LocalHostSession session = new LocalHostSession(serverWorld, serverNetwork, clientWorld, clientNetwork);
         session.timer.start();
@@ -34,7 +36,9 @@ final class LocalHostSession {
 
     void stop() {
         timer.stop();
+        PlayerRegistry.activate(clientWorld);
         clientNetwork.shutdown();
+        PlayerRegistry.activate(serverWorld);
         serverNetwork.shutdown();
     }
 
@@ -42,8 +46,10 @@ final class LocalHostSession {
         long now = System.nanoTime();
         double dt = Math.min(0.05, (now - lastNanos) / 1_000_000_000.0);
         lastNanos = now;
+        PlayerRegistry.activate(serverWorld);
         serverNetwork.updateServerWorlds(dt);
         serverNetwork.tick();
+        PlayerRegistry.activate(clientWorld);
         clientNetwork.tick();
     }
 }
