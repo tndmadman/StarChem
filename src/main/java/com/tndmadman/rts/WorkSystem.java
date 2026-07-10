@@ -40,7 +40,7 @@ final class WorkSystem {
         if (node.amount <= 0.05) {
             node.deplete();
             ResourceSync.mark(world, node);
-            ProceduralAudio.playResourceDepleted(node.material);
+            SystemAudio.playResourceDepleted(world, node.material);
             if (unit.freeCargo() <= 0.05) {
                 world.status = node.name + " depleted. Cargo full, returning to unload.";
                 world.sendToNearestBase(unit);
