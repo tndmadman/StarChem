@@ -54,6 +54,10 @@ final class SystemAudio {
         if (audible(world, systemId)) ProceduralAudio.play(cue);
     }
 
+    static void play(String systemId, SoundCue cue) {
+        if (audible(systemId)) ProceduralAudio.play(cue);
+    }
+
     static void playWeaponFire(World world, WeaponType weapon, double distance) {
         if (audible(world)) ProceduralAudio.playWeaponFire(weapon, distance);
     }
