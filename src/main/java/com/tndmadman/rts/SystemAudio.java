@@ -1,22 +1,36 @@
 package com.tndmadman.rts;
 
+import java.util.Collections;
 import java.util.Objects;
+import java.util.Set;
+import java.util.WeakHashMap;
 
 /**
  * Routes world-simulation audio only when the simulated system matches the
  * system currently being rendered for the local player.
  */
 final class SystemAudio {
+    private static final Set<World> NON_RENDERED_WORLDS =
+            Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
+    private static volatile World listenerWorld;
     private static volatile String listenerSystemId = "";
 
     private SystemAudio() { }
 
-    static void listenTo(World world) {
-        if (world != null) listenTo(world.activeSystemId());
+    static void markNonRendered(World world) {
+        if (world == null) return;
+        NON_RENDERED_WORLDS.add(world);
+        if (listenerWorld == world) {
+            listenerWorld = null;
+            listenerSystemId = "";
+        }
     }
 
-    static void listenTo(String systemId) {
+    static void listenTo(World world) {
+        if (world == null || NON_RENDERED_WORLDS.contains(world)) return;
+        String systemId = world.activeSystemId();
         if (systemId == null || systemId.isBlank()) return;
+        listenerWorld = world;
         listenerSystemId = systemId;
     }
 
