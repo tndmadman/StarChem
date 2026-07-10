@@ -8,10 +8,12 @@ final class NetBaseSync {
         base.hp = state.hp();
         base.shield = state.shield();
         CargoCodec.readInto(state.cargo(), base.inventory);
+        ProductionQueueCodec.readInto(state.productionQueue(), base);
         return base;
     }
 
     static BaseState toState(Base base) {
-        return new BaseState(base.id, base.playerId, base.typeId, base.x, base.y, base.hp, base.shield, CargoCodec.write(base.inventory));
+        return new BaseState(base.id, base.playerId, base.typeId, base.x, base.y, base.hp, base.shield,
+                CargoCodec.write(base.inventory), ProductionQueueCodec.write(base.productionQueue));
     }
 }
