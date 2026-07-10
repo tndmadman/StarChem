@@ -24,7 +24,7 @@ final class WeaponSystem {
                 clearIllegalAttack(unit);
                 continue;
             }
-            if (unit.task == UnitTask.IDLE && unit.attackTarget.isBlank()) acquireTarget(world, unit);
+            if (UnitOrderSystem.canAcquire(unit)) acquireTarget(world, unit);
             if (unit.task == UnitTask.ATTACK) updateAttack(world, unit);
         }
         updateShots(world, dt);
@@ -56,16 +56,16 @@ final class WeaponSystem {
     private void acquireTarget(World world, Unit unit) {
         String best = "";
         double bestDist = Double.MAX_VALUE;
-        double range = WeaponRules.maxRange(unit.type());
+        double range = UnitOrderSystem.acquisitionRange(unit);
         for (Unit target : world.units.values()) {
             if (target.playerId.equals(unit.playerId) || target.hp <= 0) continue;
             double d = Calc.distance(unit.x, unit.y, target.x, target.y);
-            if (d <= range && d < bestDist) { best = CombatTarget.unit(target); bestDist = d; }
+            if (d <= range && d < bestDist && UnitOrderSystem.canEngage(world, unit, target.x, target.y)) { best = CombatTarget.unit(target); bestDist = d; }
         }
         for (Base target : world.bases.values()) {
             if (target.playerId.equals(unit.playerId) || target.hp <= 0) continue;
             double d = Calc.distance(unit.x, unit.y, target.x, target.y);
-            if (d <= range && d < bestDist) { best = CombatTarget.base(target); bestDist = d; }
+            if (d <= range && d < bestDist && UnitOrderSystem.canEngage(world, unit, target.x, target.y)) { best = CombatTarget.base(target); bestDist = d; }
         }
         if (!best.isBlank()) {
             unit.attackTarget = best;
@@ -81,6 +81,11 @@ final class WeaponSystem {
         }
         double tx = CombatTarget.x(world, unit.attackTarget);
         double ty = CombatTarget.y(world, unit.attackTarget);
+        if (!UnitOrderSystem.canEngage(world, unit, tx, ty)) {
+            unit.attackTarget = "";
+            unit.task = UnitTask.IDLE;
+            return;
+        }
         double dist = Calc.distance(unit.x, unit.y, tx, ty);
         double range = WeaponRules.maxRange(unit.type());
         if (range <= 0) {
@@ -88,7 +93,13 @@ final class WeaponSystem {
             unit.task = UnitTask.IDLE;
             return;
         }
-        if (dist > range * 0.92) {
+        double approachRange = UnitOrderSystem.mayChase(unit) ? range * 0.92 : range;
+        if (dist > approachRange) {
+            if (!UnitOrderSystem.mayChase(unit)) {
+                unit.attackTarget = "";
+                unit.task = UnitTask.IDLE;
+                return;
+            }
             world.moveTowardOrbit(unit, tx, ty, range * 0.82);
             return;
         }
@@ -193,20 +204,20 @@ final class WeaponSystem {
         s.dispose();
     }
 
-    private void drawShot(Graphics2D g2, double x1, double y1, double x2, double y2, WeaponType weapon, float alpha) {
-        Graphics2D s = (Graphics2D) g2.create();
+    private void drawShot(Graphics2D s, double x1, double y1, double x2, double y2, WeaponType weapon, float alpha) {
+        Graphics2D shot = (Graphics2D) s.create();
         Color c = weapon.color;
-        s.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), Math.max(25, Math.min(230, (int)(alpha * 255)))));
+        shot.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), Math.max(25, Math.min(230, (int)(alpha * 255)))));
         if (weapon.beam) {
-            s.setStroke(new BasicStroke(2.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            s.draw(new Line2D.Double(x1, y1, x2, y2));
+            shot.setStroke(new BasicStroke(2.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            shot.draw(new Line2D.Double(x1, y1, x2, y2));
         } else {
-            s.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 0, new float[]{18f, 12f}, 0));
-            s.draw(new Line2D.Double(x1, y1, x2, y2));
+            shot.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 0, new float[]{18f, 12f}, 0));
+            shot.draw(new Line2D.Double(x1, y1, x2, y2));
             double mx = x1 + (x2 - x1) * 0.62;
             double my = y1 + (y2 - y1) * 0.62;
-            s.fillOval((int)mx - 4, (int)my - 4, 8, 8);
+            shot.fillOval((int)mx - 4, (int)my - 4, 8, 8);
         }
-        s.dispose();
+        shot.dispose();
     }
 }

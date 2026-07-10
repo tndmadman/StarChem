@@ -24,6 +24,7 @@ enum Material {
 
 enum NodeKind { SILICATE_ROCK, GAS_CLOUD }
 enum UnitTask { IDLE, MOVE, AUTO_HARVEST, RETURN_TO_STATION, ATTACK }
+enum UnitOrderType { NONE, PATROL, GUARD, ESCORT, HOLD, ATTACK_MOVE }
 
 enum ShipSize {
     SMALL(0.85),
@@ -49,3 +50,11 @@ record Cost(Material material, double amount) { }
 record MoveCommand(String playerId, int unitId, double x, double y) { }
 record HarvestCommand(String playerId, int unitId, int resourceId) { }
 record AttackCommand(String playerId, int unitId, String targetKey) { }
+record UnitOrderCommand(String playerId, int unitId, UnitOrderType type,
+                        double x1, double y1, double x2, double y2,
+                        double radius, String targetKey, int phase) {
+    UnitOrderCommand {
+        if (type == null) type = UnitOrderType.NONE;
+        targetKey = targetKey == null ? "" : targetKey;
+    }
+}

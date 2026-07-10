@@ -4,9 +4,28 @@ import java.net.InetAddress;
 import java.util.List;
 
 record PlayerInfo(String id, String name, int rgb, boolean local) { }
-record UnitState(String playerId, int unitId, String shipTypeId, double x, double y, double targetX, double targetY, double heading, String task, int resourceId, String packageType, String cargo, double hp, double shield, String attackTarget, double weaponFlashTimer) {
-    UnitState(String playerId, int unitId, String shipTypeId, double x, double y, double targetX, double targetY, double heading, String task, int resourceId, String packageType, String cargo, double hp, String attackTarget, double weaponFlashTimer) {
-        this(playerId, unitId, shipTypeId, x, y, targetX, targetY, heading, task, resourceId, packageType, cargo, hp, Rules.ship(shipTypeId).maxShield, attackTarget, weaponFlashTimer);
+record UnitState(String playerId, int unitId, String shipTypeId, double x, double y, double targetX, double targetY,
+                 double heading, String task, int resourceId, String packageType, String cargo, double hp, double shield,
+                 String attackTarget, double weaponFlashTimer, String orderType, double orderX1, double orderY1,
+                 double orderX2, double orderY2, double orderRadius, String orderTarget, int orderPhase) {
+    UnitState(String playerId, int unitId, String shipTypeId, double x, double y, double targetX, double targetY,
+              double heading, String task, int resourceId, String packageType, String cargo, double hp, double shield,
+              String attackTarget, double weaponFlashTimer) {
+        this(playerId, unitId, shipTypeId, x, y, targetX, targetY, heading, task, resourceId, packageType, cargo,
+                hp, shield, attackTarget, weaponFlashTimer, UnitOrderType.NONE.name(), 0, 0, 0, 0, 0, "", 0);
+    }
+
+    UnitState(String playerId, int unitId, String shipTypeId, double x, double y, double targetX, double targetY,
+              double heading, String task, int resourceId, String packageType, String cargo, double hp,
+              String attackTarget, double weaponFlashTimer) {
+        this(playerId, unitId, shipTypeId, x, y, targetX, targetY, heading, task, resourceId, packageType, cargo,
+                hp, Rules.ship(shipTypeId).maxShield, attackTarget, weaponFlashTimer);
+    }
+
+    UnitState(String playerId, int unitId, String shipTypeId, double x, double y, double targetX, double targetY,
+              double heading, String task, int resourceId, String packageType, String cargo) {
+        this(playerId, unitId, shipTypeId, x, y, targetX, targetY, heading, task, resourceId, packageType, cargo,
+                Rules.ship(shipTypeId).maxHp, Rules.ship(shipTypeId).maxShield, "", 0);
     }
 }
 record ResourceState(int id, String name, String kind, String material, double x, double y, double maxAmount, double harvestRate, double radius, double amount, boolean active, double respawnTimer, double orbitCenterX, double orbitCenterY, double orbitRadius, double orbitAngle, double orbitSpeed, boolean orbiting) {
@@ -47,6 +66,7 @@ interface CommandSink {
     void move(MoveCommand command);
     void work(HarvestCommand command);
     void attack(AttackCommand command);
+    void order(UnitOrderCommand command);
     void respawn(String playerId);
     void build(String playerId, String baseId, String shipTypeId);
     void basePackage(String playerId, String mode, String baseOrUnitId, String packageType);

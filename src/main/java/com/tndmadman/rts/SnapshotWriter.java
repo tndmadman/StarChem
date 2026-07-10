@@ -20,7 +20,10 @@ final class SnapshotWriter {
                     .append(Calc.round(unit.heading())).append(',').append(unit.task()).append(',').append(unit.resourceId()).append(',')
                     .append(CargoCodec.safe(unit.packageType())).append(',').append(CargoCodec.safe(unit.cargo())).append(',')
                     .append(Calc.round(unit.hp())).append(',').append(Calc.round(unit.shield())).append(',')
-                    .append(CargoCodec.safe(unit.attackTarget())).append(',').append(Calc.round(unit.weaponFlashTimer()));
+                    .append(CargoCodec.safe(unit.attackTarget())).append(',').append(Calc.round(unit.weaponFlashTimer())).append(',')
+                    .append(unit.orderType()).append(',').append(Calc.round(unit.orderX1())).append(',').append(Calc.round(unit.orderY1())).append(',')
+                    .append(Calc.round(unit.orderX2())).append(',').append(Calc.round(unit.orderY2())).append(',')
+                    .append(Calc.round(unit.orderRadius())).append(',').append(CargoCodec.safe(unit.orderTarget())).append(',').append(unit.orderPhase());
         }
         StringBuilder resources = new StringBuilder();
         for (ResourceState r : snapshot.resources()) {

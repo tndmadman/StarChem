@@ -4,6 +4,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.*;
+import java.util.List;
 
 final class GamePanel extends JPanel implements KeyListener, MouseListener, MouseMotionListener, MouseWheelListener, FocusListener {
     private static final double CAMERA_PAN_SPEED = 640.0;
@@ -28,6 +29,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final PerfOverlay perfOverlay = new PerfOverlay();
     private final boolean devMode;
     private FleetFormation formation = FleetFormation.GRID;
+    private UnitOrderType commandMode = UnitOrderType.NONE;
+    private Point2D patrolStart;
     private Point dragStart;
     private Point dragNow;
     private long lastNanos = System.nanoTime();
@@ -120,7 +123,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
 
     private void drawHud(Graphics2D g2) {
         g2.setColor(new Color(0,0,0,175));
-        g2.fillRoundRect(12, 12, 1030, 112, 14, 14);
+        g2.fillRoundRect(12, 12, 1120, 132, 14, 14);
         g2.setColor(Color.WHITE);
         String dev = world.devFreeBuild ? " | FREE CRAFTING" : "";
         g2.drawString("StarChem | " + PlayerRegistry.name(PlayerRegistry.localId()) + " | System: " + world.activeSystemId() + " | Selected: " + world.selectedCount() + dev, 28, 36);
@@ -130,7 +133,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         String minerRanges = UnitRenderer.miningRangeOverlayVisible() ? "ON" : "OFF";
         String audio = ProceduralAudio.muted() ? "OFF" : "ON";
         String perf = devMode ? " | Performance: F4" : "";
-        g2.drawString("Galaxy map: M | Left-click wormhole to view system | Right-click wormhole sends ships straight in | Formation: " + formation.label + " (F) | Miner ranges: " + minerRanges + " (R) | Audio: " + audio + " (Ctrl+M)" + perf, 28, 102);
+        g2.drawString("Galaxy: M | Formation: " + formation.label + " (F) | Miner ranges: " + minerRanges + " (R) | Audio: " + audio + " (Ctrl+M)" + perf, 28, 102);
+        g2.drawString("Commands: X attack-move | P patrol | G guard | E escort | H hold | Mode: " + commandModeLabel(), 28, 124);
     }
 
     private void drawSelectionBox(Graphics2D g2) {
@@ -217,6 +221,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private void clickPackageCarrier(MouseEvent e, Point2D p, Unit unit) { world.selectAt(p.getX(), p.getY()); buildMenu.showForUnit(world, network, unit, e.getX(), e.getY()); }
 
     private void clickRight(Point2D p) {
+        if (commandMode != UnitOrderType.NONE) { handleCommandClick(p); return; }
         Unit enemyUnit = world.unitAt(p.getX(), p.getY());
         if (enemyUnit != null && !PlayerRegistry.isLocal(enemyUnit.playerId)) { ProceduralAudio.play(SoundCue.ATTACK_ORDER); orderAttack(CombatTarget.unit(enemyUnit)); return; }
         Base enemyBase = world.baseAt(p.getX(), p.getY());
@@ -229,7 +234,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
                 ProceduralAudio.play(SoundCue.ERROR);
                 return;
             }
-            for (Unit u : world.selectedUnits()) u.moveTo(gate.x, gate.y);
+            for (Unit u : world.selectedUnits()) u.issueMove(gate.x, gate.y);
             world.status = "Moving " + selected + " ship(s) straight into wormhole to " + StarSystems.get(gate.toSystemId).name() + ".";
             ProceduralAudio.play(SoundCue.MOVE_ORDER);
             if (network != null) for (Unit u : world.selectedUnits()) if (PlayerRegistry.isLocal(u.playerId)) network.move(new MoveCommand(u.playerId, u.unitId, u.targetX, u.targetY));
@@ -246,6 +251,90 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
             ProceduralAudio.play(selected > 0 ? SoundCue.MOVE_ORDER : SoundCue.ERROR);
             if (network != null) for (Unit u : world.selectedUnits()) if (PlayerRegistry.isLocal(u.playerId)) network.move(new MoveCommand(u.playerId, u.unitId, u.targetX, u.targetY));
         }
+    }
+
+    private void handleCommandClick(Point2D p) {
+        if (commandMode == UnitOrderType.PATROL && patrolStart == null) {
+            patrolStart = p;
+            world.status = "Patrol start set. Right-click the second patrol point.";
+            ProceduralAudio.play(SoundCue.SELECT);
+            return;
+        }
+        if (commandMode == UnitOrderType.PATROL) {
+            issueSelectedOrder(UnitOrderType.PATROL, patrolStart.getX(), patrolStart.getY(), p.getX(), p.getY(), "");
+            clearCommandMode();
+            return;
+        }
+        if (commandMode == UnitOrderType.ATTACK_MOVE) {
+            issueSelectedOrder(UnitOrderType.ATTACK_MOVE, p.getX(), p.getY(), p.getX(), p.getY(), "");
+            clearCommandMode();
+            return;
+        }
+        Unit unit = world.unitAt(p.getX(), p.getY());
+        Base base = world.baseAt(p.getX(), p.getY());
+        if (commandMode == UnitOrderType.ESCORT) {
+            if (unit == null || !PlayerRegistry.isLocal(unit.playerId)) {
+                world.status = "Escort requires a friendly ship target.";
+                ProceduralAudio.play(SoundCue.ERROR);
+                return;
+            }
+            issueSelectedOrder(UnitOrderType.ESCORT, unit.x, unit.y, unit.x, unit.y, CombatTarget.unit(unit));
+            clearCommandMode();
+            return;
+        }
+        if (commandMode == UnitOrderType.GUARD) {
+            String target = "";
+            if (unit != null && PlayerRegistry.isLocal(unit.playerId)) target = CombatTarget.unit(unit);
+            else if (base != null && PlayerRegistry.isLocal(base.playerId)) target = CombatTarget.base(base);
+            issueSelectedOrder(UnitOrderType.GUARD, p.getX(), p.getY(), p.getX(), p.getY(), target);
+            clearCommandMode();
+        }
+    }
+
+    private void issueSelectedOrder(UnitOrderType type, double x1, double y1, double x2, double y2, String targetKey) {
+        List<Unit> selected = world.selectedUnits();
+        world.orderSelected(type, x1, y1, x2, y2, targetKey, formation);
+        int applied = 0;
+        for (Unit unit : selected) {
+            if (unit.orderType != type) continue;
+            applied++;
+            if (network != null) network.order(unit.orderCommand());
+        }
+        ProceduralAudio.play(applied > 0 ? SoundCue.MOVE_ORDER : SoundCue.ERROR);
+    }
+
+    private void setCommandMode(UnitOrderType type) {
+        if (world.selectedCount() <= 0) {
+            world.status = "Select one or more ships first.";
+            ProceduralAudio.play(SoundCue.ERROR);
+            return;
+        }
+        commandMode = type;
+        patrolStart = null;
+        world.status = switch (type) {
+            case ATTACK_MOVE -> "Attack-move mode. Right-click a destination.";
+            case PATROL -> "Patrol mode. Right-click the first patrol point.";
+            case GUARD -> "Guard mode. Right-click a position, friendly ship, or friendly base.";
+            case ESCORT -> "Escort mode. Right-click a friendly ship.";
+            default -> "Command mode ready.";
+        };
+        ProceduralAudio.play(SoundCue.SELECT);
+    }
+
+    private void clearCommandMode() {
+        commandMode = UnitOrderType.NONE;
+        patrolStart = null;
+    }
+
+    private String commandModeLabel() {
+        return switch (commandMode) {
+            case ATTACK_MOVE -> "ATTACK-MOVE";
+            case PATROL -> patrolStart == null ? "PATROL: FIRST POINT" : "PATROL: SECOND POINT";
+            case GUARD -> "GUARD";
+            case ESCORT -> "ESCORT";
+            case HOLD -> "HOLD";
+            case NONE -> "NORMAL";
+        };
     }
 
     private WormholeGate wormholeAt(Point2D p) {
@@ -297,24 +386,32 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     @Override public void keyPressed(KeyEvent e) {
         if (e.getKeyCode() == KeyEvent.VK_M && e.isControlDown()) { boolean muted = ProceduralAudio.toggleMute(); world.status = muted ? "Audio muted." : "Audio enabled."; repaint(); return; }
         if (e.getKeyCode() == KeyEvent.VK_M) { toggleGalaxyMap(); return; }
+        if (commandMode != UnitOrderType.NONE && e.getKeyCode() == KeyEvent.VK_ESCAPE) { clearCommandMode(); world.status = "Command mode cancelled."; repaint(); return; }
         if (galaxyMapOpen && e.getKeyCode() == KeyEvent.VK_ESCAPE) { closeGalaxyMap(); return; }
         if (galaxyMapOpen) return;
         if (devMode && e.getKeyCode() == KeyEvent.VK_F3) { AiDevSettings.overlay = !AiDevSettings.overlay; world.status = "AI debug overlay: " + (AiDevSettings.overlay ? "ON" : "OFF") + "."; repaint(); return; }
         if (devMode && e.getKeyCode() == KeyEvent.VK_F4) { perfOverlayVisible = !perfOverlayVisible; world.status = "Performance overlay: " + (perfOverlayVisible ? "ON" : "OFF") + "."; repaint(); return; }
         if (e.getKeyCode() == KeyEvent.VK_F) { formation = formation.next(); world.status = "Fleet formation: " + formation.label + "."; ProceduralAudio.play(SoundCue.SELECT); return; }
         if (e.getKeyCode() == KeyEvent.VK_R) { UnitRenderer.toggleMiningRangeOverlay(); world.status = "Miner range overlay: " + (UnitRenderer.miningRangeOverlayVisible() ? "ON" : "OFF") + "."; ProceduralAudio.play(SoundCue.SELECT); repaint(); return; }
+        if (e.getKeyCode() == KeyEvent.VK_X) { setCommandMode(UnitOrderType.ATTACK_MOVE); return; }
+        if (e.getKeyCode() == KeyEvent.VK_P) { setCommandMode(UnitOrderType.PATROL); return; }
+        if (e.getKeyCode() == KeyEvent.VK_G) { setCommandMode(UnitOrderType.GUARD); return; }
+        if (e.getKeyCode() == KeyEvent.VK_E) { setCommandMode(UnitOrderType.ESCORT); return; }
+        if (e.getKeyCode() == KeyEvent.VK_H) { issueSelectedOrder(UnitOrderType.HOLD, 0, 0, 0, 0, ""); clearCommandMode(); return; }
         setCameraKey(e.getKeyCode(), true);
     }
     @Override public void keyReleased(KeyEvent e) { setCameraKey(e.getKeyCode(), false); }
     @Override public void focusGained(FocusEvent e) { }
     @Override public void focusLost(FocusEvent e) {
         clearCameraKeys();
+        clearCommandMode();
         dragStart = null;
         dragNow = null;
     }
 
     private void toggleGalaxyMap() {
         galaxyMapOpen = !galaxyMapOpen;
+        clearCommandMode();
         dragStart = null;
         dragNow = null;
         clearCameraKeys();
@@ -325,6 +422,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
 
     private void closeGalaxyMap() {
         galaxyMapOpen = false;
+        clearCommandMode();
         dragStart = null;
         dragNow = null;
         clearCameraKeys();
