@@ -63,8 +63,17 @@ final class PeerServerSide {
         PlayerRegistry.activate(world);
         PeerServerPackets.handle(this, message, packet);
     }
-    void broadcastNow() { sequence = PeerSyncBatch.send(world, views, PeerSyncTargets.array(peers.values()), sequence, transport::send); }
-    void sendInitial(ServerPeer peer) { sequence = PeerSyncBatch.sendInitial(world, views, peer, sequence, transport::send); }
+
+    void broadcastNow() {
+        sequence = PeerSyncBatch.send(world, views, PeerSyncTargets.array(peers.values()), sequence, transport::send);
+        broadcastLeaderboard();
+    }
+
+    void sendInitial(ServerPeer peer) {
+        sequence = PeerSyncBatch.sendInitial(world, views, peer, sequence, transport::send);
+        sendLeaderboard(peer);
+    }
+
     void sendInitialTo(String endpoint) { sendInitial(peers.get(endpoint)); }
     void change(String playerId, Runnable action) { views.applyChange(world, playerId, action); }
     String ownerId(String endpoint, String fallback) { ServerPeer peer = peers.get(endpoint); return peer == null ? fallback : peer.playerId(); }
@@ -142,6 +151,21 @@ final class PeerServerSide {
         sendDeletedSystems(deletedSystems);
         if (!deletedSystems.isEmpty()) world.status = "Removed " + deletedSystems.size() + " abandoned system(s) after " + playerId + " left.";
         broadcastNow();
+    }
+
+    private void broadcastLeaderboard() {
+        if (peers.isEmpty()) return;
+        List<LeaderboardEntry> entries = GlobalLeaderboard.aggregate(world, allKnownSystems());
+        GlobalLeaderboard.set(world, entries);
+        String message = GlobalLeaderboard.encode(entries);
+        for (ServerPeer peer : peers.values()) transport.send(message, peer.address(), peer.port());
+    }
+
+    private void sendLeaderboard(ServerPeer peer) {
+        if (peer == null) return;
+        List<LeaderboardEntry> entries = GlobalLeaderboard.aggregate(world, allKnownSystems());
+        GlobalLeaderboard.set(world, entries);
+        transport.reliable(GlobalLeaderboard.encode(entries), peer.address(), peer.port());
     }
 
     private void applyAiCommand(String command) {
