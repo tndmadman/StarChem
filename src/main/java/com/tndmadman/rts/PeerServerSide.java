@@ -170,7 +170,6 @@ final class PeerServerSide {
 
     private boolean nameInUse(String name) {
         String wanted = normalizedName(name);
-        if (wanted.equals(normalizedName(config.playerName))) return true;
         for (String peerName : peerNames.values()) if (wanted.equals(normalizedName(peerName))) return true;
         return false;
     }
