@@ -33,9 +33,17 @@ record ResourceState(int id, String name, String kind, String material, double x
         this(id, name, kind, material, x, y, maxAmount, harvestRate, radius, amount, active, respawnTimer, x, y, 0, 0, 0, false);
     }
 }
-record BaseState(String id, String playerId, String typeId, double x, double y, double hp, double shield, String cargo) {
+record BaseState(String id, String playerId, String typeId, double x, double y, double hp, double shield, String cargo, String productionQueue) {
+    BaseState(String id, String playerId, String typeId, double x, double y, double hp, double shield, String cargo) {
+        this(id, playerId, typeId, x, y, hp, shield, cargo, "");
+    }
+
     BaseState(String id, String playerId, String typeId, double x, double y, double hp, String cargo) {
-        this(id, playerId, typeId, x, y, hp, Rules.base(typeId).maxShield, cargo);
+        this(id, playerId, typeId, x, y, hp, Rules.base(typeId).maxShield, cargo, "");
+    }
+
+    BaseState(String id, String playerId, String typeId, double x, double y) {
+        this(id, playerId, typeId, x, y, Rules.base(typeId).maxHp, Rules.base(typeId).maxShield, "", "");
     }
 }
 record StockState(String playerId, String cargo) { }
@@ -70,4 +78,5 @@ interface CommandSink {
     void respawn(String playerId);
     void build(String playerId, String baseId, String shipTypeId);
     void basePackage(String playerId, String mode, String baseOrUnitId, String packageType);
+    void production(String playerId, String action, String baseId, String value, String extra);
 }

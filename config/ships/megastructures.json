@@ -11,7 +11,7 @@
       "harvestRange": 0,
       "orbitRadius": 520,
       "idleStationOrbitRadius": 680,
-      "buildTimeSeconds": 0,
+      "buildTimeSeconds": 240,
       "buildCost": {
         "IRON": 80000,
         "COPPER": 32000,

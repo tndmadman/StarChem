@@ -43,7 +43,8 @@ final class CraftingRules {
                     List.of("manufacturing"),
                     List.of(new Cost(Material.HYDROGEN, 30), new Cost(Material.HELIUM, 10), new Cost(Material.METHANE, 12)),
                     Material.FUEL,
-                    50));
+                    50,
+                    12));
         }
         return Collections.unmodifiableMap(out);
     }
@@ -73,7 +74,8 @@ final class CraftingRules {
                     stringList(c.getOrDefault("stationTypes", c.get("stations"))),
                     costs(c.getOrDefault("requiredResources", c.get("input"))),
                     outputMaterial,
-                    outputAmount));
+                    outputAmount,
+                    number(c, "timeSeconds", 10)));
         }
     }
 
@@ -129,10 +131,15 @@ final class CraftableItem {
     final List<String> stationTypes;
     final List<Cost> requiredResources;
     final Material outputMaterial;
-    final double outputAmount;
+    final double outputAmount, timeSeconds;
 
     CraftableItem(String id, String name, String description, String style, String color, List<String> stationTypes,
                   List<Cost> requiredResources, Material outputMaterial, double outputAmount) {
+        this(id, name, description, style, color, stationTypes, requiredResources, outputMaterial, outputAmount, 10);
+    }
+
+    CraftableItem(String id, String name, String description, String style, String color, List<String> stationTypes,
+                  List<Cost> requiredResources, Material outputMaterial, double outputAmount, double timeSeconds) {
         this.id = id;
         this.name = name;
         this.description = description;
@@ -142,6 +149,7 @@ final class CraftableItem {
         this.requiredResources = List.copyOf(requiredResources);
         this.outputMaterial = outputMaterial;
         this.outputAmount = outputAmount;
+        this.timeSeconds = Math.max(0, timeSeconds);
     }
 
     boolean canCraftAt(String stationTypeId) {

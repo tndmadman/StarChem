@@ -27,6 +27,7 @@ final class SideAOrders {
             case "RESPAWN" -> { s.touch(ep); if (s.owns(ep, id)) { s.change(id, () -> WorldNetAccess.respawnPlayer(s.world, id)); s.broadcastNow(); } }
             case "BUILD" -> { s.touch(ep); if (s.owns(ep, id)) s.change(id, () -> { if (CommandAuth.base(s.world, id, p[2])) s.world.buildShip(p[2], p[3]); }); }
             case "PACK" -> { s.touch(ep); if (s.owns(ep, id)) s.change(id, () -> { if (CommandAuth.pack(s.world, id, p[2], p[3])) AUnitPack.apply(s.world, p[2], p[3], p[4]); }); }
+            case "PROD" -> { s.touch(ep); if (s.owns(ep, id) && p.length >= 5) s.change(id, () -> { if (CommandAuth.base(s.world, id, p[3])) ProductionCommands.apply(s.world, id, p[2], p[3], p[4], p.length > 5 ? p[5] : ""); }); }
             case "JUMP" -> { s.touch(ep); if (s.owns(ep, id)) { s.change(id, () -> applyJump(s.world, p)); s.sendInitialTo(ep); } }
             case "WHTOUCH" -> { s.touch(ep); if (s.owns(ep, id)) { s.change(id, () -> applyWormholeTouch(s.world, id, p)); s.sendInitialTo(ep); } }
         }

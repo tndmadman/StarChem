@@ -32,39 +32,62 @@ final class BuildMenu {
         x = sx; y = sy; visible = true;
         BaseType def = base.type();
         List<ResearchTopic> topics = ResearchRules.forStation(def.id);
-        title = topics.isEmpty() ? "BUILD MENU" : "RESEARCH MENU";
+        title = def.name.toUpperCase(Locale.ROOT) + " PRODUCTION | " + base.productionQueue.size() + " QUEUED";
         boolean free = world.devFreeBuildFor(base.playerId) && PlayerRegistry.isLocal(base.playerId);
+
+        addQueueEntries(world, network, base);
+
         for (String shipId : def.buildableShips) {
             ShipType ship = Rules.ship(shipId);
             boolean unlocked = ResearchRules.shipUnlocked(world, base.playerId, shipId);
             String detail = free ? "free (dev mode)" : unlocked ? Rules.formatCost(ship.buildCost) : "LOCKED: " + requiredResearch(shipId);
-            entries.add(new Entry("Build " + ship.name, detail, defenseLine(ship), ship, weaponBadges(ship), false, false, () -> {
-                if (network == null) world.buildShip(base.id, shipId);
-                else network.build(base.playerId, base.id, shipId);
-            }));
+            detail += " | " + whole(ship.buildTimeSeconds) + "s";
+            entries.add(new Entry("Build " + ship.name, detail, defenseLine(ship), ship, weaponBadges(ship), false, false, () ->
+                    sendProduction(world, network, base, "ENQUEUE", ProductionJobKind.SHIP.name(), shipId)));
         }
         for (String packageId : def.basePackages) {
             BaseType pkg = Rules.base(packageId);
-            entries.add(new Entry("Load " + pkg.name, free ? "free (dev mode)" : Rules.formatCost(pkg.buildCost), stationDefenseLine(pkg), null, List.of(), false, false, () -> {
-                if (network == null) world.loadBasePackage(base.id, packageId);
-                else network.basePackage(base.playerId, "LOAD", base.id, packageId);
-            }));
+            String detail = (free ? "free (dev mode)" : Rules.formatCost(pkg.buildCost)) + " | " + whole(pkg.buildTimeSeconds) + "s";
+            entries.add(new Entry("Load " + pkg.name, detail, stationDefenseLine(pkg), null, List.of(), false, false, () ->
+                    sendProduction(world, network, base, "ENQUEUE", ProductionJobKind.STATION_PACKAGE.name(), packageId)));
         }
         for (CraftableItem item : CraftingRules.forStation(def.id)) {
-            String detail = free ? "free (dev mode)" : Rules.formatCost(item.requiredResources) + " -> " + item.outputLabel();
+            String detail = (free ? "free (dev mode)" : Rules.formatCost(item.requiredResources) + " -> " + item.outputLabel())
+                    + " | " + whole(item.timeSeconds) + "s";
             String info = item.description.isBlank() ? "Style: " + item.style : item.description;
-            entries.add(new Entry("Manufacture " + item.name, detail, info, null, List.of(), false, false, () -> {
-                if (network == null || network.statusLine().startsWith("HOST")) world.craftItem(base.id, item.id);
-                else world.status = "Manufacturing commands are host/solo only right now.";
-            }));
+            entries.add(new Entry("Manufacture " + item.name, detail, info, null, List.of(), false, false, () ->
+                    sendProduction(world, network, base, "ENQUEUE", ProductionJobKind.CRAFTABLE.name(), item.id)));
         }
         for (ResearchTopic topic : topics) {
             boolean completed = world.hasResearch(base.playerId, topic.id);
-            entries.add(new Entry("Research " + topic.name, researchDetail(world, base, topic, free), topic.unlockLabel(), null, List.of(), completed, completed, () -> {
-                if (network == null || network.statusLine().startsWith("HOST")) world.research(base.id, topic.id);
-                else world.status = "Research commands are host/solo only right now.";
-            }));
+            boolean queued = ProductionSystem.researchQueued(world, base.playerId, topic.id);
+            entries.add(new Entry("Research " + topic.name, researchDetail(world, base, topic, free), topic.unlockLabel(), null,
+                    List.of(), completed || queued, completed || queued, () ->
+                    sendProduction(world, network, base, "ENQUEUE", ProductionJobKind.RESEARCH.name(), topic.id)));
         }
+    }
+
+    private void addQueueEntries(World world, PeerNetwork network, Base base) {
+        for (int i = 0; i < base.productionQueue.size(); i++) {
+            ProductionJob job = base.productionQueue.get(i);
+            String prefix = i == 0 ? "ACTIVE" : "QUEUE " + (i + 1);
+            String defense = i == 0 ? "Click to cancel active job" : "Click to cancel and refund";
+            entries.add(new Entry(prefix + " | " + ProductionSystem.displayName(job), ProductionSystem.detail(base, job), defense,
+                    null, List.of(), false, true, () -> sendProduction(world, network, base, "CANCEL", job.id, "")));
+            if (i > 1) {
+                entries.add(new Entry("Move up | " + ProductionSystem.displayName(job), "Move one queue position earlier", "", null,
+                        List.of(), false, true, () -> sendProduction(world, network, base, "MOVE", job.id, "-1")));
+            }
+            if (i > 0 && i < base.productionQueue.size() - 1) {
+                entries.add(new Entry("Move down | " + ProductionSystem.displayName(job), "Move one queue position later", "", null,
+                        List.of(), false, true, () -> sendProduction(world, network, base, "MOVE", job.id, "1")));
+            }
+        }
+    }
+
+    private void sendProduction(World world, PeerNetwork network, Base base, String action, String value, String extra) {
+        if (network == null) ProductionCommands.apply(world, base.playerId, action, base.id, value, extra);
+        else network.production(base.playerId, action, base.id, value, extra);
     }
 
     void showForUnit(World world, PeerNetwork network, Unit unit, int sx, int sy) {
@@ -141,6 +164,19 @@ final class BuildMenu {
             g2.drawString(fit(g2, e.detail, r.width - 22), r.x + 10, r.y + 34);
             return;
         }
+        if (e.compact) {
+            g2.setColor(new Color(26, 62, 72, 225));
+            g2.fillRoundRect(r.x, r.y, r.width, r.height, 10, 10);
+            g2.setColor(new Color(255, 205, 105, 175));
+            g2.drawRoundRect(r.x, r.y, r.width, r.height, 10, 10);
+            g2.setColor(Color.WHITE);
+            g2.setFont(g2.getFont().deriveFont(Font.BOLD, 11f));
+            g2.drawString(fit(g2, e.title, r.width - 22), r.x + 10, r.y + 16);
+            g2.setColor(new Color(210, 225, 205));
+            g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 10f));
+            g2.drawString(fit(g2, e.detail, r.width - 22), r.x + 10, r.y + 31);
+            return;
+        }
         g2.setColor(new Color(18, 54, 82, 220));
         g2.fillRoundRect(r.x, r.y, r.width, r.height, 10, 10);
         g2.setColor(new Color(120, 220, 255, 170));
@@ -212,9 +248,9 @@ final class BuildMenu {
 
     private String researchDetail(World world, Base base, ResearchTopic topic, boolean free) {
         if (world.hasResearch(base.playerId, topic.id)) return "completed";
-        ResearchJob job = ResearchSystem.job(world, base.playerId, topic.id);
-        if (job != null) return "researching | " + ResearchSystem.timeLabel(job);
-        String missing = ResearchRules.missingPrerequisite(world, base.playerId, topic);
+        ProductionJob job = ProductionSystem.researchJob(world, base.playerId, topic.id);
+        if (job != null) return "queued | " + ProductionSystem.detail(base, job);
+        String missing = ProductionSystem.missingResearchPrerequisite(world, base, topic);
         if (!missing.isBlank()) return "requires " + missing;
         return (free ? "free" : Rules.formatCost(topic.requiredResources)) + " | " + whole(topic.timeSeconds) + "s";
     }
@@ -305,7 +341,7 @@ final class BuildMenu {
         return Math.max(0, Math.min(offset, max));
     }
 
-    private boolean hasOverflow() { return entries.size() > scrollOffset + visibleRows; }
+    private boolean hasOverflow() { return scrollOffset > 0 || entries.size() > scrollOffset + visibleRows; }
 
     private Rectangle menuBounds() { return new Rectangle(x, y, WIDTH, menuHeight); }
 

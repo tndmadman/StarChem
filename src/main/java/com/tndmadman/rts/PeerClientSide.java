@@ -62,6 +62,10 @@ final class PeerClientSide {
     void respawn(String playerId) { reliableToServer("RESPAWN|" + playerId); }
     void build(String playerId, String baseId, String shipTypeId) { reliableToServer("BUILD|" + playerId + "|" + baseId + "|" + shipTypeId); }
     void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { reliableToServer("PACK|" + playerId + "|" + mode + "|" + baseOrUnitId + "|" + packageType); }
+    void production(String playerId, String action, String baseId, String value, String extra) {
+        reliableToServer("PROD|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(action) + "|"
+                + cleanPacketPart(baseId) + "|" + cleanPacketPart(value) + "|" + cleanPacketPart(extra));
+    }
     void devSetFreeCrafting(String playerId, boolean enabled) { reliableToServer("DEVFREE|" + cleanPacketPart(playerId) + "|" + (enabled ? "1" : "0")); }
     void devAddHangarResource(String playerId, String baseId, Material material, double amount) {
         if (material == null || amount <= 0 || Double.isNaN(amount) || Double.isInfinite(amount)) return;

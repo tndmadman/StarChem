@@ -120,7 +120,8 @@ final class Rules {
                     number(s, "tractorRange", 0),
                     bool(s, "baseBuilder", false),
                     nodeKinds(s.get("canHarvest")),
-                    costs(s.get("buildCost"))));
+                    costs(s.get("buildCost")),
+                    number(s, "buildTimeSeconds", 0)));
         }
         return out;
     }
@@ -145,7 +146,8 @@ final class Rules {
                     number(s, "shieldRegenDelay", 5.0),
                     stringList(s.get("canBuildShips")),
                     stringList(s.get("canBuildStationPackages")),
-                    costs(s.get("buildCost"))));
+                    costs(s.get("buildCost")),
+                    number(s, "buildTimeSeconds", 0)));
         }
         return out;
     }
@@ -322,7 +324,7 @@ final class ShipType {
     final ShipSize size;
     final int seed;
     final double maxHp, speed, cargoCapacity, harvestRange, orbitRadius, idleOrbitRadius, scoutRange;
-    final double maxShield, shieldRegen, shieldRegenDelay, tractorRange;
+    final double maxShield, shieldRegen, shieldRegenDelay, tractorRange, buildTimeSeconds;
     final int scoutDispatchLimit, tractorBeamCount;
     final boolean baseBuilder;
     final EnumSet<NodeKind> harvestKinds;
@@ -333,7 +335,7 @@ final class ShipType {
              boolean baseBuilder, EnumSet<NodeKind> harvestKinds, List<Cost> buildCost) {
         this(id, name, size, seed, maxHp, speed, cargoCapacity, harvestRange, orbitRadius, idleOrbitRadius, scoutRange,
                 scoutDispatchLimit, Math.max(0, maxHp * 0.35), Math.max(0, maxHp * 0.012), 4.0, 0, 0,
-                baseBuilder, harvestKinds, buildCost);
+                baseBuilder, harvestKinds, buildCost, 0);
     }
 
     ShipType(String id, String name, ShipSize size, int seed, double maxHp, double speed, double cargoCapacity,
@@ -341,7 +343,7 @@ final class ShipType {
              double maxShield, double shieldRegen, double shieldRegenDelay,
              boolean baseBuilder, EnumSet<NodeKind> harvestKinds, List<Cost> buildCost) {
         this(id, name, size, seed, maxHp, speed, cargoCapacity, harvestRange, orbitRadius, idleOrbitRadius, scoutRange,
-                scoutDispatchLimit, maxShield, shieldRegen, shieldRegenDelay, 0, 0, baseBuilder, harvestKinds, buildCost);
+                scoutDispatchLimit, maxShield, shieldRegen, shieldRegenDelay, 0, 0, baseBuilder, harvestKinds, buildCost, 0);
     }
 
     ShipType(String id, String name, ShipSize size, int seed, double maxHp, double speed, double cargoCapacity,
@@ -349,34 +351,53 @@ final class ShipType {
              double maxShield, double shieldRegen, double shieldRegenDelay,
              int tractorBeamCount, double tractorRange,
              boolean baseBuilder, EnumSet<NodeKind> harvestKinds, List<Cost> buildCost) {
+        this(id, name, size, seed, maxHp, speed, cargoCapacity, harvestRange, orbitRadius, idleOrbitRadius, scoutRange,
+                scoutDispatchLimit, maxShield, shieldRegen, shieldRegenDelay, tractorBeamCount, tractorRange,
+                baseBuilder, harvestKinds, buildCost, 0);
+    }
+
+    ShipType(String id, String name, ShipSize size, int seed, double maxHp, double speed, double cargoCapacity,
+             double harvestRange, double orbitRadius, double idleOrbitRadius, double scoutRange, int scoutDispatchLimit,
+             double maxShield, double shieldRegen, double shieldRegenDelay,
+             int tractorBeamCount, double tractorRange,
+             boolean baseBuilder, EnumSet<NodeKind> harvestKinds, List<Cost> buildCost, double buildTimeSeconds) {
         this.id = id; this.name = name; this.size = size; this.seed = seed; this.maxHp = maxHp; this.speed = speed;
         this.cargoCapacity = cargoCapacity; this.harvestRange = harvestRange; this.orbitRadius = orbitRadius;
         this.idleOrbitRadius = idleOrbitRadius; this.scoutRange = scoutRange; this.scoutDispatchLimit = scoutDispatchLimit;
         this.maxShield = maxShield; this.shieldRegen = shieldRegen; this.shieldRegenDelay = shieldRegenDelay;
         this.tractorBeamCount = Math.max(0, tractorBeamCount); this.tractorRange = Math.max(0, tractorRange);
         this.baseBuilder = baseBuilder; this.harvestKinds = harvestKinds; this.buildCost = buildCost;
+        this.buildTimeSeconds = Math.max(0, buildTimeSeconds);
     }
 }
 
 final class BaseType {
     final String id, name;
     final double maxHp, unloadRange, unloadRate, buildRadius;
-    final double maxShield, shieldRegen, shieldRegenDelay;
+    final double maxShield, shieldRegen, shieldRegenDelay, buildTimeSeconds;
     final List<String> buildableShips, basePackages;
     final List<Cost> buildCost;
 
     BaseType(String id, String name, double maxHp, double unloadRange, double unloadRate, double buildRadius,
              List<String> buildableShips, List<String> basePackages, List<Cost> buildCost) {
         this(id, name, maxHp, unloadRange, unloadRate, buildRadius, Math.max(0, maxHp * 0.45), Math.max(0, maxHp * 0.01), 5.0,
-                buildableShips, basePackages, buildCost);
+                buildableShips, basePackages, buildCost, 0);
     }
 
     BaseType(String id, String name, double maxHp, double unloadRange, double unloadRate, double buildRadius,
              double maxShield, double shieldRegen, double shieldRegenDelay,
              List<String> buildableShips, List<String> basePackages, List<Cost> buildCost) {
+        this(id, name, maxHp, unloadRange, unloadRate, buildRadius, maxShield, shieldRegen, shieldRegenDelay,
+                buildableShips, basePackages, buildCost, 0);
+    }
+
+    BaseType(String id, String name, double maxHp, double unloadRange, double unloadRate, double buildRadius,
+             double maxShield, double shieldRegen, double shieldRegenDelay,
+             List<String> buildableShips, List<String> basePackages, List<Cost> buildCost, double buildTimeSeconds) {
         this.id = id; this.name = name; this.maxHp = maxHp; this.unloadRange = unloadRange; this.unloadRate = unloadRate;
         this.buildRadius = buildRadius; this.maxShield = maxShield; this.shieldRegen = shieldRegen; this.shieldRegenDelay = shieldRegenDelay;
         this.buildableShips = buildableShips; this.basePackages = basePackages; this.buildCost = buildCost;
+        this.buildTimeSeconds = Math.max(0, buildTimeSeconds);
     }
 }
 
