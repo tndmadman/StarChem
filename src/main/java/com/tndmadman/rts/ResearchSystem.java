@@ -1,59 +1,36 @@
 package com.tndmadman.rts;
 
-import java.util.*;
-
 final class ResearchSystem {
-    private static final Map<World, Map<String, ResearchJob>> JOBS = new IdentityHashMap<>();
-
     private ResearchSystem() { }
 
     static void start(World world, Base base, ResearchTopic topic) {
-        jobs(world).put(key(base.playerId, topic.id), new ResearchJob(base.playerId, base.id, topic.id, topic.timeSeconds));
-        AlertCenter.push(world, "Research started: " + topic.name + ".");
+        ProductionSystem.enqueuePrepaidResearch(world, base, topic);
     }
 
     static boolean active(World world, String playerId, String topicId) {
-        Map<String, ResearchJob> jobs = JOBS.get(world);
-        return jobs != null && jobs.containsKey(key(playerId, topicId));
+        return ProductionSystem.researchQueued(world, playerId, topicId);
     }
 
     static ResearchJob job(World world, String playerId, String topicId) {
-        Map<String, ResearchJob> jobs = JOBS.get(world);
-        return jobs == null ? null : jobs.get(key(playerId, topicId));
+        if (world == null) return null;
+        for (Base base : world.bases.values()) {
+            if (!base.playerId.equals(playerId)) continue;
+            for (ProductionJob production : base.productionQueue) {
+                if (production.kind != ProductionJobKind.RESEARCH || !production.itemId.equals(topicId)) continue;
+                ResearchJob job = new ResearchJob(playerId, base.id, topicId, production.duration);
+                job.remaining = production.remaining;
+                return job;
+            }
+        }
+        return null;
     }
 
     static String timeLabel(ResearchJob job) {
         if (job == null) return "";
-        return Math.max(1, (int)Math.ceil(job.remaining)) + "s left";
+        return Math.max(0, (int)Math.ceil(job.remaining)) + "s left";
     }
 
     static void update(World world, double dt) {
-        if (dt <= 0) return;
-        Map<String, ResearchJob> jobs = JOBS.get(world);
-        if (jobs == null) return;
-        Iterator<Map.Entry<String, ResearchJob>> it = jobs.entrySet().iterator();
-        while (it.hasNext()) {
-            ResearchJob job = it.next().getValue();
-            Base base = world.bases.get(job.baseId);
-            ResearchTopic topic = ResearchRules.topic(job.topicId);
-            if (base == null || topic == null) {
-                it.remove();
-                continue;
-            }
-            if (!StationFuelRules.isOperational(base)) continue;
-            job.remaining -= dt;
-            if (job.remaining > 0) continue;
-            it.remove();
-            world.completeResearch(job.playerId, job.topicId);
-            AlertCenter.push(world, "Research completed: " + topic.name + ".");
-            if (PlayerRegistry.isLocal(job.playerId)) ProceduralAudio.play(SoundCue.CRAFT_ITEM);
-        }
-        if (jobs.isEmpty()) JOBS.remove(world);
+        // Research is advanced by ProductionSystem with all other station jobs.
     }
-
-    private static Map<String, ResearchJob> jobs(World world) {
-        return JOBS.computeIfAbsent(world, ignored -> new LinkedHashMap<>());
-    }
-
-    private static String key(String playerId, String topicId) { return playerId + "|" + topicId; }
 }
