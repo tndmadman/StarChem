@@ -43,7 +43,7 @@ final class PeerClientSide {
         if (joined) for (int i = 0; i < 3; i++) sendToServer("LEAVE|" + localPlayerId);
     }
 
-    void handle(String message) { if (!readSystemDelete(message)) ClientPackets.handle(this, message); }
+    void handle(String message) { if (!readJoinDenied(message) && !readSystemDelete(message)) ClientPackets.handle(this, message); }
     void move(MoveCommand c) { reliableToServer("MOVE|" + c.playerId() + "|" + c.unitId() + "|" + Calc.round(c.x()) + "|" + Calc.round(c.y())); }
     void work(HarvestCommand c) { ResourceNetDebug.clientWorkSend(world, c); reliableToServer("WORK|" + c.playerId() + "|" + c.unitId() + "|" + c.resourceId()); }
     void attack(AttackCommand c) { reliableToServer("ATTACK|" + c.playerId() + "|" + c.unitId() + "|" + c.targetKey()); }
@@ -105,6 +105,13 @@ final class PeerClientSide {
         if (!requestedView && WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId)) viewedSystemId = world.activeSystemId();
     }
 
+    private boolean readJoinDenied(String message) {
+        if (message == null || !message.startsWith("JOIN_DENIED|")) return false;
+        String reason = message.length() > 12 ? message.substring(12).trim() : "Join refused by server.";
+        failJoin(reason.isBlank() ? "Join refused by server." : reason);
+        return true;
+    }
+
     private boolean readSystemDelete(String message) {
         if (message == null || !message.startsWith("SYSDEL|")) return false;
         boolean deletedViewedSystem = false;
@@ -155,9 +162,12 @@ final class PeerClientSide {
         return false;
     }
 
-    private void failJoin() {
+    private void failJoin() { failJoin("Connection failed: no response from server at " + config.serverAddress + "."); }
+
+    private void failJoin(String message) {
         joinFailed = true;
-        failureMessage = "Connection failed: no response from server at " + config.serverAddress + ".";
+        joined = false;
+        failureMessage = message;
         transport.clearPending();
         world.status = failureMessage;
     }
