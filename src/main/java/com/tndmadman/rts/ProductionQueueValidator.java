@@ -1,5 +1,7 @@
 package com.tndmadman.rts;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 
 public final class ProductionQueueValidator {
@@ -73,6 +75,50 @@ public final class ProductionQueueValidator {
         ProductionSystem.update(world, 1000);
         require(world.hasResearch(playerId, "advanced_industry"), "first research did not complete");
         require(world.hasResearch(playerId, "combat_doctrine"), "chained research did not complete");
+
+        validateLogisticsQueuePersistence();
+    }
+
+    private static void validateLogisticsQueuePersistence() {
+        World world = new World("Logistics Queue Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        String playerId = "LOGISTICS_QUEUE_TEST";
+        Base target = base(world, playerId + ":B1", playerId, "shipyard", 100, 100);
+        Base source = base(world, playerId + ":B2", playerId, "shipyard", 100, 100);
+        fill(target);
+        fill(source);
+
+        require(world.buildShip(target.id, "prospector"), "funded lead ship should enqueue");
+        target.inventory.clear();
+        require(world.buildShip(target.id, "prospector"), "first logistics-backed ship should enqueue");
+        require(world.buildShip(target.id, "prospector"), "duplicate logistics-backed ship should enqueue separately");
+        require(target.productionQueue.size() == 3, "logistics-backed jobs did not enter the real queue");
+
+        List<String> orderBefore = jobIds(target);
+        require(!ProductionSystem.waitingForResources(target.productionQueue.get(0)), "funded lead ship became resource-blocked");
+        require(ProductionSystem.waitingForResources(target.productionQueue.get(1)), "first logistics job is not resource-blocked");
+        require(ProductionSystem.waitingForResources(target.productionQueue.get(2)), "duplicate logistics job was collapsed");
+
+        Base restored = NetBaseSync.fromState(NetBaseSync.toState(target));
+        require(jobIds(restored).equals(orderBefore), "snapshot changed logistics-backed queue order");
+        require(ProductionSystem.waitingForResources(restored.productionQueue.get(1)), "snapshot lost waiting-resource state");
+
+        for (Unit unit : world.units.values()) {
+            if (!LogisticsSystem.SHUTTLE_TYPE.equals(unit.shipTypeId)) continue;
+            unit.x = target.x;
+            unit.y = target.y;
+        }
+        world.logisticsSystem.update(world, 2.1);
+
+        require(target.productionQueue.size() == 3, "resource delivery replaced or removed queued jobs");
+        require(jobIds(target).equals(orderBefore), "resource delivery changed queue IDs or order");
+        require(target.productionQueue.get(1).resourcesReserved, "first delivered job was not funded in place");
+        require(target.productionQueue.get(2).resourcesReserved, "duplicate delivered job was not funded in place");
+        require(!ProductionSystem.waitingForResources(target.productionQueue.get(1)), "first delivered job remained blocked");
+        require(!ProductionSystem.waitingForResources(target.productionQueue.get(2)), "duplicate delivered job remained blocked");
+
+        ProductionSystem.update(world, 1000);
+        require(target.productionQueue.isEmpty(), "funded logistics queue did not drain");
+        require(countUnits(world, playerId, "prospector") == 3, "logistics queue did not produce every requested ship");
     }
 
     private static Base base(World world, String id, String playerId, String typeId, double x, double y) {
@@ -83,6 +129,12 @@ public final class ProductionQueueValidator {
 
     private static void fill(Base base) {
         for (Material material : Material.values()) base.inventory.put(material, 100_000.0);
+    }
+
+    private static List<String> jobIds(Base base) {
+        List<String> ids = new ArrayList<>();
+        for (ProductionJob job : base.productionQueue) ids.add(job.id);
+        return ids;
     }
 
     private static int countUnits(World world, String playerId, String typeId) {
