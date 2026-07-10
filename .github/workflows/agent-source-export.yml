@@ -1,0 +1,23 @@
+name: Agent Source Export
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-source-export
+          path: |
+            .
+            !.git
+          include-hidden-files: true
+          retention-days: 1
