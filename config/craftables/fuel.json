@@ -8,6 +8,7 @@
       "stationTypes": [
         "manufacturing"
       ],
+      "timeSeconds": 12,
       "requiredResources": {
         "HYDROGEN": 30,
         "HELIUM": 10,
