@@ -19,7 +19,7 @@ final class GameFrame extends JFrame {
     private Timer networkTimer;
 
     GameFrame(Config config) {
-        super("StarChem");
+        super(BuildInfo.display());
         setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         setSize(1280, 800);
         setMinimumSize(new Dimension(900, 620));
@@ -41,7 +41,7 @@ final class GameFrame extends JFrame {
         root.add(backdrop, JLayeredPane.DEFAULT_LAYER);
         root.add(menuPanel, JLayeredPane.PALETTE_LAYER);
         menuPanel.setStatus(status);
-        setTitle("StarChem - Menu");
+        setTitle(BuildInfo.display() + " - Menu");
         layoutLayers();
         root.revalidate();
         root.repaint();
@@ -88,7 +88,7 @@ final class GameFrame extends JFrame {
         root.removeAll();
         root.add(gamePanel, JLayeredPane.DEFAULT_LAYER);
         root.add(endStatePanel, JLayeredPane.MODAL_LAYER);
-        setTitle("StarChem - " + config.modeLabel() + " - " + config.playerName + " - " + world.systemName() + (config.devMode ? " - DEV" : ""));
+        setTitle(BuildInfo.display() + " - " + config.modeLabel() + " - " + config.playerName + " - " + world.systemName() + (config.devMode ? " - DEV" : ""));
         layoutLayers();
         root.revalidate();
         root.repaint();
