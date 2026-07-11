@@ -36,7 +36,7 @@ Clients and servers should use the same StarChem release version.
 }
 ```
 
-Set `wanderingWormholePairs` to `0` to keep only the base topology. Accepted values are `0` through `32`. The same galaxy seed and setting produce the same additional links. Multiplayer clients should use the same packaged configuration as the host.
+Set `wanderingWormholePairs` to `0` to keep only the base topology. Accepted values are `0` through `32`. The same galaxy seed and setting produce the same additional links. The host reads this setting when a session is created, so changing it requires starting a new session. Multiplayer clients should use the same packaged configuration as the host.
 
 ## Development
 
