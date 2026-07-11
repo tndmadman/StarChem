@@ -12,12 +12,14 @@ jobs:
   compile:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-        with:
-          show-progress: false
-      - name: Compile and run galaxy validator
+      - name: Fetch, compile, and run galaxy validator
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          git init -q .
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch -q --depth=1 origin "${GITHUB_SHA}"
+          git checkout -q FETCH_HEAD
           mkdir -p /tmp/starchem-classes
           javac --release 17 -encoding UTF-8 -d /tmp/starchem-classes $(find src/main/java -name '*.java' -print)
           java -cp /tmp/starchem-classes com.tndmadman.rts.GalaxyConnectivityValidator
