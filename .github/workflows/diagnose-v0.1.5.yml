@@ -1,0 +1,44 @@
+name: Diagnose v0.1.5 release
+
+on:
+  push:
+    branches:
+      - agent/prepare-0.1.5-release
+    paths-ignore:
+      - release-diagnostic-v0.1.5.txt
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Inspect release
+        shell: bash
+        run: |
+          set +e
+          gh release view v0.1.5 \
+            --repo "$GITHUB_REPOSITORY" \
+            --json url,tagName,name,isDraft,isPrerelease,assets \
+            > release-diagnostic-v0.1.5.txt 2>&1
+          EXIT_CODE=$?
+          echo "exit_code=$EXIT_CODE" >> release-diagnostic-v0.1.5.txt
+          exit 0
+
+      - name: Publish diagnostic marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          git switch -C agent/prepare-0.1.5-release origin/agent/prepare-0.1.5-release
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add release-diagnostic-v0.1.5.txt
+          git commit -m "Record v0.1.5 release diagnostic [skip ci]"
+          git push origin agent/prepare-0.1.5-release
