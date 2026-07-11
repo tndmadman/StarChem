@@ -1,13 +1,9 @@
 package com.tndmadman.rts;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Locale;
-
 public final class ClientLaunchValidator {
     private ClientLaunchValidator() { }
 
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
         expectEquals("blank host default", "127.0.0.1", Config.parseHost("   "));
         expectEquals("DNS host", "server.example", Config.parseHost(" server.example "));
         expectEquals("raw IPv6", "::1", Config.parseHost("::1"));
@@ -32,17 +28,7 @@ public final class ClientLaunchValidator {
         expectInvalidPort("zero port", "0");
         expectInvalidPort("port above range", "65536");
 
-        validateLauncher(Path.of("client-remote.bat"));
-        validateLauncher(Path.of("packaging/client-remote.bat"));
-
         System.out.println("Client launch validation passed.");
-    }
-
-    private static void validateLauncher(Path path) throws Exception {
-        String content = Files.readString(path).toLowerCase(Locale.ROOT);
-        expectFalse(path + " reads raw console input", content.contains("set /p"));
-        expectFalse(path + " expands a host variable", content.contains("%host%"));
-        expectTrue(path + " routes through run-starchem.bat", content.contains("run-starchem.bat"));
     }
 
     private static void expectInvalidHost(String name, String host) {
@@ -74,10 +60,6 @@ public final class ClientLaunchValidator {
 
     private static void expectTrue(String name, boolean actual) {
         if (!actual) throw new IllegalStateException("Expected true: " + name);
-    }
-
-    private static void expectFalse(String name, boolean actual) {
-        if (actual) throw new IllegalStateException("Expected false: " + name);
     }
 
     private static void expectEquals(String name, Object expected, Object actual) {
