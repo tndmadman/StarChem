@@ -6,7 +6,11 @@ final class GalaxyRuntimeOptions {
     private GalaxyRuntimeOptions() { }
 
     static void configure(Config config) {
-        copiesPerTemplate = config == null ? 1 : Math.max(1, Math.min(2, config.galaxyCopies));
+        configureCopies(config == null ? 1 : config.galaxyCopies);
+    }
+
+    static void configureCopies(int copies) {
+        copiesPerTemplate = Math.max(1, Math.min(2, copies));
     }
 
     static int copiesPerTemplate() { return copiesPerTemplate; }

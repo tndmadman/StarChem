@@ -114,7 +114,7 @@ final class PeerClientSide {
         if (!fromConfiguredServer(packet)) return;
         PlayerRegistry.activate(world);
         lastServerPacket = System.currentTimeMillis();
-        if (readLeaderboard(message) || readDevStatus(message)) return;
+        if (readGalaxy(message) || readLeaderboard(message) || readDevStatus(message)) return;
         if (!readJoinDenied(message) && !readSessionDenied(message) && !readSystemDelete(message)) ClientPackets.handle(this, message);
     }
 
@@ -230,6 +230,14 @@ final class PeerClientSide {
         } catch (SnapshotDecodeException ex) {
             rejectSnapshot(ex);
         }
+    }
+
+    private boolean readGalaxy(String message) {
+        if (message == null || !message.startsWith("GALAXY|")) return false;
+        GalaxyMapWire.Decoded decoded = GalaxyMapWire.decode(message);
+        world.configureGalaxyCopies(decoded.copiesPerTemplate());
+        world.applyRemoteGalaxyMapSnapshot(decoded.snapshot());
+        return true;
     }
 
     private boolean readLeaderboard(String message) {

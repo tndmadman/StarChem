@@ -26,6 +26,7 @@ final class World {
     private final GalaxyCoordinator galaxy = new GalaxyCoordinator();
     private final Set<String> disabledNpcFactionIds;
     private final Map<String, NpcSystem> npcSystems = new LinkedHashMap<>();
+    private GalaxyMapSnapshot remoteGalaxyMapSnapshot;
     boolean devFreeBuild;
     private StarSystemDefinition starSystem;
     private long systemSeed;
@@ -78,7 +79,21 @@ final class World {
     String systemId() { return starSystem.id(); }
     String systemName() { return starSystem.name(); }
     String activeSystemId() { return galaxy.activeSystemId(); }
-    GalaxyMapSnapshot galaxyMapSnapshot() { return galaxy.mapSnapshot(this); }
+    GalaxyMapSnapshot galaxyMapSnapshot() {
+        GalaxyMapSnapshot snapshot = remoteGalaxyMapSnapshot;
+        return snapshot == null ? galaxy.mapSnapshot(this) : GalaxyMapWire.withActive(snapshot, activeSystemId());
+    }
+    GalaxyMapSnapshot authoritativeGalaxyMapSnapshot() { return galaxy.mapSnapshot(this); }
+    void applyRemoteGalaxyMapSnapshot(GalaxyMapSnapshot snapshot) { remoteGalaxyMapSnapshot = snapshot; }
+    void configureGalaxyCopies(int copies) {
+        int normalized = Math.max(1, Math.min(2, copies));
+        if (GalaxyRuntimeOptions.copiesPerTemplate() == normalized) return;
+        GalaxyRuntimeOptions.configureCopies(normalized);
+        remoteGalaxyMapSnapshot = null;
+        npcSystems.clear();
+        celestials = galaxy.rebuild(this, starSystem, systemSeed);
+        systemTime = galaxy.activeSystemTime();
+    }
     boolean viewGalaxySystem(String systemId) { boolean viewed = galaxy.viewSystem(this, systemId); celestials = galaxy.activeCelestials(); systemTime = galaxy.activeSystemTime(); selectedResourceId = -1; if (viewed) SystemAudio.listenTo(this); return viewed; }
     boolean hasLiveAssets(String playerId) { return galaxy.hasLiveAssets(this, playerId); }
     String playerHomeSystemId(String playerId) { return galaxy.playerHomeSystemId(this, playerId, starSystem); }
@@ -209,7 +224,7 @@ final class World {
     void syncEnvironment(long seed, double hostTime) { syncEnvironment(systemId(), seed, hostTime); }
     void syncEnvironment(String newSystemId, long seed, double hostTime) { boolean changed = !StarSystems.get(newSystemId).id().equals(systemId()); if (changed) setStarSystem(newSystemId); if (changed || seed != systemSeed) setSystemSeed(seed); double delta = hostTime - systemTime; if (Math.abs(delta) > 0.02) advanceEnvironment(delta); else { systemTime = hostTime; galaxy.setActiveSystemTime(hostTime); } }
     private void setStarSystem(String systemId) { starSystem = StarSystems.get(systemId); }
-    private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); npcSystems.clear(); celestials = galaxy.rebuild(this, starSystem, seed); }
+    private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); npcSystems.clear(); remoteGalaxyMapSnapshot = null; celestials = galaxy.rebuild(this, starSystem, seed); }
     private Point2D startShipPoint(Point2D basePoint) { return new Point2D.Double(basePoint.getX() + 180, basePoint.getY() - 80); }
 
     void updateEnvironment(double dt) { advanceEnvironment(dt); updateItems(dt); updateExplosions(dt); }

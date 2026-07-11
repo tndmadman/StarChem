@@ -16,9 +16,12 @@ final class StarSystems {
     private StarSystems() { }
 
     static StarSystemDefinition get(String id) {
-        StarSystemDefinition found = SYSTEMS.get(id == null || id.isBlank() ? DEFAULT_SYSTEM_ID : id);
+        String requested = id == null || id.isBlank() ? DEFAULT_SYSTEM_ID : id;
+        StarSystemDefinition found = SYSTEMS.get(requested);
         if (found != null) return found;
-        return SYSTEMS.getOrDefault(DEFAULT_SYSTEM_ID, fallback());
+        String templateId = GalaxySystemIdentity.templateId(requested);
+        found = SYSTEMS.get(templateId);
+        return found != null ? found : SYSTEMS.getOrDefault(DEFAULT_SYSTEM_ID, fallback());
     }
 
     static StarSystemDefinition defaultSystem() { return get(DEFAULT_SYSTEM_ID); }

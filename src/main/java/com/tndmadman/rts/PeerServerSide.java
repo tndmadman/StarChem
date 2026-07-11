@@ -9,6 +9,7 @@ import java.util.*;
 
 final class PeerServerSide {
     private static final long SNAPSHOT_MS = 100;
+    private static final long GALAXY_MS = 1000;
     private static final long TIMEOUT_MS = 4000;
     private static final long DISCONNECT_GRACE_MS = 60_000;
     private static final long RESUME_REPLAY_MS = 10_000;
@@ -22,7 +23,7 @@ final class PeerServerSide {
     private final Map<String, PlayerSession> sessions = new LinkedHashMap<>();
     private final Set<String> devRequests = new LinkedHashSet<>();
     private int nextPlayer = 1;
-    private long sequence = 1, lastSnapshot;
+    private long sequence = 1, lastSnapshot, lastGalaxy;
 
     PeerServerSide(Config config, World world, PeerTransport transport) {
         this.config = config;
@@ -73,6 +74,7 @@ final class PeerServerSide {
         removeTimedOut(now);
         removeExpiredSessions(now);
         if (now - lastSnapshot >= SNAPSHOT_MS) { broadcastNow(); lastSnapshot = now; }
+        if (now - lastGalaxy >= GALAXY_MS) { broadcastGalaxy(); lastGalaxy = now; }
     }
 
     void handle(String message, NetPacket packet) {
@@ -88,6 +90,7 @@ final class PeerServerSide {
     void sendInitial(ServerPeer peer) {
         sequence = PeerSyncBatch.sendInitial(world, views, peer, sequence, transport::send);
         sendLeaderboard(peer);
+        sendGalaxy(peer);
     }
 
     void sendInitialTo(String endpoint) { sendInitial(peers.get(endpoint)); }
@@ -291,6 +294,18 @@ final class PeerServerSide {
         List<LeaderboardEntry> entries = GlobalLeaderboard.aggregate(world, allKnownSystems());
         GlobalLeaderboard.set(world, entries);
         transport.reliable(GlobalLeaderboard.encode(entries), peer.address(), peer.port());
+    }
+
+    private void broadcastGalaxy() {
+        if (peers.isEmpty()) return;
+        String message = GalaxyMapWire.encode(config.galaxyCopies, world.authoritativeGalaxyMapSnapshot());
+        for (ServerPeer peer : peers.values()) transport.send(message, peer.address(), peer.port());
+    }
+
+    private void sendGalaxy(ServerPeer peer) {
+        if (peer == null) return;
+        String message = GalaxyMapWire.encode(config.galaxyCopies, world.authoritativeGalaxyMapSnapshot());
+        transport.reliable(message, peer.address(), peer.port());
     }
 
     private void sendSessionState(PlayerSession session, ServerPeer peer, String token) {
