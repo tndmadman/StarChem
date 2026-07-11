@@ -1,0 +1,22 @@
+{
+  "id": "shattered_worlds",
+  "name": "Shattered Worlds",
+  "role": "salvage",
+  "width": 18500,
+  "height": 16200,
+  "tags": ["mixed_resources", "ruins", "contested"],
+  "modifiers": {"resourceRespawn": 1.15, "movementSpeed": 0.97},
+  "spawnMaterials": ["IRON", "COPPER", "CARBON", "SILICATES"],
+  "bodies": [
+    {"id": "sun", "name": "Fracture", "orbit": 0, "radius": 195, "speed": 0, "color": "#F5C78B"},
+    {"id": "remnant_a", "name": "Remnant A", "parent": "sun", "orbit": 2350, "radius": 42, "speed": 0.016, "color": "#786E68"},
+    {"id": "remnant_b", "name": "Remnant B", "parent": "sun", "orbit": 3100, "radius": 51, "speed": -0.014, "color": "#8A5B52"},
+    {"id": "remnant_c", "name": "Remnant C", "parent": "sun", "orbit": 4650, "radius": 38, "speed": 0.008, "color": "#5D6978"}
+  ],
+  "resourceBelts": [
+    {"name": "Planetary Debris", "kind": "SILICATE_ROCK", "orbit": 2800, "width": 720, "arc": 4.5, "count": 230, "amount": 20, "harvestRate": 7.1, "radius": 2.8,
+      "composition": [{"material": "IRON", "weight": 25}, {"material": "COPPER", "weight": 15}, {"material": "SILICATES", "weight": 25}, {"material": "CARBON", "weight": 20}, {"material": "ALUMINUM", "weight": 15}]},
+    {"name": "Buried Technology Arc", "kind": "SILICATE_ROCK", "orbit": 5700, "width": 330, "arc": 1.0, "count": 70, "amount": 16, "harvestRate": 5.8, "radius": 2.5,
+      "composition": [{"material": "GOLD", "weight": 35}, {"material": "RARE_EARTHS", "weight": 35}, {"material": "PLATINUM", "weight": 15}, {"material": "NICKEL", "weight": 15}]}
+  ]
+}
