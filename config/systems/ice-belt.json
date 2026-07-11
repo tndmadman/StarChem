@@ -4,6 +4,8 @@
   "role": "ice",
   "width": 17500,
   "height": 15500,
+  "tags": ["ice_rich", "frontier", "volatile"],
+  "modifiers": {"resourceRespawn": 1.12, "movementSpeed": 0.96},
   "spawnMaterials": ["ICE", "SILICATES", "HYDROGEN", "IRON"],
   "bodies": [
     {"id": "blue_star", "name": "Blue Star", "parent": null, "orbit": 0, "radius": 180, "speed": 0, "color": "#A8D8FF"},
@@ -11,9 +13,11 @@
     {"id": "glass", "name": "Glass Moon", "parent": "frost", "orbit": 310, "radius": 20, "speed": -0.052, "color": "#D2F3FF"}
   ],
   "resourceBelts": [
-    {"name": "Ice Shelf", "kind": "SILICATE_ROCK", "materials": ["ICE"], "orbit": 2800, "width": 520, "arc": 1.5, "count": 180, "amount": 32, "harvestRate": 8.4, "radius": 3.2},
-    {"name": "Silicate Shelf", "kind": "SILICATE_ROCK", "materials": ["SILICATES"], "orbit": 3900, "width": 480, "arc": 1.1, "count": 145, "amount": 24, "harvestRate": 7.2, "radius": 3.0},
-    {"name": "Cold Hydrogen", "kind": "GAS_CLOUD", "materials": ["HYDROGEN"], "orbit": 5200, "width": 620, "arc": 1.2, "count": 125, "amount": 26, "harvestRate": 8.0, "radius": 4.7},
-    {"name": "Trace Metals", "kind": "SILICATE_ROCK", "materials": ["IRON", "COPPER"], "orbit": 1900, "width": 240, "arc": 0.6, "count": 65, "amount": 14, "harvestRate": 5.8, "radius": 2.4}
+    {"name": "Frozen Shelf", "kind": "SILICATE_ROCK", "orbit": 3000, "width": 590, "arc": 2.4, "count": 150, "amount": 31, "harvestRate": 8.4, "radius": 3.2,
+      "composition": [{"material": "ICE", "weight": 58}, {"material": "SILICATES", "weight": 22}, {"material": "CARBON", "weight": 12}, {"material": "PHOSPHATES", "weight": 8}]},
+    {"name": "Cold Gas Halo", "kind": "GAS_CLOUD", "orbit": 5450, "width": 690, "arc": 2.2, "count": 105, "amount": 26, "harvestRate": 8.0, "radius": 4.7,
+      "composition": [{"material": "HYDROGEN", "weight": 42}, {"material": "HELIUM", "weight": 24}, {"material": "NITROGEN", "weight": 18}, {"material": "METHANE", "weight": 12}, {"material": "NEON", "weight": 4}]},
+    {"name": "Trace Metal Ring", "kind": "SILICATE_ROCK", "orbit": 1850, "width": 290, "arc": 1.1, "count": 60, "amount": 16, "harvestRate": 5.9, "radius": 2.5,
+      "composition": [{"material": "IRON", "weight": 44}, {"material": "COPPER", "weight": 24}, {"material": "NICKEL", "weight": 20}, {"material": "ALUMINUM", "weight": 12}]}
   ]
 }
