@@ -15,8 +15,10 @@ final class DevMenu {
 
     private final HudWindow window = new HudWindow(18, 205, 292);
     private int targetIndex;
+    private PeerNetwork accessNetwork;
 
     boolean click(World world, PeerNetwork devAuthorityNetwork, int sx, int sy, boolean canEdit) {
+        accessNetwork = devAuthorityNetwork;
         if (!window.contains(sx, sy, bodyHeight())) return false;
         if (sy <= window.y + 28) return window.press(sx, sy, bodyHeight());
         if (window.collapsed || !canEdit) return true;
@@ -63,6 +65,7 @@ final class DevMenu {
 
     void drag(int sx, int sy, int screenW, int screenH) { window.drag(sx, sy, screenW, screenH); }
     void release() { window.release(); }
+    void draw(Graphics2D g2, World world, boolean canEdit) { draw(g2, world, accessNetwork, canEdit); }
 
     void draw(Graphics2D g2, World world, PeerNetwork devAuthorityNetwork, boolean canEdit) {
         window.draw(g2, "DEV CRAFTING", bodyHeight(), new Color(255, 180, 80, 180));
