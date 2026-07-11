@@ -1,0 +1,152 @@
+name: Publish and verify v0.1.5 release
+
+on:
+  push:
+    branches:
+      - agent/prepare-0.1.5-release
+    paths-ignore:
+      - release-publish-v0.1.5.txt
+
+permissions:
+  contents: write
+
+jobs:
+  publish-release:
+    name: Build, publish, download, and verify v0.1.5
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: v0.1.5
+      RELEASE_VERSION: 0.1.5
+      RELEASE_ASSET: StarChem-v0.1.5.zip
+
+    steps:
+      - name: Check out immutable release tag
+        uses: actions/checkout@v4
+        with:
+          ref: v0.1.5
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build and validate release JAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG_COMMIT="$(git rev-parse HEAD)"
+          gradle clean check jar --no-daemon \
+            -PreleaseVersion="$RELEASE_VERSION" \
+            -PbuildCommit="$TAG_COMMIT"
+          test -f build/libs/StarChem.jar
+          VERSION_OUTPUT="$(java -jar build/libs/StarChem.jar --version)"
+          echo "$VERSION_OUTPUT"
+          [[ "$VERSION_OUTPUT" == "StarChem 0.1.5 ("* ]]
+
+      - name: Create exact player package
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf release
+          mkdir -p release/StarChem
+          cp build/libs/StarChem.jar release/StarChem/StarChem.jar
+          cp -R config release/StarChem/config
+          cp packaging/run-starchem.bat release/StarChem/run-starchem.bat
+
+          mapfile -t TOP_LEVEL_FILES < <(find release/StarChem -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)
+          mapfile -t TOP_LEVEL_DIRS < <(find release/StarChem -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
+          [[ "${TOP_LEVEL_FILES[*]}" == "StarChem.jar run-starchem.bat" ]]
+          [[ "${TOP_LEVEL_DIRS[*]}" == "config" ]]
+
+          cd release
+          zip -r "$RELEASE_ASSET" StarChem
+          mv "$RELEASE_ASSET" ..
+
+      - name: Publish GitHub Release and runnable ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "StarChem v0.1.5" \
+              --notes-file RELEASE_NOTES.md \
+              --latest
+            gh release upload "$RELEASE_TAG" "$RELEASE_ASSET" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$RELEASE_TAG" "$RELEASE_ASSET" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "StarChem v0.1.5" \
+              --notes-file RELEASE_NOTES.md \
+              --verify-tag \
+              --latest
+          fi
+
+      - name: Download and independently verify published asset
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf downloaded extracted
+          mkdir downloaded
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "$RELEASE_ASSET" \
+            --dir downloaded
+
+          test -f "downloaded/$RELEASE_ASSET"
+          zipinfo -1 "downloaded/$RELEASE_ASSET" > package-files.txt
+          grep -Fxq 'StarChem/StarChem.jar' package-files.txt
+          grep -Fxq 'StarChem/run-starchem.bat' package-files.txt
+          grep -Eq '^StarChem/config/.+' package-files.txt
+
+          mapfile -t TOP_LEVEL < <(sed -n 's#^StarChem/\([^/]*\).*#\1#p' package-files.txt | sed '/^$/d' | sort -u)
+          [[ "${TOP_LEVEL[*]}" == "StarChem.jar config run-starchem.bat" ]]
+
+          unzip -q "downloaded/$RELEASE_ASSET" -d extracted
+          test -f extracted/StarChem/StarChem.jar
+          test -d extracted/StarChem/config
+          test -f extracted/StarChem/run-starchem.bat
+
+          VERSION_OUTPUT="$(java -jar extracted/StarChem/StarChem.jar --version)"
+          echo "$VERSION_OUTPUT"
+          [[ "$VERSION_OUTPUT" == "StarChem 0.1.5 ("* ]]
+
+          unzip -p extracted/StarChem/StarChem.jar META-INF/MANIFEST.MF > jar-manifest.txt
+          grep -Eq '^Main-Class: com\.tndmadman\.rts\.App\r?$' jar-manifest.txt
+          grep -Eq '^Implementation-Version: 0\.1\.5\r?$' jar-manifest.txt
+          grep -Eq '^Build-Commit: [0-9a-f]{40}\r?$' jar-manifest.txt
+
+          SHA256="$(sha256sum "downloaded/$RELEASE_ASSET" | awk '{print $1}')"
+          echo "version_output=$VERSION_OUTPUT" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+
+      - name: Record published release verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          git switch agent/prepare-0.1.5-release
+          {
+            echo "StarChem v0.1.5 published release verification"
+            echo "Release: https://github.com/${GITHUB_REPOSITORY}/releases/tag/v0.1.5"
+            echo "Asset: $RELEASE_ASSET"
+            echo "SHA-256: ${{ steps.verify.outputs.sha256 }}"
+            echo "JAR output: ${{ steps.verify.outputs.version_output }}"
+            echo "Verified contents: StarChem.jar, config/, run-starchem.bat"
+            echo "Workflow run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > release-publish-v0.1.5.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add release-publish-v0.1.5.txt
+          git commit -m "Record published v0.1.5 release [skip ci]"
+          git push origin agent/prepare-0.1.5-release
