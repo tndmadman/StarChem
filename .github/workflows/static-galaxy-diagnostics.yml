@@ -32,3 +32,14 @@ jobs:
             compile.log
             compile-status.txt
           retention-days: 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: static-galaxy-source-tree
+          path: |
+            src
+            config
+            build.gradle
+            settings.gradle
+            gradlew
+            gradle
+          retention-days: 2
