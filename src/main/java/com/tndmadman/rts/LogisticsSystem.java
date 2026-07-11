@@ -30,27 +30,30 @@ final class LogisticsSystem {
     }
 
     void update(World world, double dt) {
+        if (world == null) return;
         deliverActiveShuttles(world);
+        reconcileInTransit(world);
         cleanupDeadRequests(world);
         recheckWaitingRequests(world, dt);
-        updateBaseStatuses(world);
         completeReadyRequests(world);
+        updateBaseStatuses(world);
     }
 
     private boolean queue(World world, Base target, ProductionJobKind kind, String itemId, String itemName,
                           List<Cost> cost, double duration) {
-        if (target == null || cost.isEmpty()) return false;
+        if (world == null || target == null || cost.isEmpty()) return false;
         if (!Rules.SHIPS.containsKey(SHUTTLE_TYPE)) return false;
         List<Cost> missing = missingAt(target, cost);
         if (missing.isEmpty() || !availableHangarsCanCover(world, target, missing)) return false;
 
         ProductionJob job = ProductionSystem.enqueueWaiting(world, target, kind, itemId, itemName, duration);
         if (job == null) return false;
-        LogisticsRequest request = new LogisticsRequest("LR" + nextRequestId++, target.playerId, target.id,
-                job.id, itemName, cost, missing);
+        LogisticsRequest request = new LogisticsRequest("LR" + nextRequestId++, world.activeSystemId(),
+                target.playerId, target.id, target, job.id, itemName, cost);
+        request.reserveAvailable(target);
         requests.add(request);
-        for (Cost need : missing) dispatchMaterial(world, target, request, need.material(), need.amount());
-        target.logisticsStatus = waitLabel(request, requestCount(target.id));
+        dispatchOutstanding(world, target, request);
+        target.logisticsStatus = waitLabel(request, requestCount(world, target));
         return true;
     }
 
@@ -84,6 +87,13 @@ final class LogisticsSystem {
         }
         out.sort(Comparator.comparingDouble(source -> Calc.distance(source.x, source.y, target.x, target.y)));
         return out;
+    }
+
+    private void dispatchOutstanding(World world, Base target, LogisticsRequest request) {
+        for (Material material : Material.values()) {
+            double amount = request.undispatchedAmount(material);
+            if (amount > 0.05) dispatchMaterial(world, target, request, material, amount);
+        }
     }
 
     private void dispatchMaterial(World world, Base target, LogisticsRequest request, Material material, double amount) {
@@ -139,109 +149,164 @@ final class LogisticsSystem {
         Iterator<Unit> it = world.units.values().iterator();
         while (it.hasNext()) {
             Unit shuttle = it.next();
-            if (!SHUTTLE_TYPE.equals(shuttle.shipTypeId) || shuttle.logisticsTargetBaseId.isBlank()) continue;
-            Base target = world.bases.get(shuttle.logisticsTargetBaseId);
-            if (target == null || shuttle.cargoUsed() <= 0.05) {
+            if (!SHUTTLE_TYPE.equals(shuttle.shipTypeId)) continue;
+            if (shuttle.cargoUsed() <= 0.05) {
                 it.remove();
+                continue;
+            }
+
+            LogisticsRequest request = requestById(shuttle.logisticsRequestId);
+            boolean linked = request != null && request.matches(world.activeSystemId(), shuttle.logisticsTargetBaseId);
+            if (request != null && !linked) {
+                rerouteOrphan(world, shuttle);
+                continue;
+            }
+
+            Base target = world.bases.get(shuttle.logisticsTargetBaseId);
+            if (target == null) {
+                rerouteOrphan(world, shuttle);
                 continue;
             }
             moveToward(shuttle, target);
             double dockRange = Math.max(42, target.type().unloadRange * DOCK_RANGE_FACTOR);
             if (Calc.distance(shuttle.x, shuttle.y, target.x, target.y) > dockRange) continue;
 
-            LogisticsRequest request = requestById(shuttle.logisticsRequestId);
             for (Material material : Material.values()) {
                 double amount = shuttle.inventory.getOrDefault(material, 0.0);
                 if (amount <= 0.05) continue;
-                HangarStore.add(target.inventory, material, amount);
-                if (request != null) request.delivered(material, amount);
+                if (linked) {
+                    double overflow = request.delivered(material, amount);
+                    if (overflow > 0.001) HangarStore.add(target.inventory, material, overflow);
+                } else HangarStore.add(target.inventory, material, amount);
             }
             it.remove();
             if (PlayerRegistry.isLocal(target.playerId)) world.status = "Logistics shuttle docked at " + target.type().name + ".";
         }
     }
 
+    private void rerouteOrphan(World world, Unit shuttle) {
+        Base fallback = world.nearestBase(shuttle.playerId, shuttle.x, shuttle.y);
+        shuttle.logisticsRequestId = "";
+        if (fallback == null) {
+            shuttle.logisticsTargetBaseId = "";
+            shuttle.task = UnitTask.IDLE;
+            return;
+        }
+        shuttle.logisticsTargetBaseId = fallback.id;
+        moveToward(shuttle, fallback);
+    }
+
+    private void reconcileInTransit(World world) {
+        String systemId = world.activeSystemId();
+        for (LogisticsRequest request : requests) if (request.inSystem(systemId)) request.clearInTransit();
+        for (Unit shuttle : world.units.values()) {
+            if (!SHUTTLE_TYPE.equals(shuttle.shipTypeId)) continue;
+            LogisticsRequest request = requestById(shuttle.logisticsRequestId);
+            if (request == null || !request.matches(systemId, shuttle.logisticsTargetBaseId)) continue;
+            request.trackInTransit(shuttle.inventory);
+        }
+    }
+
     private void recheckWaitingRequests(World world, double dt) {
+        String systemId = world.activeSystemId();
         for (LogisticsRequest request : requests) {
+            if (!request.inSystem(systemId)) continue;
             Base target = world.bases.get(request.targetBaseId);
             if (target == null) continue;
-            request.recheckTimer += dt;
+            request.recheckTimer += Math.max(0, dt);
             if (request.recheckTimer < RECHECK_INTERVAL) continue;
             request.recheckTimer = 0;
-            request.refreshAgainst(target);
-            if (request.ready()) continue;
-            for (Material material : Material.values()) {
-                double amount = request.undispatchedAmount(material);
-                if (amount > 0.05) dispatchMaterial(world, target, request, material, amount);
-            }
+            request.reserveAvailable(target);
+            if (!request.ready()) dispatchOutstanding(world, target, request);
         }
     }
 
     private void completeReadyRequests(World world) {
+        String systemId = world.activeSystemId();
         Iterator<LogisticsRequest> it = requests.iterator();
         while (it.hasNext()) {
             LogisticsRequest request = it.next();
+            if (!request.inSystem(systemId)) continue;
+            Base target = world.bases.get(request.targetBaseId);
+            if (target == null) continue;
+            ProductionJob job = ProductionSystem.findJob(target, request.productionJobId);
+            if (!ProductionSystem.waitingForResources(job)) continue;
+            request.reserveAvailable(target);
+            if (!request.ready()) continue;
+
+            request.depositHeld(target);
+            if (!ProductionSystem.fundWaitingJob(world, target, request.productionJobId)) {
+                request.reserveAvailable(target);
+                target.logisticsStatus = "Resources delivered; still short: " + request.itemName;
+                continue;
+            }
+            it.remove();
+        }
+    }
+
+    void cancelJob(Base target, String productionJobId) {
+        if (target == null || productionJobId == null || productionJobId.isBlank()) return;
+        Iterator<LogisticsRequest> it = requests.iterator();
+        while (it.hasNext()) {
+            LogisticsRequest request = it.next();
+            if (request.targetRef != target || !request.productionJobId.equals(productionJobId)) continue;
+            request.refundHeld(target);
+            it.remove();
+        }
+        refreshStatusForTarget(target);
+    }
+
+    private void cleanupDeadRequests(World world) {
+        String systemId = world.activeSystemId();
+        Iterator<LogisticsRequest> it = requests.iterator();
+        while (it.hasNext()) {
+            LogisticsRequest request = it.next();
+            if (!request.inSystem(systemId)) continue;
             Base target = world.bases.get(request.targetBaseId);
             if (target == null) {
                 it.remove();
                 continue;
             }
             ProductionJob job = ProductionSystem.findJob(target, request.productionJobId);
-            if (!ProductionSystem.waitingForResources(job)) {
-                it.remove();
-                refreshStatus(target);
-                continue;
-            }
-            if (!request.ready()) continue;
-            if (!ProductionSystem.fundWaitingJob(world, target, request.productionJobId)) {
-                target.logisticsStatus = "Resources delivered; still short: " + request.itemName;
-                continue;
-            }
+            if (ProductionSystem.waitingForResources(job)) continue;
+            request.refundHeld(target);
             it.remove();
-            refreshStatus(target);
-        }
-    }
-
-    void cancelJob(Base target, String productionJobId) {
-        if (target == null || productionJobId == null || productionJobId.isBlank()) return;
-        requests.removeIf(request -> request.targetBaseId.equals(target.id)
-                && request.productionJobId.equals(productionJobId));
-        refreshStatus(target);
-    }
-
-    private void cleanupDeadRequests(World world) {
-        requests.removeIf(request -> {
-            Base target = world.bases.get(request.targetBaseId);
-            ProductionJob job = target == null ? null : ProductionSystem.findJob(target, request.productionJobId);
-            return target == null || !ProductionSystem.waitingForResources(job);
-        });
-        Set<String> liveIds = new HashSet<>();
-        for (LogisticsRequest request : requests) liveIds.add(request.targetBaseId);
-        for (Base base : world.bases.values()) {
-            if (!liveIds.contains(base.id) && base.logisticsStatus != null && !base.logisticsStatus.isBlank()) {
-                base.logisticsStatus = "";
-            }
         }
     }
 
     private void updateBaseStatuses(World world) {
-        for (Base base : world.bases.values()) refreshStatus(base);
+        for (Base base : world.bases.values()) refreshStatus(world, base);
     }
 
-    private void refreshStatus(Base base) {
+    private void refreshStatus(World world, Base base) {
         LogisticsRequest first = null;
         int count = 0;
+        String systemId = world.activeSystemId();
         for (LogisticsRequest request : requests) {
-            if (!request.targetBaseId.equals(base.id)) continue;
+            if (!request.inSystem(systemId) || !request.targetBaseId.equals(base.id)) continue;
             if (first == null) first = request;
             count++;
         }
         base.logisticsStatus = first == null ? "" : waitLabel(first, count);
     }
 
-    private int requestCount(String targetBaseId) {
+    private void refreshStatusForTarget(Base base) {
+        LogisticsRequest first = null;
         int count = 0;
-        for (LogisticsRequest request : requests) if (request.targetBaseId.equals(targetBaseId)) count++;
+        for (LogisticsRequest request : requests) {
+            if (request.targetRef != base) continue;
+            if (first == null) first = request;
+            count++;
+        }
+        base.logisticsStatus = first == null ? "" : waitLabel(first, count);
+    }
+
+    private int requestCount(World world, Base target) {
+        int count = 0;
+        String systemId = world.activeSystemId();
+        for (LogisticsRequest request : requests) {
+            if (request.inSystem(systemId) && request.targetBaseId.equals(target.id)) count++;
+        }
         return count;
     }
 
@@ -252,6 +317,7 @@ final class LogisticsSystem {
     }
 
     private LogisticsRequest requestById(String id) {
+        if (id == null || id.isBlank()) return null;
         for (LogisticsRequest request : requests) if (request.id.equals(id)) return request;
         return null;
     }
@@ -288,48 +354,90 @@ final class LogisticsSystem {
 }
 
 final class LogisticsRequest {
-    final String id, playerId, targetBaseId, productionJobId, itemName;
+    final String id, targetSystemId, playerId, targetBaseId, productionJobId, itemName;
+    final Base targetRef;
     final List<Cost> cost;
-    final EnumMap<Material, Double> awaiting = new EnumMap<>(Material.class);
+    final EnumMap<Material, Double> held = new EnumMap<>(Material.class);
     final EnumMap<Material, Double> inTransit = new EnumMap<>(Material.class);
     double recheckTimer = 0;
 
-    LogisticsRequest(String id, String playerId, String targetBaseId, String productionJobId,
-                     String itemName, List<Cost> cost, List<Cost> missing) {
+    LogisticsRequest(String id, String targetSystemId, String playerId, String targetBaseId, Base targetRef,
+                     String productionJobId, String itemName, List<Cost> cost) {
         this.id = id;
+        this.targetSystemId = targetSystemId == null ? "" : targetSystemId;
         this.playerId = playerId;
         this.targetBaseId = targetBaseId;
+        this.targetRef = targetRef;
         this.productionJobId = productionJobId;
         this.itemName = itemName;
         this.cost = List.copyOf(cost);
-        for (Cost c : missing) awaiting.put(c.material(), c.amount());
     }
 
-    void refreshAgainst(Base target) {
+    boolean inSystem(String systemId) { return targetSystemId.equals(systemId == null ? "" : systemId); }
+    boolean matches(String systemId, String baseId) { return inSystem(systemId) && targetBaseId.equals(baseId); }
+
+    void reserveAvailable(Base target) {
+        if (target == null) return;
         for (Cost c : cost) {
-            double missing = c.amount() - target.inventory.getOrDefault(c.material(), 0.0);
-            if (missing <= 0.05) awaiting.remove(c.material());
-            else awaiting.put(c.material(), missing);
+            double needed = remainingNeeded(c.material());
+            if (needed <= 0.05) continue;
+            double available = target.inventory.getOrDefault(c.material(), 0.0);
+            double take = Math.min(needed, available);
+            if (take <= 0.001) continue;
+            double next = available - take;
+            if (next <= 0.05) target.inventory.remove(c.material());
+            else target.inventory.put(c.material(), next);
+            held.put(c.material(), held.getOrDefault(c.material(), 0.0) + take);
         }
     }
 
     void dispatched(Material material, double amount) {
+        if (material == null || amount <= 0.001) return;
         inTransit.put(material, inTransit.getOrDefault(material, 0.0) + amount);
     }
 
-    void delivered(Material material, double amount) {
-        double nextAwaiting = awaiting.getOrDefault(material, 0.0) - amount;
-        if (nextAwaiting <= 0.05) awaiting.remove(material);
-        else awaiting.put(material, nextAwaiting);
-
+    double delivered(Material material, double amount) {
+        if (material == null || amount <= 0.001) return 0;
+        double accepted = Math.min(amount, remainingNeeded(material));
+        if (accepted > 0.001) held.put(material, held.getOrDefault(material, 0.0) + accepted);
         double nextInTransit = inTransit.getOrDefault(material, 0.0) - amount;
         if (nextInTransit <= 0.05) inTransit.remove(material);
         else inTransit.put(material, nextInTransit);
+        return Math.max(0, amount - accepted);
+    }
+
+    void clearInTransit() { inTransit.clear(); }
+
+    void trackInTransit(EnumMap<Material, Double> cargo) {
+        if (cargo == null) return;
+        for (Map.Entry<Material, Double> entry : cargo.entrySet()) {
+            if (entry.getValue() == null || entry.getValue() <= 0.001) continue;
+            inTransit.put(entry.getKey(), inTransit.getOrDefault(entry.getKey(), 0.0) + entry.getValue());
+        }
     }
 
     double undispatchedAmount(Material material) {
-        return Math.max(0, awaiting.getOrDefault(material, 0.0) - inTransit.getOrDefault(material, 0.0));
+        return Math.max(0, remainingNeeded(material) - inTransit.getOrDefault(material, 0.0));
     }
 
-    boolean ready() { return awaiting.isEmpty(); }
+    double remainingNeeded(Material material) {
+        double required = 0;
+        for (Cost c : cost) if (c.material() == material) required += c.amount();
+        return Math.max(0, required - held.getOrDefault(material, 0.0));
+    }
+
+    boolean ready() {
+        for (Cost c : cost) if (remainingNeeded(c.material()) > 0.05) return false;
+        return true;
+    }
+
+    void depositHeld(Base target) {
+        if (target == null) return;
+        for (Map.Entry<Material, Double> entry : held.entrySet()) {
+            if (entry.getValue() > 0.001) HangarStore.add(target.inventory, entry.getKey(), entry.getValue());
+        }
+        held.clear();
+    }
+
+    void refundHeld(Base target) { depositHeld(target); }
 }
