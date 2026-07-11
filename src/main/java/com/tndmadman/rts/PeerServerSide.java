@@ -186,13 +186,14 @@ final class PeerServerSide {
             }
         }
 
+        if (session.connected && session.endpoint != null && !session.endpoint.isBlank()
+                && !session.endpoint.equals(endpoint)) {
+            transport.reliable(sessionBusy("Session is already active on another connection."), address, port);
+            return false;
+        }
+
         ServerPeer endpointOwner = peers.get(endpoint);
         if (endpointOwner != null && !playerId.equals(endpointOwner.playerId())) disconnectPeer(endpoint, now, "replaced");
-
-        if (session.connected && session.endpoint != null && !session.endpoint.isBlank() && !session.endpoint.equals(endpoint)) {
-            ServerPeer oldPeer = peers.remove(session.endpoint);
-            if (oldPeer != null) transport.clearPendingForEndpoint(oldPeer.address(), oldPeer.port());
-        }
 
         boolean devAllowed = DevAccessPolicy.authorize(config.devMode, config.dedicatedServerMode(), address,
                 requestedDev, config.devToken, suppliedDevToken);
@@ -418,6 +419,7 @@ final class PeerServerSide {
     }
 
     private String joinDenied(String message) { return "JOIN_DENIED|" + packetPart(message); }
+    private String sessionBusy(String message) { return "SESSION_BUSY|" + packetPart(message); }
     private String sessionDenied(String message) { return "SESSION_DENIED|" + packetPart(message); }
     private String packetPart(String value) { return value == null ? "" : value.replace('|', ' ').replace('\n', ' ').replace('\r', ' ').trim(); }
     boolean requestedDev(String[] parts) { return parts.length > 2 && flag(parts[2]); }

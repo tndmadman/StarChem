@@ -33,6 +33,13 @@ public final class ClientLaunchValidator {
         expectInvalidPort("zero port", "0");
         expectInvalidPort("port above range", "65536");
 
+        expectEquals("duplicate active-session notice",
+                "Duplicate player names are not allowed on this server. Choose a different name.",
+                GameFrame.connectionNotice("Session is already active on another connection. Waiting to resume."));
+        expectEquals("unrelated connection status", "",
+                GameFrame.connectionNotice("Connection interrupted. Reconnecting to server."));
+        expectEquals("null connection status", "", GameFrame.connectionNotice(null));
+
         System.out.println("Client launch validation passed.");
     }
 
