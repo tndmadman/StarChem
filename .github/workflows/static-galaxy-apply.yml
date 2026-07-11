@@ -20,14 +20,15 @@ jobs:
       - name: Apply reviewed patch
         shell: bash
         run: |
-          if [[ ! -f .github/static-galaxy-network.patch.b64 ]]; then
-            echo "No patch payload present."
+          if [[ ! -f .github/static-galaxy-network.ready ]]; then
+            echo "Patch payload is not complete yet."
             exit 0
           fi
-          base64 -d .github/static-galaxy-network.patch.b64 > /tmp/static-galaxy.patch
+          cat .github/static-galaxy-network.patch.b64.part* > /tmp/static-galaxy.patch.b64
+          base64 -d /tmp/static-galaxy.patch.b64 > /tmp/static-galaxy.patch
           git apply --check /tmp/static-galaxy.patch
           git apply /tmp/static-galaxy.patch
-          rm .github/static-galaxy-network.patch.b64
+          rm .github/static-galaxy-network.patch.b64.part* .github/static-galaxy-network.ready
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
