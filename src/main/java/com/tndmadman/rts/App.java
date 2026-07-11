@@ -6,7 +6,14 @@ import javax.swing.SwingUtilities;
 public final class App {
     private App() { }
     public static void main(String[] args) {
-        Config config = Config.parse(args);
+        Config config;
+        try {
+            config = Config.parse(args);
+        } catch (IllegalArgumentException ex) {
+            System.err.println("Invalid startup arguments: " + ex.getMessage());
+            System.exit(2);
+            return;
+        }
         if (config.devMode) RulesValidator.validateOrThrow(Path.of("config/starchem.json"));
         ResourceNetDebug.resetLogs(config);
         if (config.dedicatedServerMode()) {

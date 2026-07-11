@@ -39,10 +39,28 @@ tasks.register('validateDevAccess', JavaExec) {
     mainClass = 'com.tndmadman.rts.DevAccessPolicyValidator'
 }
 
+tasks.register('validateClientLaunch', JavaExec) {
+    group = 'verification'
+    description = 'Validate remote client launchers and join arguments.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.ClientLaunchValidator'
+}
+
+tasks.register('validateGalaxyConnectivity', JavaExec) {
+    group = 'verification'
+    description = 'Validate solo galaxy generation and wormhole travel.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.GalaxyConnectivityValidator'
+}
+
 tasks.named('check') {
     dependsOn tasks.named('validateRules')
     dependsOn tasks.named('validateProductionQueues')
     dependsOn tasks.named('validateDevAccess')
+    dependsOn tasks.named('validateClientLaunch')
+    dependsOn tasks.named('validateGalaxyConnectivity')
 }
 
 tasks.named('jar') {

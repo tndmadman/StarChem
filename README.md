@@ -6,9 +6,9 @@ StarChem is a Java 2D top-down multiplayer RTS prototype.
 
 Download the release ZIP and extract it.
 
-The player package contains only the compiled StarChem JAR, the required config folder, and run-starchem.bat.
+The player package contains the compiled StarChem JAR, the required config folder, and Windows launchers.
 
-Double-click run-starchem.bat to play.
+Double-click run-starchem.bat to open the lobby. client-remote.bat opens the same lobby; enter the server address and port, then click JOIN.
 
 Java 17 or newer is required.
 

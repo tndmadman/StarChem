@@ -7,6 +7,7 @@ final class Config {
     static final String RAIDERS_ID = "NPC_RAIDERS";
     static final String FREE_MINERS_ID = "NPC_MINERS";
     static final String CORSAIRS_ID = "NPC_CORSAIRS";
+    private static final String DEFAULT_HOST = "127.0.0.1";
 
     final String playerName;
     final boolean showLobby;
@@ -61,11 +62,12 @@ final class Config {
                 case "--server" -> { dedicated = true; host = true; if (i + 1 < args.length && !args[i + 1].startsWith("--")) port = parsePort(args[++i]); }
                 case "--host" -> { if (i + 1 < args.length) { host = true; port = parsePort(args[++i]); } }
                 case "--join" -> {
-                    if (i + 2 < args.length) {
-                        String hostName = args[++i];
-                        int remotePort = parsePort(args[++i]);
-                        server = new InetSocketAddress(hostName, remotePort);
+                    if (i + 2 >= args.length || args[i + 1].startsWith("--") || args[i + 2].startsWith("--")) {
+                        throw new IllegalArgumentException("--join requires a server address and port.");
                     }
+                    String hostName = parseHost(args[++i]);
+                    int remotePort = parsePort(args[++i]);
+                    server = new InetSocketAddress(hostName, remotePort);
                 }
                 case "--solo" -> { }
                 default -> { }
@@ -98,7 +100,7 @@ final class Config {
     static Config solo(String name, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken) { return new Config(clean(name), false, false, false, dev, devToken, disableProductionTimers, 0, null, disabledNpcFactionIds, systemId); }
     static Config host(String name, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken) { return new Config(clean(name), false, true, false, dev, devToken, disableProductionTimers, port, null, disabledNpcFactionIds, systemId); }
     static Config dedicatedServer(String name, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken) { return new Config(clean(name), false, true, true, dev, devToken, disableProductionTimers, port, null, disabledNpcFactionIds, systemId); }
-    static Config join(String name, String host, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken) { return new Config(clean(name), false, false, false, dev, devToken, disableProductionTimers, 0, new InetSocketAddress(host, port), disabledNpcFactionIds, systemId); }
+    static Config join(String name, String host, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken) { return new Config(clean(name), false, false, false, dev, devToken, disableProductionTimers, 0, new InetSocketAddress(parseHost(host), port), disabledNpcFactionIds, systemId); }
 
     NetworkRole role() {
         if (hostMode) return NetworkRole.SERVER;
@@ -109,6 +111,27 @@ final class Config {
     boolean clientMode() { return serverAddress != null; }
     boolean dedicatedServerMode() { return dedicatedServer; }
     String modeLabel() { return dedicatedServer ? "Server" : switch (role()) { case SERVER -> "Host"; case CLIENT -> "Client"; case SOLO -> "Solo"; }; }
+
+    static String parseHost(String value) {
+        if (value == null || value.isBlank()) return DEFAULT_HOST;
+        String host = value.trim();
+        boolean startsBracket = host.startsWith("[");
+        boolean endsBracket = host.endsWith("]");
+        if (startsBracket || endsBracket) {
+            if (!startsBracket || !endsBracket || host.length() <= 2) {
+                throw new IllegalArgumentException("Server address has invalid IPv6 brackets.");
+            }
+            host = host.substring(1, host.length() - 1);
+        }
+        for (int i = 0; i < host.length(); i++) {
+            char c = host.charAt(i);
+            boolean allowed = Character.isLetterOrDigit(c) || c == '.' || c == '-' || c == '_' || c == ':' || c == '%';
+            if (!allowed) {
+                throw new IllegalArgumentException("Server address contains unsupported characters.");
+            }
+        }
+        return host;
+    }
 
     static int parsePort(String value) {
         try {
