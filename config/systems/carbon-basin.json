@@ -1,0 +1,21 @@
+{
+  "id": "carbon_basin",
+  "name": "Carbon Basin",
+  "role": "chemical",
+  "width": 17800,
+  "height": 15800,
+  "tags": ["chemical", "organic", "fuel_feedstock"],
+  "modifiers": {"miningYield": 1.06, "resourceRespawn": 1.12},
+  "spawnMaterials": ["CARBON", "PHOSPHATES", "METHANE", "AMMONIA"],
+  "bodies": [
+    {"id": "sun", "name": "Sootlight", "orbit": 0, "radius": 188, "speed": 0, "color": "#E7B277"},
+    {"id": "basin", "name": "Basin", "parent": "sun", "orbit": 2500, "radius": 82, "speed": 0.012, "color": "#4E5A49"},
+    {"id": "mire", "name": "Mire", "parent": "sun", "orbit": 4700, "radius": 66, "speed": -0.007, "color": "#6C7150"}
+  ],
+  "resourceBelts": [
+    {"name": "Carbonaceous Belt", "kind": "SILICATE_ROCK", "orbit": 3150, "width": 480, "arc": 2.6, "count": 170, "amount": 25, "harvestRate": 8.0, "radius": 3.0,
+      "composition": [{"material": "CARBON", "weight": 48}, {"material": "PHOSPHATES", "weight": 28}, {"material": "SULFUR", "weight": 14}, {"material": "SILICATES", "weight": 10}]},
+    {"name": "Chemical Cloudbanks", "kind": "GAS_CLOUD", "orbit": 5600, "width": 690, "arc": 2.7, "count": 145, "amount": 24, "harvestRate": 7.9, "radius": 4.6,
+      "composition": [{"material": "METHANE", "weight": 40}, {"material": "AMMONIA", "weight": 30}, {"material": "NITROGEN", "weight": 20}, {"material": "HYDROGEN", "weight": 10}]}
+  ]
+}
