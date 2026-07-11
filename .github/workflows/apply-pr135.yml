@@ -21,81 +21,21 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
       - name: Apply and verify PR 135
         shell: bash
         run: |
-          if [[ ! -f .github/apply-pr135.ready ]]; then
-            echo "PR 135 marker not present."
+          if [[ ! -f .github/pr135-resolved.ready || ! -f .github/pr135-resolved.patch.gz.b64 ]]; then
+            echo "Resolved patch is not complete yet."
             exit 0
           fi
-          python3 - <<'PY'
-          from pathlib import Path
-
-          def replace(path, old, new):
-              file = Path(path)
-              text = file.read_text(encoding="utf-8")
-              if old not in text:
-                  raise SystemExit(f"Expected block not found in {path}")
-              file.write_text(text.replace(old, new, 1), encoding="utf-8")
-
-          replace(
-              "src/main/java/com/tndmadman/rts/GameFrame.java",
-              "final class GameFrame extends JFrame {\n    private final JLayeredPane root = new JLayeredPane();",
-              "final class GameFrame extends JFrame {\n    private static final String ACTIVE_SESSION_NOTICE = \"Session is already active on another connection.\";\n    private static final String DUPLICATE_NAME_NOTICE = \"Duplicate player names are not allowed on this server. Choose a different name.\";\n\n    private final JLayeredPane root = new JLayeredPane();"
-          )
-          replace(
-              "src/main/java/com/tndmadman/rts/GameFrame.java",
-              "            networkTimer = new Timer(16, e -> {\n                peer.tick();\n                if (peer.connectionFailed()) showLobby(peer.failureMessage());\n            });",
-              "            networkTimer = new Timer(16, e -> {\n                peer.tick();\n                String notice = connectionNotice(world.status);\n                if (!notice.isBlank()) {\n                    showLobby(notice);\n                    return;\n                }\n                if (peer.connectionFailed()) showLobby(peer.failureMessage());\n            });"
-          )
-          replace(
-              "src/main/java/com/tndmadman/rts/GameFrame.java",
-              "        showGame(config, world, network, null);\n    }\n\n    private void launchLocalHostGame(Config config) {",
-              "        showGame(config, world, network, null);\n    }\n\n    static String connectionNotice(String status) {\n        return status != null && status.startsWith(ACTIVE_SESSION_NOTICE) ? DUPLICATE_NAME_NOTICE : \"\";\n    }\n\n    private void launchLocalHostGame(Config config) {"
-          )
-
-          replace(
-              "src/main/java/com/tndmadman/rts/PeerClientSide.java",
-              "        if (!readJoinDenied(message) && !readSessionDenied(message) && !readSystemDelete(message)) ClientPackets.handle(this, message);",
-              "        if (!readJoinDenied(message) && !readSessionBusy(message) && !readSessionDenied(message) && !readSystemDelete(message)) ClientPackets.handle(this, message);"
-          )
-          replace(
-              "src/main/java/com/tndmadman/rts/PeerClientSide.java",
-              "    private boolean readSessionDenied(String message) {",
-              "    private boolean readSessionBusy(String message) {\n        if (message == null || !message.startsWith(\"SESSION_BUSY|\")) return false;\n        String reason = message.length() > 13 ? message.substring(13).trim() : \"Saved session is already active.\";\n        world.status = (reason.isBlank() ? \"Saved session is already active.\" : reason) + \" Waiting to resume.\";\n        return true;\n    }\n\n    private boolean readSessionDenied(String message) {"
-          )
-
-          replace(
-              "src/main/java/com/tndmadman/rts/PeerServerSide.java",
-              "        ServerPeer endpointOwner = peers.get(endpoint);\n        if (endpointOwner != null && !playerId.equals(endpointOwner.playerId())) disconnectPeer(endpoint, now, \"replaced\");\n\n        if (session.connected && session.endpoint != null && !session.endpoint.isBlank() && !session.endpoint.equals(endpoint)) {\n            ServerPeer oldPeer = peers.remove(session.endpoint);\n            if (oldPeer != null) transport.clearPendingForEndpoint(oldPeer.address(), oldPeer.port());\n        }\n",
-              "        if (session.connected && session.endpoint != null && !session.endpoint.isBlank()\n                && !session.endpoint.equals(endpoint)) {\n            transport.reliable(sessionBusy(\"Session is already active on another connection.\"), address, port);\n            return false;\n        }\n\n        ServerPeer endpointOwner = peers.get(endpoint);\n        if (endpointOwner != null && !playerId.equals(endpointOwner.playerId())) disconnectPeer(endpoint, now, \"replaced\");\n"
-          )
-          replace(
-              "src/main/java/com/tndmadman/rts/PeerServerSide.java",
-              "    private String joinDenied(String message) { return \"JOIN_DENIED|\" + packetPart(message); }\n    private String sessionDenied(String message) { return \"SESSION_DENIED|\" + packetPart(message); }",
-              "    private String joinDenied(String message) { return \"JOIN_DENIED|\" + packetPart(message); }\n    private String sessionBusy(String message) { return \"SESSION_BUSY|\" + packetPart(message); }\n    private String sessionDenied(String message) { return \"SESSION_DENIED|\" + packetPart(message); }"
-          )
-
-          replace(
-              "src/main/java/com/tndmadman/rts/ClientLaunchValidator.java",
-              "        expectInvalidPort(\"port above range\", \"65536\");\n\n        System.out.println(\"Client launch validation passed.\");",
-              "        expectInvalidPort(\"port above range\", \"65536\");\n\n        expectEquals(\"duplicate active-session notice\",\n                \"Duplicate player names are not allowed on this server. Choose a different name.\",\n                GameFrame.connectionNotice(\"Session is already active on another connection. Waiting to resume.\"));\n        expectEquals(\"unrelated connection status\", \"\",\n                GameFrame.connectionNotice(\"Connection interrupted. Reconnecting to server.\"));\n        expectEquals(\"null connection status\", \"\", GameFrame.connectionNotice(null));\n\n        System.out.println(\"Client launch validation passed.\");"
-          )
-
-          replace(
-              "src/main/java/com/tndmadman/rts/SessionRecoveryValidator.java",
-              "            long timeoutNow = System.currentTimeMillis() + 10_000;\n            server.tick(timeoutNow);\n            require(!server.owns(firstEndpoint, \"P1\"), \"timed-out endpoint remained connected\");\n            require(world.hasLiveAssets(\"P1\"), \"timeout deleted P1 assets\");\n            require(world.hasResearch(\"P1\", \"session-recovery-marker\"), \"timeout deleted P1 research\");\n\n            String reboundEndpoint = server.endpoint(loopback, reboundClient.getLocalPort());",
-              "            String reboundEndpoint = server.endpoint(loopback, reboundClient.getLocalPort());\n            require(!server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), \"P1\", firstToken, false, \"\"),\n                    \"a second endpoint displaced an active player session\");\n            String busyResponse = receivePayload(reboundClient, \"SESSION_BUSY|\");\n            require(busyResponse.contains(\"already active\"), \"active-session rejection did not explain the conflict\");\n            require(server.owns(firstEndpoint, \"P1\"), \"active endpoint lost ownership after takeover attempt\");\n            require(!server.owns(reboundEndpoint, \"P1\"), \"takeover endpoint gained ownership of an active session\");\n            require(world.hasLiveAssets(\"P1\"), \"takeover attempt changed P1 assets\");\n            require(world.hasResearch(\"P1\", \"session-recovery-marker\"), \"takeover attempt changed P1 research\");\n\n            long timeoutNow = System.currentTimeMillis() + 10_000;\n            server.tick(timeoutNow);\n            require(!server.owns(firstEndpoint, \"P1\"), \"timed-out endpoint remained connected\");\n            require(world.hasLiveAssets(\"P1\"), \"timeout deleted P1 assets\");\n            require(world.hasResearch(\"P1\", \"session-recovery-marker\"), \"timeout deleted P1 research\");"
-          )
-          replace(
-              "src/main/java/com/tndmadman/rts/SessionRecoveryValidator.java",
-              "                require(firstWorld.status.contains(\"Command blocked while reconnecting\"),\n                        \"blocked reconnecting command was not reported to the UI\");\n\n                firstClient.readWelcome(welcomeParts(firstWorld, \"P9\", rotatedToken));",
-              "                require(firstWorld.status.contains(\"Command blocked while reconnecting\"),\n                        \"blocked reconnecting command was not reported to the UI\");\n\n                firstClient.handle(\"SESSION_BUSY|Session is already active on another connection.\");\n                require(firstClient.statusLine().contains(\"reconnecting P9\"),\n                        \"active-session response stopped the reconnect attempt\");\n                require(firstWorld.status.contains(\"Waiting to resume\"),\n                        \"active-session response was not reported to the UI\");\n                require(firstToken.equals(SessionTokenStore.load(config).token()),\n                        \"active-session response cleared the saved resume token\");\n\n                firstClient.readWelcome(welcomeParts(firstWorld, \"P9\", rotatedToken));"
-          )
-          PY
-          chmod +x gradlew
-          ./gradlew check --no-daemon
-          rm -f .github/apply-pr135.ready .github/workflows/apply-pr135.yml
+          base64 -d .github/pr135-resolved.patch.gz.b64 | gzip -d > /tmp/pr135-resolved.patch
+          git apply --check /tmp/pr135-resolved.patch
+          git apply /tmp/pr135-resolved.patch
+          gradle check --no-daemon
+          rm -f .github/apply-pr135.ready .github/pr135-resolved.ready .github/pr135-resolved.patch.gz.b64 .github/workflows/apply-pr135.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
