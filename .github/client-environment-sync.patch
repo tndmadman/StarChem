@@ -1,0 +1,434 @@
+diff --git a/src/main/java/com/tndmadman/rts/GameClient.java b/src/main/java/com/tndmadman/rts/GameClient.java
+index 216fd8f..0000000 100644
+--- a/src/main/java/com/tndmadman/rts/GameClient.java
++++ b/src/main/java/com/tndmadman/rts/GameClient.java
+@@ -21,10 +21,8 @@ final class GameClient {
+ 
+     void tick(double dt) {
+         SystemAudio.listenTo(world);
+-        // Do not advance the world environment on the client render tick.
+-        // Server snapshots carry authoritative systemTime; WorldNetAccess.apply()
+-        // advances the client environment by that snapshot delta instead.
++        ClientEnvironmentSync.advance(world, dt);
+         ClientPrediction.update(world, dt);
+         wormholeTouchRequestCooldown = Math.max(0, wormholeTouchRequestCooldown - dt);
+         String playerId = network.localPlayerId();
+diff --git a/src/main/java/com/tndmadman/rts/ClientEnvironmentSync.java b/src/main/java/com/tndmadman/rts/ClientEnvironmentSync.java
+new file mode 100644
+--- /dev/null
++++ b/src/main/java/com/tndmadman/rts/ClientEnvironmentSync.java
+@@ -0,0 +1,35 @@
++package com.tndmadman.rts;
++
++final class ClientEnvironmentSync {
++    private static final double HARD_DRIFT_SECONDS = 0.5;
++
++    private ClientEnvironmentSync() { }
++
++    static void advance(World world, double dt) {
++        if (world == null || !Double.isFinite(dt) || dt <= 0) return;
++        world.advanceClientEnvironment(dt);
++    }
++
++    static void synchronizeSnapshot(World world, String systemId, double hostTime, boolean forceCorrection) {
++        if (world == null || systemId == null || systemId.isBlank() || !Double.isFinite(hostTime) || hostTime < 0) {
++            CelestialPacketCache.clear();
++            return;
++        }
++        if (!systemId.equals(world.activeSystemId())) {
++            CelestialPacketCache.clear();
++            return;
++        }
++
++        double drift = hostTime - world.systemTime();
++        boolean correct = forceCorrection || Math.abs(drift) > HARD_DRIFT_SECONDS;
++        if (correct) {
++            world.syncClientEnvironment(systemId, hostTime);
++            CelestialPacketCache.apply(world);
++        }
++        CelestialPacketCache.clear();
++    }
++
++    static double hardDriftSeconds() {
++        return HARD_DRIFT_SECONDS;
++    }
++}
+diff --git a/src/main/java/com/tndmadman/rts/World.java b/src/main/java/com/tndmadman/rts/World.java
+index 6cfdb9e..0000000 100644
+--- a/src/main/java/com/tndmadman/rts/World.java
++++ b/src/main/java/com/tndmadman/rts/World.java
+@@ -99,6 +99,20 @@ final class World {
+         systemTime = galaxy.activeSystemTime();
+     }
+     boolean viewGalaxySystem(String systemId) { boolean viewed = galaxy.viewSystem(this, systemId); celestials = galaxy.activeCelestials(); systemTime = galaxy.activeSystemTime(); selectedResourceId = -1; if (viewed) SystemAudio.listenTo(this); return viewed; }
++    void advanceClientEnvironment(double dt) {
++        if (!Double.isFinite(dt) || dt <= 0) return;
++        galaxy.advanceVisual(dt);
++        celestials = galaxy.activeCelestials();
++        systemTime = galaxy.activeSystemTime();
++    }
++    void syncClientEnvironment(String systemId, double hostTime) {
++        if (systemId == null || systemId.isBlank() || !Double.isFinite(hostTime) || hostTime < 0) return;
++        galaxy.syncVisual(this, systemId, hostTime);
++        celestials = galaxy.activeCelestials();
++        systemTime = galaxy.activeSystemTime();
++    }
+     boolean hasLiveAssets(String playerId) { return galaxy.hasLiveAssets(this, playerId); }
+     String playerHomeSystemId(String playerId) { return galaxy.playerHomeSystemId(this, playerId, starSystem); }
+     void activateSystem(String systemId) { celestials = galaxy.activate(this, systemId); systemTime = galaxy.activeSystemTime(); }
+diff --git a/src/main/java/com/tndmadman/rts/GalaxyCoordinator.java b/src/main/java/com/tndmadman/rts/GalaxyCoordinator.java
+index 25029ca..0000000 100644
+--- a/src/main/java/com/tndmadman/rts/GalaxyCoordinator.java
++++ b/src/main/java/com/tndmadman/rts/GalaxyCoordinator.java
+@@ -31,15 +31,42 @@ final class GalaxyCoordinator {
+         SystemControlSystem.update(world, state, dt);
+     }
+ 
++    void advanceVisual(double dt) {
++        if (!Double.isFinite(dt) || dt == 0) return;
++        advanceVisualState(active(), dt);
++    }
++
++    void syncVisual(World world, String systemId, double hostTime) {
++        if (world == null || systemId == null || systemId.isBlank() || !Double.isFinite(hostTime) || hostTime < 0) return;
++        WorldSystemState state = systems.get(systemId);
++        if (state == null) return;
++        if (!state.id.equals(activeSystemId)) {
++            saveActive(world);
++            activeSystemId = state.id;
++            loadActive(world);
++        }
++        double delta = hostTime - state.systemTime;
++        if (Math.abs(delta) > 0.000001) advanceVisualState(state, delta);
++        state.systemTime = hostTime;
++    }
++
+     void updateInactiveSystems(double dt) {
+         if (dt == 0) return;
+         for (WorldSystemState state : systems.values()) {
+             if (state == null || state.id.equals(activeSystemId)) continue;
+-            state.systemTime += dt;
+-            state.celestials.update(dt);
+-            for (ResourceNode node : state.resources) node.updateOrbit(state.celestials.sunX(), state.celestials.sunY(), dt);
++            advanceVisualState(state, dt);
+         }
+     }
++
++    private void advanceVisualState(WorldSystemState state, double dt) {
++        if (state == null || !Double.isFinite(dt) || dt == 0) return;
++        state.systemTime += dt;
++        state.celestials.update(dt);
++        for (ResourceNode node : state.resources) node.updateOrbit(state.celestials.sunX(), state.celestials.sunY(), dt);
++    }
+ 
+     void draw(World world, Graphics2D g2) {
+         WorldSystemState state = active();
+diff --git a/src/main/java/com/tndmadman/rts/ViewSnapshotReset.java b/src/main/java/com/tndmadman/rts/ViewSnapshotReset.java
+index b06893f..0000000 100644
+--- a/src/main/java/com/tndmadman/rts/ViewSnapshotReset.java
++++ b/src/main/java/com/tndmadman/rts/ViewSnapshotReset.java
+@@ -9,16 +9,13 @@ final class ViewSnapshotReset {
+ 
+     static void apply(World world, String systemId, long seed, double time) {
+         if (world == null || systemId == null || systemId.isBlank() || systemId.contains("WAIT") || time < 0) return;
+-        long temporary = seed ^ 0x5DEECE66DL;
+-        if (temporary == seed) temporary++;
+-        String syncId = baseSystemId(systemId);
+-        world.syncEnvironment(syncId, temporary, 0);
+-        world.syncEnvironment(syncId, seed, time);
+-        if (!systemId.equals(syncId)) {
+-            String owner = ownerFromHome(systemId);
+-            if (!owner.isBlank() && !"WAIT".equals(owner)) world.ensurePlayerHome(owner);
+-            world.activateSystem(systemId);
+-        }
++        if (seed != world.systemSeed()) world.useSystemSeed(seed);
++        String owner = ownerFromHome(systemId);
++        if (!owner.isBlank() && !"WAIT".equals(owner)) world.ensurePlayerHome(owner);
++        world.activateSystem(systemId);
++        world.syncClientEnvironment(systemId, time);
+     }
+@@ -37,11 +34,6 @@ final class ViewSnapshotReset {
+         world.items.addAll(items);
+     }
+ 
+-    private static String baseSystemId(String systemId) {
+-        if (systemId.startsWith(StarSystems.PLAYER_HOME_SYSTEM_ID + "_")) return StarSystems.PLAYER_HOME_SYSTEM_ID;
+-        return systemId;
+-    }
+-
+     private static String ownerFromHome(String systemId) {
+         String prefix = StarSystems.PLAYER_HOME_SYSTEM_ID + "_";
+         return systemId.startsWith(prefix) ? systemId.substring(prefix.length()) : "";
+diff --git a/src/main/java/com/tndmadman/rts/WorldNetAccess.java b/src/main/java/com/tndmadman/rts/WorldNetAccess.java
+index c3db015..0000000 100644
+--- a/src/main/java/com/tndmadman/rts/WorldNetAccess.java
++++ b/src/main/java/com/tndmadman/rts/WorldNetAccess.java
+@@ -56,6 +56,7 @@ final class WorldNetAccess {
+         }
+         if (snapSystem != null && !snapSystem.isBlank() && !snapSystem.equals(world.activeSystemId())) {
+             world.status = "Ignoring stale snapshot for " + snapSystem + "; viewing " + world.activeSystemId() + ".";
++            CelestialPacketCache.clear();
+             ResourceNetDebug.ignoredSnapshot(world, snapshot, "system mismatch");
+             return;
+         }
+@@ -70,13 +71,14 @@ final class WorldNetAccess {
+             world.activateSystem(world.playerHomeSystemId(local));
+             if (noLocalFleet(world, local)) world.spawnPlayerGroup(local, separatedSlot(local, slot(local)));
+             world.status = "Ignoring snapshot for another system; holding local fleet in " + world.activeSystemId() + ".";
++            CelestialPacketCache.clear();
+             ResourceNetDebug.ignoredSnapshot(world, snapshot, "no local assets");
+             return;
+         }
+         if (snapshot.systemTime() >= 0) {
+-            world.syncEnvironment(world.systemId(), world.systemSeed(), snapshot.systemTime());
+-            CelestialViewSync.apply(world, snapSystem, snapshot.systemTime());
+-        }
++            ClientEnvironmentSync.synchronizeSnapshot(world, snapSystem, snapshot.systemTime(), fullResourceView);
++        } else CelestialPacketCache.clear();
+         boolean forceLocal = allowNoLocalAssets;
+         Set<String> liveUnits = new HashSet<>();
+diff --git a/src/main/java/com/tndmadman/rts/SyncPacketBuilder.java b/src/main/java/com/tndmadman/rts/SyncPacketBuilder.java
+index a8d959f..0000000 100644
+--- a/src/main/java/com/tndmadman/rts/SyncPacketBuilder.java
++++ b/src/main/java/com/tndmadman/rts/SyncPacketBuilder.java
+@@ -6,8 +6,13 @@ final class SyncPacketBuilder {
+     private SyncPacketBuilder() { }
+ 
+     static String build(World world, ClientViewCache views, String playerId, long sequence, SyncKind kind) {
+-        if (kind == SyncKind.INITIAL) ResourceSyncMode.fullForNextSnapshot();
++        return build(world, views, playerId, sequence, kind, false);
++    }
++
++    static String build(World world, ClientViewCache views, String playerId, long sequence, SyncKind kind,
++                        boolean fullResources) {
++        if (kind == SyncKind.INITIAL || fullResources) ResourceSyncMode.fullForNextSnapshot();
+         Snapshot snapshot = views.makeSnapshot(world, playerId, sequence);
+         ResourceNetDebug.sendSnapshot(kind.name(), playerId, snapshot, world);
+         return kind == SyncKind.INITIAL ? SyncFrame.write(snapshot) : SnapshotWriter.write(snapshot);
+diff --git a/src/main/java/com/tndmadman/rts/PeerSyncSender.java b/src/main/java/com/tndmadman/rts/PeerSyncSender.java
+index a8d959f..0000000 100644
+--- a/src/main/java/com/tndmadman/rts/PeerSyncSender.java
++++ b/src/main/java/com/tndmadman/rts/PeerSyncSender.java
+@@ -6,8 +6,13 @@ final class PeerSyncSender {
+     private PeerSyncSender() { }
+ 
+     static long sendOne(World world, ClientViewCache views, ServerPeer peer, long sequence, SyncKind kind, NetOutbound out) {
++        return sendOne(world, views, peer, sequence, kind, false, out);
++    }
++
++    static long sendOne(World world, ClientViewCache views, ServerPeer peer, long sequence, SyncKind kind,
++                        boolean fullResources, NetOutbound out) {
+         if (peer == null) return sequence;
+-        String message = SyncPacketBuilder.build(world, views, peer.playerId(), sequence, kind);
++        String message = SyncPacketBuilder.build(world, views, peer.playerId(), sequence, kind, fullResources);
+         out.send(message, peer.address(), peer.port());
+         return sequence + 1;
+diff --git a/src/main/java/com/tndmadman/rts/PeerSyncBatch.java b/src/main/java/com/tndmadman/rts/PeerSyncBatch.java
+index 9c2a779..0000000 100644
+--- a/src/main/java/com/tndmadman/rts/PeerSyncBatch.java
++++ b/src/main/java/com/tndmadman/rts/PeerSyncBatch.java
+@@ -6,8 +6,13 @@ final class PeerSyncBatch {
+     private PeerSyncBatch() { }
+ 
+     static long send(World world, ClientViewCache views, ServerPeer[] peers, long sequence, NetOutbound out) {
++        return send(world, views, peers, sequence, false, out);
++    }
++
++    static long send(World world, ClientViewCache views, ServerPeer[] peers, long sequence,
++                     boolean fullResources, NetOutbound out) {
+         long next = sequence;
+-        for (ServerPeer peer : peers) next = PeerSyncSender.sendOne(world, views, peer, next, SyncKind.REGULAR, out);
++        for (ServerPeer peer : peers) next = PeerSyncSender.sendOne(world, views, peer, next, SyncKind.REGULAR, fullResources, out);
+         return next;
+     }
+diff --git a/src/main/java/com/tndmadman/rts/PeerServerSide.java b/src/main/java/com/tndmadman/rts/PeerServerSide.java
+index cfdb3f8..0000000 100644
+--- a/src/main/java/com/tndmadman/rts/PeerServerSide.java
++++ b/src/main/java/com/tndmadman/rts/PeerServerSide.java
+@@ -12,6 +12,7 @@ final class PeerServerSide {
+     private static final long SNAPSHOT_MS = 100;
+     private static final long GALAXY_MS = 1000;
++    private static final long RESOURCE_CORRECTION_MS = 5000;
+     private static final long TIMEOUT_MS = 4000;
+@@ -25,7 +26,7 @@ final class PeerServerSide {
+     private final Set<String> devRequests = new LinkedHashSet<>();
+     private int nextPlayer = 1;
+-    private long sequence = 1, lastSnapshot, lastGalaxy;
++    private long sequence = 1, lastSnapshot, lastGalaxy, lastResourceCorrection;
+@@ -75,7 +76,14 @@ final class PeerServerSide {
+         PlayerRegistry.activate(world);
+         removeTimedOut(now);
+         removeExpiredSessions(now);
+-        if (now - lastSnapshot >= SNAPSHOT_MS) { broadcastNow(); lastSnapshot = now; }
++        if (now - lastSnapshot >= SNAPSHOT_MS) {
++            boolean fullResources = now - lastResourceCorrection >= RESOURCE_CORRECTION_MS;
++            broadcastNow(fullResources);
++            lastSnapshot = now;
++            if (fullResources) lastResourceCorrection = now;
++        }
+         if (now - lastGalaxy >= GALAXY_MS) { broadcastGalaxy(); lastGalaxy = now; }
+     }
+@@ -84,8 +92,12 @@ final class PeerServerSide {
+         PeerServerPackets.handle(this, message, packet);
+     }
+ 
+     void broadcastNow() {
+-        sequence = PeerSyncBatch.send(world, views, PeerSyncTargets.array(peers.values()), sequence, transport::send);
++        broadcastNow(false);
++    }
++
++    private void broadcastNow(boolean fullResources) {
++        sequence = PeerSyncBatch.send(world, views, PeerSyncTargets.array(peers.values()), sequence, fullResources, transport::send);
+         broadcastLeaderboard();
+     }
+diff --git a/src/main/java/com/tndmadman/rts/ClientEnvironmentSyncValidator.java b/src/main/java/com/tndmadman/rts/ClientEnvironmentSyncValidator.java
+new file mode 100644
+--- /dev/null
++++ b/src/main/java/com/tndmadman/rts/ClientEnvironmentSyncValidator.java
+@@ -0,0 +1,87 @@
++package com.tndmadman.rts;
++
++import java.util.Set;
++
++public final class ClientEnvironmentSyncValidator {
++    private static final Set<String> NO_NPCS = Set.of(Config.RAIDERS_ID, Config.FREE_MINERS_ID, Config.CORSAIRS_ID);
++    private static final String TARGET_SYSTEM = "nebula_expanse_2";
++
++    private ClientEnvironmentSyncValidator() { }
++
++    public static void main(String[] args) {
++        validateOrThrow();
++        System.out.println("StarChem client environment synchronization validation passed.");
++    }
++
++    static void validateOrThrow() {
++        try {
++            GalaxyRuntimeOptions.configureCopies(2);
++            validateSecondCopyViewAndOrbitPrediction();
++        } finally {
++            GalaxyRuntimeOptions.configureCopies(1);
++        }
++    }
++
++    private static void validateSecondCopyViewAndOrbitPrediction() {
++        PlayerRegistry.reset("WAIT", "Environment Server", 0x50BEFF);
++        World server = new World("Environment Server", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
++        server.activateSystem(TARGET_SYSTEM);
++        require(TARGET_SYSTEM.equals(server.activeSystemId()), "server could not activate second-copy system");
++
++        ResourceSyncMode.fullForNextSnapshot();
++        Snapshot full = WorldNetAccess.snapshot(server, 1);
++        require(!full.resources().isEmpty(), "full-view snapshot omitted resources");
++
++        World client = new World("Environment Client", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
++        client.useSystemSeed(server.systemSeed());
++        client.ensurePlayerHome("P1");
++        String preservedHome = client.playerHomeSystemId("P1");
++        client.activateSystem(preservedHome);
++
++        PlayerRegistry.activate(client);
++        WorldNetAccess.applyFullView(client, full);
++        require(TARGET_SYSTEM.equals(client.activeSystemId()), "full-view snapshot did not activate exact system instance");
++        require(hasSystem(client.authoritativeGalaxyMapSnapshot(), preservedHome), "full-view reset destroyed an existing player home");
++
++        ResourceNode node = firstOrbiting(client);
++        double beforeAngle = node.orbitAngle;
++        double beforeTime = client.systemTime();
++        ClientEnvironmentSync.advance(client, 0.25);
++        require(client.systemTime() > beforeTime, "client visual system time did not advance");
++        require(Math.abs(node.orbitAngle - beforeAngle) > 0.000001, "client resource orbit remained frozen between snapshots");
++
++        PlayerRegistry.activate(server);
++        server.updateCurrentSystem(0.25);
++        Snapshot regular = WorldNetAccess.snapshot(server, 2);
++        require(regular.resources().isEmpty(), "regular correction test unexpectedly included every resource");
++
++        PlayerRegistry.activate(client);
++        WorldNetAccess.applyView(client, regular);
++        double afterSnapshot = node.orbitAngle;
++        ClientEnvironmentSync.advance(client, 0.1);
++        require(Math.abs(node.orbitAngle - afterSnapshot) > 0.000001, "resource orbit froze after sparse snapshot apply");
++        require(TARGET_SYSTEM.equals(client.activeSystemId()), "sparse snapshot changed the viewed system instance");
++        require(hasSystem(client.authoritativeGalaxyMapSnapshot(), preservedHome), "sparse snapshot destroyed an existing player home");
++
++        PlayerRegistry.activate(server);
++        ResourceSyncMode.fullForNextSnapshot();
++        Snapshot correction = WorldNetAccess.snapshot(server, 3);
++        require(correction.resources().size() == server.resources.size(), "corrective snapshot did not contain all resources");
++        PlayerRegistry.activate(client);
++        WorldNetAccess.applyView(client, correction);
++        require(client.resources.size() == server.resources.size(), "client did not retain complete corrected resource set");
++    }
++
++    private static ResourceNode firstOrbiting(World world) {
++        for (ResourceNode node : world.resources) if (node.orbiting && node.active) return node;
++        throw new IllegalStateException("test system has no active orbiting resource");
++    }
++
++    private static boolean hasSystem(GalaxyMapSnapshot map, String systemId) {
++        for (GalaxyMapSystem system : map.systems()) if (systemId.equals(system.id())) return true;
++        return false;
++    }
++
++    private static void require(boolean condition, String message) {
++        if (!condition) throw new IllegalStateException(message);
++    }
++}
+diff --git a/src/main/java/com/tndmadman/rts/GalaxyConnectivityValidator.java b/src/main/java/com/tndmadman/rts/GalaxyConnectivityValidator.java
+index 37652dd..0000000 100644
+--- a/src/main/java/com/tndmadman/rts/GalaxyConnectivityValidator.java
++++ b/src/main/java/com/tndmadman/rts/GalaxyConnectivityValidator.java
+@@ -24,6 +24,7 @@ public final class GalaxyConnectivityValidator {
+             validateStaticPlan(1);
+             validateStaticPlan(2);
+             validateWanderingTopology();
++            validateRuntimeWanderingTopology();
+             validateSoloBootstrap();
+@@ -64,6 +65,25 @@ public final class GalaxyConnectivityValidator {
+                 "wandering wormholes created a duplicate link");
+     }
++
++    private static void validateRuntimeWanderingTopology() {
++        GalaxyRuntimeOptions.configureCopies(1);
++        PlayerRegistry.reset("WAIT", "Wandering Runtime Validator", 0x50BEFF);
++        World world = new World("Wandering Runtime Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
++        GalaxyMapSnapshot map = world.authoritativeGalaxyMapSnapshot();
++        GalaxyPlan fixed = GalaxyPlanner.standard(StarSystems.DEFAULT_SYSTEM_ID, 1, world.systemSeed(), new GalaxyTopologyRules(0));
++        int expected = fixed.links().size() + GalaxyTopologyRules.load().wanderingWormholePairs();
++        require(map.links().size() == expected,
++                "runtime galaxy created " + map.links().size() + " links instead of configured " + expected);
++        for (GalaxyMapLink link : map.links()) {
++            world.activateSystem(link.fromSystemId());
++            require(gateTo(world, link.toSystemId()) != null,
++                    "runtime galaxy is missing forward gate " + link.fromSystemId() + " -> " + link.toSystemId());
++            world.activateSystem(link.toSystemId());
++            require(gateTo(world, link.fromSystemId()) != null,
++                    "runtime galaxy is missing return gate " + link.toSystemId() + " -> " + link.fromSystemId());
++        }
++    }
+ 
+     private static Set<String> linkKeys(GalaxyPlan plan) {
+diff --git a/build.gradle b/build.gradle
+index e98f5b5..0000000 100644
+--- a/build.gradle
++++ b/build.gradle
+@@ -155,6 +155,14 @@ tasks.register('validateSystemSimulationScheduler', JavaExec) {
+     mainClass = 'com.tndmadman.rts.SystemSimulationSchedulerValidator'
+ }
++
++tasks.register('validateClientEnvironmentSync', JavaExec) {
++    group = 'verification'
++    description = 'Validate client-side orbit prediction and exact system-instance snapshot synchronization.'
++    dependsOn tasks.named('classes')
++    classpath = sourceSets.main.runtimeClasspath
++    mainClass = 'com.tndmadman.rts.ClientEnvironmentSyncValidator'
++}
+ 
+ tasks.named('jar') {
+@@ -207,6 +215,7 @@ tasks.named('check') {
+     dependsOn tasks.named('validateSystemModifiers')
+     dependsOn tasks.named('validateNpcGalaxyDirector')
+     dependsOn tasks.named('validateSystemSimulationScheduler')
++    dependsOn tasks.named('validateClientEnvironmentSync')
+     dependsOn tasks.named('verifyBuildMetadata')
+ }
