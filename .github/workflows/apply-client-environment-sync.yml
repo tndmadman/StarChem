@@ -33,14 +33,14 @@ jobs:
           fi
 
           set +e
-          git apply --verbose --check .github/client-environment-sync.patch > /tmp/client-env-check.log 2>&1
+          git apply --recount --verbose --check .github/client-environment-sync.patch > /tmp/client-env-check.log 2>&1
           check_status=$?
           if [[ $check_status -ne 0 ]]; then
             cat /tmp/client-env-check.log
             exit $check_status
           fi
 
-          git apply .github/client-environment-sync.patch
+          git apply --recount .github/client-environment-sync.patch
           gradle clean check jar --no-daemon > /tmp/client-env-gradle.log 2>&1
           gradle_status=$?
           if [[ $gradle_status -ne 0 ]]; then
