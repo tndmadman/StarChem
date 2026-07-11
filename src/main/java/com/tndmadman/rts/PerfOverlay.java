@@ -59,6 +59,7 @@ final class PerfOverlay {
                     network.packetsSentPerSecond(), kib(network.bytesSentPerSecond()),
                     network.packetsReceivedPerSecond(), kib(network.bytesReceivedPerSecond())));
             out.add(snapshotLine("Snapshots", network));
+            addRejectionLine(out, "Client rejects", network);
             if (network.rttMs() >= 0 || network.snapshotAgeMs() >= 0) {
                 out.add("RTT " + valueMs(network.rttMs()) + " | last snapshot " + valueMs(network.snapshotAgeMs()) + " ago");
             }
@@ -75,8 +76,17 @@ final class PerfOverlay {
                     host.packetsSentPerSecond(), kib(host.bytesSentPerSecond()),
                     host.packetsReceivedPerSecond(), kib(host.bytesReceivedPerSecond())));
             out.add(snapshotLine("Host snapshots", host));
+            addRejectionLine(out, "Host rejects", host);
         }
         return out;
+    }
+
+    private void addRejectionLine(List<String> out, String label, PerfSnapshot stats) {
+        if (stats.rejectedEndpointsPerSecond() <= 0 && stats.rejectedReliableAcksPerSecond() <= 0
+                && stats.malformedPacketsPerSecond() <= 0 && stats.snapshotDecodeFailuresPerSecond() <= 0) return;
+        out.add(String.format(Locale.ROOT, "%s endpoint %.1f/s | ACK %.1f/s | malformed %.1f/s | snapshot %.1f/s",
+                label, stats.rejectedEndpointsPerSecond(), stats.rejectedReliableAcksPerSecond(),
+                stats.malformedPacketsPerSecond(), stats.snapshotDecodeFailuresPerSecond()));
     }
 
     private String snapshotLine(String label, PerfSnapshot stats) {

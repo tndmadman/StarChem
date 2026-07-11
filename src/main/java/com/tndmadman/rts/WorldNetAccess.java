@@ -40,7 +40,7 @@ final class WorldNetAccess {
     static void applyFullView(World world, Snapshot snapshot) { apply(world, snapshot, true, true); }
 
     private static void apply(World world, Snapshot snapshot, boolean allowNoLocalAssets, boolean fullResourceView) {
-        validateRuleIds(snapshot);
+        SnapshotValidator.validate(snapshot);
         String local = PlayerRegistry.localId();
         String snapSystem = snapshotSystemId(snapshot);
         boolean snapshotHasLocalAssets = hasPlayerAssets(snapshot, local);
@@ -120,10 +120,12 @@ final class WorldNetAccess {
     }
 
     private static String snapshotSystemId(Snapshot snapshot) {
-        String packed = snapshot == null ? "" : snapshot.systemId();
-        String systemId = CelestialPacketCache.systemId(packed);
-        if (!Objects.equals(packed, systemId)) CelestialPacketCache.receive(packed);
-        return systemId;
+        if (snapshot == null) {
+            CelestialPacketCache.clear();
+            return "";
+        }
+        snapshot.stageCelestialState();
+        return snapshot.systemId();
     }
 
     private static void validateRuleIds(Snapshot snapshot) {

@@ -66,7 +66,7 @@ final class SnapshotWriter {
                     .append(Calc.round(item.vx())).append(',').append(Calc.round(item.vy())).append(',')
                     .append(Calc.round(item.angle())).append(',').append(Calc.round(item.spin()));
         }
-        return "SNAPSHOT|" + snapshot.sequence() + "|" + players + "|" + units + "|" + resources + "|" + bases + "|" + stocks + "|" + shots + "|" + items + "|" + snapshot.systemId() + "|" + Calc.round(snapshot.systemTime());
+        return "SNAPSHOT|" + snapshot.sequence() + "|" + players + "|" + units + "|" + resources + "|" + bases + "|" + stocks + "|" + shots + "|" + items + "|" + snapshot.packedSystemField() + "|" + Calc.round(snapshot.systemTime());
     }
 
     private static String precise(double value) {

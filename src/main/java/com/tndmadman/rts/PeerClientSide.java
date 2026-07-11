@@ -46,11 +46,26 @@ final class PeerClientSide {
         if (joined) for (int i = 0; i < 3; i++) sendToServer("LEAVE|" + localPlayerId);
     }
 
-    void handle(String message) {
+    void handle(NetPacket packet, String message) {
+        if (!fromConfiguredServer(packet)) return;
         PlayerRegistry.activate(world);
         if (readLeaderboard(message) || readDevStatus(message)) return;
         if (!readJoinDenied(message) && !readSystemDelete(message)) ClientPackets.handle(this, message);
     }
+
+    void handle(String message) {
+        handle(new NetPacket(message, config.serverAddress.getAddress(), config.serverAddress.getPort()), message);
+    }
+
+    void rejectPacket(RuntimeException ex) {
+        if (ex instanceof SnapshotDecodeException snapshotError) {
+            rejectSnapshot(snapshotError);
+            return;
+        }
+        world.status = "Rejected malformed server packet.";
+        System.err.println(world.status + " " + ex.getClass().getSimpleName());
+    }
+
     void move(MoveCommand c) { reliableToServer("MOVE|" + c.playerId() + "|" + c.unitId() + "|" + Calc.round(c.x()) + "|" + Calc.round(c.y())); }
     void work(HarvestCommand c) { ResourceNetDebug.clientWorkSend(world, c); reliableToServer("WORK|" + c.playerId() + "|" + c.unitId() + "|" + c.resourceId()); }
     void attack(AttackCommand c) { reliableToServer("ATTACK|" + c.playerId() + "|" + c.unitId() + "|" + c.targetKey()); }
@@ -86,12 +101,18 @@ final class PeerClientSide {
     void readSeed(String seed) { try { world.useSystemSeed(Long.parseLong(seed)); } catch (NumberFormatException ignored) { } }
     void readWelcome(String[] p) {
         if (p.length < 4) return;
+        int rgb;
+        try { rgb = Integer.parseInt(p[3]); }
+        catch (NumberFormatException ex) { throw new SnapshotDecodeException("Malformed WELCOME packet: player color is not numeric."); }
+        if (p[1].isBlank() || p[1].length() > 64 || p[2].isBlank() || p[2].length() > 128) {
+            throw new SnapshotDecodeException("Malformed WELCOME packet: invalid player identity.");
+        }
         localPlayerId = p[1];
         joined = true;
         joinFailed = false;
         failureMessage = "";
         if (p.length >= 7) syncEnv(p[4], p[5], p[6]); else if (p.length >= 6) syncEnv(world.systemId(), p[4], p[5]); else if (p.length >= 5) readSeed(p[4]);
-        PlayerRegistry.register(localPlayerId, p[2], Integer.parseInt(p[3]), true);
+        PlayerRegistry.register(localPlayerId, p[2], rgb, true);
         world.ensurePlayerHome(localPlayerId, WorldNetAccess.usesPrimaryHome(localPlayerId));
         world.activateSystem(world.playerHomeSystemId(localPlayerId));
         viewedSystemId = world.activeSystemId();
@@ -207,11 +228,18 @@ final class PeerClientSide {
     }
 
     private void rejectSnapshot(SnapshotDecodeException ex) {
+        transport.recordSnapshotRejected();
         String message = ex.getMessage();
         world.status = message == null || message.isBlank()
                 ? "Snapshot rejected: incompatible or corrupted state."
                 : message;
         System.err.println(world.status);
+    }
+
+    private boolean fromConfiguredServer(NetPacket packet) {
+        return packet != null && config.serverAddress != null && config.serverAddress.getAddress() != null
+                && config.serverAddress.getPort() == packet.port()
+                && config.serverAddress.getAddress().equals(packet.address());
     }
 
     private void failJoin() { failJoin("Connection failed: no response from server at " + config.serverAddress + "."); }
