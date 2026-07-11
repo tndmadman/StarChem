@@ -1,5 +1,8 @@
 package com.tndmadman.rts;
 
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 
 public final class ProductionQueueValidator {
@@ -73,6 +76,138 @@ public final class ProductionQueueValidator {
         ProductionSystem.update(world, 1000);
         require(world.hasResearch(playerId, "advanced_industry"), "first research did not complete");
         require(world.hasResearch(playerId, "combat_doctrine"), "chained research did not complete");
+
+        validateLogisticsQueuePersistence();
+        validateLogisticsEscrow();
+        validateLostShuttleRecovery();
+        validateMultiSystemRequestScope();
+        validateDisabledTimers();
+    }
+
+    private static void validateLogisticsQueuePersistence() {
+        World world = new World("Logistics Queue Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        String playerId = "LOGISTICS_QUEUE_TEST";
+        Base target = base(world, playerId + ":B1", playerId, "shipyard", 100, 100);
+        Base source = base(world, playerId + ":B2", playerId, "shipyard", 600, 600);
+        fill(target);
+        fill(source);
+
+        require(world.buildShip(target.id, "prospector"), "funded lead ship should enqueue");
+        target.inventory.clear();
+        require(world.buildShip(target.id, "prospector"), "first logistics-backed ship should enqueue");
+        require(world.buildShip(target.id, "prospector"), "duplicate logistics-backed ship should enqueue separately");
+        require(target.productionQueue.size() == 3, "logistics-backed jobs did not enter the real queue");
+
+        List<String> orderBefore = jobIds(target);
+        require(!ProductionSystem.waitingForResources(target.productionQueue.get(0)), "funded lead ship became resource-blocked");
+        require(ProductionSystem.waitingForResources(target.productionQueue.get(1)), "first logistics job is not resource-blocked");
+        require(ProductionSystem.waitingForResources(target.productionQueue.get(2)), "duplicate logistics job was collapsed");
+
+        Base restored = NetBaseSync.fromState(NetBaseSync.toState(target));
+        require(jobIds(restored).equals(orderBefore), "snapshot changed logistics-backed queue order");
+        require(ProductionSystem.waitingForResources(restored.productionQueue.get(1)), "snapshot lost waiting-resource state");
+
+        dockAllLogisticsShuttles(world, target);
+        world.logisticsSystem.update(world, 2.1);
+
+        require(target.productionQueue.size() == 3, "resource delivery replaced or removed queued jobs");
+        require(jobIds(target).equals(orderBefore), "resource delivery changed queue IDs or order");
+        require(target.productionQueue.get(1).resourcesReserved, "first delivered job was not funded in place");
+        require(target.productionQueue.get(2).resourcesReserved, "duplicate delivered job was not funded in place");
+        require(!ProductionSystem.waitingForResources(target.productionQueue.get(1)), "first delivered job remained blocked");
+        require(!ProductionSystem.waitingForResources(target.productionQueue.get(2)), "duplicate delivered job remained blocked");
+
+        ProductionSystem.update(world, 1000);
+        require(target.productionQueue.isEmpty(), "funded logistics queue did not drain");
+        require(countUnits(world, playerId, "prospector") == 3, "logistics queue did not produce every requested ship");
+    }
+
+    private static void validateLogisticsEscrow() {
+        World world = new World("Logistics Escrow Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        String playerId = "LOGISTICS_ESCROW_TEST";
+        Base target = base(world, playerId + ":B1", playerId, "shipyard", 100, 100);
+        Base source = base(world, playerId + ":B2", playerId, "shipyard", 700, 700);
+        fill(source);
+        ShipType ship = Rules.ship("prospector");
+        for (Cost cost : ship.buildCost) target.inventory.put(cost.material(), cost.amount() / 2.0);
+
+        require(world.buildShip(target.id, ship.id), "first partially funded logistics job should enqueue");
+        require(world.buildShip(target.id, ship.id), "second logistics job should account for first job escrow");
+        require(target.productionQueue.size() == 2, "escrow logistics jobs missing");
+        for (Cost cost : ship.buildCost) {
+            require(target.inventory.getOrDefault(cost.material(), 0.0) <= 0.05,
+                    "target inventory was not reserved into the first job escrow");
+        }
+
+        dockAllLogisticsShuttles(world, target);
+        world.logisticsSystem.update(world, 2.1);
+        require(target.productionQueue.get(0).resourcesReserved, "first escrow-backed job was not funded");
+        require(target.productionQueue.get(1).resourcesReserved, "second job double-counted shared target inventory");
+    }
+
+    private static void validateLostShuttleRecovery() {
+        World world = new World("Lost Logistics Shuttle Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        String playerId = "LOGISTICS_RECOVERY_TEST";
+        Base target = base(world, playerId + ":B1", playerId, "shipyard", 100, 100);
+        Base source = base(world, playerId + ":B2", playerId, "shipyard", 800, 800);
+        fill(source);
+
+        require(world.buildShip(target.id, "prospector"), "recovery logistics job should enqueue");
+        int beforeLoss = countLogisticsShuttles(world);
+        require(beforeLoss > 0, "recovery test launched no logistics shuttles");
+        removeOneLogisticsShuttle(world);
+        require(countLogisticsShuttles(world) == beforeLoss - 1, "recovery test did not remove a shuttle");
+
+        world.logisticsSystem.update(world, 2.1);
+        require(countLogisticsShuttles(world) >= beforeLoss,
+                "missing in-transit cargo was not requested again after shuttle loss");
+        dockAllLogisticsShuttles(world, target);
+        world.logisticsSystem.update(world, 2.1);
+        require(target.productionQueue.get(0).resourcesReserved,
+                "job remained short after replacement logistics shuttles arrived");
+    }
+
+    private static void validateMultiSystemRequestScope() {
+        World world = new World("Multi-System Logistics Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        String playerId = "LOGISTICS_SYSTEM_TEST";
+        Base target = base(world, playerId + ":B1", playerId, "shipyard", 100, 100);
+        Base source = base(world, playerId + ":B2", playerId, "shipyard", 750, 750);
+        fill(source);
+        String targetSystem = world.activeSystemId();
+
+        require(world.buildShip(target.id, "prospector"), "multi-system logistics job should enqueue");
+        require(ProductionSystem.waitingForResources(target.productionQueue.get(0)), "multi-system job was not waiting");
+        world.activateSystem(StarSystems.CORSAIR_SYSTEM_ID);
+        world.logisticsSystem.update(world, 2.1);
+        world.activateSystem(targetSystem);
+
+        require(target.productionQueue.size() == 1, "updating another system deleted the production job");
+        require(ProductionSystem.waitingForResources(target.productionQueue.get(0)),
+                "updating another system deleted or detached its logistics request");
+        dockAllLogisticsShuttles(world, target);
+        world.logisticsSystem.update(world, 2.1);
+        require(target.productionQueue.get(0).resourcesReserved,
+                "system-scoped logistics request did not finish after returning to its system");
+    }
+
+    private static void validateDisabledTimers() {
+        World world = new World("Instant Queue Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        String playerId = "INSTANT_TEST";
+        Base yard = base(world, playerId + ":B1", playerId, "shipyard", 100, 100);
+        fill(yard);
+
+        DevTimerSettings.configure(world, true);
+        require(world.buildShip(yard.id, "prospector"), "instant ship should enqueue");
+        require(yard.productionQueue.size() == 1, "instant ship queue missing before tick");
+        ResearchSystem.update(world, 0.016);
+        require(yard.productionQueue.isEmpty(), "disabled timers did not drain production");
+        require(countUnits(world, playerId, "prospector") == 1, "disabled timers did not produce ship");
+
+        DevTimerSettings.configure(world, false);
+        require(world.buildShip(yard.id, "prospector"), "re-enabled timer ship should enqueue");
+        ResearchSystem.update(world, 0.016);
+        require(yard.productionQueue.size() == 1, "re-enabled production timer completed immediately");
+        require(countUnits(world, playerId, "prospector") == 1, "re-enabled timer unexpectedly produced a ship");
     }
 
     private static Base base(World world, String id, String playerId, String typeId, double x, double y) {
@@ -83,6 +218,35 @@ public final class ProductionQueueValidator {
 
     private static void fill(Base base) {
         for (Material material : Material.values()) base.inventory.put(material, 100_000.0);
+    }
+
+    private static void dockAllLogisticsShuttles(World world, Base target) {
+        for (Unit unit : world.units.values()) {
+            if (!LogisticsSystem.SHUTTLE_TYPE.equals(unit.shipTypeId)) continue;
+            unit.x = target.x;
+            unit.y = target.y;
+        }
+    }
+
+    private static void removeOneLogisticsShuttle(World world) {
+        Iterator<Unit> it = world.units.values().iterator();
+        while (it.hasNext()) {
+            if (!LogisticsSystem.SHUTTLE_TYPE.equals(it.next().shipTypeId)) continue;
+            it.remove();
+            return;
+        }
+    }
+
+    private static int countLogisticsShuttles(World world) {
+        int count = 0;
+        for (Unit unit : world.units.values()) if (LogisticsSystem.SHUTTLE_TYPE.equals(unit.shipTypeId)) count++;
+        return count;
+    }
+
+    private static List<String> jobIds(Base base) {
+        List<String> ids = new ArrayList<>();
+        for (ProductionJob job : base.productionQueue) ids.add(job.id);
+        return ids;
     }
 
     private static int countUnits(World world, String playerId, String typeId) {
