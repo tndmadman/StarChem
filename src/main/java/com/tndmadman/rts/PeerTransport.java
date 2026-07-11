@@ -84,6 +84,11 @@ final class PeerTransport {
 
     void clearPending() { pending.clear(); }
 
+    void clearPendingForEndpoint(InetAddress address, int port) {
+        if (address == null) return;
+        pending.values().removeIf(p -> sameEndpoint(address, port, p.address(), p.port()));
+    }
+
     String unwrapReliable(NetPacket packet) {
         if (packet == null || packet.message() == null) return null;
         String message = packet.message();
