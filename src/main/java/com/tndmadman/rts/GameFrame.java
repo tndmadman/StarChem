@@ -9,6 +9,9 @@ import java.awt.event.WindowEvent;
 import java.io.IOException;
 
 final class GameFrame extends JFrame {
+    private static final String ACTIVE_SESSION_NOTICE = "Session is already active on another connection.";
+    private static final String DUPLICATE_NAME_NOTICE = "Duplicate player names are not allowed on this server. Choose a different name.";
+
     private final JLayeredPane root = new JLayeredPane();
     private final MenuBackdrop backdrop = new MenuBackdrop();
     private final LobbyPanel menuPanel = new LobbyPanel(this);
@@ -63,11 +66,20 @@ final class GameFrame extends JFrame {
             PeerNetwork peer = network;
             networkTimer = new Timer(16, e -> {
                 peer.tick();
+                String notice = connectionNotice(world.status);
+                if (!notice.isBlank()) {
+                    showLobby(notice);
+                    return;
+                }
                 if (peer.connectionFailed()) showLobby(peer.failureMessage());
             });
             networkTimer.start();
         }
         showGame(config, world, network, null);
+    }
+
+    static String connectionNotice(String status) {
+        return status != null && status.startsWith(ACTIVE_SESSION_NOTICE) ? DUPLICATE_NAME_NOTICE : "";
     }
 
     private void launchLocalHostGame(Config config) {
