@@ -9,7 +9,10 @@ final class WorldNetAccess {
 
     static Snapshot snapshot(World world, long sequence) {
         List<PlayerInfo> players = new ArrayList<>();
-        for (PlayerInfo player : PlayerRegistry.snapshotPlayers()) if (realPlayerId(player.id()) || "SOLO".equals(player.id())) players.add(player);
+        boolean includeSolo = hasWorldAssets(world, "SOLO");
+        for (PlayerInfo player : PlayerRegistry.snapshotPlayers()) {
+            if (realPlayerId(player.id()) || includeSolo && "SOLO".equals(player.id())) players.add(player);
+        }
         List<UnitState> units = new ArrayList<>();
         for (Unit u : world.units.values()) units.add(new UnitState(u.playerId, u.unitId, u.shipTypeId, u.x, u.y, u.targetX, u.targetY, u.heading, u.task.name(), u.automationResourceId, u.basePackageType, CargoCodec.write(u.inventory), u.hp, u.shield, u.attackTarget, u.weaponFlashTimer, u.orderType.name(), u.orderX1, u.orderY1, u.orderX2, u.orderY2, u.orderRadius, u.orderTarget, u.orderPhase));
         List<ResourceState> resources = ResourceSync.snapshot(world);
@@ -29,6 +32,8 @@ final class WorldNetAccess {
         for (BaseState b : snapshot.bases()) if (b.playerId().equals(playerId) && b.hp() > 0) return true;
         return false;
     }
+
+    static boolean usesPrimaryHome(String playerId) { return "P1".equals(playerId); }
 
     static void apply(World world, Snapshot snapshot) { apply(world, snapshot, false, false); }
     static void applyView(World world, Snapshot snapshot) { apply(world, snapshot, true, false); }
@@ -54,11 +59,12 @@ final class WorldNetAccess {
         }
         for (PlayerInfo p : snapshot.players()) {
             if (!realPlayerId(p.id()) && !"SOLO".equals(p.id())) continue;
+            if ("SOLO".equals(p.id()) && !"SOLO".equals(local)) continue;
             PlayerRegistry.register(p.id(), p.name(), p.rgb(), p.id().equals(local));
-            if (realPlayerId(p.id()) || "SOLO".equals(p.id())) world.ensurePlayerHome(p.id());
+            world.ensurePlayerHome(p.id(), usesPrimaryHome(p.id()));
         }
         if (!allowNoLocalAssets && !snapshotHasLocalAssets && !local.equals("SOLO") && !local.equals("WAIT")) {
-            world.ensurePlayerHome(local);
+            world.ensurePlayerHome(local, usesPrimaryHome(local));
             world.activateSystem(world.playerHomeSystemId(local));
             if (noLocalFleet(world, local)) world.spawnPlayerGroup(local, separatedSlot(local, slot(local)));
             world.status = "Ignoring snapshot for another system; holding local fleet in " + world.activeSystemId() + ".";
@@ -112,6 +118,13 @@ final class WorldNetAccess {
         ResourceNetDebug.worldApplyEnd(world, snapshot);
     }
 
+    private static boolean hasWorldAssets(World world, String playerId) {
+        if (world == null || playerId == null || playerId.isBlank()) return false;
+        for (Unit unit : world.units.values()) if (playerId.equals(unit.playerId) && unit.hp > 0) return true;
+        for (Base base : world.bases.values()) if (playerId.equals(base.playerId) && base.hp > 0) return true;
+        return false;
+    }
+
     private static boolean noLocalFleet(World world, String local) {
         for (Unit unit : world.units.values()) if (unit.playerId.equals(local)) return false;
         for (Base base : world.bases.values()) if (base.playerId.equals(local)) return false;
@@ -150,8 +163,7 @@ final class WorldNetAccess {
 
     static void addPeerGroup(World world, String playerId) {
         if (!realPlayerId(playerId)) return;
-        world.ensurePlayerHome(playerId);
-        world.spawnPlayerGroup(playerId, separatedSlot(playerId, slot(playerId)));
+        world.spawnPlayerGroup(playerId, separatedSlot(playerId, slot(playerId)), usesPrimaryHome(playerId));
     }
 
     static void respawnPlayer(World world, String playerId) {
