@@ -41,7 +41,7 @@ tasks.register('validateDevAccess', JavaExec) {
 
 tasks.register('validateClientLaunch', JavaExec) {
     group = 'verification'
-    description = 'Validate remote client launchers and join arguments.'
+    description = 'Validate client join arguments.'
     dependsOn tasks.named('classes')
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'com.tndmadman.rts.ClientLaunchValidator'
