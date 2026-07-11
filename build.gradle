@@ -79,6 +79,14 @@ tasks.register('validateSnapshotHardening', JavaExec) {
     mainClass = 'com.tndmadman.rts.SnapshotHardeningValidator'
 }
 
+tasks.register('validateSessionRecovery', JavaExec) {
+    group = 'verification'
+    description = 'Validate disconnect grace periods, endpoint rebinding, and client session recovery.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.SessionRecoveryValidator'
+}
+
 tasks.named('check') {
     dependsOn tasks.named('validateRules')
     dependsOn tasks.named('validateProductionQueues')
@@ -88,6 +96,7 @@ tasks.named('check') {
     dependsOn tasks.named('validateRuleIds')
     dependsOn tasks.named('validateNetworkSecurity')
     dependsOn tasks.named('validateSnapshotHardening')
+    dependsOn tasks.named('validateSessionRecovery')
 }
 
 tasks.named('jar') {
