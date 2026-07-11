@@ -12,6 +12,7 @@ final class PeerServerSide {
     final ClientViewCache views = new ClientViewCache();
     private final Map<String, ServerPeer> peers = new LinkedHashMap<>();
     private final Map<String, String> peerNames = new LinkedHashMap<>();
+    private final Set<String> devRequests = new LinkedHashSet<>();
     private int nextPlayer = 1;
     private long sequence = 1, lastSnapshot;
 
@@ -89,6 +90,34 @@ final class PeerServerSide {
     boolean localDevAllowed(String playerId) { return config.devMode && playerId != null && !playerId.isBlank() && !"WAIT".equals(playerId); }
     void touch(String endpoint) { ServerPeer p = peers.get(endpoint); if (p != null) peers.put(endpoint, new ServerPeer(p.playerId(), p.address(), p.port(), System.currentTimeMillis(), p.devFreeBuild())); }
 
+    List<DevPeerAccess> devAccessPeers() {
+        List<DevPeerAccess> out = new ArrayList<>();
+        for (Map.Entry<String, ServerPeer> entry : peers.entrySet()) {
+            ServerPeer peer = entry.getValue();
+            String name = peerNames.getOrDefault(entry.getKey(), peer.playerId());
+            out.add(new DevPeerAccess(peer.playerId(), name, devRequests.contains(peer.playerId()),
+                    peer.devFreeBuild(), localHostPeer(peer)));
+        }
+        return List.copyOf(out);
+    }
+
+    void setDevAccess(String playerId, boolean enabled) {
+        if (!config.devMode || playerId == null || playerId.isBlank()) return;
+        for (Map.Entry<String, ServerPeer> entry : peers.entrySet()) {
+            ServerPeer peer = entry.getValue();
+            if (!playerId.equals(peer.playerId())) continue;
+            if (localHostPeer(peer) && !enabled) return;
+            entry.setValue(new ServerPeer(peer.playerId(), peer.address(), peer.port(), peer.lastSeen(), enabled));
+            world.setDevFreeBuild(playerId, enabled);
+            transport.reliable("DEVSTATUS|" + (enabled ? "1" : "0"), peer.address(), peer.port());
+            String name = peerNames.getOrDefault(entry.getKey(), playerId);
+            world.status = "Dev access " + (enabled ? "granted to " : "revoked from ") + name + ".";
+            System.out.println(world.status);
+            broadcastNow();
+            return;
+        }
+    }
+
     void join(String endpoint, InetAddress address, int port, String name, boolean requestedDev, String suppliedDevToken) {
         String cleanName = Config.clean(name);
         ServerPeer old = peers.get(endpoint);
@@ -105,6 +134,7 @@ final class PeerServerSide {
         int rgb = colorFor(peers.size() + 1);
         boolean devAllowed = DevAccessPolicy.authorize(config.devMode, config.dedicatedServerMode(), address,
                 requestedDev, config.devToken, suppliedDevToken);
+        if (requestedDev) devRequests.add(id);
         auditDevRequest(cleanName, address, port, requestedDev, devAllowed);
         ServerPeer peer = new ServerPeer(id, address, port, System.currentTimeMillis(), devAllowed);
         peers.put(endpoint, peer);
@@ -149,6 +179,7 @@ final class PeerServerSide {
         ServerPeer peer = peers.remove(endpoint);
         if (peer == null) return;
         String playerId = peer.playerId();
+        devRequests.remove(playerId);
         world.setDevFreeBuild(playerId, false);
         PlayerRegistry.remove(playerId);
         views.remove(playerId);
@@ -213,6 +244,9 @@ final class PeerServerSide {
         System.out.println("Dev access " + (allowed ? "granted" : "denied") + " for " + packetPart(name) + " from " + source + '.');
     }
 
+    private boolean localHostPeer(ServerPeer peer) {
+        return peer != null && !config.dedicatedServerMode() && peer.address() != null && peer.address().isLoopbackAddress();
+    }
     private String normalizedName(String name) { return Config.clean(name).toLowerCase(Locale.ROOT); }
     private boolean nameInUse(String name) {
         String wanted = normalizedName(name);
