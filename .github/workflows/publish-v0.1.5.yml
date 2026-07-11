@@ -1,33 +1,127 @@
-name: Publish v0.1.5 tag
+name: Verify v0.1.5 release
 
 on:
   push:
     branches:
       - agent/prepare-0.1.5-release
+    paths-ignore:
+      - release-verification-v0.1.5.txt
 
 permissions:
   contents: write
 
 jobs:
-  tag-main:
-    name: Tag current main as v0.1.5
+  verify-release:
+    name: Download and verify published v0.1.5 package
     runs-on: ubuntu-latest
     steps:
-      - name: Check out current main
+      - name: Check out verification branch
         uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
 
-      - name: Create and push v0.1.5 tag
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Wait for published release asset
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          RELEASE_API="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/v0.1.5"
+          ASSET_API_URL=""
+          RELEASE_URL=""
+          for attempt in $(seq 1 60); do
+            if curl -fsSL \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "$RELEASE_API" > release.json; then
+              ASSET_API_URL="$(python - <<'PY'
+import json
+with open('release.json', encoding='utf-8') as handle:
+    release = json.load(handle)
+for asset in release.get('assets', []):
+    if asset.get('name') == 'StarChem-v0.1.5.zip':
+        print(asset.get('url', ''))
+        break
+PY
+)"
+              RELEASE_URL="$(python - <<'PY'
+import json
+with open('release.json', encoding='utf-8') as handle:
+    print(json.load(handle).get('html_url', ''))
+PY
+)"
+              if [[ -n "$ASSET_API_URL" ]]; then
+                break
+              fi
+            fi
+            echo "Release asset not ready yet (attempt ${attempt}/60)."
+            sleep 10
+          done
+          if [[ -z "$ASSET_API_URL" ]]; then
+            echo "StarChem-v0.1.5.zip was not published." >&2
+            exit 1
+          fi
+          curl -fsSL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/octet-stream" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$ASSET_API_URL" \
+            -o StarChem-v0.1.5.zip
+          echo "release_url=$RELEASE_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Inspect package and run JAR
+        id: verify
         shell: bash
         run: |
           set -euo pipefail
+          zipinfo -1 StarChem-v0.1.5.zip > package-files.txt
+          grep -Fxq 'StarChem/StarChem.jar' package-files.txt
+          grep -Fxq 'StarChem/run-starchem.bat' package-files.txt
+          grep -Eq '^StarChem/config/.+' package-files.txt
+
+          mapfile -t TOP_LEVEL < <(sed -n 's#^StarChem/\([^/]*\).*#\1#p' package-files.txt | sed '/^$/d' | sort -u)
+          [[ "${TOP_LEVEL[*]}" == "StarChem.jar config run-starchem.bat" ]]
+
+          rm -rf extracted
+          unzip -q StarChem-v0.1.5.zip -d extracted
+          test -f extracted/StarChem/StarChem.jar
+          test -d extracted/StarChem/config
+          test -f extracted/StarChem/run-starchem.bat
+
+          VERSION_OUTPUT="$(java -jar extracted/StarChem/StarChem.jar --version)"
+          echo "$VERSION_OUTPUT"
+          [[ "$VERSION_OUTPUT" == "StarChem 0.1.5 ("* ]]
+
+          unzip -p extracted/StarChem/StarChem.jar META-INF/MANIFEST.MF > jar-manifest.txt
+          grep -Eq '^Main-Class: com\.tndmadman\.rts\.App\r?$' jar-manifest.txt
+          grep -Eq '^Implementation-Version: 0\.1\.5\r?$' jar-manifest.txt
+          grep -Eq '^Build-Commit: [0-9a-f]{40}\r?$' jar-manifest.txt
+
+          SHA256="$(sha256sum StarChem-v0.1.5.zip | awk '{print $1}')"
+          echo "version_output=$VERSION_OUTPUT" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+
+      - name: Record successful verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "StarChem v0.1.5 release verification"
+            echo "Release: ${{ steps.release.outputs.release_url }}"
+            echo "Asset: StarChem-v0.1.5.zip"
+            echo "SHA-256: ${{ steps.verify.outputs.sha256 }}"
+            echo "JAR output: ${{ steps.verify.outputs.version_output }}"
+            echo "Required package contents: StarChem.jar, config/, run-starchem.bat"
+            echo "Workflow run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > release-verification-v0.1.5.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git ls-remote --exit-code --tags origin refs/tags/v0.1.5 >/dev/null 2>&1; then
-            echo "Tag v0.1.5 already exists; refusing to move it."
-            exit 1
-          fi
-          git tag -a v0.1.5 -m "StarChem v0.1.5"
-          git push origin refs/tags/v0.1.5
+          git add release-verification-v0.1.5.txt
+          git commit -m "Record v0.1.5 release verification"
+          git push
