@@ -1,0 +1,44 @@
+name: Apply Client Environment Sync Fix
+
+on:
+  push:
+    branches:
+      - agent/static-galaxy-territory-expansion
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/static-galaxy-territory-expansion
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Apply reviewed synchronization patch
+        shell: bash
+        run: |
+          if [[ ! -f .github/apply-client-environment-sync.ready ]]; then
+            echo "Client environment marker not present."
+            exit 0
+          fi
+          git apply --check .github/client-environment-sync.patch
+          git apply .github/client-environment-sync.patch
+          gradle clean check jar --no-daemon
+          rm -f .github/client-environment-sync.patch
+          rm -f .github/apply-client-environment-sync.ready
+          rm -f .github/workflows/apply-client-environment-sync.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix client system environment synchronization"
+          git push origin HEAD:agent/static-galaxy-territory-expansion
