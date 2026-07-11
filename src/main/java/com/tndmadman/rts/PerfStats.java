@@ -30,6 +30,10 @@ final class PerfStats {
     private long snapshotsReceived;
     private long snapshotBytesReceived;
     private long reliableResends;
+    private long rejectedEndpoints;
+    private long rejectedReliableAcks;
+    private long malformedPackets;
+    private long snapshotDecodeFailures;
     private long lastSnapshotNanos;
     private int pendingReliable;
     private double rttMs = -1.0;
@@ -92,6 +96,10 @@ final class PerfStats {
     }
 
     synchronized void recordReliableResend() { reliableResends++; }
+    synchronized void recordRejectedEndpoint() { rejectedEndpoints++; }
+    synchronized void recordRejectedReliableAck() { rejectedReliableAcks++; }
+    synchronized void recordMalformedPacket() { malformedPackets++; }
+    synchronized void recordSnapshotDecodeFailure() { snapshotDecodeFailures++; }
     synchronized void setPendingReliable(int pending) { pendingReliable = Math.max(0, pending); }
 
     synchronized void recordRtt(long nanos) {
@@ -127,6 +135,10 @@ final class PerfStats {
                 snapshotsReceived / seconds,
                 averageBytes(snapshotBytesReceived, snapshotsReceived),
                 reliableResends / seconds,
+                rejectedEndpoints / seconds,
+                rejectedReliableAcks / seconds,
+                malformedPackets / seconds,
+                snapshotDecodeFailures / seconds,
                 pendingReliable,
                 rttMs,
                 snapshotAgeMs(now)
@@ -142,7 +154,9 @@ final class PerfStats {
                 base.networkAvgMs(), base.networkMaxMs(), base.packetsSentPerSecond(), base.bytesSentPerSecond(),
                 base.packetsReceivedPerSecond(), base.bytesReceivedPerSecond(), base.snapshotsSentPerSecond(),
                 base.averageSnapshotBytesSent(), base.snapshotsReceivedPerSecond(), base.averageSnapshotBytesReceived(),
-                base.reliableResendsPerSecond(), pendingReliable, rttMs, snapshotAgeMs(now)
+                base.reliableResendsPerSecond(), base.rejectedEndpointsPerSecond(), base.rejectedReliableAcksPerSecond(),
+                base.malformedPacketsPerSecond(), base.snapshotDecodeFailuresPerSecond(), pendingReliable, rttMs,
+                snapshotAgeMs(now)
         );
     }
 
@@ -155,7 +169,7 @@ final class PerfStats {
         networkSamples = networkTotalNanos = networkMaxNanos = 0;
         packetsSent = packetBytesSent = packetsReceived = packetBytesReceived = 0;
         snapshotsSent = snapshotBytesSent = snapshotsReceived = snapshotBytesReceived = 0;
-        reliableResends = 0;
+        reliableResends = rejectedEndpoints = rejectedReliableAcks = malformedPackets = snapshotDecodeFailures = 0;
     }
 
     private double snapshotAgeMs(long now) {
@@ -188,11 +202,15 @@ record PerfSnapshot(
         double snapshotsReceivedPerSecond,
         double averageSnapshotBytesReceived,
         double reliableResendsPerSecond,
+        double rejectedEndpointsPerSecond,
+        double rejectedReliableAcksPerSecond,
+        double malformedPacketsPerSecond,
+        double snapshotDecodeFailuresPerSecond,
         int pendingReliable,
         double rttMs,
         double snapshotAgeMs
 ) {
     static PerfSnapshot empty() {
-        return new PerfSnapshot(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, -1);
+        return new PerfSnapshot(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, -1);
     }
 }
