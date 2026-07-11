@@ -4,8 +4,9 @@ import java.awt.*;
 
 final class DevMenu {
     private static final int TARGET_Y = 18;
-    private static final int TOGGLE_Y = 62;
-    private static final int RESOURCE_Y = 104;
+    private static final int FREE_CRAFTING_Y = 62;
+    private static final int PRODUCTION_TIMERS_Y = 84;
+    private static final int RESOURCE_Y = 126;
     private static final int ROW_H = 19;
     private static final double SPAWN_AMOUNT = 500.0;
 
@@ -21,8 +22,12 @@ final class DevMenu {
             if (localStationCount(world) > 0) targetIndex++;
             return true;
         }
-        if (hit(localY, TOGGLE_Y)) {
+        if (hit(localY, FREE_CRAFTING_Y)) {
             toggleFreeCrafting(world, devAuthorityNetwork);
+            return true;
+        }
+        if (hit(localY, PRODUCTION_TIMERS_Y)) {
+            toggleProductionTimers(world, devAuthorityNetwork);
             return true;
         }
         Base base = target(world);
@@ -53,7 +58,8 @@ final class DevMenu {
         }
         Base base = target(world);
         drawStationLine(g2, base, x, y + TARGET_Y);
-        drawToggle(g2, world.devFreeBuildFor(PlayerRegistry.localId()), x, y + TOGGLE_Y);
+        drawToggle(g2, world.devFreeBuildFor(PlayerRegistry.localId()), "Free crafting", x, y + FREE_CRAFTING_Y);
+        drawToggle(g2, DevTimerSettings.disabled(world), "Disable production timers", x, y + PRODUCTION_TIMERS_Y);
         if (base == null) {
             g2.setColor(new Color(255, 225, 150));
             g2.drawString("No local station hangar", x, y + RESOURCE_Y);
@@ -77,9 +83,9 @@ final class DevMenu {
         g2.drawString("Click station line to cycle", x, y + 18);
     }
 
-    private void drawToggle(Graphics2D g2, boolean enabled, int x, int y) {
+    private void drawToggle(Graphics2D g2, boolean enabled, String label, int x, int y) {
         g2.setColor(enabled ? new Color(120, 255, 170) : new Color(255, 225, 150));
-        g2.drawString((enabled ? "[x]" : "[ ]") + " Free crafting", x, y);
+        g2.drawString((enabled ? "[x]" : "[ ]") + " " + label, x, y);
     }
 
     private void toggleFreeCrafting(World world, PeerNetwork devAuthorityNetwork) {
@@ -88,6 +94,16 @@ final class DevMenu {
         world.setDevFreeBuild(playerId, next);
         if (devAuthorityNetwork != null) devAuthorityNetwork.devSetFreeCrafting(playerId, next);
         world.status = "Free crafting " + (next ? "enabled." : "disabled.");
+    }
+
+    private void toggleProductionTimers(World world, PeerNetwork devAuthorityNetwork) {
+        boolean next = !DevTimerSettings.disabled(world);
+        DevTimerSettings.configure(world, next);
+        if (devAuthorityNetwork != null) {
+            devAuthorityNetwork.devAiCommand(PlayerRegistry.localId(),
+                    next ? "disableProductionTimers" : "enableProductionTimers");
+        }
+        world.status = "Production timers " + (next ? "disabled." : "enabled.");
     }
 
     private boolean hit(int localY, int baseline) { return localY >= baseline - 14 && localY <= baseline + 6; }
