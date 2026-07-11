@@ -40,7 +40,7 @@ final class WorldNetAccess {
     static void applyFullView(World world, Snapshot snapshot) { apply(world, snapshot, true, true); }
 
     private static void apply(World world, Snapshot snapshot, boolean allowNoLocalAssets, boolean fullResourceView) {
-        validateRuleIds(snapshot);
+        SnapshotValidator.validate(snapshot);
         String local = PlayerRegistry.localId();
         String snapSystem = snapshotSystemId(snapshot);
         boolean snapshotHasLocalAssets = hasPlayerAssets(snapshot, local);
