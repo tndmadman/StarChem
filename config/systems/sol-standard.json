@@ -4,6 +4,8 @@
   "role": "standard",
   "width": 18000,
   "height": 16000,
+  "tags": ["starter", "balanced", "civilized"],
+  "modifiers": {"miningYield": 1.0, "resourceRespawn": 1.0},
   "spawnMaterials": ["IRON", "COPPER", "SILICATES", "ICE"],
   "bodies": [
     {"id": "sun", "name": "Sun", "parent": null, "orbit": 0, "radius": 210, "speed": 0, "color": "#FFCD50"},
@@ -16,11 +18,13 @@
     {"id": "giant_moon_b", "name": "Giant Moon B", "parent": "giant", "orbit": 390, "radius": 18, "speed": 0.035, "color": "#91A5BE"}
   ],
   "resourceBelts": [
-    {"name": "Inner Iron Belt", "kind": "SILICATE_ROCK", "materials": ["IRON"], "orbit": 1900, "width": 260, "arc": 1.0, "count": 130, "amount": 22, "harvestRate": 7.5, "radius": 2.8},
-    {"name": "Copper Arc", "kind": "SILICATE_ROCK", "materials": ["COPPER"], "orbit": 2650, "width": 300, "arc": 0.8, "count": 110, "amount": 18, "harvestRate": 6.5, "radius": 2.6},
-    {"name": "Silicate Belt", "kind": "SILICATE_ROCK", "materials": ["SILICATES"], "orbit": 3500, "width": 360, "arc": 1.2, "count": 140, "amount": 24, "harvestRate": 8.0, "radius": 3.0},
-    {"name": "Ice Ring", "kind": "SILICATE_ROCK", "materials": ["ICE"], "orbit": 4650, "width": 420, "arc": 0.9, "count": 115, "amount": 20, "harvestRate": 7.0, "radius": 2.8},
-    {"name": "Hydrogen Drift", "kind": "GAS_CLOUD", "materials": ["HYDROGEN"], "orbit": 5450, "width": 520, "arc": 1.1, "count": 120, "amount": 26, "harvestRate": 9.0, "radius": 4.8},
-    {"name": "Outer Gas Band", "kind": "GAS_CLOUD", "materials": ["HELIUM", "METHANE", "AMMONIA", "HYDROGEN"], "orbit": 6650, "width": 620, "arc": 1.4, "count": 160, "amount": 22, "harvestRate": 7.5, "radius": 4.5}
+    {"name": "Inner Industrial Belt", "kind": "SILICATE_ROCK", "orbit": 2100, "width": 360, "arc": 1.7, "count": 90, "amount": 23, "harvestRate": 7.4, "radius": 2.9,
+      "composition": [{"material": "IRON", "weight": 45}, {"material": "COPPER", "weight": 25}, {"material": "NICKEL", "weight": 18}, {"material": "ALUMINUM", "weight": 12}]},
+    {"name": "Silicate Carbon Belt", "kind": "SILICATE_ROCK", "orbit": 3650, "width": 430, "arc": 1.8, "count": 85, "amount": 23, "harvestRate": 7.6, "radius": 3.0,
+      "composition": [{"material": "SILICATES", "weight": 62}, {"material": "CARBON", "weight": 28}, {"material": "PHOSPHATES", "weight": 10}]},
+    {"name": "Outer Ice Ring", "kind": "SILICATE_ROCK", "orbit": 5000, "width": 420, "arc": 1.2, "count": 65, "amount": 21, "harvestRate": 7.1, "radius": 2.9,
+      "composition": [{"material": "ICE", "weight": 82}, {"material": "SILICATES", "weight": 18}]},
+    {"name": "Fuel Gas Band", "kind": "GAS_CLOUD", "orbit": 6500, "width": 650, "arc": 2.0, "count": 100, "amount": 24, "harvestRate": 8.0, "radius": 4.6,
+      "composition": [{"material": "HYDROGEN", "weight": 36}, {"material": "HELIUM", "weight": 24}, {"material": "METHANE", "weight": 22}, {"material": "AMMONIA", "weight": 10}, {"material": "NITROGEN", "weight": 8}]}
   ]
 }
