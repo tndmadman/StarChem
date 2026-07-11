@@ -1,9 +1,9 @@
 name: Apply Client Environment Sync Fix
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/static-galaxy-territory-expansion
+      - main
 
 permissions:
   contents: write
