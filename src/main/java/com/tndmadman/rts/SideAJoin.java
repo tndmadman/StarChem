@@ -3,15 +3,22 @@ package com.tndmadman.rts;
 final class SideAJoin {
     private SideAJoin() { }
 
-    static boolean handle(PeerServerSide s, String[] p, String ep, NetPacket packet) {
-        switch (p[0]) {
+    static boolean handle(PeerServerSide server, String[] parts, String endpoint, NetPacket packet) {
+        switch (parts[0]) {
             case "JOIN" -> {
-                s.join(ep, packet.address(), packet.port(), p.length > 1 ? p[1] : "Player",
-                        s.requestedDev(p), s.requestedDevToken(p));
+                server.join(endpoint, packet.address(), packet.port(), parts.length > 1 ? parts[1] : "Player",
+                        server.requestedDev(parts), server.requestedDevToken(parts));
                 return true;
             }
-            case "PING" -> { s.touch(ep); return true; }
-            case "LEAVE" -> { s.removePeer(ep); return true; }
+            case "RESUME" -> {
+                server.resume(endpoint, packet.address(), packet.port(),
+                        parts.length > 1 ? parts[1] : "",
+                        parts.length > 2 ? parts[2] : "",
+                        server.requestedResumeDev(parts), server.requestedResumeDevToken(parts));
+                return true;
+            }
+            case "PING" -> { server.touch(endpoint); return true; }
+            case "LEAVE" -> { server.removePeer(endpoint); return true; }
             default -> { return false; }
         }
     }
