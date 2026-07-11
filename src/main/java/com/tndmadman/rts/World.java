@@ -58,7 +58,8 @@ final class World {
         setStarSystem(systemId);
         setSystemSeed(System.nanoTime() ^ System.currentTimeMillis());
         if (spawnLocalPlayer) {
-            ensurePlayerHome(localPlayerId);
+            ensurePlayerHome(localPlayerId, true);
+            activateSystem(playerHomeSystemId(localPlayerId));
             Point2D basePoint = startPointForPlayer(localPlayerId, 0);
             addBase(Rules.DEFAULT_BASE, basePoint.getX(), basePoint.getY());
             Point2D start = startShipPoint(basePoint);
@@ -85,6 +86,7 @@ final class World {
     List<Material> spawnMaterials() { return starSystem.spawnMaterials(); }
     List<Material> spawnMaterials(String playerId) { return galaxy.spawnMaterials(this, playerId, starSystem); }
     void ensurePlayerHome(String playerId) { galaxy.ensurePlayerHome(this, playerId, starSystem); }
+    void ensurePlayerHome(String playerId, boolean usePrimaryDefinition) { galaxy.ensurePlayerHome(this, playerId, starSystem, usePrimaryDefinition); }
     Point2D startPointForPlayer(String playerId, int slot) { return galaxy.startPoint(this, playerId, slot, starSystem); }
     Point2D npcSpawnPoint(String factionId, double padding) { return galaxy.npcSpawnPoint(this, factionId, padding); }
     void movePlayerAssetsToSystem(String playerId, String targetSystemId) { galaxy.moveAssetsToSystem(this, playerId, targetSystemId); celestials = galaxy.activeCelestials(); systemTime = galaxy.activeSystemTime(); }
@@ -160,9 +162,11 @@ final class World {
     private WormholeGate wormholeAt(double x, double y) { for (WormholeGate gate : wormholes) if (gate.contains(x, y)) return gate; return null; }
     private WormholeGate wormholeTo(String targetSystemId) { if (targetSystemId == null || targetSystemId.isBlank()) return null; for (WormholeGate gate : wormholes) if (targetSystemId.equals(gate.toSystemId)) return gate; return null; }
 
-    void spawnPlayerGroup(String playerId, int slot) {
+    void spawnPlayerGroup(String playerId, int slot) { spawnPlayerGroup(playerId, slot, false); }
+
+    void spawnPlayerGroup(String playerId, int slot, boolean usePrimaryDefinition) {
+        GalaxySystem home = galaxy.ensurePlayerHome(this, playerId, starSystem, usePrimaryDefinition);
         String previous = activeSystemId();
-        GalaxySystem home = galaxy.ensurePlayerHome(this, playerId, starSystem);
         celestials = galaxy.activate(this, home.id);
         systemTime = galaxy.activeSystemTime();
         Point2D bp = startPointForPlayer(playerId, slot);
@@ -172,8 +176,10 @@ final class World {
         bases.put(playerId + ":B" + baseId, new Base(playerId + ":B" + baseId, playerId, Rules.DEFAULT_BASE, bp.getX(), bp.getY()));
         units.put(Unit.key(playerId, unitId), new Unit(playerId, unitId, Rules.STARTING_SHIP, sp.getX(), sp.getY()));
         galaxy.saveActive(this);
-        celestials = galaxy.activate(this, previous);
-        systemTime = galaxy.activeSystemTime();
+        if (previous != null && !previous.isBlank() && !previous.equals(home.id)) {
+            celestials = galaxy.activate(this, previous);
+            systemTime = galaxy.activeSystemTime();
+        }
     }
 
     void setDevFreeBuild(String playerId, boolean enabled) { if (playerId == null || playerId.isBlank()) return; if (enabled) devFreeBuildPlayers.add(playerId); else devFreeBuildPlayers.remove(playerId); if (PlayerRegistry.isLocal(playerId)) devFreeBuild = enabled; }

@@ -4,6 +4,7 @@ import java.util.Set;
 
 public final class GalaxyConnectivityValidator {
     private static final String SOLO_HOME_ID = StarSystems.PLAYER_HOME_SYSTEM_ID + "_SOLO";
+    private static final String HOST_HOME_ID = StarSystems.PLAYER_HOME_SYSTEM_ID + "_P1";
 
     private GalaxyConnectivityValidator() { }
 
@@ -17,6 +18,7 @@ public final class GalaxyConnectivityValidator {
         for (StarSystemDefinition definition : StarSystems.options()) validateSoloTemplate(definition);
         validateShipRoundTrip();
         validateNonSoloBootstrap();
+        validateLocalHostBootstrap();
     }
 
     private static void validateSoloTemplate(StarSystemDefinition definition) {
@@ -84,6 +86,72 @@ public final class GalaxyConnectivityValidator {
         require(world.wormholes.isEmpty(), "non-solo bootstrap unexpectedly linked the default system");
         require(snapshot.systems().size() == 2 && snapshot.links().isEmpty(),
                 "non-solo bootstrap graph changed while fixing solo startup");
+    }
+
+    private static void validateLocalHostBootstrap() {
+        StarSystemDefinition selected = StarSystems.get(StarSystems.DEFAULT_SYSTEM_ID);
+        World server = new World("Local Host Validator", Set.of(), selected.id(), false);
+        PlayerRegistry.activate(server);
+        PlayerRegistry.reset("SOLO", "Local Host Validator", 0x50BEFF);
+        PlayerRegistry.register("P1", "Local Host Validator", 0xFF5F55, false);
+        WorldNetAccess.addPeerGroup(server, "P1");
+        server.activateSystem(HOST_HOME_ID);
+
+        GalaxyMapSnapshot serverMap = server.galaxyMapSnapshot();
+        GalaxyMapSystem serverHome = system(serverMap, HOST_HOME_ID);
+        require(serverHome != null, "local host did not create the P1 home system");
+        require(selected.name().equals(serverHome.name()), "local host P1 home did not preserve the selected system definition");
+        require(serverMap.systems().stream().noneMatch(system -> SOLO_HOME_ID.equals(system.id())),
+                "local host created an obsolete SOLO home system");
+        require(serverMap.systems().size() == 2 && serverMap.links().size() == 1,
+                "local host graph should contain only P1 home and Corsair");
+        require(server.units.size() == 1 && server.bases.size() == 1,
+                "local host server did not create exactly one starting fleet");
+        require(server.units.values().stream().allMatch(unit -> "P1".equals(unit.playerId)),
+                "local host server created a ship for the wrong owner");
+        require(server.bases.values().stream().allMatch(base -> "P1".equals(base.playerId)),
+                "local host server created a base for the wrong owner");
+
+        Snapshot snapshot = WorldNetAccess.snapshot(server, 1);
+        require(snapshot.players().stream().noneMatch(player -> "SOLO".equals(player.id())),
+                "network snapshot leaked the SOLO placeholder player");
+        require(WorldNetAccess.hasPlayerAssets(snapshot, "P1"),
+                "network snapshot did not contain the local host fleet");
+
+        World client = new World("Local Host Validator", Set.of(), selected.id(), false);
+        PlayerRegistry.activate(client);
+        PlayerRegistry.reset("WAIT", "Local Host Validator", 0x50BEFF);
+        PlayerRegistry.register("P1", "Local Host Validator", 0xFF5F55, true);
+        client.ensurePlayerHome("P1", WorldNetAccess.usesPrimaryHome("P1"));
+        client.activateSystem(client.playerHomeSystemId("P1"));
+        WorldNetAccess.apply(client, snapshot);
+
+        GalaxyMapSnapshot clientMap = client.galaxyMapSnapshot();
+        require(clientMap.systems().stream().noneMatch(system -> SOLO_HOME_ID.equals(system.id())),
+                "local host client recreated an obsolete SOLO home from the snapshot");
+        require(HOST_HOME_ID.equals(client.activeSystemId()),
+                "local host client was switched away from its assigned P1 home");
+        require(client.units.size() == 1 && client.bases.size() == 1,
+                "local host client received duplicate starting assets");
+        require(client.units.values().stream().allMatch(unit -> "P1".equals(unit.playerId)),
+                "local host client ship owner changed during snapshot apply");
+        require(client.bases.values().stream().allMatch(base -> "P1".equals(base.playerId)),
+                "local host client base owner changed during snapshot apply");
+
+        require(client.viewGalaxySystem(StarSystems.CORSAIR_SYSTEM_ID),
+                "local host client could not view Corsair after joining");
+        require(client.units.isEmpty() && client.bases.isEmpty(),
+                "local host assets were duplicated into Corsair");
+        require(client.viewGalaxySystem(HOST_HOME_ID),
+                "local host client could not return to its P1 home");
+        require(client.units.size() == 1 && client.bases.size() == 1,
+                "local host assets changed after switching systems");
+    }
+
+    private static GalaxyMapSystem system(GalaxyMapSnapshot snapshot, String systemId) {
+        if (snapshot == null || snapshot.systems() == null) return null;
+        for (GalaxyMapSystem system : snapshot.systems()) if (systemId.equals(system.id())) return system;
+        return null;
     }
 
     private static WormholeGate gateTo(World world, String targetSystemId) {

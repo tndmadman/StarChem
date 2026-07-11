@@ -92,7 +92,7 @@ final class PeerClientSide {
         failureMessage = "";
         if (p.length >= 7) syncEnv(p[4], p[5], p[6]); else if (p.length >= 6) syncEnv(world.systemId(), p[4], p[5]); else if (p.length >= 5) readSeed(p[4]);
         PlayerRegistry.register(localPlayerId, p[2], Integer.parseInt(p[3]), true);
-        world.ensurePlayerHome(localPlayerId);
+        world.ensurePlayerHome(localPlayerId, WorldNetAccess.usesPrimaryHome(localPlayerId));
         world.activateSystem(world.playerHomeSystemId(localPlayerId));
         viewedSystemId = world.activeSystemId();
         viewSnapshotMode = false;

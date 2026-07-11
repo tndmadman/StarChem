@@ -107,6 +107,10 @@ final class GalaxyCoordinator {
     }
 
     GalaxySystem ensurePlayerHome(World world, String playerId, StarSystemDefinition primary) {
+        return ensurePlayerHome(world, playerId, primary, false);
+    }
+
+    GalaxySystem ensurePlayerHome(World world, String playerId, StarSystemDefinition primary, boolean usePrimaryDefinition) {
         if (playerId == null || playerId.isBlank()) playerId = world.localPlayerId;
         String existing = playerHomes.get(playerId);
         if (existing != null && systems.containsKey(existing)) {
@@ -114,22 +118,18 @@ final class GalaxyCoordinator {
             linkAllKnown(world, home);
             return asGalaxySystem(home);
         }
-        WorldSystemState home;
-        if (world.localPlayerId.equals(playerId)) home = createLocalPlayerHome(world, playerId, primary);
-        else home = createSystem(playerHomeId(playerId), StarSystems.get(StarSystems.PLAYER_HOME_SYSTEM_ID));
+        WorldSystemState home = usePrimaryDefinition
+                ? createPrimaryPlayerHome(world, playerId, primary)
+                : createSystem(playerHomeId(playerId), StarSystems.get(StarSystems.PLAYER_HOME_SYSTEM_ID));
         playerHomes.put(playerId, home.id);
         linkAllKnown(world, home);
         return asGalaxySystem(home);
     }
 
-    private WorldSystemState createLocalPlayerHome(World world, String playerId, StarSystemDefinition primary) {
+    private WorldSystemState createPrimaryPlayerHome(World world, String playerId, StarSystemDefinition primary) {
         String homeId = playerHomeId(playerId);
         WorldSystemState existing = systems.get(homeId);
-        if (existing != null) {
-            activeSystemId = existing.id;
-            loadActive(world);
-            return existing;
-        }
+        if (existing != null) return existing;
 
         String templateSystemId = primary.id();
         if (!homeId.equals(templateSystemId)) {
@@ -141,8 +141,6 @@ final class GalaxyCoordinator {
         WorldSystemState corsairs = createSystem(StarSystems.CORSAIR_SYSTEM_ID, StarSystems.get(StarSystems.CORSAIR_SYSTEM_ID));
         linkAllKnown(world, home);
         linkAllKnown(world, corsairs);
-        activeSystemId = home.id;
-        loadActive(world);
         return home;
     }
 
