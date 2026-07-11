@@ -153,6 +153,14 @@ tasks.register('validateSystemSimulationScheduler', JavaExec) {
     mainClass = 'com.tndmadman.rts.SystemSimulationSchedulerValidator'
 }
 
+tasks.register('validateClientEnvironmentSync', JavaExec) {
+    group = 'verification'
+    description = 'Validate client-side orbit prediction and exact system-instance snapshot synchronization.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.ClientEnvironmentSyncValidator'
+}
+
 tasks.named('jar') {
     archiveFileName = 'StarChem.jar'
     manifest {
@@ -205,6 +213,7 @@ tasks.named('check') {
     dependsOn tasks.named('validateSystemModifiers')
     dependsOn tasks.named('validateNpcGalaxyDirector')
     dependsOn tasks.named('validateSystemSimulationScheduler')
+    dependsOn tasks.named('validateClientEnvironmentSync')
     dependsOn tasks.named('verifyBuildMetadata')
 }
 

@@ -4,8 +4,13 @@ final class PeerSyncBatch {
     private PeerSyncBatch() { }
 
     static long send(World world, ClientViewCache views, ServerPeer[] peers, long sequence, NetOutbound out) {
+        return send(world, views, peers, sequence, false, out);
+    }
+
+    static long send(World world, ClientViewCache views, ServerPeer[] peers, long sequence,
+                     boolean fullResources, NetOutbound out) {
         long next = sequence;
-        for (ServerPeer peer : peers) next = PeerSyncSender.sendOne(world, views, peer, next, SyncKind.REGULAR, out);
+        for (ServerPeer peer : peers) next = PeerSyncSender.sendOne(world, views, peer, next, SyncKind.REGULAR, fullResources, out);
         return next;
     }
 

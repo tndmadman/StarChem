@@ -209,14 +209,38 @@ final class GalaxyCoordinator {
         SystemControlSystem.update(world, state, dt);
     }
 
+    void advanceVisual(double dt) {
+        if (!Double.isFinite(dt) || dt == 0) return;
+        advanceVisualState(active(), dt);
+    }
+
+    void syncVisual(World world, String systemId, double hostTime) {
+        if (world == null || systemId == null || systemId.isBlank() || !Double.isFinite(hostTime) || hostTime < 0) return;
+        WorldSystemState state = systems.get(systemId);
+        if (state == null) return;
+        if (!state.id.equals(activeSystemId)) {
+            saveActive(world);
+            activeSystemId = state.id;
+            loadActive(world);
+        }
+        double delta = hostTime - state.systemTime;
+        if (Math.abs(delta) > 0.000001) advanceVisualState(state, delta);
+        state.systemTime = hostTime;
+    }
+
     void updateInactiveSystems(double dt) {
         if (dt == 0) return;
         for (WorldSystemState state : systems.values()) {
             if (state == null || state.id.equals(activeSystemId)) continue;
-            state.systemTime += dt;
-            state.celestials.update(dt);
-            for (ResourceNode node : state.resources) node.updateOrbit(state.celestials.sunX(), state.celestials.sunY(), dt);
+            advanceVisualState(state, dt);
         }
+    }
+
+    private void advanceVisualState(WorldSystemState state, double dt) {
+        if (state == null || !Double.isFinite(dt) || dt == 0) return;
+        state.systemTime += dt;
+        state.celestials.update(dt);
+        for (ResourceNode node : state.resources) node.updateOrbit(state.celestials.sunX(), state.celestials.sunY(), dt);
     }
 
     void draw(World world, Graphics2D g2) {

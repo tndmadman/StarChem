@@ -97,6 +97,18 @@ final class World {
         systemTime = galaxy.activeSystemTime();
     }
     boolean viewGalaxySystem(String systemId) { boolean viewed = galaxy.viewSystem(this, systemId); celestials = galaxy.activeCelestials(); systemTime = galaxy.activeSystemTime(); selectedResourceId = -1; if (viewed) SystemAudio.listenTo(this); return viewed; }
+    void advanceClientEnvironment(double dt) {
+        if (!Double.isFinite(dt) || dt <= 0) return;
+        galaxy.advanceVisual(dt);
+        celestials = galaxy.activeCelestials();
+        systemTime = galaxy.activeSystemTime();
+    }
+    void syncClientEnvironment(String systemId, double hostTime) {
+        if (systemId == null || systemId.isBlank() || !Double.isFinite(hostTime) || hostTime < 0) return;
+        galaxy.syncVisual(this, systemId, hostTime);
+        celestials = galaxy.activeCelestials();
+        systemTime = galaxy.activeSystemTime();
+    }
     boolean hasLiveAssets(String playerId) { return galaxy.hasLiveAssets(this, playerId); }
     String playerHomeSystemId(String playerId) { return galaxy.playerHomeSystemId(this, playerId, starSystem); }
     void activateSystem(String systemId) { celestials = galaxy.activate(this, systemId); systemTime = galaxy.activeSystemTime(); }

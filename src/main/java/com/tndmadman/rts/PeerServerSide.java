@@ -10,6 +10,7 @@ import java.util.*;
 final class PeerServerSide {
     private static final long SNAPSHOT_MS = 100;
     private static final long GALAXY_MS = 1000;
+    private static final long RESOURCE_CORRECTION_MS = 5000;
     private static final long TIMEOUT_MS = 4000;
     private static final long DISCONNECT_GRACE_MS = 60_000;
     private static final long RESUME_REPLAY_MS = 10_000;
@@ -23,7 +24,7 @@ final class PeerServerSide {
     private final Map<String, PlayerSession> sessions = new LinkedHashMap<>();
     private final Set<String> devRequests = new LinkedHashSet<>();
     private int nextPlayer = 1;
-    private long sequence = 1, lastSnapshot, lastGalaxy;
+    private long sequence = 1, lastSnapshot, lastGalaxy, lastResourceCorrection;
 
     PeerServerSide(Config config, World world, PeerTransport transport) {
         this.config = config;
@@ -73,7 +74,12 @@ final class PeerServerSide {
         PlayerRegistry.activate(world);
         removeTimedOut(now);
         removeExpiredSessions(now);
-        if (now - lastSnapshot >= SNAPSHOT_MS) { broadcastNow(); lastSnapshot = now; }
+        if (now - lastSnapshot >= SNAPSHOT_MS) {
+            boolean fullResources = now - lastResourceCorrection >= RESOURCE_CORRECTION_MS;
+            broadcastNow(fullResources);
+            lastSnapshot = now;
+            if (fullResources) lastResourceCorrection = now;
+        }
         if (now - lastGalaxy >= GALAXY_MS) { broadcastGalaxy(); lastGalaxy = now; }
     }
 
@@ -83,7 +89,11 @@ final class PeerServerSide {
     }
 
     void broadcastNow() {
-        sequence = PeerSyncBatch.send(world, views, PeerSyncTargets.array(peers.values()), sequence, transport::send);
+        broadcastNow(false);
+    }
+
+    private void broadcastNow(boolean fullResources) {
+        sequence = PeerSyncBatch.send(world, views, PeerSyncTargets.array(peers.values()), sequence, fullResources, transport::send);
         broadcastLeaderboard();
     }
 

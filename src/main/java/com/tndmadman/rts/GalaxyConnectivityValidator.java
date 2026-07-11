@@ -22,6 +22,7 @@ public final class GalaxyConnectivityValidator {
             validateStaticPlan(1);
             validateStaticPlan(2);
             validateWanderingTopology();
+            validateRuntimeWanderingTopology();
             validateSoloBootstrap();
             validateShipRoundTrip();
             validateLocalHostBootstrap();
@@ -60,6 +61,25 @@ public final class GalaxyConnectivityValidator {
                 "wandering wormholes are not deterministic for the same galaxy seed");
         require(linkKeys(added).size() == added.links().size(),
                 "wandering wormholes created a duplicate link");
+    }
+
+    private static void validateRuntimeWanderingTopology() {
+        GalaxyRuntimeOptions.configureCopies(1);
+        PlayerRegistry.reset("WAIT", "Wandering Runtime Validator", 0x50BEFF);
+        World world = new World("Wandering Runtime Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        GalaxyMapSnapshot map = world.authoritativeGalaxyMapSnapshot();
+        GalaxyPlan fixed = GalaxyPlanner.standard(StarSystems.DEFAULT_SYSTEM_ID, 1, world.systemSeed(), new GalaxyTopologyRules(0));
+        int expected = fixed.links().size() + GalaxyTopologyRules.load().wanderingWormholePairs();
+        require(map.links().size() == expected,
+                "runtime galaxy created " + map.links().size() + " links instead of configured " + expected);
+        for (GalaxyMapLink link : map.links()) {
+            world.activateSystem(link.fromSystemId());
+            require(gateTo(world, link.toSystemId()) != null,
+                    "runtime galaxy is missing forward gate " + link.fromSystemId() + " -> " + link.toSystemId());
+            world.activateSystem(link.toSystemId());
+            require(gateTo(world, link.fromSystemId()) != null,
+                    "runtime galaxy is missing return gate " + link.toSystemId() + " -> " + link.fromSystemId());
+        }
     }
 
     private static Set<String> linkKeys(GalaxyPlan plan) {

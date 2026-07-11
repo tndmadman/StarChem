@@ -55,6 +55,7 @@ final class WorldNetAccess {
         }
         if (snapSystem != null && !snapSystem.isBlank() && !snapSystem.equals(world.activeSystemId())) {
             world.status = "Ignoring stale snapshot for " + snapSystem + "; viewing " + world.activeSystemId() + ".";
+            CelestialPacketCache.clear();
             ResourceNetDebug.ignoredSnapshot(world, snapshot, "system mismatch");
             return;
         }
@@ -69,13 +70,13 @@ final class WorldNetAccess {
             world.activateSystem(world.playerHomeSystemId(local));
             if (noLocalFleet(world, local)) world.spawnPlayerGroup(local, separatedSlot(local, slot(local)));
             world.status = "Ignoring snapshot for another system; holding local fleet in " + world.activeSystemId() + ".";
+            CelestialPacketCache.clear();
             ResourceNetDebug.ignoredSnapshot(world, snapshot, "no local assets");
             return;
         }
         if (snapshot.systemTime() >= 0) {
-            world.syncEnvironment(world.systemId(), world.systemSeed(), snapshot.systemTime());
-            CelestialViewSync.apply(world, snapSystem, snapshot.systemTime());
-        }
+            ClientEnvironmentSync.synchronizeSnapshot(world, snapSystem, snapshot.systemTime(), fullResourceView);
+        } else CelestialPacketCache.clear();
         boolean forceLocal = allowNoLocalAssets;
         Set<String> liveUnits = new HashSet<>();
         for (UnitState s : snapshot.units()) {
