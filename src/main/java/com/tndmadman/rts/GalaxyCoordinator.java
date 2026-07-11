@@ -115,13 +115,35 @@ final class GalaxyCoordinator {
             return asGalaxySystem(home);
         }
         WorldSystemState home;
-        if (world.localPlayerId.equals(playerId)) {
-            home = systems.get(primary.id());
-            if (home == null) home = createSystem(primary.id(), primary);
-        } else home = createSystem(playerHomeId(playerId), StarSystems.get(StarSystems.PLAYER_HOME_SYSTEM_ID));
+        if (world.localPlayerId.equals(playerId)) home = createLocalPlayerHome(world, playerId, primary);
+        else home = createSystem(playerHomeId(playerId), StarSystems.get(StarSystems.PLAYER_HOME_SYSTEM_ID));
         playerHomes.put(playerId, home.id);
         linkAllKnown(world, home);
         return asGalaxySystem(home);
+    }
+
+    private WorldSystemState createLocalPlayerHome(World world, String playerId, StarSystemDefinition primary) {
+        String homeId = playerHomeId(playerId);
+        WorldSystemState existing = systems.get(homeId);
+        if (existing != null) {
+            activeSystemId = existing.id;
+            loadActive(world);
+            return existing;
+        }
+
+        String templateSystemId = primary.id();
+        if (!homeId.equals(templateSystemId)) {
+            systems.remove(templateSystemId);
+            for (WorldSystemState state : systems.values()) removeWormholeTo(state, templateSystemId);
+        }
+
+        WorldSystemState home = createSystem(homeId, primary);
+        WorldSystemState corsairs = createSystem(StarSystems.CORSAIR_SYSTEM_ID, StarSystems.get(StarSystems.CORSAIR_SYSTEM_ID));
+        linkAllKnown(world, home);
+        linkAllKnown(world, corsairs);
+        activeSystemId = home.id;
+        loadActive(world);
+        return home;
     }
 
     String playerHomeSystemId(World world, String playerId, StarSystemDefinition primary) { return ensurePlayerHome(world, playerId, primary).id; }
