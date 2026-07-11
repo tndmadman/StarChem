@@ -32,7 +32,7 @@ final class PeerNetwork implements CommandSink {
         }
         DatagramSocket socket = config.hostMode ? new DatagramSocket(config.port) : new DatagramSocket();
         PerfStats perfStats = new PerfStats();
-        PeerTransport transport = new PeerTransport(socket, perfStats);
+        PeerTransport transport = new PeerTransport(socket, perfStats, config.clientMode() ? config.serverAddress : null);
         PeerServerSide server = null;
         PeerClientSide client = null;
         if (config.hostMode) {
@@ -93,10 +93,17 @@ final class PeerNetwork implements CommandSink {
             long now = System.currentTimeMillis();
             NetPacket packet;
             while ((packet = transport.poll()) != null) {
-                String message = transport.unwrapReliable(packet);
-                if (message == null) continue;
-                if (server != null) server.handle(message, packet);
-                else client.handle(message);
+                if (!transport.accepts(packet)) continue;
+                try {
+                    String message = transport.unwrapReliable(packet);
+                    if (message == null) continue;
+                    if (server != null) server.handle(message, packet);
+                    else client.handle(packet, message);
+                } catch (RuntimeException ex) {
+                    transport.recordMalformedPacket();
+                    if (client != null) client.rejectPacket(ex);
+                    else System.err.println("Rejected malformed UDP packet: " + ex.getClass().getSimpleName());
+                }
             }
             transport.resend(now);
             if (server != null) server.tick(now);
