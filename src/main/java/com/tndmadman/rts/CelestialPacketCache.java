@@ -17,14 +17,23 @@ final class CelestialPacketCache {
     static String pack(String systemId) {
         String state = OUT.get();
         OUT.remove();
+        return pack(systemId, state);
+    }
+
+    static String pack(String systemId, String state) {
         String id = systemId == null ? "" : systemId;
-        return state == null || state.isBlank() ? id : id + SEP + state;
+        String data = state == null ? "" : state;
+        return data.isBlank() ? id : id + SEP + data;
     }
 
     static String systemId(String packed) {
         if (packed == null) return "";
         int cut = packed.indexOf(SEP);
         return cut < 0 ? packed : packed.substring(0, cut);
+    }
+
+    static String state(String packed) {
+        return data(packed);
     }
 
     static long seed(long fallback) {
@@ -35,6 +44,10 @@ final class CelestialPacketCache {
     static String receivedSystemId() {
         String value = IN_SYSTEM.get();
         return value == null ? "" : value;
+    }
+
+    static void receive(String systemId, String state) {
+        receive(pack(systemId, state));
     }
 
     static void receive(String packed) {
