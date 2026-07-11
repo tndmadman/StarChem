@@ -1,0 +1,87 @@
+name: Report v0.1.5 asset verification
+
+on:
+  push:
+    branches:
+      - agent/prepare-0.1.5-release
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  verify-and-report:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Download and verify public release asset
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p downloaded extracted
+          gh release download v0.1.5 \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'StarChem-v0.1.5.zip' \
+            --dir downloaded
+
+          ZIP='downloaded/StarChem-v0.1.5.zip'
+          test -f "$ZIP"
+          zipinfo -1 "$ZIP" > package-files.txt
+          grep -Fxq 'StarChem/StarChem.jar' package-files.txt
+          grep -Fxq 'StarChem/run-starchem.bat' package-files.txt
+          grep -Eq '^StarChem/config/.+' package-files.txt
+
+          mapfile -t TOP_LEVEL < <(sed -n 's#^StarChem/\([^/]*\).*#\1#p' package-files.txt | sed '/^$/d' | sort -u)
+          [[ "${TOP_LEVEL[*]}" == 'StarChem.jar config run-starchem.bat' ]]
+
+          unzip -q "$ZIP" -d extracted
+          test -f extracted/StarChem/StarChem.jar
+          test -d extracted/StarChem/config
+          test -f extracted/StarChem/run-starchem.bat
+
+          VERSION_OUTPUT="$(java -jar extracted/StarChem/StarChem.jar --version)"
+          echo "$VERSION_OUTPUT"
+          [[ "$VERSION_OUTPUT" == 'StarChem 0.1.5 ('* ]]
+
+          unzip -p extracted/StarChem/StarChem.jar META-INF/MANIFEST.MF > jar-manifest.txt
+          grep -Eq '^Main-Class: com\.tndmadman\.rts\.App\r?$' jar-manifest.txt
+          grep -Eq '^Implementation-Version: 0\.1\.5\r?$' jar-manifest.txt
+          grep -Eq '^Build-Commit: [0-9a-f]{40}\r?$' jar-manifest.txt
+
+          SHA256="$(sha256sum "$ZIP" | awk '{print $1}')"
+          echo "version_output=$VERSION_OUTPUT" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+
+      - name: Report successful verification
+        if: success()
+        shell: bash
+        run: |
+          gh pr comment 134 --repo "$GITHUB_REPOSITORY" --body "✅ **v0.1.5 published asset verified**
+
+Downloaded the actual GitHub Release asset \`StarChem-v0.1.5.zip\` and verified:
+
+- \`StarChem/StarChem.jar\` is present and runnable
+- \`StarChem/config/\` is present
+- \`StarChem/run-starchem.bat\` is present
+- JAR output: \`${{ steps.verify.outputs.version_output }}\`
+- ZIP SHA-256: \`${{ steps.verify.outputs.sha256 }}\`
+- Workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+      - name: Report verification failure
+        if: failure()
+        shell: bash
+        run: |
+          gh pr comment 134 --repo "$GITHUB_REPOSITORY" --body "❌ **v0.1.5 published asset verification failed**
+
+The downloadable release ZIP or its runnable JAR did not pass verification.
+
+Workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
