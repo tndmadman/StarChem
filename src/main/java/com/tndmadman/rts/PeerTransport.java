@@ -9,6 +9,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 final class PeerTransport {
     private static final long RELIABLE_MS = 450;
+    private static final int MAX_RELIABLE_ID_LENGTH = 128;
     private final DatagramSocket socket;
     private final ConcurrentLinkedQueue<NetPacket> inbox = new ConcurrentLinkedQueue<>();
     private final Map<String, PendingReliable> pending = new LinkedHashMap<>();
@@ -16,14 +17,22 @@ final class PeerTransport {
     private final String prefix = Integer.toHexString(new SecureRandom().nextInt()).replace('-', 'N');
     private final PacketChunks packetChunks;
     private final PerfStats perfStats;
+    private final InetSocketAddress expectedRemote;
     private boolean running = true;
     private long nextReliable = 1;
 
-    PeerTransport(DatagramSocket socket) throws SocketException { this(socket, new PerfStats()); }
+    PeerTransport(DatagramSocket socket) throws SocketException { this(socket, new PerfStats(), null); }
+    PeerTransport(DatagramSocket socket, PerfStats perfStats) throws SocketException { this(socket, perfStats, null); }
 
-    PeerTransport(DatagramSocket socket, PerfStats perfStats) throws SocketException {
-        this.socket = socket;
+    PeerTransport(DatagramSocket socket, PerfStats perfStats, InetSocketAddress expectedRemote) throws SocketException {
+        this.socket = Objects.requireNonNull(socket, "socket");
         this.perfStats = perfStats == null ? new PerfStats() : perfStats;
+        if (expectedRemote != null && expectedRemote.getAddress() == null) {
+            throw new IllegalArgumentException("Expected remote endpoint must be resolved.");
+        }
+        this.expectedRemote = expectedRemote == null
+                ? null
+                : new InetSocketAddress(expectedRemote.getAddress(), expectedRemote.getPort());
         this.socket.setSoTimeout(250);
         this.packetChunks = new PacketChunks(prefix, this.perfStats);
     }
@@ -39,7 +48,15 @@ final class PeerTransport {
     int localPort() { return socket.getLocalPort(); }
     PerfSnapshot perfSnapshot() { perfStats.setPendingReliable(pending.size()); return perfStats.snapshot(); }
 
+    boolean accepts(NetPacket packet) {
+        return packet != null && acceptsEndpoint(packet.address(), packet.port(), true);
+    }
+
+    void recordSnapshotRejected() { perfStats.recordSnapshotDecodeFailure(); }
+    void recordMalformedPacket() { perfStats.recordMalformedPacket(); }
+
     void send(String message, InetAddress address, int port) {
+        if (message == null || address == null || port < 1 || port > 65535) return;
         try {
             if (isSnapshot(message)) perfStats.recordSnapshotSent(utf8Length(message));
             packetChunks.send(socket, message, address, port);
@@ -68,10 +85,22 @@ final class PeerTransport {
     void clearPending() { pending.clear(); }
 
     String unwrapReliable(NetPacket packet) {
+        if (packet == null || packet.message() == null) return null;
         String message = packet.message();
         if (message.startsWith("ACK|")) {
-            PendingReliable acknowledged = pending.remove(message.substring(4));
-            if (acknowledged != null && acknowledged.lastSent() > 0) {
+            String id = message.substring(4);
+            if (id.isBlank() || id.length() > MAX_RELIABLE_ID_LENGTH) {
+                perfStats.recordMalformedPacket();
+                return null;
+            }
+            PendingReliable acknowledged = pending.get(id);
+            if (acknowledged == null) return null;
+            if (!sameEndpoint(packet.address(), packet.port(), acknowledged.address(), acknowledged.port())) {
+                perfStats.recordRejectedReliableAck();
+                return null;
+            }
+            pending.remove(id);
+            if (acknowledged.lastSent() > 0) {
                 long elapsedMs = Math.max(0, System.currentTimeMillis() - acknowledged.lastSent());
                 perfStats.recordRtt(elapsedMs * 1_000_000L);
             }
@@ -79,7 +108,10 @@ final class PeerTransport {
         }
         if (!message.startsWith("REL|")) return message;
         String[] parts = message.split("\\|", 3);
-        if (parts.length < 3) return null;
+        if (parts.length < 3 || parts[1].isBlank() || parts[1].length() > MAX_RELIABLE_ID_LENGTH) {
+            perfStats.recordMalformedPacket();
+            return null;
+        }
         send("ACK|" + parts[1], packet.address(), packet.port());
         String key = packet.address().getHostAddress() + ':' + packet.port() + '|' + parts[1];
         if (!delivered.add(key)) return null;
@@ -95,11 +127,16 @@ final class PeerTransport {
     }
 
     private void listenLoop() {
-        byte[] buf = new byte[65535];
+        byte[] buf = new byte[PacketChunks.MAX_DATAGRAM_BYTES + 1];
         while (running) {
             DatagramPacket p = new DatagramPacket(buf, buf.length);
             try {
                 socket.receive(p);
+                if (!acceptsEndpoint(p.getAddress(), p.getPort(), true)) continue;
+                if (p.getLength() > PacketChunks.MAX_DATAGRAM_BYTES) {
+                    perfStats.recordMalformedPacket();
+                    continue;
+                }
                 perfStats.recordPacketReceived(p.getLength());
                 String raw = new String(p.getData(), p.getOffset(), p.getLength(), StandardCharsets.UTF_8);
                 String message = packetChunks.receive(raw, p.getAddress(), p.getPort());
@@ -110,6 +147,17 @@ final class PeerTransport {
             } catch (SocketTimeoutException ignored) { }
             catch (Exception ex) { if (running) System.err.println("UDP failed: " + ex.getMessage()); }
         }
+    }
+
+    private boolean acceptsEndpoint(InetAddress address, int port, boolean recordRejection) {
+        boolean accepted = expectedRemote == null
+                || sameEndpoint(address, port, expectedRemote.getAddress(), expectedRemote.getPort());
+        if (!accepted && recordRejection) perfStats.recordRejectedEndpoint();
+        return accepted;
+    }
+
+    private boolean sameEndpoint(InetAddress leftAddress, int leftPort, InetAddress rightAddress, int rightPort) {
+        return leftPort == rightPort && Objects.equals(leftAddress, rightAddress);
     }
 
     private boolean isSnapshot(String message) {
