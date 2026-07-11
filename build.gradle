@@ -31,9 +31,18 @@ tasks.register('validateProductionQueues', JavaExec) {
     mainClass = 'com.tndmadman.rts.ProductionQueueValidator'
 }
 
+tasks.register('validateDevAccess', JavaExec) {
+    group = 'verification'
+    description = 'Validate remote developer-access authorization.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.DevAccessPolicyValidator'
+}
+
 tasks.named('check') {
     dependsOn tasks.named('validateRules')
     dependsOn tasks.named('validateProductionQueues')
+    dependsOn tasks.named('validateDevAccess')
 }
 
 tasks.named('jar') {
