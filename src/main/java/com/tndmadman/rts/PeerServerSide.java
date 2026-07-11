@@ -11,6 +11,7 @@ final class PeerServerSide {
     private static final long SNAPSHOT_MS = 100;
     private static final long TIMEOUT_MS = 4000;
     private static final long DISCONNECT_GRACE_MS = 60_000;
+    private static final long RESUME_REPLAY_MS = 10_000;
     private static final double MAX_DEV_RESOURCE_AMOUNT = 100_000.0;
     private static final SecureRandom SESSION_RANDOM = new SecureRandom();
     final World world;
@@ -139,11 +140,8 @@ final class PeerServerSide {
         ServerPeer existingPeer = peers.get(endpoint);
         if (existingPeer != null) {
             PlayerSession existingSession = sessions.get(existingPeer.playerId());
-            if (existingSession != null) {
-                String token = rotateToken(existingSession);
-                sendSessionState(existingSession, existingPeer, token);
-                return;
-            }
+            if (existingSession != null) sendSessionState(existingSession, existingPeer, existingSession.currentToken);
+            return;
         }
         if (nameInUse(cleanName)) {
             transport.reliable(joinDenied("Name already in use: " + cleanName), address, port);
@@ -156,7 +154,7 @@ final class PeerServerSide {
         if (requestedDev) devRequests.add(id);
         auditDevRequest(cleanName, address, port, requestedDev, devAllowed);
         String token = newSessionToken();
-        PlayerSession session = new PlayerSession(id, cleanName, rgb, digestToken(token), endpoint, true, 0, devAllowed);
+        PlayerSession session = new PlayerSession(id, cleanName, rgb, token, digestToken(token), endpoint, true, 0, devAllowed);
         sessions.put(id, session);
         ServerPeer peer = new ServerPeer(id, address, port, System.currentTimeMillis(), devAllowed);
         peers.put(endpoint, peer);
@@ -171,10 +169,18 @@ final class PeerServerSide {
                    boolean requestedDev, String suppliedDevToken) {
         long now = System.currentTimeMillis();
         PlayerSession session = sessions.get(playerId);
-        if (session == null || sessionExpired(session, now) || !tokenMatches(session, token)) {
+        if (session == null || sessionExpired(session, now) || !tokenMatches(session, token, endpoint, now)) {
             if (session != null && sessionExpired(session, now)) destroySession(playerId);
             transport.reliable(sessionDenied("Session expired or token was rejected."), address, port);
             return false;
+        }
+
+        if (session.connected && endpoint.equals(session.endpoint)) {
+            ServerPeer currentPeer = peers.get(endpoint);
+            if (currentPeer != null && playerId.equals(currentPeer.playerId())) {
+                sendSessionState(session, currentPeer, session.currentToken);
+                return true;
+            }
         }
 
         ServerPeer endpointOwner = peers.get(endpoint);
@@ -198,7 +204,7 @@ final class PeerServerSide {
         session.devFreeBuild = devAllowed;
         PlayerRegistry.register(playerId, session.name, session.rgb, false);
         world.setDevFreeBuild(playerId, devAllowed);
-        String rotatedToken = rotateToken(session);
+        String rotatedToken = rotateToken(session, now);
         sendSessionState(session, peer, rotatedToken);
         world.status = "Reconnected " + session.name + " as " + playerId + ".";
         return true;
@@ -364,8 +370,11 @@ final class PeerServerSide {
                 && now - session.disconnectedAt > DISCONNECT_GRACE_MS;
     }
 
-    private String rotateToken(PlayerSession session) {
+    private String rotateToken(PlayerSession session, long now) {
         String token = newSessionToken();
+        session.previousTokenDigest = session.tokenDigest;
+        session.previousTokenValidUntil = now + RESUME_REPLAY_MS;
+        session.currentToken = token;
         session.tokenDigest = digestToken(token);
         return token;
     }
@@ -376,9 +385,13 @@ final class PeerServerSide {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
-    private boolean tokenMatches(PlayerSession session, String token) {
-        return session != null && token != null && !token.isBlank()
-                && MessageDigest.isEqual(session.tokenDigest, digestToken(token));
+    private boolean tokenMatches(PlayerSession session, String token, String endpoint, long now) {
+        if (session == null || token == null || token.isBlank()) return false;
+        byte[] candidate = digestToken(token);
+        if (MessageDigest.isEqual(session.tokenDigest, candidate)) return true;
+        return session.connected && endpoint != null && endpoint.equals(session.endpoint)
+                && session.previousTokenDigest != null && now <= session.previousTokenValidUntil
+                && MessageDigest.isEqual(session.previousTokenDigest, candidate);
     }
 
     private byte[] digestToken(String token) {
@@ -411,17 +424,21 @@ final class PeerServerSide {
         final String playerId;
         final String name;
         final int rgb;
+        String currentToken;
         byte[] tokenDigest;
+        byte[] previousTokenDigest;
+        long previousTokenValidUntil;
         String endpoint;
         boolean connected;
         long disconnectedAt;
         boolean devFreeBuild;
 
-        PlayerSession(String playerId, String name, int rgb, byte[] tokenDigest, String endpoint,
+        PlayerSession(String playerId, String name, int rgb, String currentToken, byte[] tokenDigest, String endpoint,
                       boolean connected, long disconnectedAt, boolean devFreeBuild) {
             this.playerId = playerId;
             this.name = name;
             this.rgb = rgb;
+            this.currentToken = currentToken;
             this.tokenDigest = tokenDigest;
             this.endpoint = endpoint;
             this.connected = connected;
