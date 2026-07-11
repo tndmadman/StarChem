@@ -36,12 +36,6 @@ jobs:
           git apply --verbose --check .github/client-environment-sync.patch > /tmp/client-env-check.log 2>&1
           check_status=$?
           if [[ $check_status -ne 0 ]]; then
-            cp /tmp/client-env-check.log .github/client-environment-sync-error.log
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add .github/client-environment-sync-error.log
-            git commit -m "Record client environment patch failure"
-            git push origin HEAD:agent/static-galaxy-territory-expansion
             cat /tmp/client-env-check.log
             exit $check_status
           fi
@@ -50,13 +44,6 @@ jobs:
           gradle clean check jar --no-daemon > /tmp/client-env-gradle.log 2>&1
           gradle_status=$?
           if [[ $gradle_status -ne 0 ]]; then
-            cp /tmp/client-env-gradle.log .github/client-environment-sync-error.log
-            git reset --hard HEAD
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add .github/client-environment-sync-error.log
-            git commit -m "Record client environment verification failure"
-            git push origin HEAD:agent/static-galaxy-territory-expansion
             cat /tmp/client-env-gradle.log
             exit $gradle_status
           fi
@@ -71,3 +58,10 @@ jobs:
           git add -A
           git commit -m "Fix client system environment synchronization"
           git push origin HEAD:agent/static-galaxy-territory-expansion
+      - name: Upload verification diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-environment-sync-logs
+          path: /tmp/client-env-*.log
+          if-no-files-found: warn
