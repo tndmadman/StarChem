@@ -3,6 +3,8 @@ package com.tndmadman.rts;
 import java.util.*;
 
 final class ProductionSystem {
+    static final String WAITING_FOR_RESOURCES = "waiting for resources";
+
     private ProductionSystem() { }
 
     static boolean enqueueShip(World world, Base base, ShipType ship, boolean free) {
@@ -58,6 +60,19 @@ final class ProductionSystem {
         return true;
     }
 
+    static ProductionJob enqueueWaiting(World world, Base base, ProductionJobKind kind, String itemId,
+                                        String itemName, double duration) {
+        if (world == null || base == null || kind == null || itemId == null || itemId.isBlank()) return null;
+        ProductionJob job = newJob(base, kind, itemId, duration, false, "");
+        job.blockedReason = WAITING_FOR_RESOURCES;
+        base.productionQueue.add(job);
+        int position = base.productionQueue.size();
+        world.status = "Queued " + itemName + " at position " + position + " - waiting for resources.";
+        AlertCenter.push(world, "Production queued: " + itemName + " - waiting for resources.");
+        processBase(world, base, 0);
+        return job;
+    }
+
     private static boolean enqueue(World world, Base base, ProductionJobKind kind, String itemId,
                                    String itemName, List<Cost> cost, double duration, boolean free,
                                    String reservedUnitKey) {
@@ -93,6 +108,10 @@ final class ProductionSystem {
         int guard = 0;
         while (!base.productionQueue.isEmpty() && guard++ < 64) {
             ProductionJob job = base.productionQueue.get(0);
+            if (waitingForResources(job)) {
+                job.blockedReason = WAITING_FOR_RESOURCES;
+                return;
+            }
             job.blockedReason = "";
             if (!StationFuelRules.isOperational(base)) {
                 StationFuelRequirement requirement = StationFuelRules.requirement(base.typeId);
@@ -116,6 +135,32 @@ final class ProductionSystem {
 
     private static boolean nextIsImmediate(Base base) {
         return !base.productionQueue.isEmpty() && base.productionQueue.get(0).remaining <= 0;
+    }
+
+    static boolean fundWaitingJob(World world, Base base, String jobId) {
+        ProductionJob job = findJob(base, jobId);
+        if (world == null || base == null || !waitingForResources(job)) return false;
+        List<Cost> cost = costFor(job);
+        if (!HangarStore.canAfford(base.inventory, cost)) return false;
+        HangarStore.spend(base.inventory, cost);
+        job.resourcesReserved = true;
+        job.blockedReason = "";
+        int position = base.productionQueue.indexOf(job) + 1;
+        world.status = "Logistics delivered resources. Funded " + displayName(job)
+                + (position > 1 ? " at queue position " + position : "") + ".";
+        AlertCenter.push(world, "Resources delivered: " + displayName(job) + ".");
+        processBase(world, base, 0);
+        return true;
+    }
+
+    static ProductionJob findJob(Base base, String jobId) {
+        if (base == null || jobId == null || jobId.isBlank()) return null;
+        for (ProductionJob job : base.productionQueue) if (job.id.equals(jobId)) return job;
+        return null;
+    }
+
+    static boolean waitingForResources(ProductionJob job) {
+        return job != null && !job.resourcesReserved && WAITING_FOR_RESOURCES.equals(job.blockedReason);
     }
 
     private static boolean ensureBuilder(World world, Base base, ProductionJob job) {
@@ -203,6 +248,7 @@ final class ProductionSystem {
                 world.status = "Cancel dependent research first.";
                 return false;
             }
+            world.logisticsSystem.cancelJob(base, job.id);
             boolean refunded = job.resourcesReserved;
             if (refunded) refund(base, costFor(job));
             world.status = "Cancelled " + displayName(job) + (refunded ? " and refunded reserved resources." : ".");
@@ -307,6 +353,8 @@ final class ProductionSystem {
             state = job.blockedReason == null || job.blockedReason.isBlank()
                     ? Math.max(0, (int)Math.ceil(job.remaining)) + "s left"
                     : job.blockedReason;
+        } else if (waitingForResources(job)) {
+            state = "queued #" + (position + 1) + " | " + WAITING_FOR_RESOURCES;
         } else state = "queued #" + (position + 1) + " | " + Math.max(0, (int)Math.ceil(job.duration)) + "s";
         return state;
     }
