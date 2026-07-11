@@ -37,7 +37,7 @@ final class PeerClientSide {
         PlayerRegistry.activate(world);
         if (joinFailed) return;
         if (!joined && now - joinStarted >= JOIN_TIMEOUT_MS) { failJoin(); return; }
-        if (!joined && now - lastJoin >= HEARTBEAT_MS) { reliableToServer("JOIN|" + config.playerName + "|" + (config.devMode ? "DEV" : "NODEV")); lastJoin = now; }
+        if (!joined && now - lastJoin >= HEARTBEAT_MS) { reliableToServer(joinMessage()); lastJoin = now; }
         if (joined && now - lastPing >= HEARTBEAT_MS) { sendToServer("PING|" + localPlayerId); lastPing = now; }
     }
 
@@ -215,6 +215,11 @@ final class PeerClientSide {
         world.status = failureMessage;
     }
 
+    private String joinMessage() {
+        String request = config.devMode ? "DEV" : "NODEV";
+        String token = config.devMode ? config.devToken : "";
+        return "JOIN|" + cleanPacketPart(config.playerName) + "|" + request + "|" + token;
+    }
     private boolean canSendToServer() { return !joinFailed && config.serverAddress != null && config.serverAddress.getAddress() != null; }
     private String cleanPacketPart(String value) { return value == null ? "" : value.replace("|", "").trim(); }
     private String cleanSystemId(String value) { return value == null ? "" : value.replace("|", "").trim(); }
