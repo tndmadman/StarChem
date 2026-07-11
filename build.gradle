@@ -55,12 +55,21 @@ tasks.register('validateGalaxyConnectivity', JavaExec) {
     mainClass = 'com.tndmadman.rts.GalaxyConnectivityValidator'
 }
 
+tasks.register('validateRuleIds', JavaExec) {
+    group = 'verification'
+    description = 'Validate rejection of unknown ship and station rule IDs.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.RuleIdValidationValidator'
+}
+
 tasks.named('check') {
     dependsOn tasks.named('validateRules')
     dependsOn tasks.named('validateProductionQueues')
     dependsOn tasks.named('validateDevAccess')
     dependsOn tasks.named('validateClientLaunch')
     dependsOn tasks.named('validateGalaxyConnectivity')
+    dependsOn tasks.named('validateRuleIds')
 }
 
 tasks.named('jar') {

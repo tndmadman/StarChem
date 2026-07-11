@@ -4,7 +4,11 @@ final class BuildSystem {
     boolean buildShip(World world, String baseId, String shipTypeId) {
         Base base = world.bases.get(baseId);
         if (base == null) return false;
-        ShipType shipType = Rules.ship(shipTypeId);
+        ShipType shipType = Rules.findShip(shipTypeId);
+        if (shipType == null) {
+            world.status = "Unknown ship type ID: " + shipTypeId + ".";
+            return false;
+        }
         if (!base.type().buildableShips.contains(shipTypeId)) {
             world.status = base.type().name + " cannot build " + shipType.name + ".";
             return false;
@@ -26,11 +30,15 @@ final class BuildSystem {
     boolean loadBasePackage(World world, String baseId, String packageType) {
         Base base = world.bases.get(baseId);
         if (base == null) return false;
+        BaseType pkg = Rules.findBase(packageType);
+        if (pkg == null) {
+            world.status = "Unknown station type ID: " + packageType + ".";
+            return false;
+        }
         if (!base.type().basePackages.contains(packageType)) {
             world.status = base.type().name + " cannot craft that package.";
             return false;
         }
-        BaseType pkg = Rules.base(packageType);
         boolean free = freeBuild(world, base);
         if (!free && !HangarStore.canAfford(base.inventory, pkg.buildCost)) {
             if (world.logisticsSystem.queueBasePackage(world, base, pkg)) return true;
@@ -45,8 +53,12 @@ final class BuildSystem {
             world.status = "Select a loaded Deployer first.";
             return false;
         }
+        BaseType placed = Rules.findBase(carrier.basePackageType);
+        if (placed == null) {
+            world.status = "Unknown station type ID: " + carrier.basePackageType + ".";
+            return false;
+        }
         String baseId = nextBaseId(world, carrier.playerId);
-        BaseType placed = Rules.base(carrier.basePackageType);
         world.bases.put(baseId, new Base(baseId, carrier.playerId, carrier.basePackageType, carrier.x, carrier.y));
         world.units.remove(carrier.key());
         world.status = "Placed " + placed.name + ". Deployer consumed.";
