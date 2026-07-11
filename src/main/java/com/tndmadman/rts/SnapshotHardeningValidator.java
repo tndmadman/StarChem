@@ -1,5 +1,6 @@
 package com.tndmadman.rts;
 
+import java.net.DatagramSocket;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -10,8 +11,10 @@ public final class SnapshotHardeningValidator {
 
     public static void main(String[] args) {
         validateStrictWireDecoding();
+        validatePackedSystemRoundTrip();
         validateCountAndNumericLimits();
         validateAtomicApplicationAndRecovery();
+        validateViewSwitchRecovery();
         System.out.println("StarChem snapshot hardening validation passed.");
     }
 
@@ -47,6 +50,25 @@ public final class SnapshotHardeningValidator {
 
         Snapshot afterInvalid = SnapshotReader.read(encoded);
         require(afterInvalid.sequence() == 1, "valid snapshot was not accepted after invalid frames");
+    }
+
+    private static void validatePackedSystemRoundTrip() {
+        String systemId = StarSystems.PLAYER_HOME_SYSTEM_ID + "_P2";
+        String state = "123456789~100,200,0";
+        Snapshot original = new Snapshot(3,
+                List.of(new PlayerInfo("P2", "Remote Player", 0x7DFF7A, false)),
+                List.of(validUnit("P2", 2, 1200, 1300)),
+                List.of(validResource(1, 1500, 1500, 500)), List.of(), List.of(), List.of(), List.of(),
+                systemId + "~" + state, 42);
+
+        require(systemId.equals(original.systemId()), "snapshot constructor retained a packed system ID");
+        require(state.equals(original.celestialState()), "snapshot constructor lost embedded celestial state");
+
+        String encoded = SnapshotWriter.write(original);
+        Snapshot decoded = SnapshotReader.read(encoded);
+        require(systemId.equals(decoded.systemId()), "snapshot decoder exposed a packed system ID");
+        require(state.equals(decoded.celestialState()), "snapshot decoder lost celestial state");
+        require(encoded.equals(SnapshotWriter.write(decoded)), "snapshot environment state did not round-trip");
     }
 
     private static void validateCountAndNumericLimits() {
@@ -90,6 +112,50 @@ public final class SnapshotHardeningValidator {
                 "valid snapshot was not applied after a rejected snapshot");
     }
 
+    private static void validateViewSwitchRecovery() {
+        PlayerRegistry.reset("WAIT", "View Validator", 0x50BEFF);
+        World world = new World("View Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        PeerTransport transport = null;
+        try {
+            Config config = Config.join("View Validator", "127.0.0.1", 55000);
+            transport = new PeerTransport(new DatagramSocket());
+            PeerClientSide client = new PeerClientSide(config, world, transport);
+            client.readWelcome(new String[]{
+                    "WELCOME", "P1", "View Validator", Integer.toString(0x50BEFF),
+                    world.systemId(), Long.toString(world.systemSeed()), "0", "DEV", "0"
+            });
+
+            String homeSystem = world.playerHomeSystemId("P1");
+            String remoteSystem = StarSystems.PLAYER_HOME_SYSTEM_ID + "_P2";
+
+            client.jump("P1", remoteSystem, 0, 0);
+            client.readFullView(SyncFrame.write(viewSnapshot(10, remoteSystem, "P2", 2, 2200, 2300, 500)));
+            require(remoteSystem.equals(world.activeSystemId()), "remote view snapshot was rejected as a different system");
+            Unit remote = world.units.get(Unit.key("P2", 2));
+            require(remote != null && remote.x == 2200 && remote.y == 2300,
+                    "remote player assets were not visible after switching systems");
+
+            client.jump("P1", homeSystem, 0, 0);
+            client.readFullView(SyncFrame.write(viewSnapshot(11, homeSystem, "P1", 1, 1100, 1200, 450)));
+            require(homeSystem.equals(world.activeSystemId()), "home view snapshot was rejected after returning");
+            Unit home = world.units.get(Unit.key("P1", 1));
+            require(home != null && home.x == 1100 && home.y == 1200,
+                    "home player assets were not restored after returning");
+
+            client.readSnapshot(SnapshotWriter.write(viewSnapshot(12, homeSystem, "P1", 1, 1400, 1500, 300)));
+            Unit updated = world.units.get(Unit.key("P1", 1));
+            ResourceNode resource = world.findResource(1);
+            require(updated != null && updated.x == 1400 && updated.y == 1500,
+                    "ships stopped accepting snapshots after returning home");
+            require(resource != null && Math.abs(resource.amount - 300) < 0.001,
+                    "resources stopped accepting snapshots after returning home");
+        } catch (Exception ex) {
+            throw new IllegalStateException("view switch regression validation failed", ex);
+        } finally {
+            if (transport != null) transport.shutdown();
+        }
+    }
+
     private static Snapshot validSnapshot(long sequence, double x, double y) {
         return new Snapshot(sequence,
                 List.of(new PlayerInfo("SOLO", "Snapshot Validator", 0x50BEFF, true)),
@@ -97,9 +163,28 @@ public final class SnapshotHardeningValidator {
                 List.of(), List.of(), List.of(), List.of(), List.of(), "", -1);
     }
 
+    private static Snapshot viewSnapshot(long sequence, String systemId, String playerId, int unitId,
+                                         double x, double y, double resourceAmount) {
+        return new Snapshot(sequence,
+                List.of(new PlayerInfo(playerId, playerId, 0x7DFF7A, "P1".equals(playerId))),
+                List.of(validUnit(playerId, unitId, x, y)),
+                List.of(validResource(1, x + 300, y + 300, resourceAmount)),
+                List.of(), List.of(), List.of(), List.of(), systemId, 100 + sequence,
+                (9000 + sequence) + "~100,200,0");
+    }
+
+    private static ResourceState validResource(int id, double x, double y, double amount) {
+        return new ResourceState(id, "Validator Rock", NodeKind.SILICATE_ROCK.name(), Material.IRON.name(),
+                x, y, 1000, 10, 45, amount, true, 0, x, y, 0, 0, 0, false);
+    }
+
     private static UnitState validUnit(int id, double x, double y) {
+        return validUnit("SOLO", id, x, y);
+    }
+
+    private static UnitState validUnit(String playerId, int id, double x, double y) {
         ShipType ship = Rules.ship(Rules.STARTING_SHIP);
-        return new UnitState("SOLO", id, Rules.STARTING_SHIP, x, y, x, y, 0,
+        return new UnitState(playerId, id, Rules.STARTING_SHIP, x, y, x, y, 0,
                 UnitTask.IDLE.name(), -1, "", "", ship.maxHp, ship.maxShield,
                 "", 0, UnitOrderType.NONE.name(), 0, 0, 0, 0, 0, "", 0);
     }
