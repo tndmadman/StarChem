@@ -175,7 +175,7 @@ final class WorldNetAccess {
         world.spawnPlayerGroup(playerId, separatedSlot(playerId, slot(playerId) + salt));
     }
 
-    private static boolean realPlayerId(String id) { return id != null && !id.isBlank() && !"WAIT".equals(id) && !NpcRules.isNpcFaction(id); }
+    private static boolean realPlayerId(String id) { return id != null && !id.isBlank() && !"WAIT".equals(id) && !"SOLO".equals(id) && !NpcRules.isNpcFaction(id); }
     private static int separatedSlot(String playerId, int preferredSlot) { return preferredSlot + Math.floorMod(playerId == null ? 0 : playerId.hashCode(), SPAWN_SLOT_SEARCH); }
     private static int slot(String id) { if (id == null || id.equals("SOLO") || id.equals("HOST")) return 0; if (id.startsWith("P")) try { return Math.max(1, Integer.parseInt(id.substring(1))); } catch (NumberFormatException ignored) { } return Math.floorMod(id.hashCode(), 8); }
 }
