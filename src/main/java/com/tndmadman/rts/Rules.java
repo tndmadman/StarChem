@@ -36,6 +36,8 @@ final class Rules {
             ResourceRespawnRules respawn = parseRespawn(resources, RESOURCE_RESPAWN);
             apply(string(root, "startingShipType", STARTING_SHIP), string(root, "defaultStationType", DEFAULT_BASE), ships, bases, belts, respawn);
             return true;
+        } catch (RuleConfigurationException ex) {
+            throw ex;
         } catch (Exception ex) {
             System.err.println("Could not load split StarChem config: " + ex.getMessage());
             return false;
@@ -51,6 +53,8 @@ final class Rules {
             ResourceRespawnRules respawn = parseRespawn(root, RESOURCE_RESPAWN);
             apply(string(root, "startingShipType", STARTING_SHIP), string(root, "defaultStationType", DEFAULT_BASE), ships, bases, belts, respawn);
             return true;
+        } catch (RuleConfigurationException ex) {
+            throw ex;
         } catch (Exception ex) {
             System.err.println("Could not load legacy StarChem rules config: " + ex.getMessage());
             return false;
@@ -61,6 +65,12 @@ final class Rules {
                               List<ResourceBelt> belts, ResourceRespawnRules respawn) {
         if (ships.isEmpty()) throw new IllegalArgumentException("No ship types loaded.");
         if (bases.isEmpty()) throw new IllegalArgumentException("No station types loaded.");
+        if (!ships.containsKey(startShip)) {
+            throw new RuleConfigurationException("Unknown starting ship type ID: " + startShip);
+        }
+        if (!bases.containsKey(defaultBase)) {
+            throw new RuleConfigurationException("Unknown default station type ID: " + defaultBase);
+        }
         SHIPS.clear();
         SHIPS.putAll(ships);
         BASES.clear();
@@ -68,8 +78,8 @@ final class Rules {
         RESOURCE_BELTS.clear();
         if (belts.isEmpty()) RESOURCE_BELTS.addAll(defaultResourceBelts());
         else RESOURCE_BELTS.addAll(belts);
-        STARTING_SHIP = SHIPS.containsKey(startShip) ? startShip : SHIPS.keySet().iterator().next();
-        DEFAULT_BASE = BASES.containsKey(defaultBase) ? defaultBase : BASES.keySet().iterator().next();
+        STARTING_SHIP = startShip;
+        DEFAULT_BASE = defaultBase;
         RESOURCE_RESPAWN = respawn;
     }
 
@@ -226,8 +236,21 @@ final class Rules {
 
     private static void ship(ShipType type) { SHIPS.put(type.id, type); }
     private static void base(BaseType type) { BASES.put(type.id, type); }
-    static ShipType ship(String id) { return SHIPS.getOrDefault(id, SHIPS.get(STARTING_SHIP)); }
-    static BaseType base(String id) { return BASES.getOrDefault(id, BASES.get(DEFAULT_BASE)); }
+
+    static ShipType findShip(String id) { return id == null ? null : SHIPS.get(id); }
+    static BaseType findBase(String id) { return id == null ? null : BASES.get(id); }
+
+    static ShipType ship(String id) {
+        ShipType type = findShip(id);
+        if (type == null) throw new UnknownRuleIdException("Unknown ship type ID: " + id);
+        return type;
+    }
+
+    static BaseType base(String id) {
+        BaseType type = findBase(id);
+        if (type == null) throw new UnknownRuleIdException("Unknown station type ID: " + id);
+        return type;
+    }
 
     static List<Cost> cost(Object... pairs) {
         List<Cost> result = new ArrayList<>();
@@ -317,6 +340,14 @@ final class Rules {
         try { return Material.valueOf(value.trim().toUpperCase(Locale.ROOT)); }
         catch (Exception ex) { throw new IllegalArgumentException("Unknown material: " + value); }
     }
+}
+
+final class UnknownRuleIdException extends IllegalArgumentException {
+    UnknownRuleIdException(String message) { super(message); }
+}
+
+final class RuleConfigurationException extends IllegalArgumentException {
+    RuleConfigurationException(String message) { super(message); }
 }
 
 final class ShipType {
