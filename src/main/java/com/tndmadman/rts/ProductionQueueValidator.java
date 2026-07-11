@@ -77,6 +77,7 @@ public final class ProductionQueueValidator {
         require(world.hasResearch(playerId, "combat_doctrine"), "chained research did not complete");
 
         validateLogisticsQueuePersistence();
+        validateDisabledTimers();
     }
 
     private static void validateLogisticsQueuePersistence() {
@@ -119,6 +120,19 @@ public final class ProductionQueueValidator {
         ProductionSystem.update(world, 1000);
         require(target.productionQueue.isEmpty(), "funded logistics queue did not drain");
         require(countUnits(world, playerId, "prospector") == 3, "logistics queue did not produce every requested ship");
+    }
+
+    private static void validateDisabledTimers() {
+        World world = new World("Instant Queue Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        String playerId = "INSTANT_TEST";
+        Base yard = base(world, playerId + ":B1", playerId, "shipyard", 100, 100);
+        fill(yard);
+        DevTimerSettings.configure(world, true);
+        require(world.buildShip(yard.id, "prospector"), "instant ship should enqueue");
+        require(yard.productionQueue.size() == 1, "instant ship queue missing before tick");
+        ResearchSystem.update(world, 0.016);
+        require(yard.productionQueue.isEmpty(), "disabled timers did not drain production");
+        require(countUnits(world, playerId, "prospector") == 1, "disabled timers did not produce ship");
     }
 
     private static Base base(World world, String id, String playerId, String typeId, double x, double y) {
