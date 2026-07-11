@@ -16,7 +16,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           show-progress: false
-      - name: Compile Java sources
+      - name: Compile and run rule ID validator
         run: |
           mkdir -p /tmp/starchem-classes
           javac --release 17 -encoding UTF-8 -d /tmp/starchem-classes $(find src/main/java -name '*.java' -print)
+          java -cp /tmp/starchem-classes com.tndmadman.rts.RuleIdValidationValidator
