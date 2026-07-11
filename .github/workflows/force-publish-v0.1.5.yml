@@ -135,7 +135,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git switch agent/prepare-0.1.5-release
+          git switch -C agent/prepare-0.1.5-release origin/agent/prepare-0.1.5-release
           {
             echo "StarChem v0.1.5 published release verification"
             echo "Release: https://github.com/${GITHUB_REPOSITORY}/releases/tag/v0.1.5"
