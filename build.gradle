@@ -63,6 +63,22 @@ tasks.register('validateRuleIds', JavaExec) {
     mainClass = 'com.tndmadman.rts.RuleIdValidationValidator'
 }
 
+tasks.register('validateNetworkSecurity', JavaExec) {
+    group = 'verification'
+    description = 'Validate UDP endpoint, ACK, and chunk security.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.NetworkSecurityValidator'
+}
+
+tasks.register('validateSnapshotHardening', JavaExec) {
+    group = 'verification'
+    description = 'Validate strict and atomic snapshot processing.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.SnapshotHardeningValidator'
+}
+
 tasks.named('check') {
     dependsOn tasks.named('validateRules')
     dependsOn tasks.named('validateProductionQueues')
@@ -70,6 +86,8 @@ tasks.named('check') {
     dependsOn tasks.named('validateClientLaunch')
     dependsOn tasks.named('validateGalaxyConnectivity')
     dependsOn tasks.named('validateRuleIds')
+    dependsOn tasks.named('validateNetworkSecurity')
+    dependsOn tasks.named('validateSnapshotHardening')
 }
 
 tasks.named('jar') {
