@@ -6,6 +6,11 @@ import javax.swing.SwingUtilities;
 public final class App {
     private App() { }
     public static void main(String[] args) {
+        if (versionRequested(args)) {
+            System.out.println(BuildInfo.display());
+            return;
+        }
+        System.out.println(BuildInfo.display());
         Config config;
         try {
             config = Config.parse(args);
@@ -22,6 +27,11 @@ public final class App {
             return;
         }
         SwingUtilities.invokeLater(() -> new GameFrame(config).setVisible(true));
+    }
+
+    private static boolean versionRequested(String[] args) {
+        return args != null && args.length == 1
+                && ("--version".equalsIgnoreCase(args[0]) || "-V".equals(args[0]));
     }
 
     private static int runServer(Config config) {

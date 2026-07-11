@@ -29,19 +29,49 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
+      - name: Resolve build metadata
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="0.1.5-dev"
+          fi
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid StarChem version: $VERSION" >&2
+            exit 1
+          fi
+          echo "STARCHEM_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "STARCHEM_COMMIT=$GITHUB_SHA" >> "$GITHUB_ENV"
+
       - name: Verify and build jar
-        run: gradle clean check jar --no-daemon
+        run: gradle clean check jar --no-daemon -PreleaseVersion="$STARCHEM_VERSION" -PbuildCommit="$STARCHEM_COMMIT"
+
+      - name: Smoke-test release jar
+        shell: bash
+        run: |
+          test -f build/libs/StarChem.jar
+          VERSION_OUTPUT="$(java -jar build/libs/StarChem.jar --version)"
+          echo "$VERSION_OUTPUT"
+          [[ "$VERSION_OUTPUT" == "StarChem ${STARCHEM_VERSION}"* ]]
 
       - name: Stage release files
+        shell: bash
         run: |
           mkdir -p release/StarChem
-          cp build/libs/starchem-0.1.0.jar release/StarChem/StarChem.jar
+          cp build/libs/StarChem.jar release/StarChem/StarChem.jar
           cp -R config release/StarChem/config
-          cp packaging/*.bat release/StarChem/
+          cp packaging/run-starchem.bat release/StarChem/run-starchem.bat
+
+          mapfile -t TOP_LEVEL_FILES < <(find release/StarChem -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)
+          mapfile -t TOP_LEVEL_DIRS < <(find release/StarChem -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
+          [[ "${TOP_LEVEL_FILES[*]}" == "StarChem.jar run-starchem.bat" ]]
+          [[ "${TOP_LEVEL_DIRS[*]}" == "config" ]]
+
           cd release
-          zip -r StarChem-${GITHUB_REF_NAME}.zip StarChem
+          zip -r "StarChem-${GITHUB_REF_NAME}.zip" StarChem
           cd ..
-          cp release/StarChem-${GITHUB_REF_NAME}.zip .
+          cp "release/StarChem-${GITHUB_REF_NAME}.zip" .
           echo "RELEASE_ZIP=StarChem-${GITHUB_REF_NAME}.zip" >> "$GITHUB_ENV"
 
       - name: Upload build artifact
@@ -54,4 +84,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          name: StarChem ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
+          fail_on_unmatched_files: true
           files: ${{ env.RELEASE_ZIP }}

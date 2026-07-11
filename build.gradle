@@ -3,7 +3,17 @@ plugins {
 }
 
 group = 'com.tndmadman'
-version = '0.1.0'
+
+def releaseVersion = providers.gradleProperty('releaseVersion')
+        .orElse(providers.environmentVariable('STARCHEM_VERSION'))
+        .orElse('0.1.5-dev')
+        .get()
+def buildCommit = providers.gradleProperty('buildCommit')
+        .orElse(providers.environmentVariable('GITHUB_SHA'))
+        .orElse('unknown')
+        .get()
+
+version = releaseVersion
 
 java {
     toolchain {
@@ -95,6 +105,41 @@ tasks.register('validateNpcSystemIsolation', JavaExec) {
     mainClass = 'com.tndmadman.rts.NpcSystemIsolationValidator'
 }
 
+tasks.named('jar') {
+    archiveFileName = 'StarChem.jar'
+    manifest {
+        attributes(
+                'Main-Class': application.mainClass.get(),
+                'Implementation-Title': 'StarChem',
+                'Implementation-Version': project.version.toString(),
+                'Build-Commit': buildCommit
+        )
+    }
+}
+
+tasks.register('verifyBuildMetadata') {
+    group = 'verification'
+    description = 'Verify the stable JAR name and embedded version metadata.'
+    dependsOn tasks.named('jar')
+    doLast {
+        def jarFile = tasks.named('jar').get().archiveFile.get().asFile
+        if (jarFile.name != 'StarChem.jar') {
+            throw new GradleException("Unexpected release JAR name: ${jarFile.name}")
+        }
+        new java.util.jar.JarFile(jarFile).withCloseable { jar ->
+            def attributes = jar.manifest.mainAttributes
+            def actualVersion = attributes.getValue('Implementation-Version')
+            def actualCommit = attributes.getValue('Build-Commit')
+            if (actualVersion != project.version.toString()) {
+                throw new GradleException("JAR version ${actualVersion} does not match project version ${project.version}")
+            }
+            if (actualCommit != buildCommit) {
+                throw new GradleException("JAR commit ${actualCommit} does not match build commit ${buildCommit}")
+            }
+        }
+    }
+}
+
 tasks.named('check') {
     dependsOn tasks.named('validateRules')
     dependsOn tasks.named('validateProductionQueues')
@@ -106,12 +151,7 @@ tasks.named('check') {
     dependsOn tasks.named('validateSnapshotHardening')
     dependsOn tasks.named('validateSessionRecovery')
     dependsOn tasks.named('validateNpcSystemIsolation')
-}
-
-tasks.named('jar') {
-    manifest {
-        attributes('Main-Class': application.mainClass.get())
-    }
+    dependsOn tasks.named('verifyBuildMetadata')
 }
 
 distributions {
