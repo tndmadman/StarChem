@@ -1,0 +1,21 @@
+{
+  "id": "pulsar_reach",
+  "name": "Pulsar Reach",
+  "role": "strategic",
+  "width": 20000,
+  "height": 17000,
+  "tags": ["exotic", "radiation", "high_value"],
+  "modifiers": {"sensorRange": 1.2, "shieldRegen": 0.72, "environmentalDamagePerSecond": 1.15},
+  "spawnMaterials": ["TITANIUM", "RARE_EARTHS", "PLATINUM", "URANIUM"],
+  "bodies": [
+    {"id": "pulsar", "name": "Beacon", "orbit": 0, "radius": 150, "speed": 0, "color": "#B9E7FF"},
+    {"id": "ash", "name": "Ash Planet", "parent": "pulsar", "orbit": 2700, "radius": 58, "speed": 0.014, "color": "#5E6072"},
+    {"id": "cinder", "name": "Cinder Giant", "parent": "pulsar", "orbit": 5300, "radius": 105, "speed": -0.006, "color": "#6F7898"}
+  ],
+  "resourceBelts": [
+    {"name": "Irradiated Ore Ring", "kind": "SILICATE_ROCK", "orbit": 3400, "width": 420, "arc": 1.9, "count": 135, "amount": 19, "harvestRate": 6.2, "radius": 2.7,
+      "composition": [{"material": "TITANIUM", "weight": 35}, {"material": "RARE_EARTHS", "weight": 25}, {"material": "PLATINUM", "weight": 18}, {"material": "URANIUM", "weight": 12}, {"material": "TUNGSTEN", "weight": 10}]},
+    {"name": "Ion Wake", "kind": "GAS_CLOUD", "orbit": 6200, "width": 620, "arc": 2.8, "count": 100, "amount": 17, "harvestRate": 5.7, "radius": 4.2,
+      "composition": [{"material": "XENON", "weight": 20}, {"material": "ARGON", "weight": 35}, {"material": "NEON", "weight": 25}, {"material": "HELIUM", "weight": 20}]}
+  ]
+}
