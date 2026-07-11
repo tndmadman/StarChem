@@ -33,13 +33,8 @@ final class ProceduralAudio {
 
     private ProceduralAudio() { }
 
-    static void prime() {
-        INSTANCE.ensureStarted();
-    }
-
-    static void play(SoundCue cue) {
-        INSTANCE.playCue(cue);
-    }
+    static void prime() { INSTANCE.ensureStarted(); }
+    static void play(SoundCue cue) { INSTANCE.playCue(cue); }
 
     static boolean toggleMute() {
         boolean nowMuted = INSTANCE.toggleMuteInternal();
@@ -47,32 +42,16 @@ final class ProceduralAudio {
         return nowMuted;
     }
 
-    static boolean muted() {
-        return INSTANCE.muted;
-    }
-
-    static void playWeaponFire(WeaponType weapon, double distance) {
-        INSTANCE.weaponFire(weapon, distance);
-    }
-
-    static void playWeaponImpact(WeaponType weapon) {
-        INSTANCE.weaponImpact(weapon);
-    }
-
-    static void playDestruction(double scale) {
-        INSTANCE.destruction(scale);
-    }
-
-    static void playResourceDepleted(Material material) {
-        INSTANCE.resourceDepleted(material);
-    }
+    static boolean muted() { return INSTANCE.muted; }
+    static void playWeaponFire(WeaponType weapon, double distance) { INSTANCE.weaponFire(weapon, distance); }
+    static void playWeaponImpact(WeaponType weapon) { INSTANCE.weaponImpact(weapon); }
+    static void playDestruction(double scale) { INSTANCE.destruction(scale); }
+    static void playResourceDepleted(Material material) { INSTANCE.resourceDepleted(material); }
 
     private synchronized boolean toggleMuteInternal() {
         muted = !muted;
         if (muted) {
-            synchronized (lock) {
-                voices.clear();
-            }
+            synchronized (lock) { voices.clear(); }
         }
         return muted;
     }
@@ -105,8 +84,7 @@ final class ProceduralAudio {
                     voice(Wave.SINE, 500, 740, 0.080, 0.080, 0.0, 0.004, 0.060),
                     voice(Wave.SINE, 760, 980, 0.105, 0.060, 0.0, 0.030, 0.075),
                     voice(Wave.TRIANGLE, 1030, 1320, 0.085, 0.045, 0.0, 0.050, 0.060));
-            case ERROR -> add(
-                    voice(Wave.SQUARE, 170, 86, 0.130, 0.11, 0.0, 0.002, 0.115));
+            case ERROR -> add(voice(Wave.SQUARE, 170, 86, 0.130, 0.11, 0.0, 0.002, 0.115));
             case RESOURCE_DEPLETED -> add(
                     voice(Wave.NOISE, 220, 80, 0.180, 0.12, 0.75, 0.002, 0.160),
                     voice(Wave.SINE, 130, 72, 0.190, 0.070, 0.0, 0.010, 0.170));
@@ -118,8 +96,7 @@ final class ProceduralAudio {
                     voice(Wave.TRIANGLE, 360, 760, 0.075, 0.085, 0.0, 0.003, 0.050),
                     voice(Wave.SINE, 920, 1240, 0.060, 0.052, 0.0, 0.004, 0.042),
                     voice(Wave.NOISE, 640, 260, 0.045, 0.030, 0.55, 0.001, 0.038));
-            case MUTE_OFF -> add(
-                    voice(Wave.SINE, 360, 720, 0.080, 0.10, 0.0, 0.004, 0.065));
+            case MUTE_OFF -> add(voice(Wave.SINE, 360, 720, 0.080, 0.10, 0.0, 0.004, 0.065));
         }
     }
 
@@ -165,13 +142,12 @@ final class ProceduralAudio {
             playCue(SoundCue.RESOURCE_DEPLETED);
             return;
         }
-        double baseHz = switch (material) {
-            case IRON, SCRAP_METAL, HULL_PLATING -> 135;
-            case COPPER, FUEL -> 220;
-            case SILICATES -> 175;
-            case ICE -> 620;
-            case HYDROGEN, HELIUM, METHANE, AMMONIA -> 310;
-            case CIRCUIT_FRAGMENTS -> 760;
+        double baseHz = switch (material.family) {
+            case METAL, SALVAGE -> material == Material.CIRCUIT_FRAGMENTS ? 760 : 150;
+            case MINERAL -> 185;
+            case VOLATILE -> 620;
+            case GAS -> 310;
+            case REFINED -> 220;
         };
         double noise = material == Material.ICE || material == Material.CIRCUIT_FRAGMENTS ? 0.18 : 0.45;
         add(
@@ -185,13 +161,8 @@ final class ProceduralAudio {
         return new Voice(wave, startHz * pitch, endHz * pitch, duration, volume, noise, attack, decay, randomPan(), random.nextLong());
     }
 
-    private double randomPitchFactor() {
-        return 1.0 + (random.nextDouble() * 2.0 - 1.0) * PITCH_VARIATION;
-    }
-
-    private double randomPan() {
-        return random.nextDouble() * 0.42 - 0.21;
-    }
+    private double randomPitchFactor() { return 1.0 + (random.nextDouble() * 2.0 - 1.0) * PITCH_VARIATION; }
+    private double randomPan() { return random.nextDouble() * 0.42 - 0.21; }
 
     private void add(Voice... newVoices) {
         ensureStarted();
@@ -254,10 +225,7 @@ final class ProceduralAudio {
         bytes[offset + 1] = (byte)((v >>> 8) & 0xff);
     }
 
-    private static double clamp(double value, double min, double max) {
-        return Math.max(min, Math.min(max, value));
-    }
-
+    private static double clamp(double value, double min, double max) { return Math.max(min, Math.min(max, value)); }
     private enum Wave { SINE, TRIANGLE, SQUARE, SAW, NOISE }
 
     private static final class Voice {
@@ -319,8 +287,6 @@ final class ProceduralAudio {
             return 1.0;
         }
 
-        private boolean done() {
-            return age >= duration;
-        }
+        private boolean done() { return age >= duration; }
     }
 }
