@@ -31,11 +31,40 @@ jobs:
             echo "Client environment marker not present."
             exit 0
           fi
-          git apply --check .github/client-environment-sync.patch
+
+          set +e
+          git apply --verbose --check .github/client-environment-sync.patch > /tmp/client-env-check.log 2>&1
+          check_status=$?
+          if [[ $check_status -ne 0 ]]; then
+            cp /tmp/client-env-check.log .github/client-environment-sync-error.log
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .github/client-environment-sync-error.log
+            git commit -m "Record client environment patch failure"
+            git push origin HEAD:agent/static-galaxy-territory-expansion
+            cat /tmp/client-env-check.log
+            exit $check_status
+          fi
+
           git apply .github/client-environment-sync.patch
-          gradle clean check jar --no-daemon
+          gradle clean check jar --no-daemon > /tmp/client-env-gradle.log 2>&1
+          gradle_status=$?
+          if [[ $gradle_status -ne 0 ]]; then
+            cp /tmp/client-env-gradle.log .github/client-environment-sync-error.log
+            git reset --hard HEAD
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .github/client-environment-sync-error.log
+            git commit -m "Record client environment verification failure"
+            git push origin HEAD:agent/static-galaxy-territory-expansion
+            cat /tmp/client-env-gradle.log
+            exit $gradle_status
+          fi
+          set -e
+
           rm -f .github/client-environment-sync.patch
           rm -f .github/apply-client-environment-sync.ready
+          rm -f .github/client-environment-sync-error.log
           rm -f .github/workflows/apply-client-environment-sync.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
