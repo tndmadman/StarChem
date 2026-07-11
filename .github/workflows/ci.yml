@@ -36,18 +36,4 @@ jobs:
           gradle-version: '8.10.2'
 
       - name: Verify project
-        shell: bash
-        run: |
-          set +e
-          gradle clean check jar --no-daemon > gradle.log 2>&1
-          status=$?
-          echo "Gradle exited with status ${status}."
-          exit "${status}"
-
-      - name: Upload Gradle diagnostic log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: gradle-diagnostic-${{ github.run_id }}
-          path: gradle.log
-          if-no-files-found: error
+        run: gradle clean check jar --no-daemon
