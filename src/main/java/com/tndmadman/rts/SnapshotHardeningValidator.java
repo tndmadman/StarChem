@@ -122,7 +122,8 @@ public final class SnapshotHardeningValidator {
             PeerClientSide client = new PeerClientSide(config, world, transport);
             client.readWelcome(new String[]{
                     "WELCOME", "P1", "View Validator", Integer.toString(0x50BEFF),
-                    world.systemId(), Long.toString(world.systemSeed()), "0", "DEV", "0"
+                    world.systemId(), Long.toString(world.systemSeed()), "0", "DEV", "0",
+                    "SESSION", "snapshot-validator-session-token-0000000000000000"
             });
 
             String homeSystem = world.playerHomeSystemId("P1");
@@ -164,7 +165,7 @@ public final class SnapshotHardeningValidator {
     }
 
     private static Snapshot viewSnapshot(long sequence, String systemId, String playerId, int unitId,
-                                         double x, double y, double resourceAmount) {
+                                          double x, double y, double resourceAmount) {
         return new Snapshot(sequence,
                 List.of(new PlayerInfo(playerId, playerId, 0x7DFF7A, "P1".equals(playerId))),
                 List.of(validUnit(playerId, unitId, x, y)),
