@@ -42,7 +42,7 @@ final class WorldNetAccess {
     private static void apply(World world, Snapshot snapshot, boolean allowNoLocalAssets, boolean fullResourceView) {
         validateRuleIds(snapshot);
         String local = PlayerRegistry.localId();
-        String snapSystem = snapshot.systemId();
+        String snapSystem = snapshotSystemId(snapshot);
         boolean snapshotHasLocalAssets = hasPlayerAssets(snapshot, local);
         Map<String, Base> decodedBases = decodeBases(snapshot.bases(), snapSystem);
         ResourceNetDebug.worldApplyStart(world, snapshot, allowNoLocalAssets, fullResourceView, snapshotHasLocalAssets);
@@ -74,7 +74,7 @@ final class WorldNetAccess {
         }
         if (snapshot.systemTime() >= 0) {
             world.syncEnvironment(world.systemId(), world.systemSeed(), snapshot.systemTime());
-            CelestialViewSync.apply(world, snapshot.systemId(), snapshot.systemTime());
+            CelestialViewSync.apply(world, snapSystem, snapshot.systemTime());
         }
         boolean forceLocal = allowNoLocalAssets;
         Set<String> liveUnits = new HashSet<>();
@@ -117,6 +117,13 @@ final class WorldNetAccess {
         ItemSync.apply(world, snapshot.items());
         if (!snapshot.stocks().isEmpty()) CargoCodec.readInto(snapshot.stocks().get(0).cargo(), world.stockpile);
         ResourceNetDebug.worldApplyEnd(world, snapshot);
+    }
+
+    private static String snapshotSystemId(Snapshot snapshot) {
+        String packed = snapshot == null ? "" : snapshot.systemId();
+        String systemId = CelestialPacketCache.systemId(packed);
+        if (!Objects.equals(packed, systemId)) CelestialPacketCache.receive(packed);
+        return systemId;
     }
 
     private static void validateRuleIds(Snapshot snapshot) {
