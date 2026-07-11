@@ -21,10 +21,13 @@ final class LocalHostSession {
 
     static LocalHostSession start(Config hostConfig) throws IOException {
         World serverWorld = new World(hostConfig.playerName, hostConfig.disabledNpcFactionIds, hostConfig.systemId, false);
+        DevTimerSettings.configure(serverWorld, hostConfig.disableProductionTimers);
         PlayerRegistry.activate(serverWorld);
         PeerNetwork serverNetwork = PeerNetwork.start(hostConfig, serverWorld);
-        Config clientConfig = Config.join(hostConfig.playerName, "127.0.0.1", hostConfig.port, hostConfig.devMode, hostConfig.disabledNpcFactionIds, hostConfig.systemId);
+        Config clientConfig = Config.join(hostConfig.playerName, "127.0.0.1", hostConfig.port, hostConfig.devMode,
+                hostConfig.disableProductionTimers, hostConfig.disabledNpcFactionIds, hostConfig.systemId);
         World clientWorld = new World(clientConfig.playerName, clientConfig.disabledNpcFactionIds, clientConfig.systemId, false);
+        DevTimerSettings.configure(clientWorld, clientConfig.disableProductionTimers);
         PlayerRegistry.activate(clientWorld);
         PeerNetwork clientNetwork = PeerNetwork.start(clientConfig, clientWorld);
         LocalHostSession session = new LocalHostSession(serverWorld, serverNetwork, clientWorld, clientNetwork);
