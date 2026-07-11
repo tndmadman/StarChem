@@ -127,12 +127,19 @@ public final class ProductionQueueValidator {
         String playerId = "INSTANT_TEST";
         Base yard = base(world, playerId + ":B1", playerId, "shipyard", 100, 100);
         fill(yard);
+
         DevTimerSettings.configure(world, true);
         require(world.buildShip(yard.id, "prospector"), "instant ship should enqueue");
         require(yard.productionQueue.size() == 1, "instant ship queue missing before tick");
         ResearchSystem.update(world, 0.016);
         require(yard.productionQueue.isEmpty(), "disabled timers did not drain production");
         require(countUnits(world, playerId, "prospector") == 1, "disabled timers did not produce ship");
+
+        DevTimerSettings.configure(world, false);
+        require(world.buildShip(yard.id, "prospector"), "re-enabled timer ship should enqueue");
+        ResearchSystem.update(world, 0.016);
+        require(yard.productionQueue.size() == 1, "re-enabled production timer completed immediately");
+        require(countUnits(world, playerId, "prospector") == 1, "re-enabled timer unexpectedly produced a ship");
     }
 
     private static Base base(World world, String id, String playerId, String typeId, double x, double y) {
