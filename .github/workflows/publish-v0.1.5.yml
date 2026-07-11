@@ -1,0 +1,33 @@
+name: Publish v0.1.5 tag
+
+on:
+  push:
+    branches:
+      - agent/prepare-0.1.5-release
+
+permissions:
+  contents: write
+
+jobs:
+  tag-main:
+    name: Tag current main as v0.1.5
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Create and push v0.1.5 tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --tags origin refs/tags/v0.1.5 >/dev/null 2>&1; then
+            echo "Tag v0.1.5 already exists; refusing to move it."
+            exit 1
+          fi
+          git tag -a v0.1.5 -m "StarChem v0.1.5"
+          git push origin refs/tags/v0.1.5
