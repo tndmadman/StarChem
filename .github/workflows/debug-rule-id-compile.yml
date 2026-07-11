@@ -1,0 +1,22 @@
+name: Debug rule ID compile
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          show-progress: false
+      - name: Compile Java sources
+        run: |
+          mkdir -p /tmp/starchem-classes
+          javac --release 17 -encoding UTF-8 -d /tmp/starchem-classes $(find src/main/java -name '*.java' -print)
