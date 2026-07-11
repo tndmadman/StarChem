@@ -4,6 +4,8 @@
   "role": "danger",
   "width": 16500,
   "height": 15000,
+  "tags": ["contested", "hazardous", "high_value"],
+  "modifiers": {"weaponRange": 1.08, "shieldRegen": 0.9, "environmentalDamagePerSecond": 0.35},
   "spawnMaterials": ["IRON", "COPPER", "SILICATES", "HYDROGEN"],
   "bodies": [
     {"id": "ember", "name": "Ember Star", "parent": null, "orbit": 0, "radius": 185, "speed": 0, "color": "#FFB347"},
@@ -11,8 +13,11 @@
     {"id": "ash", "name": "Ash Moon", "parent": "scar", "orbit": 280, "radius": 22, "speed": 0.05, "color": "#777777"}
   ],
   "resourceBelts": [
-    {"name": "Contested Iron", "kind": "SILICATE_ROCK", "materials": ["IRON"], "orbit": 1900, "width": 300, "arc": 1.2, "count": 145, "amount": 34, "harvestRate": 8.4, "radius": 3.1},
-    {"name": "Contested Copper", "kind": "SILICATE_ROCK", "materials": ["COPPER"], "orbit": 2750, "width": 340, "arc": 1.1, "count": 120, "amount": 28, "harvestRate": 7.8, "radius": 2.9},
-    {"name": "Outer Salvage Gas", "kind": "GAS_CLOUD", "materials": ["HYDROGEN", "METHANE"], "orbit": 4750, "width": 600, "arc": 1.4, "count": 150, "amount": 30, "harvestRate": 8.8, "radius": 4.8}
+    {"name": "Contested Ore Ring", "kind": "SILICATE_ROCK", "orbit": 2350, "width": 470, "arc": 2.5, "count": 145, "amount": 31, "harvestRate": 8.2, "radius": 3.1,
+      "composition": [{"material": "IRON", "weight": 30}, {"material": "COPPER", "weight": 22}, {"material": "SILICATES", "weight": 18}, {"material": "TITANIUM", "weight": 13}, {"material": "COBALT", "weight": 10}, {"material": "TUNGSTEN", "weight": 7}]},
+    {"name": "Battlefield Gas", "kind": "GAS_CLOUD", "orbit": 4850, "width": 650, "arc": 2.0, "count": 105, "amount": 28, "harvestRate": 8.3, "radius": 4.8,
+      "composition": [{"material": "HYDROGEN", "weight": 30}, {"material": "METHANE", "weight": 28}, {"material": "AMMONIA", "weight": 17}, {"material": "ARGON", "weight": 15}, {"material": "XENON", "weight": 10}]},
+    {"name": "Strategic Fragments", "kind": "SILICATE_ROCK", "orbit": 6200, "width": 300, "arc": 0.9, "count": 55, "amount": 15, "harvestRate": 5.5, "radius": 2.4,
+      "composition": [{"material": "GOLD", "weight": 30}, {"material": "PLATINUM", "weight": 25}, {"material": "RARE_EARTHS", "weight": 30}, {"material": "URANIUM", "weight": 15}]}
   ]
 }
