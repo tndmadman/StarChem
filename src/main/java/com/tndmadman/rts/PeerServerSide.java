@@ -89,7 +89,7 @@ final class PeerServerSide {
     boolean localDevAllowed(String playerId) { return config.devMode && playerId != null && !playerId.isBlank() && !"WAIT".equals(playerId); }
     void touch(String endpoint) { ServerPeer p = peers.get(endpoint); if (p != null) peers.put(endpoint, new ServerPeer(p.playerId(), p.address(), p.port(), System.currentTimeMillis(), p.devFreeBuild())); }
 
-    void join(String endpoint, InetAddress address, int port, String name, boolean requestedDev) {
+    void join(String endpoint, InetAddress address, int port, String name, boolean requestedDev, String suppliedDevToken) {
         String cleanName = Config.clean(name);
         ServerPeer old = peers.get(endpoint);
         if (old != null) {
@@ -103,7 +103,9 @@ final class PeerServerSide {
         }
         String id = "P" + nextPlayer++;
         int rgb = colorFor(peers.size() + 1);
-        boolean devAllowed = config.devMode && requestedDev;
+        boolean devAllowed = DevAccessPolicy.authorize(config.devMode, config.dedicatedServerMode(), address,
+                requestedDev, config.devToken, suppliedDevToken);
+        auditDevRequest(cleanName, address, port, requestedDev, devAllowed);
         ServerPeer peer = new ServerPeer(id, address, port, System.currentTimeMillis(), devAllowed);
         peers.put(endpoint, peer);
         peerNames.put(endpoint, cleanName);
@@ -205,6 +207,12 @@ final class PeerServerSide {
         for (ServerPeer peer : peers.values()) transport.reliable(message, peer.address(), peer.port());
     }
 
+    private void auditDevRequest(String name, InetAddress address, int port, boolean requestedDev, boolean allowed) {
+        if (!requestedDev) return;
+        String source = address == null ? "unknown" : address.getHostAddress() + ':' + port;
+        System.out.println("Dev access " + (allowed ? "granted" : "denied") + " for " + packetPart(name) + " from " + source + '.');
+    }
+
     private String normalizedName(String name) { return Config.clean(name).toLowerCase(Locale.ROOT); }
     private boolean nameInUse(String name) {
         String wanted = normalizedName(name);
@@ -214,6 +222,7 @@ final class PeerServerSide {
     private String joinDenied(String message) { return "JOIN_DENIED|" + packetPart(message); }
     private String packetPart(String value) { return value == null ? "" : value.replace('|', ' ').replace('\n', ' ').replace('\r', ' ').trim(); }
     boolean requestedDev(String[] parts) { return parts.length > 2 && flag(parts[2]); }
+    String requestedDevToken(String[] parts) { return parts.length > 3 ? parts[3] : ""; }
     String endpoint(InetAddress address, int port) { return address.getHostAddress() + ':' + port; }
     private void removeTimedOut(long now) { for (String ep : new ArrayList<>(peers.keySet())) if (now - peers.get(ep).lastSeen() > TIMEOUT_MS) removePeer(ep); }
     private String envMessage() { return "ENV|" + world.systemId() + "|" + world.systemSeed() + "|" + Calc.round(world.systemTime()); }
