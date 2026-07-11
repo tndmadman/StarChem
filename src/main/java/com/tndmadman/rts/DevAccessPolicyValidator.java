@@ -26,6 +26,14 @@ public final class DevAccessPolicyValidator {
         expectInvalid("delimiter token", "0123456789abcdef|bad");
         expectInvalid("space token", "0123456789abcdef bad");
 
+        Config host = Config.parse(new String[]{"--host", "50000", "--dev", "--dev-token", TOKEN});
+        expectTrue("host dev mode", host.devMode);
+        expectEquals("host token", TOKEN, host.devToken);
+        Config client = Config.parse(new String[]{"--join", "127.0.0.1", "50000", "--dev", "--dev-token", TOKEN});
+        expectTrue("client mode", client.clientMode());
+        expectEquals("client token", TOKEN, client.devToken);
+        expectMissingTokenValueRejected();
+
         System.out.println("Dev access policy validation passed.");
     }
 
@@ -50,6 +58,19 @@ public final class DevAccessPolicyValidator {
         } catch (IllegalArgumentException expected) {
             // Expected.
         }
+    }
+
+    private static void expectMissingTokenValueRejected() {
+        try {
+            Config.parse(new String[]{"--host", "50000", "--dev", "--dev-token"});
+            throw new IllegalStateException("Expected missing --dev-token value to be rejected.");
+        } catch (IllegalArgumentException expected) {
+            // Expected.
+        }
+    }
+
+    private static void expectTrue(String name, boolean value) {
+        if (!value) throw new IllegalStateException("Expected true: " + name);
     }
 
     private static void expectEquals(String name, String expected, String actual) {
