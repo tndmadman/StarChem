@@ -4,11 +4,15 @@ final class NetBaseSync {
     private NetBaseSync() { }
 
     static Base fromState(BaseState state) {
+        return fromState(state, "");
+    }
+
+    static Base fromState(BaseState state, String systemId) {
         Base base = new Base(state.id(), state.playerId(), state.typeId(), state.x(), state.y());
         base.hp = state.hp();
         base.shield = state.shield();
         CargoCodec.readInto(state.cargo(), base.inventory);
-        ProductionQueueCodec.readInto(state.productionQueue(), base);
+        StrictProductionQueueCodec.readInto(state.productionQueue(), base, systemId);
         return base;
     }
 

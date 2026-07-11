@@ -38,6 +38,7 @@ final class WorldNetAccess {
         String local = PlayerRegistry.localId();
         String snapSystem = snapshot.systemId();
         boolean snapshotHasLocalAssets = hasPlayerAssets(snapshot, local);
+        Map<String, Base> decodedBases = decodeBases(snapshot.bases(), snapSystem);
         ResourceNetDebug.worldApplyStart(world, snapshot, allowNoLocalAssets, fullResourceView, snapshotHasLocalAssets);
         if (fullResourceView && snapSystem != null && !snapSystem.isBlank() && !snapSystem.equals(world.activeSystemId())) {
             long seed = CelestialPacketCache.seed(world.systemSeed());
@@ -98,7 +99,7 @@ final class WorldNetAccess {
                 NetResourceSync.apply(world, snapshot.resources());
             }
         }
-        applyBases(world, snapshot.bases());
+        applyBases(world, decodedBases);
         world.shots.clear();
         for (ShotState s : snapshot.shots()) {
             ProjectileShot shot = new ProjectileShot(s.id(), s.ownerId(), s.weaponId(), s.targetKey(), s.x(), s.y());
@@ -117,16 +118,34 @@ final class WorldNetAccess {
         return true;
     }
 
-    private static void applyBases(World world, List<BaseState> states) {
-        Set<String> live = new HashSet<>();
-        for (BaseState state : states) live.add(state.id());
+    private static Map<String, Base> decodeBases(List<BaseState> states, String systemId) {
+        Map<String, Base> decoded = new LinkedHashMap<>();
+        for (BaseState state : states) {
+            if (state == null || state.id() == null || state.id().isBlank()) {
+                throw malformedBaseSnapshot(systemId, "base ID is required");
+            }
+            if (decoded.containsKey(state.id())) {
+                throw malformedBaseSnapshot(systemId, "duplicate base ID " + state.id());
+            }
+            decoded.put(state.id(), NetBaseSync.fromState(state, systemId));
+        }
+        return decoded;
+    }
+
+    private static void applyBases(World world, Map<String, Base> decoded) {
+        Set<String> live = decoded.keySet();
         Iterator<Base> it = world.bases.values().iterator();
         while (it.hasNext()) {
             Base base = it.next();
             if (live.contains(base.id)) continue;
             it.remove();
         }
-        for (BaseState b : states) world.bases.put(b.id(), NetBaseSync.fromState(b));
+        for (Map.Entry<String, Base> entry : decoded.entrySet()) world.bases.put(entry.getKey(), entry.getValue());
+    }
+
+    private static SnapshotDecodeException malformedBaseSnapshot(String systemId, String reason) {
+        String location = systemId == null || systemId.isBlank() ? "" : " in system " + systemId;
+        return new SnapshotDecodeException("Snapshot rejected: malformed base state" + location + " - " + reason + ".");
     }
 
     static void addPeerGroup(World world, String playerId) {
@@ -142,7 +161,6 @@ final class WorldNetAccess {
         world.shots.removeIf(shot -> shot.ownerId.equals(playerId));
         int salt = Math.max(5, world.units.size() + world.bases.size() + (int)Math.round(world.systemTime()));
         world.spawnPlayerGroup(playerId, separatedSlot(playerId, slot(playerId) + salt));
-        world.status = PlayerRegistry.name(playerId) + " respawned in a home system.";
     }
 
     private static boolean realPlayerId(String id) { return id != null && !id.isBlank() && !"WAIT".equals(id) && !NpcRules.isNpcFaction(id); }

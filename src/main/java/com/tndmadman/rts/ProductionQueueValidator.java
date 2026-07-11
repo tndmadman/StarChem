@@ -82,6 +82,7 @@ public final class ProductionQueueValidator {
         validateLostShuttleRecovery();
         validateMultiSystemRequestScope();
         validateDisabledTimers();
+        validateMalformedQueueRejection();
     }
 
     private static void validateLogisticsQueuePersistence() {
@@ -208,6 +209,88 @@ public final class ProductionQueueValidator {
         ResearchSystem.update(world, 0.016);
         require(yard.productionQueue.size() == 1, "re-enabled production timer completed immediately");
         require(countUnits(world, playerId, "prospector") == 1, "re-enabled timer unexpectedly produced a ship");
+    }
+
+    private static void validateMalformedQueueRejection() {
+        String valid = "P7^SHIP^prospector^12.0^6.0^1^-^-";
+        DecodedProductionQueue legacy = StrictProductionQueueCodec.decode(
+                "P1^SHIP^prospector^10.0^5.0^1^-", "QUEUE_VALIDATION", "LEGACY:B1");
+        require(legacy.jobs().size() == 1, "legacy seven-column queue row was rejected");
+        require(legacy.nextProductionJobId() == 2, "legacy queue did not restore the next job ID");
+
+        DecodedProductionQueue current = StrictProductionQueueCodec.decode(valid,
+                "QUEUE_VALIDATION", "CURRENT:B1");
+        require(current.jobs().size() == 1, "current eight-column queue row was rejected");
+        require(current.nextProductionJobId() == 8, "current queue did not restore the next job ID");
+
+        expectQueueRejected("P8^SHIP", "expected 7 or 8 columns");
+        expectQueueRejected("P8^UNKNOWN^prospector^10^5^1^-^-", "unknown job kind");
+        expectQueueRejected("P8^SHIP^prospector^bad^5^1^-^-", "duration is not a number");
+        expectQueueRejected("P8^SHIP^prospector^NaN^5^1^-^-", "duration must be finite");
+        expectQueueRejected("P8^SHIP^prospector^-1^0^1^-^-", "duration must be between");
+        expectQueueRejected("P8^SHIP^prospector^31536001^0^1^-^-", "duration must be between");
+        expectQueueRejected("P8^SHIP^prospector^10^11^1^-^-", "remaining must be between");
+        expectQueueRejected("P8^SHIP^missing_ship^10^5^1^-^-", "unknown ship item ID");
+        expectQueueRejected("P8^SHIP^prospector^10^5^2^-^-", "flag must be 0 or 1");
+        expectQueueRejected("bad^SHIP^prospector^10^5^1^-^-", "job ID must match");
+        expectQueueRejected(valid + "~" + valid, "duplicate job ID");
+        expectQueueRejected(valid + "^extra", "expected 7 or 8 columns");
+
+        Base preserved = new Base("PRESERVED:B1", "QUEUE_TEST", "shipyard", 100, 100);
+        ProductionJob original = new ProductionJob("P7", ProductionJobKind.SHIP, "prospector",
+                12, 6, true, "");
+        preserved.productionQueue.add(original);
+        preserved.nextProductionJobId = 8;
+        String before = ProductionQueueCodec.write(preserved.productionQueue);
+        boolean rejected = false;
+        try {
+            StrictProductionQueueCodec.readInto(valid + "~P8^SHIP", preserved, "QUEUE_VALIDATION");
+        } catch (SnapshotDecodeException ex) {
+            rejected = true;
+        }
+        require(rejected, "malformed queue was not rejected during transactional apply");
+        require(ProductionQueueCodec.write(preserved.productionQueue).equals(before),
+                "failed queue decode changed the previously valid queue");
+        require(preserved.nextProductionJobId == 8,
+                "failed queue decode changed the next production job ID");
+
+        PlayerRegistry.reset("SOLO", "Queue Validator", 0x50BEFF);
+        World world = new World("Atomic Snapshot Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        Base live = base(world, "ATOMIC:B1", "SOLO", "shipyard", 100, 100);
+        live.productionQueue.add(new ProductionJob("P7", ProductionJobKind.SHIP, "prospector",
+                12, 6, true, ""));
+        live.nextProductionJobId = 8;
+        BaseState validOther = new BaseState("ATOMIC:B2", "SOLO", "shipyard", 200, 200,
+                Rules.base("shipyard").maxHp, Rules.base("shipyard").maxShield, "-", valid);
+        BaseState malformedLive = new BaseState(live.id, live.playerId, live.typeId, live.x, live.y,
+                live.hp, live.shield, CargoCodec.write(live.inventory), valid + "~P8^SHIP");
+        Snapshot malformedSnapshot = new Snapshot(99,
+                List.of(new PlayerInfo("SOLO", "Queue Validator", 0x50BEFF, true)),
+                List.of(), List.of(), List.of(validOther, malformedLive), List.of(), List.of(), List.of(),
+                world.activeSystemId(), world.systemTime());
+        rejected = false;
+        try {
+            WorldNetAccess.apply(world, malformedSnapshot);
+        } catch (SnapshotDecodeException ex) {
+            rejected = true;
+        }
+        require(rejected, "malformed base snapshot was not rejected");
+        require(world.bases.get(live.id) == live, "failed snapshot replaced the previously valid base");
+        require(!world.bases.containsKey(validOther.id()), "failed snapshot partially added another base");
+        require(ProductionQueueCodec.write(live.productionQueue).equals(before),
+                "failed snapshot changed the previously valid base queue");
+    }
+
+    private static void expectQueueRejected(String encoded, String expectedReason) {
+        boolean rejected = false;
+        try {
+            StrictProductionQueueCodec.decode(encoded, "QUEUE_VALIDATION", "BAD:B1");
+        } catch (SnapshotDecodeException ex) {
+            rejected = true;
+            require(ex.getMessage().contains(expectedReason),
+                    "decode error did not explain " + expectedReason + ": " + ex.getMessage());
+        }
+        require(rejected, "malformed queue was accepted: " + encoded);
     }
 
     private static Base base(World world, String id, String playerId, String typeId, double x, double y) {

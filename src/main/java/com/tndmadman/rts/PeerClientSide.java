@@ -102,23 +102,33 @@ final class PeerClientSide {
     }
 
     void readSnapshot(String message) {
-        Snapshot snapshot = SnapshotReader.read(message);
-        ResourceNetDebug.clientReceive("REGULAR", snapshot, lastSnapshotSequence, viewSnapshotMode);
-        if (holdingDifferentView(snapshot)) return;
-        if (stale(snapshot, "REGULAR")) return;
-        if (viewSnapshotMode) WorldNetAccess.applyView(world, snapshot);
-        else WorldNetAccess.apply(world, snapshot);
+        try {
+            Snapshot snapshot = SnapshotReader.read(message);
+            ResourceNetDebug.clientReceive("REGULAR", snapshot, lastSnapshotSequence, viewSnapshotMode);
+            if (holdingDifferentView(snapshot)) return;
+            if (stale(snapshot, "REGULAR")) return;
+            if (viewSnapshotMode) WorldNetAccess.applyView(world, snapshot);
+            else WorldNetAccess.apply(world, snapshot);
+            acceptSnapshot(snapshot);
+        } catch (SnapshotDecodeException ex) {
+            rejectSnapshot(ex);
+        }
     }
 
     void readFullView(String message) {
-        Snapshot snapshot = SyncFrame.read(message);
-        boolean requestedView = viewSnapshotMode;
-        ResourceNetDebug.clientReceive("FULL_VIEW", snapshot, lastSnapshotSequence, viewSnapshotMode);
-        if (holdingDifferentView(snapshot)) return;
-        if (snapshot.sequence() > lastSnapshotSequence) lastSnapshotSequence = snapshot.sequence();
-        if (requestedView && snapshot.systemId() != null && !snapshot.systemId().isBlank()) viewedSystemId = snapshot.systemId();
-        WorldNetAccess.applyFullView(world, snapshot);
-        if (!requestedView && WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId)) viewedSystemId = world.activeSystemId();
+        try {
+            Snapshot snapshot = SyncFrame.read(message);
+            boolean requestedView = viewSnapshotMode;
+            ResourceNetDebug.clientReceive("FULL_VIEW", snapshot, lastSnapshotSequence, viewSnapshotMode);
+            if (holdingDifferentView(snapshot)) return;
+            if (stale(snapshot, "FULL_VIEW")) return;
+            WorldNetAccess.applyFullView(world, snapshot);
+            acceptSnapshot(snapshot);
+            if (requestedView && snapshot.systemId() != null && !snapshot.systemId().isBlank()) viewedSystemId = snapshot.systemId();
+            if (!requestedView && WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId)) viewedSystemId = world.activeSystemId();
+        } catch (SnapshotDecodeException ex) {
+            rejectSnapshot(ex);
+        }
     }
 
     private boolean readLeaderboard(String message) {
@@ -180,8 +190,19 @@ final class PeerClientSide {
             ResourceNetDebug.staleSnapshot(kind, snapshot, lastSnapshotSequence);
             return true;
         }
-        lastSnapshotSequence = sequence;
         return false;
+    }
+
+    private void acceptSnapshot(Snapshot snapshot) {
+        if (snapshot.sequence() > lastSnapshotSequence) lastSnapshotSequence = snapshot.sequence();
+    }
+
+    private void rejectSnapshot(SnapshotDecodeException ex) {
+        String message = ex.getMessage();
+        world.status = message == null || message.isBlank()
+                ? "Snapshot rejected: incompatible or corrupted state."
+                : message;
+        System.err.println(world.status);
     }
 
     private void failJoin() { failJoin("Connection failed: no response from server at " + config.serverAddress + "."); }
