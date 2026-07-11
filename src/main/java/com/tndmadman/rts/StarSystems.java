@@ -22,8 +22,8 @@ final class StarSystems {
     }
 
     static StarSystemDefinition defaultSystem() { return get(DEFAULT_SYSTEM_ID); }
-
     static List<StarSystemDefinition> options() { return List.copyOf(SYSTEMS.values()); }
+    static List<StarSystemDefinition> staticOptions() { return options(); }
 
     static StarSystemDefinition firstByRole(String role, String fallbackId) {
         for (StarSystemDefinition system : SYSTEMS.values()) {
@@ -34,8 +34,7 @@ final class StarSystems {
 
     private static Map<String, StarSystemDefinition> loadAll() {
         Map<String, StarSystemDefinition> out = new LinkedHashMap<>();
-        List<String> files = manifestSystemFiles();
-        for (String file : files) {
+        for (String file : manifestSystemFiles()) {
             try {
                 StarSystemDefinition system = parse(Path.of(file));
                 out.put(system.id(), system);
@@ -53,9 +52,8 @@ final class StarSystems {
         try {
             Map<String,Object> root = object(MiniJson.parse(Files.readString(manifest)));
             Map<String,Object> files = object(root.get("files"));
-            Object systems = files.get("systems");
             List<String> out = new ArrayList<>();
-            for (Object item : array(systems)) out.add(String.valueOf(item));
+            for (Object item : array(files.get("systems"))) out.add(String.valueOf(item));
             return out.isEmpty() ? defaultSystemFiles() : List.copyOf(out);
         } catch (Exception ex) {
             System.err.println("Could not read star system manifest: " + ex.getMessage());
@@ -71,7 +69,14 @@ final class StarSystems {
                 "config/systems/ice-belt.json",
                 "config/systems/warzone.json",
                 "config/systems/corsair-den.json",
-                "config/systems/empty-frontier.json");
+                "config/systems/empty-frontier.json",
+                "config/systems/binary-forge.json",
+                "config/systems/volcanic-crucible.json",
+                "config/systems/nebula-expanse.json",
+                "config/systems/shattered-worlds.json",
+                "config/systems/pulsar-reach.json",
+                "config/systems/carbon-basin.json",
+                "config/systems/ancient-graveyard.json");
     }
 
     private static StarSystemDefinition parse(Path path) throws IOException {
@@ -87,7 +92,8 @@ final class StarSystems {
         if (bodies.isEmpty()) bodies = fallbackBodies();
         if (belts.isEmpty()) belts = fallbackBelts();
         if (spawnMaterials.isEmpty()) spawnMaterials = List.of(Material.IRON, Material.COPPER, Material.SILICATES, Material.ICE);
-        return new StarSystemDefinition(id, name, role, width, height, bodies, belts, spawnMaterials);
+        return new StarSystemDefinition(id, name, role, width, height, bodies, belts, spawnMaterials,
+                parseStringSet(root.get("tags")), parseModifiers(root.get("modifiers")));
     }
 
     private static List<CelestialBodyDefinition> parseBodies(Object value) {
@@ -116,7 +122,7 @@ final class StarSystems {
             out.add(new ResourceBelt(
                     string(b, "name", "Resource Belt"),
                     nodeKind(string(b, "kind", "SILICATE_ROCK")),
-                    parseMaterials(b.get("materials")),
+                    parseBeltMaterials(b),
                     number(b, "orbit", 2500),
                     number(b, "width", 300),
                     number(b, "arc", 1.0),
@@ -128,18 +134,59 @@ final class StarSystems {
         return List.copyOf(out);
     }
 
+    private static List<Material> parseBeltMaterials(Map<String,Object> belt) {
+        List<WeightedMaterial> weighted = new ArrayList<>();
+        for (Object item : array(belt.get("composition"))) {
+            Map<String,Object> entry = object(item);
+            Material material = material(entry.get("material"));
+            double weight = number(entry, "weight", 1);
+            if (material != null && weight > 0) weighted.add(new WeightedMaterial(material, weight));
+        }
+        if (weighted.isEmpty()) return parseMaterials(belt.get("materials"));
+        double min = weighted.stream().mapToDouble(WeightedMaterial::weight).min().orElse(1);
+        List<Material> expanded = new ArrayList<>();
+        for (WeightedMaterial entry : weighted) {
+            int copies = Math.max(1, Math.min(32, (int)Math.round(entry.weight / min)));
+            for (int i = 0; i < copies; i++) expanded.add(entry.material);
+        }
+        return List.copyOf(expanded);
+    }
+
     private static List<Material> parseMaterials(Object value) {
         List<Material> out = new ArrayList<>();
         for (Object item : array(value)) {
-            try { out.add(Material.valueOf(String.valueOf(item).trim().toUpperCase(Locale.ROOT))); }
-            catch (Exception ignored) { }
+            Material material = material(item);
+            if (material != null) out.add(material);
         }
         return List.copyOf(out);
     }
 
+    private static Set<String> parseStringSet(Object value) {
+        Set<String> out = new LinkedHashSet<>();
+        for (Object item : array(value)) {
+            String text = String.valueOf(item).trim();
+            if (!text.isBlank()) out.add(text);
+        }
+        return Set.copyOf(out);
+    }
+
+    private static SystemModifiers parseModifiers(Object value) {
+        Map<String,Object> map = object(value);
+        if (map.isEmpty()) return SystemModifiers.STANDARD;
+        return new SystemModifiers(
+                number(map, "miningYield", 1),
+                number(map, "resourceRespawn", 1),
+                number(map, "sensorRange", 1),
+                number(map, "shieldRegen", 1),
+                number(map, "movementSpeed", 1),
+                number(map, "weaponRange", 1),
+                number(map, "environmentalDamagePerSecond", 0));
+    }
+
     private static StarSystemDefinition fallback() {
         return new StarSystemDefinition(DEFAULT_SYSTEM_ID, "Sol Standard", "standard", 18000, 16000,
-                fallbackBodies(), fallbackBelts(), List.of(Material.IRON, Material.COPPER, Material.SILICATES, Material.ICE));
+                fallbackBodies(), fallbackBelts(), List.of(Material.IRON, Material.COPPER, Material.SILICATES, Material.ICE),
+                Set.of("starter", "balanced"), SystemModifiers.STANDARD);
     }
 
     private static List<CelestialBodyDefinition> fallbackBodies() {
@@ -172,6 +219,7 @@ final class StarSystems {
     private static double number(Map<String,Object> map, String key, double fallback) { Object v = map.get(key); return v instanceof Number n ? n.doubleValue() : fallback; }
     private static int integer(Map<String,Object> map, String key, int fallback) { Object v = map.get(key); return v instanceof Number n ? n.intValue() : fallback; }
     private static NodeKind nodeKind(String value) { try { return NodeKind.valueOf(value.trim().toUpperCase(Locale.ROOT)); } catch (Exception ex) { return NodeKind.SILICATE_ROCK; } }
+    private static Material material(Object value) { try { return Material.valueOf(String.valueOf(value).trim().toUpperCase(Locale.ROOT)); } catch (Exception ex) { return null; } }
     private static String stripJson(String filename) { return filename.endsWith(".json") ? filename.substring(0, filename.length() - 5) : filename; }
 
     private static Color color(String hex) {
@@ -182,4 +230,6 @@ final class StarSystems {
             return Color.WHITE;
         }
     }
+
+    private record WeightedMaterial(Material material, double weight) { }
 }
