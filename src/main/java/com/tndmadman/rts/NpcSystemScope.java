@@ -16,6 +16,14 @@ final class NpcSystemScope {
         return true;
     }
 
+
+    static boolean allowsExpansion(String systemId, String factionId) {
+        if (factionId == null || factionId.isBlank() || GalaxySystemIdentity.playerHome(systemId)) return false;
+        StarSystemDefinition definition = GalaxySystemIdentity.definitionFor(systemId);
+        if (Config.CORSAIRS_ID.equals(factionId)) return !definition.role().equalsIgnoreCase("player_home");
+        return allows(systemId, factionId);
+    }
+
     private static boolean allowsCorsairs(StarSystemDefinition definition) {
         return definition.id().equals(StarSystems.CORSAIR_SYSTEM_ID)
                 || definition.hasTag("relics")

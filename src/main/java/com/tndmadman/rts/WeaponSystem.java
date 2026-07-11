@@ -39,7 +39,7 @@ final class WeaponSystem {
             double tx = CombatTarget.x(world, unit.attackTarget);
             double ty = CombatTarget.y(world, unit.attackTarget);
             double dist = Calc.distance(unit.x, unit.y, tx, ty);
-            WeaponVolley volley = WeaponRules.directVolley(unit.type(), dist);
+            WeaponVolley volley = WeaponRules.directVolley(unit.type(), dist / SystemModifierRules.weaponRange(world));
             WeaponType visual = volley.visualWeapon();
             if (visual == null) continue;
             float alpha = (float)(unit.weaponFlashTimer > 0 ? 0.85 : 0.18);
@@ -56,7 +56,7 @@ final class WeaponSystem {
     private void acquireTarget(World world, Unit unit) {
         String best = "";
         double bestDist = Double.MAX_VALUE;
-        double range = UnitOrderSystem.acquisitionRange(unit);
+        double range = UnitOrderSystem.acquisitionRange(unit) * SystemModifierRules.sensorRange(world);
         for (Unit target : world.units.values()) {
             if (target.playerId.equals(unit.playerId) || target.hp <= 0) continue;
             double d = Calc.distance(unit.x, unit.y, target.x, target.y);
@@ -87,7 +87,8 @@ final class WeaponSystem {
             return;
         }
         double dist = Calc.distance(unit.x, unit.y, tx, ty);
-        double range = WeaponRules.maxRange(unit.type());
+        double rangeScale = SystemModifierRules.weaponRange(world);
+        double range = WeaponRules.maxRange(unit.type()) * rangeScale;
         if (range <= 0) {
             unit.attackTarget = "";
             unit.task = UnitTask.IDLE;
@@ -104,8 +105,9 @@ final class WeaponSystem {
             return;
         }
         if (unit.weaponCooldown > 0) return;
-        WeaponVolley direct = WeaponRules.directVolley(unit.type(), dist);
-        List<WeaponType> moving = WeaponRules.movingWeapons(unit.type(), dist);
+        double effectiveDistance = dist / rangeScale;
+        WeaponVolley direct = WeaponRules.directVolley(unit.type(), effectiveDistance);
+        List<WeaponType> moving = WeaponRules.movingWeapons(unit.type(), effectiveDistance);
         if (direct.damage() <= 0 && moving.isEmpty()) return;
         if (direct.damage() > 0) CombatTarget.damage(world, unit.attackTarget, direct.damage());
         double cooldown = direct.damage() > 0 ? direct.cooldownSeconds() : 0;
@@ -158,7 +160,7 @@ final class WeaponSystem {
             WeaponType weapon = shot.weapon();
             if (weapon == null || !weapon.stoppable || shot.ownerId.equals(unit.playerId)) continue;
             double d = Calc.distance(unit.x, unit.y, shot.x, shot.y);
-            if (d <= screen.range && d < bestDist) { best = shot; bestDist = d; }
+            if (d <= screen.range * SystemModifierRules.weaponRange(world) && d < bestDist) { best = shot; bestDist = d; }
         }
         if (best == null) return;
         world.shots.remove(best);

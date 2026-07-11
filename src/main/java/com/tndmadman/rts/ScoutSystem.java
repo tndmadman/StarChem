@@ -57,7 +57,7 @@ final class ScoutSystem {
         double bestDist = Double.MAX_VALUE;
         for (ResourceNode node : world.resources) {
             if (!node.active || node.id == skippedResourceId || !miner.type().harvestKinds.contains(node.kind)) continue;
-            if (Calc.distance(miner.miningAnchorX, miner.miningAnchorY, node.x, node.y) > miner.type().scoutRange) continue;
+            if (Calc.distance(miner.miningAnchorX, miner.miningAnchorY, node.x, node.y) > miner.type().scoutRange * SystemModifierRules.sensorRange(world)) continue;
             int assigned = assignedCounts.getOrDefault(node.id, 0);
             double d = Calc.distance(miner.x, miner.y, node.x, node.y);
             if (betterResource(node, assigned, d, best, bestAssigned, bestDist)) {
@@ -79,7 +79,7 @@ final class ScoutSystem {
             if (!scout.playerId.equals(miner.playerId) || scout.type().scoutRange <= 0 || canLocalMine(scout)) continue;
             for (ResourceNode node : world.resources) {
                 if (!node.active || node.id == oldNode.id || !miner.type().harvestKinds.contains(node.kind)) continue;
-                if (Calc.distance(scout.x, scout.y, node.x, node.y) > scout.type().scoutRange) continue;
+                if (Calc.distance(scout.x, scout.y, node.x, node.y) > scout.type().scoutRange * SystemModifierRules.sensorRange(world)) continue;
                 int assigned = assignedCounts.getOrDefault(node.id, 0);
                 double d = Calc.distance(miner.x, miner.y, node.x, node.y);
                 if (betterResource(node, assigned, d, best, bestAssigned, bestDist)) {
@@ -123,7 +123,7 @@ final class ScoutSystem {
         List<ResourceNode> visible = new ArrayList<>();
         for (ResourceNode node : world.resources) {
             if (!node.active) continue;
-            if (Calc.distance(scout.x, scout.y, node.x, node.y) <= scout.type().scoutRange) visible.add(node);
+            if (Calc.distance(scout.x, scout.y, node.x, node.y) <= scout.type().scoutRange * SystemModifierRules.sensorRange(world)) visible.add(node);
         }
         return visible;
     }

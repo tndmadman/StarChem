@@ -16,7 +16,7 @@ final class SystemControlSystem {
         if (world == null || state == null || dt <= 0) return;
         if (state.lifetime == SystemLifetime.PLAYER_HOME) return;
 
-        List<Influence> eligible = eligibleInfluence(state);
+        List<Influence> eligible = eligibleInfluence(world, state);
         if (eligible.isEmpty()) {
             state.control.decay(dt / CAPTURE_SECONDS * 0.35);
             return;
@@ -41,14 +41,14 @@ final class SystemControlSystem {
         }
     }
 
-    private static List<Influence> eligibleInfluence(WorldSystemState state) {
+    private static List<Influence> eligibleInfluence(World world, WorldSystemState state) {
         Map<String, Double> scores = new LinkedHashMap<>();
-        for (Base base : state.bases.values()) {
-            if (base.hp <= 0 || invalidOwner(base.playerId)) continue;
+        for (Base base : world.bases.values()) {
+            if (base.hp <= 0 || invalidOwner(base.playerId) || !state.controlPoint.contains(base.x, base.y)) continue;
             scores.merge(base.playerId, 4.0, Double::sum);
         }
-        for (Unit unit : state.units.values()) {
-            if (unit.hp <= 0 || invalidOwner(unit.playerId)) continue;
+        for (Unit unit : world.units.values()) {
+            if (unit.hp <= 0 || invalidOwner(unit.playerId) || !state.controlPoint.contains(unit.x, unit.y)) continue;
             double score = WeaponRules.armed(unit.type()) ? 1.5 : unit.type().harvestKinds.isEmpty() ? 0.75 : 0.5;
             scores.merge(unit.playerId, score, Double::sum);
         }

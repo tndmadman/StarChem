@@ -15,7 +15,13 @@
       "orbitRadius": 82,
       "idleStationOrbitRadius": 120,
       "buildTimeSeconds": 12,
-      "buildCost": { "IRON": 160, "COPPER": 120, "SILICATES": 60 },
+      "buildCost": {
+        "IRON": 160,
+        "COPPER": 120,
+        "SILICATES": 60,
+        "NICKEL": 45,
+        "ALUMINUM": 35
+      },
       "canHarvest": []
     },
     "destroyer": {
@@ -33,7 +39,14 @@
       "orbitRadius": 95,
       "idleStationOrbitRadius": 130,
       "buildTimeSeconds": 18,
-      "buildCost": { "IRON": 280, "COPPER": 190, "SILICATES": 120, "HYDROGEN": 40 },
+      "buildCost": {
+        "IRON": 280,
+        "COPPER": 190,
+        "SILICATES": 120,
+        "HYDROGEN": 40,
+        "NICKEL": 80,
+        "COBALT": 30
+      },
       "canHarvest": []
     },
     "cruiser": {
@@ -51,7 +64,16 @@
       "orbitRadius": 115,
       "idleStationOrbitRadius": 150,
       "buildTimeSeconds": 28,
-      "buildCost": { "IRON": 520, "COPPER": 340, "SILICATES": 260, "ICE": 90, "HYDROGEN": 80 },
+      "buildCost": {
+        "IRON": 520,
+        "COPPER": 340,
+        "SILICATES": 260,
+        "ICE": 90,
+        "HYDROGEN": 80,
+        "TITANIUM": 80,
+        "COBALT": 60,
+        "GOLD": 15
+      },
       "canHarvest": []
     },
     "battle_cruiser": {
@@ -69,7 +91,17 @@
       "orbitRadius": 135,
       "idleStationOrbitRadius": 175,
       "buildTimeSeconds": 40,
-      "buildCost": { "IRON": 900, "COPPER": 520, "SILICATES": 450, "ICE": 160, "HYDROGEN": 130 },
+      "buildCost": {
+        "IRON": 900,
+        "COPPER": 520,
+        "SILICATES": 450,
+        "ICE": 160,
+        "HYDROGEN": 130,
+        "TITANIUM": 180,
+        "COBALT": 120,
+        "TUNGSTEN": 50,
+        "RARE_EARTHS": 20
+      },
       "canHarvest": []
     },
     "battleship": {
@@ -87,7 +119,19 @@
       "orbitRadius": 160,
       "idleStationOrbitRadius": 210,
       "buildTimeSeconds": 55,
-      "buildCost": { "IRON": 1600, "COPPER": 850, "SILICATES": 900, "ICE": 320, "HYDROGEN": 220, "HELIUM": 90 },
+      "buildCost": {
+        "IRON": 1600,
+        "COPPER": 850,
+        "SILICATES": 900,
+        "ICE": 320,
+        "HYDROGEN": 220,
+        "HELIUM": 90,
+        "TITANIUM": 350,
+        "TUNGSTEN": 150,
+        "PLATINUM": 50,
+        "RARE_EARTHS": 80,
+        "ARGON": 60
+      },
       "canHarvest": []
     }
   }

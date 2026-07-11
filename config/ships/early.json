@@ -16,8 +16,14 @@
       "idleStationOrbitRadius": 96,
       "scoutRange": 320,
       "buildTimeSeconds": 8,
-      "buildCost": { "IRON": 80, "COPPER": 40 },
-      "canHarvest": ["SILICATE_ROCK", "GAS_CLOUD"]
+      "buildCost": {
+        "IRON": 80,
+        "COPPER": 40
+      },
+      "canHarvest": [
+        "SILICATE_ROCK",
+        "GAS_CLOUD"
+      ]
     },
     "station_builder": {
       "displayName": "Deployer",
@@ -34,11 +40,19 @@
       "orbitRadius": 90,
       "idleStationOrbitRadius": 108,
       "buildTimeSeconds": 14,
-      "buildCost": { "IRON": 220, "COPPER": 120, "SILICATES": 100, "ICE": 40 },
+      "buildCost": {
+        "IRON": 220,
+        "COPPER": 120,
+        "SILICATES": 100,
+        "ICE": 40,
+        "ALUMINUM": 40
+      },
       "canHarvest": [],
       "baseBuilder": true,
       "stationPackageSlots": 1,
-      "canCarryStationPackages": ["shipyard"],
+      "canCarryStationPackages": [
+        "shipyard"
+      ],
       "singleUseAfterStationPlacement": true
     },
     "scout": {
@@ -58,7 +72,13 @@
       "scoutRange": 420,
       "scoutDispatchLimit": 5,
       "buildTimeSeconds": 6,
-      "buildCost": { "IRON": 60, "COPPER": 90, "HYDROGEN": 40 },
+      "buildCost": {
+        "IRON": 60,
+        "COPPER": 90,
+        "HYDROGEN": 40,
+        "NICKEL": 30,
+        "ALUMINUM": 30
+      },
       "canHarvest": []
     }
   }

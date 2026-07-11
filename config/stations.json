@@ -33,7 +33,9 @@
         "IRON": 500,
         "COPPER": 250,
         "SILICATES": 350,
-        "ICE": 160
+        "ICE": 160,
+        "NICKEL": 120,
+        "ALUMINUM": 100
       },
       "packedVolume": 1,
       "mustBeCarriedByShipType": "station_builder",
@@ -74,7 +76,9 @@
         "IRON": 350,
         "COPPER": 220,
         "SILICATES": 280,
-        "ICE": 120
+        "ICE": 120,
+        "NICKEL": 80,
+        "CARBON": 60
       },
       "packedVolume": 1,
       "mustBeCarriedByShipType": "station_builder",
@@ -101,7 +105,10 @@
         "COPPER": 240,
         "SILICATES": 320,
         "ICE": 140,
-        "HYDROGEN": 120
+        "HYDROGEN": 120,
+        "ALUMINUM": 120,
+        "NICKEL": 80,
+        "CARBON": 80
       },
       "packedVolume": 1,
       "mustBeCarriedByShipType": "station_builder",

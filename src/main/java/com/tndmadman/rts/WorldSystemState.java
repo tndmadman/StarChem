@@ -8,6 +8,7 @@ final class WorldSystemState {
     final StarSystemDefinition definition;
     final SystemLifetime lifetime;
     final SystemControlState control;
+    final SystemControlPoint controlPoint;
     final CelestialSystem celestials;
     final List<ResourceNode> resources = new ArrayList<>();
     final Map<String, Unit> units = new LinkedHashMap<>();
@@ -28,6 +29,7 @@ final class WorldSystemState {
         this.definition = definition;
         this.lifetime = lifetime == null ? SystemLifetime.STATIC : lifetime;
         this.control = new SystemControlState(this.lifetime, initialControllerId);
+        this.controlPoint = new SystemControlPoint(definition);
         this.celestials = celestials;
     }
 

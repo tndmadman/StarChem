@@ -20,6 +20,11 @@ public final class ClientLaunchValidator {
         expectTrue("client mode", client.clientMode());
         expectEquals("client port", 50000, client.serverAddress.getPort());
         expectEquals("blank programmatic host", "127.0.0.1", Config.join("Client", "", 50000).serverAddress.getHostString());
+        Config doubleGalaxy = Config.parse(new String[]{"--host", "50000", "--galaxy-copies", "2"});
+        expectEquals("double galaxy copies", 2, doubleGalaxy.galaxyCopies);
+        expectInvalidArgs("galaxy copies below range", new String[]{"--solo", "--galaxy-copies", "0"});
+        expectInvalidArgs("galaxy copies above range", new String[]{"--solo", "--galaxy-copies", "3"});
+        expectInvalidArgs("non-numeric galaxy copies", new String[]{"--solo", "--galaxy-copies", "many"});
 
         expectInvalidArgs("missing join address and port", new String[]{"--join"});
         expectInvalidArgs("missing join port", new String[]{"--join", "127.0.0.1"});

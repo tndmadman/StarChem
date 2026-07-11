@@ -45,6 +45,7 @@ final class GalaxyCoordinator {
     }
 
     String activeSystemId() { return activeSystemId; }
+    String activeControllerId() { WorldSystemState state = active(); return state == null ? "" : state.control.controllerId(); }
     CelestialSystem activeCelestials() { WorldSystemState state = active(); return state == null ? null : state.celestials; }
     double activeSystemTime() { WorldSystemState state = active(); return state == null ? 0 : state.systemTime; }
     void setActiveSystemTime(double time) { WorldSystemState state = active(); if (state != null) state.systemTime = Math.max(0, time); }
@@ -220,7 +221,11 @@ final class GalaxyCoordinator {
 
     void draw(World world, Graphics2D g2) {
         WorldSystemState state = active();
-        if (state != null) state.celestials.draw(g2);
+        if (state != null) {
+            state.celestials.draw(g2);
+            String owner = state.control.status() == SystemControlStatus.CAPTURING ? state.control.claimantId() : state.control.controllerId();
+            state.controlPoint.draw(g2, state.control, ownerColor(owner));
+        }
         for (WormholeGate gate : world.wormholes) gate.draw(g2);
     }
 
@@ -334,6 +339,89 @@ final class GalaxyCoordinator {
         loadActive(world);
         world.status = unit.type().name + " entered wormhole to " + to.definition.name() + ".";
         return true;
+    }
+
+    boolean moveNpcExpedition(World world, String factionId, String targetSystemId, int requestedCombatShips) {
+        WorldSystemState source = active();
+        WorldSystemState target = systems.get(targetSystemId);
+        if (source == null || target == null || source == target || !wormholeExists(source, target.id)) return false;
+
+        List<Unit> combat = new ArrayList<>();
+        Unit builder = null;
+        Unit worker = null;
+        for (Unit unit : world.units.values()) {
+            if (!factionId.equals(unit.playerId) || unit.hp <= 0) continue;
+            if (builder == null && unit.type().baseBuilder && unit.basePackageType.isBlank()) builder = unit;
+            else if (worker == null && !unit.type().harvestKinds.isEmpty()) worker = unit;
+            if (WeaponRules.armed(unit.type())) combat.add(unit);
+        }
+        int fleetSize = Math.max(2, requestedCombatShips);
+        if (builder == null || worker == null || combat.size() < fleetSize) return false;
+        combat = new ArrayList<>(combat.subList(0, Math.min(fleetSize, combat.size())));
+
+        Base sourceBase = null;
+        for (Base base : world.bases.values()) {
+            if (factionId.equals(base.playerId) && base.hp > 0) { sourceBase = base; break; }
+        }
+        if (sourceBase == null) return false;
+
+        EnumMap<Material, Double> supplies = new EnumMap<>(Material.class);
+        for (Material material : Material.values()) {
+            if (!material.raw && material != Material.FUEL) continue;
+            double held = sourceBase.inventory.getOrDefault(material, 0.0);
+            double take = Math.min(250.0, held * 0.20);
+            if (take <= 0.05) continue;
+            supplies.put(material, take);
+            double left = held - take;
+            if (left <= 0.05) sourceBase.inventory.remove(material); else sourceBase.inventory.put(material, left);
+        }
+
+        for (Unit unit : combat) world.units.remove(unit.key());
+        world.units.remove(worker.key());
+        world.units.remove(builder.key());
+        String previous = activeSystemId;
+        saveActive(world);
+        activeSystemId = target.id;
+        loadActive(world);
+
+        Point2D anchor = npcSpawnPoint(world, factionId, 700);
+        String baseId = factionId + ":B" + nextNpcBaseNumber(target, factionId);
+        Base foothold = new Base(baseId, factionId, Rules.DEFAULT_BASE, anchor.getX(), anchor.getY());
+        foothold.inventory.putAll(supplies);
+        world.bases.put(baseId, foothold);
+        int index = 0;
+        for (Unit unit : combat) placeExpeditionUnit(world, unit, anchor, index++);
+        placeExpeditionUnit(world, worker, anchor, index);
+        saveActive(world);
+
+        activeSystemId = previous;
+        loadActive(world);
+        return true;
+    }
+
+    private void placeExpeditionUnit(World world, Unit unit, Point2D anchor, int index) {
+        double angle = index * 1.7;
+        double radius = 190 + index * 18;
+        unit.x = Calc.clamp(anchor.getX() + Math.cos(angle) * radius, 0, world.width);
+        unit.y = Calc.clamp(anchor.getY() + Math.sin(angle) * radius, 0, world.height);
+        unit.targetX = unit.x;
+        unit.targetY = unit.y;
+        unit.attackTarget = "";
+        unit.automationResourceId = -1;
+        unit.task = UnitTask.IDLE;
+        unit.wormholeCooldown = WORMHOLE_COOLDOWN_SECONDS;
+        world.units.put(unit.key(), unit);
+    }
+
+    private int nextNpcBaseNumber(WorldSystemState state, String factionId) {
+        int max = 0;
+        String prefix = factionId + ":B";
+        for (String id : state.bases.keySet()) {
+            if (!id.startsWith(prefix)) continue;
+            try { max = Math.max(max, Integer.parseInt(id.substring(prefix.length()))); }
+            catch (NumberFormatException ignored) { }
+        }
+        return max + 1;
     }
 
     void moveAssetsToSystem(World world, String playerId, String targetSystemId) {

@@ -47,7 +47,7 @@ final class ResourceNode {
 
     void updateRespawn(double dt, World world) {
         if (active) return;
-        respawnTimer -= dt;
+        respawnTimer -= dt * SystemModifierRules.resourceRespawn(world);
         if (respawnTimer <= 0) world.relocateResource(this);
     }
 
