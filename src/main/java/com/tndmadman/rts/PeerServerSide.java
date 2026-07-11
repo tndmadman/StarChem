@@ -181,6 +181,8 @@ final class PeerServerSide {
             case "toggleFreezeNpcCombat" -> AiDevSettings.freezeNpcCombat = !AiDevSettings.freezeNpcCombat;
             case "toggleDisableAttacks" -> AiDevSettings.disableAttacks = !AiDevSettings.disableAttacks;
             case "toggleDisableEconomy" -> AiDevSettings.disableEconomy = !AiDevSettings.disableEconomy;
+            case "disableProductionTimers" -> DevTimerSettings.configure(world, true);
+            case "enableProductionTimers" -> DevTimerSettings.configure(world, false);
             case "togglePreset" -> AiDevSettings.togglePreset();
             case "spawnCorsairs" -> AiDevCommands.spawnCorsairs(world);
             case "killCorsairs" -> AiDevCommands.killCorsairs(world);
