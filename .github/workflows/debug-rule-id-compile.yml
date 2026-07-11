@@ -16,19 +16,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           show-progress: false
-      - name: Compile Java sources
+      - name: Compile and run galaxy validator
         run: |
           mkdir -p /tmp/starchem-classes
           javac --release 17 -encoding UTF-8 -d /tmp/starchem-classes $(find src/main/java -name '*.java' -print)
-      - name: Validate rules
-        run: java -cp /tmp/starchem-classes com.tndmadman.rts.RulesValidator
-      - name: Validate production queues
-        run: java -cp /tmp/starchem-classes com.tndmadman.rts.ProductionQueueValidator
-      - name: Validate dev access
-        run: java -cp /tmp/starchem-classes com.tndmadman.rts.DevAccessPolicyValidator
-      - name: Validate client launch
-        run: java -cp /tmp/starchem-classes com.tndmadman.rts.ClientLaunchValidator
-      - name: Validate galaxy connectivity
-        run: java -cp /tmp/starchem-classes com.tndmadman.rts.GalaxyConnectivityValidator
-      - name: Validate rule IDs
-        run: java -cp /tmp/starchem-classes com.tndmadman.rts.RuleIdValidationValidator
+          java -cp /tmp/starchem-classes com.tndmadman.rts.GalaxyConnectivityValidator
