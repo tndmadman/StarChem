@@ -1,6 +1,8 @@
 package com.tndmadman.rts;
 
 import java.awt.*;
+import java.util.ArrayList;
+import java.util.List;
 
 final class DevMenu {
     private static final int TARGET_Y = 18;
@@ -8,12 +10,15 @@ final class DevMenu {
     private static final int PRODUCTION_TIMERS_Y = 84;
     private static final int RESOURCE_Y = 126;
     private static final int ROW_H = 19;
+    private static final int MAX_DEV_PEERS = 6;
     private static final double SPAWN_AMOUNT = 500.0;
 
     private final HudWindow window = new HudWindow(18, 205, 292);
     private int targetIndex;
+    private PeerNetwork accessNetwork;
 
     boolean click(World world, PeerNetwork devAuthorityNetwork, int sx, int sy, boolean canEdit) {
+        accessNetwork = devAuthorityNetwork;
         if (!window.contains(sx, sy, bodyHeight())) return false;
         if (sy <= window.y + 28) return window.press(sx, sy, bodyHeight());
         if (window.collapsed || !canEdit) return true;
@@ -30,6 +35,22 @@ final class DevMenu {
             toggleProductionTimers(world, devAuthorityNetwork);
             return true;
         }
+
+        int devAccessTop = remoteAccessY() - 14;
+        if (localY >= devAccessTop) {
+            List<DevPeerAccess> peers = remoteAccess(devAuthorityNetwork);
+            int row = (localY - devAccessTop) / ROW_H;
+            if (row >= 0 && row < peers.size()) {
+                DevPeerAccess peer = peers.get(row);
+                if (!peer.requested() && !peer.authorized()) {
+                    world.status = peer.name() + " has not requested developer access.";
+                } else if (devAuthorityNetwork != null) {
+                    devAuthorityNetwork.setRemoteDevAccess(peer.playerId(), !peer.authorized());
+                }
+            }
+            return true;
+        }
+
         Base base = target(world);
         if (base == null || localY < RESOURCE_Y - 14) return true;
         int row = (localY - (RESOURCE_Y - 14)) / ROW_H;
@@ -44,8 +65,9 @@ final class DevMenu {
 
     void drag(int sx, int sy, int screenW, int screenH) { window.drag(sx, sy, screenW, screenH); }
     void release() { window.release(); }
+    void draw(Graphics2D g2, World world, boolean canEdit) { draw(g2, world, accessNetwork, canEdit); }
 
-    void draw(Graphics2D g2, World world, boolean canEdit) {
+    void draw(Graphics2D g2, World world, PeerNetwork devAuthorityNetwork, boolean canEdit) {
         window.draw(g2, "DEV CRAFTING", bodyHeight(), new Color(255, 180, 80, 180));
         if (window.collapsed) return;
         int x = window.x + 12;
@@ -53,7 +75,7 @@ final class DevMenu {
         g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f));
         if (!canEdit) {
             g2.setColor(new Color(255, 225, 150));
-            g2.drawString("Host/solo only", x, y + 16);
+            g2.drawString("Host dev approval required", x, y + 16);
             return;
         }
         Base base = target(world);
@@ -63,16 +85,42 @@ final class DevMenu {
         if (base == null) {
             g2.setColor(new Color(255, 225, 150));
             g2.drawString("No local station hangar", x, y + RESOURCE_Y);
-            return;
+        } else {
+            g2.setColor(new Color(255, 225, 150));
+            g2.drawString("Add 500 to selected hangar:", x, y + RESOURCE_Y - 22);
+            int line = y + RESOURCE_Y;
+            for (Material material : Material.values()) {
+                g2.setColor(material.color);
+                g2.drawString("+500 " + material.label, x + 4, line);
+                line += ROW_H;
+            }
         }
-        g2.setColor(new Color(255, 225, 150));
-        g2.drawString("Add 500 to selected hangar:", x, y + RESOURCE_Y - 22);
-        int line = y + RESOURCE_Y;
-        for (Material material : Material.values()) {
-            g2.setColor(material.color);
-            g2.drawString("+500 " + material.label, x + 4, line);
+        drawRemoteAccess(g2, devAuthorityNetwork, x, y + remoteAccessY());
+    }
+
+    private void drawRemoteAccess(Graphics2D g2, PeerNetwork devAuthorityNetwork, int x, int y) {
+        List<DevPeerAccess> peers = remoteAccess(devAuthorityNetwork);
+        if (peers.isEmpty()) return;
+        g2.setColor(Color.WHITE);
+        g2.drawString("Remote dev access:", x, y - 22);
+        int line = y;
+        for (DevPeerAccess peer : peers) {
+            g2.setColor(peer.authorized() ? new Color(120, 255, 170) : new Color(255, 225, 150));
+            String state = peer.authorized() ? "[x] revoke " : peer.requested() ? "[ ] grant " : "[-] no request ";
+            g2.drawString(state + peer.name() + " (" + peer.playerId() + ")", x + 4, line);
             line += ROW_H;
         }
+    }
+
+    private List<DevPeerAccess> remoteAccess(PeerNetwork devAuthorityNetwork) {
+        if (devAuthorityNetwork == null) return List.of();
+        List<DevPeerAccess> out = new ArrayList<>();
+        for (DevPeerAccess peer : devAuthorityNetwork.devAccessPeers()) {
+            if (peer.local()) continue;
+            out.add(peer);
+            if (out.size() >= MAX_DEV_PEERS) break;
+        }
+        return out;
     }
 
     private void drawStationLine(Graphics2D g2, Base base, int x, int y) {
@@ -107,7 +155,8 @@ final class DevMenu {
     }
 
     private boolean hit(int localY, int baseline) { return localY >= baseline - 14 && localY <= baseline + 6; }
-    private int bodyHeight() { return RESOURCE_Y + Material.values().length * ROW_H + 10; }
+    private int remoteAccessY() { return RESOURCE_Y + Material.values().length * ROW_H + 42; }
+    private int bodyHeight() { return remoteAccessY() + MAX_DEV_PEERS * ROW_H + 10; }
 
     private int localStationCount(World world) {
         int count = 0;

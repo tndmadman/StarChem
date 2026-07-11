@@ -2,6 +2,7 @@ package com.tndmadman.rts;
 
 import java.io.IOException;
 import java.net.DatagramSocket;
+import java.util.List;
 
 final class PeerNetwork implements CommandSink {
     private final Config config;
@@ -65,6 +66,8 @@ final class PeerNetwork implements CommandSink {
     }
 
     boolean devToolsAllowed() { return server != null ? config.devMode : client != null && client.devToolsAllowed(); }
+    List<DevPeerAccess> devAccessPeers() { return server == null ? List.of() : server.devAccessPeers(); }
+    void setRemoteDevAccess(String playerId, boolean enabled) { if (server != null) server.setDevAccess(playerId, enabled); }
 
     void devSetFreeCrafting(String playerId, boolean enabled) {
         if (server != null) {

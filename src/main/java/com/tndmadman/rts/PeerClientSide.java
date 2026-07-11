@@ -37,7 +37,7 @@ final class PeerClientSide {
         PlayerRegistry.activate(world);
         if (joinFailed) return;
         if (!joined && now - joinStarted >= JOIN_TIMEOUT_MS) { failJoin(); return; }
-        if (!joined && now - lastJoin >= HEARTBEAT_MS) { reliableToServer("JOIN|" + config.playerName + "|" + (config.devMode ? "DEV" : "NODEV")); lastJoin = now; }
+        if (!joined && now - lastJoin >= HEARTBEAT_MS) { reliableToServer(joinMessage()); lastJoin = now; }
         if (joined && now - lastPing >= HEARTBEAT_MS) { sendToServer("PING|" + localPlayerId); lastPing = now; }
     }
 
@@ -48,7 +48,7 @@ final class PeerClientSide {
 
     void handle(String message) {
         PlayerRegistry.activate(world);
-        if (readLeaderboard(message)) return;
+        if (readLeaderboard(message) || readDevStatus(message)) return;
         if (!readJoinDenied(message) && !readSystemDelete(message)) ClientPackets.handle(this, message);
     }
     void move(MoveCommand c) { reliableToServer("MOVE|" + c.playerId() + "|" + c.unitId() + "|" + Calc.round(c.x()) + "|" + Calc.round(c.y())); }
@@ -137,6 +137,15 @@ final class PeerClientSide {
         return true;
     }
 
+    private boolean readDevStatus(String message) {
+        if (message == null || !message.startsWith("DEVSTATUS|")) return false;
+        String[] parts = message.split("\\|", -1);
+        devApproved = parts.length > 1 && flag(parts[1]);
+        world.setDevFreeBuild(localPlayerId, devApproved);
+        world.status = "Dev access " + (devApproved ? "granted by host." : "revoked by host.");
+        return true;
+    }
+
     private boolean readJoinDenied(String message) {
         if (message == null || !message.startsWith("JOIN_DENIED|")) return false;
         String reason = message.length() > 12 ? message.substring(12).trim() : "Join refused by server.";
@@ -215,6 +224,11 @@ final class PeerClientSide {
         world.status = failureMessage;
     }
 
+    private String joinMessage() {
+        String request = config.devMode ? "DEV" : "NODEV";
+        String token = config.devMode ? config.devToken : "";
+        return "JOIN|" + cleanPacketPart(config.playerName) + "|" + request + "|" + token;
+    }
     private boolean canSendToServer() { return !joinFailed && config.serverAddress != null && config.serverAddress.getAddress() != null; }
     private String cleanPacketPart(String value) { return value == null ? "" : value.replace("|", "").trim(); }
     private String cleanSystemId(String value) { return value == null ? "" : value.replace("|", "").trim(); }
