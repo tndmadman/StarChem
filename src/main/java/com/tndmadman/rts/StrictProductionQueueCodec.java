@@ -32,7 +32,7 @@ final class StrictProductionQueueCodec {
     }
 
     static DecodedProductionQueue decode(String text, String systemId, String baseId) {
-        if (text == null || text.isBlank() || "-".equals(text)) {
+        if (text == null || text.isEmpty() || "-".equals(text)) {
             return new DecodedProductionQueue(List.of(), 1);
         }
         if (text.length() > MAX_ENCODED_LENGTH) {
@@ -123,8 +123,14 @@ final class StrictProductionQueueCodec {
         if (colon <= 0 || colon == value.length() - 1) {
             throw error(systemId, baseId, rowIndex, "invalid reserved unit key " + printable(value));
         }
+        String unitId = value.substring(colon + 1);
+        for (int i = 0; i < unitId.length(); i++) {
+            if (!Character.isDigit(unitId.charAt(i))) {
+                throw error(systemId, baseId, rowIndex, "invalid reserved unit key " + printable(value));
+            }
+        }
         try {
-            if (Integer.parseInt(value.substring(colon + 1)) <= 0) throw new NumberFormatException();
+            Integer.parseInt(unitId);
         } catch (NumberFormatException ex) {
             throw error(systemId, baseId, rowIndex, "invalid reserved unit key " + printable(value));
         }
