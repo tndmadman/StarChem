@@ -40,6 +40,7 @@ final class WorldNetAccess {
     static void applyFullView(World world, Snapshot snapshot) { apply(world, snapshot, true, true); }
 
     private static void apply(World world, Snapshot snapshot, boolean allowNoLocalAssets, boolean fullResourceView) {
+        validateRuleIds(snapshot);
         String local = PlayerRegistry.localId();
         String snapSystem = snapshot.systemId();
         boolean snapshotHasLocalAssets = hasPlayerAssets(snapshot, local);
@@ -116,6 +117,30 @@ final class WorldNetAccess {
         ItemSync.apply(world, snapshot.items());
         if (!snapshot.stocks().isEmpty()) CargoCodec.readInto(snapshot.stocks().get(0).cargo(), world.stockpile);
         ResourceNetDebug.worldApplyEnd(world, snapshot);
+    }
+
+    private static void validateRuleIds(Snapshot snapshot) {
+        int unitRow = 0;
+        for (UnitState state : snapshot.units()) {
+            unitRow++;
+            if (Rules.findShip(state.shipTypeId()) == null) {
+                throw new SnapshotDecodeException("Snapshot rejected: unknown ship type ID " + state.shipTypeId()
+                        + " in unit row " + unitRow + ".");
+            }
+            String packageType = state.packageType();
+            if (packageType != null && !packageType.isBlank() && Rules.findBase(packageType) == null) {
+                throw new SnapshotDecodeException("Snapshot rejected: unknown station package type ID " + packageType
+                        + " in unit row " + unitRow + ".");
+            }
+        }
+        int baseRow = 0;
+        for (BaseState state : snapshot.bases()) {
+            baseRow++;
+            if (Rules.findBase(state.typeId()) == null) {
+                throw new SnapshotDecodeException("Snapshot rejected: unknown station type ID " + state.typeId()
+                        + " for base " + state.id() + " in base row " + baseRow + ".");
+            }
+        }
     }
 
     private static boolean hasWorldAssets(World world, String playerId) {
