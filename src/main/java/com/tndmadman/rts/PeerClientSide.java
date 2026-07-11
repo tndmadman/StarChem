@@ -48,7 +48,7 @@ final class PeerClientSide {
 
     void handle(String message) {
         PlayerRegistry.activate(world);
-        if (readLeaderboard(message)) return;
+        if (readLeaderboard(message) || readDevStatus(message)) return;
         if (!readJoinDenied(message) && !readSystemDelete(message)) ClientPackets.handle(this, message);
     }
     void move(MoveCommand c) { reliableToServer("MOVE|" + c.playerId() + "|" + c.unitId() + "|" + Calc.round(c.x()) + "|" + Calc.round(c.y())); }
@@ -134,6 +134,15 @@ final class PeerClientSide {
     private boolean readLeaderboard(String message) {
         if (message == null || !message.startsWith("LEADER|")) return false;
         GlobalLeaderboard.set(world, GlobalLeaderboard.decode(message));
+        return true;
+    }
+
+    private boolean readDevStatus(String message) {
+        if (message == null || !message.startsWith("DEVSTATUS|")) return false;
+        String[] parts = message.split("\\|", -1);
+        devApproved = parts.length > 1 && flag(parts[1]);
+        world.setDevFreeBuild(localPlayerId, devApproved);
+        world.status = "Dev access " + (devApproved ? "granted by host." : "revoked by host.");
         return true;
     }
 
