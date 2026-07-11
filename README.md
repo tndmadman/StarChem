@@ -24,6 +24,20 @@ java -jar StarChem.jar --version
 
 Clients and servers should use the same StarChem release version.
 
+## Galaxy topology
+
+`config/galaxy.json` controls the number of extra seeded shortcuts added on top of the permanent connected ring:
+
+```json
+{
+  "topology": {
+    "wanderingWormholePairs": 4
+  }
+}
+```
+
+Set `wanderingWormholePairs` to `0` to keep only the base topology. Accepted values are `0` through `32`. The same galaxy seed and setting produce the same additional links. Multiplayer clients should use the same packaged configuration as the host.
+
 ## Development
 
 Run from source with Gradle during development.
