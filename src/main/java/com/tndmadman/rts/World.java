@@ -233,9 +233,9 @@ final class World {
     void updateEnvironment(double dt) { advanceEnvironment(dt); updateItems(dt); updateExplosions(dt); }
     private void advanceEnvironment(double dt) { galaxy.update(this, dt); systemTime = galaxy.activeSystemTime(); celestials = galaxy.activeCelestials(); ResourceSpawner.update(resources, celestials, dt); ResourceNetDebug.worldTick(this, dt); }
     private void updateItems(double dt) { Iterator<WorldItem> it = items.iterator(); while (it.hasNext()) { WorldItem item = it.next(); item.update(dt, width, height); if (item.empty()) it.remove(); } }
-    void update(double dt) { SystemAudio.listenTo(this); update(dt, true); }
-    void updateCurrentSystem(double dt) { double step = SystemSimulationScheduler.step(this, dt); if (step > 0) update(step, false); }
-    private void update(double dt, boolean updateInactiveSystems) { updateEnvironment(dt); SystemModifierRules.applyEnvironment(this, dt); resourceRespawnSystem.update(this, dt); StationFuelRules.consume(this, dt); logisticsSystem.update(this, dt); itemPickupSystem.update(this); scoutSystem.update(this); npcSystemForActiveSystem().update(this, dt); npcGalaxyDirector.update(this, dt); for (Unit unit : new ArrayList<>(units.values())) updateUnit(unit, dt); transferTouchingShips(); weaponSystem.update(this, dt); cleanupDestroyed(); saveActiveSystem(); if (updateInactiveSystems) updateInactiveSystems(dt); }
+    void update(double dt) { SystemAudio.listenTo(this); updateEnvironment(dt); updateSimulation(dt); updateInactiveSystems(dt); }
+    void updateCurrentSystem(double dt) { if (dt <= 0) return; updateEnvironment(dt); double step = SystemSimulationScheduler.step(this, dt); if (step > 0) updateSimulation(step); else saveActiveSystem(); }
+    private void updateSimulation(double dt) { SystemModifierRules.applyEnvironment(this, dt); resourceRespawnSystem.update(this, dt); StationFuelRules.consume(this, dt); logisticsSystem.update(this, dt); itemPickupSystem.update(this); scoutSystem.update(this); npcSystemForActiveSystem().update(this, dt); npcGalaxyDirector.update(this, dt); for (Unit unit : new ArrayList<>(units.values())) updateUnit(unit, dt); transferTouchingShips(); weaponSystem.update(this, dt); cleanupDestroyed(); saveActiveSystem(); }
 
     private NpcSystem npcSystemForActiveSystem() {
         String activeId = activeSystemId();

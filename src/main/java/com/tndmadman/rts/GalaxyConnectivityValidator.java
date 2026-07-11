@@ -21,6 +21,7 @@ public final class GalaxyConnectivityValidator {
         try {
             validateStaticPlan(1);
             validateStaticPlan(2);
+            validateWanderingTopology();
             validateSoloBootstrap();
             validateShipRoundTrip();
             validateLocalHostBootstrap();
@@ -47,6 +48,28 @@ public final class GalaxyConnectivityValidator {
         require(connected(map), "static galaxy graph is not connected");
         require(map.links().size() >= map.systems().size(), "static galaxy graph is too sparse for redundant travel");
         require(!world.wormholes.isEmpty(), "authoritative static entry system has no wormholes");
+    }
+
+    private static void validateWanderingTopology() {
+        GalaxyPlan base = GalaxyPlanner.standard(StarSystems.DEFAULT_SYSTEM_ID, 1, 8675309L, new GalaxyTopologyRules(0));
+        GalaxyPlan added = GalaxyPlanner.standard(StarSystems.DEFAULT_SYSTEM_ID, 1, 8675309L, new GalaxyTopologyRules(4));
+        GalaxyPlan repeated = GalaxyPlanner.standard(StarSystems.DEFAULT_SYSTEM_ID, 1, 8675309L, new GalaxyTopologyRules(4));
+        require(added.links().size() == base.links().size() + 4,
+                "configured wandering wormhole pair count was not added exactly");
+        require(linkKeys(added).equals(linkKeys(repeated)),
+                "wandering wormholes are not deterministic for the same galaxy seed");
+        require(linkKeys(added).size() == added.links().size(),
+                "wandering wormholes created a duplicate link");
+    }
+
+    private static Set<String> linkKeys(GalaxyPlan plan) {
+        Set<String> keys = new HashSet<>();
+        for (GalaxyLinkSpec link : plan.links()) {
+            String a = link.fromSystemId().compareTo(link.toSystemId()) <= 0 ? link.fromSystemId() : link.toSystemId();
+            String b = link.fromSystemId().compareTo(link.toSystemId()) <= 0 ? link.toSystemId() : link.fromSystemId();
+            keys.add(a + "->" + b);
+        }
+        return keys;
     }
 
     private static void validateSoloBootstrap() {

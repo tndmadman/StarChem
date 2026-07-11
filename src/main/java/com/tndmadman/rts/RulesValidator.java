@@ -80,6 +80,7 @@ public final class RulesValidator {
             validateResources(files);
             validateNpcFactions(files, shipIds, stationIds, researchIds, craftableIds);
             validateSystems(files);
+            validateGalaxy(files);
 
             return List.copyOf(errors);
         }
@@ -303,6 +304,26 @@ public final class RulesValidator {
                 Map<String,Object> modifiers = object(system.get("modifiers"));
                 for (String key : List.of("miningYield", "resourceRespawn", "sensorRange", "shieldRegen", "movementSpeed", "weaponRange", "environmentalDamagePerSecond")) {
                     validateNonNegative(modifiers, key, "system '" + id + "'.modifiers");
+                }
+            }
+        }
+
+        private void validateGalaxy(Map<String,Object> files) {
+            Object galaxyFile = files.get("galaxy");
+            if (galaxyFile == null) {
+                errors.add("manifest.files.galaxy is missing.");
+                return;
+            }
+            for (String rawPath : filePaths(galaxyFile, "manifest.files.galaxy")) {
+                Map<String,Object> galaxy = readObject(Path.of(rawPath), "galaxy config " + rawPath);
+                Map<String,Object> topology = object(galaxy.get("topology"));
+                Object value = topology.get("wanderingWormholePairs");
+                if (!(value instanceof Number number) || !Double.isFinite(number.doubleValue())
+                        || number.doubleValue() != Math.rint(number.doubleValue())) {
+                    errors.add("galaxy config " + rawPath + ".topology.wanderingWormholePairs must be an integer.");
+                } else if (number.intValue() < 0 || number.intValue() > GalaxyTopologyRules.MAX_WANDERING_PAIRS) {
+                    errors.add("galaxy config " + rawPath + ".topology.wanderingWormholePairs must be between 0 and "
+                            + GalaxyTopologyRules.MAX_WANDERING_PAIRS + ".");
                 }
             }
         }

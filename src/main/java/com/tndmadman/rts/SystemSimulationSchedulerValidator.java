@@ -19,6 +19,13 @@ public final class SystemSimulationSchedulerValidator {
         require(SystemSimulationScheduler.step(cold, 0.1) >= 0.75,
                 "cold system did not release its accumulated interval");
 
+        World orbit = new World("Orbit", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
+        ResourceNode orbiting = orbit.resources.get(0);
+        double beforeAngle = orbiting.orbitAngle;
+        orbit.updateCurrentSystem(0.05);
+        require(Math.abs(orbiting.orbitAngle - beforeAngle) > 0.000001,
+                "cold-system resource orbit was frozen by simulation throttling");
+
         World warm = new World("Warm", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
         warm.bases.put("NPC_CORSAIRS:B1", new Base("NPC_CORSAIRS:B1", Config.CORSAIRS_ID,
                 Rules.DEFAULT_BASE, warm.width * 0.5, warm.height * 0.5));

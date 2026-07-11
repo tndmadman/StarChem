@@ -25,6 +25,15 @@ final class GalaxyPlanner {
     private GalaxyPlanner() { }
 
     static GalaxyPlan standard(String primaryTemplateId, int requestedCopies) {
+        return standard(primaryTemplateId, requestedCopies, 0L, GalaxyTopologyRules.load());
+    }
+
+    static GalaxyPlan standard(String primaryTemplateId, int requestedCopies, long galaxySeed) {
+        return standard(primaryTemplateId, requestedCopies, galaxySeed, GalaxyTopologyRules.load());
+    }
+
+    static GalaxyPlan standard(String primaryTemplateId, int requestedCopies, long galaxySeed,
+                               GalaxyTopologyRules topology) {
         int copies = Math.max(1, Math.min(2, requestedCopies));
         List<StarSystemDefinition> templates = orderedTemplates(primaryTemplateId);
         List<GalaxyInstanceSpec> systems = new ArrayList<>();
@@ -36,9 +45,11 @@ final class GalaxyPlanner {
             }
         }
 
-        List<GalaxyLinkSpec> links = connectedLinks(systems);
+        List<GalaxyLinkSpec> fixedLinks = connectedLinks(systems);
+        int wanderingPairs = topology == null ? GalaxyTopologyRules.DEFAULT_WANDERING_PAIRS : topology.wanderingWormholePairs();
+        List<GalaxyLinkSpec> links = WanderingWormholePlanner.add(systems, fixedLinks, wanderingPairs, galaxySeed);
         String entry = systems.isEmpty() ? StarSystems.DEFAULT_SYSTEM_ID : systems.get(0).id();
-        return new GalaxyPlan(copies, entry, List.copyOf(systems), List.copyOf(links));
+        return new GalaxyPlan(copies, entry, List.copyOf(systems), links);
     }
 
     private static List<StarSystemDefinition> orderedTemplates(String primaryTemplateId) {
@@ -58,7 +69,7 @@ final class GalaxyPlanner {
         List<GalaxyLinkSpec> links = new ArrayList<>();
         for (int i = 0; i < systems.size(); i++) addLink(links, seen, systems.get(i).id(), systems.get((i + 1) % systems.size()).id());
         for (int i = 0; i < systems.size(); i += 4) addLink(links, seen, systems.get(i).id(), systems.get((i + Math.min(4, systems.size() - 1)) % systems.size()).id());
-        return links;
+        return List.copyOf(links);
     }
 
     private static void addLink(List<GalaxyLinkSpec> links, Set<String> seen, String from, String to) {

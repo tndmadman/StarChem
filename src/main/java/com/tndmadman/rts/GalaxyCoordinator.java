@@ -23,7 +23,7 @@ final class GalaxyCoordinator {
         clearWorld(world);
         nextResourceId = 1;
 
-        GalaxyPlan plan = GalaxyPlanner.standard(primary.id(), GalaxyRuntimeOptions.copiesPerTemplate());
+        GalaxyPlan plan = GalaxyPlanner.standard(primary.id(), GalaxyRuntimeOptions.copiesPerTemplate(), seed);
         entrySystemId = plan.entrySystemId();
         for (GalaxyInstanceSpec spec : plan.systems()) {
             createSystem(spec.id(), spec.templateId(), StarSystems.get(spec.templateId()), spec.lifetime(), spec.initialControllerId());
