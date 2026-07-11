@@ -120,10 +120,12 @@ final class WorldNetAccess {
     }
 
     private static String snapshotSystemId(Snapshot snapshot) {
-        String packed = snapshot == null ? "" : snapshot.systemId();
-        String systemId = CelestialPacketCache.systemId(packed);
-        if (!Objects.equals(packed, systemId)) CelestialPacketCache.receive(packed);
-        return systemId;
+        if (snapshot == null) {
+            CelestialPacketCache.clear();
+            return "";
+        }
+        snapshot.stageCelestialState();
+        return snapshot.systemId();
     }
 
     private static void validateRuleIds(Snapshot snapshot) {
