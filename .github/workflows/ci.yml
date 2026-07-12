@@ -37,3 +37,18 @@ jobs:
 
       - name: Verify project
         run: gradle clean check jar --no-daemon
+
+      - name: Verify overridden release identity
+        shell: bash
+        run: |
+          SAMPLE_VERSION="9.8.7-ci"
+          SAMPLE_COMMIT="0123456789abcdef0123456789abcdef01234567"
+
+          gradle clean verifyBuildMetadata --no-daemon \
+            -PreleaseVersion="$SAMPLE_VERSION" \
+            -PbuildCommit="$SAMPLE_COMMIT"
+
+          test -f build/libs/StarChem.jar
+          VERSION_OUTPUT="$(java -jar build/libs/StarChem.jar --version)"
+          echo "$VERSION_OUTPUT"
+          [[ "$VERSION_OUTPUT" == "StarChem ${SAMPLE_VERSION} (${SAMPLE_COMMIT:0:12})" ]]
