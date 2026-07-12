@@ -1,73 +1,85 @@
-# StarChem v0.1.5
+# StarChem v0.2.0
 
-StarChem v0.1.5 is a major multiplayer, production, and stability update.
+StarChem v0.2.0 is a major galaxy, territory, economy, multiplayer compatibility, and release-hardening update.
 
 ## Highlights
 
-- Added persistent patrol, guard, escort, hold-position, and attack-move orders.
-- Added a global multiplayer leaderboard covering every star system.
-- Added full station production queues for ships, station packages, manufactured items, and research.
-- Improved simulation of inactive and background star systems.
-- Added automatic multiplayer reconnection and secure session recovery.
+- Added configurable persistent galaxies with one or two permanent instances of every registered system template.
+- Expanded the galaxy from seven to fourteen system templates.
+- Added capturable and contestable static star systems for players and NPC factions.
+- Expanded the raw resource economy from eight to twenty-four mineable materials.
+- Added organized NPC cross-system expeditions and funded footholds.
+- Added deterministic wandering wormholes and configurable galaxy topology.
+- Added strict multiplayer build, rules, protocol, and configuration compatibility checks.
+- Improved cross-system client environment synchronization and background simulation.
 
-## Production and logistics
+## Static galaxy and topology
 
-Stations now use one shared FIFO production queue. Jobs can be reordered or cancelled, funded jobs return their reserved resources when cancelled, and active work pauses when fuel, resources, or an eligible Deployer are unavailable.
+Hosts can create a galaxy containing one or two copies of every registered static system template. Protected player-home systems remain separate from capturable shared territory.
 
-Logistics requests now create real production jobs immediately. Deliveries fund the existing job without changing its queue position, and repeated requests remain separate queue entries. Queue order, progress, blocked state, reservations, and logistics state are synchronized across multiplayer clients.
+The galaxy keeps a permanent connected ring and fixed shortcuts. `config/galaxy.json` controls zero to thirty-two additional deterministic wandering-wormhole pairs. The same seed and configuration produce the same extra links.
 
-## Tactical orders
+Seven new system templates have been added:
 
-Ships can now receive persistent patrol, guard, escort, hold-position, and attack-move orders. Ships temporarily respond to nearby combat and then return to their assigned order. Orders are server-authoritative and remain synchronized for late joins and reconnecting players.
+- Binary Forge
+- Volcanic Crucible
+- Nebula Expanse
+- Shattered Worlds
+- Pulsar Reach
+- Carbon Basin
+- Ancient Graveyard
 
-## Multiplayer improvements
+The original system templates have also been rebalanced for the expanded economy and progression.
 
-- Added secure reconnect tokens and automatic session recovery.
-- Player ships, stations, research, queues, home systems, and view state survive temporary disconnects.
-- Restarted clients can reclaim their previous session.
-- Commands are blocked while reconnecting instead of being sent into a dead connection.
-- Duplicate player names are rejected with a clear error.
-- Fixed duplicate and placeholder player-home systems.
-- Improved cross-system viewing and snapshot synchronization.
-- Added stricter validation for UDP traffic, acknowledgements, packet chunks, snapshots, entity IDs, and production queues.
+## Territory control
 
-## Galaxy and simulation fixes
+Static systems now support neutral, capturing, controlled, contested, and protected control states.
 
-- Fixed solo wormhole network generation.
-- Background systems now continue simulating correctly.
-- NPC runtime state and timers are isolated per star system.
-- Corsairs are restricted to the Corsair system.
-- Raiders and Free Miners are scoped to their appropriate player-home systems.
-- Audio now plays only for the system currently being viewed.
-- Fixed local-host state leaking between server and client worlds.
+Players and NPC factions can capture systems by maintaining sufficient influence inside the central command zone. Competing eligible forces contest the system and stop capture progress. Player-home systems remain protected.
 
-## Developer and release tooling
+Controlling a system grants modest mining-yield and shield-regeneration bonuses. The galaxy map now displays the controller, control state, capture progress, and controller-colored system rings.
 
-- Added an F4 performance overlay in Dev mode.
-- Added live production-timer controls to the in-game Dev Crafting panel.
-- Added secure remote developer access using strong tokens or explicit host approval.
-- Added host controls for granting and revoking developer access.
-- Added automatic configuration, rules, production, network, snapshot, session, galaxy, and legal-notice validation.
-- Release builds now derive their version from the Git tag, embed the commit SHA, report the version through `--version` and the window title, and verify the final package before publishing.
+## Resources and progression
 
-## Additional fixes
+The mineable resource catalog has expanded from eight to twenty-four materials across metal, mineral, volatile, and gas families. Materials now include family, rarity, color, and raw-or-processed metadata.
 
-- Unknown ship, station, package, and rule IDs are rejected instead of silently creating fallback entities.
-- Malformed production queues and snapshots are rejected atomically without partially changing the game world.
-- Remote launcher input is handled through the lobby and validated safely.
-- Improved dedicated-server error reporting and shutdown behavior.
-- Fixed several cross-system state, audio, ownership, mining, spawning, camera, selection, and synchronization issues.
+System belts use weighted material compositions. Ship, station, research, capital, and megastructure requirements have been updated to use the expanded resource economy while keeping starter systems progression-complete.
+
+## NPC and simulation improvements
+
+- NPC system eligibility is now driven by system identity, role, and tags.
+- NPC factions can capture and contest static systems.
+- Organized NPC directors can launch cross-system expeditions and establish funded footholds.
+- NPC runtime state and timers remain isolated per system.
+- Background systems use hot, warm, and cold update tiers so quiet systems continue progressing without receiving full foreground simulation frequency.
+- System modifiers can affect mining, resource respawning, sensors, shields, movement, weapon range, and environmental damage.
+
+## Multiplayer and synchronization
+
+Multiplayer now uses a strict compatibility descriptor containing the protocol version, application version, build commit, rules version, and a SHA-256 fingerprint of release-critical configuration files.
+
+Legacy, malformed, or mismatched clients are rejected before player or world state is created. Clients and servers must use matching v0.2.0 builds and compatible packaged configuration files.
+
+Client synchronization now tracks exact galaxy system-instance identities, including duplicate template copies and player homes. Celestial bodies and resource orbits continue moving between sparse snapshots, with periodic complete resource corrections to prevent drift.
+
+## Build, validation, and release tooling
+
+- Expanded automated validation for galaxy completeness and connectivity, territory control, materials, system modifiers, NPC expansion, background scheduling, multiplayer compatibility, client environment synchronization, and legal notices.
+- Release builds derive their version from the Git tag and embed the exact build commit.
+- `java -jar StarChem.jar --version` reports the packaged application version and shortened commit.
+- CI verifies overridden release identity through Gradle, JAR metadata, artifact naming, and runtime output.
+- Release ZIPs include the compiled JAR, configuration, launcher, README, license, and third-party notices.
 
 ## License
 
-StarChem is proprietary software and is not open source. Official unmodified
-compiled releases are licensed only for personal, non-commercial use. The
-source code, rules data, assets, and other protected material may not be copied,
-compiled, modified, redistributed, sold, reused, or incorporated into another
-project without prior written permission. See the packaged `LICENSE` for the
-complete terms.
+StarChem is proprietary software and is not open source. Official unmodified compiled releases are licensed only for personal, non-commercial use. The source code, rules data, assets, and other protected material may not be copied, compiled, modified, redistributed, sold, reused, or incorporated into another project without prior written permission. See the packaged `LICENSE` for the complete terms.
+
+## Compatibility
+
+StarChem v0.1.5 clients are not compatible with v0.2.0 multiplayer servers. All participating clients and servers should use the same StarChem v0.2.0 release package.
 
 ## Requirements
 
 - Java 17 or newer.
-- Multiplayer clients and servers should use StarChem v0.1.5.
+- Extract the complete release ZIP before launching.
+- Start the game using `run-starchem.bat` or `java -jar StarChem.jar` from the extracted StarChem folder.
