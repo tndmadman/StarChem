@@ -2,8 +2,10 @@ package com.tndmadman.rts;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.ActionEvent;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
@@ -11,11 +13,13 @@ import java.io.IOException;
 final class GameFrame extends JFrame {
     private static final String ACTIVE_SESSION_NOTICE = "Session is already active on another connection.";
     private static final String DUPLICATE_NAME_NOTICE = "Duplicate player names are not allowed on this server. Choose a different name.";
+    private static final String RESOURCE_CATALOG_ACTION = "toggle-resource-catalog";
 
     private final JLayeredPane root = new JLayeredPane();
     private final MenuBackdrop backdrop = new MenuBackdrop();
     private final LobbyPanel menuPanel = new LobbyPanel(this);
     private GamePanel gamePanel;
+    private ResourceCatalogOverlay resourceCatalogOverlay;
     private EndStatePanel endStatePanel;
     private PeerNetwork network;
     private LocalHostSession localHostSession;
@@ -28,6 +32,7 @@ final class GameFrame extends JFrame {
         setMinimumSize(new Dimension(900, 620));
         setLocationRelativeTo(null);
         setContentPane(root);
+        installResourceCatalogHotkey();
         root.addComponentListener(new ComponentAdapter() {
             @Override public void componentResized(ComponentEvent e) { layoutLayers(); }
         });
@@ -97,10 +102,13 @@ final class GameFrame extends JFrame {
 
     private void showGame(Config config, World world, PeerNetwork activeNetwork, PeerNetwork devAuthorityNetwork) {
         gamePanel = new GamePanel(world, this, activeNetwork, config.devMode, devAuthorityNetwork);
+        resourceCatalogOverlay = new ResourceCatalogOverlay(gamePanel, world);
         endStatePanel = new EndStatePanel(world, this, activeNetwork);
         root.removeAll();
         root.add(gamePanel, JLayeredPane.DEFAULT_LAYER);
+        root.add(resourceCatalogOverlay, JLayeredPane.PALETTE_LAYER);
         root.add(endStatePanel, JLayeredPane.MODAL_LAYER);
+        if (!world.status.contains("Press I")) world.status = world.status + " Press I for the resource catalog.";
         setTitle(BuildInfo.display() + " - " + config.modeLabel() + " - " + config.playerName + " - " + world.systemName() + (config.devMode ? " - DEV" : ""));
         layoutLayers();
         root.revalidate();
@@ -108,13 +116,25 @@ final class GameFrame extends JFrame {
         SwingUtilities.invokeLater(gamePanel::start);
     }
 
+    private void installResourceCatalogHotkey() {
+        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_I, 0), RESOURCE_CATALOG_ACTION);
+        root.getActionMap().put(RESOURCE_CATALOG_ACTION, new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) {
+                if (resourceCatalogOverlay != null) resourceCatalogOverlay.toggle();
+            }
+        });
+    }
+
     private void stopActiveGame() {
         if (gamePanel != null) gamePanel.stop();
+        if (resourceCatalogOverlay != null) resourceCatalogOverlay.setVisible(false);
         if (endStatePanel != null) endStatePanel.stop();
         if (networkTimer != null) networkTimer.stop();
         if (localHostSession != null) localHostSession.stop();
         else if (network != null) network.shutdown();
         gamePanel = null;
+        resourceCatalogOverlay = null;
         endStatePanel = null;
         network = null;
         localHostSession = null;
@@ -126,6 +146,7 @@ final class GameFrame extends JFrame {
         int h = Math.max(1, root.getHeight());
         backdrop.setBounds(0, 0, w, h);
         if (gamePanel != null) gamePanel.setBounds(0, 0, w, h);
+        if (resourceCatalogOverlay != null) resourceCatalogOverlay.setBounds(0, 0, w, h);
         if (endStatePanel != null) endStatePanel.setBounds(0, 0, w, h);
         int mw = Math.min(760, Math.max(560, w - 160));
         int mh = Math.min(700, Math.max(580, h - 100));
