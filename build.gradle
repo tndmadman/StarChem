@@ -241,13 +241,13 @@ tasks.register('verifyBuildMetadata') {
         def javaLauncher = javaToolchains.launcherFor {
             languageVersion = JavaLanguageVersion.of(17)
         }.get()
-        def result = project.exec {
+        def result = providers.exec {
             commandLine javaLauncher.executablePath.asFile.absolutePath,
                     '-jar', jarFile.absolutePath, '--version'
             standardOutput = output
             errorOutput = errorOutput
             ignoreExitValue = true
-        }
+        }.result.get()
         if (result.exitValue != 0) {
             throw new GradleException("StarChem --version failed: ${errorOutput.toString('UTF-8').trim()}")
         }
