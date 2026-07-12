@@ -1,0 +1,162 @@
+{
+  "craftableItems": {
+    "copper_wiring": {
+      "displayName": "Copper Wiring",
+      "description": "Standardized electrical conductors for all powered equipment.",
+      "category": "ELECTRONICS",
+      "style": "electronics",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "timeSeconds": 6,
+      "requiredResources": {
+        "COPPER": 20
+      },
+      "output": {
+        "material": "COPPER_WIRING",
+        "amount": 25
+      }
+    },
+    "gold_contact_mesh": {
+      "displayName": "Gold Contact Mesh",
+      "description": "Precision corrosion-resistant contacts for advanced electronics.",
+      "category": "ELECTRONICS",
+      "style": "electronics",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "timeSeconds": 8,
+      "requiredResources": {
+        "GOLD": 6,
+        "COPPER_WIRING": 10
+      },
+      "output": {
+        "material": "GOLD_CONTACT_MESH",
+        "amount": 12
+      }
+    },
+    "printed_circuit_board": {
+      "displayName": "Printed Circuit Board",
+      "description": "General-purpose electronic substrate used by control systems.",
+      "category": "ELECTRONICS",
+      "style": "electronics",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "timeSeconds": 9,
+      "requiredResources": {
+        "COPPER_WIRING": 12,
+        "SILICATES": 8,
+        "GOLD_CONTACT_MESH": 2
+      },
+      "output": {
+        "material": "PRINTED_CIRCUIT_BOARD",
+        "amount": 10
+      }
+    },
+    "power_regulator": {
+      "displayName": "Power Regulator",
+      "description": "Industrial power-conditioning module for ships and stations.",
+      "category": "ELECTRONICS",
+      "style": "electronics",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "timeSeconds": 10,
+      "requiredResources": {
+        "PRINTED_CIRCUIT_BOARD": 4,
+        "NICKEL_STEEL": 4,
+        "COPPER_WIRING": 6
+      },
+      "output": {
+        "material": "POWER_REGULATOR",
+        "amount": 8
+      }
+    },
+    "capacitor_bank": {
+      "displayName": "Capacitor Bank",
+      "description": "High-discharge storage module for shields and weapons.",
+      "category": "ELECTRONICS",
+      "style": "electronics",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "requiresResearch": [
+        "advanced_industry"
+      ],
+      "timeSeconds": 11,
+      "requiredResources": {
+        "PRINTED_CIRCUIT_BOARD": 4,
+        "ALUMINUM_ALLOY": 6,
+        "GOLD_CONTACT_MESH": 2
+      },
+      "output": {
+        "material": "CAPACITOR_BANK",
+        "amount": 8
+      }
+    },
+    "sensor_array": {
+      "displayName": "Sensor Array",
+      "description": "Precision sensor package for scouting, targeting, and automation.",
+      "category": "ELECTRONICS",
+      "style": "electronics",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "timeSeconds": 11,
+      "requiredResources": {
+        "PRINTED_CIRCUIT_BOARD": 4,
+        "RARE_EARTHS": 4,
+        "ARGON": 3
+      },
+      "output": {
+        "material": "SENSOR_ARRAY",
+        "amount": 6
+      }
+    },
+    "navigation_computer": {
+      "displayName": "Navigation Computer",
+      "description": "Autonomous navigation and maneuver-control computer.",
+      "category": "ELECTRONICS",
+      "style": "electronics",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "requiresResearch": [
+        "advanced_industry"
+      ],
+      "timeSeconds": 12,
+      "requiredResources": {
+        "PRINTED_CIRCUIT_BOARD": 3,
+        "SENSOR_ARRAY": 2,
+        "GOLD_CONTACT_MESH": 1
+      },
+      "output": {
+        "material": "NAVIGATION_COMPUTER",
+        "amount": 4
+      }
+    },
+    "targeting_computer": {
+      "displayName": "Targeting Computer",
+      "description": "Combat fire-control computer with salvaged adaptive circuitry.",
+      "category": "ELECTRONICS",
+      "style": "electronics",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "requiresResearch": [
+        "combat_doctrine"
+      ],
+      "timeSeconds": 14,
+      "requiredResources": {
+        "NAVIGATION_COMPUTER": 1,
+        "SENSOR_ARRAY": 2,
+        "CIRCUIT_FRAGMENTS": 4
+      },
+      "output": {
+        "material": "TARGETING_COMPUTER",
+        "amount": 4
+      }
+    }
+  }
+}
