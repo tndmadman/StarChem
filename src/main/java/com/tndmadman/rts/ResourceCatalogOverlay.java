@@ -70,8 +70,8 @@ final class ResourceCatalogOverlay extends JComponent implements MouseListener, 
         bind(KeyEvent.VK_ESCAPE, "close", this::close);
         bind(KeyEvent.VK_UP, "previous-resource", () -> moveSelection(-1));
         bind(KeyEvent.VK_DOWN, "next-resource", () -> moveSelection(1));
-        bind(KeyEvent.VK_PAGE_UP, "previous-page", () -> moveSelection(-Math.max(1, layout().visibleResourceRows())));
-        bind(KeyEvent.VK_PAGE_DOWN, "next-page", () -> moveSelection(Math.max(1, layout().visibleResourceRows())));
+        bind(KeyEvent.VK_PAGE_UP, "previous-page", () -> moveSelection(-Math.max(1, overlayLayout().visibleResourceRows())));
+        bind(KeyEvent.VK_PAGE_DOWN, "next-page", () -> moveSelection(Math.max(1, overlayLayout().visibleResourceRows())));
         bind(KeyEvent.VK_HOME, "first-resource", () -> select(0));
         bind(KeyEvent.VK_END, "last-resource", () -> select(entries.size() - 1));
         bind(KeyEvent.VK_LEFT, "systems-up", () -> scrollSystems(-1));
@@ -100,7 +100,7 @@ final class ResourceCatalogOverlay extends JComponent implements MouseListener, 
     }
 
     private void ensureSelectedVisible() {
-        OverlayLayout layout = layout();
+        OverlayLayout layout = overlayLayout();
         int rows = Math.max(1, layout.visibleResourceRows());
         if (selectedIndex < resourceScroll) resourceScroll = selectedIndex;
         if (selectedIndex >= resourceScroll + rows) resourceScroll = selectedIndex - rows + 1;
@@ -109,14 +109,14 @@ final class ResourceCatalogOverlay extends JComponent implements MouseListener, 
     }
 
     private void scrollResources(int amount) {
-        OverlayLayout layout = layout();
+        OverlayLayout layout = overlayLayout();
         int max = Math.max(0, entries.size() - layout.visibleResourceRows());
         resourceScroll = clamp(resourceScroll + amount, 0, max);
         repaint();
     }
 
     private void scrollSystems(int amount) {
-        OverlayLayout layout = layout();
+        OverlayLayout layout = overlayLayout();
         systemScroll = clamp(systemScroll + amount, 0, maxSystemScroll(layout));
         repaint();
     }
@@ -135,7 +135,7 @@ final class ResourceCatalogOverlay extends JComponent implements MouseListener, 
         super.paintComponent(graphics);
         Graphics2D g = (Graphics2D) graphics.create();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        OverlayLayout layout = layout();
+        OverlayLayout layout = overlayLayout();
         clampSystemScroll(layout);
 
         g.setColor(new Color(2, 5, 10, 224));
@@ -317,7 +317,7 @@ final class ResourceCatalogOverlay extends JComponent implements MouseListener, 
         return out.toString();
     }
 
-    private OverlayLayout layout() {
+    private OverlayLayout overlayLayout() {
         int panelX = MARGIN;
         int panelY = 42;
         int panelWidth = Math.max(1, getWidth() - MARGIN * 2);
@@ -340,7 +340,7 @@ final class ResourceCatalogOverlay extends JComponent implements MouseListener, 
 
     @Override public void mousePressed(MouseEvent e) {
         requestFocusInWindow();
-        OverlayLayout layout = layout();
+        OverlayLayout layout = overlayLayout();
         if (e.getX() < layout.listX() || e.getX() > layout.listX() + layout.listWidth()) return;
         if (e.getY() < layout.resourceRowsY()) return;
         int row = (e.getY() - layout.resourceRowsY()) / ROW_HEIGHT;
@@ -350,7 +350,7 @@ final class ResourceCatalogOverlay extends JComponent implements MouseListener, 
     }
 
     @Override public void mouseWheelMoved(MouseWheelEvent e) {
-        OverlayLayout layout = layout();
+        OverlayLayout layout = overlayLayout();
         int amount = e.getWheelRotation();
         if (e.getX() >= layout.detailX()) scrollSystems(amount);
         else scrollResources(amount);
