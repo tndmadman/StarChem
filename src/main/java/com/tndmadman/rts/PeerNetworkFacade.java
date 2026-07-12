@@ -30,6 +30,11 @@ final class PeerNetwork implements CommandSink {
         if (config.clientMode() && config.serverAddress.isUnresolved()) {
             throw new IOException("Could not resolve server host: " + config.serverAddress.getHostString());
         }
+        try {
+            MultiplayerCompatibility.local();
+        } catch (IllegalStateException ex) {
+            throw new IOException("Multiplayer compatibility setup failed: " + ex.getMessage(), ex);
+        }
         DatagramSocket socket = config.hostMode ? new DatagramSocket(config.port) : new DatagramSocket();
         PerfStats perfStats = new PerfStats();
         PeerTransport transport = new PeerTransport(socket, perfStats, config.clientMode() ? config.serverAddress : null);
