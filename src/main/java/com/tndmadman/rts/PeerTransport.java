@@ -10,14 +10,17 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 final class PeerTransport {
     private static final long RELIABLE_MS = 450;
     private static final int MAX_RELIABLE_ID_LENGTH = 128;
+    private static final int MAX_COMPATIBLE_ENDPOINTS = 512;
     private final DatagramSocket socket;
     private final ConcurrentLinkedQueue<NetPacket> inbox = new ConcurrentLinkedQueue<>();
     private final Map<String, PendingReliable> pending = new LinkedHashMap<>();
     private final Set<String> delivered = new LinkedHashSet<>();
+    private final Set<String> compatibleEndpoints = new LinkedHashSet<>();
     private final String prefix = Integer.toHexString(new SecureRandom().nextInt()).replace('-', 'N');
     private final PacketChunks packetChunks;
     private final PerfStats perfStats;
     private final InetSocketAddress expectedRemote;
+    private boolean compatibilityAccepted;
     private boolean running = true;
     private long nextReliable = 1;
 
@@ -33,6 +36,7 @@ final class PeerTransport {
         this.expectedRemote = expectedRemote == null
                 ? null
                 : new InetSocketAddress(expectedRemote.getAddress(), expectedRemote.getPort());
+        this.compatibilityAccepted = expectedRemote == null;
         this.socket.setSoTimeout(250);
         this.packetChunks = new PacketChunks(prefix, this.perfStats);
     }
@@ -57,17 +61,22 @@ final class PeerTransport {
 
     void send(String message, InetAddress address, int port) {
         if (message == null || address == null || port < 1 || port > 65535) return;
+        String prepared = prepareDirectMessage(message);
+        if (prepared == null) return;
         try {
-            if (isSnapshot(message)) perfStats.recordSnapshotSent(utf8Length(message));
-            packetChunks.send(socket, message, address, port);
+            if (isSnapshot(prepared)) perfStats.recordSnapshotSent(utf8Length(prepared));
+            packetChunks.send(socket, prepared, address, port);
         } catch (IOException ex) {
             if (running) System.err.println("Send failed: " + ex.getMessage());
         }
     }
 
     void reliable(String payload, InetAddress address, int port) {
+        if (payload == null || address == null || port < 1 || port > 65535) return;
+        String prepared = prepareReliablePayload(payload, address, port);
+        if (prepared == null) return;
         String id = prefix + '-' + nextReliable++;
-        PendingReliable pendingReliable = new PendingReliable(id, payload, address, port, 0, 0);
+        PendingReliable pendingReliable = new PendingReliable(id, prepared, address, port, 0, 0);
         pending.put(id, pendingReliable);
         sendReliable(pendingReliable);
     }
@@ -111,20 +120,100 @@ final class PeerTransport {
             }
             return null;
         }
-        if (!message.startsWith("REL|")) return message;
-        String[] parts = message.split("\\|", 3);
-        if (parts.length < 3 || parts[1].isBlank() || parts[1].length() > MAX_RELIABLE_ID_LENGTH) {
-            perfStats.recordMalformedPacket();
-            return null;
+
+        String payload = message;
+        if (message.startsWith("REL|")) {
+            String[] parts = message.split("\\|", 3);
+            if (parts.length < 3 || parts[1].isBlank() || parts[1].length() > MAX_RELIABLE_ID_LENGTH) {
+                perfStats.recordMalformedPacket();
+                return null;
+            }
+            send("ACK|" + parts[1], packet.address(), packet.port());
+            String key = packet.address().getHostAddress() + ':' + packet.port() + '|' + parts[1];
+            if (!delivered.add(key)) return null;
+            while (delivered.size() > 512) delivered.remove(delivered.iterator().next());
+            payload = parts[2];
         }
-        send("ACK|" + parts[1], packet.address(), packet.port());
-        String key = packet.address().getHostAddress() + ':' + packet.port() + '|' + parts[1];
-        if (!delivered.add(key)) return null;
-        while (delivered.size() > 512) delivered.remove(delivered.iterator().next());
-        return parts[2];
+        return inspectCompatibility(payload, packet);
     }
 
     void shutdown() { running = false; socket.close(); }
+
+    private String prepareDirectMessage(String message) {
+        if (expectedRemote == null) return message;
+        if (message.startsWith("JOIN|") || message.startsWith("RESUME|")) {
+            compatibilityAccepted = false;
+            return MultiplayerCompatibility.versionClientHandshake(message);
+        }
+        return message;
+    }
+
+    private String prepareReliablePayload(String payload, InetAddress address, int port) {
+        if (expectedRemote != null || !payload.startsWith("WELCOME|")) return payload;
+        String prepared = MultiplayerCompatibility.versionServerWelcome(payload);
+        markCompatible(address, port);
+        return prepared;
+    }
+
+    private String inspectCompatibility(String message, NetPacket packet) {
+        return expectedRemote == null
+                ? inspectServerInbound(message, packet)
+                : inspectClientInbound(message);
+    }
+
+    private String inspectServerInbound(String message, NetPacket packet) {
+        String endpoint = endpointKey(packet.address(), packet.port());
+        if (isHandshakeAttempt(message)) compatibleEndpoints.remove(endpoint);
+
+        MultiplayerCompatibility.WireResult result = MultiplayerCompatibility.inspectClientHandshake(message);
+        if (result.action() == MultiplayerCompatibility.WireAction.REJECT) {
+            reliable(result.detail(), packet.address(), packet.port());
+            return null;
+        }
+        if (result.action() == MultiplayerCompatibility.WireAction.ACCEPT) return result.message();
+        if (!compatibleEndpoints.contains(endpoint)) return null;
+        return result.message();
+    }
+
+    private String inspectClientInbound(String message) {
+        MultiplayerCompatibility.WireResult result = MultiplayerCompatibility.inspectServerWelcome(message);
+        if (result.action() == MultiplayerCompatibility.WireAction.REJECT) {
+            compatibilityAccepted = false;
+            return "JOIN_DENIED|" + packetPart(result.detail());
+        }
+        if (result.action() == MultiplayerCompatibility.WireAction.ACCEPT) {
+            compatibilityAccepted = true;
+            return result.message();
+        }
+        if (!compatibilityAccepted && !preHandshakeControl(message)) return null;
+        return result.message();
+    }
+
+    private void markCompatible(InetAddress address, int port) {
+        if (address == null) return;
+        compatibleEndpoints.add(endpointKey(address, port));
+        while (compatibleEndpoints.size() > MAX_COMPATIBLE_ENDPOINTS) {
+            compatibleEndpoints.remove(compatibleEndpoints.iterator().next());
+        }
+    }
+
+    private boolean isHandshakeAttempt(String message) {
+        return message != null && (message.startsWith("JOIN|") || message.startsWith("JOIN_V1|")
+                || message.startsWith("RESUME|") || message.startsWith("RESUME_V1|"));
+    }
+
+    private boolean preHandshakeControl(String message) {
+        return message != null && (message.startsWith("JOIN_DENIED|") || message.startsWith("SESSION_BUSY|")
+                || message.startsWith("SESSION_DENIED|") || message.startsWith("COMPAT_DENIED|"));
+    }
+
+    private String endpointKey(InetAddress address, int port) {
+        return (address == null ? "unknown" : address.getHostAddress()) + ':' + port;
+    }
+
+    private String packetPart(String value) {
+        return value == null ? "" : value.replace('|', ' ').replace('\n', ' ').replace('\r', ' ').trim();
+    }
 
     private void sendReliable(PendingReliable p) {
         send("REL|" + p.id() + "|" + p.payload(), p.address(), p.port());
