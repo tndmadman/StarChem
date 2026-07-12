@@ -18,15 +18,15 @@ jobs:
       - name: Apply tested patch
         shell: bash
         run: |
-          PAYLOAD=.github/intermediate-crafting.patch.gz.b64
-          if [[ ! -f "$PAYLOAD" ]]; then
-            echo "Patch payload not present yet."
+          READY=.github/intermediate-crafting.patch.ready
+          if [[ ! -f "$READY" ]]; then
+            echo "Patch chunks are still being uploaded."
             exit 0
           fi
-          base64 --decode "$PAYLOAD" | gzip --decompress > /tmp/intermediate-crafting.patch
+          cat .github/intermediate-crafting.patch.part* | base64 --decode | gzip --decompress > /tmp/intermediate-crafting.patch
           git apply --check /tmp/intermediate-crafting.patch
           git apply /tmp/intermediate-crafting.patch
-          rm -f "$PAYLOAD" .github/workflows/branch-export.yml
+          rm -f "$READY" .github/intermediate-crafting.patch.part* .github/workflows/branch-export.yml
           git config user.name "StarChem Build Agent"
           git config user.email "actions@github.com"
           git add -A
