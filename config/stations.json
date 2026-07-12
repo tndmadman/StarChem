@@ -30,12 +30,11 @@
       "buildRadius": 100,
       "buildTimeSeconds": 45,
       "buildCost": {
-        "IRON": 500,
-        "COPPER": 250,
-        "SILICATES": 350,
-        "ICE": 160,
-        "NICKEL": 120,
-        "ALUMINUM": 100
+        "STRUCTURAL_FRAME": 20,
+        "STEEL_PLATE": 30,
+        "POWER_REGULATOR": 8,
+        "CARGO_POD": 4,
+        "ICE": 80
       },
       "packedVolume": 1,
       "mustBeCarriedByShipType": "station_builder",
@@ -73,12 +72,11 @@
       "buildRadius": 84,
       "buildTimeSeconds": 35,
       "buildCost": {
-        "IRON": 350,
-        "COPPER": 220,
-        "SILICATES": 280,
-        "ICE": 120,
-        "NICKEL": 80,
-        "CARBON": 60
+        "STRUCTURAL_FRAME": 12,
+        "RESEARCH_MATRIX": 4,
+        "POWER_REGULATOR": 6,
+        "WATER_COOLANT": 10,
+        "RADIATION_SHIELDING": 6
       },
       "packedVolume": 1,
       "mustBeCarriedByShipType": "station_builder",

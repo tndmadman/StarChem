@@ -143,11 +143,15 @@ final class ProceduralAudio {
             return;
         }
         double baseHz = switch (material.family) {
-            case METAL, SALVAGE -> material == Material.CIRCUIT_FRAGMENTS ? 760 : 150;
+            case METAL, SALVAGE, ALLOY, COMPOSITE, INDUSTRIAL, CAPITAL ->
+                    material == Material.CIRCUIT_FRAGMENTS ? 760 : 150;
             case MINERAL -> 185;
             case VOLATILE -> 620;
             case GAS -> 310;
-            case REFINED -> 220;
+            case REFINED, POWER -> 220;
+            case CHEMICAL -> 420;
+            case ELECTRONIC -> 760;
+            case WEAPON -> 190;
         };
         double noise = material == Material.ICE || material == Material.CIRCUIT_FRAGMENTS ? 0.18 : 0.45;
         add(

@@ -16,11 +16,11 @@
       "idleStationOrbitRadius": 120,
       "buildTimeSeconds": 12,
       "buildCost": {
-        "IRON": 160,
-        "COPPER": 120,
-        "SILICATES": 60,
-        "NICKEL": 45,
-        "ALUMINUM": 35
+        "STRUCTURAL_FRAME": 8,
+        "FUEL_CELL_STACK": 2,
+        "SHIELD_EMITTER": 2,
+        "RAILGUN_ASSEMBLY": 1,
+        "NICKEL": 20
       },
       "canHarvest": []
     },
@@ -40,12 +40,13 @@
       "idleStationOrbitRadius": 130,
       "buildTimeSeconds": 18,
       "buildCost": {
-        "IRON": 280,
-        "COPPER": 190,
-        "SILICATES": 120,
-        "HYDROGEN": 40,
-        "NICKEL": 80,
-        "COBALT": 30
+        "STRUCTURAL_FRAME": 14,
+        "FUEL_CELL_STACK": 3,
+        "SHIELD_EMITTER": 3,
+        "RAILGUN_ASSEMBLY": 2,
+        "MISSILE_GUIDANCE_PACKAGE": 1,
+        "MISSILE_WARHEAD": 2,
+        "POINT_DEFENSE_LASER_ASSEMBLY": 1
       },
       "canHarvest": []
     },
@@ -65,14 +66,14 @@
       "idleStationOrbitRadius": 150,
       "buildTimeSeconds": 28,
       "buildCost": {
-        "IRON": 520,
-        "COPPER": 340,
-        "SILICATES": 260,
-        "ICE": 90,
-        "HYDROGEN": 80,
-        "TITANIUM": 80,
-        "COBALT": 60,
-        "GOLD": 15
+        "STRUCTURAL_FRAME": 25,
+        "TITANIUM_ALLOY": 15,
+        "FUSION_REACTOR": 2,
+        "FUSION_DRIVE": 2,
+        "SHIELD_GENERATOR": 2,
+        "RAILGUN_ASSEMBLY": 1,
+        "HEAVY_CANNON_ASSEMBLY": 1,
+        "TORPEDO_ASSEMBLY": 1
       },
       "canHarvest": []
     },
@@ -92,15 +93,15 @@
       "idleStationOrbitRadius": 175,
       "buildTimeSeconds": 40,
       "buildCost": {
-        "IRON": 900,
-        "COPPER": 520,
-        "SILICATES": 450,
-        "ICE": 160,
-        "HYDROGEN": 130,
-        "TITANIUM": 180,
-        "COBALT": 120,
-        "TUNGSTEN": 50,
-        "RARE_EARTHS": 20
+        "STRUCTURAL_FRAME": 40,
+        "TITANIUM_ALLOY": 25,
+        "FUSION_REACTOR": 3,
+        "FUSION_DRIVE": 3,
+        "SHIELD_GENERATOR": 3,
+        "ARMOR_MATRIX": 8,
+        "HEAVY_CANNON_ASSEMBLY": 2,
+        "TORPEDO_ASSEMBLY": 2,
+        "TARGETING_COMPUTER": 2
       },
       "canHarvest": []
     },
@@ -120,17 +121,17 @@
       "idleStationOrbitRadius": 210,
       "buildTimeSeconds": 55,
       "buildCost": {
-        "IRON": 1600,
-        "COPPER": 850,
-        "SILICATES": 900,
-        "ICE": 320,
-        "HYDROGEN": 220,
-        "HELIUM": 90,
-        "TITANIUM": 350,
-        "TUNGSTEN": 150,
-        "PLATINUM": 50,
-        "RARE_EARTHS": 80,
-        "ARGON": 60
+        "STRUCTURAL_FRAME": 70,
+        "TITANIUM_ALLOY": 50,
+        "FUSION_REACTOR": 5,
+        "FUSION_DRIVE": 4,
+        "SHIELD_GENERATOR": 5,
+        "ARMOR_MATRIX": 20,
+        "HEAVY_CANNON_ASSEMBLY": 4,
+        "TORPEDO_ASSEMBLY": 4,
+        "TARGETING_COMPUTER": 4,
+        "PLATINUM": 20,
+        "POINT_DEFENSE_LASER_ASSEMBLY": 2
       },
       "canHarvest": []
     }

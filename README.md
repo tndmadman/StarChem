@@ -27,9 +27,17 @@ Clients and servers should use the same StarChem release version.
 
 ## In-game reference menus
 
-Press `I` during a game to open the resource catalog. The catalog lists every loaded material and shows the loaded star-system templates, configured system roles, and resource-node types where the selected raw resource can naturally appear. Produced and salvage materials are identified separately because they are not placed in natural system belts.
+Press `I` during a game to open the resource catalog. The catalog lists every loaded material and shows the loaded star-system templates, configured system roles, and resource-node types where the selected raw resource can naturally appear. Manufactured and salvage materials are identified separately because they are not placed in natural system belts.
 
 Press `M` to open the galaxy map. Press `I` again or `Escape` to close the resource catalog.
+
+## Manufacturing economy
+
+StarChem uses a JSON-driven intermediate manufacturing economy. Material display metadata, family, rarity, color, and raw/manufactured status are loaded from `config/materials.json`. Manufacturing recipes are loaded from the files listed under `files.craftables` in `config/starchem.json`.
+
+The Manufacturing Plant organizes recipes into processed materials, chemicals, electronics, industrial assemblies, power and defense, weapons, and capital systems. Recipes may require completed research through their `requiresResearch` field. Starter Prospectors, Deployers, and the first Manufacturing Plant remain directly craftable from raw resources so a new game cannot deadlock before manufacturing is available.
+
+Salvage can be recycled through reclamation recipes, while ships, stations, and later research consume progressively more manufactured components instead of enormous flat piles of raw ore and gas.
 
 ## Galaxy topology
 

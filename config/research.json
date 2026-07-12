@@ -37,10 +37,9 @@
       "timeSeconds": 50,
       "requiredResources": {
         "FUEL": 35,
-        "IRON": 180,
-        "COPPER": 120,
-        "COBALT": 80,
-        "GOLD": 20,
+        "STEEL_PLATE": 20,
+        "PRINTED_CIRCUIT_BOARD": 8,
+        "POWER_REGULATOR": 4,
         "CIRCUIT_FRAGMENTS": 20
       },
       "unlocks": {
@@ -63,9 +62,10 @@
       "timeSeconds": 75,
       "requiredResources": {
         "FUEL": 80,
-        "TITANIUM": 280,
-        "TUNGSTEN": 140,
-        "RARE_EARTHS": 120,
+        "TITANIUM_ALLOY": 20,
+        "ARMOR_MATRIX": 10,
+        "FUSION_REACTOR": 2,
+        "TARGETING_COMPUTER": 3,
         "HULL_PLATING": 45,
         "CIRCUIT_FRAGMENTS": 60
       },
@@ -90,10 +90,13 @@
       "timeSeconds": 120,
       "requiredResources": {
         "FUEL": 140,
-        "PLATINUM": 450,
-        "URANIUM": 220,
-        "XENON": 180,
-        "RARE_EARTHS": 350,
+        "CAPITAL_REACTOR_CORE": 4,
+        "COMMAND_CORE": 4,
+        "SHIELD_GENERATOR": 8,
+        "FIGHTER_BAY_MODULE": 2,
+        "PLATINUM": 120,
+        "URANIUM": 80,
+        "XENON": 60,
         "SCRAP_METAL": 120,
         "HULL_PLATING": 120,
         "CIRCUIT_FRAGMENTS": 140

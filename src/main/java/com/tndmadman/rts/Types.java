@@ -4,37 +4,90 @@ import java.awt.Color;
 
 @SuppressWarnings("unused")
 enum Material {
-    IRON("Iron", new Color(180,150,120), MaterialFamily.METAL, ResourceTier.COMMON, true),
-    COPPER("Copper", new Color(221,122,60), MaterialFamily.METAL, ResourceTier.COMMON, true),
-    NICKEL("Nickel", new Color(166,177,169), MaterialFamily.METAL, ResourceTier.COMMON, true),
-    COBALT("Cobalt", new Color(75,112,196), MaterialFamily.METAL, ResourceTier.UNCOMMON, true),
-    ALUMINUM("Aluminum", new Color(205,215,220), MaterialFamily.METAL, ResourceTier.COMMON, true),
-    TITANIUM("Titanium", new Color(132,145,157), MaterialFamily.METAL, ResourceTier.UNCOMMON, true),
-    TUNGSTEN("Tungsten", new Color(92,98,105), MaterialFamily.METAL, ResourceTier.RARE, true),
-    GOLD("Gold", new Color(238,194,70), MaterialFamily.METAL, ResourceTier.RARE, true),
-    PLATINUM("Platinum", new Color(214,220,225), MaterialFamily.METAL, ResourceTier.RARE, true),
-    URANIUM("Uranium", new Color(126,220,91), MaterialFamily.METAL, ResourceTier.EXOTIC, true),
-
-    SILICATES("Silicates", new Color(165,170,155), MaterialFamily.MINERAL, ResourceTier.COMMON, true),
-    ICE("Water Ice", new Color(145,220,255), MaterialFamily.VOLATILE, ResourceTier.COMMON, true),
-    CARBON("Carbon", new Color(70,74,80), MaterialFamily.MINERAL, ResourceTier.COMMON, true),
-    SULFUR("Sulfur", new Color(229,205,63), MaterialFamily.MINERAL, ResourceTier.UNCOMMON, true),
-    PHOSPHATES("Phosphates", new Color(190,157,112), MaterialFamily.MINERAL, ResourceTier.UNCOMMON, true),
-    RARE_EARTHS("Rare Earths", new Color(210,112,177), MaterialFamily.MINERAL, ResourceTier.RARE, true),
-
-    HYDROGEN("Hydrogen", new Color(110,210,255), MaterialFamily.GAS, ResourceTier.COMMON, true),
-    HELIUM("Helium", new Color(210,175,255), MaterialFamily.GAS, ResourceTier.COMMON, true),
-    METHANE("Methane", new Color(100,255,190), MaterialFamily.GAS, ResourceTier.COMMON, true),
-    AMMONIA("Ammonia", new Color(235,245,150), MaterialFamily.GAS, ResourceTier.UNCOMMON, true),
-    NITROGEN("Nitrogen", new Color(112,170,235), MaterialFamily.GAS, ResourceTier.UNCOMMON, true),
-    NEON("Neon", new Color(255,109,96), MaterialFamily.GAS, ResourceTier.RARE, true),
-    ARGON("Argon", new Color(153,126,230), MaterialFamily.GAS, ResourceTier.RARE, true),
-    XENON("Xenon", new Color(93,231,229), MaterialFamily.GAS, ResourceTier.EXOTIC, true),
-
-    FUEL("Fuel", new Color(255,185,70), MaterialFamily.REFINED, ResourceTier.UNCOMMON, false),
-    SCRAP_METAL("Scrap Metal", new Color(160,165,170), MaterialFamily.SALVAGE, ResourceTier.COMMON, false),
-    HULL_PLATING("Hull Plating", new Color(120,145,170), MaterialFamily.SALVAGE, ResourceTier.UNCOMMON, false),
-    CIRCUIT_FRAGMENTS("Circuit Fragments", new Color(90,245,185), MaterialFamily.SALVAGE, ResourceTier.UNCOMMON, false);
+    IRON,
+    COPPER,
+    NICKEL,
+    COBALT,
+    ALUMINUM,
+    TITANIUM,
+    TUNGSTEN,
+    GOLD,
+    PLATINUM,
+    URANIUM,
+    SILICATES,
+    ICE,
+    CARBON,
+    SULFUR,
+    PHOSPHATES,
+    RARE_EARTHS,
+    HYDROGEN,
+    HELIUM,
+    METHANE,
+    AMMONIA,
+    NITROGEN,
+    NEON,
+    ARGON,
+    XENON,
+    FUEL,
+    SCRAP_METAL,
+    HULL_PLATING,
+    CIRCUIT_FRAGMENTS,
+    STEEL_PLATE,
+    NICKEL_STEEL,
+    ALUMINUM_ALLOY,
+    TITANIUM_ALLOY,
+    COBALT_SUPERALLOY,
+    TUNGSTEN_CARBIDE,
+    CERAMIC_COMPOSITE,
+    RADIATION_SHIELDING,
+    POLYMER_RESIN,
+    INDUSTRIAL_LUBRICANT,
+    WATER_COOLANT,
+    CRYOGENIC_COOLANT,
+    METHANE_PROPELLANT,
+    HYPERGOLIC_PROPELLANT,
+    EXPLOSIVE_COMPOUND,
+    SHIELD_PLASMA_MIX,
+    COPPER_WIRING,
+    GOLD_CONTACT_MESH,
+    PRINTED_CIRCUIT_BOARD,
+    POWER_REGULATOR,
+    CAPACITOR_BANK,
+    SENSOR_ARRAY,
+    NAVIGATION_COMPUTER,
+    TARGETING_COMPUTER,
+    STRUCTURAL_FRAME,
+    PRESSURE_HULL_SECTION,
+    CARGO_POD,
+    MINING_HEAD,
+    GAS_COMPRESSOR,
+    TRACTOR_BEAM_EMITTER,
+    FABRICATION_TOOLSET,
+    LOGISTICS_CONTROL_MODULE,
+    FUEL_CELL_STACK,
+    REACTOR_CONTROL_UNIT,
+    FISSION_REACTOR_CORE,
+    FUSION_REACTOR,
+    ION_THRUSTER,
+    FUSION_DRIVE,
+    SHIELD_EMITTER,
+    ARMOR_MATRIX,
+    POINT_DEFENSE_LASER_ASSEMBLY,
+    RAILGUN_ASSEMBLY,
+    HEAVY_CANNON_ASSEMBLY,
+    MISSILE_GUIDANCE_PACKAGE,
+    MISSILE_WARHEAD,
+    TORPEDO_ASSEMBLY,
+    FIGHTER_CONTROL_MODULE,
+    LANCE_FOCUSING_ARRAY,
+    SHIELD_GENERATOR,
+    CAPITAL_REACTOR_CORE,
+    CAPITAL_DRIVE_CORE,
+    COMMAND_CORE,
+    FIGHTER_BAY_MODULE,
+    MANUFACTURING_LINE,
+    RESEARCH_MATRIX,
+    MEGASTRUCTURE_TRUSS;
 
     final String label;
     final Color color;
@@ -42,18 +95,19 @@ enum Material {
     final ResourceTier tier;
     final boolean raw;
 
-    Material(String label, Color color, MaterialFamily family, ResourceTier tier, boolean raw) {
-        this.label = label;
-        this.color = color;
-        this.family = family;
-        this.tier = tier;
-        this.raw = raw;
+    Material() {
+        MaterialDefinition definition = MaterialRules.definition(name());
+        this.label = definition.displayName();
+        this.color = definition.color();
+        this.family = definition.family();
+        this.tier = definition.tier();
+        this.raw = definition.raw();
     }
 
     boolean harvestable() { return raw; }
 }
 
-enum MaterialFamily { METAL, MINERAL, VOLATILE, GAS, REFINED, SALVAGE }
+enum MaterialFamily { METAL, MINERAL, VOLATILE, GAS, REFINED, SALVAGE, ALLOY, COMPOSITE, CHEMICAL, ELECTRONIC, INDUSTRIAL, POWER, WEAPON, CAPITAL }
 enum ResourceTier { COMMON, UNCOMMON, RARE, EXOTIC }
 enum NodeKind { SILICATE_ROCK, GAS_CLOUD }
 enum UnitTask { IDLE, MOVE, AUTO_HARVEST, RETURN_TO_STATION, ATTACK }
@@ -91,3 +145,4 @@ record UnitOrderCommand(String playerId, int unitId, UnitOrderType type,
         targetKey = targetKey == null ? "" : targetKey;
     }
 }
+

@@ -13,11 +13,12 @@
       "idleStationOrbitRadius": 120,
       "buildTimeSeconds": 10,
       "buildCost": {
-        "IRON": 150,
-        "COPPER": 60,
-        "SILICATES": 80,
-        "ALUMINUM": 60,
-        "CARBON": 40
+        "STRUCTURAL_FRAME": 8,
+        "CARGO_POD": 6,
+        "LOGISTICS_CONTROL_MODULE": 1,
+        "FUEL_CELL_STACK": 2,
+        "CARBON": 20,
+        "POINT_DEFENSE_LASER_ASSEMBLY": 1
       },
       "canHarvest": []
     },
@@ -35,12 +36,11 @@
       "scoutRange": 360,
       "buildTimeSeconds": 14,
       "buildCost": {
-        "IRON": 180,
-        "COPPER": 110,
-        "SILICATES": 140,
-        "ICE": 60,
-        "NICKEL": 80,
-        "TITANIUM": 35
+        "STRUCTURAL_FRAME": 10,
+        "MINING_HEAD": 4,
+        "POWER_REGULATOR": 2,
+        "ION_THRUSTER": 1,
+        "TITANIUM": 20
       },
       "canHarvest": [
         "SILICATE_ROCK"
@@ -60,14 +60,11 @@
       "scoutRange": 360,
       "buildTimeSeconds": 14,
       "buildCost": {
-        "IRON": 120,
-        "COPPER": 150,
-        "SILICATES": 60,
-        "ICE": 80,
-        "HYDROGEN": 80,
-        "NICKEL": 50,
-        "ALUMINUM": 50,
-        "NITROGEN": 30
+        "PRESSURE_HULL_SECTION": 8,
+        "GAS_COMPRESSOR": 4,
+        "CRYOGENIC_COOLANT": 10,
+        "ION_THRUSTER": 1,
+        "NAVIGATION_COMPUTER": 1
       },
       "canHarvest": [
         "GAS_CLOUD"
@@ -86,13 +83,12 @@
       "idleStationOrbitRadius": 155,
       "buildTimeSeconds": 24,
       "buildCost": {
-        "IRON": 420,
-        "COPPER": 200,
-        "SILICATES": 300,
-        "ICE": 140,
-        "ALUMINUM": 180,
-        "NICKEL": 120,
-        "CARBON": 100
+        "STRUCTURAL_FRAME": 25,
+        "CARGO_POD": 20,
+        "LOGISTICS_CONTROL_MODULE": 4,
+        "ION_THRUSTER": 4,
+        "FUEL_CELL_STACK": 4,
+        "POINT_DEFENSE_LASER_ASSEMBLY": 2
       },
       "canHarvest": []
     },
@@ -114,11 +110,11 @@
       "idleStationOrbitRadius": 120,
       "buildTimeSeconds": 16,
       "buildCost": {
-        "IRON": 160,
-        "COPPER": 120,
-        "SILICATES": 90,
-        "NICKEL": 50,
-        "GOLD": 12
+        "STRUCTURAL_FRAME": 10,
+        "TRACTOR_BEAM_EMITTER": 3,
+        "CARGO_POD": 8,
+        "SENSOR_ARRAY": 2,
+        "ION_THRUSTER": 1
       },
       "canHarvest": []
     }
