@@ -25,6 +25,12 @@ java -jar StarChem.jar --version
 
 Clients and servers should use the same StarChem release version.
 
+## In-game reference menus
+
+Press `I` during a game to open the resource catalog. The catalog lists every loaded material and shows the loaded star-system templates, configured system roles, and resource-node types where the selected raw resource can naturally appear. Produced and salvage materials are identified separately because they are not placed in natural system belts.
+
+Press `M` to open the galaxy map. Press `I` again or `Escape` to close the resource catalog.
+
 ## Galaxy topology
 
 `config/galaxy.json` controls the number of extra seeded shortcuts added on top of the permanent connected ring:
