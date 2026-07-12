@@ -47,7 +47,7 @@ Ships can now receive persistent patrol, guard, escort, hold-position, and attac
 - Added live production-timer controls to the in-game Dev Crafting panel.
 - Added secure remote developer access using strong tokens or explicit host approval.
 - Added host controls for granting and revoking developer access.
-- Added automatic configuration, rules, production, network, snapshot, session, and galaxy validation.
+- Added automatic configuration, rules, production, network, snapshot, session, galaxy, and legal-notice validation.
 - Release builds now derive their version from the Git tag, embed the commit SHA, report the version through `--version` and the window title, and verify the final package before publishing.
 
 ## Additional fixes
@@ -57,6 +57,15 @@ Ships can now receive persistent patrol, guard, escort, hold-position, and attac
 - Remote launcher input is handled through the lobby and validated safely.
 - Improved dedicated-server error reporting and shutdown behavior.
 - Fixed several cross-system state, audio, ownership, mining, spawning, camera, selection, and synchronization issues.
+
+## License
+
+StarChem is proprietary software and is not open source. Official unmodified
+compiled releases are licensed only for personal, non-commercial use. The
+source code, rules data, assets, and other protected material may not be copied,
+compiled, modified, redistributed, sold, reused, or incorporated into another
+project without prior written permission. See the packaged `LICENSE` for the
+complete terms.
 
 ## Requirements
 
