@@ -22,9 +22,21 @@ public final class ClientLaunchValidator {
         expectEquals("blank programmatic host", "127.0.0.1", Config.join("Client", "", 50000).serverAddress.getHostString());
         Config doubleGalaxy = Config.parse(new String[]{"--host", "50000", "--galaxy-copies", "2"});
         expectEquals("double galaxy copies", 2, doubleGalaxy.galaxyCopies);
+
+        Config server = Config.parse(new String[]{"--server", "50123", "--name", "Test Server"});
+        expectTrue("dedicated server mode", server.dedicatedServerMode());
+        expectEquals("dedicated server port", 50123, server.port);
+        expectEquals("dedicated server name", "Test Server", server.playerName);
+        Config defaultServer = Config.parse(new String[]{"--server", "--name", "Default Server"});
+        expectEquals("dedicated server default port", 50000, defaultServer.port);
+
         expectInvalidArgs("galaxy copies below range", new String[]{"--solo", "--galaxy-copies", "0"});
         expectInvalidArgs("galaxy copies above range", new String[]{"--solo", "--galaxy-copies", "3"});
         expectInvalidArgs("non-numeric galaxy copies", new String[]{"--solo", "--galaxy-copies", "many"});
+        expectInvalidArgs("unknown option", new String[]{"--sever", "50000"});
+        expectInvalidArgs("missing name", new String[]{"--solo", "--name"});
+        expectInvalidArgs("missing system", new String[]{"--solo", "--system"});
+        expectInvalidArgs("missing host port", new String[]{"--host"});
 
         expectInvalidArgs("missing join address and port", new String[]{"--join"});
         expectInvalidArgs("missing join port", new String[]{"--join", "127.0.0.1"});
