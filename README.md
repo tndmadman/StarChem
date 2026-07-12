@@ -43,7 +43,7 @@ Set `wanderingWormholePairs` to `0` to keep only the base topology. Accepted val
 
 Run from source with Gradle during development.
 
-Local builds default to the identifiable development version `0.1.5-dev`. A release build receives its semantic version and commit SHA from the release workflow.
+Local builds use an identifiable `-dev` application version. Release builds receive their semantic version and commit SHA from the release workflow.
 
 ### Remote developer access
 
@@ -78,6 +78,6 @@ documented in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ## Release
 
-Create and push a semantic-version tag such as `v0.1.5`.
+Create and push a semantic-version tag such as `vX.Y.Z`.
 
-The release workflow derives the application version from the tag, embeds the commit SHA in `StarChem.jar`, runs the complete Gradle verification suite, smoke-tests `--version`, verifies the package layout and legal notices, and publishes `StarChem-v0.1.5.zip` to the GitHub Release.
+The release workflow derives the application version from the tag, embeds the commit SHA in `StarChem.jar`, runs the complete Gradle verification suite, smoke-tests `--version`, verifies the package layout and legal notices, and publishes `StarChem-vX.Y.Z.zip` to the GitHub Release.
