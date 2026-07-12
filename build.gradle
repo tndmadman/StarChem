@@ -161,8 +161,37 @@ tasks.register('validateClientEnvironmentSync', JavaExec) {
     mainClass = 'com.tndmadman.rts.ClientEnvironmentSyncValidator'
 }
 
+tasks.register('verifyLegalNotices') {
+    group = 'verification'
+    description = 'Verify the proprietary license and third-party notice files.'
+    inputs.files('LICENSE', 'THIRD_PARTY_NOTICES.md', 'README.md')
+    doLast {
+        ['LICENSE', 'THIRD_PARTY_NOTICES.md'].each { path ->
+            def noticeFile = project.file(path)
+            if (!noticeFile.isFile() || noticeFile.length() == 0) {
+                throw new GradleException("Missing or empty legal notice: ${path}")
+            }
+        }
+        def licenseText = project.file('LICENSE').getText('UTF-8')
+        if (!licenseText.contains('STARCHEM PROPRIETARY SOFTWARE LICENSE') ||
+                !licenseText.contains('All rights reserved.')) {
+            throw new GradleException('LICENSE does not contain the required proprietary notice')
+        }
+        def readmeText = project.file('README.md').getText('UTF-8')
+        if (!readmeText.contains('StarChem is proprietary software.')) {
+            throw new GradleException('README does not identify StarChem as proprietary software')
+        }
+    }
+}
+
 tasks.named('jar') {
     archiveFileName = 'StarChem.jar'
+    from('LICENSE') {
+        into 'META-INF'
+    }
+    from('THIRD_PARTY_NOTICES.md') {
+        into 'META-INF'
+    }
     manifest {
         attributes(
                 'Main-Class': application.mainClass.get(),
@@ -175,7 +204,7 @@ tasks.named('jar') {
 
 tasks.register('verifyBuildMetadata') {
     group = 'verification'
-    description = 'Verify the stable JAR name and embedded version metadata.'
+    description = 'Verify the stable JAR name, embedded version metadata, and legal notices.'
     dependsOn tasks.named('jar')
     doLast {
         def jarFile = tasks.named('jar').get().archiveFile.get().asFile
@@ -191,6 +220,11 @@ tasks.register('verifyBuildMetadata') {
             }
             if (actualCommit != buildCommit) {
                 throw new GradleException("JAR commit ${actualCommit} does not match build commit ${buildCommit}")
+            }
+            ['META-INF/LICENSE', 'META-INF/THIRD_PARTY_NOTICES.md'].each { entryName ->
+                if (jar.getJarEntry(entryName) == null) {
+                    throw new GradleException("JAR is missing required legal notice: ${entryName}")
+                }
             }
         }
     }
@@ -214,6 +248,7 @@ tasks.named('check') {
     dependsOn tasks.named('validateNpcGalaxyDirector')
     dependsOn tasks.named('validateSystemSimulationScheduler')
     dependsOn tasks.named('validateClientEnvironmentSync')
+    dependsOn tasks.named('verifyLegalNotices')
     dependsOn tasks.named('verifyBuildMetadata')
 }
 
@@ -224,6 +259,8 @@ distributions {
                 into 'config'
             }
             from('README.md')
+            from('LICENSE')
+            from('THIRD_PARTY_NOTICES.md')
         }
     }
 }
