@@ -25,6 +25,14 @@ application {
     mainClass = 'com.tndmadman.rts.App'
 }
 
+tasks.register('printVersion') {
+    group = 'help'
+    description = 'Print the resolved StarChem application version.'
+    doLast {
+        println project.version
+    }
+}
+
 tasks.register('validateRules', JavaExec) {
     group = 'verification'
     description = 'Validate StarChem rules and config files.'
@@ -204,7 +212,7 @@ tasks.named('jar') {
 
 tasks.register('verifyBuildMetadata') {
     group = 'verification'
-    description = 'Verify the stable JAR name, embedded version metadata, and legal notices.'
+    description = 'Verify the stable JAR name, embedded build metadata, legal notices, and reported runtime identity.'
     dependsOn tasks.named('jar')
     doLast {
         def jarFile = tasks.named('jar').get().archiveFile.get().asFile
@@ -226,6 +234,28 @@ tasks.register('verifyBuildMetadata') {
                     throw new GradleException("JAR is missing required legal notice: ${entryName}")
                 }
             }
+        }
+
+        def output = new ByteArrayOutputStream()
+        def errorOutput = new ByteArrayOutputStream()
+        def javaLauncher = javaToolchains.launcherFor {
+            languageVersion = JavaLanguageVersion.of(17)
+        }.get()
+        def result = project.exec {
+            commandLine javaLauncher.executablePath.asFile.absolutePath,
+                    '-jar', jarFile.absolutePath, '--version'
+            standardOutput = output
+            errorOutput = errorOutput
+            ignoreExitValue = true
+        }
+        if (result.exitValue != 0) {
+            throw new GradleException("StarChem --version failed: ${errorOutput.toString('UTF-8').trim()}")
+        }
+        def shortCommit = buildCommit == 'unknown' ? '' : buildCommit.take(12)
+        def expectedIdentity = "StarChem ${project.version}" + (shortCommit.isBlank() ? '' : " (${shortCommit})")
+        def actualIdentity = output.toString('UTF-8').trim()
+        if (actualIdentity != expectedIdentity) {
+            throw new GradleException("Reported build identity '${actualIdentity}' does not match '${expectedIdentity}'")
         }
     }
 }
