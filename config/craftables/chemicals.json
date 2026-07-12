@@ -1,0 +1,164 @@
+{
+  "craftableItems": {
+    "polymer_resin": {
+      "displayName": "Polymer Resin",
+      "description": "Industrial polymer used for seals, cargo pods, and composite structures.",
+      "category": "CHEMICALS",
+      "style": "chemicals",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "timeSeconds": 8,
+      "requiredResources": {
+        "METHANE": 18,
+        "CARBON": 8
+      },
+      "output": {
+        "material": "POLYMER_RESIN",
+        "amount": 20
+      }
+    },
+    "industrial_lubricant": {
+      "displayName": "Industrial Lubricant",
+      "description": "High-load lubricant for mining and fabrication machinery.",
+      "category": "CHEMICALS",
+      "style": "chemicals",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "timeSeconds": 7,
+      "requiredResources": {
+        "METHANE": 12,
+        "SULFUR": 6
+      },
+      "output": {
+        "material": "INDUSTRIAL_LUBRICANT",
+        "amount": 20
+      }
+    },
+    "water_coolant": {
+      "displayName": "Water Coolant",
+      "description": "General-purpose thermal transfer fluid for machinery and reactors.",
+      "category": "CHEMICALS",
+      "style": "chemicals",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "timeSeconds": 8,
+      "requiredResources": {
+        "ICE": 30,
+        "NITROGEN": 5
+      },
+      "output": {
+        "material": "WATER_COOLANT",
+        "amount": 25
+      }
+    },
+    "cryogenic_coolant": {
+      "displayName": "Cryogenic Coolant",
+      "description": "Low-temperature coolant for gas processing, shields, and capital equipment.",
+      "category": "CHEMICALS",
+      "style": "chemicals",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "requiresResearch": [
+        "advanced_industry"
+      ],
+      "timeSeconds": 11,
+      "requiredResources": {
+        "ICE": 24,
+        "NITROGEN": 8,
+        "ARGON": 3
+      },
+      "output": {
+        "material": "CRYOGENIC_COOLANT",
+        "amount": 18
+      }
+    },
+    "methane_propellant": {
+      "displayName": "Methane Propellant",
+      "description": "Stable propellant for light drives and missile systems.",
+      "category": "CHEMICALS",
+      "style": "chemicals",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "timeSeconds": 9,
+      "requiredResources": {
+        "METHANE": 20,
+        "HYDROGEN": 10
+      },
+      "output": {
+        "material": "METHANE_PROPELLANT",
+        "amount": 20
+      }
+    },
+    "hypergolic_propellant": {
+      "displayName": "Hypergolic Propellant",
+      "description": "Dense self-igniting propellant for torpedoes and heavy maneuvering systems.",
+      "category": "CHEMICALS",
+      "style": "chemicals",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "requiresResearch": [
+        "combat_doctrine"
+      ],
+      "timeSeconds": 12,
+      "requiredResources": {
+        "AMMONIA": 16,
+        "NITROGEN": 10,
+        "HYDROGEN": 8
+      },
+      "output": {
+        "material": "HYPERGOLIC_PROPELLANT",
+        "amount": 16
+      }
+    },
+    "explosive_compound": {
+      "displayName": "Explosive Compound",
+      "description": "Industrial energetic compound for warheads and heavy cannon charges.",
+      "category": "CHEMICALS",
+      "style": "chemicals",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "requiresResearch": [
+        "combat_doctrine"
+      ],
+      "timeSeconds": 11,
+      "requiredResources": {
+        "AMMONIA": 12,
+        "SULFUR": 8,
+        "CARBON": 6
+      },
+      "output": {
+        "material": "EXPLOSIVE_COMPOUND",
+        "amount": 14
+      }
+    },
+    "shield_plasma_mix": {
+      "displayName": "Shield Plasma Mix",
+      "description": "Ionized noble-gas blend used by shield and beam systems.",
+      "category": "CHEMICALS",
+      "style": "chemicals",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "requiresResearch": [
+        "combat_doctrine"
+      ],
+      "timeSeconds": 14,
+      "requiredResources": {
+        "HELIUM": 14,
+        "NEON": 4,
+        "ARGON": 6
+      },
+      "output": {
+        "material": "SHIELD_PLASMA_MIX",
+        "amount": 12
+      }
+    }
+  }
+}
