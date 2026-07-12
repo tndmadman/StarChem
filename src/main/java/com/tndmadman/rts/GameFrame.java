@@ -32,7 +32,6 @@ final class GameFrame extends JFrame {
         setMinimumSize(new Dimension(900, 620));
         setLocationRelativeTo(null);
         setContentPane(root);
-        installResourceCatalogHotkey();
         root.addComponentListener(new ComponentAdapter() {
             @Override public void componentResized(ComponentEvent e) { layoutLayers(); }
         });
@@ -103,6 +102,7 @@ final class GameFrame extends JFrame {
     private void showGame(Config config, World world, PeerNetwork activeNetwork, PeerNetwork devAuthorityNetwork) {
         gamePanel = new GamePanel(world, this, activeNetwork, config.devMode, devAuthorityNetwork);
         resourceCatalogOverlay = new ResourceCatalogOverlay(gamePanel, world);
+        installResourceCatalogHotkey(gamePanel);
         endStatePanel = new EndStatePanel(world, this, activeNetwork);
         root.removeAll();
         root.add(gamePanel, JLayeredPane.DEFAULT_LAYER);
@@ -116,10 +116,10 @@ final class GameFrame extends JFrame {
         SwingUtilities.invokeLater(gamePanel::start);
     }
 
-    private void installResourceCatalogHotkey() {
-        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+    private void installResourceCatalogHotkey(JComponent target) {
+        target.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
                 .put(KeyStroke.getKeyStroke(KeyEvent.VK_I, 0), RESOURCE_CATALOG_ACTION);
-        root.getActionMap().put(RESOURCE_CATALOG_ACTION, new AbstractAction() {
+        target.getActionMap().put(RESOURCE_CATALOG_ACTION, new AbstractAction() {
             @Override public void actionPerformed(ActionEvent e) {
                 if (resourceCatalogOverlay != null) resourceCatalogOverlay.toggle();
             }
