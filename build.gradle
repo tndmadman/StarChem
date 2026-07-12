@@ -121,6 +121,14 @@ tasks.register('validateMaterialCoverage', JavaExec) {
     mainClass = 'com.tndmadman.rts.MaterialCoverageValidator'
 }
 
+tasks.register('validateResourceCatalog', JavaExec) {
+    group = 'verification'
+    description = 'Validate resource catalog entries and star-system mappings.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.ResourceCatalogValidator'
+}
+
 tasks.register('validateSystemControl', JavaExec) {
     group = 'verification'
     description = 'Validate static-system capture, contesting, protection, colors, and bonuses.'
@@ -269,6 +277,7 @@ tasks.named('check') {
     dependsOn tasks.named('validateSessionRecovery')
     dependsOn tasks.named('validateNpcSystemIsolation')
     dependsOn tasks.named('validateMaterialCoverage')
+    dependsOn tasks.named('validateResourceCatalog')
     dependsOn tasks.named('validateSystemControl')
     dependsOn tasks.named('validateGalaxyMapWire')
     dependsOn tasks.named('validateSystemModifiers')
