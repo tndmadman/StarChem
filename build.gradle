@@ -236,24 +236,21 @@ tasks.register('verifyBuildMetadata') {
             }
         }
 
-        def output = new ByteArrayOutputStream()
-        def errorOutput = new ByteArrayOutputStream()
         def javaLauncher = javaToolchains.launcherFor {
             languageVersion = JavaLanguageVersion.of(17)
         }.get()
-        def result = providers.exec {
+        def execution = providers.exec {
             commandLine javaLauncher.executablePath.asFile.absolutePath,
                     '-jar', jarFile.absolutePath, '--version'
-            standardOutput = output
-            errorOutput = errorOutput
             ignoreExitValue = true
-        }.result.get()
+        }
+        def result = execution.result.get()
         if (result.exitValue != 0) {
-            throw new GradleException("StarChem --version failed: ${errorOutput.toString('UTF-8').trim()}")
+            throw new GradleException("StarChem --version failed: ${execution.standardError.asText.get().trim()}")
         }
         def shortCommit = buildCommit == 'unknown' ? '' : buildCommit.take(12)
         def expectedIdentity = "StarChem ${project.version}" + (shortCommit.isBlank() ? '' : " (${shortCommit})")
-        def actualIdentity = output.toString('UTF-8').trim()
+        def actualIdentity = execution.standardOutput.asText.get().trim()
         if (actualIdentity != expectedIdentity) {
             throw new GradleException("Reported build identity '${actualIdentity}' does not match '${expectedIdentity}'")
         }
