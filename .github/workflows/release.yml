@@ -54,6 +54,8 @@ jobs:
           VERSION_OUTPUT="$(java -jar build/libs/StarChem.jar --version)"
           echo "$VERSION_OUTPUT"
           [[ "$VERSION_OUTPUT" == "StarChem ${STARCHEM_VERSION}"* ]]
+          jar tf build/libs/StarChem.jar | grep -Fx 'META-INF/LICENSE'
+          jar tf build/libs/StarChem.jar | grep -Fx 'META-INF/THIRD_PARTY_NOTICES.md'
 
       - name: Stage release files
         shell: bash
@@ -62,10 +64,18 @@ jobs:
           cp build/libs/StarChem.jar release/StarChem/StarChem.jar
           cp -R config release/StarChem/config
           cp packaging/run-starchem.bat release/StarChem/run-starchem.bat
+          cp README.md release/StarChem/README.md
+          cp LICENSE release/StarChem/LICENSE
+          cp THIRD_PARTY_NOTICES.md release/StarChem/THIRD_PARTY_NOTICES.md
+
+          test -s release/StarChem/LICENSE
+          test -s release/StarChem/THIRD_PARTY_NOTICES.md
+          grep -Fq 'STARCHEM PROPRIETARY SOFTWARE LICENSE' release/StarChem/LICENSE
+          grep -Fq 'StarChem is proprietary software.' release/StarChem/README.md
 
           mapfile -t TOP_LEVEL_FILES < <(find release/StarChem -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)
           mapfile -t TOP_LEVEL_DIRS < <(find release/StarChem -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
-          [[ "${TOP_LEVEL_FILES[*]}" == "StarChem.jar run-starchem.bat" ]]
+          [[ "${TOP_LEVEL_FILES[*]}" == "LICENSE README.md StarChem.jar THIRD_PARTY_NOTICES.md run-starchem.bat" ]]
           [[ "${TOP_LEVEL_DIRS[*]}" == "config" ]]
 
           cd release
