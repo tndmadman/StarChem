@@ -6,7 +6,8 @@ StarChem is a Java 2D top-down multiplayer RTS prototype.
 
 Download the release ZIP and extract it.
 
-The player package contains only the compiled `StarChem.jar`, the required `config` folder, and `run-starchem.bat`.
+The player package contains the compiled `StarChem.jar`, the required `config`
+folder, `run-starchem.bat`, and the packaged legal and quick-start documents.
 
 Double-click `run-starchem.bat` to open the lobby and choose the game mode and connection options from the menu.
 
@@ -59,8 +60,24 @@ Tokens must contain 16-128 letters, numbers, `.`, `_`, `~`, or `-`. Use a random
 
 A graphical host can also grant or revoke a connected client's requested developer access from the **Remote dev access** section of the in-game dev crafting panel. Revocation takes effect immediately on the client and server.
 
+## License
+
+StarChem is proprietary software. Copyright © 2026 tndmadman. All rights
+reserved.
+
+The source code is visible for inspection only. Public repository access does
+not grant permission to copy, compile, modify, redistribute, publish, sell,
+reuse, or incorporate StarChem code, rules data, assets, or other protected
+material into another project.
+
+Official unmodified compiled releases may be run only under the limited
+personal, non-commercial permission stated in [`LICENSE`](LICENSE). StarChem is
+not open source. Outside implementation contributions are not currently
+accepted; see [`CONTRIBUTING.md`](CONTRIBUTING.md). Third-party notice policy is
+documented in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
 ## Release
 
 Create and push a semantic-version tag such as `v0.1.5`.
 
-The release workflow derives the application version from the tag, embeds the commit SHA in `StarChem.jar`, runs the complete Gradle verification suite, smoke-tests `--version`, verifies the package layout, and publishes `StarChem-v0.1.5.zip` to the GitHub Release.
+The release workflow derives the application version from the tag, embeds the commit SHA in `StarChem.jar`, runs the complete Gradle verification suite, smoke-tests `--version`, verifies the package layout and legal notices, and publishes `StarChem-v0.1.5.zip` to the GitHub Release.

@@ -1,0 +1,128 @@
+STARCHEM PROPRIETARY SOFTWARE LICENSE
+
+Copyright © 2026 tndmadman. All rights reserved.
+
+IMPORTANT: READ THIS LICENSE BEFORE DOWNLOADING, INSTALLING, COPYING,
+ACCESSING, OR USING STARCHEM.
+
+1. OWNERSHIP AND RESERVATION OF RIGHTS
+
+StarChem, including its source code, object code, documentation,
+configuration and rules data, user-interface elements, text, artwork,
+audio, audiovisual content, characters, names, worldbuilding, designs,
+selection and arrangement of content, and all other original materials
+included with or derived from StarChem (collectively, the "Software"),
+is proprietary property of the copyright owner or its licensors.
+
+The Software is protected by copyright and other applicable laws. All
+rights not expressly granted in this License are reserved. No rights are
+granted by implication, estoppel, publication, public repository access,
+or otherwise.
+
+2. LIMITED LICENSE FOR OFFICIAL COMPILED RELEASES
+
+Subject to full compliance with this License, the copyright owner grants
+an individual end user a personal, revocable, non-exclusive,
+non-transferable, non-sublicensable license to download and run an
+official, unmodified compiled release of StarChem solely for personal,
+non-commercial use.
+
+This limited license does not grant any right to use, compile, modify,
+copy, publish, distribute, or create derivative works from the source
+code. It does not grant any ownership interest in the Software.
+
+3. PROHIBITED CONDUCT
+
+Except with the copyright owner's prior written permission, you may not,
+and may not enable or assist another person to:
+
+(a) copy, reproduce, modify, adapt, translate, publish, distribute,
+    transmit, sublicense, sell, rent, lease, host, commercially exploit,
+    or create derivative works from any part of the Software;
+
+(b) compile, build, or execute the source code, or use any source code,
+    implementation, configuration, rules data, balancing data, assets,
+    documentation, or other protected material in another project;
+
+(c) reverse engineer, decompile, disassemble, decode, or otherwise
+    attempt to derive source code, internal structure, or implementation
+    details from an object-code release, except only to the limited
+    extent that applicable law expressly prohibits this restriction;
+
+(d) remove, conceal, alter, or misrepresent any copyright, ownership,
+    attribution, trademark, or proprietary notice;
+
+(e) use the StarChem name, logos, branding, or other source-identifying
+    material in a manner that suggests affiliation, endorsement, or an
+    official release;
+
+(f) use the Software or any non-public materials to train, fine-tune,
+    evaluate, or supply data to an artificial-intelligence or
+    machine-learning system; or
+
+(g) use access to the Software to copy protected expression,
+    implementation details, rules data, audiovisual content, or the
+    protected selection, coordination, or arrangement of StarChem's
+    elements in another work.
+
+4. PUBLIC REPOSITORY ACCESS
+
+If the source code is made visible through a public repository, that
+visibility does not make the Software open source and does not grant
+permission to copy, modify, compile, distribute, publish, or reuse it.
+Any platform-provided right to view or fork the repository is limited to
+that platform's required functionality and does not create any broader
+license to the Software.
+
+5. GAME IDEAS AND MECHANICS
+
+This License does not claim exclusive ownership of ideas, concepts,
+methods of operation, systems, algorithms, functions, logic, or game
+mechanics to the extent those matters are not protectable under
+applicable law. It does reserve every right available in StarChem's
+specific source code, rules data, audiovisual content, text, artwork,
+documentation, and other protected expression, including the protected
+selection, coordination, and arrangement of those materials.
+
+6. CONTRIBUTIONS
+
+No outside contribution is accepted under this License. A proposed code,
+asset, documentation, or other contribution may be accepted only under a
+separate written agreement signed or expressly approved by the copyright
+owner. Submitting material does not grant the submitter any rights in
+StarChem and does not obligate the copyright owner to use the material.
+
+7. TERMINATION AND ENFORCEMENT
+
+Any permission granted by this License terminates automatically and
+immediately upon breach. Following termination, all use of the Software
+must stop and all copies made under the terminated permission must be
+deleted, except where retention is required by law.
+
+Unauthorized use may subject the responsible person or entity to claims
+for injunctive relief, actual or statutory damages, recovery of profits,
+attorneys' fees, costs, and any other remedies available under applicable
+law. Failure to enforce a provision in one instance is not a waiver of
+the right to enforce it later.
+
+8. NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE," WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. TO THE
+MAXIMUM EXTENT PERMITTED BY LAW, THE COPYRIGHT OWNER IS NOT LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, CONSEQUENTIAL, OR
+OTHER DAMAGES ARISING FROM OR RELATING TO THE SOFTWARE OR ITS USE.
+
+9. SEVERABILITY
+
+If any provision of this License is held unenforceable, that provision
+will be enforced to the maximum extent permitted and the remaining
+provisions will remain in effect.
+
+10. PERMISSION REQUESTS
+
+Any permission beyond the limited license in Section 2 requires a
+separate written agreement from the copyright owner. Opening an issue,
+pull request, discussion, or other repository communication does not by
+itself grant permission.
