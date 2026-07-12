@@ -1,0 +1,23 @@
+name: Branch Export
+
+on:
+  push:
+    branches:
+      - agent/intermediate-crafting
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package checkout
+        run: |
+          rm -rf .git
+          zip -qr starchem-source.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: starchem-source
+          path: starchem-source.zip
