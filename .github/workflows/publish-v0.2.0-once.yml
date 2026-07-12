@@ -1,0 +1,107 @@
+name: Publish StarChem v0.2.0 once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/publish-v0.2.0-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.event.head_commit.message == 'Publish StarChem v0.2.0'
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: '0.2.0'
+      RELEASE_TAG: 'v0.2.0'
+      TARGET_SHA: '1fcb66b41909fdb8a7058c847f69e3063dc961f9'
+      RELEASE_ZIP: 'StarChem-v0.2.0.zip'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify and check out release target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse "${GITHUB_SHA}^")" = "$TARGET_SHA"
+          git checkout "$TARGET_SHA"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Verify and build release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle clean check jar --no-daemon \
+            -PreleaseVersion="$RELEASE_VERSION" \
+            -PbuildCommit="$TARGET_SHA"
+
+          test -f build/libs/StarChem.jar
+          VERSION_OUTPUT="$(java -jar build/libs/StarChem.jar --version)"
+          echo "$VERSION_OUTPUT"
+          [[ "$VERSION_OUTPUT" == "StarChem ${RELEASE_VERSION} (${TARGET_SHA:0:12})" ]]
+          jar tf build/libs/StarChem.jar | grep -Fx 'META-INF/LICENSE'
+          jar tf build/libs/StarChem.jar | grep -Fx 'META-INF/THIRD_PARTY_NOTICES.md'
+
+      - name: Package release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release/StarChem
+          cp build/libs/StarChem.jar release/StarChem/StarChem.jar
+          cp -R config release/StarChem/config
+          cp packaging/run-starchem.bat release/StarChem/run-starchem.bat
+          cp README.md release/StarChem/README.md
+          cp LICENSE release/StarChem/LICENSE
+          cp THIRD_PARTY_NOTICES.md release/StarChem/THIRD_PARTY_NOTICES.md
+
+          test -s release/StarChem/LICENSE
+          test -s release/StarChem/THIRD_PARTY_NOTICES.md
+          grep -Fq 'STARCHEM PROPRIETARY SOFTWARE LICENSE' release/StarChem/LICENSE
+          grep -Fq 'StarChem is proprietary software.' release/StarChem/README.md
+
+          mapfile -t TOP_LEVEL_FILES < <(find release/StarChem -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)
+          mapfile -t TOP_LEVEL_DIRS < <(find release/StarChem -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
+          [[ "${TOP_LEVEL_FILES[*]}" == "LICENSE README.md StarChem.jar THIRD_PARTY_NOTICES.md run-starchem.bat" ]]
+          [[ "${TOP_LEVEL_DIRS[*]}" == "config" ]]
+
+          cd release
+          zip -r "../$RELEASE_ZIP" StarChem
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: StarChem-v0.2.0-release
+          path: StarChem-v0.2.0.zip
+
+      - name: Create tag and GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; refusing to overwrite it." >&2
+            exit 1
+          fi
+
+          gh release create "$RELEASE_TAG" "$RELEASE_ZIP#StarChem v0.2.0 release package" \
+            --target "$TARGET_SHA" \
+            --title "StarChem v0.2.0" \
+            --notes-file RELEASE_NOTES.md
