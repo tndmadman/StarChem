@@ -17,9 +17,7 @@ final class ResourceSpawner {
 
     static int seed(List<ResourceNode> resources, CelestialSystem celestials, Random random, int startId, List<ResourceBelt> belts) {
         int id = startId;
-        for (ResourceBelt belt : belts) {
-            id = belt(resources, id, random, celestials, belt);
-        }
+        for (ResourceBelt belt : belts) id = belt(resources, id, random, celestials, belt);
         return id;
     }
 
@@ -42,7 +40,7 @@ final class ResourceSpawner {
             double orbitRadius = belt.orbit + random.nextGaussian() * belt.width;
             double orbitAngle = center + (random.nextDouble() - 0.5) * belt.arc;
             double orbitSpeed = speedFor(orbitRadius) * (0.9 + random.nextDouble() * 0.2);
-            Material material = materials.get(i % materials.size());
+            Material material = materials.get(random.nextInt(materials.size()));
             double nodeAmount = belt.amount * (0.35 + random.nextDouble() * 1.5);
             double nodeRadius = radiusForAmount(belt.radius, belt.amount, nodeAmount, random);
             ResourceNode node = new ResourceNode(id++, belt.name + " " + material.name() + " " + i, belt.kind, material, 0, 0, nodeAmount, belt.harvestRate, nodeRadius);

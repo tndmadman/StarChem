@@ -3,63 +3,107 @@
     "advanced_industry": {
       "displayName": "Advanced Industry",
       "description": "Unlocks specialist mining, hauling, and salvage ships.",
-      "stationTypes": ["laboratory"],
+      "stationTypes": [
+        "laboratory"
+      ],
       "requires": [],
       "timeSeconds": 35,
       "requiredResources": {
         "FUEL": 25,
         "COPPER": 120,
-        "SILICATES": 100
+        "SILICATES": 100,
+        "NICKEL": 90,
+        "ALUMINUM": 70,
+        "CARBON": 50
       },
       "unlocks": {
-        "ships": ["deep_miner", "gas_harvester", "freighter", "salvager"]
+        "ships": [
+          "deep_miner",
+          "gas_harvester",
+          "freighter",
+          "salvager"
+        ]
       }
     },
     "combat_doctrine": {
       "displayName": "Combat Doctrine",
       "description": "Unlocks the first dedicated combat hulls.",
-      "stationTypes": ["laboratory"],
-      "requires": ["advanced_industry"],
+      "stationTypes": [
+        "laboratory"
+      ],
+      "requires": [
+        "advanced_industry"
+      ],
       "timeSeconds": 50,
       "requiredResources": {
         "FUEL": 35,
         "IRON": 180,
         "COPPER": 120,
+        "COBALT": 80,
+        "GOLD": 20,
         "CIRCUIT_FRAGMENTS": 20
       },
       "unlocks": {
-        "ships": ["frigate", "destroyer", "cruiser"]
+        "ships": [
+          "frigate",
+          "destroyer",
+          "cruiser"
+        ]
       }
     },
     "battlefleet_engineering": {
       "displayName": "Battlefleet Engineering",
       "description": "Unlocks battlecruisers, battleships, and capital hulls.",
-      "stationTypes": ["laboratory"],
-      "requires": ["combat_doctrine"],
+      "stationTypes": [
+        "laboratory"
+      ],
+      "requires": [
+        "combat_doctrine"
+      ],
       "timeSeconds": 75,
       "requiredResources": {
         "FUEL": 80,
+        "TITANIUM": 280,
+        "TUNGSTEN": 140,
+        "RARE_EARTHS": 120,
         "HULL_PLATING": 45,
         "CIRCUIT_FRAGMENTS": 60
       },
       "unlocks": {
-        "ships": ["battle_cruiser", "battleship", "carrier", "dreadnought"]
+        "ships": [
+          "battle_cruiser",
+          "battleship",
+          "carrier",
+          "dreadnought"
+        ]
       }
     },
     "supercapital_architecture": {
       "displayName": "Supercapital Architecture",
       "description": "Unlocks the largest late-game hulls.",
-      "stationTypes": ["laboratory"],
-      "requires": ["battlefleet_engineering"],
+      "stationTypes": [
+        "laboratory"
+      ],
+      "requires": [
+        "battlefleet_engineering"
+      ],
       "timeSeconds": 120,
       "requiredResources": {
         "FUEL": 140,
+        "PLATINUM": 450,
+        "URANIUM": 220,
+        "XENON": 180,
+        "RARE_EARTHS": 350,
         "SCRAP_METAL": 120,
         "HULL_PLATING": 120,
         "CIRCUIT_FRAGMENTS": 140
       },
       "unlocks": {
-        "ships": ["supercarrier", "titan", "monolith"]
+        "ships": [
+          "supercarrier",
+          "titan",
+          "monolith"
+        ]
       }
     }
   }

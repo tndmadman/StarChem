@@ -9,6 +9,9 @@ import java.awt.event.WindowEvent;
 import java.io.IOException;
 
 final class GameFrame extends JFrame {
+    private static final String ACTIVE_SESSION_NOTICE = "Session is already active on another connection.";
+    private static final String DUPLICATE_NAME_NOTICE = "Duplicate player names are not allowed on this server. Choose a different name.";
+
     private final JLayeredPane root = new JLayeredPane();
     private final MenuBackdrop backdrop = new MenuBackdrop();
     private final LobbyPanel menuPanel = new LobbyPanel(this);
@@ -49,6 +52,7 @@ final class GameFrame extends JFrame {
     }
 
     void launchGame(Config config) {
+        GalaxyRuntimeOptions.configure(config);
         if (config.role() == NetworkRole.SERVER) { launchLocalHostGame(config); return; }
         stopActiveGame();
         World world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId, config.role() == NetworkRole.SOLO);
@@ -63,11 +67,20 @@ final class GameFrame extends JFrame {
             PeerNetwork peer = network;
             networkTimer = new Timer(16, e -> {
                 peer.tick();
+                String notice = connectionNotice(world.status);
+                if (!notice.isBlank()) {
+                    showLobby(notice);
+                    return;
+                }
                 if (peer.connectionFailed()) showLobby(peer.failureMessage());
             });
             networkTimer.start();
         }
         showGame(config, world, network, null);
+    }
+
+    static String connectionNotice(String status) {
+        return status != null && status.startsWith(ACTIVE_SESSION_NOTICE) ? DUPLICATE_NAME_NOTICE : "";
     }
 
     private void launchLocalHostGame(Config config) {
@@ -115,7 +128,7 @@ final class GameFrame extends JFrame {
         if (gamePanel != null) gamePanel.setBounds(0, 0, w, h);
         if (endStatePanel != null) endStatePanel.setBounds(0, 0, w, h);
         int mw = Math.min(760, Math.max(560, w - 160));
-        int mh = Math.min(660, Math.max(540, h - 120));
+        int mh = Math.min(700, Math.max(580, h - 100));
         menuPanel.setBounds((w - mw) / 2, (h - mh) / 2, mw, mh);
     }
 }

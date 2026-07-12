@@ -114,8 +114,8 @@ final class PeerClientSide {
         if (!fromConfiguredServer(packet)) return;
         PlayerRegistry.activate(world);
         lastServerPacket = System.currentTimeMillis();
-        if (readLeaderboard(message) || readDevStatus(message)) return;
-        if (!readJoinDenied(message) && !readSessionDenied(message) && !readSystemDelete(message)) ClientPackets.handle(this, message);
+        if (readGalaxy(message) || readLeaderboard(message) || readDevStatus(message)) return;
+        if (!readJoinDenied(message) && !readSessionBusy(message) && !readSessionDenied(message) && !readSystemDelete(message)) ClientPackets.handle(this, message);
     }
 
     void handle(String message) {
@@ -232,6 +232,14 @@ final class PeerClientSide {
         }
     }
 
+    private boolean readGalaxy(String message) {
+        if (message == null || !message.startsWith("GALAXY|")) return false;
+        GalaxyMapWire.Decoded decoded = GalaxyMapWire.decode(message);
+        world.configureGalaxyCopies(decoded.copiesPerTemplate());
+        world.applyRemoteGalaxyMapSnapshot(decoded.snapshot());
+        return true;
+    }
+
     private boolean readLeaderboard(String message) {
         if (message == null || !message.startsWith("LEADER|")) return false;
         GlobalLeaderboard.set(world, GlobalLeaderboard.decode(message));
@@ -251,6 +259,13 @@ final class PeerClientSide {
         if (message == null || !message.startsWith("JOIN_DENIED|")) return false;
         String reason = message.length() > 12 ? message.substring(12).trim() : "Join refused by server.";
         failConnection(reason.isBlank() ? "Join refused by server." : reason);
+        return true;
+    }
+
+    private boolean readSessionBusy(String message) {
+        if (message == null || !message.startsWith("SESSION_BUSY|")) return false;
+        String reason = message.length() > 13 ? message.substring(13).trim() : "Saved session is already active.";
+        world.status = (reason.isBlank() ? "Saved session is already active." : reason) + " Waiting to resume.";
         return true;
     }
 

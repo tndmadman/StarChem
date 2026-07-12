@@ -43,13 +43,21 @@ public final class SessionRecoveryValidator {
             require(world.hasLiveAssets("P1"), "initial join did not create P1 assets");
             world.completeResearch("P1", "session-recovery-marker");
 
+            String reboundEndpoint = server.endpoint(loopback, reboundClient.getLocalPort());
+            require(!server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1", firstToken, false, ""),
+                    "a second endpoint displaced an active player session");
+            String busyResponse = receivePayload(reboundClient, "SESSION_BUSY|");
+            require(busyResponse.contains("already active"), "active-session rejection did not explain the conflict");
+            require(server.owns(firstEndpoint, "P1"), "active endpoint lost ownership after takeover attempt");
+            require(!server.owns(reboundEndpoint, "P1"), "takeover endpoint gained ownership of an active session");
+            require(world.hasLiveAssets("P1"), "takeover attempt changed P1 assets");
+            require(world.hasResearch("P1", "session-recovery-marker"), "takeover attempt changed P1 research");
+
             long timeoutNow = System.currentTimeMillis() + 10_000;
             server.tick(timeoutNow);
             require(!server.owns(firstEndpoint, "P1"), "timed-out endpoint remained connected");
             require(world.hasLiveAssets("P1"), "timeout deleted P1 assets");
             require(world.hasResearch("P1", "session-recovery-marker"), "timeout deleted P1 research");
-
-            String reboundEndpoint = server.endpoint(loopback, reboundClient.getLocalPort());
             require(server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1", firstToken, false, ""),
                     "valid session could not rebind to a new UDP endpoint");
             String reboundWelcome = receivePayload(reboundClient, "WELCOME|");
@@ -123,6 +131,14 @@ public final class SessionRecoveryValidator {
                 require(firstTransport.pendingCount() == 0, "gameplay command was queued while reconnecting");
                 require(firstWorld.status.contains("Command blocked while reconnecting"),
                         "blocked reconnecting command was not reported to the UI");
+
+                firstClient.handle("SESSION_BUSY|Session is already active on another connection.");
+                require(firstClient.statusLine().contains("reconnecting P9"),
+                        "active-session response stopped the reconnect attempt");
+                require(firstWorld.status.contains("Waiting to resume"),
+                        "active-session response was not reported to the UI");
+                require(firstToken.equals(SessionTokenStore.load(config).token()),
+                        "active-session response cleared the saved resume token");
 
                 firstClient.readWelcome(welcomeParts(firstWorld, "P9", rotatedToken));
                 require(firstClient.statusLine().contains("CLIENT P9"), "resumed WELCOME did not restore connected state");

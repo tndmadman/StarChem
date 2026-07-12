@@ -1,0 +1,20 @@
+{
+  "id": "nebula_expanse",
+  "name": "Nebula Expanse",
+  "role": "gas",
+  "width": 20500,
+  "height": 17500,
+  "tags": ["gas_rich", "sensor_interference", "frontier"],
+  "modifiers": {"miningYield": 1.08, "sensorRange": 0.72, "weaponRange": 0.9},
+  "spawnMaterials": ["HYDROGEN", "HELIUM", "NITROGEN", "METHANE"],
+  "bodies": [
+    {"id": "sun", "name": "Veil Star", "orbit": 0, "radius": 175, "speed": 0, "color": "#B9A7FF"},
+    {"id": "giant", "name": "Cloud Crown", "parent": "sun", "orbit": 3600, "radius": 132, "speed": 0.006, "color": "#728FC4"}
+  ],
+  "resourceBelts": [
+    {"name": "Common Gas Sea", "kind": "GAS_CLOUD", "orbit": 2750, "width": 760, "arc": 3.8, "count": 210, "amount": 27, "harvestRate": 8.8, "radius": 4.9,
+      "composition": [{"material": "HYDROGEN", "weight": 36}, {"material": "HELIUM", "weight": 24}, {"material": "METHANE", "weight": 20}, {"material": "NITROGEN", "weight": 20}]},
+    {"name": "Noble Gas Veil", "kind": "GAS_CLOUD", "orbit": 6100, "width": 820, "arc": 2.5, "count": 115, "amount": 20, "harvestRate": 6.5, "radius": 4.5,
+      "composition": [{"material": "ARGON", "weight": 48}, {"material": "NEON", "weight": 32}, {"material": "XENON", "weight": 8}, {"material": "AMMONIA", "weight": 12}]}
+  ]
+}

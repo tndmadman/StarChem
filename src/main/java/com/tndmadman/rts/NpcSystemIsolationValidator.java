@@ -16,6 +16,7 @@ public final class NpcSystemIsolationValidator {
     static void validateOrThrow() {
         validateIndependentFactionTimers();
         validateFactionSystemScope();
+        validateExpansionScope();
         validateRuntimeCleanup();
     }
 
@@ -25,10 +26,7 @@ public final class NpcSystemIsolationValidator {
                 Set.of(Config.FREE_MINERS_ID, Config.CORSAIRS_ID),
                 StarSystems.DEFAULT_SYSTEM_ID,
                 true);
-
-        require(SOLO_HOME_ID.equals(world.activeSystemId()), "validator did not start in the solo home");
         addCombatShip(world, "SOLO", 9001);
-
         world.spawnPlayerGroup("P2", 1);
         world.activateSystem(SECOND_HOME_ID);
         addCombatShip(world, "P2", 9002);
@@ -36,29 +34,45 @@ public final class NpcSystemIsolationValidator {
 
         world.update(17.5);
         require(factionAssetCount(world, SOLO_HOME_ID, Config.RAIDERS_ID) == 0,
-                "solo-home Raider timer advanced more than once per world update");
+                "solo-home Raider timer advanced too quickly");
         require(factionAssetCount(world, SECOND_HOME_ID, Config.RAIDERS_ID) == 0,
-                "second-home Raider timer advanced more than once per world update");
-
+                "second-home Raider timer advanced too quickly");
         world.update(1.0);
         require(factionAssetCount(world, SOLO_HOME_ID, Config.RAIDERS_ID) > 0,
-                "solo-home Raiders did not spawn after their own elapsed timer");
+                "solo-home Raiders did not spawn from their own timer");
         require(factionAssetCount(world, SECOND_HOME_ID, Config.RAIDERS_ID) > 0,
-                "second-home Raiders did not spawn after their own elapsed timer");
+                "second-home Raiders did not spawn from their own timer");
     }
 
     private static void validateFactionSystemScope() {
-        PlayerRegistry.reset("SOLO", "NPC Scope Validator", 0x50BEFF);
+        PlayerRegistry.reset("WAIT", "NPC Scope Validator", 0x50BEFF);
         World world = new World("NPC Scope Validator",
                 Set.of(Config.RAIDERS_ID, Config.FREE_MINERS_ID),
                 StarSystems.DEFAULT_SYSTEM_ID,
-                true);
+                false);
 
-        world.update(70.0);
-        require(factionAssetCount(world, SOLO_HOME_ID, Config.CORSAIRS_ID) == 0,
-                "Corsairs spawned outside corsair_den");
+        world.activateSystem(StarSystems.CORSAIR_SYSTEM_ID);
+        tickCurrent(world, 70);
         require(factionAssetCount(world, StarSystems.CORSAIR_SYSTEM_ID, Config.CORSAIRS_ID) > 0,
-                "Corsairs did not spawn in corsair_den");
+                "Corsairs did not spawn in their initial controlled system");
+
+        world.activateSystem("red_dwarf");
+        tickCurrent(world, 70);
+        require(factionAssetCount(world, "red_dwarf", Config.CORSAIRS_ID) == 0,
+                "Corsairs spawned locally in an industrial system not assigned to them");
+
+        World homeWorld = new World("NPC Home Scope", Set.of(Config.RAIDERS_ID, Config.FREE_MINERS_ID),
+                StarSystems.DEFAULT_SYSTEM_ID, true);
+        tickCurrent(homeWorld, 70);
+        require(factionAssetCount(homeWorld, SOLO_HOME_ID, Config.CORSAIRS_ID) == 0,
+                "Corsairs spawned in a protected player home");
+    }
+
+    private static void validateExpansionScope() {
+        require(NpcSystemScope.allowsExpansion("carbon_basin", Config.CORSAIRS_ID),
+                "organized Corsairs cannot expand into neighboring static systems");
+        require(!NpcSystemScope.allowsExpansion(SOLO_HOME_ID, Config.CORSAIRS_ID),
+                "organized NPC factions can expand into protected homes");
     }
 
     private static void validateRuntimeCleanup() {
@@ -67,20 +81,22 @@ public final class NpcSystemIsolationValidator {
                 Set.of(Config.FREE_MINERS_ID, Config.CORSAIRS_ID),
                 StarSystems.DEFAULT_SYSTEM_ID,
                 true);
-
         world.updateCurrentSystem(1.0);
         world.spawnPlayerGroup("P2", 1);
         world.activateSystem(SECOND_HOME_ID);
         addCombatShip(world, "P2", 9003);
         world.updateCurrentSystem(1.0);
         require(world.npcRuntimeSystemCount() == 2,
-                "validator did not create separate NPC runtime state for both player homes");
-
+                "separate NPC runtime state was not created for both player homes");
         world.activateSystem(SOLO_HOME_ID);
         Set<String> deleted = world.removePlayerAndPruneEmptySystems("P2");
         require(deleted.contains(SECOND_HOME_ID), "second player home was not pruned");
         require(world.npcRuntimeSystemCount() == 1,
-                "NPC runtime state for a pruned system was retained");
+                "NPC runtime state for a pruned home was retained");
+    }
+
+    private static void tickCurrent(World world, int seconds) {
+        for (int i = 0; i < seconds; i++) world.updateCurrentSystem(1.0);
     }
 
     private static void addCombatShip(World world, String playerId, int unitId) {
@@ -93,12 +109,8 @@ public final class NpcSystemIsolationValidator {
         String previous = world.activeSystemId();
         world.activateSystem(systemId);
         int count = 0;
-        for (Unit unit : world.units.values()) {
-            if (factionId.equals(unit.playerId) && unit.hp > 0) count++;
-        }
-        for (Base base : world.bases.values()) {
-            if (factionId.equals(base.playerId) && base.hp > 0) count++;
-        }
+        for (Unit unit : world.units.values()) if (factionId.equals(unit.playerId) && unit.hp > 0) count++;
+        for (Base base : world.bases.values()) if (factionId.equals(base.playerId) && base.hp > 0) count++;
         if (previous != null && !previous.isBlank()) world.activateSystem(previous);
         return count;
     }

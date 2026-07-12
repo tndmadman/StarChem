@@ -7,16 +7,11 @@ final class ViewSnapshotReset {
 
     static void apply(World world, String systemId, long seed, double time) {
         if (world == null || systemId == null || systemId.isBlank() || systemId.contains("WAIT") || time < 0) return;
-        long temporary = seed ^ 0x5DEECE66DL;
-        if (temporary == seed) temporary++;
-        String syncId = baseSystemId(systemId);
-        world.syncEnvironment(syncId, temporary, 0);
-        world.syncEnvironment(syncId, seed, time);
-        if (!systemId.equals(syncId)) {
-            String owner = ownerFromHome(systemId);
-            if (!owner.isBlank() && !"WAIT".equals(owner)) world.ensurePlayerHome(owner);
-            world.activateSystem(systemId);
-        }
+        if (seed != world.systemSeed()) world.useSystemSeed(seed);
+        String owner = ownerFromHome(systemId);
+        if (!owner.isBlank() && !"WAIT".equals(owner)) world.ensurePlayerHome(owner);
+        world.activateSystem(systemId);
+        world.syncClientEnvironment(systemId, time);
     }
 
     static void applyPreservingEntities(World world, String systemId, long seed, double time) {
@@ -33,11 +28,6 @@ final class ViewSnapshotReset {
         world.shots.addAll(shots);
         world.items.clear();
         world.items.addAll(items);
-    }
-
-    private static String baseSystemId(String systemId) {
-        if (systemId.startsWith(StarSystems.PLAYER_HOME_SYSTEM_ID + "_")) return StarSystems.PLAYER_HOME_SYSTEM_ID;
-        return systemId;
     }
 
     private static String ownerFromHome(String systemId) {

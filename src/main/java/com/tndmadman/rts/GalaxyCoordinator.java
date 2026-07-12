@@ -8,9 +8,11 @@ import java.util.List;
 final class GalaxyCoordinator {
     private static final double WORMHOLE_EXIT_BUFFER = 96.0;
     private static final double WORMHOLE_COOLDOWN_SECONDS = 0.75;
+
     private final Map<String, WorldSystemState> systems = new LinkedHashMap<>();
     private final Map<String, String> playerHomes = new LinkedHashMap<>();
     private String activeSystemId;
+    private String entrySystemId;
     private long seed;
     private int nextResourceId = 1;
 
@@ -18,23 +20,32 @@ final class GalaxyCoordinator {
         this.seed = seed;
         systems.clear();
         playerHomes.clear();
+        clearWorld(world);
+        nextResourceId = 1;
+
+        GalaxyPlan plan = GalaxyPlanner.standard(primary.id(), GalaxyRuntimeOptions.copiesPerTemplate(), seed);
+        entrySystemId = plan.entrySystemId();
+        for (GalaxyInstanceSpec spec : plan.systems()) {
+            createSystem(spec.id(), spec.templateId(), StarSystems.get(spec.templateId()), spec.lifetime(), spec.initialControllerId());
+        }
+        for (GalaxyLinkSpec spec : plan.links()) link(world, systems.get(spec.fromSystemId()), systems.get(spec.toSystemId()));
+
+        activeSystemId = systems.containsKey(entrySystemId) ? entrySystemId : fallbackActiveSystemId();
+        loadActive(world);
+        return activeCelestials();
+    }
+
+    private void clearWorld(World world) {
         world.resources.clear();
         world.units.clear();
         world.bases.clear();
         world.shots.clear();
         world.items.clear();
         world.wormholes.clear();
-        nextResourceId = 1;
-        WorldSystemState main = createSystem(primary.id(), primary);
-        WorldSystemState corsairs = createSystem(StarSystems.CORSAIR_SYSTEM_ID, StarSystems.get(StarSystems.CORSAIR_SYSTEM_ID));
-        linkAllKnown(world, main);
-        linkAllKnown(world, corsairs);
-        activeSystemId = main.id;
-        loadActive(world);
-        return main.celestials;
     }
 
     String activeSystemId() { return activeSystemId; }
+    String activeControllerId() { WorldSystemState state = active(); return state == null ? "" : state.control.controllerId(); }
     CelestialSystem activeCelestials() { WorldSystemState state = active(); return state == null ? null : state.celestials; }
     double activeSystemTime() { WorldSystemState state = active(); return state == null ? 0 : state.systemTime; }
     void setActiveSystemTime(double time) { WorldSystemState state = active(); if (state != null) state.systemTime = Math.max(0, time); }
@@ -79,17 +90,28 @@ final class GalaxyCoordinator {
             for (Unit unit : state.units.values()) if (PlayerRegistry.isLocal(unit.playerId) && unit.hp > 0) localShips++;
             int localBases = 0;
             for (Base base : state.bases.values()) if (PlayerRegistry.isLocal(base.playerId) && base.hp > 0) localBases++;
+
+            SystemControlState control = state.control;
+            String colorOwner = control.status() == SystemControlStatus.CAPTURING && !control.claimantId().isBlank()
+                    ? control.claimantId() : control.controllerId();
             mapSystems.add(new GalaxyMapSystem(
                     state.id,
-                    state.definition.name(),
+                    displayName(state),
+                    state.templateId,
+                    state.lifetime,
                     state.units.size(),
                     state.bases.size(),
                     activeResources,
                     localShips,
                     localBases,
                     state.id.equals(activeSystemId),
-                    isPlayerHome(state.id),
-                    isSpecialLinkSystem(state.id)));
+                    state.isPlayerHome(),
+                    state.isStatic(),
+                    control.controllerId(),
+                    ownerName(control.controllerId()),
+                    control.status(),
+                    control.captureProgress(),
+                    ownerColor(colorOwner)));
         }
 
         List<GalaxyMapLink> links = new ArrayList<>();
@@ -99,11 +121,26 @@ final class GalaxyCoordinator {
                 if (!systems.containsKey(gate.toSystemId)) continue;
                 String a = state.id.compareTo(gate.toSystemId) <= 0 ? state.id : gate.toSystemId;
                 String b = state.id.compareTo(gate.toSystemId) <= 0 ? gate.toSystemId : state.id;
-                String key = a + "->" + b;
-                if (seen.add(key)) links.add(new GalaxyMapLink(a, b));
+                if (seen.add(a + "->" + b)) links.add(new GalaxyMapLink(a, b));
             }
         }
         return new GalaxyMapSnapshot(activeSystemId, List.copyOf(mapSystems), List.copyOf(links));
+    }
+
+    private String displayName(WorldSystemState state) {
+        return state.id.endsWith("_2") ? state.definition.name() + " II" : state.definition.name();
+    }
+
+    private String ownerName(String ownerId) {
+        if (ownerId == null || ownerId.isBlank()) return "Neutral";
+        for (NpcFaction faction : NpcRules.factions()) if (faction.id().equals(ownerId)) return faction.name();
+        return PlayerRegistry.name(ownerId);
+    }
+
+    private int ownerColor(String ownerId) {
+        if (ownerId == null || ownerId.isBlank()) return 0x8A96A3;
+        for (NpcFaction faction : NpcRules.factions()) if (faction.id().equals(ownerId)) return faction.rgb() & 0xFFFFFF;
+        return PlayerRegistry.color(ownerId).getRGB() & 0xFFFFFF;
     }
 
     GalaxySystem ensurePlayerHome(World world, String playerId, StarSystemDefinition primary) {
@@ -113,35 +150,29 @@ final class GalaxyCoordinator {
     GalaxySystem ensurePlayerHome(World world, String playerId, StarSystemDefinition primary, boolean usePrimaryDefinition) {
         if (playerId == null || playerId.isBlank()) playerId = world.localPlayerId;
         String existing = playerHomes.get(playerId);
-        if (existing != null && systems.containsKey(existing)) {
-            WorldSystemState home = systems.get(existing);
-            linkAllKnown(world, home);
-            return asGalaxySystem(home);
-        }
-        WorldSystemState home = usePrimaryDefinition
-                ? createPrimaryPlayerHome(world, playerId, primary)
-                : createSystem(playerHomeId(playerId), StarSystems.get(StarSystems.PLAYER_HOME_SYSTEM_ID));
+        if (existing != null && systems.containsKey(existing)) return asGalaxySystem(systems.get(existing));
+
+        StarSystemDefinition definition = usePrimaryDefinition ? primary : StarSystems.get(StarSystems.PLAYER_HOME_SYSTEM_ID);
+        WorldSystemState home = createSystem(playerHomeId(playerId), definition.id(), definition, SystemLifetime.PLAYER_HOME, playerId);
+        home.control.protect(playerId);
         playerHomes.put(playerId, home.id);
-        linkAllKnown(world, home);
+        connectHome(world, home);
         return asGalaxySystem(home);
     }
 
-    private WorldSystemState createPrimaryPlayerHome(World world, String playerId, StarSystemDefinition primary) {
-        String homeId = playerHomeId(playerId);
-        WorldSystemState existing = systems.get(homeId);
-        if (existing != null) return existing;
+    private void connectHome(World world, WorldSystemState home) {
+        WorldSystemState entry = systems.get(entrySystemId);
+        if (entry == null) entry = systems.get(fallbackActiveSystemId());
+        link(world, home, entry);
+        WorldSystemState second = secondStaticSystem(entry == null ? "" : entry.id);
+        if (second != null) link(world, home, second);
+    }
 
-        String templateSystemId = primary.id();
-        if (!homeId.equals(templateSystemId)) {
-            systems.remove(templateSystemId);
-            for (WorldSystemState state : systems.values()) removeWormholeTo(state, templateSystemId);
+    private WorldSystemState secondStaticSystem(String excludedId) {
+        for (WorldSystemState state : systems.values()) {
+            if (state.isStatic() && !state.id.equals(excludedId)) return state;
         }
-
-        WorldSystemState home = createSystem(homeId, primary);
-        WorldSystemState corsairs = createSystem(StarSystems.CORSAIR_SYSTEM_ID, StarSystems.get(StarSystems.CORSAIR_SYSTEM_ID));
-        linkAllKnown(world, home);
-        linkAllKnown(world, corsairs);
-        return home;
+        return null;
     }
 
     String playerHomeSystemId(World world, String playerId, StarSystemDefinition primary) { return ensurePlayerHome(world, playerId, primary).id; }
@@ -161,9 +192,13 @@ final class GalaxyCoordinator {
     }
 
     Point2D npcSpawnPoint(World world, String factionId, double padding) {
-        WorldSystemState state = Config.CORSAIRS_ID.equals(factionId) ? systems.get(StarSystems.CORSAIR_SYSTEM_ID) : active();
+        WorldSystemState state = active();
         if (state == null) return new Point2D.Double(world.width / 2.0, world.height / 2.0);
-        return new Point2D.Double(Math.max(padding, state.width() * 0.34), Math.max(padding, state.height() * 0.52));
+        double angle = Math.floorMod(factionId == null ? 0 : factionId.hashCode(), 360) * Math.PI / 180.0;
+        double radius = Math.min(state.width(), state.height()) * 0.24;
+        return new Point2D.Double(
+                Calc.clamp(state.width() * 0.5 + Math.cos(angle) * radius, padding, state.width() - padding),
+                Calc.clamp(state.height() * 0.5 + Math.sin(angle) * radius, padding, state.height() - padding));
     }
 
     void update(World world, double dt) {
@@ -171,19 +206,52 @@ final class GalaxyCoordinator {
         if (state == null || dt == 0) return;
         state.systemTime += dt;
         state.celestials.update(dt);
+        SystemControlSystem.update(world, state, dt);
+    }
+
+    void advanceVisual(double dt) {
+        if (!Double.isFinite(dt) || dt == 0) return;
+        advanceVisualState(active(), dt);
+    }
+
+    void syncVisual(World world, String systemId, double hostTime) {
+        if (world == null || systemId == null || systemId.isBlank() || !Double.isFinite(hostTime) || hostTime < 0) return;
+        WorldSystemState state = systems.get(systemId);
+        if (state == null) return;
+        if (!state.id.equals(activeSystemId)) {
+            saveActive(world);
+            activeSystemId = state.id;
+            loadActive(world);
+        }
+        double delta = hostTime - state.systemTime;
+        if (Math.abs(delta) > 0.000001) advanceVisualState(state, delta);
+        state.systemTime = hostTime;
     }
 
     void updateInactiveSystems(double dt) {
         if (dt == 0) return;
         for (WorldSystemState state : systems.values()) {
             if (state == null || state.id.equals(activeSystemId)) continue;
-            state.systemTime += dt;
-            state.celestials.update(dt);
-            for (ResourceNode node : state.resources) node.updateOrbit(state.celestials.sunX(), state.celestials.sunY(), dt);
+            advanceVisualState(state, dt);
         }
     }
 
-    void draw(World world, Graphics2D g2) { WorldSystemState state = active(); if (state != null) state.celestials.draw(g2); for (WormholeGate gate : world.wormholes) gate.draw(g2); }
+    private void advanceVisualState(WorldSystemState state, double dt) {
+        if (state == null || !Double.isFinite(dt) || dt == 0) return;
+        state.systemTime += dt;
+        state.celestials.update(dt);
+        for (ResourceNode node : state.resources) node.updateOrbit(state.celestials.sunX(), state.celestials.sunY(), dt);
+    }
+
+    void draw(World world, Graphics2D g2) {
+        WorldSystemState state = active();
+        if (state != null) {
+            state.celestials.draw(g2);
+            String owner = state.control.status() == SystemControlStatus.CAPTURING ? state.control.claimantId() : state.control.controllerId();
+            state.controlPoint.draw(g2, state.control, ownerColor(owner));
+        }
+        for (WormholeGate gate : world.wormholes) gate.draw(g2);
+    }
 
     void drawMap(Graphics2D g2, int width, int height) {
         g2.setColor(new Color(9, 15, 24));
@@ -192,7 +260,10 @@ final class GalaxyCoordinator {
         for (int x = 0; x <= width; x += 160) g2.drawLine(x, 0, x, height);
         for (int y = 0; y <= height; y += 160) g2.drawLine(0, y, width, y);
         WorldSystemState state = active();
-        if (state != null) { g2.setColor(new Color(220, 238, 250, 190)); g2.drawString(state.definition.name() + " [" + state.id + "]", 24, 32); }
+        if (state != null) {
+            g2.setColor(new Color(220, 238, 250, 190));
+            g2.drawString(state.definition.name() + " [" + state.id + "]", 24, 32);
+        }
     }
 
     boolean hasLiveAssets(World world, String playerId) {
@@ -259,13 +330,15 @@ final class GalaxyCoordinator {
         return moved;
     }
 
-    private WormholeGate touchingGate(World world, Unit unit) { for (WormholeGate gate : world.wormholes) if (gate.contains(unit.x, unit.y)) return gate; return null; }
+    private WormholeGate touchingGate(World world, Unit unit) {
+        for (WormholeGate gate : world.wormholes) if (gate.contains(unit.x, unit.y)) return gate;
+        return null;
+    }
 
     private boolean transferUnit(World world, WormholeGate gate, Unit unit) {
         WorldSystemState from = active();
         WorldSystemState to = systems.get(gate.toSystemId);
-        if (from == null || to == null || unit == null) return false;
-        if (!world.units.containsKey(unit.key())) return false;
+        if (from == null || to == null || unit == null || !world.units.containsKey(unit.key())) return false;
         String previous = activeSystemId;
         double rawExitX = gate.exitX;
         double rawExitY = gate.exitY;
@@ -289,8 +362,90 @@ final class GalaxyCoordinator {
         activeSystemId = previous;
         loadActive(world);
         world.status = unit.type().name + " entered wormhole to " + to.definition.name() + ".";
-        System.out.println("WORMHOLE TRANSFER unit=" + unit.key() + " from=" + from.id + " to=" + to.id + " raw=(" + Calc.round(rawExitX) + "," + Calc.round(rawExitY) + ") safe=(" + Calc.round(exit.getX()) + "," + Calc.round(exit.getY()) + ") cooldown=" + Calc.round(unit.wormholeCooldown));
         return true;
+    }
+
+    boolean moveNpcExpedition(World world, String factionId, String targetSystemId, int requestedCombatShips) {
+        WorldSystemState source = active();
+        WorldSystemState target = systems.get(targetSystemId);
+        if (source == null || target == null || source == target || !wormholeExists(source, target.id)) return false;
+
+        List<Unit> combat = new ArrayList<>();
+        Unit builder = null;
+        Unit worker = null;
+        for (Unit unit : world.units.values()) {
+            if (!factionId.equals(unit.playerId) || unit.hp <= 0) continue;
+            if (builder == null && unit.type().baseBuilder && unit.basePackageType.isBlank()) builder = unit;
+            else if (worker == null && !unit.type().harvestKinds.isEmpty()) worker = unit;
+            if (WeaponRules.armed(unit.type())) combat.add(unit);
+        }
+        int fleetSize = Math.max(2, requestedCombatShips);
+        if (builder == null || worker == null || combat.size() < fleetSize) return false;
+        combat = new ArrayList<>(combat.subList(0, Math.min(fleetSize, combat.size())));
+
+        Base sourceBase = null;
+        for (Base base : world.bases.values()) {
+            if (factionId.equals(base.playerId) && base.hp > 0) { sourceBase = base; break; }
+        }
+        if (sourceBase == null) return false;
+
+        EnumMap<Material, Double> supplies = new EnumMap<>(Material.class);
+        for (Material material : Material.values()) {
+            if (!material.raw && material != Material.FUEL) continue;
+            double held = sourceBase.inventory.getOrDefault(material, 0.0);
+            double take = Math.min(250.0, held * 0.20);
+            if (take <= 0.05) continue;
+            supplies.put(material, take);
+            double left = held - take;
+            if (left <= 0.05) sourceBase.inventory.remove(material); else sourceBase.inventory.put(material, left);
+        }
+
+        for (Unit unit : combat) world.units.remove(unit.key());
+        world.units.remove(worker.key());
+        world.units.remove(builder.key());
+        String previous = activeSystemId;
+        saveActive(world);
+        activeSystemId = target.id;
+        loadActive(world);
+
+        Point2D anchor = npcSpawnPoint(world, factionId, 700);
+        String baseId = factionId + ":B" + nextNpcBaseNumber(target, factionId);
+        Base foothold = new Base(baseId, factionId, Rules.DEFAULT_BASE, anchor.getX(), anchor.getY());
+        foothold.inventory.putAll(supplies);
+        world.bases.put(baseId, foothold);
+        int index = 0;
+        for (Unit unit : combat) placeExpeditionUnit(world, unit, anchor, index++);
+        placeExpeditionUnit(world, worker, anchor, index);
+        saveActive(world);
+
+        activeSystemId = previous;
+        loadActive(world);
+        return true;
+    }
+
+    private void placeExpeditionUnit(World world, Unit unit, Point2D anchor, int index) {
+        double angle = index * 1.7;
+        double radius = 190 + index * 18;
+        unit.x = Calc.clamp(anchor.getX() + Math.cos(angle) * radius, 0, world.width);
+        unit.y = Calc.clamp(anchor.getY() + Math.sin(angle) * radius, 0, world.height);
+        unit.targetX = unit.x;
+        unit.targetY = unit.y;
+        unit.attackTarget = "";
+        unit.automationResourceId = -1;
+        unit.task = UnitTask.IDLE;
+        unit.wormholeCooldown = WORMHOLE_COOLDOWN_SECONDS;
+        world.units.put(unit.key(), unit);
+    }
+
+    private int nextNpcBaseNumber(WorldSystemState state, String factionId) {
+        int max = 0;
+        String prefix = factionId + ":B";
+        for (String id : state.bases.keySet()) {
+            if (!id.startsWith(prefix)) continue;
+            try { max = Math.max(max, Integer.parseInt(id.substring(prefix.length()))); }
+            catch (NumberFormatException ignored) { }
+        }
+        return max + 1;
     }
 
     void moveAssetsToSystem(World world, String playerId, String targetSystemId) {
@@ -319,28 +474,20 @@ final class GalaxyCoordinator {
         loadActive(world);
     }
 
-    private WorldSystemState createSystem(String id, StarSystemDefinition definition) {
+    private WorldSystemState createSystem(String id, String templateId, StarSystemDefinition definition,
+                                          SystemLifetime lifetime, String initialControllerId) {
         WorldSystemState existing = systems.get(id);
         if (existing != null) return existing;
         Random systemRandom = new Random(seed ^ ((long)id.hashCode() << 21) ^ definition.id().hashCode());
         CelestialSystem celestials = new CelestialSystem(definition, systemRandom);
-        WorldSystemState state = new WorldSystemState(id, definition, celestials);
+        WorldSystemState state = new WorldSystemState(id, templateId, definition, lifetime, initialControllerId, celestials);
         nextResourceId = ResourceSpawner.seed(state.resources, celestials, systemRandom, nextResourceId, definition.resourceBelts());
         systems.put(id, state);
         return state;
     }
 
-    private void linkAllKnown(World world, WorldSystemState state) {
-        if (state == null) return;
-        for (WorldSystemState other : new ArrayList<>(systems.values())) {
-            if (shouldAutoLink(state, other)) link(world, state, other);
-            else unlink(world, state, other);
-        }
-    }
-
     private void link(World world, WorldSystemState a, WorldSystemState b) {
         if (a == null || b == null || a == b || a.id.equals(b.id)) return;
-        if (!shouldAutoLink(a, b)) { unlink(world, a, b); return; }
         boolean aHas = wormholeExists(a, b.id);
         boolean bHas = wormholeExists(b, a.id);
         if (aHas && bHas) return;
@@ -353,44 +500,12 @@ final class GalaxyCoordinator {
         if (a.id.equals(activeSystemId) || b.id.equals(activeSystemId)) loadActive(world);
     }
 
-    private boolean shouldAutoLink(WorldSystemState a, WorldSystemState b) {
-        if (a == null || b == null || a == b || a.id.equals(b.id)) return false;
-        if (StarSystems.DEFAULT_SYSTEM_ID.equals(a.id) || StarSystems.DEFAULT_SYSTEM_ID.equals(b.id)) return false;
-        boolean aHome = isPlayerHome(a.id);
-        boolean bHome = isPlayerHome(b.id);
-        if (aHome && bHome) return true;
-        return (aHome && isSpecialLinkSystem(b.id)) || (bHome && isSpecialLinkSystem(a.id));
-    }
-
-    private boolean isPlayerHome(String systemId) {
-        return systemId != null && systemId.startsWith(StarSystems.PLAYER_HOME_SYSTEM_ID + "_");
-    }
-
-    private boolean isSpecialLinkSystem(String systemId) {
-        return StarSystems.CORSAIR_SYSTEM_ID.equals(systemId);
-    }
-
-    private void unlink(World world, WorldSystemState a, WorldSystemState b) {
-        if (a == null || b == null || a == b || a.id.equals(b.id)) return;
-        boolean changed = removeWormholeTo(a, b.id);
-        changed = removeWormholeTo(b, a.id) || changed;
-        if (changed && (a.id.equals(activeSystemId) || b.id.equals(activeSystemId))) loadActive(world);
-    }
-
-    private boolean removeWormholeTo(WorldSystemState state, String toSystemId) {
-        if (state == null || toSystemId == null || toSystemId.isBlank()) return false;
-        return state.wormholes.removeIf(gate -> toSystemId.equals(gate.toSystemId));
-    }
-
     private Set<String> pruneAbandonedSystemsAfterSave(World world) {
         Set<String> deleted = new LinkedHashSet<>();
         for (WorldSystemState state : new ArrayList<>(systems.values())) {
             if (canPruneSystem(state) && !hasPlayerAssets(state)) deleted.add(state.id);
         }
-        if (deleted.isEmpty()) {
-            loadActive(world);
-            return Set.of();
-        }
+        if (deleted.isEmpty()) { loadActive(world); return Set.of(); }
         deleteSystems(world, deleted);
         return Set.copyOf(deleted);
     }
@@ -408,7 +523,7 @@ final class GalaxyCoordinator {
     }
 
     private boolean canPruneSystem(WorldSystemState state) {
-        return state != null && isPlayerHome(state.id);
+        return state != null && state.lifetime != SystemLifetime.STATIC;
     }
 
     private boolean hasPlayerAssets(WorldSystemState state) {
@@ -423,8 +538,7 @@ final class GalaxyCoordinator {
     }
 
     private String fallbackActiveSystemId() {
-        if (systems.containsKey(StarSystems.DEFAULT_SYSTEM_ID)) return StarSystems.DEFAULT_SYSTEM_ID;
-        if (systems.containsKey(StarSystems.CORSAIR_SYSTEM_ID)) return StarSystems.CORSAIR_SYSTEM_ID;
+        if (entrySystemId != null && systems.containsKey(entrySystemId)) return entrySystemId;
         return systems.isEmpty() ? null : systems.keySet().iterator().next();
     }
 

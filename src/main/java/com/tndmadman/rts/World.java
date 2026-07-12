@@ -26,6 +26,8 @@ final class World {
     private final GalaxyCoordinator galaxy = new GalaxyCoordinator();
     private final Set<String> disabledNpcFactionIds;
     private final Map<String, NpcSystem> npcSystems = new LinkedHashMap<>();
+    private final NpcGalaxyDirector npcGalaxyDirector = new NpcGalaxyDirector();
+    private GalaxyMapSnapshot remoteGalaxyMapSnapshot;
     boolean devFreeBuild;
     private StarSystemDefinition starSystem;
     private long systemSeed;
@@ -78,8 +80,35 @@ final class World {
     String systemId() { return starSystem.id(); }
     String systemName() { return starSystem.name(); }
     String activeSystemId() { return galaxy.activeSystemId(); }
-    GalaxyMapSnapshot galaxyMapSnapshot() { return galaxy.mapSnapshot(this); }
+    String activeSystemControllerId() { return galaxy.activeControllerId(); }
+    GalaxyMapSnapshot galaxyMapSnapshot() {
+        GalaxyMapSnapshot snapshot = remoteGalaxyMapSnapshot;
+        return snapshot == null ? galaxy.mapSnapshot(this) : GalaxyMapWire.withActive(snapshot, activeSystemId());
+    }
+    GalaxyMapSnapshot authoritativeGalaxyMapSnapshot() { return galaxy.mapSnapshot(this); }
+    void applyRemoteGalaxyMapSnapshot(GalaxyMapSnapshot snapshot) { remoteGalaxyMapSnapshot = snapshot; }
+    void configureGalaxyCopies(int copies) {
+        int normalized = Math.max(1, Math.min(2, copies));
+        if (GalaxyRuntimeOptions.copiesPerTemplate() == normalized) return;
+        GalaxyRuntimeOptions.configureCopies(normalized);
+        remoteGalaxyMapSnapshot = null;
+        npcSystems.clear();
+        celestials = galaxy.rebuild(this, starSystem, systemSeed);
+        systemTime = galaxy.activeSystemTime();
+    }
     boolean viewGalaxySystem(String systemId) { boolean viewed = galaxy.viewSystem(this, systemId); celestials = galaxy.activeCelestials(); systemTime = galaxy.activeSystemTime(); selectedResourceId = -1; if (viewed) SystemAudio.listenTo(this); return viewed; }
+    void advanceClientEnvironment(double dt) {
+        if (!Double.isFinite(dt) || dt <= 0) return;
+        galaxy.advanceVisual(dt);
+        celestials = galaxy.activeCelestials();
+        systemTime = galaxy.activeSystemTime();
+    }
+    void syncClientEnvironment(String systemId, double hostTime) {
+        if (systemId == null || systemId.isBlank() || !Double.isFinite(hostTime) || hostTime < 0) return;
+        galaxy.syncVisual(this, systemId, hostTime);
+        celestials = galaxy.activeCelestials();
+        systemTime = galaxy.activeSystemTime();
+    }
     boolean hasLiveAssets(String playerId) { return galaxy.hasLiveAssets(this, playerId); }
     String playerHomeSystemId(String playerId) { return galaxy.playerHomeSystemId(this, playerId, starSystem); }
     void activateSystem(String systemId) { celestials = galaxy.activate(this, systemId); systemTime = galaxy.activeSystemTime(); }
@@ -91,18 +120,23 @@ final class World {
     Point2D startPointForPlayer(String playerId, int slot) { return galaxy.startPoint(this, playerId, slot, starSystem); }
     Point2D npcSpawnPoint(String factionId, double padding) { return galaxy.npcSpawnPoint(this, factionId, padding); }
     void movePlayerAssetsToSystem(String playerId, String targetSystemId) { galaxy.moveAssetsToSystem(this, playerId, targetSystemId); celestials = galaxy.activeCelestials(); systemTime = galaxy.activeSystemTime(); }
+    boolean launchNpcExpedition(String factionId, String targetSystemId, int combatShips) { return galaxy.moveNpcExpedition(this, factionId, targetSystemId, combatShips); }
+
     Set<String> removePlayerAndPruneEmptySystems(String playerId) {
         completedResearch.remove(playerId);
         Set<String> deleted = galaxy.removePlayerAndPruneEmptySystems(this, playerId);
         npcSystems.keySet().removeAll(deleted);
+        SystemSimulationScheduler.removeSystems(this, deleted);
         celestials = galaxy.activeCelestials();
         systemTime = galaxy.activeSystemTime();
         selectedResourceId = -1;
         return deleted;
     }
+
     Set<String> pruneEmptyDynamicSystems() {
         Set<String> deleted = galaxy.pruneAbandonedSystems(this);
         npcSystems.keySet().removeAll(deleted);
+        SystemSimulationScheduler.removeSystems(this, deleted);
         celestials = galaxy.activeCelestials();
         systemTime = galaxy.activeSystemTime();
         return deleted;
@@ -205,31 +239,32 @@ final class World {
     void syncEnvironment(long seed, double hostTime) { syncEnvironment(systemId(), seed, hostTime); }
     void syncEnvironment(String newSystemId, long seed, double hostTime) { boolean changed = !StarSystems.get(newSystemId).id().equals(systemId()); if (changed) setStarSystem(newSystemId); if (changed || seed != systemSeed) setSystemSeed(seed); double delta = hostTime - systemTime; if (Math.abs(delta) > 0.02) advanceEnvironment(delta); else { systemTime = hostTime; galaxy.setActiveSystemTime(hostTime); } }
     private void setStarSystem(String systemId) { starSystem = StarSystems.get(systemId); }
-    private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); npcSystems.clear(); celestials = galaxy.rebuild(this, starSystem, seed); }
+    private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); npcSystems.clear(); remoteGalaxyMapSnapshot = null; celestials = galaxy.rebuild(this, starSystem, seed); }
     private Point2D startShipPoint(Point2D basePoint) { return new Point2D.Double(basePoint.getX() + 180, basePoint.getY() - 80); }
 
     void updateEnvironment(double dt) { advanceEnvironment(dt); updateItems(dt); updateExplosions(dt); }
     private void advanceEnvironment(double dt) { galaxy.update(this, dt); systemTime = galaxy.activeSystemTime(); celestials = galaxy.activeCelestials(); ResourceSpawner.update(resources, celestials, dt); ResourceNetDebug.worldTick(this, dt); }
     private void updateItems(double dt) { Iterator<WorldItem> it = items.iterator(); while (it.hasNext()) { WorldItem item = it.next(); item.update(dt, width, height); if (item.empty()) it.remove(); } }
-    void update(double dt) { SystemAudio.listenTo(this); update(dt, true); }
-    void updateCurrentSystem(double dt) { update(dt, false); }
-    private void update(double dt, boolean updateInactiveSystems) { updateEnvironment(dt); resourceRespawnSystem.update(this, dt); StationFuelRules.consume(this, dt); logisticsSystem.update(this, dt); itemPickupSystem.update(this); scoutSystem.update(this); npcSystemForActiveSystem().update(this, dt); for (Unit unit : new ArrayList<>(units.values())) updateUnit(unit, dt); transferTouchingShips(); weaponSystem.update(this, dt); cleanupDestroyed(); saveActiveSystem(); if (updateInactiveSystems) updateInactiveSystems(dt); }
+    void update(double dt) { SystemAudio.listenTo(this); updateEnvironment(dt); updateSimulation(dt); updateInactiveSystems(dt); }
+    void updateCurrentSystem(double dt) { if (dt <= 0) return; updateEnvironment(dt); double step = SystemSimulationScheduler.step(this, dt); if (step > 0) updateSimulation(step); else saveActiveSystem(); }
+    private void updateSimulation(double dt) { SystemModifierRules.applyEnvironment(this, dt); resourceRespawnSystem.update(this, dt); StationFuelRules.consume(this, dt); logisticsSystem.update(this, dt); itemPickupSystem.update(this); scoutSystem.update(this); npcSystemForActiveSystem().update(this, dt); npcGalaxyDirector.update(this, dt); for (Unit unit : new ArrayList<>(units.values())) updateUnit(unit, dt); transferTouchingShips(); weaponSystem.update(this, dt); cleanupDestroyed(); saveActiveSystem(); }
+
     private NpcSystem npcSystemForActiveSystem() {
-        String systemId = activeSystemId();
-        if (systemId == null || systemId.isBlank()) systemId = systemId();
-        return npcSystems.computeIfAbsent(systemId, this::createNpcSystem);
+        String activeId = activeSystemId();
+        if (activeId == null || activeId.isBlank()) activeId = systemId();
+        return npcSystems.computeIfAbsent(activeId, this::createNpcSystem);
     }
+
     private NpcSystem createNpcSystem(String systemId) {
         Set<String> disabled = new LinkedHashSet<>(disabledNpcFactionIds);
-        boolean playerHome = systemId != null && systemId.startsWith(StarSystems.PLAYER_HOME_SYSTEM_ID + "_");
-        if (!playerHome) {
-            disabled.add(Config.RAIDERS_ID);
-            disabled.add(Config.FREE_MINERS_ID);
+        for (NpcFaction faction : NpcRules.factions()) {
+            if (!NpcSystemScope.allows(systemId, faction.id())) disabled.add(faction.id());
         }
-        if (!StarSystems.CORSAIR_SYSTEM_ID.equals(systemId)) disabled.add(Config.CORSAIRS_ID);
         return new NpcSystem(disabled);
     }
+
     int npcRuntimeSystemCount() { return npcSystems.size(); }
+
     private void updateInactiveSystems(double dt) {
         if (dt == 0) return;
         String previousSystemId = activeSystemId();
@@ -247,7 +282,8 @@ final class World {
             status = previousStatus;
         }
     }
-    private void updateUnit(Unit unit, double dt) { unit.unloadingThisFrame = false; unit.wormholeCooldown = Math.max(0, unit.wormholeCooldown - dt); sendFullHarvestCargoToUnload(unit); autoUnload(unit, dt); haulerSystem.update(this, unit, dt); workSystem.update(this, unit, dt); UnitOrderSystem.update(this, unit, dt); if (unit.task == UnitTask.RETURN_TO_STATION) updateReturn(unit); if (unit.task == UnitTask.IDLE && unit.orderType == UnitOrderType.NONE) idleNearBase(unit, dt); if (unit.task == UnitTask.MOVE && Calc.distance(unit.x, unit.y, unit.targetX, unit.targetY) < 5) unit.task = UnitTask.IDLE; unit.updatePosition(dt, width, height); }
+
+    private void updateUnit(Unit unit, double dt) { unit.unloadingThisFrame = false; unit.wormholeCooldown = Math.max(0, unit.wormholeCooldown - dt); sendFullHarvestCargoToUnload(unit); autoUnload(unit, dt); haulerSystem.update(this, unit, dt); workSystem.update(this, unit, dt); UnitOrderSystem.update(this, unit, dt); if (unit.task == UnitTask.RETURN_TO_STATION) updateReturn(unit); if (unit.task == UnitTask.IDLE && unit.orderType == UnitOrderType.NONE) idleNearBase(unit, dt); if (unit.task == UnitTask.MOVE && Calc.distance(unit.x, unit.y, unit.targetX, unit.targetY) < 5) unit.task = UnitTask.IDLE; unit.updatePosition(dt * SystemModifierRules.movementSpeed(this), width, height); }
     private void sendFullHarvestCargoToUnload(Unit unit) { if (unit.type().harvestKinds.isEmpty() || unit.task == UnitTask.RETURN_TO_STATION || unit.cargoUsed() <= 0.05 || unit.freeCargo() > 0.05) return; sendToNearestBase(unit); }
     private void updateReturn(Unit unit) { Base base = nearestBase(unit.playerId, unit.x, unit.y); Unit depot = MobileDepot.preferredFor(this, unit, base); if (base == null && depot == null) { unit.task = UnitTask.IDLE; return; } if (unit.cargoUsed() <= 0.05) { ResourceNode resume = findResource(unit.automationResourceId); if (resume != null && resume.active) unit.task = UnitTask.AUTO_HARVEST; else if (!returnToMiningAnchor(unit)) unit.task = UnitTask.IDLE; return; } if (depot != null) moveTowardOrbit(unit, depot.x, depot.y, MobileDepot.range(depot) * 0.55); else moveTowardOrbit(unit, base.x, base.y, base.type().unloadRange * 0.55); }
     private void idleNearBase(Unit unit, double dt) { Base base = nearestBase(unit.playerId, unit.x, unit.y); if (base != null && Calc.distance(unit.x, unit.y, base.x, base.y) < base.type().unloadRange + 170) orbitAround(unit, base.x, base.y, unit.type().idleOrbitRadius, dt, 0.35); }

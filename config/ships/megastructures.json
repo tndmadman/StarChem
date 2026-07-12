@@ -20,7 +20,15 @@
         "HYDROGEN": 18000,
         "HELIUM": 9000,
         "METHANE": 5200,
-        "AMMONIA": 4200
+        "AMMONIA": 4200,
+        "TITANIUM": 18000,
+        "TUNGSTEN": 12000,
+        "PLATINUM": 7000,
+        "RARE_EARTHS": 9000,
+        "URANIUM": 4500,
+        "XENON": 4000,
+        "NEON": 2600,
+        "GOLD": 5000
       },
       "canHarvest": []
     }

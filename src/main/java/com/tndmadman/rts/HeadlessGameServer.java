@@ -12,6 +12,7 @@ final class HeadlessGameServer {
     }
 
     static HeadlessGameServer start(Config config) throws IOException {
+        GalaxyRuntimeOptions.configure(config);
         World world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId, false);
         DevTimerSettings.configure(world, config.disableProductionTimers);
         PeerNetwork network = PeerNetwork.start(config, world);

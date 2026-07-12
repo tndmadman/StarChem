@@ -1,5 +1,5 @@
 {
-  "rulesVersion": 12,
+  "rulesVersion": 13,
   "startingShipType": "prospector",
   "defaultStationType": "outpost",
   "files": {
@@ -28,8 +28,16 @@
       "config/systems/ice-belt.json",
       "config/systems/warzone.json",
       "config/systems/corsair-den.json",
-      "config/systems/empty-frontier.json"
+      "config/systems/empty-frontier.json",
+      "config/systems/binary-forge.json",
+      "config/systems/volcanic-crucible.json",
+      "config/systems/nebula-expanse.json",
+      "config/systems/shattered-worlds.json",
+      "config/systems/pulsar-reach.json",
+      "config/systems/carbon-basin.json",
+      "config/systems/ancient-graveyard.json"
     ],
+    "galaxy": "config/galaxy.json",
     "automation": "config/automation.json",
     "craftables": [
       "config/craftables/fuel.json"

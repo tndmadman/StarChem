@@ -31,7 +31,7 @@ final class WorkSystem {
             return;
         }
         ResourceNetDebug.workState(world, unit, node, "mining");
-        double gain = Math.min(node.harvestRate * dt, Math.min(node.amount, unit.freeCargo()));
+        double gain = Math.min(node.harvestRate * SystemModifierRules.miningYield(world) * SystemControlBonuses.miningYield(world, unit.playerId) * dt, Math.min(node.amount, unit.freeCargo()));
         if (gain > 0) {
             node.amount -= gain;
             ResourceSync.mark(world, node);

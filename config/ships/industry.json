@@ -12,7 +12,13 @@
       "orbitRadius": 84,
       "idleStationOrbitRadius": 120,
       "buildTimeSeconds": 10,
-      "buildCost": { "IRON": 150, "COPPER": 60, "SILICATES": 80 },
+      "buildCost": {
+        "IRON": 150,
+        "COPPER": 60,
+        "SILICATES": 80,
+        "ALUMINUM": 60,
+        "CARBON": 40
+      },
       "canHarvest": []
     },
     "deep_miner": {
@@ -28,8 +34,17 @@
       "idleStationOrbitRadius": 120,
       "scoutRange": 360,
       "buildTimeSeconds": 14,
-      "buildCost": { "IRON": 180, "COPPER": 110, "SILICATES": 140, "ICE": 60 },
-      "canHarvest": ["SILICATE_ROCK"]
+      "buildCost": {
+        "IRON": 180,
+        "COPPER": 110,
+        "SILICATES": 140,
+        "ICE": 60,
+        "NICKEL": 80,
+        "TITANIUM": 35
+      },
+      "canHarvest": [
+        "SILICATE_ROCK"
+      ]
     },
     "gas_harvester": {
       "displayName": "Gas Harvester",
@@ -44,8 +59,19 @@
       "idleStationOrbitRadius": 120,
       "scoutRange": 360,
       "buildTimeSeconds": 14,
-      "buildCost": { "IRON": 120, "COPPER": 150, "SILICATES": 60, "ICE": 80, "HYDROGEN": 80 },
-      "canHarvest": ["GAS_CLOUD"]
+      "buildCost": {
+        "IRON": 120,
+        "COPPER": 150,
+        "SILICATES": 60,
+        "ICE": 80,
+        "HYDROGEN": 80,
+        "NICKEL": 50,
+        "ALUMINUM": 50,
+        "NITROGEN": 30
+      },
+      "canHarvest": [
+        "GAS_CLOUD"
+      ]
     },
     "freighter": {
       "displayName": "Freighter",
@@ -59,7 +85,15 @@
       "orbitRadius": 110,
       "idleStationOrbitRadius": 155,
       "buildTimeSeconds": 24,
-      "buildCost": { "IRON": 420, "COPPER": 200, "SILICATES": 300, "ICE": 140 },
+      "buildCost": {
+        "IRON": 420,
+        "COPPER": 200,
+        "SILICATES": 300,
+        "ICE": 140,
+        "ALUMINUM": 180,
+        "NICKEL": 120,
+        "CARBON": 100
+      },
       "canHarvest": []
     },
     "salvager": {
@@ -79,7 +113,13 @@
       "orbitRadius": 88,
       "idleStationOrbitRadius": 120,
       "buildTimeSeconds": 16,
-      "buildCost": { "IRON": 160, "COPPER": 120, "SILICATES": 90 },
+      "buildCost": {
+        "IRON": 160,
+        "COPPER": 120,
+        "SILICATES": 90,
+        "NICKEL": 50,
+        "GOLD": 12
+      },
       "canHarvest": []
     }
   }

@@ -105,6 +105,62 @@ tasks.register('validateNpcSystemIsolation', JavaExec) {
     mainClass = 'com.tndmadman.rts.NpcSystemIsolationValidator'
 }
 
+tasks.register('validateMaterialCoverage', JavaExec) {
+    group = 'verification'
+    description = 'Validate expanded raw materials, system coverage, and economy usage.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.MaterialCoverageValidator'
+}
+
+tasks.register('validateSystemControl', JavaExec) {
+    group = 'verification'
+    description = 'Validate static-system capture, contesting, protection, colors, and bonuses.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.SystemControlValidator'
+}
+
+tasks.register('validateGalaxyMapWire', JavaExec) {
+    group = 'verification'
+    description = 'Validate bounded global galaxy/control synchronization.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.GalaxyMapWireValidator'
+}
+
+tasks.register('validateSystemModifiers', JavaExec) {
+    group = 'verification'
+    description = 'Validate all configured star-system simulation modifiers.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.SystemModifierValidator'
+}
+
+tasks.register('validateNpcGalaxyDirector', JavaExec) {
+    group = 'verification'
+    description = 'Validate organized NPC expansion and foothold deployment.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.NpcGalaxyDirectorValidator'
+}
+
+tasks.register('validateSystemSimulationScheduler', JavaExec) {
+    group = 'verification'
+    description = 'Validate hot, warm, and cold background-system update tiers.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.SystemSimulationSchedulerValidator'
+}
+
+tasks.register('validateClientEnvironmentSync', JavaExec) {
+    group = 'verification'
+    description = 'Validate client-side orbit prediction and exact system-instance snapshot synchronization.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.ClientEnvironmentSyncValidator'
+}
+
 tasks.named('jar') {
     archiveFileName = 'StarChem.jar'
     manifest {
@@ -151,6 +207,13 @@ tasks.named('check') {
     dependsOn tasks.named('validateSnapshotHardening')
     dependsOn tasks.named('validateSessionRecovery')
     dependsOn tasks.named('validateNpcSystemIsolation')
+    dependsOn tasks.named('validateMaterialCoverage')
+    dependsOn tasks.named('validateSystemControl')
+    dependsOn tasks.named('validateGalaxyMapWire')
+    dependsOn tasks.named('validateSystemModifiers')
+    dependsOn tasks.named('validateNpcGalaxyDirector')
+    dependsOn tasks.named('validateSystemSimulationScheduler')
+    dependsOn tasks.named('validateClientEnvironmentSync')
     dependsOn tasks.named('verifyBuildMetadata')
 }
 

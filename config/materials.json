@@ -1,52 +1,32 @@
 {
   "materials": {
-    "IRON": {
-      "displayName": "Iron",
-      "color": "#B49678"
-    },
-    "COPPER": {
-      "displayName": "Copper",
-      "color": "#DD7A3C"
-    },
-    "SILICATES": {
-      "displayName": "Silicates",
-      "color": "#A5AA9B"
-    },
-    "ICE": {
-      "displayName": "Water Ice",
-      "color": "#91DCFF"
-    },
-    "HYDROGEN": {
-      "displayName": "Hydrogen",
-      "color": "#6ED2FF"
-    },
-    "HELIUM": {
-      "displayName": "Helium",
-      "color": "#D2AFFF"
-    },
-    "METHANE": {
-      "displayName": "Methane",
-      "color": "#64FFBE"
-    },
-    "AMMONIA": {
-      "displayName": "Ammonia",
-      "color": "#EBF596"
-    },
-    "FUEL": {
-      "displayName": "Fuel",
-      "color": "#FFB946"
-    },
-    "SCRAP_METAL": {
-      "displayName": "Scrap Metal",
-      "color": "#A0A5AA"
-    },
-    "HULL_PLATING": {
-      "displayName": "Hull Plating",
-      "color": "#7891AA"
-    },
-    "CIRCUIT_FRAGMENTS": {
-      "displayName": "Circuit Fragments",
-      "color": "#5AF5B9"
-    }
+    "IRON": {"displayName": "Iron", "color": "#B49678", "family": "METAL", "tier": "COMMON", "raw": true},
+    "COPPER": {"displayName": "Copper", "color": "#DD7A3C", "family": "METAL", "tier": "COMMON", "raw": true},
+    "NICKEL": {"displayName": "Nickel", "color": "#A6B1A9", "family": "METAL", "tier": "COMMON", "raw": true},
+    "COBALT": {"displayName": "Cobalt", "color": "#4B70C4", "family": "METAL", "tier": "UNCOMMON", "raw": true},
+    "ALUMINUM": {"displayName": "Aluminum", "color": "#CDD7DC", "family": "METAL", "tier": "COMMON", "raw": true},
+    "TITANIUM": {"displayName": "Titanium", "color": "#84919D", "family": "METAL", "tier": "UNCOMMON", "raw": true},
+    "TUNGSTEN": {"displayName": "Tungsten", "color": "#5C6269", "family": "METAL", "tier": "RARE", "raw": true},
+    "GOLD": {"displayName": "Gold", "color": "#EEC246", "family": "METAL", "tier": "RARE", "raw": true},
+    "PLATINUM": {"displayName": "Platinum", "color": "#D6DCE1", "family": "METAL", "tier": "RARE", "raw": true},
+    "URANIUM": {"displayName": "Uranium", "color": "#7EDC5B", "family": "METAL", "tier": "EXOTIC", "raw": true},
+    "SILICATES": {"displayName": "Silicates", "color": "#A5AA9B", "family": "MINERAL", "tier": "COMMON", "raw": true},
+    "ICE": {"displayName": "Water Ice", "color": "#91DCFF", "family": "VOLATILE", "tier": "COMMON", "raw": true},
+    "CARBON": {"displayName": "Carbon", "color": "#464A50", "family": "MINERAL", "tier": "COMMON", "raw": true},
+    "SULFUR": {"displayName": "Sulfur", "color": "#E5CD3F", "family": "MINERAL", "tier": "UNCOMMON", "raw": true},
+    "PHOSPHATES": {"displayName": "Phosphates", "color": "#BE9D70", "family": "MINERAL", "tier": "UNCOMMON", "raw": true},
+    "RARE_EARTHS": {"displayName": "Rare Earths", "color": "#D270B1", "family": "MINERAL", "tier": "RARE", "raw": true},
+    "HYDROGEN": {"displayName": "Hydrogen", "color": "#6ED2FF", "family": "GAS", "tier": "COMMON", "raw": true},
+    "HELIUM": {"displayName": "Helium", "color": "#D2AFFF", "family": "GAS", "tier": "COMMON", "raw": true},
+    "METHANE": {"displayName": "Methane", "color": "#64FFBE", "family": "GAS", "tier": "COMMON", "raw": true},
+    "AMMONIA": {"displayName": "Ammonia", "color": "#EBF596", "family": "GAS", "tier": "UNCOMMON", "raw": true},
+    "NITROGEN": {"displayName": "Nitrogen", "color": "#70AAEB", "family": "GAS", "tier": "UNCOMMON", "raw": true},
+    "NEON": {"displayName": "Neon", "color": "#FF6D60", "family": "GAS", "tier": "RARE", "raw": true},
+    "ARGON": {"displayName": "Argon", "color": "#997EE6", "family": "GAS", "tier": "RARE", "raw": true},
+    "XENON": {"displayName": "Xenon", "color": "#5DE7E5", "family": "GAS", "tier": "EXOTIC", "raw": true},
+    "FUEL": {"displayName": "Fuel", "color": "#FFB946", "family": "REFINED", "tier": "UNCOMMON", "raw": false},
+    "SCRAP_METAL": {"displayName": "Scrap Metal", "color": "#A0A5AA", "family": "SALVAGE", "tier": "COMMON", "raw": false},
+    "HULL_PLATING": {"displayName": "Hull Plating", "color": "#7891AA", "family": "SALVAGE", "tier": "UNCOMMON", "raw": false},
+    "CIRCUIT_FRAGMENTS": {"displayName": "Circuit Fragments", "color": "#5AF5B9", "family": "SALVAGE", "tier": "UNCOMMON", "raw": false}
   }
 }

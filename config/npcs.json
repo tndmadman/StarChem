@@ -11,7 +11,11 @@
       "respawnSeconds": 45,
       "orderSeconds": 2,
       "baseType": "outpost",
-      "startingUnits": ["frigate", "frigate", "destroyer"],
+      "startingUnits": [
+        "frigate",
+        "frigate",
+        "destroyer"
+      ],
       "workerUnitTypes": [],
       "fleetUnitTypes": [],
       "supportUnitTypes": [],
@@ -58,8 +62,13 @@
       "respawnSeconds": 60,
       "orderSeconds": 3,
       "baseType": "outpost",
-      "startingUnits": ["prospector", "prospector"],
-      "workerUnitTypes": ["prospector"],
+      "startingUnits": [
+        "prospector",
+        "prospector"
+      ],
+      "workerUnitTypes": [
+        "prospector"
+      ],
       "fleetUnitTypes": [],
       "supportUnitTypes": [],
       "stationPackageTypes": [],
@@ -83,8 +92,21 @@
       "spawnDistance": 2800,
       "spawnPadding": 700,
       "unitSpacing": 145,
-      "targetMaterials": ["IRON", "COPPER", "SILICATES", "ICE"],
-      "harvestNodeKinds": ["SILICATE_ROCK"],
+      "targetMaterials": [
+        "IRON",
+        "COPPER",
+        "NICKEL",
+        "ALUMINUM",
+        "SILICATES",
+        "ICE",
+        "CARBON",
+        "PHOSPHATES",
+        "HYDROGEN",
+        "HELIUM",
+        "METHANE",
+        "NITROGEN"
+      ],
+      "harvestNodeKinds": [],
       "attackBases": false,
       "attackUnits": false,
       "attackNpcFactions": false,
@@ -105,14 +127,41 @@
       "respawnSeconds": 90,
       "orderSeconds": 3,
       "baseType": "outpost",
-      "startingUnits": ["prospector", "prospector", "frigate"],
-      "workerUnitTypes": ["prospector"],
-      "fleetUnitTypes": ["frigate", "destroyer", "cruiser"],
-      "supportUnitTypes": ["hauler", "freighter", "salvager"],
-      "stationPackageTypes": ["shipyard", "laboratory", "manufacturing"],
-      "industryUnitTypes": ["deep_miner", "gas_harvester"],
-      "researchTopicIds": ["advanced_industry", "combat_doctrine", "battlefleet_engineering"],
-      "craftableItemIds": ["fuel"],
+      "startingUnits": [
+        "prospector",
+        "prospector",
+        "frigate"
+      ],
+      "workerUnitTypes": [
+        "prospector"
+      ],
+      "fleetUnitTypes": [
+        "frigate",
+        "destroyer",
+        "cruiser"
+      ],
+      "supportUnitTypes": [
+        "hauler",
+        "freighter",
+        "salvager"
+      ],
+      "stationPackageTypes": [
+        "shipyard",
+        "laboratory",
+        "manufacturing"
+      ],
+      "industryUnitTypes": [
+        "deep_miner",
+        "gas_harvester"
+      ],
+      "researchTopicIds": [
+        "advanced_industry",
+        "combat_doctrine",
+        "battlefleet_engineering"
+      ],
+      "craftableItemIds": [
+        "fuel"
+      ],
       "maxWorkers": 3,
       "targetFleetSize": 6,
       "raidFleetSize": 4,
@@ -130,11 +179,36 @@
       "spawnDistance": 3400,
       "spawnPadding": 700,
       "unitSpacing": 150,
-      "targetMaterials": ["IRON", "COPPER", "SILICATES", "ICE", "HYDROGEN", "HELIUM", "METHANE"],
+      "targetMaterials": [
+        "IRON",
+        "COPPER",
+        "NICKEL",
+        "COBALT",
+        "ALUMINUM",
+        "TITANIUM",
+        "TUNGSTEN",
+        "GOLD",
+        "PLATINUM",
+        "URANIUM",
+        "SILICATES",
+        "ICE",
+        "CARBON",
+        "SULFUR",
+        "PHOSPHATES",
+        "RARE_EARTHS",
+        "HYDROGEN",
+        "HELIUM",
+        "METHANE",
+        "AMMONIA",
+        "NITROGEN",
+        "NEON",
+        "ARGON",
+        "XENON"
+      ],
       "harvestNodeKinds": [],
       "attackBases": true,
       "attackUnits": true,
-      "attackNpcFactions": false,
+      "attackNpcFactions": true,
       "replaceWorkers": true,
       "harassWorkers": true,
       "preferWorkerTargets": true,

@@ -40,6 +40,8 @@ public final class RulesValidator {
         private final Set<Path> failedPaths = new LinkedHashSet<>();
         private final Set<String> materialNames = enumNames(Material.values());
         private final Set<String> nodeKindNames = enumNames(NodeKind.values());
+        private final Set<String> materialFamilyNames = enumNames(MaterialFamily.values());
+        private final Set<String> resourceTierNames = enumNames(ResourceTier.values());
 
         private Validator(Path manifest) {
             this.manifest = manifest;
@@ -74,9 +76,11 @@ public final class RulesValidator {
             validateStations(stations, shipIds);
             validateResearch(research, stationIds, shipIds, researchIds);
             validateCraftables(craftables, stationIds);
+            validateMaterials(files);
             validateResources(files);
             validateNpcFactions(files, shipIds, stationIds, researchIds, craftableIds);
             validateSystems(files);
+            validateGalaxy(files);
 
             return List.copyOf(errors);
         }
@@ -196,6 +200,33 @@ public final class RulesValidator {
             }
         }
 
+        private void validateMaterials(Map<String,Object> files) {
+            Object materialFile = files.get("materials");
+            if (materialFile == null) {
+                errors.add("manifest.files.materials is missing.");
+                return;
+            }
+            Set<String> seen = new LinkedHashSet<>();
+            for (String rawPath : filePaths(materialFile, "manifest.files.materials")) {
+                Map<String,Object> doc = readObject(Path.of(rawPath), "materials config " + rawPath);
+                Map<String,Object> materials = object(doc.get("materials"));
+                for (Map.Entry<String,Object> entry : materials.entrySet()) {
+                    String id = clean(entry.getKey()).toUpperCase(Locale.ROOT);
+                    String context = "material '" + id + "' in " + rawPath;
+                    if (!materialNames.contains(id)) errors.add(context + " does not exist in Material enum.");
+                    if (!seen.add(id)) errors.add(context + " is duplicated.");
+                    Map<String,Object> data = object(entry.getValue());
+                    if (string(data, "displayName", "").isBlank()) errors.add(context + ".displayName is blank.");
+                    String family = string(data, "family", "").toUpperCase(Locale.ROOT);
+                    if (!materialFamilyNames.contains(family)) errors.add(context + ".family is invalid: " + family);
+                    String tier = string(data, "tier", "").toUpperCase(Locale.ROOT);
+                    if (!resourceTierNames.contains(tier)) errors.add(context + ".tier is invalid: " + tier);
+                    if (!(data.get("raw") instanceof Boolean)) errors.add(context + ".raw must be boolean.");
+                }
+            }
+            for (String material : materialNames) if (!seen.contains(material)) errors.add("materials config is missing " + material + ".");
+        }
+
         private void validateResources(Map<String,Object> files) {
             Object resourcesFile = files.get("resources");
             if (resourcesFile == null) return;
@@ -269,6 +300,31 @@ public final class RulesValidator {
                 validateBodies(system.get("bodies"), "system '" + id + "'.bodies");
                 validateResourceBelts(system.get("resourceBelts"), "system '" + id + "'.resourceBelts");
                 validateMaterialList(system.get("spawnMaterials"), "system '" + id + "'.spawnMaterials");
+                validateStringList(system.get("tags"), "system '" + id + "'.tags");
+                Map<String,Object> modifiers = object(system.get("modifiers"));
+                for (String key : List.of("miningYield", "resourceRespawn", "sensorRange", "shieldRegen", "movementSpeed", "weaponRange", "environmentalDamagePerSecond")) {
+                    validateNonNegative(modifiers, key, "system '" + id + "'.modifiers");
+                }
+            }
+        }
+
+        private void validateGalaxy(Map<String,Object> files) {
+            Object galaxyFile = files.get("galaxy");
+            if (galaxyFile == null) {
+                errors.add("manifest.files.galaxy is missing.");
+                return;
+            }
+            for (String rawPath : filePaths(galaxyFile, "manifest.files.galaxy")) {
+                Map<String,Object> galaxy = readObject(Path.of(rawPath), "galaxy config " + rawPath);
+                Map<String,Object> topology = object(galaxy.get("topology"));
+                Object value = topology.get("wanderingWormholePairs");
+                if (!(value instanceof Number number) || !Double.isFinite(number.doubleValue())
+                        || number.doubleValue() != Math.rint(number.doubleValue())) {
+                    errors.add("galaxy config " + rawPath + ".topology.wanderingWormholePairs must be an integer.");
+                } else if (number.intValue() < 0 || number.intValue() > GalaxyTopologyRules.MAX_WANDERING_PAIRS) {
+                    errors.add("galaxy config " + rawPath + ".topology.wanderingWormholePairs must be between 0 and "
+                            + GalaxyTopologyRules.MAX_WANDERING_PAIRS + ".");
+                }
             }
         }
 
@@ -301,7 +357,11 @@ public final class RulesValidator {
                 Map<String,Object> belt = object(item);
                 String label = context + "[" + index + "]";
                 validateNodeKindName(string(belt, "kind", ""), label + ".kind");
-                validateMaterialList(belt.get("materials"), label + ".materials");
+                List<?> materials = array(belt.get("materials"));
+                List<?> composition = array(belt.get("composition"));
+                if (materials.isEmpty() && composition.isEmpty()) errors.add(label + " must define materials or composition.");
+                validateMaterialList(materials, label + ".materials");
+                validateComposition(composition, label + ".composition");
                 validateNonNegative(belt, "orbit", label);
                 validateNonNegative(belt, "width", label);
                 validateNonNegative(belt, "arc", label);
@@ -309,6 +369,28 @@ public final class RulesValidator {
                 validateNonNegative(belt, "amount", label);
                 validateNonNegative(belt, "harvestRate", label);
                 validateNonNegative(belt, "radius", label);
+                index++;
+            }
+        }
+
+        private void validateComposition(Object value, String context) {
+            int index = 0;
+            for (Object item : array(value)) {
+                Map<String,Object> entry = object(item);
+                String label = context + "[" + index + "]";
+                validateMaterialName(string(entry, "material", ""), label + ".material");
+                Object weight = entry.get("weight");
+                if (!(weight instanceof Number number) || number.doubleValue() <= 0 || !Double.isFinite(number.doubleValue())) {
+                    errors.add(label + ".weight must be a finite positive number.");
+                }
+                index++;
+            }
+        }
+
+        private void validateStringList(Object value, String context) {
+            int index = 0;
+            for (Object item : array(value)) {
+                if (String.valueOf(item).trim().isBlank()) errors.add(context + "[" + index + "] is blank.");
                 index++;
             }
         }

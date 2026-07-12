@@ -9,6 +9,8 @@ import java.util.*;
 
 final class PeerServerSide {
     private static final long SNAPSHOT_MS = 100;
+    private static final long GALAXY_MS = 1000;
+    private static final long RESOURCE_CORRECTION_MS = 5000;
     private static final long TIMEOUT_MS = 4000;
     private static final long DISCONNECT_GRACE_MS = 60_000;
     private static final long RESUME_REPLAY_MS = 10_000;
@@ -22,7 +24,7 @@ final class PeerServerSide {
     private final Map<String, PlayerSession> sessions = new LinkedHashMap<>();
     private final Set<String> devRequests = new LinkedHashSet<>();
     private int nextPlayer = 1;
-    private long sequence = 1, lastSnapshot;
+    private long sequence = 1, lastSnapshot, lastGalaxy, lastResourceCorrection;
 
     PeerServerSide(Config config, World world, PeerTransport transport) {
         this.config = config;
@@ -72,7 +74,13 @@ final class PeerServerSide {
         PlayerRegistry.activate(world);
         removeTimedOut(now);
         removeExpiredSessions(now);
-        if (now - lastSnapshot >= SNAPSHOT_MS) { broadcastNow(); lastSnapshot = now; }
+        if (now - lastSnapshot >= SNAPSHOT_MS) {
+            boolean fullResources = now - lastResourceCorrection >= RESOURCE_CORRECTION_MS;
+            broadcastNow(fullResources);
+            lastSnapshot = now;
+            if (fullResources) lastResourceCorrection = now;
+        }
+        if (now - lastGalaxy >= GALAXY_MS) { broadcastGalaxy(); lastGalaxy = now; }
     }
 
     void handle(String message, NetPacket packet) {
@@ -81,13 +89,18 @@ final class PeerServerSide {
     }
 
     void broadcastNow() {
-        sequence = PeerSyncBatch.send(world, views, PeerSyncTargets.array(peers.values()), sequence, transport::send);
+        broadcastNow(false);
+    }
+
+    private void broadcastNow(boolean fullResources) {
+        sequence = PeerSyncBatch.send(world, views, PeerSyncTargets.array(peers.values()), sequence, fullResources, transport::send);
         broadcastLeaderboard();
     }
 
     void sendInitial(ServerPeer peer) {
         sequence = PeerSyncBatch.sendInitial(world, views, peer, sequence, transport::send);
         sendLeaderboard(peer);
+        sendGalaxy(peer);
     }
 
     void sendInitialTo(String endpoint) { sendInitial(peers.get(endpoint)); }
@@ -183,13 +196,14 @@ final class PeerServerSide {
             }
         }
 
+        if (session.connected && session.endpoint != null && !session.endpoint.isBlank()
+                && !session.endpoint.equals(endpoint)) {
+            transport.reliable(sessionBusy("Session is already active on another connection."), address, port);
+            return false;
+        }
+
         ServerPeer endpointOwner = peers.get(endpoint);
         if (endpointOwner != null && !playerId.equals(endpointOwner.playerId())) disconnectPeer(endpoint, now, "replaced");
-
-        if (session.connected && session.endpoint != null && !session.endpoint.isBlank() && !session.endpoint.equals(endpoint)) {
-            ServerPeer oldPeer = peers.remove(session.endpoint);
-            if (oldPeer != null) transport.clearPendingForEndpoint(oldPeer.address(), oldPeer.port());
-        }
 
         boolean devAllowed = DevAccessPolicy.authorize(config.devMode, config.dedicatedServerMode(), address,
                 requestedDev, config.devToken, suppliedDevToken);
@@ -291,6 +305,18 @@ final class PeerServerSide {
         List<LeaderboardEntry> entries = GlobalLeaderboard.aggregate(world, allKnownSystems());
         GlobalLeaderboard.set(world, entries);
         transport.reliable(GlobalLeaderboard.encode(entries), peer.address(), peer.port());
+    }
+
+    private void broadcastGalaxy() {
+        if (peers.isEmpty()) return;
+        String message = GalaxyMapWire.encode(config.galaxyCopies, world.authoritativeGalaxyMapSnapshot());
+        for (ServerPeer peer : peers.values()) transport.send(message, peer.address(), peer.port());
+    }
+
+    private void sendGalaxy(ServerPeer peer) {
+        if (peer == null) return;
+        String message = GalaxyMapWire.encode(config.galaxyCopies, world.authoritativeGalaxyMapSnapshot());
+        transport.reliable(message, peer.address(), peer.port());
     }
 
     private void sendSessionState(PlayerSession session, ServerPeer peer, String token) {
@@ -403,6 +429,7 @@ final class PeerServerSide {
     }
 
     private String joinDenied(String message) { return "JOIN_DENIED|" + packetPart(message); }
+    private String sessionBusy(String message) { return "SESSION_BUSY|" + packetPart(message); }
     private String sessionDenied(String message) { return "SESSION_DENIED|" + packetPart(message); }
     private String packetPart(String value) { return value == null ? "" : value.replace('|', ' ').replace('\n', ' ').replace('\r', ' ').trim(); }
     boolean requestedDev(String[] parts) { return parts.length > 2 && flag(parts[2]); }

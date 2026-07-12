@@ -1,0 +1,21 @@
+{
+  "id": "volcanic_crucible",
+  "name": "Volcanic Crucible",
+  "role": "hazard",
+  "width": 17500,
+  "height": 15500,
+  "tags": ["hot", "heavy_metals", "hazardous"],
+  "modifiers": {"miningYield": 1.12, "movementSpeed": 0.94, "environmentalDamagePerSecond": 0.8},
+  "spawnMaterials": ["IRON", "SULFUR", "TITANIUM", "COBALT"],
+  "bodies": [
+    {"id": "sun", "name": "Crucible", "orbit": 0, "radius": 220, "speed": 0, "color": "#FF7A38"},
+    {"id": "ember", "name": "Ember", "parent": "sun", "orbit": 1850, "radius": 62, "speed": 0.019, "color": "#B43C24"},
+    {"id": "caldera", "name": "Caldera", "parent": "sun", "orbit": 3900, "radius": 89, "speed": -0.009, "color": "#6F3B2C"}
+  ],
+  "resourceBelts": [
+    {"name": "Sulfurous Rubble", "kind": "SILICATE_ROCK", "orbit": 2550, "width": 390, "arc": 1.8, "count": 150, "amount": 24, "harvestRate": 7.6, "radius": 3.0,
+      "composition": [{"material": "SULFUR", "weight": 38}, {"material": "IRON", "weight": 27}, {"material": "CARBON", "weight": 20}, {"material": "COBALT", "weight": 15}]},
+    {"name": "Refractory Ring", "kind": "SILICATE_ROCK", "orbit": 5250, "width": 310, "arc": 1.2, "count": 95, "amount": 18, "harvestRate": 6.2, "radius": 2.7,
+      "composition": [{"material": "TITANIUM", "weight": 52}, {"material": "TUNGSTEN", "weight": 28}, {"material": "URANIUM", "weight": 5}, {"material": "SILICATES", "weight": 15}]}
+  ]
+}

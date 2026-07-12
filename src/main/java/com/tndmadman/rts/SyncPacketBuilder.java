@@ -4,7 +4,12 @@ final class SyncPacketBuilder {
     private SyncPacketBuilder() { }
 
     static String build(World world, ClientViewCache views, String playerId, long sequence, SyncKind kind) {
-        if (kind == SyncKind.INITIAL) ResourceSyncMode.fullForNextSnapshot();
+        return build(world, views, playerId, sequence, kind, false);
+    }
+
+    static String build(World world, ClientViewCache views, String playerId, long sequence, SyncKind kind,
+                        boolean fullResources) {
+        if (kind == SyncKind.INITIAL || fullResources) ResourceSyncMode.fullForNextSnapshot();
         Snapshot snapshot = views.makeSnapshot(world, playerId, sequence);
         ResourceNetDebug.sendSnapshot(kind.name(), playerId, snapshot, world);
         return kind == SyncKind.INITIAL ? SyncFrame.write(snapshot) : SnapshotWriter.write(snapshot);

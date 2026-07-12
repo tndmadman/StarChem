@@ -4,6 +4,8 @@
   "role": "corsair_home",
   "width": 16000,
   "height": 14500,
+  "tags": ["corsair", "contested", "high_value", "relics"],
+  "modifiers": {"sensorRange": 0.86, "weaponRange": 1.04},
   "spawnMaterials": ["IRON", "COPPER", "SILICATES", "METHANE"],
   "bodies": [
     {"id": "black_star", "name": "Low Star", "parent": null, "orbit": 0, "radius": 150, "speed": 0, "color": "#9B6BFF"},
@@ -11,8 +13,11 @@
     {"id": "knife", "name": "Knife Moon", "parent": "hideout", "orbit": 260, "radius": 18, "speed": -0.058, "color": "#9990AA"}
   ],
   "resourceBelts": [
-    {"name": "Raider Iron", "kind": "SILICATE_ROCK", "materials": ["IRON"], "orbit": 1800, "width": 260, "arc": 1.1, "count": 115, "amount": 22, "harvestRate": 7.2, "radius": 2.8},
-    {"name": "Hidden Copper", "kind": "SILICATE_ROCK", "materials": ["COPPER"], "orbit": 2500, "width": 310, "arc": 1.0, "count": 110, "amount": 20, "harvestRate": 6.8, "radius": 2.7},
-    {"name": "Black Gas", "kind": "GAS_CLOUD", "materials": ["METHANE", "AMMONIA", "HYDROGEN"], "orbit": 4350, "width": 620, "arc": 1.4, "count": 155, "amount": 30, "harvestRate": 8.6, "radius": 4.9}
+    {"name": "Raider Ore Cache", "kind": "SILICATE_ROCK", "orbit": 2250, "width": 430, "arc": 2.2, "count": 120, "amount": 23, "harvestRate": 7.1, "radius": 2.8,
+      "composition": [{"material": "IRON", "weight": 28}, {"material": "COPPER", "weight": 22}, {"material": "SILICATES", "weight": 22}, {"material": "GOLD", "weight": 10}, {"material": "RARE_EARTHS", "weight": 10}, {"material": "PLATINUM", "weight": 8}]},
+    {"name": "Black Gas", "kind": "GAS_CLOUD", "orbit": 4400, "width": 680, "arc": 2.0, "count": 120, "amount": 29, "harvestRate": 8.4, "radius": 4.9,
+      "composition": [{"material": "METHANE", "weight": 32}, {"material": "AMMONIA", "weight": 24}, {"material": "HYDROGEN", "weight": 18}, {"material": "ARGON", "weight": 14}, {"material": "XENON", "weight": 12}]},
+    {"name": "Hidden Heavy Metals", "kind": "SILICATE_ROCK", "orbit": 5900, "width": 280, "arc": 0.8, "count": 48, "amount": 14, "harvestRate": 5.3, "radius": 2.3,
+      "composition": [{"material": "TITANIUM", "weight": 38}, {"material": "TUNGSTEN", "weight": 28}, {"material": "URANIUM", "weight": 14}, {"material": "COBALT", "weight": 20}]}
   ]
 }

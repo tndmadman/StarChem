@@ -1,0 +1,21 @@
+{
+  "id": "ancient_graveyard",
+  "name": "Ancient Graveyard",
+  "role": "relic",
+  "width": 19500,
+  "height": 16800,
+  "tags": ["relics", "rare_metals", "salvage", "high_value"],
+  "modifiers": {"sensorRange": 0.88, "resourceRespawn": 0.82, "weaponRange": 1.06},
+  "spawnMaterials": ["GOLD", "PLATINUM", "RARE_EARTHS", "SILICATES"],
+  "bodies": [
+    {"id": "sun", "name": "Old Lantern", "orbit": 0, "radius": 182, "speed": 0, "color": "#D9C9A5"},
+    {"id": "tomb", "name": "Tomb World", "parent": "sun", "orbit": 3000, "radius": 76, "speed": 0.009, "color": "#555A63"},
+    {"id": "warden", "name": "Warden", "parent": "sun", "orbit": 5900, "radius": 98, "speed": -0.004, "color": "#66717E"}
+  ],
+  "resourceBelts": [
+    {"name": "Relic Field", "kind": "SILICATE_ROCK", "orbit": 3850, "width": 650, "arc": 3.4, "count": 175, "amount": 18, "harvestRate": 6.0, "radius": 2.6,
+      "composition": [{"material": "SILICATES", "weight": 28}, {"material": "GOLD", "weight": 22}, {"material": "PLATINUM", "weight": 18}, {"material": "RARE_EARTHS", "weight": 22}, {"material": "TITANIUM", "weight": 10}]},
+    {"name": "Dormant Propellant Clouds", "kind": "GAS_CLOUD", "orbit": 6800, "width": 520, "arc": 1.7, "count": 75, "amount": 15, "harvestRate": 5.2, "radius": 4.0,
+      "composition": [{"material": "XENON", "weight": 18}, {"material": "ARGON", "weight": 42}, {"material": "NEON", "weight": 25}, {"material": "HELIUM", "weight": 15}]}
+  ]
+}
