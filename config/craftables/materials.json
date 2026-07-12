@@ -1,0 +1,166 @@
+{
+  "craftableItems": {
+    "steel_plate": {
+      "displayName": "Steel Plate",
+      "description": "Basic rolled structural metal used throughout ship and station construction.",
+      "category": "MATERIALS",
+      "style": "materials",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "timeSeconds": 8,
+      "requiredResources": {
+        "IRON": 30,
+        "CARBON": 4
+      },
+      "output": {
+        "material": "STEEL_PLATE",
+        "amount": 20
+      }
+    },
+    "nickel_steel": {
+      "displayName": "Nickel Steel",
+      "description": "Corrosion-resistant structural alloy for frames and pressure vessels.",
+      "category": "MATERIALS",
+      "style": "materials",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "timeSeconds": 9,
+      "requiredResources": {
+        "IRON": 24,
+        "NICKEL": 10,
+        "CARBON": 4
+      },
+      "output": {
+        "material": "NICKEL_STEEL",
+        "amount": 16
+      }
+    },
+    "aluminum_alloy": {
+      "displayName": "Aluminum Alloy",
+      "description": "Light structural alloy for scouts, cargo ships, and mobile equipment.",
+      "category": "MATERIALS",
+      "style": "materials",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "timeSeconds": 9,
+      "requiredResources": {
+        "ALUMINUM": 24,
+        "COPPER": 6,
+        "SILICATES": 4
+      },
+      "output": {
+        "material": "ALUMINUM_ALLOY",
+        "amount": 18
+      }
+    },
+    "titanium_alloy": {
+      "displayName": "Titanium Alloy",
+      "description": "High-strength lightweight alloy for advanced hulls and drives.",
+      "category": "MATERIALS",
+      "style": "materials",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "requiresResearch": [
+        "advanced_industry"
+      ],
+      "timeSeconds": 12,
+      "requiredResources": {
+        "TITANIUM": 16,
+        "ALUMINUM": 8,
+        "NICKEL": 6
+      },
+      "output": {
+        "material": "TITANIUM_ALLOY",
+        "amount": 12
+      }
+    },
+    "cobalt_superalloy": {
+      "displayName": "Cobalt Superalloy",
+      "description": "Heat-resistant alloy for reactors, engines, and energy weapons.",
+      "category": "MATERIALS",
+      "style": "materials",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "requiresResearch": [
+        "advanced_industry"
+      ],
+      "timeSeconds": 13,
+      "requiredResources": {
+        "COBALT": 10,
+        "NICKEL": 8,
+        "CARBON": 4
+      },
+      "output": {
+        "material": "COBALT_SUPERALLOY",
+        "amount": 10
+      }
+    },
+    "tungsten_carbide": {
+      "displayName": "Tungsten Carbide",
+      "description": "Extremely hard material used in armor, mining tools, and weapon barrels.",
+      "category": "MATERIALS",
+      "style": "materials",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "requiresResearch": [
+        "advanced_industry"
+      ],
+      "timeSeconds": 14,
+      "requiredResources": {
+        "TUNGSTEN": 12,
+        "CARBON": 8
+      },
+      "output": {
+        "material": "TUNGSTEN_CARBIDE",
+        "amount": 10
+      }
+    },
+    "ceramic_composite": {
+      "displayName": "Ceramic Composite",
+      "description": "Heat-resistant composite used in armor, insulation, and sealed hulls.",
+      "category": "MATERIALS",
+      "style": "materials",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "timeSeconds": 10,
+      "requiredResources": {
+        "SILICATES": 24,
+        "CARBON": 6,
+        "PHOSPHATES": 4
+      },
+      "output": {
+        "material": "CERAMIC_COMPOSITE",
+        "amount": 16
+      }
+    },
+    "radiation_shielding": {
+      "displayName": "Radiation Shielding",
+      "description": "Dense layered shielding for reactors, laboratories, and capital systems.",
+      "category": "MATERIALS",
+      "style": "materials",
+      "stationTypes": [
+        "manufacturing"
+      ],
+      "requiresResearch": [
+        "advanced_industry"
+      ],
+      "timeSeconds": 15,
+      "requiredResources": {
+        "TUNGSTEN": 8,
+        "SILICATES": 10,
+        "PHOSPHATES": 6
+      },
+      "output": {
+        "material": "RADIATION_SHIELDING",
+        "amount": 10
+      }
+    }
+  }
+}
