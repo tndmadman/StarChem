@@ -39,7 +39,8 @@ final class Config {
         this.galaxyCopies = clampGalaxyCopies(galaxyCopies);
     }
 
-    static Config parse(String[] args) {
+    static Config parse(String[] suppliedArgs) {
+        String[] args = suppliedArgs == null ? new String[0] : suppliedArgs;
         if (args.length == 0) return lobby();
         String name = defaultName();
         String system = StarSystems.DEFAULT_SYSTEM_ID;
@@ -52,38 +53,48 @@ final class Config {
         int galaxyCopies = 1;
         InetSocketAddress server = null;
         for (int i = 0; i < args.length; i++) {
-            switch (args[i]) {
-                case "--name", "--id" -> { if (i + 1 < args.length) name = clean(args[++i]); }
-                case "--system" -> { if (i + 1 < args.length) system = cleanSystem(args[++i]); }
-                case "--galaxy-copies" -> {
-                    if (i + 1 >= args.length) throw new IllegalArgumentException("--galaxy-copies requires 1 or 2.");
-                    galaxyCopies = parseGalaxyCopies(args[++i]);
-                }
+            String option = args[i];
+            switch (option) {
+                case "--name", "--id" -> name = clean(requiredValue(args, ++i, option));
+                case "--system" -> system = cleanSystem(requiredValue(args, ++i, option));
+                case "--galaxy-copies" -> galaxyCopies = parseGalaxyCopies(requiredValue(args, ++i, option));
                 case "--dev" -> { dev = true; disableProductionTimers = true; }
-                case "--dev-token" -> {
-                    if (i + 1 >= args.length) throw new IllegalArgumentException("--dev-token requires a token value.");
-                    devToken = DevAccessPolicy.requireToken(args[++i]);
-                }
+                case "--dev-token" -> devToken = DevAccessPolicy.requireToken(requiredValue(args, ++i, option));
                 case "--disable-timers" -> disableProductionTimers = true;
                 case "--enable-timers" -> disableProductionTimers = false;
-                case "--server" -> { dedicated = true; host = true; if (i + 1 < args.length && !args[i + 1].startsWith("--")) port = parsePort(args[++i]); }
-                case "--host" -> { if (i + 1 < args.length) { host = true; port = parsePort(args[++i]); } }
+                case "--server" -> {
+                    dedicated = true;
+                    host = true;
+                    if (hasOptionalValue(args, i + 1)) port = parsePort(args[++i]);
+                }
+                case "--host" -> {
+                    host = true;
+                    port = parsePort(requiredValue(args, ++i, option));
+                }
                 case "--join" -> {
-                    if (i + 2 >= args.length || args[i + 1].startsWith("--") || args[i + 2].startsWith("--")) {
-                        throw new IllegalArgumentException("--join requires a server address and port.");
-                    }
-                    String hostName = parseHost(args[++i]);
-                    int remotePort = parsePort(args[++i]);
+                    String hostName = parseHost(requiredValue(args, ++i, option));
+                    int remotePort = parsePort(requiredValue(args, ++i, option));
                     server = new InetSocketAddress(hostName, remotePort);
                 }
                 case "--solo" -> { }
-                default -> { }
+                default -> throw new IllegalArgumentException("Unknown option: " + option);
             }
         }
         if (dedicated) return dedicatedServer(name, port == 0 ? 50000 : port, dev, disableProductionTimers, Set.of(), system, devToken, galaxyCopies);
         if (host) return host(name, port == 0 ? 50000 : port, dev, disableProductionTimers, Set.of(), system, devToken, galaxyCopies);
         if (server != null) return join(name, server.getHostString(), server.getPort(), dev, disableProductionTimers, Set.of(), system, devToken, galaxyCopies);
         return solo(name, dev, disableProductionTimers, Set.of(), system, devToken, galaxyCopies);
+    }
+
+    private static String requiredValue(String[] args, int index, String option) {
+        if (index >= args.length || args[index] == null || args[index].isBlank() || args[index].startsWith("--")) {
+            throw new IllegalArgumentException(option + " requires a value.");
+        }
+        return args[index];
+    }
+
+    private static boolean hasOptionalValue(String[] args, int index) {
+        return index < args.length && args[index] != null && !args[index].isBlank() && !args[index].startsWith("--");
     }
 
     static Config lobby() { return new Config(defaultName(), true, false, false, false, "", false, 0, null, Set.of(), StarSystems.DEFAULT_SYSTEM_ID, 1); }
