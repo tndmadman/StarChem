@@ -4,13 +4,12 @@ on:
   push:
     branches:
       - main
-      - agent/server-auto-production-narration
   pull_request:
     branches:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -24,36 +23,6 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
-
-      - name: Apply requested branch changes
-        if: github.event_name == 'push' && github.ref == 'refs/heads/agent/server-auto-production-narration'
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          narration = Path('src/main/java/com/tndmadman/rts/NarrationService.java')
-          text = narration.read_text()
-          text = text.replace(
-              'PREFS.getDouble("speed", 1.0)',
-              'PREFS.getDouble("speed", 1.5)')
-          narration.write_text(text)
-
-          panel = Path('src/main/java/com/tndmadman/rts/GamePanel.java')
-          text = panel.read_text()
-          text = text.replace(
-              'g2.drawString("Galaxy: M | Formation: " + formation.label + " (F) | Miner ranges: " + minerRanges + " (R) | Audio: " + audio + " (Ctrl+M)" + perf, 28, 102);',
-              'g2.drawString("Galaxy: M | Inventory: I | Narration: F8 | Formation: " + formation.label + " (F) | Miner ranges: " + minerRanges + " (R) | Audio: " + audio + " (Ctrl+M)" + perf, 28, 102);')
-          panel.write_text(text)
-          PY
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/main/java/com/tndmadman/rts/NarrationService.java src/main/java/com/tndmadman/rts/GamePanel.java
-          if ! git diff --cached --quiet; then
-            git commit -m "Show narration and inventory shortcuts"
-            git push origin HEAD:agent/server-auto-production-narration
-          fi
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
