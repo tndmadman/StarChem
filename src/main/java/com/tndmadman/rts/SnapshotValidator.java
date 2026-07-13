@@ -21,6 +21,7 @@ final class SnapshotValidator {
         validateStocks(required(snapshot.stocks(), "stocks"));
         validateShots(required(snapshot.shots(), "shots"));
         validateItems(required(snapshot.items(), "items"));
+        validateResearch(required(snapshot.research(), "research"));
     }
 
     private static void validatePlayers(List<PlayerInfo> states) {
@@ -173,6 +174,30 @@ final class SnapshotValidator {
             finite(state.vy(), -SnapshotReader.MAX_SCALAR, SnapshotReader.MAX_SCALAR, "items", row, "velocity y");
             finite(state.angle(), -SnapshotReader.MAX_SCALAR, SnapshotReader.MAX_SCALAR, "items", row, "angle");
             finite(state.spin(), -SnapshotReader.MAX_SCALAR, SnapshotReader.MAX_SCALAR, "items", row, "spin");
+        }
+    }
+
+    private static void validateResearch(List<ResearchState> states) {
+        limit(states, SnapshotReader.MAX_RESEARCH_STATES, "research");
+        Set<String> players = new HashSet<>();
+        for (int i = 0; i < states.size(); i++) {
+            int row = i + 1;
+            ResearchState state = states.get(i);
+            if (state == null) throw SnapshotReader.error("research", row, "value", "row is null");
+            String playerId = SnapshotReader.requiredText(state.playerId(), 64, "research", row, "player ID");
+            if (!players.add(playerId)) {
+                throw SnapshotReader.error("research", row, "player ID", "duplicate value " + SnapshotReader.printable(playerId));
+            }
+            Set<String> topics = new HashSet<>();
+            for (String topicId : required(state.topicIds(), "research topics")) {
+                String checked = SnapshotReader.requiredText(topicId, 128, "research", row, "topic ID");
+                if (ResearchRules.topic(checked) == null) {
+                    throw SnapshotReader.error("research", row, "topic ID", "unknown value " + SnapshotReader.printable(checked));
+                }
+                if (!topics.add(checked)) {
+                    throw SnapshotReader.error("research", row, "topic ID", "duplicate value " + SnapshotReader.printable(checked));
+                }
+            }
         }
     }
 
