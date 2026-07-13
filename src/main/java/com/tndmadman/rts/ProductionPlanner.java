@@ -6,7 +6,6 @@ import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -133,7 +132,7 @@ final class ProductionPlanner {
             }
 
             if (!networkCanCover(world, plan.playerId, recipe.requiredResources)) return EnsureResult.WAITING;
-            if (!queueCraftable(world, choice.station, recipe)) return EnsureResult.WAITING;
+            if (!enqueueCraftableAt(world, choice.station, recipe)) return EnsureResult.WAITING;
             GameNoticeCenter.publish(world, plan.playerId, NoticeCategory.PRODUCTION,
                     "Auto-queued prerequisite: " + recipe.name + " at " + choice.station.type().name + ".", false);
             return EnsureResult.QUEUED;
@@ -142,7 +141,7 @@ final class ProductionPlanner {
         }
     }
 
-    private static boolean queueCraftable(World world, Base station, CraftableItem item) {
+    private static boolean enqueueCraftableAt(World world, Base station, CraftableItem item) {
         if (HangarStore.canAfford(station.inventory, item.requiredResources)) {
             return ProductionSystem.enqueueCraftable(world, station, item, false);
         }
