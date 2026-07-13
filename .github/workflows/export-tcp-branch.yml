@@ -33,7 +33,6 @@ jobs:
       - name: Verify and apply reviewed patch
         shell: bash
         run: |
-          cp .github/workflows/export-tcp-branch.yml /tmp/applicator.yml
           cat .tcp-patch/part* > /tmp/payload.b64
           echo "31cb345489eb73f1defd090e1d331bc6afad198b80db93889d3b5dacfe25c674  /tmp/payload.b64" | sha256sum -c -
           base64 -d /tmp/payload.b64 | gzip -d > /tmp/changes.patch
@@ -41,8 +40,7 @@ jobs:
           git checkout eb7161dd8d9a4436f1b9f4e494dd6e56777913c3 -- .github/workflows/export-tcp-branch.yml
           git apply --check /tmp/changes.patch
           git apply /tmp/changes.patch
-          mkdir -p .github/workflows
-          cp /tmp/applicator.yml .github/workflows/export-tcp-branch.yml
+          git checkout HEAD -- .github/workflows/export-tcp-branch.yml
           rm -f .github/workflows/tcp-soak.yml
           rm -rf .tcp-patch
           git diff --check
