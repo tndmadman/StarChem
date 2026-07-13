@@ -110,6 +110,15 @@ jobs:
           name: StarChem-release
           path: ${{ env.RELEASE_ZIP }}
 
+      - name: Move release tag to validated commit
+        if: env.RELEASE_TAG != '' && github.ref_type != 'tag'
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -f "$RELEASE_TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$RELEASE_TAG" --force
+
       - name: Attach compiled zip to release
         if: env.RELEASE_TAG != ''
         uses: softprops/action-gh-release@v2
