@@ -1,6 +1,19 @@
 # First Game Progression
 
-This is a practical, low-risk progression route for a new v1.1.0-alpha session. Exact priorities can change with system resources, enemy pressure, and multiplayer competition.
+This page separates what a clean **v1.1.0-alpha** game can currently accomplish from the intended research progression blocked by a tagged-release data issue.
+
+## Critical release issue
+
+A fresh non-developer session cannot enter the configured research tree normally:
+
+1. Advanced Industry can only be researched at a Research Lab.
+2. The Research Lab package costs 6 Radiation Shielding.
+3. Radiation Shielding requires Advanced Industry.
+4. New players begin with neither completed research nor Radiation Shielding.
+
+This circular dependency is confirmed in the tagged configuration and production checks. It is not solved by mining longer. The normal walkthrough therefore reaches a hard stop before Research Lab construction.
+
+Developer free-crafting or a deliberately synchronized configuration change can bypass the blocker for testing, but neither is normal unmodified-release progression. Configuration changes must match on the server and every client.
 
 ## Phase 1: stabilize the starter economy
 
@@ -10,9 +23,9 @@ You begin with a Prospector and Outpost in a protected player-home system. Home 
 2. Prioritize **Iron** and **Copper** first.
 3. Build a second Prospector when the Outpost can afford `80 Iron + 40 Copper`.
 4. Split workers across metals, minerals, ice, and gases as storage permits.
-5. Use `I` to identify which systems and belt types contain materials you are missing.
+5. Use `I` to identify which systems and belt types contain missing materials.
 
-The Prospector is intentionally progression-safe: it mines both rocks and gases and is built directly from raw resources.
+The Prospector is progression-safe: it harvests both rocks and gases and is built directly from raw resources.
 
 ## Phase 2: prepare station expansion
 
@@ -28,7 +41,7 @@ The Deployer carries one station package and is consumed when the station is pla
 
 ### Recommended first station: Manufacturing Plant
 
-The first Manufacturing Plant deliberately uses only raw resources:
+The Manufacturing Plant uses only raw resources:
 
 - Iron: 450
 - Copper: 240
@@ -39,13 +52,11 @@ The first Manufacturing Plant deliberately uses only raw resources:
 - Nickel: 80
 - Carbon: 80
 
-This prevents the economy from deadlocking before manufactured components exist.
+This correctly allows the manufacturing economy to start before advanced components exist.
 
 ## Phase 3: establish foundational manufacturing
 
-Begin with reusable foundation components rather than immediately attempting an advanced hull.
-
-### Recommended first production chain
+Produce reusable foundation components:
 
 1. **Fuel** — Hydrogen + Helium + Methane.
 2. **Steel Plate** — Iron + Carbon.
@@ -59,10 +70,12 @@ Begin with reusable foundation components rather than immediately attempting an 
 10. **Structural Frame** — Steel Plate + Nickel Steel.
 11. **Cargo Pod** — Aluminum Alloy + Structural Frame + Polymer Resin.
 12. **Fuel Cell Stack** — Fuel + Power Regulator + Nickel Steel.
+13. **Water Coolant** — Ice + Nitrogen.
+14. **Research Matrix** — Circuit Boards + Sensor Arrays + Radiation Shielding + Gold Contact Mesh + Rare Earths.
 
-Keep reserves of raw materials. Research and the Manufacturing Plant’s own replacement cost still consume raw resources.
+The final Research Matrix dependency also reaches Radiation Shielding, reinforcing the same research bootstrap problem.
 
-## Phase 4: build the Research Lab
+## Phase 4: practical limit of clean release progression
 
 A Research Lab package requires:
 
@@ -72,11 +85,27 @@ A Research Lab package requires:
 - Water Coolant: 10
 - Radiation Shielding: 6
 
-The Research Matrix and Radiation Shielding create a deliberate industrial hurdle. The lab consumes `0.25 Fuel per second` while operating, so build a Fuel reserve before starting research.
+Radiation Shielding is locked behind Advanced Industry, so a normal clean game stops here.
 
-## Phase 5: complete Advanced Industry
+A Shipyard package can still be manufactured from available components:
 
-**Advanced Industry** takes 35 seconds and costs:
+- Structural Frame: 20
+- Steel Plate: 30
+- Power Regulator: 8
+- Cargo Pod: 4
+- Ice: 80
+
+However, many otherwise early-looking hulls remain indirectly blocked by advanced components. For example, the Scout needs a Navigation Computer, and Navigation Computers require Advanced Industry.
+
+## Intended progression after the blocker is fixed or deliberately bypassed
+
+The sections below document the configured intended path. They are not reachable normally in the unmodified tagged release.
+
+## Phase 5: Advanced Industry
+
+Time: 35 seconds.
+
+Cost:
 
 - Fuel: 25
 - Copper: 120
@@ -85,39 +114,23 @@ The Research Matrix and Radiation Shielding create a deliberate industrial hurdl
 - Aluminum: 70
 - Carbon: 50
 
-It unlocks:
+Unlocks:
 
 - Deep Miner
 - Gas Harvester
 - Freighter
 - Salvager
 
-This research also unlocks many advanced recipes, including Titanium Alloy, Cobalt Superalloy, Tungsten Carbide, Radiation Shielding, Cryogenic Coolant, Capacitor Banks, Navigation Computers, and specialist industrial assemblies.
+It also unlocks Titanium Alloy, Cobalt Superalloy, Tungsten Carbide, Radiation Shielding, Cryogenic Coolant, Capacitor Banks, Navigation Computers, specialist industrial modules, and several power components.
 
-### Best specialist choices
+### Specialist roles
 
-- **Deep Miner:** higher-capacity asteroid specialist for metal and mineral belts.
-- **Gas Harvester:** specialist for gas clouds and noble gases.
-- **Freighter:** 1,440 cargo capacity for large logistics movements.
-- **Salvager:** two tractor beams, 360 range, and 600 cargo for battlefield recovery.
+- **Deep Miner:** 220 cargo; asteroid specialist.
+- **Gas Harvester:** 180 cargo; gas specialist.
+- **Freighter:** 1,440 cargo; heavy logistics.
+- **Salvager:** 600 cargo; two tractor beams with 360 range.
 
-## Phase 6: establish the Shipyard
-
-A Shipyard package requires:
-
-- Structural Frame: 20
-- Steel Plate: 30
-- Power Regulator: 8
-- Cargo Pod: 4
-- Ice: 80
-
-The Shipyard produces all normal player hulls, but research still controls access to advanced classes.
-
-A Scout is an efficient early exploration hull: speed 275, sensor range 420, and low build time. It requires Aluminum Alloy, Sensor Arrays, a Navigation Computer, a Fuel Cell Stack, and Hydrogen.
-
-## Phase 7: enter combat progression
-
-### Combat Doctrine
+## Phase 6: Combat Doctrine
 
 Prerequisite: Advanced Industry  
 Time: 50 seconds
@@ -130,27 +143,37 @@ Cost:
 - Power Regulator: 4
 - Circuit Fragments: 20
 
-Unlocks Frigate, Destroyer, and Cruiser. Circuit Fragments are salvage, making combat recovery or reclamation strategically important.
+Unlocks Frigate, Destroyer, and Cruiser. It also unlocks combat chemicals, reactors, drives, shields, armor, and weapon assemblies.
 
-### Battlefleet Engineering
+## Phase 7: Battlefleet Engineering
 
 Prerequisite: Combat Doctrine  
 Time: 75 seconds
 
-Cost includes Titanium Alloy, Armor Matrices, Fusion Reactors, Targeting Computers, Hull Plating, and Circuit Fragments. It unlocks Battle Cruiser, Battleship, Carrier, and Dreadnought.
+Cost:
 
-### Supercapital Architecture
+- Fuel 80
+- Titanium Alloy 20
+- Armor Matrix 10
+- Fusion Reactor 2
+- Targeting Computer 3
+- Hull Plating 45
+- Circuit Fragments 60
+
+Unlocks Battle Cruiser, Battleship, Carrier, and Dreadnought.
+
+## Phase 8: Supercapital Architecture
 
 Prerequisite: Battlefleet Engineering  
 Time: 120 seconds
 
-This research requires capital components, rare raw resources, and large salvage reserves. It unlocks Supercarrier, Titan, and Monolith.
+This research requires capital components, rare raw materials, and large salvage reserves. It unlocks Supercarrier, Titan, and Monolith.
 
-## Phase 8: expand into the galaxy
+## Galaxy expansion
 
 Use the galaxy map to identify systems by role and modifier.
 
-Good early targets:
+Good economic targets:
 
 - **Red Dwarf Foundry:** strong metal production.
 - **Gas Giant Frontier:** common and noble gases.
@@ -165,23 +188,31 @@ High-risk targets:
 - **Pulsar Reach:** severe radiation with valuable exotic resources.
 - **Corsair Den:** hostile strategic territory and reduced sensors.
 
-## Phase 9: capture and defend territory
+## Territory capture
 
-A capturable system requires at least 3 influence inside its central command zone. A station contributes 4 influence, an armed ship 1.5, an unarmed non-miner 0.75, and a harvesting ship 0.5. An uncontested capture takes 75 seconds.
+A capturable system requires at least 3 influence inside its central command zone:
+
+- Station: 4.0
+- Armed ship: 1.5
+- Unarmed non-miner: 0.75
+- Harvest-capable ship: 0.5
+
+An uncontested capture takes 75 seconds.
 
 Control grants:
 
 - 12% mining-yield bonus.
 - 8% shield-regeneration bonus.
 
-A station alone can satisfy the capture threshold, but building or holding one inside the command zone exposes it to concentrated attacks. Escort Deployers and reinforce valuable systems.
+A station alone satisfies the threshold, but building or holding one inside the command zone exposes it to concentrated attacks.
 
-## Avoiding common progression stalls
+## Avoiding other progression stalls
 
-- Do not spend every unit of Iron and Copper before building Manufacturing.
-- Produce Fuel before starting a long research run.
-- Stock intermediate components in batches; late recipes consume earlier products recursively.
+- Do not spend every unit of Iron and Copper before Manufacturing.
+- Stock foundational components in batches.
 - Recover Scrap Metal, Hull Plating, and Circuit Fragments after combat.
-- Use reclamation recipes to turn salvage into Steel Plates, Structural Frames, and Printed Circuit Boards.
-- Do not send a single-use Deployer into a hazardous system without support.
+- Use reclamation recipes to recover Steel Plates, Structural Frames, and Circuit Boards.
+- Route required resources into the producing station’s own hangar.
+- Escort single-use Deployers in contested or hazardous systems.
 - Keep multiplayer client and host configurations identical.
+- Do not mistake the Research Lab circular dependency for ordinary missing resources; it is a release blocker.
