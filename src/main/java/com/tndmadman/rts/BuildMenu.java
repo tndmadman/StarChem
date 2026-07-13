@@ -130,7 +130,7 @@ final class BuildMenu {
         }
     }
 
-    static ShipType queuedShip(ProductionJob job) {
+    private static ShipType queuedShip(ProductionJob job) {
         return job != null && job.kind == ProductionJobKind.SHIP ? Rules.findShip(job.itemId) : null;
     }
 
