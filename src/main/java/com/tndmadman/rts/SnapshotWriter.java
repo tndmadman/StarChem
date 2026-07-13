@@ -66,7 +66,19 @@ final class SnapshotWriter {
                     .append(Calc.round(item.vx())).append(',').append(Calc.round(item.vy())).append(',')
                     .append(Calc.round(item.angle())).append(',').append(Calc.round(item.spin()));
         }
-        return "SNAPSHOT|" + snapshot.sequence() + "|" + players + "|" + units + "|" + resources + "|" + bases + "|" + stocks + "|" + shots + "|" + items + "|" + snapshot.packedSystemField() + "|" + Calc.round(snapshot.systemTime());
+        StringBuilder research = new StringBuilder();
+        for (ResearchState state : snapshot.research()) {
+            if (!research.isEmpty()) research.append(';');
+            research.append(state.playerId()).append(',');
+            if (state.topicIds().isEmpty()) research.append('-');
+            else {
+                for (int i = 0; i < state.topicIds().size(); i++) {
+                    if (i > 0) research.append('~');
+                    research.append(state.topicIds().get(i));
+                }
+            }
+        }
+        return "SNAPSHOT|" + snapshot.sequence() + "|" + players + "|" + units + "|" + resources + "|" + bases + "|" + stocks + "|" + shots + "|" + items + "|" + snapshot.packedSystemField() + "|" + Calc.round(snapshot.systemTime()) + "|" + research;
     }
 
     private static String precise(double value) {
