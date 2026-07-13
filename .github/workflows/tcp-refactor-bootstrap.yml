@@ -12,15 +12,14 @@ jobs:
   apply:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: agent/tcp-network-refactor
-          fetch-depth: 1
-          show-progress: false
-      - name: Apply TCP refactor
+      - name: Clone and apply TCP refactor
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euxo pipefail
+          git clone --quiet --depth 1 --branch agent/tcp-network-refactor "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" repo
+          cd repo
           base64 --decode tcp-refactor.patch.gz.b64 > /tmp/tcp-refactor.patch.gz
           gzip --test /tmp/tcp-refactor.patch.gz
           gzip --decompress --stdout /tmp/tcp-refactor.patch.gz > /tmp/tcp-refactor.patch
@@ -36,8 +35,10 @@ jobs:
         with:
           gradle-version: '8.10.2'
       - name: Validate complete project
+        working-directory: repo
         run: gradle clean check jar --no-daemon
       - name: Commit TCP refactor
+        working-directory: repo
         shell: bash
         run: |
           git config user.name "OpenAI Codex"
