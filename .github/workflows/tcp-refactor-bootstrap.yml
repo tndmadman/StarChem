@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   apply:
-    if: ${{ hashFiles('tcp-refactor.patch.gz.b64') != '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
