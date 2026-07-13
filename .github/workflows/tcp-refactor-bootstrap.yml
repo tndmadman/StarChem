@@ -1,9 +1,9 @@
 name: Apply TCP Refactor
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/tcp-network-refactor
+      - main
 
 permissions:
   contents: write
