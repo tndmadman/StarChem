@@ -130,7 +130,25 @@ final class PeerServerSide {
         ServerPeer peer = peers.get(connectionId);
         if (peer != null) peers.put(connectionId, new ServerPeer(peer.playerId(), peer.connectionId(), peer.address(), peer.port(), System.currentTimeMillis(), peer.devFreeBuild()));
     }
-    void setViewRevision(String playerId, long revision) { views.setViewRevision(playerId, revision); }
+    void requestView(ConnectionId connectionId, String playerId, String systemId, long revision) {
+        touch(connectionId);
+        if (!owns(connectionId, playerId)) return;
+        if (!views.requestView(world, playerId, systemId, revision)) {
+            long deniedRevision = Math.max(0, revision);
+            String retainedView = views.view(world, playerId);
+            views.setViewRevision(playerId, deniedRevision);
+            transport.sendOrdered("VIEW_DENIED|" + deniedRevision + "|" + packetPart(retainedView) + "|"
+                    + packetPart("Unknown galaxy system: " + systemId), connectionId);
+            sendInitialTo(connectionId);
+            return;
+        }
+        sendInitialTo(connectionId);
+    }
+
+    void forceResourceCorrectionForTest() {
+        lastSnapshot = 0;
+        lastResourceCorrection = 0;
+    }
 
     List<DevPeerAccess> devAccessPeers() {
         List<DevPeerAccess> out = new ArrayList<>();

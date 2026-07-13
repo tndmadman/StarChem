@@ -20,6 +20,8 @@ final class PeerClientSide {
     private boolean devApproved;
     private boolean viewSnapshotMode;
     private boolean viewRequestPending;
+    private boolean viewRequestFallbackMode;
+    private String viewRequestFallbackSystemId = "";
     private String localPlayerId = "SOLO";
     private String sessionToken = "";
     private String viewedSystemId = "";
@@ -127,7 +129,7 @@ final class PeerClientSide {
         if (!fromConfiguredServer(packet)) return;
         PlayerRegistry.activate(world);
         lastServerPacket = System.currentTimeMillis();
-        if (readGalaxy(message) || readLeaderboard(message) || readDevStatus(message)) return;
+        if (readGalaxy(message) || readLeaderboard(message) || readDevStatus(message) || readViewDenied(message)) return;
         if (!readJoinDenied(message) && !readSessionBusy(message) && !readSessionDenied(message) && !readSystemDelete(message)) ClientPackets.handle(this, message);
     }
 
@@ -165,15 +167,26 @@ final class PeerClientSide {
         sendCommandToServer("DEVHANGAR|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(baseId) + "|" + material.name() + "|" + Calc.round(amount));
     }
     void devAiCommand(String playerId, String command) { sendCommandToServer("DEVAI|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(command)); }
-    void jump(String playerId, double x, double y) { jump(playerId, "", x, y); }
-    void jump(String playerId, String targetSystemId, double x, double y) {
+    void jump(String playerId, double x, double y) { viewSystem(playerId, world.wormholeTargetAt(x, y)); }
+    void jump(String playerId, String targetSystemId, double x, double y) { viewSystem(playerId, targetSystemId); }
+
+    void viewSystem(String playerId, String targetSystemId) {
         if (!canIssueCommands()) { blockCommand(); return; }
+        String requestedSystem = cleanSystemId(targetSystemId);
+        if (invalidSystemId(requestedSystem)) {
+            world.status = "Unable to request that galaxy system.";
+            return;
+        }
+        if (!viewRequestPending) {
+            viewRequestFallbackSystemId = world.activeSystemId();
+            viewRequestFallbackMode = viewSnapshotMode;
+        }
         viewSnapshotMode = true;
         viewRequestPending = true;
-        viewedSystemId = cleanSystemId(targetSystemId);
-        if (invalidSystemId(viewedSystemId)) { viewSnapshotMode = false; viewRequestPending = false; viewedSystemId = world.activeSystemId(); return; }
+        viewedSystemId = requestedSystem;
         pendingViewRevision = nextViewRevision++;
-        sendCommandToServer("JUMP|" + playerId + "|" + viewedSystemId + "|" + Calc.round(x) + "|" + Calc.round(y) + "|" + pendingViewRevision);
+        world.status = "Requesting view of " + requestedSystem + " from the server.";
+        sendCommandToServer("VIEW_SYSTEM|" + playerId + "|" + requestedSystem + "|" + pendingViewRevision);
     }
     void wormholeTouch(String playerId) { sendCommandToServer("WHTOUCH|" + playerId); }
     void wormholeTouch(WormholeTouchRequest request) { if (request != null && request.valid()) sendCommandToServer(request.packet()); }
@@ -210,6 +223,8 @@ final class PeerClientSide {
         viewedSystemId = world.activeSystemId();
         viewSnapshotMode = false;
         viewRequestPending = false;
+        viewRequestFallbackMode = false;
+        viewRequestFallbackSystemId = "";
         pendingViewRevision = 0;
         devApproved = flag(markerValue(parts, "DEV"));
         world.setDevFreeBuild(localPlayerId, devApproved);
@@ -235,8 +250,17 @@ final class PeerClientSide {
 
     void readFullView(String message) {
         try {
-            long frameViewRevision = SyncFrame.viewRevision(message);
             Snapshot snapshot = SyncFrame.read(message);
+            if (SyncFrame.isResourceCorrection(message)) {
+                ResourceNetDebug.clientReceive("FULL_CORRECTION", snapshot, lastSnapshotSequence, viewSnapshotMode);
+                if (holdingDifferentView(snapshot)) return;
+                if (stale(snapshot, "FULL_CORRECTION")) return;
+                WorldNetAccess.applyResourceCorrection(world, snapshot, viewSnapshotMode);
+                acceptSnapshot(snapshot);
+                return;
+            }
+
+            long frameViewRevision = SyncFrame.viewRevision(message);
             boolean requestedView = viewRequestPending;
             if (requestedView && frameViewRevision != pendingViewRevision) {
                 ResourceNetDebug.ignoredSnapshot(world, snapshot, "obsolete view revision " + frameViewRevision
@@ -252,6 +276,8 @@ final class PeerClientSide {
                 viewedSystemId = snapshot.systemId();
                 viewRequestPending = false;
                 viewSnapshotMode = !WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId);
+                viewRequestFallbackSystemId = "";
+                viewRequestFallbackMode = false;
             }
             if (!requestedView && WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId)) {
                 viewedSystemId = world.activeSystemId();
@@ -282,6 +308,37 @@ final class PeerClientSide {
         devApproved = parts.length > 1 && flag(parts[1]);
         world.setDevFreeBuild(localPlayerId, devApproved);
         world.status = "Dev access " + (devApproved ? "granted by host." : "revoked by host.");
+        return true;
+    }
+
+    private boolean readViewDenied(String message) {
+        if (message == null || !message.startsWith("VIEW_DENIED|")) return false;
+        String[] parts = message.split("\\|", 4);
+        long deniedRevision = 0;
+        if (parts.length > 1) {
+            try { deniedRevision = Math.max(0, Long.parseLong(parts[1])); }
+            catch (NumberFormatException ignored) { }
+        }
+        boolean currentRequest = !viewRequestPending || deniedRevision == 0 || deniedRevision == pendingViewRevision;
+        if (currentRequest) {
+            String retainedView = parts.length > 2 ? cleanSystemId(parts[2]) : "";
+            if (!invalidSystemId(retainedView)) {
+                viewedSystemId = retainedView;
+                viewSnapshotMode = true;
+                viewRequestPending = true;
+                pendingViewRevision = deniedRevision;
+            } else {
+                viewRequestPending = false;
+                viewSnapshotMode = viewRequestFallbackMode;
+                pendingViewRevision = 0;
+                viewedSystemId = viewRequestFallbackSystemId == null || viewRequestFallbackSystemId.isBlank()
+                        ? world.activeSystemId() : viewRequestFallbackSystemId;
+                viewRequestFallbackSystemId = "";
+                viewRequestFallbackMode = false;
+            }
+        }
+        String reason = parts.length > 3 ? parts[3].trim() : "The server rejected that system view.";
+        world.status = reason.isBlank() ? "The server rejected that system view." : reason;
         return true;
     }
 
@@ -335,6 +392,9 @@ final class PeerClientSide {
         if (deletedViewedSystem || deletedActiveSystem) {
             viewSnapshotMode = false;
             viewRequestPending = false;
+            viewRequestFallbackMode = false;
+            viewRequestFallbackSystemId = "";
+            pendingViewRevision = 0;
             world.ensurePlayerHome(localPlayerId);
             world.activateSystem(world.playerHomeSystemId(localPlayerId));
             viewedSystemId = world.activeSystemId();

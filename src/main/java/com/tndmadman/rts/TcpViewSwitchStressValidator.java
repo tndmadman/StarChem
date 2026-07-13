@@ -21,12 +21,12 @@ public final class TcpViewSwitchStressValidator {
                 String firstTarget = harness.reachableFromSystem(desired);
                 TcpIntegrationHarness.require(firstTarget != null && !firstTarget.isBlank(),
                         "current system had no reachable view target: " + desired);
-                switching.network().jump(playerId, firstTarget, 0, 0);
+                switching.network().viewSystem(playerId, firstTarget);
                 desired = firstTarget;
                 if (i % 3 == 0) {
                     String secondTarget = harness.reachableFromSystem(desired);
                     if (secondTarget != null && !secondTarget.isBlank()) {
-                        switching.network().jump(playerId, secondTarget, 0, 0);
+                        switching.network().viewSystem(playerId, secondTarget);
                         desired = secondTarget;
                     }
                 }

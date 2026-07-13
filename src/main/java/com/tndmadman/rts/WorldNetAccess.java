@@ -35,18 +35,32 @@ final class WorldNetAccess {
 
     static boolean usesPrimaryHome(String playerId) { return "P1".equals(playerId); }
 
-    static void apply(World world, Snapshot snapshot) { apply(world, snapshot, false, false); }
-    static void applyView(World world, Snapshot snapshot) { apply(world, snapshot, true, false); }
-    static void applyFullView(World world, Snapshot snapshot) { apply(world, snapshot, true, true); }
+    static void apply(World world, Snapshot snapshot) {
+        apply(world, snapshot, false, false, false, false, false);
+    }
 
-    private static void apply(World world, Snapshot snapshot, boolean allowNoLocalAssets, boolean fullResourceView) {
+    static void applyView(World world, Snapshot snapshot) {
+        apply(world, snapshot, true, false, false, false, true);
+    }
+
+    static void applyFullView(World world, Snapshot snapshot) {
+        apply(world, snapshot, true, true, true, true, true);
+    }
+
+    static void applyResourceCorrection(World world, Snapshot snapshot, boolean allowNoLocalAssets) {
+        apply(world, snapshot, allowNoLocalAssets, true, false, false, true);
+    }
+
+    private static void apply(World world, Snapshot snapshot, boolean allowNoLocalAssets,
+                              boolean replaceResources, boolean resetView, boolean forceEnvironmentCorrection,
+                              boolean forceLocalAuthority) {
         SnapshotValidator.validate(snapshot);
         String local = PlayerRegistry.localId();
         String snapSystem = snapshotSystemId(snapshot);
         boolean snapshotHasLocalAssets = hasPlayerAssets(snapshot, local);
         Map<String, Base> decodedBases = decodeBases(snapshot.bases(), snapSystem);
-        ResourceNetDebug.worldApplyStart(world, snapshot, allowNoLocalAssets, fullResourceView, snapshotHasLocalAssets);
-        if (fullResourceView && snapSystem != null && !snapSystem.isBlank() && !snapSystem.equals(world.activeSystemId())) {
+        ResourceNetDebug.worldApplyStart(world, snapshot, allowNoLocalAssets, replaceResources, snapshotHasLocalAssets);
+        if (resetView && snapSystem != null && !snapSystem.isBlank() && !snapSystem.equals(world.activeSystemId())) {
             long seed = CelestialPacketCache.seed(world.systemSeed());
             double time = snapshot.systemTime() < 0 ? world.systemTime() : snapshot.systemTime();
             ResourceNetDebug.viewReset(world, snapSystem, seed, time);
@@ -75,9 +89,9 @@ final class WorldNetAccess {
             return;
         }
         if (snapshot.systemTime() >= 0) {
-            ClientEnvironmentSync.synchronizeSnapshot(world, snapSystem, snapshot.systemTime(), fullResourceView);
+            ClientEnvironmentSync.synchronizeSnapshot(world, snapSystem, snapshot.systemTime(), forceEnvironmentCorrection);
         } else CelestialPacketCache.clear();
-        boolean forceLocal = allowNoLocalAssets;
+        boolean forceLocal = allowNoLocalAssets || forceLocalAuthority;
         Set<String> liveUnits = new HashSet<>();
         for (UnitState s : snapshot.units()) {
             String key = Unit.key(s.playerId(), s.unitId());
@@ -96,8 +110,8 @@ final class WorldNetAccess {
             if (!liveUnits.contains(entry.getKey())) unitIt.remove();
         }
         if (!snapshot.resources().isEmpty()) {
-            if (fullResourceView) {
-                ResourceNetDebug.resourceApplyPath(world, snapshot, "full-view-replace");
+            if (replaceResources) {
+                ResourceNetDebug.resourceApplyPath(world, snapshot, resetView ? "full-view-replace" : "resource-correction-replace");
                 ResourceViewSync.replace(world, snapshot.resources());
             } else if (allowNoLocalAssets) {
                 ResourceNetDebug.resourceApplyPath(world, snapshot, "view-merge");

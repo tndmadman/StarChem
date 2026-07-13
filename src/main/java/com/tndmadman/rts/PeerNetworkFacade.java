@@ -74,6 +74,7 @@ final class PeerNetwork implements CommandSink {
     ConnectionDiagnostics connectionDiagnostics(ConnectionId id) { return transport.diagnostics(id); }
     int serverPeerCount() { return server == null ? 0 : server.peerCount(); }
     boolean serverSessionConnected(String playerId) { return server != null && server.sessionConnected(playerId); }
+    void forceServerResourceCorrectionForTest() { if (server != null) server.forceResourceCorrectionForTest(); }
 
     void updateServerWorlds(double dt) {
         if (server == null) return;
@@ -146,8 +147,15 @@ final class PeerNetwork implements CommandSink {
     @Override public void build(String playerId, String baseId, String shipTypeId) { if (server != null) serverCommand(() -> { if (CommandAuth.base(server.world, playerId, baseId)) server.world.buildShip(baseId, shipTypeId); }, playerId); else client.build(playerId, baseId, shipTypeId); }
     @Override public void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { if (server != null) serverCommand(() -> { if (CommandAuth.pack(server.world, playerId, mode, baseOrUnitId)) AUnitPack.apply(server.world, mode, baseOrUnitId, packageType); }, playerId); else client.basePackage(playerId, mode, baseOrUnitId, packageType); }
     @Override public void production(String playerId, String action, String baseId, String value, String extra) { if (server != null) serverCommand(() -> { if (CommandAuth.base(server.world, playerId, baseId)) ProductionCommands.apply(server.world, playerId, action, baseId, value, extra); }, playerId); else client.production(playerId, action, baseId, value, extra); }
-    void jump(String playerId, double x, double y) { jump(playerId, "", x, y); }
-    void jump(String playerId, String targetSystemId, double x, double y) { if (server != null) serverCommand(() -> { if (!server.world.viewSystemThroughWormhole(targetSystemId)) server.world.jumpThroughWormholeAt(x, y); }, playerId); else client.jump(playerId, targetSystemId, x, y); }
+    void viewSystem(String playerId, String targetSystemId) {
+        if (server != null) {
+            ConnectionId connectionId = server.connectionIdForPlayer(playerId);
+            if (connectionId.valid()) server.requestView(connectionId, playerId, targetSystemId, 0);
+            else server.world.viewGalaxySystem(targetSystemId);
+        } else client.viewSystem(playerId, targetSystemId);
+    }
+    void jump(String playerId, double x, double y) { if (client != null) client.jump(playerId, x, y); }
+    void jump(String playerId, String targetSystemId, double x, double y) { viewSystem(playerId, targetSystemId); }
     void wormholeTouch(String playerId) { if (server != null) serverCommand(server.world::transferTouchingShips, playerId); else client.wormholeTouch(playerId); }
     void wormholeTouch(WormholeTouchRequest request) { if (request == null || !request.valid()) return; if (server != null) serverCommand(() -> server.world.transferTouchingShips(request.playerId()), request.playerId()); else client.wormholeTouch(request); }
 

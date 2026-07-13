@@ -404,7 +404,8 @@ final class PeerTransport {
 
     private DeliveryClass inferDelivery(String message) {
         if (message == null) return DeliveryClass.ORDERED;
-        if (SyncFrame.matches(message)) return DeliveryClass.VIEW_SNAPSHOT;
+        if (SyncFrame.isResourceCorrection(message)) return DeliveryClass.FULL_CORRECTION;
+        if (SyncFrame.isView(message)) return DeliveryClass.VIEW_SNAPSHOT;
         if (message.startsWith("SNAPSHOT|")) return DeliveryClass.REGULAR_SNAPSHOT;
         if (message.startsWith("LEADER|")) return DeliveryClass.LEADERBOARD;
         if (message.startsWith("GALAXY|")) return DeliveryClass.GALAXY;

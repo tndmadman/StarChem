@@ -16,7 +16,7 @@ import java.util.Set;
 import java.util.TreeSet;
 
 final class MultiplayerCompatibility {
-    static final int PROTOCOL_VERSION = 3;
+    static final int PROTOCOL_VERSION = 4;
     private static final Path DEFAULT_MANIFEST = Path.of("config/starchem.json");
     private static final String CONFIG_HASH_SCHEMA = "StarChemConfigFingerprint/v1";
     private static final int WIRE_FIELD_COUNT = 10;

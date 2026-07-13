@@ -28,7 +28,9 @@ final class SideAOrders {
             case "BUILD" -> { s.touch(connectionId); if (s.owns(connectionId, id)) s.change(id, () -> { if (CommandAuth.base(s.world, id, p[2])) s.world.buildShip(p[2], p[3]); }); }
             case "PACK" -> { s.touch(connectionId); if (s.owns(connectionId, id)) s.change(id, () -> { if (CommandAuth.pack(s.world, id, p[2], p[3])) AUnitPack.apply(s.world, p[2], p[3], p[4]); }); }
             case "PROD" -> { s.touch(connectionId); if (s.owns(connectionId, id) && p.length >= 5) s.change(id, () -> { if (CommandAuth.base(s.world, id, p[3])) ProductionCommands.apply(s.world, id, p[2], p[3], p[4], p.length > 5 ? p[5] : ""); }); }
-            case "JUMP" -> { s.touch(connectionId); if (s.owns(connectionId, id)) { s.change(id, () -> applyJump(s.world, p)); s.setViewRevision(id, viewRevision(p)); s.sendInitialTo(connectionId); } }
+            case "VIEW_SYSTEM" -> {
+                if (p.length >= 4) s.requestView(connectionId, id, p[2], viewRevision(p));
+            }
             case "WHTOUCH" -> { s.touch(connectionId); if (s.owns(connectionId, id)) { s.change(id, () -> applyWormholeTouch(s.world, id, p)); s.sendInitialTo(connectionId); } }
         }
     }
@@ -53,20 +55,9 @@ final class SideAOrders {
     }
 
     private static long viewRevision(String[] p) {
-        if (p.length < 6) return 0;
-        try { return Math.max(0, Long.parseLong(p[5])); }
+        if (p.length < 4) return 0;
+        try { return Math.max(0, Long.parseLong(p[3])); }
         catch (NumberFormatException ignored) { return 0; }
-    }
-
-    private static void applyJump(World world, String[] p) {
-        if (p.length >= 5) {
-            String targetSystemId = p[2];
-            double x = Double.parseDouble(p[3]);
-            double y = Double.parseDouble(p[4]);
-            if (!world.viewSystemThroughWormhole(targetSystemId)) world.jumpThroughWormholeAt(x, y);
-            return;
-        }
-        if (p.length >= 4) world.jumpThroughWormholeAt(Double.parseDouble(p[2]), Double.parseDouble(p[3]));
     }
 
     private static void applyWormholeTouch(World world, String playerId, String[] p) {

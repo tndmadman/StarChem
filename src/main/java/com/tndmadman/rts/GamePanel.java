@@ -175,8 +175,15 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         GalaxyMapSnapshot snapshot = world.galaxyMapSnapshot();
         String systemId = galaxyMapOverlay.systemAt(snapshot, e.getX(), e.getY(), getWidth(), getHeight());
         if (systemId == null || systemId.isBlank()) return;
+        if (network != null) {
+            network.viewSystem(network.localPlayerId(), systemId);
+            ProceduralAudio.play(SoundCue.SELECT);
+            galaxyMapOpen = false;
+            clearCameraKeys();
+            repaint();
+            return;
+        }
         if (world.viewGalaxySystem(systemId)) {
-            if (network != null && !network.statusLine().startsWith("HOST")) network.jump(network.localPlayerId(), systemId, 0, 0);
             ProceduralAudio.play(SoundCue.SELECT);
             galaxyMapOpen = false;
             clearCameraKeys();
@@ -186,8 +193,12 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
 
     private void clickLeft(MouseEvent e, Point2D p) {
         String targetSystemId = world.wormholeTargetAt(p.getX(), p.getY());
+        if (targetSystemId != null && !targetSystemId.isBlank() && network != null) {
+            network.viewSystem(network.localPlayerId(), targetSystemId);
+            ProceduralAudio.play(SoundCue.SELECT);
+            return;
+        }
         if (world.jumpThroughWormholeAt(p.getX(), p.getY())) {
-            if (network != null && !network.statusLine().startsWith("HOST")) network.jump(network.localPlayerId(), targetSystemId, p.getX(), p.getY());
             ProceduralAudio.play(SoundCue.SELECT);
             return;
         }

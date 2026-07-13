@@ -146,6 +146,22 @@ tasks.register('validateTcpViewSwitching', JavaExec) {
     mainClass = 'com.tndmadman.rts.TcpViewSwitchStressValidator'
 }
 
+tasks.register('validateTcpRemoteSystemVisibility', JavaExec) {
+    group = 'verification'
+    description = 'Validate server-approved arbitrary system views and cross-system ship/station visibility.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.TcpRemoteSystemVisibilityValidator'
+}
+
+tasks.register('validateCelestialContinuity', JavaExec) {
+    group = 'verification'
+    description = 'Validate that periodic resource corrections do not hard-snap planets or moons.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.CelestialContinuityValidator'
+}
+
 tasks.register('validateTcpSoakSmoke', JavaExec) {
     group = 'verification'
     description = 'Run a short deterministic multiplayer TCP soak during normal verification.'
@@ -356,6 +372,8 @@ tasks.named('check') {
     dependsOn tasks.named('validateDedicatedTcpServer')
     dependsOn tasks.named('validateTcpConnectionIdentity')
     dependsOn tasks.named('validateTcpViewSwitching')
+    dependsOn tasks.named('validateTcpRemoteSystemVisibility')
+    dependsOn tasks.named('validateCelestialContinuity')
     dependsOn tasks.named('validateTcpSoakSmoke')
     dependsOn tasks.named('validateSnapshotHardening')
     dependsOn tasks.named('validateSessionRecovery')
