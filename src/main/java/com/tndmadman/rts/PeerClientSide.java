@@ -68,7 +68,7 @@ final class PeerClientSide {
     String failureMessage() { return failureMessage.isBlank() ? "Connection failed." : failureMessage; }
     static long serverSilenceMs() { return SERVER_SILENCE_MS; }
     boolean reconnecting() { return state == ConnectionState.RECONNECTING || state == ConnectionState.SYNCING && syncingResume; }
-    boolean connectedState() { return state == ConnectionState.SYNCING || state == ConnectionState.CONNECTED; }
+    boolean connectedState() { return state == ConnectionState.CONNECTED; }
     boolean readyState() { return state == ConnectionState.CONNECTED; }
     long lastSnapshotSequence() { return lastSnapshotSequence; }
     String viewedSystemId() { return viewedSystemId; }
