@@ -7,15 +7,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * Framed TCP transport used by both the authoritative server and clients.
- *
- * The game thread never performs socket I/O. Reader threads publish complete
- * frames to the inbox and one writer thread per connection drains bounded
- * outbound queues. Regular snapshots are replaceable so a slow client receives
- * the newest state instead of an ever-growing backlog of obsolete snapshots.
- */
+/** Framed TCP transport with per-connection identity, bounded queues, and asynchronous I/O. */
 final class PeerTransport {
     static final String DISCONNECT_EVENT = "\u0000TCP_DISCONNECT";
     private static final int MAX_CONNECTIONS = 128;
@@ -25,7 +19,6 @@ final class PeerTransport {
     private static final int CONNECT_TIMEOUT_MS = 1_500;
     private static final int SOCKET_IDLE_TIMEOUT_MS = 15_000;
     private static final long RECONNECT_DELAY_MS = 250;
-    private static final int MAX_COMPATIBLE_ENDPOINTS = 512;
 
     private final boolean serverMode;
     private final ServerSocket serverSocket;
@@ -33,8 +26,10 @@ final class PeerTransport {
     private final PerfStats perfStats;
     private final ConcurrentLinkedQueue<NetPacket> inbox = new ConcurrentLinkedQueue<>();
     private final AtomicInteger inboxSize = new AtomicInteger();
-    private final Map<String, TcpConnection> connections = new ConcurrentHashMap<>();
-    private final Set<String> compatibleEndpoints = ConcurrentHashMap.newKeySet();
+    private final AtomicLong nextConnectionId = new AtomicLong(1);
+    private final Map<ConnectionId, TcpConnection> connections = new ConcurrentHashMap<>();
+    private final Map<String, ConnectionId> endpointIndex = new ConcurrentHashMap<>();
+    private final Set<ConnectionId> compatibleConnections = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean clientDisconnectPending = new AtomicBoolean();
     private volatile TcpConnection clientConnection;
     private volatile boolean compatibilityAccepted;
@@ -60,8 +55,8 @@ final class PeerTransport {
         if (remote == null || remote.getAddress() == null) {
             throw new IOException("TCP server endpoint must be resolved before connecting.");
         }
-        InetSocketAddress pinned = new InetSocketAddress(remote.getAddress(), remote.getPort());
-        return new PeerTransport(false, null, pinned, perfStats);
+        return new PeerTransport(false, null,
+                new InetSocketAddress(remote.getAddress(), remote.getPort()), perfStats);
     }
 
     void start() {
@@ -107,20 +102,13 @@ final class PeerTransport {
         int queuedFrames = 0;
         long queuedBytes = 0;
         int activeConnections = 0;
-        if (serverMode) {
-            for (TcpConnection connection : connections.values()) {
-                if (!connection.open()) continue;
-                activeConnections++;
-                queuedFrames += connection.pendingFrames();
-                queuedBytes += connection.pendingBytes();
-            }
-        } else {
-            TcpConnection connection = clientConnection;
-            if (connection != null && connection.open()) {
-                activeConnections = 1;
-                queuedFrames = connection.pendingFrames();
-                queuedBytes = connection.pendingBytes();
-            }
+        Collection<TcpConnection> current = serverMode ? connections.values()
+                : clientConnection == null ? List.of() : List.of(clientConnection);
+        for (TcpConnection connection : current) {
+            if (!connection.open()) continue;
+            activeConnections++;
+            queuedFrames += connection.pendingFrames();
+            queuedBytes += connection.pendingBytes();
         }
         perfStats.setTransportState(activeConnections, queuedFrames, queuedBytes);
         return perfStats.snapshot();
@@ -128,7 +116,10 @@ final class PeerTransport {
 
     boolean accepts(NetPacket packet) {
         if (packet == null || packet.address() == null || packet.port() < 1 || packet.port() > 65535) return false;
-        if (serverMode) return true;
+        if (serverMode) {
+            TcpConnection connection = connections.get(packet.connectionId());
+            return connection != null || isDisconnectEvent(packet);
+        }
         return expectedRemote != null && sameEndpoint(packet.address(), packet.port(),
                 expectedRemote.getAddress(), expectedRemote.getPort());
     }
@@ -136,17 +127,28 @@ final class PeerTransport {
     void recordSnapshotRejected() { perfStats.recordSnapshotDecodeFailure(); }
     void recordMalformedPacket() { perfStats.recordMalformedPacket(); }
 
+    /** Client convenience path and compatibility-test path. */
     void send(String message, InetAddress address, int port) {
-        if (message == null || address == null || port < 1 || port > 65535) return;
-        String prepared = prepareDirectMessage(message);
-        if (prepared != null) enqueue(prepared, address, port);
+        enqueuePrepared(prepareClientMessage(message), targetConnection(address, port), inferDelivery(message));
     }
 
-    /** Enqueues an ordered control message that must not be coalesced. */
-    void sendOrdered(String payload, InetAddress address, int port) {
-        if (payload == null || address == null || port < 1 || port > 65535) return;
-        String prepared = prepareReliablePayload(payload, address, port);
-        if (prepared != null) enqueue(prepared, address, port);
+    /** Client ordered path and compatibility-test path. */
+    void sendOrdered(String message, InetAddress address, int port) {
+        TcpConnection connection = targetConnection(address, port);
+        enqueuePrepared(prepareServerControl(message, connection), connection, DeliveryClass.ORDERED);
+    }
+
+    void send(String message, ConnectionId connectionId, DeliveryClass deliveryClass) {
+        TcpConnection connection = connections.get(connectionId);
+        if (!serverMode && clientConnection != null && clientConnection.id.equals(connectionId)) connection = clientConnection;
+        String prepared = deliveryClass == DeliveryClass.ORDERED
+                ? prepareServerControl(message, connection)
+                : message;
+        enqueuePrepared(prepared, connection, deliveryClass);
+    }
+
+    void sendOrdered(String message, ConnectionId connectionId) {
+        send(message, connectionId, DeliveryClass.ORDERED);
     }
 
     void clearOutbound() {
@@ -158,10 +160,8 @@ final class PeerTransport {
         }
     }
 
-    /** Clears queued writes and closes the matching TCP connection. */
-    void closeConnection(InetAddress address, int port) {
-        if (address == null) return;
-        TcpConnection connection = connections.get(endpointKey(address, port));
+    void closeConnection(ConnectionId connectionId) {
+        TcpConnection connection = connections.get(connectionId);
         if (connection != null) {
             connection.clearOutbound();
             connection.close();
@@ -177,13 +177,34 @@ final class PeerTransport {
 
     String processInbound(NetPacket packet) {
         if (packet == null || packet.message() == null) return null;
-        return inspectCompatibility(packet.message(), packet);
+        return serverMode ? inspectServerInbound(packet.message(), packet) : inspectClientInbound(packet.message());
     }
 
     boolean hasConnection(InetAddress address, int port) {
-        TcpConnection connection = connections.get(endpointKey(address, port));
+        ConnectionId id = endpointIndex.get(endpointKey(address, port));
+        TcpConnection connection = id == null ? null : connections.get(id);
         return connection != null && connection.open();
     }
+
+    ConnectionId connectionId(InetAddress address, int port) {
+        ConnectionId id = endpointIndex.get(endpointKey(address, port));
+        return id == null ? ConnectionId.NONE : id;
+    }
+
+    ConnectionId clientConnectionId() {
+        TcpConnection connection = clientConnection;
+        return connection == null ? ConnectionId.NONE : connection.id;
+    }
+
+    ConnectionDiagnostics diagnostics(ConnectionId id) {
+        TcpConnection connection = connections.get(id);
+        if (connection == null && clientConnection != null && clientConnection.id.equals(id)) connection = clientConnection;
+        return connection == null
+                ? new ConnectionDiagnostics(id, false, 0, 0, 0)
+                : connection.diagnostics();
+    }
+
+    void forceDisconnectClientForTest() { reconnectClient(); }
 
     void shutdown() {
         running = false;
@@ -191,59 +212,60 @@ final class PeerTransport {
         if (serverMode) {
             for (TcpConnection connection : List.copyOf(connections.values())) connection.close();
             connections.clear();
+            endpointIndex.clear();
         } else {
             TcpConnection connection = clientConnection;
-            if (connection != null) connection.drainAndClose(300);
+            if (connection != null) connection.drainAndClose(500);
             clientConnection = null;
         }
-        compatibleEndpoints.clear();
+        compatibleConnections.clear();
         inbox.clear();
         inboxSize.set(0);
     }
 
-    private void enqueue(String message, InetAddress address, int port) {
-        TcpConnection connection = targetConnection(address, port);
-        if (connection == null || !connection.enqueue(message)) return;
+    private void enqueuePrepared(String message, TcpConnection connection, DeliveryClass deliveryClass) {
+        if (message == null || connection == null || deliveryClass == null) return;
+        connection.enqueue(message, deliveryClass);
     }
 
     private TcpConnection targetConnection(InetAddress address, int port) {
-        if (serverMode) return connections.get(endpointKey(address, port));
-        if (!sameEndpoint(address, port, expectedRemote.getAddress(), expectedRemote.getPort())) return null;
-        return clientConnection;
+        if (address == null || port < 1 || port > 65535) return null;
+        if (!serverMode) {
+            return expectedRemote != null && sameEndpoint(address, port, expectedRemote.getAddress(), expectedRemote.getPort())
+                    ? clientConnection : null;
+        }
+        ConnectionId id = endpointIndex.get(endpointKey(address, port));
+        return id == null ? null : connections.get(id);
     }
 
-    private String prepareDirectMessage(String message) {
-        if (serverMode) return message;
-        if (message.startsWith("JOIN|") || message.startsWith("RESUME|")) {
+    private String prepareClientMessage(String message) {
+        if (message == null) return null;
+        if (!serverMode && (message.startsWith("JOIN|") || message.startsWith("RESUME|"))) {
             compatibilityAccepted = false;
             return MultiplayerCompatibility.versionClientHandshake(message);
         }
         return message;
     }
 
-    private String prepareReliablePayload(String payload, InetAddress address, int port) {
-        if (!serverMode || !payload.startsWith("WELCOME|")) return payload;
-        String prepared = MultiplayerCompatibility.versionServerWelcome(payload);
-        markCompatible(address, port);
-        return prepared;
-    }
-
-    private String inspectCompatibility(String message, NetPacket packet) {
-        return serverMode ? inspectServerInbound(message, packet) : inspectClientInbound(message);
+    private String prepareServerControl(String message, TcpConnection connection) {
+        if (message == null) return null;
+        if (serverMode && message.startsWith("WELCOME|") && connection != null) {
+            compatibleConnections.add(connection.id);
+            return MultiplayerCompatibility.versionServerWelcome(message);
+        }
+        return !serverMode ? prepareClientMessage(message) : message;
     }
 
     private String inspectServerInbound(String message, NetPacket packet) {
-        String endpoint = endpointKey(packet.address(), packet.port());
-        if (isHandshakeAttempt(message)) compatibleEndpoints.remove(endpoint);
-
+        ConnectionId id = packet.connectionId();
+        if (isHandshakeAttempt(message)) compatibleConnections.remove(id);
         MultiplayerCompatibility.WireResult result = MultiplayerCompatibility.inspectClientHandshake(message);
         if (result.action() == MultiplayerCompatibility.WireAction.REJECT) {
-            sendOrdered(result.detail(), packet.address(), packet.port());
+            sendOrdered(result.detail(), id);
             return null;
         }
         if (result.action() == MultiplayerCompatibility.WireAction.ACCEPT) return result.message();
-        if (!compatibleEndpoints.contains(endpoint)) return null;
-        return result.message();
+        return compatibleConnections.contains(id) ? result.message() : null;
     }
 
     private String inspectClientInbound(String message) {
@@ -265,16 +287,6 @@ final class PeerTransport {
                 || message.startsWith("SESSION_DENIED|") || message.startsWith("COMPAT_DENIED|"));
     }
 
-    private void markCompatible(InetAddress address, int port) {
-        if (address == null) return;
-        compatibleEndpoints.add(endpointKey(address, port));
-        while (compatibleEndpoints.size() > MAX_COMPATIBLE_ENDPOINTS) {
-            Iterator<String> iterator = compatibleEndpoints.iterator();
-            if (!iterator.hasNext()) break;
-            compatibleEndpoints.remove(iterator.next());
-        }
-    }
-
     private boolean isHandshakeAttempt(String message) {
         return message != null && (message.startsWith("JOIN|") || message.startsWith("JOIN_V1|")
                 || message.startsWith("RESUME|") || message.startsWith("RESUME_V1|"));
@@ -294,10 +306,9 @@ final class PeerTransport {
                     continue;
                 }
                 configure(socket);
-                TcpConnection connection = new TcpConnection(socket);
-                String endpoint = connection.endpoint();
-                TcpConnection old = connections.put(endpoint, connection);
-                if (old != null) old.close();
+                TcpConnection connection = new TcpConnection(new ConnectionId(nextConnectionId.getAndIncrement()), socket);
+                connections.put(connection.id, connection);
+                endpointIndex.put(connection.endpoint, connection.id);
                 perfStats.recordConnectionOpened();
                 connection.start();
             } catch (SocketException ex) {
@@ -319,11 +330,12 @@ final class PeerTransport {
                 Socket socket = new Socket();
                 socket.connect(expectedRemote, CONNECT_TIMEOUT_MS);
                 configure(socket);
-                TcpConnection connection = new TcpConnection(socket);
+                TcpConnection connection = new TcpConnection(new ConnectionId(nextConnectionId.getAndIncrement()), socket);
                 if (!running) {
                     connection.close();
                     break;
                 }
+                compatibilityAccepted = false;
                 clientConnection = connection;
                 perfStats.recordConnectionOpened();
                 connection.start();
@@ -352,22 +364,30 @@ final class PeerTransport {
         }
         perfStats.recordPacketReceived(frame.wireBytes());
         if (isSnapshot(frame.message())) perfStats.recordSnapshotReceived(frame.wireBytes());
-        inbox.add(new NetPacket(frame.message(), connection.address(), connection.remotePort()));
+        inbox.add(new NetPacket(frame.message(), connection.id, connection.address, connection.remotePort));
     }
 
     private void connectionClosed(TcpConnection connection) {
         perfStats.recordConnectionClosed();
-        String endpoint = connection.endpoint();
-        compatibleEndpoints.remove(endpoint);
+        compatibleConnections.remove(connection.id);
         if (serverMode) {
-            if (connections.remove(endpoint, connection) && running) {
-                inboxSize.incrementAndGet();
-                inbox.add(new NetPacket(DISCONNECT_EVENT, connection.address(), connection.remotePort()));
-            }
+            connections.remove(connection.id, connection);
+            endpointIndex.remove(connection.endpoint, connection.id);
+            if (running) publishDisconnect(connection);
         } else if (clientConnection == connection) {
             clientConnection = null;
             if (running) clientDisconnectPending.set(true);
         }
+    }
+
+    private void publishDisconnect(TcpConnection connection) {
+        int next = inboxSize.incrementAndGet();
+        if (next > MAX_INBOUND_FRAMES) {
+            inboxSize.decrementAndGet();
+            perfStats.recordInboundOverflow();
+            return;
+        }
+        inbox.add(new NetPacket(DISCONNECT_EVENT, connection.id, connection.address, connection.remotePort));
     }
 
     private String endpointKey(InetAddress address, int port) {
@@ -382,16 +402,24 @@ final class PeerTransport {
         return message != null && (message.startsWith("SNAPSHOT|") || SyncFrame.matches(message));
     }
 
-    private String replaceableKey(String message) {
-        if (message == null) return null;
-        if (message.startsWith("SNAPSHOT|")) return "SNAPSHOT";
-        if (message.startsWith("LEADER|")) return "LEADER";
-        if (message.startsWith("GALAXY|")) return "GALAXY";
-        return null;
+    private DeliveryClass inferDelivery(String message) {
+        if (message == null) return DeliveryClass.ORDERED;
+        if (SyncFrame.matches(message)) return DeliveryClass.VIEW_SNAPSHOT;
+        if (message.startsWith("SNAPSHOT|")) return DeliveryClass.REGULAR_SNAPSHOT;
+        if (message.startsWith("LEADER|")) return DeliveryClass.LEADERBOARD;
+        if (message.startsWith("GALAXY|")) return DeliveryClass.GALAXY;
+        return DeliveryClass.ORDERED;
     }
 
-    private int utf8Length(String message) {
-        return message == null ? 0 : message.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+    private String replaceableKey(DeliveryClass deliveryClass) {
+        return switch (deliveryClass) {
+            case ORDERED -> null;
+            case REGULAR_SNAPSHOT -> "REGULAR_SNAPSHOT";
+            case FULL_CORRECTION -> "FULL_CORRECTION";
+            case VIEW_SNAPSHOT -> "VIEW_SNAPSHOT";
+            case LEADERBOARD -> "LEADERBOARD";
+            case GALAXY -> "GALAXY";
+        };
     }
 
     private void closeQuietly(Closeable closeable) {
@@ -405,6 +433,7 @@ final class PeerTransport {
     }
 
     private final class TcpConnection {
+        private final ConnectionId id;
         private final Socket socket;
         private final InetAddress address;
         private final int remotePort;
@@ -414,8 +443,11 @@ final class PeerTransport {
         private final AtomicBoolean open = new AtomicBoolean(true);
         private int controlFrameCount;
         private long queuedBytes;
+        private long coalescedSnapshots;
+        private boolean writeInFlight;
 
-        TcpConnection(Socket socket) {
+        TcpConnection(ConnectionId id, Socket socket) {
+            this.id = Objects.requireNonNull(id, "id");
             this.socket = Objects.requireNonNull(socket, "socket");
             this.address = socket.getInetAddress();
             this.remotePort = socket.getPort();
@@ -423,42 +455,49 @@ final class PeerTransport {
         }
 
         void start() {
-            Thread reader = new Thread(this::readerLoop, "starchem-tcp-read-" + endpoint);
-            Thread writer = new Thread(this::writerLoop, "starchem-tcp-write-" + endpoint);
+            String suffix = id + "-" + endpoint;
+            Thread reader = new Thread(this::readerLoop, "starchem-tcp-read-" + suffix);
+            Thread writer = new Thread(this::writerLoop, "starchem-tcp-write-" + suffix);
             reader.setDaemon(true);
             writer.setDaemon(true);
             reader.start();
             writer.start();
         }
 
-        boolean enqueue(String message) {
+        boolean enqueue(String message, DeliveryClass deliveryClass) {
             byte[] bytes;
-            try {
-                bytes = TcpFrameCodec.encode(message);
-            } catch (IOException ex) {
+            try { bytes = TcpFrameCodec.encode(message); }
+            catch (IOException ex) {
                 perfStats.recordMalformedPacket();
                 return false;
             }
-            String replaceableKey = replaceableKey(message);
-            OutboundFrame frame = new OutboundFrame(bytes, isSnapshot(message), replaceableKey);
+            String key = replaceableKey(deliveryClass);
+            OutboundFrame frame = new OutboundFrame(bytes,
+                    deliveryClass == DeliveryClass.REGULAR_SNAPSHOT
+                            || deliveryClass == DeliveryClass.FULL_CORRECTION
+                            || deliveryClass == DeliveryClass.VIEW_SNAPSHOT,
+                    key);
             boolean closeSlow = false;
             synchronized (this) {
                 if (!open.get()) return false;
-                OutboundFrame previous = replaceableKey == null ? null : replaceableFrames.get(replaceableKey);
+                OutboundFrame previous = key == null ? null : replaceableFrames.get(key);
                 long projectedBytes = queuedBytes - (previous == null ? 0 : previous.bytes.length) + bytes.length;
                 if (projectedBytes > MAX_OUTBOUND_BYTES
-                        || replaceableKey == null && controlFrameCount >= MAX_CONTROL_FRAMES) {
+                        || key == null && controlFrameCount >= MAX_CONTROL_FRAMES) {
                     closeSlow = true;
                 } else {
                     if (previous != null) {
                         removeIdentity(previous);
-                        queuedBytes -= previous.bytes.length;
-                        if ("SNAPSHOT".equals(replaceableKey)) perfStats.recordSnapshotCoalesced();
+                        queuedBytes = Math.max(0, queuedBytes - previous.bytes.length);
+                        if (previous.snapshot) {
+                            coalescedSnapshots++;
+                            perfStats.recordSnapshotCoalesced();
+                        }
                     }
                     outboundFrames.addLast(frame);
                     queuedBytes += bytes.length;
-                    if (replaceableKey == null) controlFrameCount++;
-                    else replaceableFrames.put(replaceableKey, frame);
+                    if (key == null) controlFrameCount++;
+                    else replaceableFrames.put(key, frame);
                     notifyAll();
                 }
             }
@@ -488,18 +527,24 @@ final class PeerTransport {
             notifyAll();
         }
 
-        synchronized int pendingFrames() { return outboundFrames.size(); }
-
+        synchronized int pendingFrames() { return outboundFrames.size() + (writeInFlight ? 1 : 0); }
         synchronized long pendingBytes() { return queuedBytes; }
         boolean open() { return open.get(); }
-        InetAddress address() { return address; }
-        int remotePort() { return remotePort; }
         int localPort() { return socket.getLocalPort(); }
-        String endpoint() { return endpoint; }
+
+        synchronized ConnectionDiagnostics diagnostics() {
+            return new ConnectionDiagnostics(id, open.get(), pendingFrames(), queuedBytes, coalescedSnapshots);
+        }
 
         void drainAndClose(long timeoutMs) {
             long deadline = System.currentTimeMillis() + Math.max(0, timeoutMs);
-            while (open.get() && pendingFrames() > 0 && System.currentTimeMillis() < deadline) sleep(5);
+            synchronized (this) {
+                while (open.get() && (!outboundFrames.isEmpty() || writeInFlight)
+                        && System.currentTimeMillis() < deadline) {
+                    try { wait(Math.min(20, Math.max(1, deadline - System.currentTimeMillis()))); }
+                    catch (InterruptedException ex) { Thread.currentThread().interrupt(); break; }
+                }
+            }
             close();
         }
 
@@ -518,7 +563,7 @@ final class PeerTransport {
                     receive(this, frame);
                 }
             } catch (SocketTimeoutException ignored) {
-                // Heartbeats and snapshots keep healthy connections active.
+                // Application heartbeats and snapshots normally keep healthy connections active.
             } catch (IOException ex) {
                 if (open.get()) perfStats.recordMalformedPacket();
             } finally {
@@ -531,13 +576,17 @@ final class PeerTransport {
                 while (open.get()) {
                     OutboundFrame frame = takeNext();
                     if (frame == null) continue;
-                    output.write(frame.bytes);
-                    output.flush();
-                    perfStats.recordPacketSent(frame.bytes.length);
-                    if (frame.snapshot) perfStats.recordSnapshotSent(frame.bytes.length);
+                    try {
+                        output.write(frame.bytes);
+                        output.flush();
+                        perfStats.recordPacketSent(frame.bytes.length);
+                        if (frame.snapshot) perfStats.recordSnapshotSent(frame.bytes.length);
+                    } finally {
+                        completeWrite();
+                    }
                 }
-            } catch (IOException ex) {
-                // Closing the connection is the recovery signal; do not block the game thread.
+            } catch (IOException ignored) {
+                // Socket closure is the recovery signal.
             } finally {
                 close();
             }
@@ -552,13 +601,18 @@ final class PeerTransport {
                 if (!open.get()) return null;
                 OutboundFrame frame = outboundFrames.pollFirst();
                 if (frame != null) {
+                    writeInFlight = true;
                     queuedBytes = Math.max(0, queuedBytes - frame.bytes.length);
                     if (frame.replaceableKey == null) controlFrameCount = Math.max(0, controlFrameCount - 1);
                     else replaceableFrames.remove(frame.replaceableKey, frame);
                 }
-                notifyAll();
                 return frame;
             }
+        }
+
+        private synchronized void completeWrite() {
+            writeInFlight = false;
+            notifyAll();
         }
     }
 

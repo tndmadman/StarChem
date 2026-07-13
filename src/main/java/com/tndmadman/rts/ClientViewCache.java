@@ -7,6 +7,7 @@ import java.util.Set;
 
 final class ClientViewCache {
     private final Map<String, String> viewByPlayer = new LinkedHashMap<>();
+    private final Map<String, Long> revisionByPlayer = new LinkedHashMap<>();
 
     void setHome(World world, String playerId) {
         if (!realPlayerId(playerId)) return;
@@ -15,6 +16,7 @@ final class ClientViewCache {
 
     void remove(String playerId) {
         viewByPlayer.remove(playerId);
+        revisionByPlayer.remove(playerId);
     }
 
     void removeSystems(Set<String> systemIds) {
@@ -39,6 +41,15 @@ final class ClientViewCache {
         String home = world.playerHomeSystemId(playerId);
         viewByPlayer.put(playerId, home);
         return home;
+    }
+
+    void setViewRevision(String playerId, long revision) {
+        if (!realPlayerId(playerId) || revision < 0) return;
+        revisionByPlayer.put(playerId, revision);
+    }
+
+    long viewRevision(String playerId) {
+        return playerId == null ? 0 : revisionByPlayer.getOrDefault(playerId, 0L);
     }
 
     Snapshot makeSnapshot(World world, String playerId, long sequence) {

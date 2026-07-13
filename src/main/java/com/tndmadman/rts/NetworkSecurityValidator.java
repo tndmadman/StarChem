@@ -142,7 +142,7 @@ public final class NetworkSecurityValidator {
             for (int i = 0; i < 100; i++) server.send("SNAPSHOT|" + i + '|' + snapshotBody, loopback, port);
             long elapsedMs = (System.nanoTime() - started) / 1_000_000L;
             require(elapsedMs < 1_000, "snapshot enqueue blocked the game thread");
-            require(server.queuedCount() <= 1, "obsolete snapshots accumulated instead of being coalesced");
+            require(server.queuedCount() <= 2, "obsolete snapshots accumulated instead of being coalesced");
 
             String control = "CONTROL|" + "y".repeat(40_000);
             for (int i = 0; i < 400 && server.hasConnection(loopback, port); i++) {

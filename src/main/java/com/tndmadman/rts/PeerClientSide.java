@@ -14,9 +14,12 @@ final class PeerClientSide {
     private long lastPing;
     private long lastServerPacket;
     private long lastSnapshotSequence;
+    private long nextViewRevision = 1;
+    private long pendingViewRevision;
     private boolean connectedOnce;
     private boolean devApproved;
     private boolean viewSnapshotMode;
+    private boolean viewRequestPending;
     private String localPlayerId = "SOLO";
     private String sessionToken = "";
     private String viewedSystemId = "";
@@ -58,6 +61,12 @@ final class PeerClientSide {
     boolean devToolsAllowed() { return state == ConnectionState.CONNECTED && devApproved; }
     String failureMessage() { return failureMessage.isBlank() ? "Connection failed." : failureMessage; }
     static long serverSilenceMs() { return SERVER_SILENCE_MS; }
+    boolean reconnecting() { return state == ConnectionState.RECONNECTING; }
+    boolean connectedState() { return state == ConnectionState.CONNECTED; }
+    long lastSnapshotSequence() { return lastSnapshotSequence; }
+    String viewedSystemId() { return viewedSystemId; }
+    long pendingViewRevision() { return pendingViewRevision; }
+    boolean viewSwitchPending() { return viewRequestPending; }
 
     void tick(long now) {
         PlayerRegistry.activate(world);
@@ -160,9 +169,11 @@ final class PeerClientSide {
     void jump(String playerId, String targetSystemId, double x, double y) {
         if (!canIssueCommands()) { blockCommand(); return; }
         viewSnapshotMode = true;
+        viewRequestPending = true;
         viewedSystemId = cleanSystemId(targetSystemId);
-        if (invalidSystemId(viewedSystemId)) { viewSnapshotMode = false; viewedSystemId = world.activeSystemId(); return; }
-        sendCommandToServer("JUMP|" + playerId + "|" + viewedSystemId + "|" + Calc.round(x) + "|" + Calc.round(y));
+        if (invalidSystemId(viewedSystemId)) { viewSnapshotMode = false; viewRequestPending = false; viewedSystemId = world.activeSystemId(); return; }
+        pendingViewRevision = nextViewRevision++;
+        sendCommandToServer("JUMP|" + playerId + "|" + viewedSystemId + "|" + Calc.round(x) + "|" + Calc.round(y) + "|" + pendingViewRevision);
     }
     void wormholeTouch(String playerId) { sendCommandToServer("WHTOUCH|" + playerId); }
     void wormholeTouch(WormholeTouchRequest request) { if (request != null && request.valid()) sendCommandToServer(request.packet()); }
@@ -198,6 +209,8 @@ final class PeerClientSide {
         world.activateSystem(world.playerHomeSystemId(localPlayerId));
         viewedSystemId = world.activeSystemId();
         viewSnapshotMode = false;
+        viewRequestPending = false;
+        pendingViewRevision = 0;
         devApproved = flag(markerValue(parts, "DEV"));
         world.setDevFreeBuild(localPlayerId, devApproved);
         SessionTokenStore.save(config, localPlayerId, sessionToken);
@@ -222,15 +235,28 @@ final class PeerClientSide {
 
     void readFullView(String message) {
         try {
+            long frameViewRevision = SyncFrame.viewRevision(message);
             Snapshot snapshot = SyncFrame.read(message);
-            boolean requestedView = viewSnapshotMode;
+            boolean requestedView = viewRequestPending;
+            if (requestedView && frameViewRevision != pendingViewRevision) {
+                ResourceNetDebug.ignoredSnapshot(world, snapshot, "obsolete view revision " + frameViewRevision
+                        + " while waiting for " + pendingViewRevision);
+                return;
+            }
             ResourceNetDebug.clientReceive("FULL_VIEW", snapshot, lastSnapshotSequence, viewSnapshotMode);
             if (holdingDifferentView(snapshot)) return;
             if (stale(snapshot, "FULL_VIEW")) return;
             WorldNetAccess.applyFullView(world, snapshot);
             acceptSnapshot(snapshot);
-            if (requestedView && snapshot.systemId() != null && !snapshot.systemId().isBlank()) viewedSystemId = snapshot.systemId();
-            if (!requestedView && WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId)) viewedSystemId = world.activeSystemId();
+            if (requestedView && snapshot.systemId() != null && !snapshot.systemId().isBlank()) {
+                viewedSystemId = snapshot.systemId();
+                viewRequestPending = false;
+                viewSnapshotMode = !WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId);
+            }
+            if (!requestedView && WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId)) {
+                viewedSystemId = world.activeSystemId();
+                viewSnapshotMode = false;
+            }
         } catch (SnapshotDecodeException ex) {
             rejectSnapshot(ex);
         }
@@ -308,6 +334,7 @@ final class PeerClientSide {
         }
         if (deletedViewedSystem || deletedActiveSystem) {
             viewSnapshotMode = false;
+            viewRequestPending = false;
             world.ensurePlayerHome(localPlayerId);
             world.activateSystem(world.playerHomeSystemId(localPlayerId));
             viewedSystemId = world.activeSystemId();

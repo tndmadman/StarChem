@@ -32,7 +32,7 @@ public final class SessionRecoveryValidator {
             PlayerRegistry.reset("SOLO", "Session Host", 0x50BEFF);
             PeerServerSide server = new PeerServerSide(config, world, transport);
 
-            String firstEndpoint = server.endpoint(loopback, firstClient.getLocalPort());
+            ConnectionId firstEndpoint = transport.connectionId(loopback, firstClient.getLocalPort());
             server.join(firstEndpoint, loopback, firstClient.getLocalPort(), "Recovery Client", false, "");
             String firstWelcome = receivePayload(firstClient, "WELCOME|");
             String firstToken = markerValue(firstWelcome, "SESSION");
@@ -41,7 +41,7 @@ public final class SessionRecoveryValidator {
             require(world.hasLiveAssets("P1"), "initial join did not create P1 assets");
             world.completeResearch("P1", "session-recovery-marker");
 
-            String reboundEndpoint = server.endpoint(loopback, reboundClient.getLocalPort());
+            ConnectionId reboundEndpoint = transport.connectionId(loopback, reboundClient.getLocalPort());
             require(!server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1", firstToken, false, ""),
                     "a second TCP connection displaced an active player session");
             String busyResponse = receivePayload(reboundClient, "SESSION_BUSY|");
@@ -79,7 +79,7 @@ public final class SessionRecoveryValidator {
             require(world.hasLiveAssets("P1"), "explicit leave deleted P1 assets");
             require(world.hasResearch("P1", "session-recovery-marker"), "explicit leave deleted P1 research");
 
-            String restartedEndpoint = server.endpoint(loopback, restartedClient.getLocalPort());
+            ConnectionId restartedEndpoint = transport.connectionId(loopback, restartedClient.getLocalPort());
             require(server.resume(restartedEndpoint, loopback, restartedClient.getLocalPort(), "P1", reboundToken, false, ""),
                     "saved session could not resume after a client restart");
             String restartedWelcome = receivePayload(restartedClient, "WELCOME|");
