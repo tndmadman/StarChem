@@ -6,6 +6,8 @@ StarChem is a Java 2D top-down multiplayer real-time strategy prototype built ar
 
 > **Alpha release:** Core solo and multiplayer systems are functional, but active development continues. Expect balance changes, incomplete features, compatibility breaks, and bugs.
 
+> **Known progression blocker:** The tagged release gives the Research Lab a Radiation Shielding cost, while Radiation Shielding requires Advanced Industry and Advanced Industry requires the Research Lab. A clean non-developer game cannot normally enter the research tree. See [[First Game Progression]] and [[v1.1.0-alpha Release Notes]].
+
 ## Release identity
 
 | Item | Value |
@@ -28,14 +30,14 @@ This wiki documents the tagged release, not later changes on `main`. Post-releas
 
 - [[Getting Started]] — download, install, launch, and start a first session.
 - [[Controls and Interface]] — selection, camera, fleet orders, overlays, map, and resource catalog.
-- [[First Game Progression]] — a practical route from the starting economy to advanced fleets.
+- [[First Game Progression]] — achievable clean-release progression, the confirmed research blocker, and the intended later path.
 - [[Multiplayer and Dedicated Server]] — Solo, Host, Join, headless Linux hosting, ports, and compatibility.
 
 ## Systems and progression
 
 - [[Galaxy and Territory]] — all 14 system templates, topology, wormholes, capture rules, and control bonuses.
 - [[Resources and Manufacturing]] — raw materials, salvage, all recipe categories, dependency chains, and recommended production order.
-- [[Research Ships and Stations]] — research tree, every player hull, stations, costs, roles, and progression gates.
+- [[Research Ships and Stations]] — research tree, every player hull, stations, costs, roles, progression gates, and the Lab bootstrap issue.
 - [[Weapons and Combat]] — weapon statistics, ship loadouts, formations, targeting, and fleet commands.
 - [[NPC Factions and Simulation]] — Raiders, Free Miners, Corsairs, background simulation, and NPC industry.
 
@@ -43,18 +45,22 @@ This wiki documents the tagged release, not later changes on `main`. Post-releas
 
 - [[Networking and Security]] — framing, limits, compatibility fingerprints, reconnects, snapshots, and trust boundaries.
 - [[Configuration Troubleshooting and Development]] — JSON structure, launch options, developer access, common failures, and validation.
-- [[v1.1.0-alpha Release Notes]] — release highlights, compatibility, requirements, and known alpha expectations.
+- [[v1.1.0-alpha Release Notes]] — release highlights, compatibility, requirements, known issues, and release boundaries.
 
-## Core gameplay loop
+## Achievable clean-release loop
 
 1. Begin with a **Prospector** and **Outpost** in a protected home system.
 2. Mine metals, minerals, ice, and gases.
-3. Build a **Deployer** and establish a Manufacturing Plant, Research Lab, and Shipyard.
-4. Convert raw resources into alloys, chemicals, electronics, industrial modules, power systems, weapons, and capital components.
-5. Complete the research chain from Advanced Industry through Supercapital Architecture.
-6. Explore the galaxy, exploit specialized systems, and contest valuable territory.
-7. Defend against NPC factions and opposing players.
-8. Progress from specialist industry ships and frigates to capitals, supercapitals, and the Monolith.
+3. Build more Prospectors and a **Deployer**.
+4. Establish a **Manufacturing Plant** from raw resources.
+5. Produce the immediately unlocked alloys, chemicals, electronics, industrial components, and Fuel.
+6. Build and use infrastructure whose components do not depend on Advanced Industry.
+7. Explore the galaxy, exploit specialized systems, contest territory, and respond to NPC factions.
+8. Reach the documented Research Lab bootstrap blocker in normal non-developer progression.
+
+## Intended later progression
+
+After the release blocker is fixed or deliberately bypassed in a test environment, the configured path continues through Advanced Industry, Combat Doctrine, Battlefleet Engineering, Supercapital Architecture, specialist industry ships, combat fleets, capitals, supercapitals, and the Monolith.
 
 ## Multiplayer compatibility warning
 
