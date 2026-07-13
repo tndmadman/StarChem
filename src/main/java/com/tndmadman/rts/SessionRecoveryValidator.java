@@ -119,7 +119,13 @@ public final class SessionRecoveryValidator {
                     "client restart did not begin in reconnecting state");
 
             firstClient.readWelcome(welcomeParts(firstWorld, "P9", firstToken));
-            require(firstClient.statusLine().contains("CLIENT P9"), "WELCOME did not mark the client connected");
+            require(firstClient.statusLine().contains("syncing P9"),
+                    "WELCOME skipped the authoritative initial-sync state");
+            require(!firstClient.readyState(), "WELCOME marked the client ready before initial state arrived");
+            applyInitialSync(firstClient, firstWorld, "P9", 1);
+            require(firstClient.statusLine().contains("CLIENT P9"),
+                    "initial authoritative snapshot did not mark the client connected");
+
             firstClient.tick(System.currentTimeMillis() + PeerClientSide.serverSilenceMs() + 1000);
             require(firstClient.statusLine().contains("reconnecting P9"),
                     "server silence did not move the client into reconnecting state");
@@ -137,7 +143,12 @@ public final class SessionRecoveryValidator {
                     "active-session response cleared the saved resume token");
 
             firstClient.readWelcome(welcomeParts(firstWorld, "P9", rotatedToken));
-            require(firstClient.statusLine().contains("CLIENT P9"), "resumed WELCOME did not restore connected state");
+            require(firstClient.statusLine().contains("syncing P9"),
+                    "resumed WELCOME skipped authoritative resynchronization");
+            require(!firstClient.readyState(), "resumed WELCOME restored readiness before state arrived");
+            applyInitialSync(firstClient, firstWorld, "P9", 2);
+            require(firstClient.statusLine().contains("CLIENT P9"),
+                    "resumed authoritative snapshot did not restore connected state");
             require(rotatedToken.equals(SessionTokenStore.load(config).token()),
                     "rotated resume token was not persisted");
 
@@ -155,6 +166,14 @@ public final class SessionRecoveryValidator {
             System.clearProperty("starchem.sessionStore");
             Files.deleteIfExists(store);
         }
+    }
+
+    private static void applyInitialSync(PeerClientSide client, World world, String playerId, long sequence) {
+        PlayerRegistry.activate(world);
+        if (!world.hasLiveAssets(playerId)) WorldNetAccess.respawnPlayer(world, playerId);
+        String initial = SyncPacketBuilder.build(world, new ClientViewCache(), playerId, sequence, SyncKind.INITIAL);
+        client.readFullView(initial);
+        require(client.readyState(), "client did not become ready after authoritative initial state was applied");
     }
 
     private static Socket connect(InetAddress address, int port) throws Exception {
