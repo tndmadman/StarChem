@@ -49,28 +49,47 @@ record BaseState(String id, String playerId, String typeId, double x, double y, 
 record StockState(String playerId, String cargo) { }
 record ShotState(int id, String ownerId, String weaponId, String targetKey, double x, double y, double lastX, double lastY) { }
 record ItemState(int id, String material, double amount, double x, double y, double vx, double vy, double angle, double spin) { }
-record Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks, List<ShotState> shots, List<ItemState> items, String systemId, double systemTime, String celestialState) {
+record ResearchState(String playerId, List<String> topicIds) {
+    ResearchState {
+        playerId = playerId == null ? "" : playerId;
+        topicIds = topicIds == null ? List.of() : List.copyOf(topicIds);
+    }
+}
+record Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks, List<ShotState> shots, List<ItemState> items, String systemId, double systemTime, String celestialState, List<ResearchState> research) {
     Snapshot {
         String packedSystem = systemId == null ? "" : systemId;
         String embeddedState = CelestialPacketCache.state(packedSystem);
         systemId = CelestialPacketCache.systemId(packedSystem);
         if (celestialState == null || celestialState.isBlank()) celestialState = embeddedState;
+        research = research == null ? List.of() : List.copyOf(research);
+    }
+
+    Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources,
+             List<BaseState> bases, List<StockState> stocks, List<ShotState> shots, List<ItemState> items,
+             String systemId, double systemTime, String celestialState) {
+        this(sequence, players, units, resources, bases, stocks, shots, items, systemId, systemTime, celestialState, List.of());
+    }
+
+    Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources,
+             List<BaseState> bases, List<StockState> stocks, List<ShotState> shots, List<ItemState> items,
+             String systemId, double systemTime, List<ResearchState> research) {
+        this(sequence, players, units, resources, bases, stocks, shots, items, systemId, systemTime, "", research);
     }
 
     Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks, List<ShotState> shots, List<ItemState> items, String systemId, double systemTime) {
-        this(sequence, players, units, resources, bases, stocks, shots, items, systemId, systemTime, "");
+        this(sequence, players, units, resources, bases, stocks, shots, items, systemId, systemTime, "", List.of());
     }
     Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks, List<ShotState> shots, List<ItemState> items, double systemTime) {
-        this(sequence, players, units, resources, bases, stocks, shots, items, "", systemTime, "");
+        this(sequence, players, units, resources, bases, stocks, shots, items, "", systemTime, "", List.of());
     }
     Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks, List<ShotState> shots, List<ItemState> items) {
-        this(sequence, players, units, resources, bases, stocks, shots, items, "", -1, "");
+        this(sequence, players, units, resources, bases, stocks, shots, items, "", -1, "", List.of());
     }
     Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks, List<ShotState> shots) {
-        this(sequence, players, units, resources, bases, stocks, shots, List.of(), "", -1, "");
+        this(sequence, players, units, resources, bases, stocks, shots, List.of(), "", -1, "", List.of());
     }
     Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, List<ResourceState> resources, List<BaseState> bases, List<StockState> stocks) {
-        this(sequence, players, units, resources, bases, stocks, List.of(), List.of(), "", -1, "");
+        this(sequence, players, units, resources, bases, stocks, List.of(), List.of(), "", -1, "", List.of());
     }
 
     String packedSystemField() {
