@@ -168,6 +168,10 @@ public final class SnapshotHardeningValidator {
             String homeSystem = world.playerHomeSystemId("P1");
             String remoteSystem = StarSystems.PLAYER_HOME_SYSTEM_ID + "_P2";
 
+            client.readFullView(SyncFrame.write(viewSnapshot(9, homeSystem, "P1", 1, 1000, 1000, 550), 0));
+            require(client.readyState(), "initial home snapshot did not complete client readiness");
+            require(homeSystem.equals(world.activeSystemId()), "initial home snapshot selected the wrong system");
+
             client.jump("P1", remoteSystem, 0, 0);
             client.readFullView(SyncFrame.write(viewSnapshot(10, remoteSystem, "P2", 2, 2200, 2300, 500), 1));
             require(remoteSystem.equals(world.activeSystemId()), "remote view snapshot was rejected as a different system");

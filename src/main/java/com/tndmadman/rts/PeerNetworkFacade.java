@@ -62,8 +62,15 @@ final class PeerNetwork implements CommandSink {
     boolean connectionFailed() { return client != null && client.connectionFailed(); }
     String failureMessage() { return client != null ? client.failureMessage() : "Connection failed."; }
     PerfSnapshot perfSnapshot() { return transport.perfSnapshot(); }
+    boolean clientMode() { return client != null; }
     boolean clientReconnecting() { return client != null && client.reconnecting(); }
     boolean clientConnected() { return client != null && client.connectedState(); }
+    boolean clientReady() { return client == null || client.readyState(); }
+    ClientConnectionProgress clientConnectionProgress() {
+        return client == null
+                ? new ClientConnectionProgress(ConnectionPhase.READY, "READY", "Local authoritative session.", 4, 4, 0)
+                : client.connectionProgress();
+    }
     long clientSnapshotSequence() { return client == null ? 0 : client.lastSnapshotSequence(); }
     String clientViewedSystemId() { return client == null ? "" : client.viewedSystemId(); }
     long clientPendingViewRevision() { return client == null ? 0 : client.pendingViewRevision(); }

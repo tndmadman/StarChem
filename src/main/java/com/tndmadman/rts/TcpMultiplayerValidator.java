@@ -24,11 +24,13 @@ public final class TcpMultiplayerValidator {
             Config clientConfig = Config.join("TCP Validation Client", "127.0.0.1", port, false);
             World clientWorld = new World(clientConfig.playerName, Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
             client = PeerNetwork.start(clientConfig, clientWorld);
+            require(!client.clientReady(), "TCP client reported ready before authoritative initial state was applied");
 
             PeerNetwork finalServer = server;
             PeerNetwork finalClient = client;
             runUntil(finalServer, finalClient, clientWorld,
-                    () -> !"SOLO".equals(finalClient.localPlayerId())
+                    () -> finalClient.clientReady()
+                            && !"SOLO".equals(finalClient.localPlayerId())
                             && serverWorld.hasLiveAssets(finalClient.localPlayerId())
                             && clientWorld.hasLiveAssets(finalClient.localPlayerId()),
                     12_000, "TCP client did not join and receive authoritative initial state");
@@ -88,7 +90,12 @@ public final class TcpMultiplayerValidator {
     private static void runUntil(PeerNetwork server, PeerNetwork client, World clientWorld, Check condition,
                                  long timeoutMs, String failure) throws Exception {
         long deadline = System.currentTimeMillis() + timeoutMs;
-        while (!condition.ok() && System.currentTimeMillis() < deadline) tick(server, client, clientWorld);
+        while (!condition.ok() && System.currentTimeMillis() < deadline) {
+            tick(server, client, clientWorld);
+            if (client.clientReady() && !clientWorld.hasLiveAssets(client.localPlayerId())) {
+                throw new IllegalStateException("TCP client became ready before its authoritative assets were present");
+            }
+        }
         require(condition.ok(), failure);
     }
 
