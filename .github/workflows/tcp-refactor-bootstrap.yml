@@ -20,12 +20,16 @@ jobs:
           set -euxo pipefail
           git clone --quiet --depth 1 --branch agent/tcp-network-refactor "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" repo
           cd repo
-          base64 --decode tcp-refactor.patch.gz.b64 > /tmp/tcp-refactor.patch.gz
+          cat tcp-refactor.patch.chunk-* > /tmp/tcp-refactor.patch.gz.b64
+          test "$(wc -c < /tmp/tcp-refactor.patch.gz.b64)" -eq 37192
+          test "$(sha256sum /tmp/tcp-refactor.patch.gz.b64 | awk '{print $1}')" = "18cdd5f0a28b7144fe8540fff469231e69e61c869fc48fdd377fa7e8b06e12a0"
+          base64 --decode /tmp/tcp-refactor.patch.gz.b64 > /tmp/tcp-refactor.patch.gz
           gzip --test /tmp/tcp-refactor.patch.gz
           gzip --decompress --stdout /tmp/tcp-refactor.patch.gz > /tmp/tcp-refactor.patch
           git apply --check /tmp/tcp-refactor.patch
           git apply --index /tmp/tcp-refactor.patch
           git rm tcp-refactor.patch.gz.b64
+          git rm tcp-refactor.patch.chunk-*
           git rm .github/workflows/tcp-refactor-bootstrap.yml
       - uses: actions/setup-java@v4
         with:
