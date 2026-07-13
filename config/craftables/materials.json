@@ -148,9 +148,6 @@
       "stationTypes": [
         "manufacturing"
       ],
-      "requiresResearch": [
-        "advanced_industry"
-      ],
       "timeSeconds": 15,
       "requiredResources": {
         "TUNGSTEN": 8,
