@@ -36,18 +36,7 @@ jobs:
           gradle-version: '8.10.2'
 
       - name: Verify project
-        shell: bash
-        run: |
-          set -o pipefail
-          gradle clean check jar --no-daemon 2>&1 | tee verification-output.log
-
-      - name: Upload verification output
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: verification-output
-          path: verification-output.log
-          if-no-files-found: error
+        run: gradle clean check jar --no-daemon
 
       - name: Smoke-test Linux headless server
         shell: bash
