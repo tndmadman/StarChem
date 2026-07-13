@@ -23,6 +23,7 @@ final class GameFrame extends JFrame {
     private ResourceCatalogOverlay resourceCatalogOverlay;
     private NarrationSettingsOverlay narrationSettingsOverlay;
     private EndStatePanel endStatePanel;
+    private ConnectionOverlayPanel connectionOverlayPanel;
     private PeerNetwork network;
     private LocalHostSession localHostSession;
     private Timer networkTimer;
@@ -108,11 +109,14 @@ final class GameFrame extends JFrame {
         installResourceCatalogHotkey(gamePanel);
         installNarrationSettingsHotkey(gamePanel);
         endStatePanel = new EndStatePanel(world, this, activeNetwork);
+        connectionOverlayPanel = activeNetwork != null && activeNetwork.clientMode()
+                ? new ConnectionOverlayPanel(this, activeNetwork) : null;
         root.removeAll();
         root.add(gamePanel, JLayeredPane.DEFAULT_LAYER);
         root.add(resourceCatalogOverlay, JLayeredPane.PALETTE_LAYER);
         root.add(narrationSettingsOverlay, JLayeredPane.POPUP_LAYER);
         root.add(endStatePanel, JLayeredPane.MODAL_LAYER);
+        if (connectionOverlayPanel != null) root.add(connectionOverlayPanel, JLayeredPane.DRAG_LAYER);
         if (!world.status.contains("Press I")) world.status = world.status + " Press I for resources; F8 for narration.";
         setTitle(BuildInfo.display() + " - " + config.modeLabel() + " - " + config.playerName + " - " + world.systemName() + (config.devMode ? " - DEV" : ""));
         layoutLayers();
@@ -148,6 +152,7 @@ final class GameFrame extends JFrame {
         if (resourceCatalogOverlay != null) resourceCatalogOverlay.setVisible(false);
         if (narrationSettingsOverlay != null) narrationSettingsOverlay.close();
         if (endStatePanel != null) endStatePanel.stop();
+        if (connectionOverlayPanel != null) connectionOverlayPanel.stop();
         if (networkTimer != null) networkTimer.stop();
         if (localHostSession != null) localHostSession.stop();
         else if (network != null) network.shutdown();
@@ -155,6 +160,7 @@ final class GameFrame extends JFrame {
         resourceCatalogOverlay = null;
         narrationSettingsOverlay = null;
         endStatePanel = null;
+        connectionOverlayPanel = null;
         network = null;
         localHostSession = null;
         networkTimer = null;
@@ -168,6 +174,7 @@ final class GameFrame extends JFrame {
         if (resourceCatalogOverlay != null) resourceCatalogOverlay.setBounds(0, 0, w, h);
         if (narrationSettingsOverlay != null) narrationSettingsOverlay.setBounds(0, 0, w, h);
         if (endStatePanel != null) endStatePanel.setBounds(0, 0, w, h);
+        if (connectionOverlayPanel != null) connectionOverlayPanel.setBounds(0, 0, w, h);
         int mw = Math.min(760, Math.max(560, w - 160));
         int mh = Math.min(700, Math.max(580, h - 100));
         menuPanel.setBounds((w - mw) / 2, (h - mh) / 2, mw, mh);
