@@ -18,10 +18,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Package source tree
-        run: tar --exclude=.git -czf starchem-source.tar.gz .
+        run: tar --exclude=.git -czf /tmp/starchem-source.tar.gz .
       - name: Upload source tree
         uses: actions/upload-artifact@v4
         with:
           name: starchem-source
-          path: starchem-source.tar.gz
+          path: /tmp/starchem-source.tar.gz
           retention-days: 1
