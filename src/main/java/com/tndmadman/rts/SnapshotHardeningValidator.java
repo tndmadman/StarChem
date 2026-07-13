@@ -11,6 +11,7 @@ public final class SnapshotHardeningValidator {
     public static void main(String[] args) {
         validateStrictWireDecoding();
         validatePackedSystemRoundTrip();
+        validateResearchRoundTrip();
         validateCountAndNumericLimits();
         validateAtomicApplicationAndRecovery();
         validateViewSwitchRecovery();
@@ -22,6 +23,7 @@ public final class SnapshotHardeningValidator {
         String encoded = SnapshotWriter.write(valid);
         Snapshot decoded = SnapshotReader.read(encoded);
         require(decoded.units().size() == 1, "valid snapshot did not decode");
+        require(encoded.split("\\|", -1).length == 12, "current snapshot did not include the research section");
 
         String[] sections = encoded.split("\\|", -1);
         for (int length = 1; length < sections.length; length++) {
@@ -47,6 +49,10 @@ public final class SnapshotHardeningValidator {
                 List.of(new ItemState(1, "UNKNOWN_MATERIAL", 1, 0, 0, 0, 0, 0, 0)), "", -1);
         expectReject(() -> SnapshotReader.read(SnapshotWriter.write(badMaterial)), "material");
 
+        Snapshot badResearch = new Snapshot(3, valid.players(), valid.units(), List.of(), List.of(), List.of(), List.of(),
+                List.of(), "", -1, List.of(new ResearchState("SOLO", List.of("unknown_research"))));
+        expectReject(() -> SnapshotReader.read(SnapshotWriter.write(badResearch)), "research");
+
         Snapshot afterInvalid = SnapshotReader.read(encoded);
         require(afterInvalid.sequence() == 1, "valid snapshot was not accepted after invalid frames");
     }
@@ -68,6 +74,40 @@ public final class SnapshotHardeningValidator {
         require(systemId.equals(decoded.systemId()), "snapshot decoder exposed a packed system ID");
         require(state.equals(decoded.celestialState()), "snapshot decoder lost celestial state");
         require(encoded.equals(SnapshotWriter.write(decoded)), "snapshot environment state did not round-trip");
+    }
+
+    private static void validateResearchRoundTrip() {
+        PlayerRegistry.reset("P1", "Research Sync Validator", 0x50BEFF);
+        World host = new World("Research Sync Host", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        World client = new World("Research Sync Client", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        String baseId = "P1:B1";
+        Base laboratory = new Base(baseId, "P1", "laboratory", 1000, 1000);
+        ResearchTopic topic = ResearchRules.topic("advanced_industry");
+        require(topic != null, "research sync validator topic is missing");
+        laboratory.productionQueue.add(new ProductionJob("P1", ProductionJobKind.RESEARCH, topic.id,
+                topic.timeSeconds, topic.timeSeconds, true, ""));
+        host.bases.put(baseId, laboratory);
+
+        Snapshot queued = SnapshotReader.read(SnapshotWriter.write(WorldNetAccess.snapshot(host, 20)));
+        WorldNetAccess.apply(client, queued);
+        require(ProductionSystem.researchQueued(client, "P1", topic.id),
+                "client did not receive the queued research job");
+        require(!client.hasResearch("P1", topic.id),
+                "queued research was incorrectly marked complete");
+
+        laboratory.productionQueue.clear();
+        host.completeResearch("P1", topic.id);
+        Snapshot completed = SnapshotReader.read(SnapshotWriter.write(WorldNetAccess.snapshot(host, 21)));
+        WorldNetAccess.apply(client, completed);
+        require(!ProductionSystem.researchQueued(client, "P1", topic.id),
+                "completed research remained stuck in the client queue");
+        require(client.hasResearch("P1", topic.id),
+                "client lost the authoritative completed research state after the queue disappeared");
+
+        client.completeResearch("P1", "combat_doctrine");
+        WorldNetAccess.apply(client, completed);
+        require(!client.hasResearch("P1", "combat_doctrine"),
+                "authoritative research snapshot did not remove stale client-only research");
     }
 
     private static void validateCountAndNumericLimits() {

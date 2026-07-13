@@ -23,7 +23,9 @@ final class WorldNetAccess {
         for (ProjectileShot shot : world.shots) shots.add(new ShotState(shot.id, shot.ownerId, shot.weaponId, shot.targetKey, shot.x, shot.y, shot.lastX, shot.lastY));
         List<ItemState> items = new ArrayList<>();
         for (WorldItem item : world.items) items.add(new ItemState(item.id, item.material.name(), item.amount, item.x, item.y, item.vx, item.vy, item.angle, item.spin));
-        return new Snapshot(sequence, players, units, resources, bases, stocks, shots, items, CelestialPacketCache.pack(world.activeSystemId()), world.systemTime());
+        List<ResearchState> research = researchSnapshot(world);
+        return new Snapshot(sequence, players, units, resources, bases, stocks, shots, items,
+                CelestialPacketCache.pack(world.activeSystemId()), world.systemTime(), research);
     }
 
     static boolean hasPlayerAssets(Snapshot snapshot, String playerId) {
@@ -88,6 +90,7 @@ final class WorldNetAccess {
             ResourceNetDebug.ignoredSnapshot(world, snapshot, "no local assets");
             return;
         }
+        applyResearch(world, snapshot.research());
         if (snapshot.systemTime() >= 0) {
             ClientEnvironmentSync.synchronizeSnapshot(world, snapSystem, snapshot.systemTime(), forceEnvironmentCorrection);
         } else CelestialPacketCache.clear();
@@ -132,6 +135,32 @@ final class WorldNetAccess {
         ItemSync.apply(world, snapshot.items());
         if (!snapshot.stocks().isEmpty()) CargoCodec.readInto(snapshot.stocks().get(0).cargo(), world.stockpile);
         ResourceNetDebug.worldApplyEnd(world, snapshot);
+    }
+
+    private static List<ResearchState> researchSnapshot(World world) {
+        List<ResearchState> out = new ArrayList<>();
+        List<String> playerIds = new ArrayList<>(world.completedResearch.keySet());
+        Collections.sort(playerIds);
+        for (String playerId : playerIds) {
+            if (playerId == null || playerId.isBlank()) continue;
+            Set<String> completed = world.completedResearch.get(playerId);
+            if (completed == null || completed.isEmpty()) continue;
+            List<String> topics = new ArrayList<>();
+            for (String topicId : completed) {
+                if (topicId != null && ResearchRules.topic(topicId) != null) topics.add(topicId);
+            }
+            Collections.sort(topics);
+            if (!topics.isEmpty()) out.add(new ResearchState(playerId, List.copyOf(topics)));
+        }
+        return List.copyOf(out);
+    }
+
+    private static void applyResearch(World world, List<ResearchState> states) {
+        world.completedResearch.clear();
+        for (ResearchState state : states) {
+            if (state == null || state.playerId() == null || state.playerId().isBlank() || state.topicIds().isEmpty()) continue;
+            world.completedResearch.put(state.playerId(), new LinkedHashSet<>(state.topicIds()));
+        }
     }
 
     private static String snapshotSystemId(Snapshot snapshot) {

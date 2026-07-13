@@ -21,24 +21,26 @@ final class ProductionPlanner {
 
     static boolean queueShip(World world, Base target, ShipType ship) {
         if (ship == null) return false;
-        return queue(world, target, ProductionJobKind.SHIP, ship.id, ship.name, ship.buildCost);
+        return queue(world, target, ProductionJobKind.SHIP, ship.id, ship.name,
+                ship.buildCost, ship.buildTimeSeconds);
     }
 
     static boolean queuePackage(World world, Base target, BaseType station) {
         if (station == null) return false;
         return queue(world, target, ProductionJobKind.STATION_PACKAGE, station.id,
-                station.name + " package", station.buildCost);
+                station.name + " package", station.buildCost, station.buildTimeSeconds);
     }
 
     static boolean queueCraftable(World world, Base target, CraftableItem item) {
         if (item == null) return false;
-        return queue(world, target, ProductionJobKind.CRAFTABLE, item.id, item.name, item.requiredResources);
+        return queue(world, target, ProductionJobKind.CRAFTABLE, item.id, item.name,
+                item.requiredResources, item.timeSeconds);
     }
 
     static boolean queueResearch(World world, Base target, ResearchTopic topic) {
         if (topic == null) return false;
         return queue(world, target, ProductionJobKind.RESEARCH, topic.id,
-                topic.name + " research", topic.requiredResources);
+                topic.name + " research", topic.requiredResources, topic.timeSeconds);
     }
 
     static synchronized void update(World world, double dt) {
@@ -63,7 +65,18 @@ final class ProductionPlanner {
                 continue;
             }
 
-            if (networkCanCover(world, plan.playerId, plan.root.cost) && enqueueRoot(world, target, plan.root)) {
+            ProductionJob rootJob = ProductionSystem.findJob(target, plan.root.productionJobId);
+            if (rootJob == null) {
+                iterator.remove();
+                continue;
+            }
+            if (!ProductionSystem.waitingForResources(rootJob)) {
+                iterator.remove();
+                continue;
+            }
+
+            if (networkCanCover(world, plan.playerId, plan.root.cost)
+                    && activateRoot(world, target, plan.root, rootJob)) {
                 world.status = "Auto-production prerequisites ready. Queued " + plan.root.displayName + ".";
                 GameNoticeCenter.publish(world, plan.playerId, NoticeCategory.PRODUCTION,
                         "All prerequisites are available. " + plan.root.displayName + " has been queued.", true);
@@ -91,18 +104,23 @@ final class ProductionPlanner {
     }
 
     private static boolean queue(World world, Base target, ProductionJobKind kind, String itemId,
-                                 String displayName, List<Cost> cost) {
+                                 String displayName, List<Cost> cost, double duration) {
         if (world == null || target == null || kind == null || itemId == null || itemId.isBlank()
                 || cost == null || cost.isEmpty()) return false;
-        PlannerState state;
         synchronized (ProductionPlanner.class) {
-            state = STATES.computeIfAbsent(world, ignored -> new PlannerState());
+            PlannerState state = STATES.computeIfAbsent(world, ignored -> new PlannerState());
             if (state.plans.size() >= MAX_PLANS_PER_WORLD) {
                 world.status = "Too many active auto-production plans.";
                 return false;
             }
+
+            ProductionJob rootJob = ProductionSystem.enqueueWaiting(world, target, kind, itemId,
+                    displayName, duration);
+            if (rootJob == null) return false;
+
             String id = "AP" + state.nextPlanId++;
-            PlannedAction root = new PlannedAction(kind, itemId, displayName, target.id, List.copyOf(cost));
+            PlannedAction root = new PlannedAction(kind, itemId, displayName, target.id,
+                    rootJob.id, List.copyOf(cost));
             ProductionPlan plan = new ProductionPlan(id, world.activeSystemId(), target.playerId, root);
             state.plans.add(plan);
             world.status = "Created auto-production plan for " + displayName + ".";
@@ -110,6 +128,44 @@ final class ProductionPlanner {
                     "Auto-production plan created for " + displayName + ".", false);
             reportState(world, plan, false);
         }
+        return true;
+    }
+
+    private static boolean activateRoot(World world, Base target, PlannedAction root, ProductionJob rootJob) {
+        if (HangarStore.canAfford(target.inventory, root.cost)) {
+            return ProductionSystem.fundWaitingJob(world, target, rootJob.id);
+        }
+
+        int originalIndex = target.productionQueue.indexOf(rootJob);
+        if (originalIndex < 0) return false;
+        target.productionQueue.remove(originalIndex);
+
+        boolean queued = switch (root.kind) {
+            case SHIP -> {
+                ShipType ship = Rules.findShip(root.itemId);
+                yield ship != null && world.logisticsSystem.queueBuildShip(world, target, ship);
+            }
+            case STATION_PACKAGE -> {
+                BaseType station = Rules.findBase(root.itemId);
+                yield station != null && world.logisticsSystem.queueBasePackage(world, target, station);
+            }
+            case CRAFTABLE -> {
+                CraftableItem item = CraftingRules.item(root.itemId);
+                yield item != null && world.logisticsSystem.queueCraftable(world, target, item);
+            }
+            case RESEARCH -> {
+                ResearchTopic topic = ResearchRules.topic(root.itemId);
+                yield topic != null && world.logisticsSystem.queueResearch(world, target, topic);
+            }
+        };
+
+        if (!queued) {
+            target.productionQueue.add(Math.min(originalIndex, target.productionQueue.size()), rootJob);
+            return false;
+        }
+
+        ProductionJob replacement = target.productionQueue.remove(target.productionQueue.size() - 1);
+        target.productionQueue.add(Math.min(originalIndex, target.productionQueue.size()), replacement);
         return true;
     }
 
@@ -146,39 +202,6 @@ final class ProductionPlanner {
             return ProductionSystem.enqueueCraftable(world, station, item, false);
         }
         return world.logisticsSystem.queueCraftable(world, station, item);
-    }
-
-    private static boolean enqueueRoot(World world, Base target, PlannedAction root) {
-        return switch (root.kind) {
-            case SHIP -> {
-                ShipType ship = Rules.findShip(root.itemId);
-                if (ship == null) yield false;
-                yield HangarStore.canAfford(target.inventory, ship.buildCost)
-                        ? ProductionSystem.enqueueShip(world, target, ship, false)
-                        : world.logisticsSystem.queueBuildShip(world, target, ship);
-            }
-            case STATION_PACKAGE -> {
-                BaseType station = Rules.findBase(root.itemId);
-                if (station == null) yield false;
-                yield HangarStore.canAfford(target.inventory, station.buildCost)
-                        ? ProductionSystem.enqueuePackage(world, target, station, false)
-                        : world.logisticsSystem.queueBasePackage(world, target, station);
-            }
-            case CRAFTABLE -> {
-                CraftableItem item = CraftingRules.item(root.itemId);
-                if (item == null) yield false;
-                yield HangarStore.canAfford(target.inventory, item.requiredResources)
-                        ? ProductionSystem.enqueueCraftable(world, target, item, false)
-                        : world.logisticsSystem.queueCraftable(world, target, item);
-            }
-            case RESEARCH -> {
-                ResearchTopic topic = ResearchRules.topic(root.itemId);
-                if (topic == null) yield false;
-                yield HangarStore.canAfford(target.inventory, topic.requiredResources)
-                        ? ProductionSystem.enqueueResearch(world, target, topic, false)
-                        : world.logisticsSystem.queueResearch(world, target, topic);
-            }
-        };
     }
 
     private static RecipeChoice chooseRecipe(World world, ProductionPlan plan, Material material) {
@@ -343,7 +366,7 @@ final class ProductionPlanner {
     private record RecipeChoice(CraftableItem item, Base station) { }
 
     private record PlannedAction(ProductionJobKind kind, String itemId, String displayName,
-                                 String targetBaseId, List<Cost> cost) { }
+                                 String targetBaseId, String productionJobId, List<Cost> cost) { }
 
     private static final class ProductionPlan {
         final String id;

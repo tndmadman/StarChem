@@ -124,4 +124,37 @@ final class SnapshotReader2 {
         }
         return out;
     }
+
+    static List<ResearchState> research(String[] parts) {
+        List<ResearchState> out = new ArrayList<>();
+        if (parts.length <= 11) return out;
+        Set<String> players = new HashSet<>();
+        String[] rows = SnapshotReader.rows(parts[11], SnapshotReader.MAX_RESEARCH_STATES, "research");
+        for (int i = 0; i < rows.length; i++) {
+            int rowIndex = i + 1;
+            String[] c = SnapshotReader.columns(rows[i], "research", rowIndex);
+            SnapshotReader.requireColumns(c.length, "research", rowIndex, 2);
+            String playerId = SnapshotReader.requiredText(c[0], 64, "research", rowIndex, "player ID");
+            if (!players.add(playerId)) {
+                throw SnapshotReader.error("research", rowIndex, "player ID", "duplicate value " + SnapshotReader.printable(playerId));
+            }
+            String packed = CargoCodec.unsafed(c[1]);
+            List<String> topicIds = new ArrayList<>();
+            Set<String> uniqueTopics = new HashSet<>();
+            if (!packed.isBlank()) {
+                for (String rawTopicId : packed.split("~", -1)) {
+                    String topicId = SnapshotReader.requiredText(rawTopicId, 128, "research", rowIndex, "topic ID");
+                    if (ResearchRules.topic(topicId) == null) {
+                        throw SnapshotReader.error("research", rowIndex, "topic ID", "unknown value " + SnapshotReader.printable(topicId));
+                    }
+                    if (!uniqueTopics.add(topicId)) {
+                        throw SnapshotReader.error("research", rowIndex, "topic ID", "duplicate value " + SnapshotReader.printable(topicId));
+                    }
+                    topicIds.add(topicId);
+                }
+            }
+            out.add(new ResearchState(playerId, List.copyOf(topicIds)));
+        }
+        return out;
+    }
 }

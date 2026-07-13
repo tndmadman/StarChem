@@ -82,6 +82,7 @@ public final class ProductionQueueValidator {
         validateLostShuttleRecovery();
         validateMultiSystemRequestScope();
         validateDisabledTimers();
+        validateAutoProductionQueueVisibility();
         validateMalformedQueueRejection();
     }
 
@@ -209,6 +210,49 @@ public final class ProductionQueueValidator {
         ResearchSystem.update(world, 0.016);
         require(yard.productionQueue.size() == 1, "re-enabled production timer completed immediately");
         require(countUnits(world, playerId, "prospector") == 1, "re-enabled timer unexpectedly produced a ship");
+    }
+
+    private static void validateAutoProductionQueueVisibility() {
+        World world = new World("Auto-Production Queue Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        String playerId = "AUTO_QUEUE_TEST";
+        Base outpost = base(world, playerId + ":B1", playerId, "outpost", 100, 100);
+
+        require(world.buildShip(outpost.id, "prospector"),
+                "auto-production ship request should be accepted");
+        require(world.loadBasePackage(outpost.id, "manufacturing"),
+                "auto-production station request should be accepted");
+        require(ProductionPlanner.planCount(world) == 2,
+                "auto-production plans were not retained while prerequisites were missing");
+        require(outpost.productionQueue.size() == 2,
+                "auto-production roots did not appear in the real Outpost queue");
+        require(outpost.productionQueue.get(0).kind == ProductionJobKind.SHIP,
+                "planned ship did not retain its queue kind");
+        require(outpost.productionQueue.get(1).kind == ProductionJobKind.STATION_PACKAGE,
+                "planned station did not retain its queue kind");
+        require(ProductionSystem.waitingForResources(outpost.productionQueue.get(0)),
+                "planned ship was not visibly waiting for prerequisites");
+        require(ProductionSystem.waitingForResources(outpost.productionQueue.get(1)),
+                "planned station was not visibly waiting for prerequisites");
+
+        List<String> plannedIds = jobIds(outpost);
+        Base restored = NetBaseSync.fromState(NetBaseSync.toState(outpost));
+        require(jobIds(restored).equals(plannedIds),
+                "network state lost auto-production root queue entries");
+
+        fill(outpost);
+        ProductionPlanner.update(world, 1.0);
+        require(ProductionPlanner.planCount(world) == 0,
+                "ready auto-production plans were not converted into funded queue jobs");
+        require(jobIds(outpost).equals(plannedIds),
+                "locally funded auto-production changed queue identity or order");
+        require(outpost.productionQueue.get(0).resourcesReserved,
+                "planned ship was not funded in place");
+        require(outpost.productionQueue.get(1).resourcesReserved,
+                "planned station was not funded in place");
+        require(!ProductionSystem.waitingForResources(outpost.productionQueue.get(0)),
+                "funded ship remained marked as waiting");
+        require(!ProductionSystem.waitingForResources(outpost.productionQueue.get(1)),
+                "funded station remained marked as waiting");
     }
 
     private static void validateMalformedQueueRejection() {

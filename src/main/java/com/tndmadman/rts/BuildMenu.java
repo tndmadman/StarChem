@@ -112,9 +112,13 @@ final class BuildMenu {
         for (int i = 0; i < base.productionQueue.size(); i++) {
             ProductionJob job = base.productionQueue.get(i);
             String prefix = i == 0 ? "ACTIVE" : "QUEUE " + (i + 1);
-            String defense = i == 0 ? "Click to cancel active job" : "Click to cancel and refund";
-            entries.add(new Entry(prefix + " | " + ProductionSystem.displayName(job), ProductionSystem.detail(base, job), defense,
-                    null, List.of(), false, true, false, () -> sendProduction(world, network, base, "CANCEL", job.id, "")));
+            String action = job.resourcesReserved ? "click to cancel and refund" : "click to cancel";
+            String detail = ProductionSystem.detail(base, job) + " | " + action;
+            ShipType ship = queuedShip(job);
+            entries.add(new Entry(prefix + " | " + ProductionSystem.displayName(job), detail,
+                    ship == null ? "" : defenseLine(ship), ship,
+                    ship == null ? List.of() : weaponBadges(ship), false, ship == null, false,
+                    () -> sendProduction(world, network, base, "CANCEL", job.id, "")));
             if (i > 1) {
                 entries.add(new Entry("Move up | " + ProductionSystem.displayName(job), "Move one queue position earlier", "", null,
                         List.of(), false, true, false, () -> sendProduction(world, network, base, "MOVE", job.id, "-1")));
@@ -124,6 +128,10 @@ final class BuildMenu {
                         List.of(), false, true, false, () -> sendProduction(world, network, base, "MOVE", job.id, "1")));
             }
         }
+    }
+
+    private static ShipType queuedShip(ProductionJob job) {
+        return job != null && job.kind == ProductionJobKind.SHIP ? Rules.findShip(job.itemId) : null;
     }
 
     private void sendProduction(World world, PeerNetwork network, Base base, String action, String value, String extra) {

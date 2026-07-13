@@ -2,7 +2,7 @@
   "researchTopics": {
     "advanced_industry": {
       "displayName": "Advanced Industry",
-      "description": "Unlocks specialist mining, hauling, and salvage ships.",
+      "description": "Unlocks scouting, specialist mining, hauling, and salvage ships.",
       "stationTypes": [
         "laboratory"
       ],
@@ -18,6 +18,8 @@
       },
       "unlocks": {
         "ships": [
+          "scout",
+          "hauler",
           "deep_miner",
           "gas_harvester",
           "freighter",
@@ -40,7 +42,7 @@
         "STEEL_PLATE": 20,
         "PRINTED_CIRCUIT_BOARD": 8,
         "POWER_REGULATOR": 4,
-        "CIRCUIT_FRAGMENTS": 20
+        "SENSOR_ARRAY": 4
       },
       "unlocks": {
         "ships": [
