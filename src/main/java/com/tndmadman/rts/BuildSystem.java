@@ -17,10 +17,12 @@ final class BuildSystem {
         if (!free && !ResearchRules.shipUnlocked(world, base.playerId, shipTypeId)) {
             ResearchTopic topic = ResearchRules.firstTopicUnlockingShip(shipTypeId);
             world.status = shipType.name + " requires research" + (topic == null ? "." : ": " + topic.name + ".");
+            GameNoticeCenter.publish(world, base.playerId, NoticeCategory.WARNING, world.status, true);
             return false;
         }
         if (!free && !HangarStore.canAfford(base.inventory, shipType.buildCost)) {
             if (world.logisticsSystem.queueBuildShip(world, base, shipType)) return true;
+            if (ProductionPlanner.queueShip(world, base, shipType)) return true;
             world.status = "Need " + Rules.formatCost(shipType.buildCost) + " in " + base.type().name + " hangar.";
             return false;
         }
@@ -42,6 +44,7 @@ final class BuildSystem {
         boolean free = freeBuild(world, base);
         if (!free && !HangarStore.canAfford(base.inventory, pkg.buildCost)) {
             if (world.logisticsSystem.queueBasePackage(world, base, pkg)) return true;
+            if (ProductionPlanner.queuePackage(world, base, pkg)) return true;
             world.status = "Need " + Rules.formatCost(pkg.buildCost) + " in " + base.type().name + " hangar.";
             return false;
         }
@@ -81,10 +84,12 @@ final class BuildSystem {
         boolean free = freeBuild(world, base);
         if (!free && !item.unlockedFor(world, base.playerId)) {
             world.status = item.name + " requires research: " + item.missingResearchLabel(world, base.playerId) + ".";
+            GameNoticeCenter.publish(world, base.playerId, NoticeCategory.WARNING, world.status, true);
             return false;
         }
         if (!free && !HangarStore.canAfford(base.inventory, item.requiredResources)) {
             if (world.logisticsSystem.queueCraftable(world, base, item)) return true;
+            if (ProductionPlanner.queueCraftable(world, base, item)) return true;
             world.status = "Need " + Rules.formatCost(item.requiredResources) + " in " + base.type().name + " hangar.";
             return false;
         }
@@ -114,11 +119,13 @@ final class BuildSystem {
         String missing = ProductionSystem.missingResearchPrerequisite(world, base, topic);
         if (!missing.isBlank()) {
             world.status = topic.name + " requires " + missing + " first.";
+            GameNoticeCenter.publish(world, base.playerId, NoticeCategory.WARNING, world.status, true);
             return false;
         }
         boolean free = freeBuild(world, base);
         if (!free && !HangarStore.canAfford(base.inventory, topic.requiredResources)) {
             if (world.logisticsSystem.queueResearch(world, base, topic)) return true;
+            if (ProductionPlanner.queueResearch(world, base, topic)) return true;
             world.status = "Need " + Rules.formatCost(topic.requiredResources) + " in " + base.type().name + " hangar.";
             return false;
         }
