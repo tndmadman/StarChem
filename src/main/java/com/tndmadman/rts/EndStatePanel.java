@@ -50,6 +50,8 @@ final class EndStatePanel extends JPanel {
     }
 
     private boolean finished() {
+        if (network != null && network.clientMode()
+                && (!network.clientReady() || network.clientReconnecting())) return false;
         String playerId = PlayerRegistry.localId();
         if ("WAIT".equals(playerId)) return false;
         return !world.hasLiveAssets(playerId);
