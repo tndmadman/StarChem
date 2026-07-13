@@ -1,121 +1,64 @@
-# StarChem v1.1.0-alpha
+# StarChem v1.3.0
 
-StarChem v1.1.0-alpha is a major galaxy, territory, economy, NPC, multiplayer, Linux-server, and release-hardening update built from 208 commits since v0.1.5.
+StarChem v1.3.0 improves multiplayer connection handling, production automation, research progression, queue visibility, and client narration.
 
-> **Alpha release:** The core game and multiplayer systems are functional, but development is still active. Expect balance changes, incomplete features, compatibility breaks, and bugs. Please report reproducible problems through GitHub Issues.
+## Multiplayer joining and reconnecting
 
-## Highlights
+- Added an explicit synchronization phase between server acceptance and gameplay readiness.
+- Clients no longer display **FLEET DESTROYED** while the authoritative fleet snapshot is still loading.
+- Added a modal connection and reconnection display with staged progress, status details, elapsed time, and cancellation.
+- Gameplay commands remain blocked until the initial authoritative world state has been validated and applied.
+- Reconnecting clients preserve the current world behind the loading overlay until the resumed session is synchronized.
+- Join failures and connection refusals return to the lobby without briefly exposing an empty game state.
 
-- Added configurable persistent galaxies with one or two permanent instances of every registered static system template.
-- Expanded the galaxy from seven to fourteen system templates.
-- Added capturable and contestable star systems for players and NPC factions.
-- Expanded the raw-resource economy from eight to twenty-four mineable materials.
-- Added 56 manufactured intermediate materials and 60 JSON-driven recipes.
-- Added organized NPC cross-system expeditions, funded footholds, and recursive component crafting.
-- Added deterministic wandering wormholes and configurable galaxy topology.
-- Replaced the old UDP multiplayer layer with hardened framed TCP synchronization.
-- Added strict multiplayer build, rules, protocol, and configuration compatibility checks.
-- Added a production-ready Linux headless server, Linux launchers, graceful shutdown, and process-level CI validation.
-- Improved remote-system viewing, reconnect handling, celestial continuity, and background simulation.
+## Server auto-production
 
-## Static galaxy and topology
+- Added server-authoritative production planning for ships, station packages, manufactured items, and research.
+- Production plans recursively resolve intermediate components through the configured recipe graph.
+- Compatible owned stations are selected automatically within the active system.
+- Existing logistics shuttles move prerequisite materials between owned hangars when necessary.
+- Plans remain pending when blocked by missing raw resources, research, or specialized stations and resume when requirements are met.
+- Player notices report specific resource shortages instead of a generic failure.
+- Stations may temporarily run a later funded job while an earlier entry is waiting for resources without permanently reordering the visible queue.
 
-Hosts can create a galaxy containing one or two copies of every registered static system template. Protected player-home systems remain separate from capturable shared territory.
+## Research and production fixes
 
-The galaxy keeps a permanent connected ring and fixed shortcuts. `config/galaxy.json` controls zero to thirty-two additional deterministic wandering-wormhole pairs. The same seed and configuration produce the same extra links.
+- Removed progression deadlocks around Radiation Shielding, Advanced Industry, Combat Doctrine, and the first Research Lab chain.
+- Added completed research to authoritative multiplayer snapshots so client research state remains synchronized.
+- Outpost ship and station-package requests now appear immediately as real waiting queue entries.
+- Auto-production roots remain visible while gathering or manufacturing prerequisites.
+- Cancelling a visible root also cleans up its linked production plan.
+- Queued ships now display their actual ship card, silhouette, defenses, and weapon information rather than a generic row.
 
-Seven new system templates have been added:
+## Narration and interface
 
-- Binary Forge
-- Volcanic Crucible
-- Nebula Expanse
-- Shattered Worlds
-- Pulsar Reach
-- Carbon Basin
-- Ancient Graveyard
+- Added persistent narration settings opened with **F8**.
+- Supports narration enable/disable, installed voice selection, volume, speed, and test playback.
+- New installations default narration speed to 1.5× while preserving existing preferences.
+- Server-generated notices can be narrated on supported Windows, macOS, and Linux systems.
+- Headless dedicated servers do not initialize audio or text-to-speech processes.
+- The in-game tips strip now includes the Inventory and Narration shortcuts.
 
-The original system templates have also been rebalanced for the expanded economy and progression.
+## Validation and packaging
 
-## Territory control
-
-Static systems now support neutral, capturing, controlled, contested, and protected control states.
-
-Players and NPC factions can capture systems by maintaining sufficient influence inside the central command zone. Competing eligible forces contest the system and stop capture progress. Player-home systems remain protected.
-
-Controlling a system grants modest mining-yield and shield-regeneration bonuses. The galaxy map displays the controller, control state, capture progress, and controller-colored system rings.
-
-## Resources, manufacturing, and progression
-
-The mineable resource catalog has expanded from eight to twenty-four materials across metal, mineral, volatile, and gas families. Materials now include data-driven display metadata, family, rarity, color, and raw-or-manufactured status.
-
-The manufacturing economy adds 56 intermediate materials and 60 JSON recipes across processed materials, chemicals, electronics, industrial assemblies, power and defense, weapons, capital components, fuel, and salvage reclamation.
-
-- Manufacturing Plant recipes are organized into category pages.
-- Recipes can require completed research through `requiresResearch`.
-- Prospectors, Deployers, and the first Manufacturing Plant remain directly craftable from raw resources to prevent progression deadlocks.
-- Ship, station, research, capital, and megastructure costs progressively consume manufactured components.
-- NPC industry recursively manufactures required subcomponents instead of stalling on advanced costs.
-- Salvage-reclamation recipes recover steel plates, structural frames, and circuit boards.
-
-System belts use weighted material compositions. An in-game resource catalog shows loaded materials, system templates, system roles, resource-node types, and where raw resources can naturally appear.
-
-## NPC and simulation improvements
-
-- NPC system eligibility is driven by system identity, role, and tags.
-- NPC factions can capture and contest static systems.
-- Organized NPC directors can launch cross-system expeditions and establish funded footholds.
-- NPC runtime state and timers remain isolated per system.
-- Background systems use hot, warm, and cold update tiers so quiet systems continue progressing without full foreground simulation frequency.
-- System modifiers can affect mining, resource respawning, sensors, shields, movement, weapon range, and environmental damage.
-
-## Multiplayer networking and synchronization
-
-Multiplayer now uses framed TCP connections instead of UDP datagrams and the former custom reliability, acknowledgement, retry, duplicate-delivery, and packet-chunking systems.
-
-- Added strict 4-byte length-prefixed UTF-8 framing with a 512 KB frame limit.
-- Added bounded inbound and outbound queues, backpressure, coalescing by delivery class, and slow-client isolation.
-- Added per-connection identities so stale socket events cannot disconnect or mutate replacement connections.
-- Preserved session-token recovery, reconnect grace periods, takeover protection, token rotation, and automatic resume through a new TCP socket.
-- Added real multi-client, dedicated-server, reconnect, slow-client, view-switching, and soak validation.
-- Added revision-safe remote-system view requests so stale responses cannot replace the current authoritative view.
-- Added complete ship and station visibility for approved non-adjacent system views.
-- Split periodic resource correction from full system-view synchronization, preventing visible planet and moon snapping during normal corrections.
-
-Multiplayer uses a strict compatibility descriptor containing the protocol version, application version, build commit, rules version, and a SHA-256 fingerprint of release-critical configuration files. Legacy, malformed, or mismatched clients are rejected before player or world state is created.
-
-Internet hosts must allow inbound **TCP** traffic on the selected game port. StarChem multiplayer no longer uses UDP.
-
-## Linux and dedicated-server operation
-
-The release ZIP now includes `run-starchem.sh` for the Linux client and `run-starchem-server.sh` for a headless dedicated server.
-
-The dedicated server now uses a fixed 60 Hz simulation clock with bounded catch-up, prints readiness and periodic status lines, validates startup options, and shuts down its network transport cleanly on `Ctrl+C` or `SIGTERM`. The server launcher supports `STARCHEM_PORT`, `STARCHEM_SERVER_NAME`, and `JAVA_BIN` environment overrides.
-
-CI starts the actual packaged JAR in headless Linux mode, waits for TCP readiness, sends `SIGTERM`, and verifies a clean shutdown.
-
-## Build, validation, and release tooling
-
-- Expanded automated validation for galaxy completeness and connectivity, territory control, raw and manufactured materials, crafting dependency graphs, progression gates, system modifiers, NPC expansion, background scheduling, multiplayer compatibility, client environment synchronization, TCP framing, reconnects, remote views, celestial continuity, Linux server lifecycle, legal notices, and packaging.
-- Added a deterministic TCP multiplayer smoke soak to normal verification and a configurable scheduled/manual extended soak workflow.
-- Release builds derive their version from the Git tag and embed the exact build commit.
-- `java -jar StarChem.jar --version` reports the packaged application version and shortened commit.
-- `java -jar StarChem.jar --help` documents supported client, host, and dedicated-server options.
-- CI verifies overridden release identity through Gradle, JAR metadata, artifact naming, runtime output, package layout, and legal notices.
-- Release ZIPs include the compiled JAR, configuration, Windows launcher, Linux client and server launchers, README, license, and third-party notices.
+- Updated session-recovery and snapshot-hardening validation for the authoritative synchronization lifecycle.
+- Added regression coverage preventing clients from reporting ready before their initial assets exist.
+- The release workflow runs the full Gradle validator suite, JAR build, Linux headless-server process smoke test, package-layout checks, and release identity verification.
+- The release ZIP contains `StarChem.jar`, configuration files, Windows and Linux client launchers, the Linux dedicated-server launcher, README, license, and third-party notices.
 
 ## Compatibility
 
-StarChem v0.1.5 clients are not compatible with v1.1.0-alpha multiplayer servers. All participating clients and servers must use the same v1.1.0-alpha release package and matching packaged configuration files.
-
-## License
-
-StarChem is proprietary software and is not open source. Official unmodified compiled releases are licensed only for personal, non-commercial use. The source code, rules data, assets, and other protected material may not be copied, compiled, modified, redistributed, sold, reused, or incorporated into another project without prior written permission. See the packaged `LICENSE` for the complete terms.
+All multiplayer clients and servers must use the same v1.3.0 release package and matching configuration files. Older builds are rejected by the compatibility handshake.
 
 ## Requirements
 
 - Java 17 or newer.
 - Extract the complete release ZIP before launching.
-- Windows: start the game with `run-starchem.bat`.
+- Windows: start with `run-starchem.bat`.
 - Linux client: run `./run-starchem.sh`.
 - Linux dedicated server: run `./run-starchem-server.sh`.
 - Direct launch remains available through `java -jar StarChem.jar`.
+
+## License
+
+StarChem is proprietary software. Official unmodified compiled releases are licensed for personal, non-commercial use under the packaged `LICENSE`. Source code, configuration, assets, and other protected material may not be copied, modified, compiled, redistributed, sold, reused, or incorporated into another project without prior written permission.
