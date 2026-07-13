@@ -4,6 +4,10 @@ on:
   push:
     tags:
       - 'v*.*.*'
+    branches:
+      - 'release/**'
+    paths:
+      - '.github/release-request.txt'
   workflow_dispatch:
 
 permissions:
@@ -32,17 +36,27 @@ jobs:
       - name: Resolve build metadata
         shell: bash
         run: |
+          RELEASE_TAG=""
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            RELEASE_TAG="${GITHUB_REF_NAME}"
             VERSION="${GITHUB_REF_NAME#v}"
+          elif [[ -f .github/release-request.txt ]]; then
+            VERSION="$(tr -d '[:space:]' < .github/release-request.txt)"
+            RELEASE_TAG="v${VERSION#v}"
           else
             VERSION="$(gradle -q printVersion)"
           fi
+
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
             echo "Invalid StarChem version: $VERSION" >&2
             exit 1
           fi
+
+          PACKAGE_TAG="${RELEASE_TAG:-v${VERSION}}"
           echo "STARCHEM_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "STARCHEM_COMMIT=$GITHUB_SHA" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
+          echo "PACKAGE_TAG=$PACKAGE_TAG" >> "$GITHUB_ENV"
 
       - name: Verify and build jar
         run: gradle clean check jar --no-daemon -PreleaseVersion="$STARCHEM_VERSION" -PbuildCommit="$STARCHEM_COMMIT"
@@ -79,10 +93,10 @@ jobs:
           [[ "${TOP_LEVEL_DIRS[*]}" == "config" ]]
 
           cd release
-          zip -r "StarChem-${GITHUB_REF_NAME}.zip" StarChem
+          zip -r "StarChem-${PACKAGE_TAG}.zip" StarChem
           cd ..
-          cp "release/StarChem-${GITHUB_REF_NAME}.zip" .
-          echo "RELEASE_ZIP=StarChem-${GITHUB_REF_NAME}.zip" >> "$GITHUB_ENV"
+          cp "release/StarChem-${PACKAGE_TAG}.zip" .
+          echo "RELEASE_ZIP=StarChem-${PACKAGE_TAG}.zip" >> "$GITHUB_ENV"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -91,10 +105,13 @@ jobs:
           path: ${{ env.RELEASE_ZIP }}
 
       - name: Attach compiled zip to release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: env.RELEASE_TAG != ''
         uses: softprops/action-gh-release@v2
         with:
-          name: StarChem ${{ github.ref_name }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
+          name: StarChem ${{ env.RELEASE_TAG }}
           body_path: RELEASE_NOTES.md
+          prerelease: ${{ contains(env.STARCHEM_VERSION, '-') }}
           fail_on_unmatched_files: true
           files: ${{ env.RELEASE_ZIP }}
