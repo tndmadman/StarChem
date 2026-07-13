@@ -83,7 +83,6 @@ record Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, 
 }
 record NetPacket(String message, InetAddress address, int port) { }
 record ServerPeer(String playerId, InetAddress address, int port, long lastSeen, boolean devFreeBuild) { }
-record PendingReliable(String id, String payload, InetAddress address, int port, long lastSent, int attempts) { }
 
 interface CommandSink {
     void move(MoveCommand command);

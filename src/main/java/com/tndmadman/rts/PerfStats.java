@@ -29,14 +29,18 @@ final class PerfStats {
     private long snapshotBytesSent;
     private long snapshotsReceived;
     private long snapshotBytesReceived;
-    private long reliableResends;
-    private long rejectedEndpoints;
-    private long rejectedReliableAcks;
+    private long connectionOpens;
+    private long connectionCloses;
+    private long rejectedConnections;
+    private long slowConnectionCloses;
+    private long inboundOverflows;
+    private long coalescedSnapshots;
     private long malformedPackets;
     private long snapshotDecodeFailures;
     private long lastSnapshotNanos;
-    private int pendingReliable;
-    private double rttMs = -1.0;
+    private int activeConnections;
+    private int queuedFrames;
+    private long queuedBytes;
     private PerfSnapshot cached = PerfSnapshot.empty();
 
     synchronized void frameStarted(long nowNanos) {
@@ -95,17 +99,19 @@ final class PerfStats {
         lastSnapshotNanos = System.nanoTime();
     }
 
-    synchronized void recordReliableResend() { reliableResends++; }
-    synchronized void recordRejectedEndpoint() { rejectedEndpoints++; }
-    synchronized void recordRejectedReliableAck() { rejectedReliableAcks++; }
+    synchronized void recordConnectionOpened() { connectionOpens++; }
+    synchronized void recordConnectionClosed() { connectionCloses++; }
+    synchronized void recordConnectionRejected() { rejectedConnections++; }
+    synchronized void recordSlowConnectionClosed() { slowConnectionCloses++; }
+    synchronized void recordInboundOverflow() { inboundOverflows++; }
+    synchronized void recordSnapshotCoalesced() { coalescedSnapshots++; }
     synchronized void recordMalformedPacket() { malformedPackets++; }
     synchronized void recordSnapshotDecodeFailure() { snapshotDecodeFailures++; }
-    synchronized void setPendingReliable(int pending) { pendingReliable = Math.max(0, pending); }
 
-    synchronized void recordRtt(long nanos) {
-        double sampleMs = nanos / 1_000_000.0;
-        if (sampleMs < 0 || Double.isNaN(sampleMs) || Double.isInfinite(sampleMs)) return;
-        rttMs = rttMs < 0 ? sampleMs : rttMs * 0.8 + sampleMs * 0.2;
+    synchronized void setTransportState(int activeConnections, int queuedFrames, long queuedBytes) {
+        this.activeConnections = Math.max(0, activeConnections);
+        this.queuedFrames = Math.max(0, queuedFrames);
+        this.queuedBytes = Math.max(0, queuedBytes);
     }
 
     synchronized PerfSnapshot snapshot() {
@@ -134,13 +140,17 @@ final class PerfStats {
                 averageBytes(snapshotBytesSent, snapshotsSent),
                 snapshotsReceived / seconds,
                 averageBytes(snapshotBytesReceived, snapshotsReceived),
-                reliableResends / seconds,
-                rejectedEndpoints / seconds,
-                rejectedReliableAcks / seconds,
+                connectionOpens / seconds,
+                connectionCloses / seconds,
+                rejectedConnections / seconds,
+                slowConnectionCloses / seconds,
+                inboundOverflows / seconds,
+                coalescedSnapshots / seconds,
                 malformedPackets / seconds,
                 snapshotDecodeFailures / seconds,
-                pendingReliable,
-                rttMs,
+                activeConnections,
+                queuedFrames,
+                queuedBytes,
                 snapshotAgeMs(now)
         );
         resetWindow(now);
@@ -154,9 +164,10 @@ final class PerfStats {
                 base.networkAvgMs(), base.networkMaxMs(), base.packetsSentPerSecond(), base.bytesSentPerSecond(),
                 base.packetsReceivedPerSecond(), base.bytesReceivedPerSecond(), base.snapshotsSentPerSecond(),
                 base.averageSnapshotBytesSent(), base.snapshotsReceivedPerSecond(), base.averageSnapshotBytesReceived(),
-                base.reliableResendsPerSecond(), base.rejectedEndpointsPerSecond(), base.rejectedReliableAcksPerSecond(),
-                base.malformedPacketsPerSecond(), base.snapshotDecodeFailuresPerSecond(), pendingReliable, rttMs,
-                snapshotAgeMs(now)
+                base.connectionOpensPerSecond(), base.connectionClosesPerSecond(), base.rejectedConnectionsPerSecond(),
+                base.slowConnectionClosesPerSecond(), base.inboundOverflowsPerSecond(), base.coalescedSnapshotsPerSecond(),
+                base.malformedPacketsPerSecond(), base.snapshotDecodeFailuresPerSecond(), activeConnections, queuedFrames,
+                queuedBytes, snapshotAgeMs(now)
         );
     }
 
@@ -169,7 +180,8 @@ final class PerfStats {
         networkSamples = networkTotalNanos = networkMaxNanos = 0;
         packetsSent = packetBytesSent = packetsReceived = packetBytesReceived = 0;
         snapshotsSent = snapshotBytesSent = snapshotsReceived = snapshotBytesReceived = 0;
-        reliableResends = rejectedEndpoints = rejectedReliableAcks = malformedPackets = snapshotDecodeFailures = 0;
+        connectionOpens = connectionCloses = rejectedConnections = slowConnectionCloses = 0;
+        inboundOverflows = coalescedSnapshots = malformedPackets = snapshotDecodeFailures = 0;
     }
 
     private double snapshotAgeMs(long now) {
@@ -201,16 +213,21 @@ record PerfSnapshot(
         double averageSnapshotBytesSent,
         double snapshotsReceivedPerSecond,
         double averageSnapshotBytesReceived,
-        double reliableResendsPerSecond,
-        double rejectedEndpointsPerSecond,
-        double rejectedReliableAcksPerSecond,
+        double connectionOpensPerSecond,
+        double connectionClosesPerSecond,
+        double rejectedConnectionsPerSecond,
+        double slowConnectionClosesPerSecond,
+        double inboundOverflowsPerSecond,
+        double coalescedSnapshotsPerSecond,
         double malformedPacketsPerSecond,
         double snapshotDecodeFailuresPerSecond,
-        int pendingReliable,
-        double rttMs,
+        int activeConnections,
+        int queuedFrames,
+        long queuedBytes,
         double snapshotAgeMs
 ) {
     static PerfSnapshot empty() {
-        return new PerfSnapshot(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, -1);
+        return new PerfSnapshot(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1);
     }
 }

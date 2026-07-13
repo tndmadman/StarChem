@@ -50,7 +50,7 @@ final class PeerClientSide {
             case FAILED -> "failed";
         };
         return "CLIENT " + label + " -> " + config.serverAddress + " | " + world.activeSystemId()
-                + " | pending " + transport.pendingCount() + (devApproved ? " | dev" : "");
+                + " | queued " + transport.queuedCount() + (devApproved ? " | dev" : "");
     }
 
     String localPlayerId() { return localPlayerId; }
@@ -61,6 +61,10 @@ final class PeerClientSide {
 
     void tick(long now) {
         PlayerRegistry.activate(world);
+        boolean connectionDropped = transport.consumeClientDisconnect();
+        if (state == ConnectionState.CONNECTED && connectionDropped) {
+            beginReconnect(now);
+        }
         switch (state) {
             case FAILED, DISCONNECTED -> { return; }
             case CONNECTED -> {
@@ -103,7 +107,7 @@ final class PeerClientSide {
     void shutdown() {
         PlayerRegistry.activate(world);
         if (state == ConnectionState.CONNECTED) {
-            for (int i = 0; i < 3; i++) sendControlToServer("LEAVE|" + localPlayerId);
+            sendControlToServer("LEAVE|" + localPlayerId);
         }
         state = ConnectionState.DISCONNECTED;
         devApproved = false;
@@ -131,37 +135,37 @@ final class PeerClientSide {
         System.err.println(world.status + " " + ex.getClass().getSimpleName());
     }
 
-    void move(MoveCommand command) { reliableToServer("MOVE|" + command.playerId() + "|" + command.unitId() + "|" + Calc.round(command.x()) + "|" + Calc.round(command.y())); }
-    void work(HarvestCommand command) { ResourceNetDebug.clientWorkSend(world, command); reliableToServer("WORK|" + command.playerId() + "|" + command.unitId() + "|" + command.resourceId()); }
-    void attack(AttackCommand command) { reliableToServer("ATTACK|" + command.playerId() + "|" + command.unitId() + "|" + command.targetKey()); }
+    void move(MoveCommand command) { sendCommandToServer("MOVE|" + command.playerId() + "|" + command.unitId() + "|" + Calc.round(command.x()) + "|" + Calc.round(command.y())); }
+    void work(HarvestCommand command) { ResourceNetDebug.clientWorkSend(world, command); sendCommandToServer("WORK|" + command.playerId() + "|" + command.unitId() + "|" + command.resourceId()); }
+    void attack(AttackCommand command) { sendCommandToServer("ATTACK|" + command.playerId() + "|" + command.unitId() + "|" + command.targetKey()); }
     void order(UnitOrderCommand command) {
-        reliableToServer("ORDER|" + command.playerId() + "|" + command.unitId() + "|" + command.type().name() + "|"
+        sendCommandToServer("ORDER|" + command.playerId() + "|" + command.unitId() + "|" + command.type().name() + "|"
                 + Calc.round(command.x1()) + "|" + Calc.round(command.y1()) + "|" + Calc.round(command.x2()) + "|" + Calc.round(command.y2()) + "|"
                 + Calc.round(command.radius()) + "|" + cleanPacketPart(command.targetKey()) + "|" + command.phase());
     }
-    void respawn(String playerId) { reliableToServer("RESPAWN|" + playerId); }
-    void build(String playerId, String baseId, String shipTypeId) { reliableToServer("BUILD|" + playerId + "|" + baseId + "|" + shipTypeId); }
-    void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { reliableToServer("PACK|" + playerId + "|" + mode + "|" + baseOrUnitId + "|" + packageType); }
+    void respawn(String playerId) { sendCommandToServer("RESPAWN|" + playerId); }
+    void build(String playerId, String baseId, String shipTypeId) { sendCommandToServer("BUILD|" + playerId + "|" + baseId + "|" + shipTypeId); }
+    void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { sendCommandToServer("PACK|" + playerId + "|" + mode + "|" + baseOrUnitId + "|" + packageType); }
     void production(String playerId, String action, String baseId, String value, String extra) {
-        reliableToServer("PROD|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(action) + "|"
+        sendCommandToServer("PROD|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(action) + "|"
                 + cleanPacketPart(baseId) + "|" + cleanPacketPart(value) + "|" + cleanPacketPart(extra));
     }
-    void devSetFreeCrafting(String playerId, boolean enabled) { reliableToServer("DEVFREE|" + cleanPacketPart(playerId) + "|" + (enabled ? "1" : "0")); }
+    void devSetFreeCrafting(String playerId, boolean enabled) { sendCommandToServer("DEVFREE|" + cleanPacketPart(playerId) + "|" + (enabled ? "1" : "0")); }
     void devAddHangarResource(String playerId, String baseId, Material material, double amount) {
         if (material == null || amount <= 0 || Double.isNaN(amount) || Double.isInfinite(amount)) return;
-        reliableToServer("DEVHANGAR|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(baseId) + "|" + material.name() + "|" + Calc.round(amount));
+        sendCommandToServer("DEVHANGAR|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(baseId) + "|" + material.name() + "|" + Calc.round(amount));
     }
-    void devAiCommand(String playerId, String command) { reliableToServer("DEVAI|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(command)); }
+    void devAiCommand(String playerId, String command) { sendCommandToServer("DEVAI|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(command)); }
     void jump(String playerId, double x, double y) { jump(playerId, "", x, y); }
     void jump(String playerId, String targetSystemId, double x, double y) {
         if (!canIssueCommands()) { blockCommand(); return; }
         viewSnapshotMode = true;
         viewedSystemId = cleanSystemId(targetSystemId);
         if (invalidSystemId(viewedSystemId)) { viewSnapshotMode = false; viewedSystemId = world.activeSystemId(); return; }
-        reliableToServer("JUMP|" + playerId + "|" + viewedSystemId + "|" + Calc.round(x) + "|" + Calc.round(y));
+        sendCommandToServer("JUMP|" + playerId + "|" + viewedSystemId + "|" + Calc.round(x) + "|" + Calc.round(y));
     }
-    void wormholeTouch(String playerId) { reliableToServer("WHTOUCH|" + playerId); }
-    void wormholeTouch(WormholeTouchRequest request) { if (request != null && request.valid()) reliableToServer(request.packet()); }
+    void wormholeTouch(String playerId) { sendCommandToServer("WHTOUCH|" + playerId); }
+    void wormholeTouch(WormholeTouchRequest request) { if (request != null && request.valid()) sendCommandToServer(request.packet()); }
 
     void readEnv(String[] parts) { if (parts.length >= 4) syncEnv(parts[1], parts[2], parts[3]); else if (parts.length >= 3) syncEnv(world.systemId(), parts[1], parts[2]); }
     void readSeed(String seed) { try { world.useSystemSeed(Long.parseLong(seed)); } catch (NumberFormatException ignored) { } }
@@ -182,7 +186,7 @@ final class PeerClientSide {
         sessionToken = newSessionToken;
         state = ConnectionState.CONNECTED;
         failureMessage = "";
-        transport.clearPending();
+        transport.clearOutbound();
         long now = System.currentTimeMillis();
         attemptStarted = now;
         lastServerPacket = now;
@@ -274,7 +278,7 @@ final class PeerClientSide {
         String reason = message.length() > 15 ? message.substring(15).trim() : "Saved session was rejected.";
         SessionTokenStore.clear(config);
         sessionToken = "";
-        transport.clearPending();
+        transport.clearOutbound();
         if (!connectedOnce && state == ConnectionState.RECONNECTING) {
             localPlayerId = "SOLO";
             state = ConnectionState.JOINING;
@@ -360,7 +364,8 @@ final class PeerClientSide {
         lastHandshake = 0;
         devApproved = false;
         world.setDevFreeBuild(localPlayerId, false);
-        transport.clearPending();
+        transport.clearOutbound();
+        transport.reconnectClient();
         world.status = "Connection interrupted. Reconnecting to " + config.serverAddress + " without dropping player state.";
     }
 
@@ -369,7 +374,7 @@ final class PeerClientSide {
         devApproved = false;
         world.setDevFreeBuild(localPlayerId, false);
         failureMessage = message;
-        transport.clearPending();
+        transport.clearOutbound();
         world.status = failureMessage;
     }
 
@@ -403,9 +408,9 @@ final class PeerClientSide {
         };
     }
 
-    private void reliableToServer(String payload) {
+    private void sendCommandToServer(String payload) {
         if (!canIssueCommands()) { blockCommand(); return; }
-        if (canSendControl()) transport.reliable(payload, config.serverAddress.getAddress(), config.serverAddress.getPort());
+        if (canSendControl()) transport.sendOrdered(payload, config.serverAddress.getAddress(), config.serverAddress.getPort());
     }
 
     private void sendControlToServer(String message) {

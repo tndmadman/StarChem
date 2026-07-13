@@ -1,6 +1,5 @@
 package com.tndmadman.rts;
 
-import java.net.DatagramSocket;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -118,7 +117,7 @@ public final class SnapshotHardeningValidator {
         PeerTransport transport = null;
         try {
             Config config = Config.join("View Validator", "127.0.0.1", 55000);
-            transport = new PeerTransport(new DatagramSocket());
+            transport = PeerTransport.client(config.serverAddress, new PerfStats());
             PeerClientSide client = new PeerClientSide(config, world, transport);
             client.readWelcome(new String[]{
                     "WELCOME", "P1", "View Validator", Integer.toString(0x50BEFF),

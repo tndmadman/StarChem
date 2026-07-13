@@ -1,7 +1,6 @@
 package com.tndmadman.rts;
 
 import java.io.IOException;
-import java.net.DatagramSocket;
 import java.util.List;
 
 final class PeerNetwork implements CommandSink {
@@ -35,15 +34,16 @@ final class PeerNetwork implements CommandSink {
         } catch (IllegalStateException ex) {
             throw new IOException("Multiplayer compatibility setup failed: " + ex.getMessage(), ex);
         }
-        DatagramSocket socket = config.hostMode ? new DatagramSocket(config.port) : new DatagramSocket();
         PerfStats perfStats = new PerfStats();
-        PeerTransport transport = new PeerTransport(socket, perfStats, config.clientMode() ? config.serverAddress : null);
+        PeerTransport transport = config.hostMode
+                ? PeerTransport.server(config.port, perfStats)
+                : PeerTransport.client(config.serverAddress, perfStats);
         PeerServerSide server = null;
         PeerClientSide client = null;
         if (config.hostMode) {
             PlayerRegistry.reset("SOLO", config.playerName, 0x50BEFF);
             world.setDevFreeBuild("SOLO", config.devMode);
-            world.status = "Hosting " + world.systemName() + " UDP " + transport.localPort() + (config.devMode ? " with dev mode enabled" : "");
+            world.status = "Hosting " + world.systemName() + " TCP " + transport.localPort() + (config.devMode ? " with dev mode enabled" : "");
             ResourceNetDebug.registerServerWorld(world);
             server = new PeerServerSide(config, world, transport);
         } else {
@@ -99,18 +99,21 @@ final class PeerNetwork implements CommandSink {
             NetPacket packet;
             while ((packet = transport.poll()) != null) {
                 if (!transport.accepts(packet)) continue;
+                if (transport.isDisconnectEvent(packet)) {
+                    if (server != null) server.connectionClosed(packet);
+                    continue;
+                }
                 try {
-                    String message = transport.unwrapReliable(packet);
+                    String message = transport.processInbound(packet);
                     if (message == null) continue;
                     if (server != null) server.handle(message, packet);
                     else client.handle(packet, message);
                 } catch (RuntimeException ex) {
                     transport.recordMalformedPacket();
                     if (client != null) client.rejectPacket(ex);
-                    else System.err.println("Rejected malformed UDP packet: " + ex.getClass().getSimpleName());
+                    else System.err.println("Rejected malformed TCP frame: " + ex.getClass().getSimpleName());
                 }
             }
-            transport.resend(now);
             if (server != null) server.tick(now);
             else client.tick(now);
         } finally {

@@ -36,8 +36,8 @@ final class PeerServerSide {
 
     String statusLine() {
         int retained = Math.max(0, sessions.size() - peers.size());
-        String result = "HOST " + world.systemName() + " UDP " + transport.localPort()
-                + " | clients " + peers.size() + " | retained " + retained + " | pending " + transport.pendingCount();
+        String result = "HOST " + world.systemName() + " TCP " + transport.localPort()
+                + " | clients " + peers.size() + " | retained " + retained + " | queued " + transport.queuedCount();
         return result + (config.devMode ? " | dev host" : "");
     }
 
@@ -86,6 +86,11 @@ final class PeerServerSide {
     void handle(String message, NetPacket packet) {
         PlayerRegistry.activate(world);
         PeerServerPackets.handle(this, message, packet);
+    }
+
+    void connectionClosed(NetPacket packet) {
+        if (packet == null || packet.address() == null) return;
+        disconnectPeer(endpoint(packet.address(), packet.port()), System.currentTimeMillis(), "disconnected");
     }
 
     void broadcastNow() {
@@ -139,7 +144,7 @@ final class PeerServerSide {
             PlayerSession session = sessions.get(playerId);
             if (session != null) session.devFreeBuild = enabled;
             world.setDevFreeBuild(playerId, enabled);
-            transport.reliable("DEVSTATUS|" + (enabled ? "1" : "0"), peer.address(), peer.port());
+            transport.sendOrdered("DEVSTATUS|" + (enabled ? "1" : "0"), peer.address(), peer.port());
             String name = session == null ? playerId : session.name;
             world.status = "Dev access " + (enabled ? "granted to " : "revoked from ") + name + ".";
             System.out.println(world.status);
@@ -157,7 +162,7 @@ final class PeerServerSide {
             return;
         }
         if (nameInUse(cleanName)) {
-            transport.reliable(joinDenied("Name already in use: " + cleanName), address, port);
+            transport.sendOrdered(joinDenied("Name already in use: " + cleanName), address, port);
             return;
         }
         String id = "P" + nextPlayer++;
@@ -184,7 +189,7 @@ final class PeerServerSide {
         PlayerSession session = sessions.get(playerId);
         if (session == null || sessionExpired(session, now) || !tokenMatches(session, token, endpoint, now)) {
             if (session != null && sessionExpired(session, now)) destroySession(playerId);
-            transport.reliable(sessionDenied("Session expired or token was rejected."), address, port);
+            transport.sendOrdered(sessionDenied("Session expired or token was rejected."), address, port);
             return false;
         }
 
@@ -198,7 +203,7 @@ final class PeerServerSide {
 
         if (session.connected && session.endpoint != null && !session.endpoint.isBlank()
                 && !session.endpoint.equals(endpoint)) {
-            transport.reliable(sessionBusy("Session is already active on another connection."), address, port);
+            transport.sendOrdered(sessionBusy("Session is already active on another connection."), address, port);
             return false;
         }
 
@@ -259,7 +264,7 @@ final class PeerServerSide {
     private void disconnectPeer(String endpoint, long now, String reason) {
         ServerPeer peer = peers.remove(endpoint);
         if (peer == null) return;
-        transport.clearPendingForEndpoint(peer.address(), peer.port());
+        transport.closeConnection(peer.address(), peer.port());
         PlayerSession session = sessions.get(peer.playerId());
         if (session == null) return;
         session.endpoint = "";
@@ -277,7 +282,7 @@ final class PeerServerSide {
         if (session == null) return;
         if (session.endpoint != null && !session.endpoint.isBlank()) {
             ServerPeer peer = peers.remove(session.endpoint);
-            if (peer != null) transport.clearPendingForEndpoint(peer.address(), peer.port());
+            if (peer != null) transport.closeConnection(peer.address(), peer.port());
         }
         devRequests.remove(playerId);
         world.setDevFreeBuild(playerId, false);
@@ -304,7 +309,7 @@ final class PeerServerSide {
         if (peer == null) return;
         List<LeaderboardEntry> entries = GlobalLeaderboard.aggregate(world, allKnownSystems());
         GlobalLeaderboard.set(world, entries);
-        transport.reliable(GlobalLeaderboard.encode(entries), peer.address(), peer.port());
+        transport.sendOrdered(GlobalLeaderboard.encode(entries), peer.address(), peer.port());
     }
 
     private void broadcastGalaxy() {
@@ -316,13 +321,13 @@ final class PeerServerSide {
     private void sendGalaxy(ServerPeer peer) {
         if (peer == null) return;
         String message = GalaxyMapWire.encode(config.galaxyCopies, world.authoritativeGalaxyMapSnapshot());
-        transport.reliable(message, peer.address(), peer.port());
+        transport.sendOrdered(message, peer.address(), peer.port());
     }
 
     private void sendSessionState(PlayerSession session, ServerPeer peer, String token) {
         if (session == null || peer == null) return;
-        transport.reliable(welcome(session.playerId, session.name, session.rgb, peer.devFreeBuild(), token), peer.address(), peer.port());
-        transport.reliable(envMessage(), peer.address(), peer.port());
+        transport.sendOrdered(welcome(session.playerId, session.name, session.rgb, peer.devFreeBuild(), token), peer.address(), peer.port());
+        transport.sendOrdered(envMessage(), peer.address(), peer.port());
         sendInitial(peer);
     }
 
@@ -356,7 +361,7 @@ final class PeerServerSide {
     private void sendDeletedSystems(Set<String> deletedSystems) {
         if (deletedSystems == null || deletedSystems.isEmpty() || peers.isEmpty()) return;
         String message = "SYSDEL|" + String.join(";", deletedSystems);
-        for (ServerPeer peer : peers.values()) transport.reliable(message, peer.address(), peer.port());
+        for (ServerPeer peer : peers.values()) transport.sendOrdered(message, peer.address(), peer.port());
     }
 
     private void auditDevRequest(String name, InetAddress address, int port, boolean requestedDev, boolean allowed) {

@@ -83,10 +83,18 @@ tasks.register('validateRuleIds', JavaExec) {
 
 tasks.register('validateNetworkSecurity', JavaExec) {
     group = 'verification'
-    description = 'Validate UDP endpoint, ACK, and chunk security.'
+    description = 'Validate TCP framing, compatibility, queue bounds, and slow-client handling.'
     dependsOn tasks.named('classes')
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'com.tndmadman.rts.NetworkSecurityValidator'
+}
+
+tasks.register('validateTcpMultiplayer', JavaExec) {
+    group = 'verification'
+    description = 'Validate real TCP host/client commands and authoritative snapshot convergence.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.TcpMultiplayerValidator'
 }
 
 tasks.register('validateSnapshotHardening', JavaExec) {
@@ -273,6 +281,7 @@ tasks.named('check') {
     dependsOn tasks.named('validateGalaxyConnectivity')
     dependsOn tasks.named('validateRuleIds')
     dependsOn tasks.named('validateNetworkSecurity')
+    dependsOn tasks.named('validateTcpMultiplayer')
     dependsOn tasks.named('validateSnapshotHardening')
     dependsOn tasks.named('validateSessionRecovery')
     dependsOn tasks.named('validateNpcSystemIsolation')
