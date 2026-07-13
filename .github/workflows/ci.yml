@@ -39,15 +39,15 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          gradle clean check jar --no-daemon 2>&1 | tee build/verification-output.log
+          gradle clean check jar --no-daemon 2>&1 | tee verification-output.log
 
       - name: Upload verification output
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: verification-output
-          path: build/verification-output.log
-          if-no-files-found: warn
+          path: verification-output.log
+          if-no-files-found: error
 
       - name: Smoke-test Linux headless server
         shell: bash
