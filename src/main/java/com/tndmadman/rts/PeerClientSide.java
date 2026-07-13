@@ -3,6 +3,7 @@ package com.tndmadman.rts;
 final class PeerClientSide {
     private static final long HEARTBEAT_MS = 1000;
     private static final long JOIN_TIMEOUT_MS = 8000;
+    private static final long INITIAL_SYNC_TIMEOUT_MS = 30_000;
     private static final long SERVER_SILENCE_MS = 5000;
     private static final long RECONNECT_TIMEOUT_MS = 55_000;
     final Config config;
@@ -18,6 +19,7 @@ final class PeerClientSide {
     private long pendingViewRevision;
     private boolean connectedOnce;
     private boolean devApproved;
+    private boolean syncingResume;
     private boolean viewSnapshotMode;
     private boolean viewRequestPending;
     private boolean viewRequestFallbackMode;
@@ -26,6 +28,7 @@ final class PeerClientSide {
     private String sessionToken = "";
     private String viewedSystemId = "";
     private String failureMessage = "";
+    private String pendingReadyName = "";
 
     PeerClientSide(Config config, World world, PeerTransport transport) {
         this.config = config;
@@ -49,6 +52,7 @@ final class PeerClientSide {
     String statusLine() {
         String label = switch (state) {
             case JOINING -> "joining";
+            case SYNCING -> "syncing " + localPlayerId;
             case CONNECTED -> localPlayerId;
             case RECONNECTING -> "reconnecting " + localPlayerId;
             case DISCONNECTED -> "disconnected";
@@ -63,23 +67,61 @@ final class PeerClientSide {
     boolean devToolsAllowed() { return state == ConnectionState.CONNECTED && devApproved; }
     String failureMessage() { return failureMessage.isBlank() ? "Connection failed." : failureMessage; }
     static long serverSilenceMs() { return SERVER_SILENCE_MS; }
-    boolean reconnecting() { return state == ConnectionState.RECONNECTING; }
-    boolean connectedState() { return state == ConnectionState.CONNECTED; }
+    boolean reconnecting() { return state == ConnectionState.RECONNECTING || state == ConnectionState.SYNCING && syncingResume; }
+    boolean connectedState() { return state == ConnectionState.SYNCING || state == ConnectionState.CONNECTED; }
+    boolean readyState() { return state == ConnectionState.CONNECTED; }
     long lastSnapshotSequence() { return lastSnapshotSequence; }
     String viewedSystemId() { return viewedSystemId; }
     long pendingViewRevision() { return pendingViewRevision; }
     boolean viewSwitchPending() { return viewRequestPending; }
 
+    ClientConnectionProgress connectionProgress() {
+        long elapsed = Math.max(0, System.currentTimeMillis() - attemptStarted);
+        return switch (state) {
+            case JOINING -> transport.connected()
+                    ? new ClientConnectionProgress(ConnectionPhase.HANDSHAKING, "NEGOTIATING CONNECTION",
+                    "TCP connected. Waiting for server approval and compatibility checks.", 2, 4, elapsed)
+                    : new ClientConnectionProgress(ConnectionPhase.CONNECTING, "CONNECTING TO SERVER",
+                    "Opening TCP connection to " + config.serverAddress + ".", 1, 4, elapsed);
+            case SYNCING -> new ClientConnectionProgress(ConnectionPhase.SYNCHRONIZING,
+                    syncingResume ? "RESTORING SESSION" : "SYNCHRONIZING FLEET",
+                    syncingResume ? "Receiving authoritative state for the saved session."
+                            : "Receiving and validating authoritative galaxy and fleet state.",
+                    3, 4, elapsed);
+            case CONNECTED -> new ClientConnectionProgress(ConnectionPhase.READY, "READY",
+                    "Authoritative state loaded.", 4, 4, elapsed);
+            case RECONNECTING -> transport.connected()
+                    ? new ClientConnectionProgress(ConnectionPhase.HANDSHAKING, "RECONNECTING",
+                    "TCP restored. Requesting the saved session from the server.", 2, 4, elapsed)
+                    : new ClientConnectionProgress(ConnectionPhase.RECONNECTING, "CONNECTION INTERRUPTED",
+                    "Opening a new TCP connection without dropping player state.", 1, 4, elapsed);
+            case FAILED -> new ClientConnectionProgress(ConnectionPhase.FAILED, "CONNECTION FAILED",
+                    failureMessage(), 0, 4, elapsed);
+            case DISCONNECTED -> new ClientConnectionProgress(ConnectionPhase.DISCONNECTED, "DISCONNECTED",
+                    "The multiplayer session is closed.", 0, 4, elapsed);
+        };
+    }
+
     void tick(long now) {
         PlayerRegistry.activate(world);
         boolean connectionDropped = transport.consumeClientDisconnect();
-        if (state == ConnectionState.CONNECTED && connectionDropped) {
+        if ((state == ConnectionState.CONNECTED || state == ConnectionState.SYNCING) && connectionDropped) {
             beginReconnect(now);
         }
         switch (state) {
             case FAILED, DISCONNECTED -> { return; }
             case CONNECTED -> {
                 if (now - lastServerPacket >= SERVER_SILENCE_MS) {
+                    beginReconnect(now);
+                    return;
+                }
+                if (now - lastPing >= HEARTBEAT_MS) {
+                    sendControlToServer("PING|" + localPlayerId);
+                    lastPing = now;
+                }
+            }
+            case SYNCING -> {
+                if (now - attemptStarted >= INITIAL_SYNC_TIMEOUT_MS) {
                     beginReconnect(now);
                     return;
                 }
@@ -117,11 +159,12 @@ final class PeerClientSide {
 
     void shutdown() {
         PlayerRegistry.activate(world);
-        if (state == ConnectionState.CONNECTED) {
+        if (state == ConnectionState.CONNECTED || state == ConnectionState.SYNCING) {
             sendControlToServer("LEAVE|" + localPlayerId);
         }
         state = ConnectionState.DISCONNECTED;
         devApproved = false;
+        syncingResume = false;
         world.setDevFreeBuild(localPlayerId, false);
     }
 
@@ -208,7 +251,9 @@ final class PeerClientSide {
         ConnectionState previousState = state;
         localPlayerId = parts[1];
         sessionToken = newSessionToken;
-        state = ConnectionState.CONNECTED;
+        state = ConnectionState.SYNCING;
+        syncingResume = previousState == ConnectionState.RECONNECTING || connectedOnce;
+        pendingReadyName = parts[2];
         failureMessage = "";
         transport.clearOutbound();
         long now = System.currentTimeMillis();
@@ -229,9 +274,9 @@ final class PeerClientSide {
         devApproved = flag(markerValue(parts, "DEV"));
         world.setDevFreeBuild(localPlayerId, devApproved);
         SessionTokenStore.save(config, localPlayerId, sessionToken);
-        boolean resumed = previousState == ConnectionState.RECONNECTING || connectedOnce;
-        connectedOnce = true;
-        world.status = (resumed ? "Reconnected " : "Joined ") + world.activeSystemId() + " as " + parts[2] + devStatus(devApproved);
+        world.status = syncingResume
+                ? "Session resumed. Receiving authoritative state for " + pendingReadyName + "."
+                : "Server accepted " + pendingReadyName + ". Receiving authoritative state.";
     }
 
     void readSnapshot(String message) {
@@ -283,9 +328,25 @@ final class PeerClientSide {
                 viewedSystemId = world.activeSystemId();
                 viewSnapshotMode = false;
             }
+            completeInitialSync();
         } catch (SnapshotDecodeException ex) {
             rejectSnapshot(ex);
         }
+    }
+
+    private void completeInitialSync() {
+        if (state != ConnectionState.SYNCING) return;
+        boolean resumed = syncingResume;
+        String playerName = pendingReadyName.isBlank() ? PlayerRegistry.name(localPlayerId) : pendingReadyName;
+        state = ConnectionState.CONNECTED;
+        connectedOnce = true;
+        syncingResume = false;
+        pendingReadyName = "";
+        long now = System.currentTimeMillis();
+        attemptStarted = now;
+        lastServerPacket = now;
+        lastPing = now;
+        world.status = (resumed ? "Reconnected " : "Joined ") + world.activeSystemId() + " as " + playerName + devStatus(devApproved);
     }
 
     private boolean readGalaxy(String message) {
@@ -441,12 +502,14 @@ final class PeerClientSide {
     }
 
     private void beginReconnect(long now) {
-        if (state != ConnectionState.CONNECTED) return;
+        if (state != ConnectionState.CONNECTED && state != ConnectionState.SYNCING) return;
         if (sessionToken.isBlank()) {
             failConnection("Connection lost and no resumable session is available.");
             return;
         }
         state = ConnectionState.RECONNECTING;
+        syncingResume = true;
+        pendingReadyName = "";
         attemptStarted = now;
         lastHandshake = 0;
         devApproved = false;
@@ -459,6 +522,8 @@ final class PeerClientSide {
     private void failConnection(String message) {
         state = ConnectionState.FAILED;
         devApproved = false;
+        syncingResume = false;
+        pendingReadyName = "";
         world.setDevFreeBuild(localPlayerId, false);
         failureMessage = message;
         transport.clearOutbound();
@@ -488,7 +553,8 @@ final class PeerClientSide {
     private void blockCommand() {
         world.status = switch (state) {
             case RECONNECTING -> "Command blocked while reconnecting.";
-            case JOINING -> "Command blocked until the server finishes joining.";
+            case JOINING -> "Command blocked until the server accepts the connection.";
+            case SYNCING -> "Command blocked until authoritative state finishes loading.";
             case DISCONNECTED -> "Command blocked because the client is disconnected.";
             case FAILED -> "Command blocked because the connection failed.";
             case CONNECTED -> world.status;
@@ -530,5 +596,5 @@ final class PeerClientSide {
     private boolean flag(String value) { return "1".equals(value) || "true".equalsIgnoreCase(value) || "DEV".equalsIgnoreCase(value) || "YES".equalsIgnoreCase(value); }
     private String devStatus(boolean allowed) { if (allowed) return " (dev mode enabled by host)"; return config.devMode ? " (dev mode denied by host)" : ""; }
 
-    private enum ConnectionState { JOINING, CONNECTED, RECONNECTING, DISCONNECTED, FAILED }
+    private enum ConnectionState { JOINING, SYNCING, CONNECTED, RECONNECTING, DISCONNECTED, FAILED }
 }
