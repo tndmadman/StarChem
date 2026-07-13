@@ -140,9 +140,9 @@ final class Base {
     }
 
     private void drawProduction(Graphics2D s, double radius) {
-        ProductionJob job = ProductionSystem.active(this);
+        ProductionJob job = ProductionQueueScheduler.active(this);
         if (job == null) return;
-        String label = ProductionSystem.displayName(job) + " | " + ProductionSystem.detail(this, job);
+        String label = ProductionSystem.displayName(job) + " | " + ProductionQueueScheduler.detail(this, job);
         if (productionQueue.size() > 1) label += " | +" + (productionQueue.size() - 1);
         if (label.length() > 48) label = label.substring(0, 45) + "...";
         int tw = s.getFontMetrics().stringWidth(label);

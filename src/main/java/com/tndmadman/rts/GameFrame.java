@@ -14,12 +14,14 @@ final class GameFrame extends JFrame {
     private static final String ACTIVE_SESSION_NOTICE = "Session is already active on another connection.";
     private static final String DUPLICATE_NAME_NOTICE = "Duplicate player names are not allowed on this server. Choose a different name.";
     private static final String RESOURCE_CATALOG_ACTION = "toggle-resource-catalog";
+    private static final String NARRATION_SETTINGS_ACTION = "toggle-narration-settings";
 
     private final JLayeredPane root = new JLayeredPane();
     private final MenuBackdrop backdrop = new MenuBackdrop();
     private final LobbyPanel menuPanel = new LobbyPanel(this);
     private GamePanel gamePanel;
     private ResourceCatalogOverlay resourceCatalogOverlay;
+    private NarrationSettingsOverlay narrationSettingsOverlay;
     private EndStatePanel endStatePanel;
     private PeerNetwork network;
     private LocalHostSession localHostSession;
@@ -102,13 +104,16 @@ final class GameFrame extends JFrame {
     private void showGame(Config config, World world, PeerNetwork activeNetwork, PeerNetwork devAuthorityNetwork) {
         gamePanel = new GamePanel(world, this, activeNetwork, config.devMode, devAuthorityNetwork);
         resourceCatalogOverlay = new ResourceCatalogOverlay(gamePanel, world);
+        narrationSettingsOverlay = new NarrationSettingsOverlay();
         installResourceCatalogHotkey(gamePanel);
+        installNarrationSettingsHotkey(gamePanel);
         endStatePanel = new EndStatePanel(world, this, activeNetwork);
         root.removeAll();
         root.add(gamePanel, JLayeredPane.DEFAULT_LAYER);
         root.add(resourceCatalogOverlay, JLayeredPane.PALETTE_LAYER);
+        root.add(narrationSettingsOverlay, JLayeredPane.POPUP_LAYER);
         root.add(endStatePanel, JLayeredPane.MODAL_LAYER);
-        if (!world.status.contains("Press I")) world.status = world.status + " Press I for the resource catalog.";
+        if (!world.status.contains("Press I")) world.status = world.status + " Press I for resources; F8 for narration.";
         setTitle(BuildInfo.display() + " - " + config.modeLabel() + " - " + config.playerName + " - " + world.systemName() + (config.devMode ? " - DEV" : ""));
         layoutLayers();
         root.revalidate();
@@ -126,15 +131,29 @@ final class GameFrame extends JFrame {
         });
     }
 
+    private void installNarrationSettingsHotkey(JComponent target) {
+        target.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_F8, 0), NARRATION_SETTINGS_ACTION);
+        target.getActionMap().put(NARRATION_SETTINGS_ACTION, new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) {
+                if (narrationSettingsOverlay == null) return;
+                if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.setVisible(false);
+                narrationSettingsOverlay.toggle();
+            }
+        });
+    }
+
     private void stopActiveGame() {
         if (gamePanel != null) gamePanel.stop();
         if (resourceCatalogOverlay != null) resourceCatalogOverlay.setVisible(false);
+        if (narrationSettingsOverlay != null) narrationSettingsOverlay.close();
         if (endStatePanel != null) endStatePanel.stop();
         if (networkTimer != null) networkTimer.stop();
         if (localHostSession != null) localHostSession.stop();
         else if (network != null) network.shutdown();
         gamePanel = null;
         resourceCatalogOverlay = null;
+        narrationSettingsOverlay = null;
         endStatePanel = null;
         network = null;
         localHostSession = null;
@@ -147,6 +166,7 @@ final class GameFrame extends JFrame {
         backdrop.setBounds(0, 0, w, h);
         if (gamePanel != null) gamePanel.setBounds(0, 0, w, h);
         if (resourceCatalogOverlay != null) resourceCatalogOverlay.setBounds(0, 0, w, h);
+        if (narrationSettingsOverlay != null) narrationSettingsOverlay.setBounds(0, 0, w, h);
         if (endStatePanel != null) endStatePanel.setBounds(0, 0, w, h);
         int mw = Math.min(760, Math.max(560, w - 160));
         int mh = Math.min(700, Math.max(580, h - 100));

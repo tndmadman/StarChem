@@ -31,6 +31,7 @@ final class ResearchSystem {
     }
 
     static void update(World world, double dt) {
-        ProductionSystem.update(world, DevTimerSettings.disabled(world) ? Double.MAX_VALUE : dt);
+        ProductionPlanner.update(world, dt);
+        ProductionQueueScheduler.update(world, DevTimerSettings.disabled(world) ? Double.MAX_VALUE : dt);
     }
 }

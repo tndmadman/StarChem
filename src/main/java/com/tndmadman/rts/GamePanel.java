@@ -133,7 +133,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         String minerRanges = UnitRenderer.miningRangeOverlayVisible() ? "ON" : "OFF";
         String audio = ProceduralAudio.muted() ? "OFF" : "ON";
         String perf = devMode ? " | Performance: F4" : "";
-        g2.drawString("Galaxy: M | Formation: " + formation.label + " (F) | Miner ranges: " + minerRanges + " (R) | Audio: " + audio + " (Ctrl+M)" + perf, 28, 102);
+        g2.drawString("Galaxy: M | Inventory: I | Narration: F8 | Formation: " + formation.label + " (F) | Miner ranges: " + minerRanges + " (R) | Audio: " + audio + " (Ctrl+M)" + perf, 28, 102);
         g2.drawString("Commands: X attack-move | P patrol | G guard | E escort | H hold | Mode: " + commandModeLabel(), 28, 124);
     }
 
