@@ -27,7 +27,7 @@ final class NarrationService {
 
     private static volatile boolean enabled = PREFS.getBoolean("enabled", true);
     private static volatile int volume = clamp(PREFS.getInt("volume", 75), 0, 100);
-    private static volatile double speed = clamp(PREFS.getDouble("speed", 1.0), 0.5, 2.0);
+    private static volatile double speed = clamp(PREFS.getDouble("speed", 1.5), 0.5, 2.0);
     private static volatile String voice = PREFS.get("voice", SYSTEM_DEFAULT);
     private static volatile List<String> voices;
 
