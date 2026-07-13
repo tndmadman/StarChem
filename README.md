@@ -7,13 +7,43 @@ StarChem is a Java 2D top-down multiplayer RTS prototype.
 Download the release ZIP and extract it.
 
 The player package contains the compiled `StarChem.jar`, the required `config`
-folder, `run-starchem.bat`, and the packaged legal and quick-start documents.
+folder, Windows and Linux launchers, and the packaged legal and quick-start documents.
 
-Double-click `run-starchem.bat` to open the lobby and choose the game mode and connection options from the menu.
+On Windows, double-click `run-starchem.bat` to open the lobby and choose the game mode and connection options from the menu.
+
+On Linux, open a terminal in the extracted folder and run:
+
+```text
+./run-starchem.sh
+```
 
 Java 17 or newer is required.
 
 Players do not need Gradle, source files, or a local compile step.
+
+## Dedicated Linux server
+
+Start a headless dedicated server from the extracted release folder with:
+
+```text
+./run-starchem-server.sh
+```
+
+The launcher defaults to TCP port `50000` and the server name `StarChem-Server`. Override either value with environment variables and pass additional StarChem options after the script name:
+
+```text
+STARCHEM_PORT=50100 STARCHEM_SERVER_NAME="Public Server" ./run-starchem-server.sh --galaxy-copies 2
+```
+
+The equivalent direct Java command is:
+
+```text
+java -Djava.awt.headless=true -jar StarChem.jar --server 50000 --name StarChem-Server
+```
+
+Open or forward the selected **TCP** port. Stop the server with `Ctrl+C` or a normal `SIGTERM`; the server closes its network transport before the process exits. It prints a status line at startup and every 60 seconds while running.
+
+Run `java -jar StarChem.jar --help` to view all supported startup options. Unknown options and missing option values are rejected instead of being silently ignored.
 
 ## Version
 
@@ -98,4 +128,4 @@ documented in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 Create and push a semantic-version tag such as `vX.Y.Z`.
 
-The release workflow derives the application version from the tag, embeds the commit SHA in `StarChem.jar`, runs the complete Gradle verification suite, smoke-tests `--version`, verifies the package layout and legal notices, and publishes `StarChem-vX.Y.Z.zip` to the GitHub Release.
+The release workflow derives the application version from the tag, embeds the commit SHA in `StarChem.jar`, runs the complete Gradle verification suite, smoke-tests the application and Linux headless server, verifies the package layout and legal notices, and publishes `StarChem-vX.Y.Z.zip` to the GitHub Release.
