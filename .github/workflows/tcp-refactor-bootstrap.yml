@@ -16,6 +16,17 @@ jobs:
         with:
           ref: agent/tcp-network-refactor
           fetch-depth: 0
+      - name: Apply TCP refactor
+        shell: bash
+        run: |
+          set -euxo pipefail
+          base64 --decode tcp-refactor.patch.gz.b64 > /tmp/tcp-refactor.patch.gz
+          gzip --test /tmp/tcp-refactor.patch.gz
+          gzip --decompress --stdout /tmp/tcp-refactor.patch.gz > /tmp/tcp-refactor.patch
+          git apply --check /tmp/tcp-refactor.patch
+          git apply --index /tmp/tcp-refactor.patch
+          git rm tcp-refactor.patch.gz.b64
+          git rm .github/workflows/tcp-refactor-bootstrap.yml
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -23,13 +34,6 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
-      - name: Apply TCP refactor
-        shell: bash
-        run: |
-          base64 --decode tcp-refactor.patch.gz.b64 | gzip --decompress > /tmp/tcp-refactor.patch
-          git apply --index /tmp/tcp-refactor.patch
-          git rm tcp-refactor.patch.gz.b64
-          git rm .github/workflows/tcp-refactor-bootstrap.yml
       - name: Validate complete project
         run: gradle clean check jar --no-daemon
       - name: Commit TCP refactor
