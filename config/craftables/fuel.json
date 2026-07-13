@@ -2,7 +2,7 @@
   "craftableItems": {
     "fuel": {
       "displayName": "Fuel",
-      "description": "Refined reactor fuel required to keep Research Labs operational.",
+      "description": "Refined reactor fuel required by laboratories and advanced production.",
       "style": "fuel_cell",
       "color": "#FFB946",
       "stationTypes": [
@@ -17,7 +17,8 @@
       "output": {
         "material": "FUEL",
         "amount": 50
-      }
+      },
+      "category": "CHEMICALS"
     }
   }
 }

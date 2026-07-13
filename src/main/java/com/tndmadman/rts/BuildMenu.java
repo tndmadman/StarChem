@@ -42,29 +42,70 @@ final class BuildMenu {
             boolean unlocked = ResearchRules.shipUnlocked(world, base.playerId, shipId);
             String detail = free ? "free (dev mode)" : unlocked ? Rules.formatCost(ship.buildCost) : "LOCKED: " + requiredResearch(shipId);
             detail += " | " + whole(ship.buildTimeSeconds) + "s";
-            entries.add(new Entry("Build " + ship.name, detail, defenseLine(ship), ship, weaponBadges(ship), false, false, () ->
+            entries.add(new Entry("Build " + ship.name, detail, defenseLine(ship), ship, weaponBadges(ship), false, false, false, () ->
                     sendProduction(world, network, base, "ENQUEUE", ProductionJobKind.SHIP.name(), shipId)));
         }
         for (String packageId : def.basePackages) {
             BaseType pkg = Rules.base(packageId);
             String detail = (free ? "free (dev mode)" : Rules.formatCost(pkg.buildCost)) + " | " + whole(pkg.buildTimeSeconds) + "s";
-            entries.add(new Entry("Load " + pkg.name, detail, stationDefenseLine(pkg), null, List.of(), false, false, () ->
+            entries.add(new Entry("Load " + pkg.name, detail, stationDefenseLine(pkg), null, List.of(), false, false, false, () ->
                     sendProduction(world, network, base, "ENQUEUE", ProductionJobKind.STATION_PACKAGE.name(), packageId)));
         }
-        for (CraftableItem item : CraftingRules.forStation(def.id)) {
-            String detail = (free ? "free (dev mode)" : Rules.formatCost(item.requiredResources) + " -> " + item.outputLabel())
-                    + " | " + whole(item.timeSeconds) + "s";
-            String info = item.description.isBlank() ? "Style: " + item.style : item.description;
-            entries.add(new Entry("Manufacture " + item.name, detail, info, null, List.of(), false, false, () ->
-                    sendProduction(world, network, base, "ENQUEUE", ProductionJobKind.CRAFTABLE.name(), item.id)));
-        }
+        addCraftingEntries(world, network, base, free);
         for (ResearchTopic topic : topics) {
             boolean completed = world.hasResearch(base.playerId, topic.id);
             boolean queued = ProductionSystem.researchQueued(world, base.playerId, topic.id);
             entries.add(new Entry("Research " + topic.name, researchDetail(world, base, topic, free), topic.unlockLabel(), null,
-                    List.of(), completed || queued, completed || queued, () ->
+                    List.of(), completed || queued, completed || queued, false, () ->
                     sendProduction(world, network, base, "ENQUEUE", ProductionJobKind.RESEARCH.name(), topic.id)));
         }
+    }
+
+    private void addCraftingEntries(World world, PeerNetwork network, Base base, boolean free) {
+        List<CraftableItem> craftables = CraftingRules.forStation(base.typeId);
+        if (craftables.size() <= 8) {
+            for (CraftableItem item : craftables) addCraftableEntry(world, network, base, item, free);
+            return;
+        }
+        for (CraftingCategory category : CraftingRules.categoriesForStation(base.typeId)) {
+            List<CraftableItem> inCategory = CraftingRules.forStationAndCategory(base.typeId, category);
+            int unlocked = 0;
+            for (CraftableItem item : inCategory) if (free || item.unlockedFor(world, base.playerId)) unlocked++;
+            String detail = unlocked + " / " + inCategory.size() + " recipes available";
+            entries.add(new Entry("Manufacturing | " + category.label, detail,
+                    "Open this recipe category", null, List.of(), false, true, true,
+                    () -> showCraftingCategory(world, network, base, category, free)));
+        }
+    }
+
+    private void showCraftingCategory(World world, PeerNetwork network, Base base,
+                                      CraftingCategory category, boolean free) {
+        entries.clear();
+        scrollOffset = 0;
+        visibleRows = 0;
+        menuHeight = HEADER_H;
+        visible = true;
+        title = category.label.toUpperCase(Locale.ROOT) + " | " + base.productionQueue.size() + " QUEUED";
+        entries.add(new Entry("← Back to " + base.type().name + " production", "Return to ships, stations, and categories",
+                "", null, List.of(), false, true, true,
+                () -> showForBase(world, network, base, x, y)));
+        for (CraftableItem item : CraftingRules.forStationAndCategory(base.typeId, category)) {
+            addCraftableEntry(world, network, base, item, free);
+        }
+    }
+
+    private void addCraftableEntry(World world, PeerNetwork network, Base base,
+                                   CraftableItem item, boolean free) {
+        boolean unlocked = free || item.unlockedFor(world, base.playerId);
+        String detail;
+        if (free) detail = "free (dev mode)";
+        else if (!unlocked) detail = "LOCKED: " + item.missingResearchLabel(world, base.playerId);
+        else detail = Rules.formatCost(item.requiredResources) + " -> " + item.outputLabel();
+        detail += " | " + whole(item.timeSeconds) + "s";
+        String info = item.description.isBlank() ? "Style: " + item.style : item.description;
+        entries.add(new Entry("Manufacture " + item.name, detail, info, null, List.of(),
+                !unlocked, false, false, () ->
+                sendProduction(world, network, base, "ENQUEUE", ProductionJobKind.CRAFTABLE.name(), item.id)));
     }
 
     private void addQueueEntries(World world, PeerNetwork network, Base base) {
@@ -73,14 +114,14 @@ final class BuildMenu {
             String prefix = i == 0 ? "ACTIVE" : "QUEUE " + (i + 1);
             String defense = i == 0 ? "Click to cancel active job" : "Click to cancel and refund";
             entries.add(new Entry(prefix + " | " + ProductionSystem.displayName(job), ProductionSystem.detail(base, job), defense,
-                    null, List.of(), false, true, () -> sendProduction(world, network, base, "CANCEL", job.id, "")));
+                    null, List.of(), false, true, false, () -> sendProduction(world, network, base, "CANCEL", job.id, "")));
             if (i > 1) {
                 entries.add(new Entry("Move up | " + ProductionSystem.displayName(job), "Move one queue position earlier", "", null,
-                        List.of(), false, true, () -> sendProduction(world, network, base, "MOVE", job.id, "-1")));
+                        List.of(), false, true, false, () -> sendProduction(world, network, base, "MOVE", job.id, "-1")));
             }
             if (i > 0 && i < base.productionQueue.size() - 1) {
                 entries.add(new Entry("Move down | " + ProductionSystem.displayName(job), "Move one queue position later", "", null,
-                        List.of(), false, true, () -> sendProduction(world, network, base, "MOVE", job.id, "1")));
+                        List.of(), false, true, false, () -> sendProduction(world, network, base, "MOVE", job.id, "1")));
             }
         }
     }
@@ -99,7 +140,7 @@ final class BuildMenu {
         x = sx; y = sy; visible = true;
         if (!unit.basePackageType.isBlank()) {
             BaseType pkg = Rules.base(unit.basePackageType);
-            entries.add(new Entry("Place " + pkg.name, "ready", stationDefenseLine(pkg), null, List.of(), false, false, () -> {
+            entries.add(new Entry("Place " + pkg.name, "ready", stationDefenseLine(pkg), null, List.of(), false, false, false, () -> {
                 if (network == null) world.placePackage(unit);
                 else network.basePackage(unit.playerId, "PLACE", unit.key(), unit.basePackageType);
             }));
@@ -121,7 +162,7 @@ final class BuildMenu {
                 Entry entry = entries.get(entryIndex);
                 if (!entry.disabled) {
                     entry.action.run();
-                    visible = false;
+                    if (!entry.keepOpen) visible = false;
                 }
                 return true;
             }
@@ -383,6 +424,8 @@ final class BuildMenu {
 
     private int rowHeight(Entry e) { return e.compact ? COMPACT_ROW_H : ROW_H; }
 
-    private record Entry(String title, String detail, String defense, ShipType shipIcon, List<WeaponBadge> weapons, boolean disabled, boolean compact, Runnable action) { }
+    private record Entry(String title, String detail, String defense, ShipType shipIcon,
+                         List<WeaponBadge> weapons, boolean disabled, boolean compact,
+                         boolean keepOpen, Runnable action) { }
     private record WeaponBadge(String label, int count, Color color) { }
 }

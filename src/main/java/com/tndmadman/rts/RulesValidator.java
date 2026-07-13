@@ -42,6 +42,7 @@ public final class RulesValidator {
         private final Set<String> nodeKindNames = enumNames(NodeKind.values());
         private final Set<String> materialFamilyNames = enumNames(MaterialFamily.values());
         private final Set<String> resourceTierNames = enumNames(ResourceTier.values());
+        private final Set<String> craftingCategoryNames = enumNames(CraftingCategory.values());
 
         private Validator(Path manifest) {
             this.manifest = manifest;
@@ -75,7 +76,7 @@ public final class RulesValidator {
             validateShips(ships, stationIds);
             validateStations(stations, shipIds);
             validateResearch(research, stationIds, shipIds, researchIds);
-            validateCraftables(craftables, stationIds);
+            validateCraftables(craftables, stationIds, researchIds);
             validateMaterials(files);
             validateResources(files);
             validateNpcFactions(files, shipIds, stationIds, researchIds, craftableIds);
@@ -185,10 +186,14 @@ public final class RulesValidator {
             }
         }
 
-        private void validateCraftables(Map<String,Def> craftables, Set<String> stationIds) {
+        private void validateCraftables(Map<String,Def> craftables, Set<String> stationIds, Set<String> researchIds) {
             for (Def item : craftables.values()) {
                 validateIdList(item.data.getOrDefault("stationTypes", item.data.get("stations")), stationIds, item.source + ".stationTypes", "station");
+                validateIdList(item.data.get("requiresResearch"), researchIds, item.source + ".requiresResearch", "research topic");
+                String category = string(item.data, "category", "").toUpperCase(Locale.ROOT);
+                if (!craftingCategoryNames.contains(category)) errors.add(item.source + ".category is invalid: " + category);
                 validateCostMap(item.data.getOrDefault("requiredResources", item.data.get("input")), item.source + ".requiredResources");
+                validateNonNegative(item.data, "timeSeconds", item.source);
                 Map<String,Object> output = object(item.data.get("output"));
                 if (!output.isEmpty()) {
                     validateMaterialName(string(output, "material", ""), item.source + ".output.material");

@@ -1,32 +1,592 @@
 {
   "materials": {
-    "IRON": {"displayName": "Iron", "color": "#B49678", "family": "METAL", "tier": "COMMON", "raw": true},
-    "COPPER": {"displayName": "Copper", "color": "#DD7A3C", "family": "METAL", "tier": "COMMON", "raw": true},
-    "NICKEL": {"displayName": "Nickel", "color": "#A6B1A9", "family": "METAL", "tier": "COMMON", "raw": true},
-    "COBALT": {"displayName": "Cobalt", "color": "#4B70C4", "family": "METAL", "tier": "UNCOMMON", "raw": true},
-    "ALUMINUM": {"displayName": "Aluminum", "color": "#CDD7DC", "family": "METAL", "tier": "COMMON", "raw": true},
-    "TITANIUM": {"displayName": "Titanium", "color": "#84919D", "family": "METAL", "tier": "UNCOMMON", "raw": true},
-    "TUNGSTEN": {"displayName": "Tungsten", "color": "#5C6269", "family": "METAL", "tier": "RARE", "raw": true},
-    "GOLD": {"displayName": "Gold", "color": "#EEC246", "family": "METAL", "tier": "RARE", "raw": true},
-    "PLATINUM": {"displayName": "Platinum", "color": "#D6DCE1", "family": "METAL", "tier": "RARE", "raw": true},
-    "URANIUM": {"displayName": "Uranium", "color": "#7EDC5B", "family": "METAL", "tier": "EXOTIC", "raw": true},
-    "SILICATES": {"displayName": "Silicates", "color": "#A5AA9B", "family": "MINERAL", "tier": "COMMON", "raw": true},
-    "ICE": {"displayName": "Water Ice", "color": "#91DCFF", "family": "VOLATILE", "tier": "COMMON", "raw": true},
-    "CARBON": {"displayName": "Carbon", "color": "#464A50", "family": "MINERAL", "tier": "COMMON", "raw": true},
-    "SULFUR": {"displayName": "Sulfur", "color": "#E5CD3F", "family": "MINERAL", "tier": "UNCOMMON", "raw": true},
-    "PHOSPHATES": {"displayName": "Phosphates", "color": "#BE9D70", "family": "MINERAL", "tier": "UNCOMMON", "raw": true},
-    "RARE_EARTHS": {"displayName": "Rare Earths", "color": "#D270B1", "family": "MINERAL", "tier": "RARE", "raw": true},
-    "HYDROGEN": {"displayName": "Hydrogen", "color": "#6ED2FF", "family": "GAS", "tier": "COMMON", "raw": true},
-    "HELIUM": {"displayName": "Helium", "color": "#D2AFFF", "family": "GAS", "tier": "COMMON", "raw": true},
-    "METHANE": {"displayName": "Methane", "color": "#64FFBE", "family": "GAS", "tier": "COMMON", "raw": true},
-    "AMMONIA": {"displayName": "Ammonia", "color": "#EBF596", "family": "GAS", "tier": "UNCOMMON", "raw": true},
-    "NITROGEN": {"displayName": "Nitrogen", "color": "#70AAEB", "family": "GAS", "tier": "UNCOMMON", "raw": true},
-    "NEON": {"displayName": "Neon", "color": "#FF6D60", "family": "GAS", "tier": "RARE", "raw": true},
-    "ARGON": {"displayName": "Argon", "color": "#997EE6", "family": "GAS", "tier": "RARE", "raw": true},
-    "XENON": {"displayName": "Xenon", "color": "#5DE7E5", "family": "GAS", "tier": "EXOTIC", "raw": true},
-    "FUEL": {"displayName": "Fuel", "color": "#FFB946", "family": "REFINED", "tier": "UNCOMMON", "raw": false},
-    "SCRAP_METAL": {"displayName": "Scrap Metal", "color": "#A0A5AA", "family": "SALVAGE", "tier": "COMMON", "raw": false},
-    "HULL_PLATING": {"displayName": "Hull Plating", "color": "#7891AA", "family": "SALVAGE", "tier": "UNCOMMON", "raw": false},
-    "CIRCUIT_FRAGMENTS": {"displayName": "Circuit Fragments", "color": "#5AF5B9", "family": "SALVAGE", "tier": "UNCOMMON", "raw": false}
+    "IRON": {
+      "displayName": "Iron",
+      "color": "#B49678",
+      "family": "METAL",
+      "tier": "COMMON",
+      "raw": true
+    },
+    "COPPER": {
+      "displayName": "Copper",
+      "color": "#DD7A3C",
+      "family": "METAL",
+      "tier": "COMMON",
+      "raw": true
+    },
+    "NICKEL": {
+      "displayName": "Nickel",
+      "color": "#A6B1A9",
+      "family": "METAL",
+      "tier": "COMMON",
+      "raw": true
+    },
+    "COBALT": {
+      "displayName": "Cobalt",
+      "color": "#4B70C4",
+      "family": "METAL",
+      "tier": "UNCOMMON",
+      "raw": true
+    },
+    "ALUMINUM": {
+      "displayName": "Aluminum",
+      "color": "#CDD7DC",
+      "family": "METAL",
+      "tier": "COMMON",
+      "raw": true
+    },
+    "TITANIUM": {
+      "displayName": "Titanium",
+      "color": "#84919D",
+      "family": "METAL",
+      "tier": "UNCOMMON",
+      "raw": true
+    },
+    "TUNGSTEN": {
+      "displayName": "Tungsten",
+      "color": "#5C6269",
+      "family": "METAL",
+      "tier": "RARE",
+      "raw": true
+    },
+    "GOLD": {
+      "displayName": "Gold",
+      "color": "#EEC246",
+      "family": "METAL",
+      "tier": "RARE",
+      "raw": true
+    },
+    "PLATINUM": {
+      "displayName": "Platinum",
+      "color": "#D6DCE1",
+      "family": "METAL",
+      "tier": "RARE",
+      "raw": true
+    },
+    "URANIUM": {
+      "displayName": "Uranium",
+      "color": "#7EDC5B",
+      "family": "METAL",
+      "tier": "EXOTIC",
+      "raw": true
+    },
+    "SILICATES": {
+      "displayName": "Silicates",
+      "color": "#A5AA9B",
+      "family": "MINERAL",
+      "tier": "COMMON",
+      "raw": true
+    },
+    "ICE": {
+      "displayName": "Water Ice",
+      "color": "#91DCFF",
+      "family": "VOLATILE",
+      "tier": "COMMON",
+      "raw": true
+    },
+    "CARBON": {
+      "displayName": "Carbon",
+      "color": "#464A50",
+      "family": "MINERAL",
+      "tier": "COMMON",
+      "raw": true
+    },
+    "SULFUR": {
+      "displayName": "Sulfur",
+      "color": "#E5CD3F",
+      "family": "MINERAL",
+      "tier": "UNCOMMON",
+      "raw": true
+    },
+    "PHOSPHATES": {
+      "displayName": "Phosphates",
+      "color": "#BE9D70",
+      "family": "MINERAL",
+      "tier": "UNCOMMON",
+      "raw": true
+    },
+    "RARE_EARTHS": {
+      "displayName": "Rare Earths",
+      "color": "#D270B1",
+      "family": "MINERAL",
+      "tier": "RARE",
+      "raw": true
+    },
+    "HYDROGEN": {
+      "displayName": "Hydrogen",
+      "color": "#6ED2FF",
+      "family": "GAS",
+      "tier": "COMMON",
+      "raw": true
+    },
+    "HELIUM": {
+      "displayName": "Helium",
+      "color": "#D2AFFF",
+      "family": "GAS",
+      "tier": "COMMON",
+      "raw": true
+    },
+    "METHANE": {
+      "displayName": "Methane",
+      "color": "#64FFBE",
+      "family": "GAS",
+      "tier": "COMMON",
+      "raw": true
+    },
+    "AMMONIA": {
+      "displayName": "Ammonia",
+      "color": "#EBF596",
+      "family": "GAS",
+      "tier": "UNCOMMON",
+      "raw": true
+    },
+    "NITROGEN": {
+      "displayName": "Nitrogen",
+      "color": "#70AAEB",
+      "family": "GAS",
+      "tier": "UNCOMMON",
+      "raw": true
+    },
+    "NEON": {
+      "displayName": "Neon",
+      "color": "#FF6D60",
+      "family": "GAS",
+      "tier": "RARE",
+      "raw": true
+    },
+    "ARGON": {
+      "displayName": "Argon",
+      "color": "#997EE6",
+      "family": "GAS",
+      "tier": "RARE",
+      "raw": true
+    },
+    "XENON": {
+      "displayName": "Xenon",
+      "color": "#5DE7E5",
+      "family": "GAS",
+      "tier": "EXOTIC",
+      "raw": true
+    },
+    "FUEL": {
+      "displayName": "Fuel",
+      "color": "#FFB946",
+      "family": "REFINED",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "SCRAP_METAL": {
+      "displayName": "Scrap Metal",
+      "color": "#A0A5AA",
+      "family": "SALVAGE",
+      "tier": "COMMON",
+      "raw": false
+    },
+    "HULL_PLATING": {
+      "displayName": "Hull Plating",
+      "color": "#7891AA",
+      "family": "SALVAGE",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "CIRCUIT_FRAGMENTS": {
+      "displayName": "Circuit Fragments",
+      "color": "#5AF5B9",
+      "family": "SALVAGE",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "STEEL_PLATE": {
+      "displayName": "Steel Plate",
+      "color": "#9AA1A8",
+      "family": "ALLOY",
+      "tier": "COMMON",
+      "raw": false
+    },
+    "NICKEL_STEEL": {
+      "displayName": "Nickel Steel",
+      "color": "#8D9AA3",
+      "family": "ALLOY",
+      "tier": "COMMON",
+      "raw": false
+    },
+    "ALUMINUM_ALLOY": {
+      "displayName": "Aluminum Alloy",
+      "color": "#C7D6DE",
+      "family": "ALLOY",
+      "tier": "COMMON",
+      "raw": false
+    },
+    "TITANIUM_ALLOY": {
+      "displayName": "Titanium Alloy",
+      "color": "#7F94A8",
+      "family": "ALLOY",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "COBALT_SUPERALLOY": {
+      "displayName": "Cobalt Superalloy",
+      "color": "#506FB0",
+      "family": "ALLOY",
+      "tier": "RARE",
+      "raw": false
+    },
+    "TUNGSTEN_CARBIDE": {
+      "displayName": "Tungsten Carbide",
+      "color": "#50565C",
+      "family": "ALLOY",
+      "tier": "RARE",
+      "raw": false
+    },
+    "CERAMIC_COMPOSITE": {
+      "displayName": "Ceramic Composite",
+      "color": "#C8C1A8",
+      "family": "COMPOSITE",
+      "tier": "COMMON",
+      "raw": false
+    },
+    "RADIATION_SHIELDING": {
+      "displayName": "Radiation Shielding",
+      "color": "#777C67",
+      "family": "COMPOSITE",
+      "tier": "RARE",
+      "raw": false
+    },
+    "POLYMER_RESIN": {
+      "displayName": "Polymer Resin",
+      "color": "#D5A5C5",
+      "family": "CHEMICAL",
+      "tier": "COMMON",
+      "raw": false
+    },
+    "INDUSTRIAL_LUBRICANT": {
+      "displayName": "Industrial Lubricant",
+      "color": "#8E7449",
+      "family": "CHEMICAL",
+      "tier": "COMMON",
+      "raw": false
+    },
+    "WATER_COOLANT": {
+      "displayName": "Water Coolant",
+      "color": "#79CFFF",
+      "family": "CHEMICAL",
+      "tier": "COMMON",
+      "raw": false
+    },
+    "CRYOGENIC_COOLANT": {
+      "displayName": "Cryogenic Coolant",
+      "color": "#6EEAF2",
+      "family": "CHEMICAL",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "METHANE_PROPELLANT": {
+      "displayName": "Methane Propellant",
+      "color": "#58E4A5",
+      "family": "CHEMICAL",
+      "tier": "COMMON",
+      "raw": false
+    },
+    "HYPERGOLIC_PROPELLANT": {
+      "displayName": "Hypergolic Propellant",
+      "color": "#D8F06A",
+      "family": "CHEMICAL",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "EXPLOSIVE_COMPOUND": {
+      "displayName": "Explosive Compound",
+      "color": "#E07145",
+      "family": "CHEMICAL",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "SHIELD_PLASMA_MIX": {
+      "displayName": "Shield Plasma Mix",
+      "color": "#A375F0",
+      "family": "CHEMICAL",
+      "tier": "RARE",
+      "raw": false
+    },
+    "COPPER_WIRING": {
+      "displayName": "Copper Wiring",
+      "color": "#CF6F35",
+      "family": "ELECTRONIC",
+      "tier": "COMMON",
+      "raw": false
+    },
+    "GOLD_CONTACT_MESH": {
+      "displayName": "Gold Contact Mesh",
+      "color": "#E7BD45",
+      "family": "ELECTRONIC",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "PRINTED_CIRCUIT_BOARD": {
+      "displayName": "Printed Circuit Board",
+      "color": "#4ACB8A",
+      "family": "ELECTRONIC",
+      "tier": "COMMON",
+      "raw": false
+    },
+    "POWER_REGULATOR": {
+      "displayName": "Power Regulator",
+      "color": "#5EB6D8",
+      "family": "ELECTRONIC",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "CAPACITOR_BANK": {
+      "displayName": "Capacitor Bank",
+      "color": "#57D7E6",
+      "family": "ELECTRONIC",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "SENSOR_ARRAY": {
+      "displayName": "Sensor Array",
+      "color": "#D477C3",
+      "family": "ELECTRONIC",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "NAVIGATION_COMPUTER": {
+      "displayName": "Navigation Computer",
+      "color": "#73A6E8",
+      "family": "ELECTRONIC",
+      "tier": "RARE",
+      "raw": false
+    },
+    "TARGETING_COMPUTER": {
+      "displayName": "Targeting Computer",
+      "color": "#E85B5B",
+      "family": "ELECTRONIC",
+      "tier": "RARE",
+      "raw": false
+    },
+    "STRUCTURAL_FRAME": {
+      "displayName": "Structural Frame",
+      "color": "#8B99A4",
+      "family": "INDUSTRIAL",
+      "tier": "COMMON",
+      "raw": false
+    },
+    "PRESSURE_HULL_SECTION": {
+      "displayName": "Pressure Hull Section",
+      "color": "#71879A",
+      "family": "INDUSTRIAL",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "CARGO_POD": {
+      "displayName": "Cargo Pod",
+      "color": "#B8C7CF",
+      "family": "INDUSTRIAL",
+      "tier": "COMMON",
+      "raw": false
+    },
+    "MINING_HEAD": {
+      "displayName": "Mining Head",
+      "color": "#A78F70",
+      "family": "INDUSTRIAL",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "GAS_COMPRESSOR": {
+      "displayName": "Gas Compressor",
+      "color": "#74BFB1",
+      "family": "INDUSTRIAL",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "TRACTOR_BEAM_EMITTER": {
+      "displayName": "Tractor Beam Emitter",
+      "color": "#68D7B6",
+      "family": "INDUSTRIAL",
+      "tier": "RARE",
+      "raw": false
+    },
+    "FABRICATION_TOOLSET": {
+      "displayName": "Fabrication Toolset",
+      "color": "#C48D61",
+      "family": "INDUSTRIAL",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "LOGISTICS_CONTROL_MODULE": {
+      "displayName": "Logistics Control Module",
+      "color": "#5FA6C7",
+      "family": "INDUSTRIAL",
+      "tier": "RARE",
+      "raw": false
+    },
+    "FUEL_CELL_STACK": {
+      "displayName": "Fuel Cell Stack",
+      "color": "#F2A83B",
+      "family": "POWER",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "REACTOR_CONTROL_UNIT": {
+      "displayName": "Reactor Control Unit",
+      "color": "#84B5C8",
+      "family": "POWER",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "FISSION_REACTOR_CORE": {
+      "displayName": "Fission Reactor Core",
+      "color": "#77C952",
+      "family": "POWER",
+      "tier": "RARE",
+      "raw": false
+    },
+    "FUSION_REACTOR": {
+      "displayName": "Fusion Reactor",
+      "color": "#79CFFF",
+      "family": "POWER",
+      "tier": "RARE",
+      "raw": false
+    },
+    "ION_THRUSTER": {
+      "displayName": "Ion Thruster",
+      "color": "#62E6E2",
+      "family": "POWER",
+      "tier": "RARE",
+      "raw": false
+    },
+    "FUSION_DRIVE": {
+      "displayName": "Fusion Drive",
+      "color": "#5B97E3",
+      "family": "POWER",
+      "tier": "RARE",
+      "raw": false
+    },
+    "SHIELD_EMITTER": {
+      "displayName": "Shield Emitter",
+      "color": "#8C7DEB",
+      "family": "POWER",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "ARMOR_MATRIX": {
+      "displayName": "Armor Matrix",
+      "color": "#697784",
+      "family": "POWER",
+      "tier": "RARE",
+      "raw": false
+    },
+    "POINT_DEFENSE_LASER_ASSEMBLY": {
+      "displayName": "Point-Defense Laser Assembly",
+      "color": "#6BE8FF",
+      "family": "WEAPON",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "RAILGUN_ASSEMBLY": {
+      "displayName": "Railgun Assembly",
+      "color": "#9FD6FF",
+      "family": "WEAPON",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "HEAVY_CANNON_ASSEMBLY": {
+      "displayName": "Heavy Cannon Assembly",
+      "color": "#E5B66A",
+      "family": "WEAPON",
+      "tier": "RARE",
+      "raw": false
+    },
+    "MISSILE_GUIDANCE_PACKAGE": {
+      "displayName": "Missile Guidance Package",
+      "color": "#9CE1FF",
+      "family": "WEAPON",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "MISSILE_WARHEAD": {
+      "displayName": "Missile Warhead",
+      "color": "#F07652",
+      "family": "WEAPON",
+      "tier": "UNCOMMON",
+      "raw": false
+    },
+    "TORPEDO_ASSEMBLY": {
+      "displayName": "Torpedo Assembly",
+      "color": "#F29A55",
+      "family": "WEAPON",
+      "tier": "RARE",
+      "raw": false
+    },
+    "FIGHTER_CONTROL_MODULE": {
+      "displayName": "Fighter Control Module",
+      "color": "#B47AE5",
+      "family": "WEAPON",
+      "tier": "RARE",
+      "raw": false
+    },
+    "LANCE_FOCUSING_ARRAY": {
+      "displayName": "Lance Focusing Array",
+      "color": "#FF635A",
+      "family": "WEAPON",
+      "tier": "EXOTIC",
+      "raw": false
+    },
+    "SHIELD_GENERATOR": {
+      "displayName": "Shield Generator",
+      "color": "#766EE8",
+      "family": "CAPITAL",
+      "tier": "RARE",
+      "raw": false
+    },
+    "CAPITAL_REACTOR_CORE": {
+      "displayName": "Capital Reactor Core",
+      "color": "#8BCF67",
+      "family": "CAPITAL",
+      "tier": "EXOTIC",
+      "raw": false
+    },
+    "CAPITAL_DRIVE_CORE": {
+      "displayName": "Capital Drive Core",
+      "color": "#4E92D8",
+      "family": "CAPITAL",
+      "tier": "EXOTIC",
+      "raw": false
+    },
+    "COMMAND_CORE": {
+      "displayName": "Command Core",
+      "color": "#E4C35A",
+      "family": "CAPITAL",
+      "tier": "EXOTIC",
+      "raw": false
+    },
+    "FIGHTER_BAY_MODULE": {
+      "displayName": "Fighter Bay Module",
+      "color": "#A069D2",
+      "family": "CAPITAL",
+      "tier": "EXOTIC",
+      "raw": false
+    },
+    "MANUFACTURING_LINE": {
+      "displayName": "Manufacturing Line",
+      "color": "#C58B52",
+      "family": "CAPITAL",
+      "tier": "RARE",
+      "raw": false
+    },
+    "RESEARCH_MATRIX": {
+      "displayName": "Research Matrix",
+      "color": "#54D8B2",
+      "family": "CAPITAL",
+      "tier": "RARE",
+      "raw": false
+    },
+    "MEGASTRUCTURE_TRUSS": {
+      "displayName": "Megastructure Truss",
+      "color": "#8B879B",
+      "family": "CAPITAL",
+      "tier": "EXOTIC",
+      "raw": false
+    }
   }
 }

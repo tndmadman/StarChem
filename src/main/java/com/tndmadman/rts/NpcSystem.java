@@ -2,6 +2,7 @@ package com.tndmadman.rts;
 
 import java.awt.geom.Rectangle2D;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -238,19 +239,8 @@ final class NpcSystem {
     }
 
     private boolean craftConfiguredItems(World world, NpcFaction faction) {
-        for (Base base : world.bases.values()) {
-            if (!base.playerId.equals(faction.id()) || base.hp <= 0 || !StationFuelRules.isOperational(base)) continue;
-            for (String craftableId : faction.craftableItemIds()) {
-                CraftableItem item = CraftingRules.item(craftableId);
-                if (item == null || !item.canCraftAt(base.typeId)) continue;
-                if (item.outputMaterial == Material.FUEL && faction.fuelReserve() > 0 && factionMaterial(world, faction, Material.FUEL) >= faction.fuelReserve()) continue;
-                if (!factionCanAfford(world, faction, item.requiredResources)) continue;
-                spendFaction(world, faction, item.requiredResources);
-                HangarStore.add(base.inventory, item.outputMaterial, item.outputAmount);
-                return true;
-            }
-        }
-        return false;
+        if (faction.fuelReserve() <= 0 || factionMaterial(world, faction, Material.FUEL) >= faction.fuelReserve()) return false;
+        return craftTowardMaterial(world, faction, Material.FUEL, faction.fuelReserve(), new HashSet<>());
     }
 
     private void supplyFuelToStations(World world, NpcFaction faction) {
@@ -282,7 +272,10 @@ final class NpcSystem {
             for (Base base : world.bases.values()) {
                 if (!base.playerId.equals(faction.id()) || base.hp <= 0) continue;
                 if (!topic.canResearchAt(base.typeId) || !StationFuelRules.isOperational(base)) continue;
-                if (!factionCanAfford(world, faction, topic.requiredResources)) continue;
+                if (!factionCanAfford(world, faction, topic.requiredResources)) {
+                    if (craftTowardCost(world, faction, topic.requiredResources)) return true;
+                    continue;
+                }
                 spendFaction(world, faction, topic.requiredResources);
                 ResearchSystem.start(world, base, topic);
                 return true;
@@ -347,7 +340,9 @@ final class NpcSystem {
         String packageType = nextStationPackage(world, faction, source);
         if (packageType.isBlank()) return false;
         BaseType packageBase = Rules.base(packageType);
-        if (!factionCanAfford(world, faction, packageBase.buildCost)) return false;
+        if (!factionCanAfford(world, faction, packageBase.buildCost)) {
+            return craftTowardCost(world, faction, packageBase.buildCost);
+        }
         spendFaction(world, faction, packageBase.buildCost);
         builder.basePackageType = packageType;
         placeStationFromBuilder(world, faction, source, builder, packageType);
@@ -425,9 +420,10 @@ final class NpcSystem {
         for (Base base : world.bases.values()) {
             if (!base.playerId.equals(faction.id()) || base.hp <= 0) continue;
             for (String shipTypeId : shipTypes) {
-                if (canBuildShip(world, faction, base, shipTypeId, requireArmed) && factionCanAfford(world, faction, Rules.ship(shipTypeId).buildCost)) {
-                    return buildShipFromBase(world, faction, base, shipTypeId);
-                }
+                if (!canBuildShip(world, faction, base, shipTypeId, requireArmed)) continue;
+                List<Cost> cost = Rules.ship(shipTypeId).buildCost;
+                if (factionCanAfford(world, faction, cost)) return buildShipFromBase(world, faction, base, shipTypeId);
+                if (craftTowardCost(world, faction, cost)) return true;
             }
         }
         return false;
@@ -452,6 +448,58 @@ final class NpcSystem {
         if (!base.type().buildableShips.contains(shipTypeId)) return false;
         if (!ResearchRules.shipUnlocked(world, faction.id(), shipTypeId)) return false;
         return !requireArmed || WeaponRules.armed(Rules.ship(shipTypeId));
+    }
+
+    private boolean craftTowardCost(World world, NpcFaction faction, List<Cost> cost) {
+        for (Cost need : cost) {
+            double have = factionMaterial(world, faction, need.material());
+            if (have + 0.001 >= need.amount()) continue;
+            if (craftTowardMaterial(world, faction, need.material(), need.amount(), new HashSet<>())) return true;
+        }
+        return false;
+    }
+
+    private boolean craftTowardMaterial(World world, NpcFaction faction, Material material,
+                                        double targetAmount, Set<Material> visiting) {
+        if (factionMaterial(world, faction, material) + 0.001 >= targetAmount) return false;
+        if (!visiting.add(material)) return false;
+        try {
+            for (CraftableItem item : CraftingRules.recipesForOutput(material)) {
+                if (!faction.craftableItemIds().contains(item.id)) continue;
+                if (!item.unlockedFor(world, faction.id())) continue;
+                Base base = npcCraftingBase(world, faction, item);
+                if (base == null) continue;
+
+                boolean missingRaw = false;
+                for (Cost input : item.requiredResources) {
+                    if (factionMaterial(world, faction, input.material()) + 0.001 >= input.amount()) continue;
+                    if (CraftingRules.preferredForOutput(input.material()) == null) {
+                        missingRaw = true;
+                        break;
+                    }
+                    if (craftTowardMaterial(world, faction, input.material(), input.amount(), visiting)) return true;
+                    missingRaw = true;
+                    break;
+                }
+                if (missingRaw || !factionCanAfford(world, faction, item.requiredResources)) continue;
+
+                spendFaction(world, faction, item.requiredResources);
+                HangarStore.add(base.inventory, item.outputMaterial, item.outputAmount);
+                return true;
+            }
+            return false;
+        } finally {
+            visiting.remove(material);
+        }
+    }
+
+    private Base npcCraftingBase(World world, NpcFaction faction, CraftableItem item) {
+        for (Base base : world.bases.values()) {
+            if (!base.playerId.equals(faction.id()) || base.hp <= 0) continue;
+            if (!item.canCraftAt(base.typeId) || !StationFuelRules.isOperational(base)) continue;
+            return base;
+        }
+        return null;
     }
 
     private boolean factionCanAfford(World world, NpcFaction faction, List<Cost> cost) {

@@ -54,9 +54,9 @@ public final class MaterialCoverageValidator {
         require(materials(StarSystems.get(StarSystems.PLAYER_HOME_SYSTEM_ID)).containsAll(starter),
                 "protected home template is not starter progression complete");
 
-        require(costContains(Rules.ship("titan").buildCost, Material.URANIUM, Material.XENON, Material.TUNGSTEN),
+        require(costChainContains(Rules.ship("titan").buildCost, Material.URANIUM, Material.XENON, Material.TUNGSTEN),
                 "late-game economy does not use strategic resources");
-        require(costContains(Rules.ship("freighter").buildCost, Material.ALUMINUM, Material.NICKEL, Material.CARBON),
+        require(costChainContains(Rules.ship("freighter").buildCost, Material.ALUMINUM, Material.NICKEL, Material.CARBON),
                 "industrial economy does not use expanded common resources");
     }
 
@@ -66,11 +66,20 @@ public final class MaterialCoverageValidator {
         return result;
     }
 
-    private static boolean costContains(java.util.List<Cost> cost, Material... materials) {
+    private static boolean costChainContains(java.util.List<Cost> cost, Material... materials) {
         EnumSet<Material> present = EnumSet.noneOf(Material.class);
-        for (Cost entry : cost) present.add(entry.material());
+        for (Cost entry : cost) collectInputs(entry.material(), present, EnumSet.noneOf(Material.class));
         for (Material material : materials) if (!present.contains(material)) return false;
         return true;
+    }
+
+    private static void collectInputs(Material material, EnumSet<Material> present, EnumSet<Material> visiting) {
+        if (!present.add(material) || !visiting.add(material)) return;
+        CraftableItem recipe = CraftingRules.preferredForOutput(material);
+        if (recipe != null) {
+            for (Cost input : recipe.requiredResources) collectInputs(input.material(), present, visiting);
+        }
+        visiting.remove(material);
     }
 
     private static EnumSet<Material> difference(EnumSet<Material> expected, EnumSet<Material> actual) {

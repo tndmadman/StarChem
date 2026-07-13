@@ -15,6 +15,7 @@ final class DevMenu {
 
     private final HudWindow window = new HudWindow(18, 205, 292);
     private int targetIndex;
+    private int familyIndex;
     private PeerNetwork accessNetwork;
 
     boolean click(World world, PeerNetwork devAuthorityNetwork, int sx, int sy, boolean canEdit) {
@@ -33,6 +34,10 @@ final class DevMenu {
         }
         if (hit(localY, PRODUCTION_TIMERS_Y)) {
             toggleProductionTimers(world, devAuthorityNetwork);
+            return true;
+        }
+        if (hit(localY, RESOURCE_Y - 22)) {
+            familyIndex++;
             return true;
         }
 
@@ -54,8 +59,9 @@ final class DevMenu {
         Base base = target(world);
         if (base == null || localY < RESOURCE_Y - 14) return true;
         int row = (localY - (RESOURCE_Y - 14)) / ROW_H;
-        if (row >= 0 && row < Material.values().length) {
-            Material material = Material.values()[row];
+        List<Material> visibleMaterials = visibleMaterials();
+        if (row >= 0 && row < visibleMaterials.size()) {
+            Material material = visibleMaterials.get(row);
             if (devAuthorityNetwork != null) devAuthorityNetwork.devAddHangarResource(PlayerRegistry.localId(), base.id, material, SPAWN_AMOUNT);
             else HangarStore.add(base.inventory, material, SPAWN_AMOUNT);
             world.status = "Dev added " + (int)SPAWN_AMOUNT + " " + material.label + " to " + base.id + " hangar.";
@@ -87,9 +93,9 @@ final class DevMenu {
             g2.drawString("No local station hangar", x, y + RESOURCE_Y);
         } else {
             g2.setColor(new Color(255, 225, 150));
-            g2.drawString("Add 500 to selected hangar:", x, y + RESOURCE_Y - 22);
+            g2.drawString("Add 500 | " + selectedFamily().name() + " (click to cycle)", x, y + RESOURCE_Y - 22);
             int line = y + RESOURCE_Y;
-            for (Material material : Material.values()) {
+            for (Material material : visibleMaterials()) {
                 g2.setColor(material.color);
                 g2.drawString("+500 " + material.label, x + 4, line);
                 line += ROW_H;
@@ -155,7 +161,20 @@ final class DevMenu {
     }
 
     private boolean hit(int localY, int baseline) { return localY >= baseline - 14 && localY <= baseline + 6; }
-    private int remoteAccessY() { return RESOURCE_Y + Material.values().length * ROW_H + 42; }
+
+    private MaterialFamily selectedFamily() {
+        MaterialFamily[] families = MaterialFamily.values();
+        return families[Math.floorMod(familyIndex, families.length)];
+    }
+
+    private List<Material> visibleMaterials() {
+        List<Material> out = new ArrayList<>();
+        MaterialFamily family = selectedFamily();
+        for (Material material : Material.values()) if (material.family == family) out.add(material);
+        return List.copyOf(out);
+    }
+
+    private int remoteAccessY() { return RESOURCE_Y + visibleMaterials().size() * ROW_H + 42; }
     private int bodyHeight() { return remoteAccessY() + MAX_DEV_PEERS * ROW_H + 10; }
 
     private int localStationCount(World world) {

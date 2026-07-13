@@ -242,9 +242,9 @@ final class ResourceCatalogOverlay extends JComponent implements MouseListener, 
         if (entry.systems().isEmpty()) {
             g.setFont(g.getFont().deriveFont(Font.PLAIN, 13f));
             g.setColor(new Color(190, 208, 224));
-            String message = entry.material().family == MaterialFamily.REFINED
-                    ? "This material is produced and is not placed in natural resource belts."
-                    : "This material is obtained from salvage and is not placed in natural resource belts.";
+            String message = entry.material().family == MaterialFamily.SALVAGE
+                    ? "This material is obtained from salvage and is not placed in natural resource belts."
+                    : "This material is manufactured from other resources and is not placed in natural resource belts.";
             drawWrapped(g, message, x, systemsTitleY + 30, layout.detailWidth() - 40, 19);
             return;
         }

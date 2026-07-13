@@ -79,6 +79,10 @@ final class BuildSystem {
             return false;
         }
         boolean free = freeBuild(world, base);
+        if (!free && !item.unlockedFor(world, base.playerId)) {
+            world.status = item.name + " requires research: " + item.missingResearchLabel(world, base.playerId) + ".";
+            return false;
+        }
         if (!free && !HangarStore.canAfford(base.inventory, item.requiredResources)) {
             if (world.logisticsSystem.queueCraftable(world, base, item)) return true;
             world.status = "Need " + Rules.formatCost(item.requiredResources) + " in " + base.type().name + " hangar.";

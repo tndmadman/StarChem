@@ -1,5 +1,5 @@
 {
-  "rulesVersion": 13,
+  "rulesVersion": 14,
   "startingShipType": "prospector",
   "defaultStationType": "outpost",
   "files": {
@@ -40,7 +40,15 @@
     "galaxy": "config/galaxy.json",
     "automation": "config/automation.json",
     "craftables": [
-      "config/craftables/fuel.json"
+      "config/craftables/fuel.json",
+      "config/craftables/materials.json",
+      "config/craftables/chemicals.json",
+      "config/craftables/electronics.json",
+      "config/craftables/industry.json",
+      "config/craftables/power-defense.json",
+      "config/craftables/weapons.json",
+      "config/craftables/capital.json",
+      "config/craftables/reclamation.json"
     ],
     "research": "config/research.json",
     "npcs": "config/npcs.json"

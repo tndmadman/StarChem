@@ -56,9 +56,8 @@ final class ResourceSystemCatalog {
 
         String sourceLabel() {
             if (material.raw) return naturallyAvailable() ? "Natural resource" : "Raw resource unavailable";
-            if (material.family == MaterialFamily.REFINED) return "Produced material";
             if (material.family == MaterialFamily.SALVAGE) return "Salvage material";
-            return "Not naturally spawned";
+            return "Manufactured material";
         }
     }
 

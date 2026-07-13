@@ -221,6 +221,14 @@ tasks.register('validateResourceCatalog', JavaExec) {
     mainClass = 'com.tndmadman.rts.ResourceCatalogValidator'
 }
 
+tasks.register('validateIntermediateCrafting', JavaExec) {
+    group = 'verification'
+    description = 'Validate JSON material metadata, intermediate recipes, progression gates, and crafting graph.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.IntermediateCraftingValidator'
+}
+
 tasks.register('validateSystemControl', JavaExec) {
     group = 'verification'
     description = 'Validate static-system capture, contesting, protection, colors, and bonuses.'
@@ -380,6 +388,7 @@ tasks.named('check') {
     dependsOn tasks.named('validateNpcSystemIsolation')
     dependsOn tasks.named('validateMaterialCoverage')
     dependsOn tasks.named('validateResourceCatalog')
+    dependsOn tasks.named('validateIntermediateCrafting')
     dependsOn tasks.named('validateSystemControl')
     dependsOn tasks.named('validateGalaxyMapWire')
     dependsOn tasks.named('validateSystemModifiers')

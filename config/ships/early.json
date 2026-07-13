@@ -73,11 +73,11 @@
       "scoutDispatchLimit": 5,
       "buildTimeSeconds": 6,
       "buildCost": {
-        "IRON": 60,
-        "COPPER": 90,
-        "HYDROGEN": 40,
-        "NICKEL": 30,
-        "ALUMINUM": 30
+        "ALUMINUM_ALLOY": 10,
+        "SENSOR_ARRAY": 2,
+        "NAVIGATION_COMPUTER": 1,
+        "FUEL_CELL_STACK": 1,
+        "HYDROGEN": 20
       },
       "canHarvest": []
     }
