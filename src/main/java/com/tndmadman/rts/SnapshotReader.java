@@ -11,6 +11,7 @@ final class SnapshotReader {
     static final int MAX_STOCKS = 256;
     static final int MAX_SHOTS = 16384;
     static final int MAX_ITEMS = 16384;
+    static final int MAX_RESEARCH_STATES = MAX_PLAYERS;
     static final int MAX_TEXT_LENGTH = 256;
     static final int MAX_NAME_LENGTH = 128;
     static final int MAX_CARGO_LENGTH = 200_000;
@@ -30,7 +31,7 @@ final class SnapshotReader {
         boolean current = p.length > 0 && "SNAPSHOT".equals(p[0]);
         boolean legacy = p.length > 0 && "SNAP".equals(p[0]);
         if (!current && !legacy) throw error("snapshot", 0, "header", "expected SNAPSHOT");
-        if (current && p.length != 11) throw error("snapshot", 0, "sections", "expected 11 sections but found " + p.length);
+        if (current && p.length != 12) throw error("snapshot", 0, "sections", "expected 12 sections but found " + p.length);
         if (legacy && (p.length < 4 || p.length > 11)) {
             throw error("snapshot", 0, "sections", "legacy frame must contain 4-11 sections");
         }
@@ -43,6 +44,7 @@ final class SnapshotReader {
         List<StockState> stocks = SnapshotReader2.stocks(p);
         List<ShotState> shots = SnapshotReader2.shots(p);
         List<ItemState> items = SnapshotReader2.items(p);
+        List<ResearchState> research = SnapshotReader2.research(p);
 
         String systemId = "";
         double systemTime = -1;
@@ -58,7 +60,8 @@ final class SnapshotReader {
         }
 
         Snapshot snapshot = new Snapshot(sequence, List.copyOf(players), List.copyOf(units), List.copyOf(resources),
-                List.copyOf(bases), List.copyOf(stocks), List.copyOf(shots), List.copyOf(items), systemId, systemTime);
+                List.copyOf(bases), List.copyOf(stocks), List.copyOf(shots), List.copyOf(items), systemId, systemTime,
+                List.copyOf(research));
         SnapshotValidator.validate(snapshot);
         return snapshot;
     }
