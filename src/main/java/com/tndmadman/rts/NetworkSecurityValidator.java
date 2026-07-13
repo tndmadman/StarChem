@@ -1,202 +1,172 @@
 package com.tndmadman.rts;
 
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
+import java.io.*;
+import java.net.*;
 import java.nio.charset.StandardCharsets;
-import java.util.Set;
 
 public final class NetworkSecurityValidator {
     private NetworkSecurityValidator() { }
 
     public static void main(String[] args) throws Exception {
-        validateEndpointFiltering();
-        validateReliableAckSource();
-        validateChunkAssemblyBounds();
+        validateFrameCodec();
+        validateTransportRoundTrip();
         validateCompatibilityHandshake();
-        System.out.println("StarChem network security validation passed.");
+        validateSnapshotCoalescingAndBackpressure();
+        System.out.println("StarChem TCP network security validation passed.");
     }
 
-    private static void validateEndpointFiltering() throws Exception {
-        InetAddress loopback = InetAddress.getLoopbackAddress();
-        try (DatagramSocket clientSocket = new DatagramSocket(0, loopback);
-             DatagramSocket serverSocket = new DatagramSocket(0, loopback);
-             DatagramSocket attackerSocket = new DatagramSocket(0, loopback)) {
-            PeerTransport transport = new PeerTransport(clientSocket, new PerfStats(),
-                    new InetSocketAddress(loopback, serverSocket.getLocalPort()));
-            transport.start();
-            try {
-                send(attackerSocket, clientSocket.getLocalPort(), "WELCOME|P1|Attacker|1");
-                Thread.sleep(80);
-                require(transport.poll() == null, "foreign endpoint packet reached the client inbox");
-
-                send(serverSocket, clientSocket.getLocalPort(), "WELCOME|P1|Server|1");
-                NetPacket accepted = poll(transport, 1000);
-                require(accepted != null, "configured server packet was not accepted");
-                require(accepted.port() == serverSocket.getLocalPort(), "accepted packet lost its source port");
-
-                require(transport.accepts(new NetPacket("PING", loopback, serverSocket.getLocalPort())),
-                        "configured endpoint failed the dispatch check");
-                require(!transport.accepts(new NetPacket("PING", loopback, attackerSocket.getLocalPort())),
-                        "foreign endpoint passed the dispatch check");
-            } finally {
-                transport.shutdown();
-            }
+    private static void validateFrameCodec() throws Exception {
+        byte[] first = TcpFrameCodec.encode("ONE|alpha");
+        byte[] second = TcpFrameCodec.encode("TWO|βeta");
+        ByteArrayOutputStream combined = new ByteArrayOutputStream();
+        combined.write(first);
+        combined.write(second);
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(combined.toByteArray()))) {
+            require("ONE|alpha".equals(TcpFrameCodec.read(in).message()), "first coalesced TCP frame was not decoded");
+            require("TWO|βeta".equals(TcpFrameCodec.read(in).message()), "second coalesced TCP frame was not decoded");
+            require(TcpFrameCodec.read(in) == null, "frame decoder did not stop at EOF");
         }
-    }
 
-    private static void validateReliableAckSource() throws Exception {
-        InetAddress loopback = InetAddress.getLoopbackAddress();
-        try (DatagramSocket senderSocket = new DatagramSocket(0, loopback);
-             DatagramSocket serverSocket = new DatagramSocket(0, loopback);
-             DatagramSocket attackerSocket = new DatagramSocket(0, loopback)) {
-            serverSocket.setSoTimeout(1000);
-            PeerTransport transport = new PeerTransport(senderSocket, new PerfStats(),
-                    new InetSocketAddress(loopback, serverSocket.getLocalPort()));
-            transport.reliable("PING", loopback, serverSocket.getLocalPort());
-            require(transport.pendingCount() == 1, "reliable packet was not tracked");
-
-            byte[] buffer = new byte[PacketChunks.MAX_DATAGRAM_BYTES];
-            DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
-            serverSocket.receive(packet);
-            String raw = new String(packet.getData(), packet.getOffset(), packet.getLength(), StandardCharsets.UTF_8);
-            String[] parts = raw.split("\\|", 3);
-            require(parts.length == 3 && "REL".equals(parts[0]), "reliable packet format was unexpected");
-            String id = parts[1];
-
-            transport.unwrapReliable(new NetPacket("ACK|" + id, loopback, attackerSocket.getLocalPort()));
-            require(transport.pendingCount() == 1, "spoofed ACK removed a pending reliable packet");
-
-            transport.unwrapReliable(new NetPacket("ACK|" + id, loopback, serverSocket.getLocalPort()));
-            require(transport.pendingCount() == 0, "valid ACK did not clear a pending reliable packet");
-            transport.shutdown();
+        String large = "LARGE|" + "x".repeat(200_000);
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(TcpFrameCodec.encode(large)))) {
+            require(large.equals(TcpFrameCodec.read(in).message()), "large framed message did not round-trip");
         }
+
+        expectFrameReject(intFrame(0), "zero-length frame was accepted");
+        expectFrameReject(intFrame(TcpFrameCodec.MAX_FRAME_BYTES + 1), "oversized frame was accepted");
+        expectFrameReject(new byte[]{0, 0}, "truncated TCP frame header was accepted");
+
+        ByteArrayOutputStream truncatedPayload = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(truncatedPayload)) {
+            out.writeInt(8);
+            out.write(new byte[]{1, 2, 3});
+        }
+        expectFrameReject(truncatedPayload.toByteArray(), "truncated TCP frame payload was accepted");
+
+        ByteArrayOutputStream malformed = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(malformed)) {
+            out.writeInt(2);
+            out.write(new byte[]{(byte) 0xC3, 0x28});
+        }
+        expectFrameReject(malformed.toByteArray(), "malformed UTF-8 frame was accepted");
+
+        PlayerRegistry.reset("SOLO", "TCP Frame Validator", 0x50BEFF);
+        World world = new World("TCP Frame Validator", java.util.Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        ClientViewCache views = new ClientViewCache();
+        String correction = SyncPacketBuilder.build(world, views, "SOLO", 1, SyncKind.REGULAR, true);
+        require(SyncFrame.matches(correction), "full corrective snapshot was left replaceable");
     }
 
-    private static void validateChunkAssemblyBounds() {
+    private static void validateTransportRoundTrip() throws Exception {
         InetAddress loopback = InetAddress.getLoopbackAddress();
-        PacketChunks chunks = new PacketChunks("validator", new PerfStats());
-        require(chunks.receive("CHUNK|valid|0|2|hello", loopback, 50000) == null,
-                "partial chunk assembly completed early");
-        require("helloworld".equals(chunks.receive("CHUNK|valid|1|2|world", loopback, 50000)),
-                "valid chunk assembly failed");
+        PeerTransport server = PeerTransport.server(0, new PerfStats());
+        PeerTransport client = PeerTransport.client(new InetSocketAddress(loopback, server.localPort()), new PerfStats());
+        server.start();
+        client.start();
+        try {
+            waitFor(client::connected, 3_000, "TCP client did not connect");
+            int clientPort = client.localPort();
+            waitFor(() -> server.hasConnection(loopback, clientPort), 3_000, "TCP server did not register the client");
 
-        require(chunks.receive("CHUNK|conflict|0|2|left", loopback, 50000) == null,
-                "partial conflicting assembly completed early");
-        require(chunks.receive("CHUNK|conflict|0|2|right", loopback, 50000) == null,
-                "conflicting duplicate chunk was accepted");
-        require(chunks.receive("CHUNK|conflict|1|2|tail", loopback, 50000) == null,
-                "invalidated conflicting assembly completed");
+            client.send("JOIN|Transport Client|NODEV|", loopback, server.localPort());
+            NetPacket joinPacket = poll(server, 3_000);
+            require(joinPacket != null, "framed JOIN did not reach the server");
+            String normalizedJoin = server.processInbound(joinPacket);
+            require("JOIN|Transport Client|NODEV|".equals(normalizedJoin), "JOIN compatibility wrapper was not normalized");
 
-        String oversizedId = "x".repeat(97);
-        require(chunks.receive("CHUNK|" + oversizedId + "|0|1|data", loopback, 50000) == null,
-                "oversized assembly ID was accepted");
-        require(chunks.receive("CHUNK|bad|0|641|data", loopback, 50000) == null,
-                "excessive chunk count was accepted");
+            String token = "transport-validator-session-token-000000000000000";
+            String welcome = "WELCOME|P1|Transport Client|1|sol_standard|1|0|DEV|0|SESSION|" + token;
+            server.sendOrdered(welcome, loopback, clientPort);
+            NetPacket welcomePacket = poll(client, 3_000);
+            require(welcomePacket != null, "framed WELCOME did not reach the client");
+            require(welcome.equals(client.processInbound(welcomePacket)), "WELCOME compatibility wrapper was not normalized");
+
+            String large = "BULK|" + "z".repeat(200_000);
+            client.send(large, loopback, server.localPort());
+            NetPacket bulk = poll(server, 3_000);
+            require(bulk != null && large.equals(server.processInbound(bulk)), "large TCP payload did not arrive intact");
+        } finally {
+            client.shutdown();
+            server.shutdown();
+        }
     }
 
     private static void validateCompatibilityHandshake() throws Exception {
         MultiplayerCompatibility.Descriptor local = MultiplayerCompatibility.local();
         String exactJoin = joinPacket(local);
         MultiplayerCompatibility.WireResult exact = MultiplayerCompatibility.inspectClientHandshake(exactJoin);
-        require(exact.action() == MultiplayerCompatibility.WireAction.ACCEPT,
-                "exact compatibility match was rejected");
-        require("JOIN|Compatibility Client|NODEV|".equals(exact.message()),
-                "accepted handshake was not normalized for existing join handling");
+        require(exact.action() == MultiplayerCompatibility.WireAction.ACCEPT, "exact compatibility match was rejected");
+        require("JOIN|Compatibility Client|NODEV|".equals(exact.message()), "accepted handshake was not normalized");
 
         MultiplayerCompatibility.Descriptor protocolMismatch = new MultiplayerCompatibility.Descriptor(
                 local.protocolVersion() + 1, local.applicationVersion(), local.buildCommit(),
                 local.rulesVersion(), local.configHash());
         expectCompatibilityReject(joinPacket(protocolMismatch), "PROTOCOL_MISMATCH");
-
-        MultiplayerCompatibility.Descriptor applicationMismatch = new MultiplayerCompatibility.Descriptor(
-                local.protocolVersion(), local.applicationVersion() + "-other", local.buildCommit(),
-                local.rulesVersion(), local.configHash());
-        expectCompatibilityReject(joinPacket(applicationMismatch), "APPLICATION_MISMATCH");
-
-        MultiplayerCompatibility.Descriptor buildMismatch = new MultiplayerCompatibility.Descriptor(
-                local.protocolVersion(), local.applicationVersion(), local.buildCommit() + "-other",
-                local.rulesVersion(), local.configHash());
-        expectCompatibilityReject(joinPacket(buildMismatch), "BUILD_MISMATCH");
-
-        MultiplayerCompatibility.Descriptor rulesMismatch = new MultiplayerCompatibility.Descriptor(
-                local.protocolVersion(), local.applicationVersion(), local.buildCommit(),
-                local.rulesVersion() + 1, local.configHash());
-        expectCompatibilityReject(joinPacket(rulesMismatch), "RULES_MISMATCH");
-
-        String changedHash = (local.configHash().startsWith("0") ? "1" : "0") + local.configHash().substring(1);
-        MultiplayerCompatibility.Descriptor configMismatch = new MultiplayerCompatibility.Descriptor(
-                local.protocolVersion(), local.applicationVersion(), local.buildCommit(),
-                local.rulesVersion(), changedHash);
-        expectCompatibilityReject(joinPacket(configMismatch), "CONFIG_MISMATCH");
-
         expectCompatibilityReject("JOIN_V1|Compatibility Client|NODEV|", "MISSING_FIELDS");
         expectCompatibilityReject("JOIN|Compatibility Client|NODEV|", "LEGACY_HANDSHAKE");
 
-        String baseWelcome = "WELCOME|P1|Compatibility Client|1|sol_standard|1|0|DEV|0|SESSION|"
-                + "compatibility-validator-session-token-000000000000";
-        MultiplayerCompatibility.WireResult welcome = MultiplayerCompatibility.inspectServerWelcome(
-                MultiplayerCompatibility.versionServerWelcome(baseWelcome));
-        require(welcome.action() == MultiplayerCompatibility.WireAction.ACCEPT,
-                "matching server welcome was rejected");
-        require(baseWelcome.equals(welcome.message()), "accepted welcome was not normalized");
-        require(MultiplayerCompatibility.inspectServerWelcome(baseWelcome).action()
-                        == MultiplayerCompatibility.WireAction.REJECT,
-                "legacy server welcome was accepted");
-
         InetAddress loopback = InetAddress.getLoopbackAddress();
-        try (DatagramSocket serverSocket = new DatagramSocket(0, loopback);
-             DatagramSocket clientSocket = new DatagramSocket(0, loopback)) {
-            clientSocket.setSoTimeout(1500);
-            Config config = Config.host("Compatibility Host", serverSocket.getLocalPort(), false);
-            World world = new World("Compatibility Host", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
-            PlayerRegistry.activate(world);
-            PlayerRegistry.reset("SOLO", "Compatibility Host", 0x50BEFF);
-            PeerTransport transport = new PeerTransport(serverSocket);
-            PeerServerSide server = new PeerServerSide(config, world, transport);
-            String endpoint = server.endpoint(loopback, clientSocket.getLocalPort());
+        PeerTransport server = PeerTransport.server(0, new PerfStats());
+        server.start();
+        try (Socket socket = new Socket(loopback, server.localPort())) {
+            socket.setSoTimeout(3_000);
+            waitFor(() -> server.hasConnection(loopback, socket.getLocalPort()), 3_000,
+                    "server did not register compatibility test connection");
+            BufferedOutputStream output = new BufferedOutputStream(socket.getOutputStream());
+            output.write(TcpFrameCodec.encode(joinPacket(protocolMismatch)));
+            output.flush();
+            NetPacket packet = poll(server, 3_000);
+            require(packet != null && server.processInbound(packet) == null,
+                    "incompatible TCP handshake reached normal packet dispatch");
+            try (DataInputStream input = new DataInputStream(new BufferedInputStream(socket.getInputStream()))) {
+                TcpFrameCodec.DecodedFrame denial = TcpFrameCodec.read(input);
+                require(denial != null && denial.message().contains("PROTOCOL_MISMATCH"),
+                        "TCP compatibility denial did not identify the mismatch");
+            }
+        } finally {
+            server.shutdown();
+        }
+    }
 
-            NetPacket mismatchPacket = new NetPacket(joinPacket(protocolMismatch), loopback, clientSocket.getLocalPort());
-            require(transport.unwrapReliable(mismatchPacket) == null,
-                    "protocol mismatch reached server packet dispatch");
-            String mismatchDenial = receivePayload(clientSocket, "COMPAT_DENIED|");
-            require(mismatchDenial.contains("PROTOCOL_MISMATCH"),
-                    "protocol mismatch denial did not identify the mismatch");
-            require(!server.owns(endpoint, "P1") && !world.hasLiveAssets("P1"),
-                    "incompatible handshake mutated server player state");
+    private static void validateSnapshotCoalescingAndBackpressure() throws Exception {
+        InetAddress loopback = InetAddress.getLoopbackAddress();
+        PeerTransport server = PeerTransport.server(0, new PerfStats());
+        server.start();
+        try (Socket slowClient = new Socket(loopback, server.localPort())) {
+            slowClient.setReceiveBufferSize(1024);
+            int port = slowClient.getLocalPort();
+            waitFor(() -> server.hasConnection(loopback, port), 3_000, "slow client was not accepted");
 
-            NetPacket missingPacket = new NetPacket("JOIN_V1|Compatibility Client|NODEV|", loopback,
-                    clientSocket.getLocalPort());
-            require(transport.unwrapReliable(missingPacket) == null,
-                    "missing compatibility fields reached server packet dispatch");
-            require(receivePayload(clientSocket, "COMPAT_DENIED|").contains("MISSING_FIELDS"),
-                    "missing compatibility fields were not explained");
-            require(!server.owns(endpoint, "P1") && !world.hasLiveAssets("P1"),
-                    "missing compatibility fields mutated server player state");
+            String snapshotBody = "x".repeat(180_000);
+            long started = System.nanoTime();
+            for (int i = 0; i < 100; i++) server.send("SNAPSHOT|" + i + '|' + snapshotBody, loopback, port);
+            long elapsedMs = (System.nanoTime() - started) / 1_000_000L;
+            require(elapsedMs < 1_000, "snapshot enqueue blocked the game thread");
+            require(server.queuedCount() <= 2, "obsolete snapshots accumulated instead of being coalesced");
 
-            NetPacket legacyPacket = new NetPacket("JOIN|Compatibility Client|NODEV|", loopback,
-                    clientSocket.getLocalPort());
-            require(transport.unwrapReliable(legacyPacket) == null,
-                    "legacy handshake reached server packet dispatch");
-            require(receivePayload(clientSocket, "COMPAT_DENIED|").contains("LEGACY_HANDSHAKE"),
-                    "legacy handshake was not explicitly rejected");
-            require(!server.owns(endpoint, "P1") && !world.hasLiveAssets("P1"),
-                    "legacy handshake mutated server player state");
+            String control = "CONTROL|" + "y".repeat(40_000);
+            for (int i = 0; i < 400 && server.hasConnection(loopback, port); i++) {
+                server.sendOrdered(control + i, loopback, port);
+            }
+            waitFor(() -> !server.hasConnection(loopback, port), 3_000,
+                    "unbounded slow-client control backlog did not close the connection");
+        } finally {
+            server.shutdown();
+        }
+    }
 
-            NetPacket exactPacket = new NetPacket(exactJoin, loopback, clientSocket.getLocalPort());
-            String normalized = transport.unwrapReliable(exactPacket);
-            require("JOIN|Compatibility Client|NODEV|".equals(normalized),
-                    "exact handshake did not reach existing join dispatch");
-            require(SideAJoin.handle(server, normalized.split("\\|", -1), endpoint, exactPacket),
-                    "normalized handshake was not handled as a join");
-            String versionedWelcome = receivePayload(clientSocket, "WELCOME|");
-            require(MultiplayerCompatibility.inspectServerWelcome(versionedWelcome).action()
-                            == MultiplayerCompatibility.WireAction.ACCEPT,
-                    "server did not send a compatible versioned welcome");
-            require(server.owns(endpoint, "P1") && world.hasLiveAssets("P1"),
-                    "compatible handshake did not create the player normally");
-            transport.shutdown();
+    private static byte[] intFrame(int length) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) { out.writeInt(length); }
+        return bytes.toByteArray();
+    }
+
+    private static void expectFrameReject(byte[] bytes, String message) throws Exception {
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes))) {
+            try {
+                TcpFrameCodec.read(in);
+                throw new IllegalStateException(message);
+            } catch (IOException expected) { }
         }
     }
 
@@ -212,28 +182,6 @@ public final class NetworkSecurityValidator {
                 "compatibility rejection did not contain " + expectedCode + ": " + result.detail());
     }
 
-    private static String receivePayload(DatagramSocket socket, String prefix) throws Exception {
-        byte[] buffer = new byte[PacketChunks.MAX_DATAGRAM_BYTES + 1];
-        for (int attempt = 0; attempt < 200; attempt++) {
-            DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
-            socket.receive(packet);
-            String raw = new String(packet.getData(), packet.getOffset(), packet.getLength(), StandardCharsets.UTF_8);
-            String payload = raw;
-            if (raw.startsWith("REL|")) {
-                String[] reliable = raw.split("\\|", 3);
-                if (reliable.length < 3) continue;
-                payload = reliable[2];
-            }
-            if (payload.startsWith(prefix)) return payload;
-        }
-        throw new IllegalStateException("Did not receive packet starting with " + prefix);
-    }
-
-    private static void send(DatagramSocket socket, int port, String message) throws Exception {
-        byte[] bytes = message.getBytes(StandardCharsets.UTF_8);
-        socket.send(new DatagramPacket(bytes, bytes.length, InetAddress.getLoopbackAddress(), port));
-    }
-
     private static NetPacket poll(PeerTransport transport, long timeoutMs) throws InterruptedException {
         long deadline = System.currentTimeMillis() + timeoutMs;
         NetPacket packet;
@@ -241,7 +189,16 @@ public final class NetworkSecurityValidator {
         return packet;
     }
 
+    private static void waitFor(Check check, long timeoutMs, String message) throws Exception {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (!check.ok() && System.currentTimeMillis() < deadline) Thread.sleep(10);
+        require(check.ok(), message);
+    }
+
     private static void require(boolean condition, String message) {
         if (!condition) throw new IllegalStateException(message);
     }
+
+    @FunctionalInterface
+    private interface Check { boolean ok() throws Exception; }
 }

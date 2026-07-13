@@ -81,9 +81,28 @@ record Snapshot(long sequence, List<PlayerInfo> players, List<UnitState> units, 
         CelestialPacketCache.receive(systemId, celestialState);
     }
 }
-record NetPacket(String message, InetAddress address, int port) { }
-record ServerPeer(String playerId, InetAddress address, int port, long lastSeen, boolean devFreeBuild) { }
-record PendingReliable(String id, String payload, InetAddress address, int port, long lastSent, int attempts) { }
+record ConnectionId(long value) {
+    static final ConnectionId NONE = new ConnectionId(0);
+    boolean valid() { return value > 0; }
+    @Override public String toString() { return valid() ? Long.toUnsignedString(value) : "none"; }
+}
+
+enum DeliveryClass {
+    ORDERED,
+    REGULAR_SNAPSHOT,
+    FULL_CORRECTION,
+    VIEW_SNAPSHOT,
+    LEADERBOARD,
+    GALAXY
+}
+
+record NetPacket(String message, ConnectionId connectionId, InetAddress address, int port) {
+    NetPacket(String message, InetAddress address, int port) { this(message, ConnectionId.NONE, address, port); }
+}
+record ServerPeer(String playerId, ConnectionId connectionId, InetAddress address, int port,
+                  long lastSeen, boolean devFreeBuild) { }
+record ConnectionDiagnostics(ConnectionId connectionId, boolean open, int queuedFrames, long queuedBytes,
+                             long coalescedSnapshots) { }
 
 interface CommandSink {
     void move(MoveCommand command);

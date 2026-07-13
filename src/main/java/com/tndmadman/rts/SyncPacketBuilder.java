@@ -12,6 +12,8 @@ final class SyncPacketBuilder {
         if (kind == SyncKind.INITIAL || fullResources) ResourceSyncMode.fullForNextSnapshot();
         Snapshot snapshot = views.makeSnapshot(world, playerId, sequence);
         ResourceNetDebug.sendSnapshot(kind.name(), playerId, snapshot, world);
-        return kind == SyncKind.INITIAL ? SyncFrame.write(snapshot) : SnapshotWriter.write(snapshot);
+        if (kind == SyncKind.INITIAL) return SyncFrame.writeView(snapshot, views.viewRevision(playerId));
+        if (fullResources) return SyncFrame.writeResourceCorrection(snapshot);
+        return SnapshotWriter.write(snapshot);
     }
 }

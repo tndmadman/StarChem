@@ -3,15 +3,15 @@ package com.tndmadman.rts;
 final class SideADev {
     private SideADev() { }
 
-    static boolean handle(PeerServerSide s, String[] p, String ep) {
+    static boolean handle(PeerServerSide s, String[] p, ConnectionId connectionId) {
         if (p.length == 0) return false;
         switch (p[0]) {
             case "DEVFREE" -> {
-                if (p.length >= 3 && s.devAllowed(ep, p[1])) s.applyDevFreeCrafting(p[1], flag(p[2]));
+                if (p.length >= 3 && s.devAllowed(connectionId, p[1])) s.applyDevFreeCrafting(p[1], flag(p[2]));
                 return true;
             }
             case "DEVHANGAR" -> {
-                if (p.length >= 5 && s.devAllowed(ep, p[1])) {
+                if (p.length >= 5 && s.devAllowed(connectionId, p[1])) {
                     Material material = material(p[3]);
                     double amount = amount(p[4]);
                     if (material != null && amount > 0) s.applyDevHangarResource(p[1], p[2], material, amount);
@@ -19,7 +19,7 @@ final class SideADev {
                 return true;
             }
             case "DEVAI" -> {
-                if (p.length >= 3 && s.devAllowed(ep, p[1])) s.applyDevAiCommand(p[1], p[2]);
+                if (p.length >= 3 && s.devAllowed(connectionId, p[1])) s.applyDevAiCommand(p[1], p[2]);
                 return true;
             }
             default -> { return false; }

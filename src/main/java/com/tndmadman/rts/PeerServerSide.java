@@ -20,7 +20,7 @@ final class PeerServerSide {
     final Config config;
     final PeerTransport transport;
     final ClientViewCache views = new ClientViewCache();
-    private final Map<String, ServerPeer> peers = new LinkedHashMap<>();
+    private final Map<ConnectionId, ServerPeer> peers = new LinkedHashMap<>();
     private final Map<String, PlayerSession> sessions = new LinkedHashMap<>();
     private final Set<String> devRequests = new LinkedHashSet<>();
     private int nextPlayer = 1;
@@ -36,8 +36,8 @@ final class PeerServerSide {
 
     String statusLine() {
         int retained = Math.max(0, sessions.size() - peers.size());
-        String result = "HOST " + world.systemName() + " UDP " + transport.localPort()
-                + " | clients " + peers.size() + " | retained " + retained + " | pending " + transport.pendingCount();
+        String result = "HOST " + world.systemName() + " TCP " + transport.localPort()
+                + " | clients " + peers.size() + " | retained " + retained + " | queued " + transport.queuedCount();
         return result + (config.devMode ? " | dev host" : "");
     }
 
@@ -88,6 +88,11 @@ final class PeerServerSide {
         PeerServerPackets.handle(this, message, packet);
     }
 
+    void connectionClosed(NetPacket packet) {
+        if (packet == null || !packet.connectionId().valid()) return;
+        disconnectPeer(packet.connectionId(), System.currentTimeMillis(), "disconnected");
+    }
+
     void broadcastNow() {
         broadcastNow(false);
     }
@@ -103,18 +108,46 @@ final class PeerServerSide {
         sendGalaxy(peer);
     }
 
-    void sendInitialTo(String endpoint) { sendInitial(peers.get(endpoint)); }
+    void sendInitialTo(ConnectionId connectionId) { sendInitial(peers.get(connectionId)); }
     void change(String playerId, Runnable action) { views.applyChange(world, playerId, action); }
-    String ownerId(String endpoint, String fallback) { ServerPeer peer = peers.get(endpoint); return peer == null ? fallback : peer.playerId(); }
-    boolean owns(String endpoint, String playerId) { ServerPeer peer = peers.get(endpoint); return peer != null && playerId != null && playerId.equals(peer.playerId()); }
-    boolean devAllowed(String endpoint, String playerId) {
-        ServerPeer peer = peers.get(endpoint);
+    String ownerId(ConnectionId connectionId, String fallback) { ServerPeer peer = peers.get(connectionId); return peer == null ? fallback : peer.playerId(); }
+    boolean owns(ConnectionId connectionId, String playerId) { ServerPeer peer = peers.get(connectionId); return peer != null && playerId != null && playerId.equals(peer.playerId()); }
+    boolean devAllowed(ConnectionId connectionId, String playerId) {
+        ServerPeer peer = peers.get(connectionId);
         return config.devMode && peer != null && playerId != null && playerId.equals(peer.playerId()) && peer.devFreeBuild();
     }
     boolean localDevAllowed(String playerId) { return config.devMode && playerId != null && !playerId.isBlank() && !"WAIT".equals(playerId); }
-    void touch(String endpoint) {
-        ServerPeer peer = peers.get(endpoint);
-        if (peer != null) peers.put(endpoint, new ServerPeer(peer.playerId(), peer.address(), peer.port(), System.currentTimeMillis(), peer.devFreeBuild()));
+    ConnectionId connectionIdForPlayer(String playerId) {
+        for (ServerPeer peer : peers.values()) if (peer.playerId().equals(playerId)) return peer.connectionId();
+        return ConnectionId.NONE;
+    }
+    int peerCount() { return peers.size(); }
+    boolean sessionConnected(String playerId) {
+        PlayerSession session = sessions.get(playerId);
+        return session != null && session.connected;
+    }
+    void touch(ConnectionId connectionId) {
+        ServerPeer peer = peers.get(connectionId);
+        if (peer != null) peers.put(connectionId, new ServerPeer(peer.playerId(), peer.connectionId(), peer.address(), peer.port(), System.currentTimeMillis(), peer.devFreeBuild()));
+    }
+    void requestView(ConnectionId connectionId, String playerId, String systemId, long revision) {
+        touch(connectionId);
+        if (!owns(connectionId, playerId)) return;
+        if (!views.requestView(world, playerId, systemId, revision)) {
+            long deniedRevision = Math.max(0, revision);
+            String retainedView = views.view(world, playerId);
+            views.setViewRevision(playerId, deniedRevision);
+            transport.sendOrdered("VIEW_DENIED|" + deniedRevision + "|" + packetPart(retainedView) + "|"
+                    + packetPart("Unknown galaxy system: " + systemId), connectionId);
+            sendInitialTo(connectionId);
+            return;
+        }
+        sendInitialTo(connectionId);
+    }
+
+    void forceResourceCorrectionForTest() {
+        lastSnapshot = 0;
+        lastResourceCorrection = 0;
     }
 
     List<DevPeerAccess> devAccessPeers() {
@@ -130,16 +163,16 @@ final class PeerServerSide {
 
     void setDevAccess(String playerId, boolean enabled) {
         if (!config.devMode || playerId == null || playerId.isBlank()) return;
-        for (Map.Entry<String, ServerPeer> entry : peers.entrySet()) {
+        for (Map.Entry<ConnectionId, ServerPeer> entry : peers.entrySet()) {
             ServerPeer peer = entry.getValue();
             if (!playerId.equals(peer.playerId())) continue;
             if (localHostPeer(peer) && !enabled) return;
-            ServerPeer updated = new ServerPeer(peer.playerId(), peer.address(), peer.port(), peer.lastSeen(), enabled);
+            ServerPeer updated = new ServerPeer(peer.playerId(), peer.connectionId(), peer.address(), peer.port(), peer.lastSeen(), enabled);
             entry.setValue(updated);
             PlayerSession session = sessions.get(playerId);
             if (session != null) session.devFreeBuild = enabled;
             world.setDevFreeBuild(playerId, enabled);
-            transport.reliable("DEVSTATUS|" + (enabled ? "1" : "0"), peer.address(), peer.port());
+            transport.sendOrdered("DEVSTATUS|" + (enabled ? "1" : "0"), peer.connectionId());
             String name = session == null ? playerId : session.name;
             world.status = "Dev access " + (enabled ? "granted to " : "revoked from ") + name + ".";
             System.out.println(world.status);
@@ -148,16 +181,16 @@ final class PeerServerSide {
         }
     }
 
-    void join(String endpoint, InetAddress address, int port, String name, boolean requestedDev, String suppliedDevToken) {
+    void join(ConnectionId connectionId, InetAddress address, int port, String name, boolean requestedDev, String suppliedDevToken) {
         String cleanName = Config.clean(name);
-        ServerPeer existingPeer = peers.get(endpoint);
+        ServerPeer existingPeer = peers.get(connectionId);
         if (existingPeer != null) {
             PlayerSession existingSession = sessions.get(existingPeer.playerId());
             if (existingSession != null) sendSessionState(existingSession, existingPeer, existingSession.currentToken);
             return;
         }
         if (nameInUse(cleanName)) {
-            transport.reliable(joinDenied("Name already in use: " + cleanName), address, port);
+            transport.sendOrdered(joinDenied("Name already in use: " + cleanName), connectionId);
             return;
         }
         String id = "P" + nextPlayer++;
@@ -167,10 +200,10 @@ final class PeerServerSide {
         if (requestedDev) devRequests.add(id);
         auditDevRequest(cleanName, address, port, requestedDev, devAllowed);
         String token = newSessionToken();
-        PlayerSession session = new PlayerSession(id, cleanName, rgb, token, digestToken(token), endpoint, true, 0, devAllowed);
+        PlayerSession session = new PlayerSession(id, cleanName, rgb, token, digestToken(token), connectionId, true, 0, devAllowed);
         sessions.put(id, session);
-        ServerPeer peer = new ServerPeer(id, address, port, System.currentTimeMillis(), devAllowed);
-        peers.put(endpoint, peer);
+        ServerPeer peer = new ServerPeer(id, connectionId, address, port, System.currentTimeMillis(), devAllowed);
+        peers.put(connectionId, peer);
         PlayerRegistry.register(id, cleanName, rgb, false);
         world.setDevFreeBuild(id, devAllowed);
         WorldNetAccess.addPeerGroup(world, id);
@@ -178,41 +211,41 @@ final class PeerServerSide {
         sendSessionState(session, peer, token);
     }
 
-    boolean resume(String endpoint, InetAddress address, int port, String playerId, String token,
+    boolean resume(ConnectionId connectionId, InetAddress address, int port, String playerId, String token,
                    boolean requestedDev, String suppliedDevToken) {
         long now = System.currentTimeMillis();
         PlayerSession session = sessions.get(playerId);
-        if (session == null || sessionExpired(session, now) || !tokenMatches(session, token, endpoint, now)) {
+        if (session == null || sessionExpired(session, now) || !tokenMatches(session, token, connectionId, now)) {
             if (session != null && sessionExpired(session, now)) destroySession(playerId);
-            transport.reliable(sessionDenied("Session expired or token was rejected."), address, port);
+            transport.sendOrdered(sessionDenied("Session expired or token was rejected."), connectionId);
             return false;
         }
 
-        if (session.connected && endpoint.equals(session.endpoint)) {
-            ServerPeer currentPeer = peers.get(endpoint);
+        if (session.connected && connectionId.equals(session.connectionId)) {
+            ServerPeer currentPeer = peers.get(connectionId);
             if (currentPeer != null && playerId.equals(currentPeer.playerId())) {
                 sendSessionState(session, currentPeer, session.currentToken);
                 return true;
             }
         }
 
-        if (session.connected && session.endpoint != null && !session.endpoint.isBlank()
-                && !session.endpoint.equals(endpoint)) {
-            transport.reliable(sessionBusy("Session is already active on another connection."), address, port);
+        if (session.connected && session.connectionId != null && session.connectionId.valid()
+                && !session.connectionId.equals(connectionId)) {
+            transport.sendOrdered(sessionBusy("Session is already active on another connection."), connectionId);
             return false;
         }
 
-        ServerPeer endpointOwner = peers.get(endpoint);
-        if (endpointOwner != null && !playerId.equals(endpointOwner.playerId())) disconnectPeer(endpoint, now, "replaced");
+        ServerPeer connectionOwner = peers.get(connectionId);
+        if (connectionOwner != null && !playerId.equals(connectionOwner.playerId())) disconnectPeer(connectionId, now, "replaced");
 
         boolean devAllowed = DevAccessPolicy.authorize(config.devMode, config.dedicatedServerMode(), address,
                 requestedDev, config.devToken, suppliedDevToken);
         if (requestedDev) devRequests.add(playerId); else devRequests.remove(playerId);
         auditDevRequest(session.name, address, port, requestedDev, devAllowed);
 
-        ServerPeer peer = new ServerPeer(playerId, address, port, now, devAllowed);
-        peers.put(endpoint, peer);
-        session.endpoint = endpoint;
+        ServerPeer peer = new ServerPeer(playerId, connectionId, address, port, now, devAllowed);
+        peers.put(connectionId, peer);
+        session.connectionId = connectionId;
         session.connected = true;
         session.disconnectedAt = 0;
         session.devFreeBuild = devAllowed;
@@ -252,17 +285,17 @@ final class PeerServerSide {
         broadcastNow();
     }
 
-    void removePeer(String endpoint) {
-        disconnectPeer(endpoint, System.currentTimeMillis(), "left");
+    void removePeer(ConnectionId connectionId) {
+        disconnectPeer(connectionId, System.currentTimeMillis(), "left");
     }
 
-    private void disconnectPeer(String endpoint, long now, String reason) {
-        ServerPeer peer = peers.remove(endpoint);
+    private void disconnectPeer(ConnectionId connectionId, long now, String reason) {
+        ServerPeer peer = peers.remove(connectionId);
         if (peer == null) return;
-        transport.clearPendingForEndpoint(peer.address(), peer.port());
+        transport.closeConnection(peer.connectionId());
         PlayerSession session = sessions.get(peer.playerId());
         if (session == null) return;
-        session.endpoint = "";
+        session.connectionId = ConnectionId.NONE;
         session.connected = false;
         session.disconnectedAt = now;
         session.devFreeBuild = false;
@@ -275,9 +308,9 @@ final class PeerServerSide {
     private void destroySession(String playerId) {
         PlayerSession session = sessions.remove(playerId);
         if (session == null) return;
-        if (session.endpoint != null && !session.endpoint.isBlank()) {
-            ServerPeer peer = peers.remove(session.endpoint);
-            if (peer != null) transport.clearPendingForEndpoint(peer.address(), peer.port());
+        if (session.connectionId != null && session.connectionId.valid()) {
+            ServerPeer peer = peers.remove(session.connectionId);
+            if (peer != null) transport.closeConnection(peer.connectionId());
         }
         devRequests.remove(playerId);
         world.setDevFreeBuild(playerId, false);
@@ -297,32 +330,32 @@ final class PeerServerSide {
         List<LeaderboardEntry> entries = GlobalLeaderboard.aggregate(world, allKnownSystems());
         GlobalLeaderboard.set(world, entries);
         String message = GlobalLeaderboard.encode(entries);
-        for (ServerPeer peer : peers.values()) transport.send(message, peer.address(), peer.port());
+        for (ServerPeer peer : peers.values()) transport.send(message, peer.connectionId(), DeliveryClass.LEADERBOARD);
     }
 
     private void sendLeaderboard(ServerPeer peer) {
         if (peer == null) return;
         List<LeaderboardEntry> entries = GlobalLeaderboard.aggregate(world, allKnownSystems());
         GlobalLeaderboard.set(world, entries);
-        transport.reliable(GlobalLeaderboard.encode(entries), peer.address(), peer.port());
+        transport.send(GlobalLeaderboard.encode(entries), peer.connectionId(), DeliveryClass.LEADERBOARD);
     }
 
     private void broadcastGalaxy() {
         if (peers.isEmpty()) return;
         String message = GalaxyMapWire.encode(config.galaxyCopies, world.authoritativeGalaxyMapSnapshot());
-        for (ServerPeer peer : peers.values()) transport.send(message, peer.address(), peer.port());
+        for (ServerPeer peer : peers.values()) transport.send(message, peer.connectionId(), DeliveryClass.GALAXY);
     }
 
     private void sendGalaxy(ServerPeer peer) {
         if (peer == null) return;
         String message = GalaxyMapWire.encode(config.galaxyCopies, world.authoritativeGalaxyMapSnapshot());
-        transport.reliable(message, peer.address(), peer.port());
+        transport.send(message, peer.connectionId(), DeliveryClass.GALAXY);
     }
 
     private void sendSessionState(PlayerSession session, ServerPeer peer, String token) {
         if (session == null || peer == null) return;
-        transport.reliable(welcome(session.playerId, session.name, session.rgb, peer.devFreeBuild(), token), peer.address(), peer.port());
-        transport.reliable(envMessage(), peer.address(), peer.port());
+        transport.sendOrdered(welcome(session.playerId, session.name, session.rgb, peer.devFreeBuild(), token), peer.connectionId());
+        transport.sendOrdered(envMessage(), peer.connectionId());
         sendInitial(peer);
     }
 
@@ -356,7 +389,7 @@ final class PeerServerSide {
     private void sendDeletedSystems(Set<String> deletedSystems) {
         if (deletedSystems == null || deletedSystems.isEmpty() || peers.isEmpty()) return;
         String message = "SYSDEL|" + String.join(";", deletedSystems);
-        for (ServerPeer peer : peers.values()) transport.reliable(message, peer.address(), peer.port());
+        for (ServerPeer peer : peers.values()) transport.sendOrdered(message, peer.connectionId());
     }
 
     private void auditDevRequest(String name, InetAddress address, int port, boolean requestedDev, boolean allowed) {
@@ -378,9 +411,9 @@ final class PeerServerSide {
     }
 
     private void removeTimedOut(long now) {
-        for (String endpoint : new ArrayList<>(peers.keySet())) {
-            ServerPeer peer = peers.get(endpoint);
-            if (peer != null && now - peer.lastSeen() > TIMEOUT_MS) disconnectPeer(endpoint, now, "timed out");
+        for (ConnectionId connectionId : new ArrayList<>(peers.keySet())) {
+            ServerPeer peer = peers.get(connectionId);
+            if (peer != null && now - peer.lastSeen() > TIMEOUT_MS) disconnectPeer(connectionId, now, "timed out");
         }
     }
 
@@ -411,11 +444,11 @@ final class PeerServerSide {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
-    private boolean tokenMatches(PlayerSession session, String token, String endpoint, long now) {
+    private boolean tokenMatches(PlayerSession session, String token, ConnectionId connectionId, long now) {
         if (session == null || token == null || token.isBlank()) return false;
         byte[] candidate = digestToken(token);
         if (MessageDigest.isEqual(session.tokenDigest, candidate)) return true;
-        return session.connected && endpoint != null && endpoint.equals(session.endpoint)
+        return session.connected && connectionId != null && connectionId.equals(session.connectionId)
                 && session.previousTokenDigest != null && now <= session.previousTokenValidUntil
                 && MessageDigest.isEqual(session.previousTokenDigest, candidate);
     }
@@ -436,7 +469,6 @@ final class PeerServerSide {
     String requestedDevToken(String[] parts) { return parts.length > 3 ? parts[3] : ""; }
     boolean requestedResumeDev(String[] parts) { return parts.length > 3 && flag(parts[3]); }
     String requestedResumeDevToken(String[] parts) { return parts.length > 4 ? parts[4] : ""; }
-    String endpoint(InetAddress address, int port) { return address.getHostAddress() + ':' + port; }
     static long disconnectGraceMs() { return DISCONNECT_GRACE_MS; }
     private String envMessage() { return "ENV|" + world.systemId() + "|" + world.systemSeed() + "|" + Calc.round(world.systemTime()); }
     private String welcome(String id, String name, int rgb, boolean devAllowed, String token) {
@@ -455,19 +487,19 @@ final class PeerServerSide {
         byte[] tokenDigest;
         byte[] previousTokenDigest;
         long previousTokenValidUntil;
-        String endpoint;
+        ConnectionId connectionId;
         boolean connected;
         long disconnectedAt;
         boolean devFreeBuild;
 
-        PlayerSession(String playerId, String name, int rgb, String currentToken, byte[] tokenDigest, String endpoint,
+        PlayerSession(String playerId, String name, int rgb, String currentToken, byte[] tokenDigest, ConnectionId connectionId,
                       boolean connected, long disconnectedAt, boolean devFreeBuild) {
             this.playerId = playerId;
             this.name = name;
             this.rgb = rgb;
             this.currentToken = currentToken;
             this.tokenDigest = tokenDigest;
-            this.endpoint = endpoint;
+            this.connectionId = connectionId;
             this.connected = connected;
             this.disconnectedAt = disconnectedAt;
             this.devFreeBuild = devFreeBuild;

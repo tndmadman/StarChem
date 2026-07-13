@@ -83,10 +83,102 @@ tasks.register('validateRuleIds', JavaExec) {
 
 tasks.register('validateNetworkSecurity', JavaExec) {
     group = 'verification'
-    description = 'Validate UDP endpoint, ACK, and chunk security.'
+    description = 'Validate TCP framing, compatibility, queue bounds, and slow-client handling.'
     dependsOn tasks.named('classes')
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'com.tndmadman.rts.NetworkSecurityValidator'
+}
+
+tasks.register('validateTcpMultiplayer', JavaExec) {
+    group = 'verification'
+    description = 'Validate real TCP host/client commands and authoritative snapshot convergence.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.TcpMultiplayerValidator'
+}
+
+tasks.register('validateTcpMultiClient', JavaExec) {
+    group = 'verification'
+    description = 'Validate simultaneous TCP clients, command isolation, and survivor responsiveness.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.TcpMultiClientValidator'
+}
+
+tasks.register('validateTcpSlowClient', JavaExec) {
+    group = 'verification'
+    description = 'Validate slow-client backpressure isolation over a real TCP proxy.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.TcpSlowClientIsolationValidator'
+}
+
+tasks.register('validateTcpReconnect', JavaExec) {
+    group = 'verification'
+    description = 'Validate abrupt socket loss and complete automatic TCP session resume.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.TcpReconnectIntegrationValidator'
+}
+
+tasks.register('validateDedicatedTcpServer', JavaExec) {
+    group = 'verification'
+    description = 'Validate the production headless dedicated-server TCP path.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.DedicatedTcpServerValidator'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
+tasks.register('validateTcpConnectionIdentity', JavaExec) {
+    group = 'verification'
+    description = 'Validate connection IDs against stale close events and endpoint reuse.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.TcpConnectionIdentityValidator'
+}
+
+tasks.register('validateTcpViewSwitching', JavaExec) {
+    group = 'verification'
+    description = 'Stress revision-safe view switching under sustained TCP snapshot traffic.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.TcpViewSwitchStressValidator'
+}
+
+tasks.register('validateTcpRemoteSystemVisibility', JavaExec) {
+    group = 'verification'
+    description = 'Validate server-approved arbitrary system views and cross-system ship/station visibility.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.TcpRemoteSystemVisibilityValidator'
+}
+
+tasks.register('validateCelestialContinuity', JavaExec) {
+    group = 'verification'
+    description = 'Validate that periodic resource corrections do not hard-snap planets or moons.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.CelestialContinuityValidator'
+}
+
+tasks.register('validateTcpSoakSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Run a short deterministic multiplayer TCP soak during normal verification.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.TcpSoakValidator'
+    systemProperty 'starchem.soakSeconds', '6'
+}
+
+tasks.register('tcpSoak', JavaExec) {
+    group = 'verification'
+    description = 'Run the extended TCP multiplayer soak (default 15 minutes).'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.TcpSoakValidator'
+    systemProperty 'starchem.soakSeconds', providers.gradleProperty('soakSeconds').orElse('900').get()
+    systemProperty 'starchem.soakSeed', providers.gradleProperty('soakSeed').orElse('1511506142').get()
 }
 
 tasks.register('validateSnapshotHardening', JavaExec) {
@@ -273,6 +365,16 @@ tasks.named('check') {
     dependsOn tasks.named('validateGalaxyConnectivity')
     dependsOn tasks.named('validateRuleIds')
     dependsOn tasks.named('validateNetworkSecurity')
+    dependsOn tasks.named('validateTcpMultiplayer')
+    dependsOn tasks.named('validateTcpMultiClient')
+    dependsOn tasks.named('validateTcpSlowClient')
+    dependsOn tasks.named('validateTcpReconnect')
+    dependsOn tasks.named('validateDedicatedTcpServer')
+    dependsOn tasks.named('validateTcpConnectionIdentity')
+    dependsOn tasks.named('validateTcpViewSwitching')
+    dependsOn tasks.named('validateTcpRemoteSystemVisibility')
+    dependsOn tasks.named('validateCelestialContinuity')
+    dependsOn tasks.named('validateTcpSoakSmoke')
     dependsOn tasks.named('validateSnapshotHardening')
     dependsOn tasks.named('validateSessionRecovery')
     dependsOn tasks.named('validateNpcSystemIsolation')

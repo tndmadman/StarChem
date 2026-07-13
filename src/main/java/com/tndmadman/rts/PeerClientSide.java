@@ -14,9 +14,14 @@ final class PeerClientSide {
     private long lastPing;
     private long lastServerPacket;
     private long lastSnapshotSequence;
+    private long nextViewRevision = 1;
+    private long pendingViewRevision;
     private boolean connectedOnce;
     private boolean devApproved;
     private boolean viewSnapshotMode;
+    private boolean viewRequestPending;
+    private boolean viewRequestFallbackMode;
+    private String viewRequestFallbackSystemId = "";
     private String localPlayerId = "SOLO";
     private String sessionToken = "";
     private String viewedSystemId = "";
@@ -50,7 +55,7 @@ final class PeerClientSide {
             case FAILED -> "failed";
         };
         return "CLIENT " + label + " -> " + config.serverAddress + " | " + world.activeSystemId()
-                + " | pending " + transport.pendingCount() + (devApproved ? " | dev" : "");
+                + " | queued " + transport.queuedCount() + (devApproved ? " | dev" : "");
     }
 
     String localPlayerId() { return localPlayerId; }
@@ -58,9 +63,19 @@ final class PeerClientSide {
     boolean devToolsAllowed() { return state == ConnectionState.CONNECTED && devApproved; }
     String failureMessage() { return failureMessage.isBlank() ? "Connection failed." : failureMessage; }
     static long serverSilenceMs() { return SERVER_SILENCE_MS; }
+    boolean reconnecting() { return state == ConnectionState.RECONNECTING; }
+    boolean connectedState() { return state == ConnectionState.CONNECTED; }
+    long lastSnapshotSequence() { return lastSnapshotSequence; }
+    String viewedSystemId() { return viewedSystemId; }
+    long pendingViewRevision() { return pendingViewRevision; }
+    boolean viewSwitchPending() { return viewRequestPending; }
 
     void tick(long now) {
         PlayerRegistry.activate(world);
+        boolean connectionDropped = transport.consumeClientDisconnect();
+        if (state == ConnectionState.CONNECTED && connectionDropped) {
+            beginReconnect(now);
+        }
         switch (state) {
             case FAILED, DISCONNECTED -> { return; }
             case CONNECTED -> {
@@ -103,7 +118,7 @@ final class PeerClientSide {
     void shutdown() {
         PlayerRegistry.activate(world);
         if (state == ConnectionState.CONNECTED) {
-            for (int i = 0; i < 3; i++) sendControlToServer("LEAVE|" + localPlayerId);
+            sendControlToServer("LEAVE|" + localPlayerId);
         }
         state = ConnectionState.DISCONNECTED;
         devApproved = false;
@@ -114,7 +129,7 @@ final class PeerClientSide {
         if (!fromConfiguredServer(packet)) return;
         PlayerRegistry.activate(world);
         lastServerPacket = System.currentTimeMillis();
-        if (readGalaxy(message) || readLeaderboard(message) || readDevStatus(message)) return;
+        if (readGalaxy(message) || readLeaderboard(message) || readDevStatus(message) || readViewDenied(message)) return;
         if (!readJoinDenied(message) && !readSessionBusy(message) && !readSessionDenied(message) && !readSystemDelete(message)) ClientPackets.handle(this, message);
     }
 
@@ -131,37 +146,50 @@ final class PeerClientSide {
         System.err.println(world.status + " " + ex.getClass().getSimpleName());
     }
 
-    void move(MoveCommand command) { reliableToServer("MOVE|" + command.playerId() + "|" + command.unitId() + "|" + Calc.round(command.x()) + "|" + Calc.round(command.y())); }
-    void work(HarvestCommand command) { ResourceNetDebug.clientWorkSend(world, command); reliableToServer("WORK|" + command.playerId() + "|" + command.unitId() + "|" + command.resourceId()); }
-    void attack(AttackCommand command) { reliableToServer("ATTACK|" + command.playerId() + "|" + command.unitId() + "|" + command.targetKey()); }
+    void move(MoveCommand command) { sendCommandToServer("MOVE|" + command.playerId() + "|" + command.unitId() + "|" + Calc.round(command.x()) + "|" + Calc.round(command.y())); }
+    void work(HarvestCommand command) { ResourceNetDebug.clientWorkSend(world, command); sendCommandToServer("WORK|" + command.playerId() + "|" + command.unitId() + "|" + command.resourceId()); }
+    void attack(AttackCommand command) { sendCommandToServer("ATTACK|" + command.playerId() + "|" + command.unitId() + "|" + command.targetKey()); }
     void order(UnitOrderCommand command) {
-        reliableToServer("ORDER|" + command.playerId() + "|" + command.unitId() + "|" + command.type().name() + "|"
+        sendCommandToServer("ORDER|" + command.playerId() + "|" + command.unitId() + "|" + command.type().name() + "|"
                 + Calc.round(command.x1()) + "|" + Calc.round(command.y1()) + "|" + Calc.round(command.x2()) + "|" + Calc.round(command.y2()) + "|"
                 + Calc.round(command.radius()) + "|" + cleanPacketPart(command.targetKey()) + "|" + command.phase());
     }
-    void respawn(String playerId) { reliableToServer("RESPAWN|" + playerId); }
-    void build(String playerId, String baseId, String shipTypeId) { reliableToServer("BUILD|" + playerId + "|" + baseId + "|" + shipTypeId); }
-    void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { reliableToServer("PACK|" + playerId + "|" + mode + "|" + baseOrUnitId + "|" + packageType); }
+    void respawn(String playerId) { sendCommandToServer("RESPAWN|" + playerId); }
+    void build(String playerId, String baseId, String shipTypeId) { sendCommandToServer("BUILD|" + playerId + "|" + baseId + "|" + shipTypeId); }
+    void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { sendCommandToServer("PACK|" + playerId + "|" + mode + "|" + baseOrUnitId + "|" + packageType); }
     void production(String playerId, String action, String baseId, String value, String extra) {
-        reliableToServer("PROD|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(action) + "|"
+        sendCommandToServer("PROD|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(action) + "|"
                 + cleanPacketPart(baseId) + "|" + cleanPacketPart(value) + "|" + cleanPacketPart(extra));
     }
-    void devSetFreeCrafting(String playerId, boolean enabled) { reliableToServer("DEVFREE|" + cleanPacketPart(playerId) + "|" + (enabled ? "1" : "0")); }
+    void devSetFreeCrafting(String playerId, boolean enabled) { sendCommandToServer("DEVFREE|" + cleanPacketPart(playerId) + "|" + (enabled ? "1" : "0")); }
     void devAddHangarResource(String playerId, String baseId, Material material, double amount) {
         if (material == null || amount <= 0 || Double.isNaN(amount) || Double.isInfinite(amount)) return;
-        reliableToServer("DEVHANGAR|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(baseId) + "|" + material.name() + "|" + Calc.round(amount));
+        sendCommandToServer("DEVHANGAR|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(baseId) + "|" + material.name() + "|" + Calc.round(amount));
     }
-    void devAiCommand(String playerId, String command) { reliableToServer("DEVAI|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(command)); }
-    void jump(String playerId, double x, double y) { jump(playerId, "", x, y); }
-    void jump(String playerId, String targetSystemId, double x, double y) {
+    void devAiCommand(String playerId, String command) { sendCommandToServer("DEVAI|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(command)); }
+    void jump(String playerId, double x, double y) { viewSystem(playerId, world.wormholeTargetAt(x, y)); }
+    void jump(String playerId, String targetSystemId, double x, double y) { viewSystem(playerId, targetSystemId); }
+
+    void viewSystem(String playerId, String targetSystemId) {
         if (!canIssueCommands()) { blockCommand(); return; }
+        String requestedSystem = cleanSystemId(targetSystemId);
+        if (invalidSystemId(requestedSystem)) {
+            world.status = "Unable to request that galaxy system.";
+            return;
+        }
+        if (!viewRequestPending) {
+            viewRequestFallbackSystemId = world.activeSystemId();
+            viewRequestFallbackMode = viewSnapshotMode;
+        }
         viewSnapshotMode = true;
-        viewedSystemId = cleanSystemId(targetSystemId);
-        if (invalidSystemId(viewedSystemId)) { viewSnapshotMode = false; viewedSystemId = world.activeSystemId(); return; }
-        reliableToServer("JUMP|" + playerId + "|" + viewedSystemId + "|" + Calc.round(x) + "|" + Calc.round(y));
+        viewRequestPending = true;
+        viewedSystemId = requestedSystem;
+        pendingViewRevision = nextViewRevision++;
+        world.status = "Requesting view of " + requestedSystem + " from the server.";
+        sendCommandToServer("VIEW_SYSTEM|" + playerId + "|" + requestedSystem + "|" + pendingViewRevision);
     }
-    void wormholeTouch(String playerId) { reliableToServer("WHTOUCH|" + playerId); }
-    void wormholeTouch(WormholeTouchRequest request) { if (request != null && request.valid()) reliableToServer(request.packet()); }
+    void wormholeTouch(String playerId) { sendCommandToServer("WHTOUCH|" + playerId); }
+    void wormholeTouch(WormholeTouchRequest request) { if (request != null && request.valid()) sendCommandToServer(request.packet()); }
 
     void readEnv(String[] parts) { if (parts.length >= 4) syncEnv(parts[1], parts[2], parts[3]); else if (parts.length >= 3) syncEnv(world.systemId(), parts[1], parts[2]); }
     void readSeed(String seed) { try { world.useSystemSeed(Long.parseLong(seed)); } catch (NumberFormatException ignored) { } }
@@ -182,7 +210,7 @@ final class PeerClientSide {
         sessionToken = newSessionToken;
         state = ConnectionState.CONNECTED;
         failureMessage = "";
-        transport.clearPending();
+        transport.clearOutbound();
         long now = System.currentTimeMillis();
         attemptStarted = now;
         lastServerPacket = now;
@@ -194,6 +222,10 @@ final class PeerClientSide {
         world.activateSystem(world.playerHomeSystemId(localPlayerId));
         viewedSystemId = world.activeSystemId();
         viewSnapshotMode = false;
+        viewRequestPending = false;
+        viewRequestFallbackMode = false;
+        viewRequestFallbackSystemId = "";
+        pendingViewRevision = 0;
         devApproved = flag(markerValue(parts, "DEV"));
         world.setDevFreeBuild(localPlayerId, devApproved);
         SessionTokenStore.save(config, localPlayerId, sessionToken);
@@ -219,14 +251,38 @@ final class PeerClientSide {
     void readFullView(String message) {
         try {
             Snapshot snapshot = SyncFrame.read(message);
-            boolean requestedView = viewSnapshotMode;
+            if (SyncFrame.isResourceCorrection(message)) {
+                ResourceNetDebug.clientReceive("FULL_CORRECTION", snapshot, lastSnapshotSequence, viewSnapshotMode);
+                if (holdingDifferentView(snapshot)) return;
+                if (stale(snapshot, "FULL_CORRECTION")) return;
+                WorldNetAccess.applyResourceCorrection(world, snapshot, viewSnapshotMode);
+                acceptSnapshot(snapshot);
+                return;
+            }
+
+            long frameViewRevision = SyncFrame.viewRevision(message);
+            boolean requestedView = viewRequestPending;
+            if (requestedView && frameViewRevision != pendingViewRevision) {
+                ResourceNetDebug.ignoredSnapshot(world, snapshot, "obsolete view revision " + frameViewRevision
+                        + " while waiting for " + pendingViewRevision);
+                return;
+            }
             ResourceNetDebug.clientReceive("FULL_VIEW", snapshot, lastSnapshotSequence, viewSnapshotMode);
             if (holdingDifferentView(snapshot)) return;
             if (stale(snapshot, "FULL_VIEW")) return;
             WorldNetAccess.applyFullView(world, snapshot);
             acceptSnapshot(snapshot);
-            if (requestedView && snapshot.systemId() != null && !snapshot.systemId().isBlank()) viewedSystemId = snapshot.systemId();
-            if (!requestedView && WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId)) viewedSystemId = world.activeSystemId();
+            if (requestedView && snapshot.systemId() != null && !snapshot.systemId().isBlank()) {
+                viewedSystemId = snapshot.systemId();
+                viewRequestPending = false;
+                viewSnapshotMode = !WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId);
+                viewRequestFallbackSystemId = "";
+                viewRequestFallbackMode = false;
+            }
+            if (!requestedView && WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId)) {
+                viewedSystemId = world.activeSystemId();
+                viewSnapshotMode = false;
+            }
         } catch (SnapshotDecodeException ex) {
             rejectSnapshot(ex);
         }
@@ -255,6 +311,37 @@ final class PeerClientSide {
         return true;
     }
 
+    private boolean readViewDenied(String message) {
+        if (message == null || !message.startsWith("VIEW_DENIED|")) return false;
+        String[] parts = message.split("\\|", 4);
+        long deniedRevision = 0;
+        if (parts.length > 1) {
+            try { deniedRevision = Math.max(0, Long.parseLong(parts[1])); }
+            catch (NumberFormatException ignored) { }
+        }
+        boolean currentRequest = !viewRequestPending || deniedRevision == 0 || deniedRevision == pendingViewRevision;
+        if (currentRequest) {
+            String retainedView = parts.length > 2 ? cleanSystemId(parts[2]) : "";
+            if (!invalidSystemId(retainedView)) {
+                viewedSystemId = retainedView;
+                viewSnapshotMode = true;
+                viewRequestPending = true;
+                pendingViewRevision = deniedRevision;
+            } else {
+                viewRequestPending = false;
+                viewSnapshotMode = viewRequestFallbackMode;
+                pendingViewRevision = 0;
+                viewedSystemId = viewRequestFallbackSystemId == null || viewRequestFallbackSystemId.isBlank()
+                        ? world.activeSystemId() : viewRequestFallbackSystemId;
+                viewRequestFallbackSystemId = "";
+                viewRequestFallbackMode = false;
+            }
+        }
+        String reason = parts.length > 3 ? parts[3].trim() : "The server rejected that system view.";
+        world.status = reason.isBlank() ? "The server rejected that system view." : reason;
+        return true;
+    }
+
     private boolean readJoinDenied(String message) {
         if (message == null || !message.startsWith("JOIN_DENIED|")) return false;
         String reason = message.length() > 12 ? message.substring(12).trim() : "Join refused by server.";
@@ -274,7 +361,7 @@ final class PeerClientSide {
         String reason = message.length() > 15 ? message.substring(15).trim() : "Saved session was rejected.";
         SessionTokenStore.clear(config);
         sessionToken = "";
-        transport.clearPending();
+        transport.clearOutbound();
         if (!connectedOnce && state == ConnectionState.RECONNECTING) {
             localPlayerId = "SOLO";
             state = ConnectionState.JOINING;
@@ -304,6 +391,10 @@ final class PeerClientSide {
         }
         if (deletedViewedSystem || deletedActiveSystem) {
             viewSnapshotMode = false;
+            viewRequestPending = false;
+            viewRequestFallbackMode = false;
+            viewRequestFallbackSystemId = "";
+            pendingViewRevision = 0;
             world.ensurePlayerHome(localPlayerId);
             world.activateSystem(world.playerHomeSystemId(localPlayerId));
             viewedSystemId = world.activeSystemId();
@@ -360,7 +451,8 @@ final class PeerClientSide {
         lastHandshake = 0;
         devApproved = false;
         world.setDevFreeBuild(localPlayerId, false);
-        transport.clearPending();
+        transport.clearOutbound();
+        transport.reconnectClient();
         world.status = "Connection interrupted. Reconnecting to " + config.serverAddress + " without dropping player state.";
     }
 
@@ -369,7 +461,7 @@ final class PeerClientSide {
         devApproved = false;
         world.setDevFreeBuild(localPlayerId, false);
         failureMessage = message;
-        transport.clearPending();
+        transport.clearOutbound();
         world.status = failureMessage;
     }
 
@@ -403,9 +495,9 @@ final class PeerClientSide {
         };
     }
 
-    private void reliableToServer(String payload) {
+    private void sendCommandToServer(String payload) {
         if (!canIssueCommands()) { blockCommand(); return; }
-        if (canSendControl()) transport.reliable(payload, config.serverAddress.getAddress(), config.serverAddress.getPort());
+        if (canSendControl()) transport.sendOrdered(payload, config.serverAddress.getAddress(), config.serverAddress.getPort());
     }
 
     private void sendControlToServer(String message) {

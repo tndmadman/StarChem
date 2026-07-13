@@ -1,0 +1,44 @@
+name: TCP Multiplayer Soak
+
+on:
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Soak duration in seconds
+        required: false
+        default: '900'
+      seed:
+        description: Deterministic random seed
+        required: false
+        default: '1511506142'
+  schedule:
+    - cron: '23 7 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tcp-soak-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Run TCP soak
+        shell: bash
+        run: |
+          SECONDS_INPUT="${{ github.event.inputs.seconds }}"
+          SEED_INPUT="${{ github.event.inputs.seed }}"
+          gradle tcpSoak --no-daemon \
+            -PsoakSeconds="${SECONDS_INPUT:-900}" \
+            -PsoakSeed="${SEED_INPUT:-1511506142}"

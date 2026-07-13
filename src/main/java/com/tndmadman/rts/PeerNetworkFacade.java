@@ -1,7 +1,6 @@
 package com.tndmadman.rts;
 
 import java.io.IOException;
-import java.net.DatagramSocket;
 import java.util.List;
 
 final class PeerNetwork implements CommandSink {
@@ -35,15 +34,16 @@ final class PeerNetwork implements CommandSink {
         } catch (IllegalStateException ex) {
             throw new IOException("Multiplayer compatibility setup failed: " + ex.getMessage(), ex);
         }
-        DatagramSocket socket = config.hostMode ? new DatagramSocket(config.port) : new DatagramSocket();
         PerfStats perfStats = new PerfStats();
-        PeerTransport transport = new PeerTransport(socket, perfStats, config.clientMode() ? config.serverAddress : null);
+        PeerTransport transport = config.hostMode
+                ? PeerTransport.server(config.port, perfStats)
+                : PeerTransport.client(config.serverAddress, perfStats);
         PeerServerSide server = null;
         PeerClientSide client = null;
         if (config.hostMode) {
             PlayerRegistry.reset("SOLO", config.playerName, 0x50BEFF);
             world.setDevFreeBuild("SOLO", config.devMode);
-            world.status = "Hosting " + world.systemName() + " UDP " + transport.localPort() + (config.devMode ? " with dev mode enabled" : "");
+            world.status = "Hosting " + world.systemName() + " TCP " + transport.localPort() + (config.devMode ? " with dev mode enabled" : "");
             ResourceNetDebug.registerServerWorld(world);
             server = new PeerServerSide(config, world, transport);
         } else {
@@ -62,6 +62,19 @@ final class PeerNetwork implements CommandSink {
     boolean connectionFailed() { return client != null && client.connectionFailed(); }
     String failureMessage() { return client != null ? client.failureMessage() : "Connection failed."; }
     PerfSnapshot perfSnapshot() { return transport.perfSnapshot(); }
+    boolean clientReconnecting() { return client != null && client.reconnecting(); }
+    boolean clientConnected() { return client != null && client.connectedState(); }
+    long clientSnapshotSequence() { return client == null ? 0 : client.lastSnapshotSequence(); }
+    String clientViewedSystemId() { return client == null ? "" : client.viewedSystemId(); }
+    long clientPendingViewRevision() { return client == null ? 0 : client.pendingViewRevision(); }
+    boolean clientViewSwitchPending() { return client != null && client.viewSwitchPending(); }
+    void forceClientDisconnectForTest() { if (client != null) transport.forceDisconnectClientForTest(); }
+    ConnectionId clientConnectionId() { return transport.clientConnectionId(); }
+    ConnectionId connectionIdForPlayer(String playerId) { return server == null ? ConnectionId.NONE : server.connectionIdForPlayer(playerId); }
+    ConnectionDiagnostics connectionDiagnostics(ConnectionId id) { return transport.diagnostics(id); }
+    int serverPeerCount() { return server == null ? 0 : server.peerCount(); }
+    boolean serverSessionConnected(String playerId) { return server != null && server.sessionConnected(playerId); }
+    void forceServerResourceCorrectionForTest() { if (server != null) server.forceResourceCorrectionForTest(); }
 
     void updateServerWorlds(double dt) {
         if (server == null) return;
@@ -99,18 +112,21 @@ final class PeerNetwork implements CommandSink {
             NetPacket packet;
             while ((packet = transport.poll()) != null) {
                 if (!transport.accepts(packet)) continue;
+                if (transport.isDisconnectEvent(packet)) {
+                    if (server != null) server.connectionClosed(packet);
+                    continue;
+                }
                 try {
-                    String message = transport.unwrapReliable(packet);
+                    String message = transport.processInbound(packet);
                     if (message == null) continue;
                     if (server != null) server.handle(message, packet);
                     else client.handle(packet, message);
                 } catch (RuntimeException ex) {
                     transport.recordMalformedPacket();
                     if (client != null) client.rejectPacket(ex);
-                    else System.err.println("Rejected malformed UDP packet: " + ex.getClass().getSimpleName());
+                    else System.err.println("Rejected malformed TCP frame: " + ex.getClass().getSimpleName());
                 }
             }
-            transport.resend(now);
             if (server != null) server.tick(now);
             else client.tick(now);
         } finally {
@@ -131,8 +147,15 @@ final class PeerNetwork implements CommandSink {
     @Override public void build(String playerId, String baseId, String shipTypeId) { if (server != null) serverCommand(() -> { if (CommandAuth.base(server.world, playerId, baseId)) server.world.buildShip(baseId, shipTypeId); }, playerId); else client.build(playerId, baseId, shipTypeId); }
     @Override public void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { if (server != null) serverCommand(() -> { if (CommandAuth.pack(server.world, playerId, mode, baseOrUnitId)) AUnitPack.apply(server.world, mode, baseOrUnitId, packageType); }, playerId); else client.basePackage(playerId, mode, baseOrUnitId, packageType); }
     @Override public void production(String playerId, String action, String baseId, String value, String extra) { if (server != null) serverCommand(() -> { if (CommandAuth.base(server.world, playerId, baseId)) ProductionCommands.apply(server.world, playerId, action, baseId, value, extra); }, playerId); else client.production(playerId, action, baseId, value, extra); }
-    void jump(String playerId, double x, double y) { jump(playerId, "", x, y); }
-    void jump(String playerId, String targetSystemId, double x, double y) { if (server != null) serverCommand(() -> { if (!server.world.viewSystemThroughWormhole(targetSystemId)) server.world.jumpThroughWormholeAt(x, y); }, playerId); else client.jump(playerId, targetSystemId, x, y); }
+    void viewSystem(String playerId, String targetSystemId) {
+        if (server != null) {
+            ConnectionId connectionId = server.connectionIdForPlayer(playerId);
+            if (connectionId.valid()) server.requestView(connectionId, playerId, targetSystemId, 0);
+            else server.world.viewGalaxySystem(targetSystemId);
+        } else client.viewSystem(playerId, targetSystemId);
+    }
+    void jump(String playerId, double x, double y) { if (client != null) client.jump(playerId, x, y); }
+    void jump(String playerId, String targetSystemId, double x, double y) { viewSystem(playerId, targetSystemId); }
     void wormholeTouch(String playerId) { if (server != null) serverCommand(server.world::transferTouchingShips, playerId); else client.wormholeTouch(playerId); }
     void wormholeTouch(WormholeTouchRequest request) { if (request == null || !request.valid()) return; if (server != null) serverCommand(() -> server.world.transferTouchingShips(request.playerId()), request.playerId()); else client.wormholeTouch(request); }
 

@@ -17,19 +17,21 @@ final class AUnitMove {
 final class SideAOrders {
     private SideAOrders() { }
 
-    static void handle(PeerServerSide s, String[] p, String ep) {
-        String id = p.length > 1 ? s.ownerId(ep, p[1]) : "";
+    static void handle(PeerServerSide s, String[] p, ConnectionId connectionId) {
+        String id = p.length > 1 ? s.ownerId(connectionId, p[1]) : "";
         switch (p[0]) {
-            case "MOVE" -> { s.touch(ep); if (s.owns(ep, id)) s.change(id, () -> AUnitMove.apply(s.world, new MoveCommand(id, Integer.parseInt(p[2]), Double.parseDouble(p[3]), Double.parseDouble(p[4])))); }
-            case "WORK" -> { s.touch(ep); if (s.owns(ep, id)) s.change(id, () -> AUnitWork.apply(s.world, new HarvestCommand(id, Integer.parseInt(p[2]), Integer.parseInt(p[3])))); }
-            case "ATTACK" -> { s.touch(ep); if (s.owns(ep, id)) s.change(id, () -> AUnitAttack.apply(s.world, new AttackCommand(id, Integer.parseInt(p[2]), p[3]))); }
-            case "ORDER" -> { s.touch(ep); if (s.owns(ep, id)) s.change(id, () -> applyOrder(s.world, id, p)); }
-            case "RESPAWN" -> { s.touch(ep); if (s.owns(ep, id)) { s.change(id, () -> WorldNetAccess.respawnPlayer(s.world, id)); s.broadcastNow(); } }
-            case "BUILD" -> { s.touch(ep); if (s.owns(ep, id)) s.change(id, () -> { if (CommandAuth.base(s.world, id, p[2])) s.world.buildShip(p[2], p[3]); }); }
-            case "PACK" -> { s.touch(ep); if (s.owns(ep, id)) s.change(id, () -> { if (CommandAuth.pack(s.world, id, p[2], p[3])) AUnitPack.apply(s.world, p[2], p[3], p[4]); }); }
-            case "PROD" -> { s.touch(ep); if (s.owns(ep, id) && p.length >= 5) s.change(id, () -> { if (CommandAuth.base(s.world, id, p[3])) ProductionCommands.apply(s.world, id, p[2], p[3], p[4], p.length > 5 ? p[5] : ""); }); }
-            case "JUMP" -> { s.touch(ep); if (s.owns(ep, id)) { s.change(id, () -> applyJump(s.world, p)); s.sendInitialTo(ep); } }
-            case "WHTOUCH" -> { s.touch(ep); if (s.owns(ep, id)) { s.change(id, () -> applyWormholeTouch(s.world, id, p)); s.sendInitialTo(ep); } }
+            case "MOVE" -> { s.touch(connectionId); if (s.owns(connectionId, id)) s.change(id, () -> AUnitMove.apply(s.world, new MoveCommand(id, Integer.parseInt(p[2]), Double.parseDouble(p[3]), Double.parseDouble(p[4])))); }
+            case "WORK" -> { s.touch(connectionId); if (s.owns(connectionId, id)) s.change(id, () -> AUnitWork.apply(s.world, new HarvestCommand(id, Integer.parseInt(p[2]), Integer.parseInt(p[3])))); }
+            case "ATTACK" -> { s.touch(connectionId); if (s.owns(connectionId, id)) s.change(id, () -> AUnitAttack.apply(s.world, new AttackCommand(id, Integer.parseInt(p[2]), p[3]))); }
+            case "ORDER" -> { s.touch(connectionId); if (s.owns(connectionId, id)) s.change(id, () -> applyOrder(s.world, id, p)); }
+            case "RESPAWN" -> { s.touch(connectionId); if (s.owns(connectionId, id)) { s.change(id, () -> WorldNetAccess.respawnPlayer(s.world, id)); s.broadcastNow(); } }
+            case "BUILD" -> { s.touch(connectionId); if (s.owns(connectionId, id)) s.change(id, () -> { if (CommandAuth.base(s.world, id, p[2])) s.world.buildShip(p[2], p[3]); }); }
+            case "PACK" -> { s.touch(connectionId); if (s.owns(connectionId, id)) s.change(id, () -> { if (CommandAuth.pack(s.world, id, p[2], p[3])) AUnitPack.apply(s.world, p[2], p[3], p[4]); }); }
+            case "PROD" -> { s.touch(connectionId); if (s.owns(connectionId, id) && p.length >= 5) s.change(id, () -> { if (CommandAuth.base(s.world, id, p[3])) ProductionCommands.apply(s.world, id, p[2], p[3], p[4], p.length > 5 ? p[5] : ""); }); }
+            case "VIEW_SYSTEM" -> {
+                if (p.length >= 4) s.requestView(connectionId, id, p[2], viewRevision(p));
+            }
+            case "WHTOUCH" -> { s.touch(connectionId); if (s.owns(connectionId, id)) { s.change(id, () -> applyWormholeTouch(s.world, id, p)); s.sendInitialTo(connectionId); } }
         }
     }
 
@@ -52,15 +54,10 @@ final class SideAOrders {
         }
     }
 
-    private static void applyJump(World world, String[] p) {
-        if (p.length >= 5) {
-            String targetSystemId = p[2];
-            double x = Double.parseDouble(p[3]);
-            double y = Double.parseDouble(p[4]);
-            if (!world.viewSystemThroughWormhole(targetSystemId)) world.jumpThroughWormholeAt(x, y);
-            return;
-        }
-        if (p.length >= 4) world.jumpThroughWormholeAt(Double.parseDouble(p[2]), Double.parseDouble(p[3]));
+    private static long viewRevision(String[] p) {
+        if (p.length < 4) return 0;
+        try { return Math.max(0, Long.parseLong(p[3])); }
+        catch (NumberFormatException ignored) { return 0; }
     }
 
     private static void applyWormholeTouch(World world, String playerId, String[] p) {

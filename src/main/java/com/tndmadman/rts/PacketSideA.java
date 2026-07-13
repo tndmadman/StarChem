@@ -5,11 +5,11 @@ final class PacketSideA {
 
     static void handle(PeerServerSide s, String message, NetPacket packet) {
         String[] p = message.split("\\|", -1);
-        String ep = s.endpoint(packet.address(), packet.port());
+        ConnectionId connectionId = packet.connectionId();
         try {
-            if (SideAJoin.handle(s, p, ep, packet)) return;
-            if (SideADev.handle(s, p, ep)) return;
-            SideAOrders.handle(s, p, ep);
+            if (SideAJoin.handle(s, p, connectionId, packet)) return;
+            if (SideADev.handle(s, p, connectionId)) return;
+            SideAOrders.handle(s, p, connectionId);
         } catch (Exception ex) {
             System.err.println("Bad packet: " + message + " / " + ex.getMessage());
         }

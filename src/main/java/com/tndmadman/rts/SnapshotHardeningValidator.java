@@ -1,6 +1,5 @@
 package com.tndmadman.rts;
 
-import java.net.DatagramSocket;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -118,7 +117,7 @@ public final class SnapshotHardeningValidator {
         PeerTransport transport = null;
         try {
             Config config = Config.join("View Validator", "127.0.0.1", 55000);
-            transport = new PeerTransport(new DatagramSocket());
+            transport = PeerTransport.client(config.serverAddress, new PerfStats());
             PeerClientSide client = new PeerClientSide(config, world, transport);
             client.readWelcome(new String[]{
                     "WELCOME", "P1", "View Validator", Integer.toString(0x50BEFF),
@@ -130,14 +129,14 @@ public final class SnapshotHardeningValidator {
             String remoteSystem = StarSystems.PLAYER_HOME_SYSTEM_ID + "_P2";
 
             client.jump("P1", remoteSystem, 0, 0);
-            client.readFullView(SyncFrame.write(viewSnapshot(10, remoteSystem, "P2", 2, 2200, 2300, 500)));
+            client.readFullView(SyncFrame.write(viewSnapshot(10, remoteSystem, "P2", 2, 2200, 2300, 500), 1));
             require(remoteSystem.equals(world.activeSystemId()), "remote view snapshot was rejected as a different system");
             Unit remote = world.units.get(Unit.key("P2", 2));
             require(remote != null && remote.x == 2200 && remote.y == 2300,
                     "remote player assets were not visible after switching systems");
 
             client.jump("P1", homeSystem, 0, 0);
-            client.readFullView(SyncFrame.write(viewSnapshot(11, homeSystem, "P1", 1, 1100, 1200, 450)));
+            client.readFullView(SyncFrame.write(viewSnapshot(11, homeSystem, "P1", 1, 1100, 1200, 450), 2));
             require(homeSystem.equals(world.activeSystemId()), "home view snapshot was rejected after returning");
             Unit home = world.units.get(Unit.key("P1", 1));
             require(home != null && home.x == 1100 && home.y == 1200,
@@ -146,7 +145,8 @@ public final class SnapshotHardeningValidator {
             client.readSnapshot(SnapshotWriter.write(viewSnapshot(12, homeSystem, "P1", 1, 1400, 1500, 300)));
             Unit updated = world.units.get(Unit.key("P1", 1));
             ResourceNode resource = world.findResource(1);
-            require(updated != null && updated.x == 1400 && updated.y == 1500,
+            require(updated != null && updated.x > 1100 && updated.y > 1200
+                            && Math.abs(updated.targetX - 1400) < 0.001 && Math.abs(updated.targetY - 1500) < 0.001,
                     "ships stopped accepting snapshots after returning home");
             require(resource != null && Math.abs(resource.amount - 300) < 0.001,
                     "resources stopped accepting snapshots after returning home");

@@ -11,7 +11,10 @@ final class PeerSyncSender {
                         boolean fullResources, NetOutbound out) {
         if (peer == null) return sequence;
         String message = SyncPacketBuilder.build(world, views, peer.playerId(), sequence, kind, fullResources);
-        out.send(message, peer.address(), peer.port());
+        DeliveryClass delivery = kind == SyncKind.INITIAL
+                ? DeliveryClass.VIEW_SNAPSHOT
+                : fullResources ? DeliveryClass.FULL_CORRECTION : DeliveryClass.REGULAR_SNAPSHOT;
+        out.send(message, peer.connectionId(), delivery);
         return sequence + 1;
     }
 }

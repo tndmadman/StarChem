@@ -7,7 +7,7 @@ import java.util.Locale;
 
 final class PerfOverlay {
     private static final long REFRESH_NANOS = 250_000_000L;
-    private static final int PANEL_WIDTH = 430;
+    private static final int PANEL_WIDTH = 450;
     private long nextRefreshNanos;
     private List<String> lines = List.of("Collecting performance samples...");
 
@@ -53,16 +53,7 @@ final class PerfOverlay {
         out.add("Active system " + world.activeSystemId() + " | known systems " + (galaxy == null ? 0 : galaxy.systems().size()));
 
         if (network != null) {
-            out.add(String.format(Locale.ROOT, "Client net %.2f ms avg / %.2f max | pending %d | resends %.1f/s",
-                    network.networkAvgMs(), network.networkMaxMs(), network.pendingReliable(), network.reliableResendsPerSecond()));
-            out.add(String.format(Locale.ROOT, "UDP tx %.1f/s %.1f KiB/s | rx %.1f/s %.1f KiB/s",
-                    network.packetsSentPerSecond(), kib(network.bytesSentPerSecond()),
-                    network.packetsReceivedPerSecond(), kib(network.bytesReceivedPerSecond())));
-            out.add(snapshotLine("Snapshots", network));
-            addRejectionLine(out, "Client rejects", network);
-            if (network.rttMs() >= 0 || network.snapshotAgeMs() >= 0) {
-                out.add("RTT " + valueMs(network.rttMs()) + " | last snapshot " + valueMs(network.snapshotAgeMs()) + " ago");
-            }
+            addNetworkLines(out, "Client", network);
         } else {
             out.add("Network: solo");
         }
@@ -70,23 +61,36 @@ final class PerfOverlay {
         if (host != null) {
             out.add(String.format(Locale.ROOT, "Host simulation %.2f ms avg / %.2f max",
                     host.serverUpdateAvgMs(), host.serverUpdateMaxMs()));
-            out.add(String.format(Locale.ROOT, "Host net %.2f ms avg / %.2f max | pending %d | resends %.1f/s",
-                    host.networkAvgMs(), host.networkMaxMs(), host.pendingReliable(), host.reliableResendsPerSecond()));
-            out.add(String.format(Locale.ROOT, "Host UDP tx %.1f/s %.1f KiB/s | rx %.1f/s %.1f KiB/s",
-                    host.packetsSentPerSecond(), kib(host.bytesSentPerSecond()),
-                    host.packetsReceivedPerSecond(), kib(host.bytesReceivedPerSecond())));
-            out.add(snapshotLine("Host snapshots", host));
-            addRejectionLine(out, "Host rejects", host);
+            addNetworkLines(out, "Host", host);
         }
         return out;
     }
 
-    private void addRejectionLine(List<String> out, String label, PerfSnapshot stats) {
-        if (stats.rejectedEndpointsPerSecond() <= 0 && stats.rejectedReliableAcksPerSecond() <= 0
-                && stats.malformedPacketsPerSecond() <= 0 && stats.snapshotDecodeFailuresPerSecond() <= 0) return;
-        out.add(String.format(Locale.ROOT, "%s endpoint %.1f/s | ACK %.1f/s | malformed %.1f/s | snapshot %.1f/s",
-                label, stats.rejectedEndpointsPerSecond(), stats.rejectedReliableAcksPerSecond(),
-                stats.malformedPacketsPerSecond(), stats.snapshotDecodeFailuresPerSecond()));
+    private void addNetworkLines(List<String> out, String label, PerfSnapshot stats) {
+        out.add(String.format(Locale.ROOT,
+                "%s TCP %.2f ms avg / %.2f max | conn %d | queued %d / %.1f KiB",
+                label, stats.networkAvgMs(), stats.networkMaxMs(), stats.activeConnections(), stats.queuedFrames(),
+                kib(stats.queuedBytes())));
+        out.add(String.format(Locale.ROOT, "%s frames tx %.1f/s %.1f KiB/s | rx %.1f/s %.1f KiB/s",
+                label, stats.packetsSentPerSecond(), kib(stats.bytesSentPerSecond()),
+                stats.packetsReceivedPerSecond(), kib(stats.bytesReceivedPerSecond())));
+        out.add(snapshotLine(label + " snapshots", stats));
+        if (stats.coalescedSnapshotsPerSecond() > 0) {
+            out.add(String.format(Locale.ROOT, "%s coalesced snapshots %.1f/s", label, stats.coalescedSnapshotsPerSecond()));
+        }
+        addTransportIssueLine(out, label + " transport", stats);
+        if (stats.snapshotAgeMs() >= 0) out.add("Last snapshot " + valueMs(stats.snapshotAgeMs()) + " ago");
+    }
+
+    private void addTransportIssueLine(List<String> out, String label, PerfSnapshot stats) {
+        if (stats.rejectedConnectionsPerSecond() <= 0 && stats.slowConnectionClosesPerSecond() <= 0
+                && stats.inboundOverflowsPerSecond() <= 0 && stats.malformedPacketsPerSecond() <= 0
+                && stats.snapshotDecodeFailuresPerSecond() <= 0) return;
+        out.add(String.format(Locale.ROOT,
+                "%s reject %.1f/s | slow %.1f/s | overflow %.1f/s | frame %.1f/s | snapshot %.1f/s",
+                label, stats.rejectedConnectionsPerSecond(), stats.slowConnectionClosesPerSecond(),
+                stats.inboundOverflowsPerSecond(), stats.malformedPacketsPerSecond(),
+                stats.snapshotDecodeFailuresPerSecond()));
     }
 
     private String snapshotLine(String label, PerfSnapshot stats) {

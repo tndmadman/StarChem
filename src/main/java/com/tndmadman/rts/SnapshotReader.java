@@ -3,7 +3,7 @@ package com.tndmadman.rts;
 import java.util.*;
 
 final class SnapshotReader {
-    static final int MAX_SNAPSHOT_CHARS = PacketChunks.MAX_MESSAGE_BYTES;
+    static final int MAX_SNAPSHOT_CHARS = TcpFrameCodec.MAX_FRAME_BYTES;
     static final int MAX_PLAYERS = 256;
     static final int MAX_UNITS = 8192;
     static final int MAX_RESOURCES = 8192;

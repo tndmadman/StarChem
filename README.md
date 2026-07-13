@@ -25,6 +25,10 @@ java -jar StarChem.jar --version
 
 Clients and servers should use the same StarChem release version.
 
+## Multiplayer networking
+
+StarChem multiplayer uses framed TCP connections. A host or dedicated server listens on the selected game port, and remote clients connect to that same host and port. Internet-hosted games must allow inbound TCP traffic on the selected port; StarChem no longer uses UDP for multiplayer.
+
 ## In-game reference menus
 
 Press `I` during a game to open the resource catalog. The catalog lists every loaded material and shows the loaded star-system templates, configured system roles, and resource-node types where the selected raw resource can naturally appear. Produced and salvage materials are identified separately because they are not placed in natural system belts.
