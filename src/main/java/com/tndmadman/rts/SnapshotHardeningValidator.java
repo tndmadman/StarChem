@@ -84,7 +84,7 @@ public final class SnapshotHardeningValidator {
         Base laboratory = new Base(baseId, "P1", "laboratory", 1000, 1000);
         ResearchTopic topic = ResearchRules.topic("advanced_industry");
         require(topic != null, "research sync validator topic is missing");
-        laboratory.productionQueue.add(new ProductionJob("J1", ProductionJobKind.RESEARCH, topic.id,
+        laboratory.productionQueue.add(new ProductionJob("P1", ProductionJobKind.RESEARCH, topic.id,
                 topic.timeSeconds, topic.timeSeconds, true, ""));
         host.bases.put(baseId, laboratory);
 
