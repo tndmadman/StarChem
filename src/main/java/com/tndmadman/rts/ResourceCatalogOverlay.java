@@ -1,370 +1,390 @@
 package com.tndmadman.rts;
 
 import javax.swing.AbstractAction;
+import javax.swing.BorderFactory;
+import javax.swing.DefaultListCellRenderer;
+import javax.swing.DefaultListModel;
+import javax.swing.JButton;
 import javax.swing.JComponent;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JSplitPane;
+import javax.swing.JTabbedPane;
+import javax.swing.JTextArea;
+import javax.swing.JTextField;
 import javax.swing.KeyStroke;
+import javax.swing.ListSelectionModel;
+import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
-import java.awt.BasicStroke;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Component;
+import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Graphics;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
 import java.awt.event.ActionEvent;
+import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
-import java.awt.event.MouseEvent;
-import java.awt.event.MouseListener;
-import java.awt.event.MouseWheelEvent;
-import java.awt.event.MouseWheelListener;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
-final class ResourceCatalogOverlay extends JComponent implements MouseListener, MouseWheelListener {
-    private static final int ROW_HEIGHT = 42;
-    private static final int SYSTEM_ROW_HEIGHT = 48;
-    private static final int MARGIN = 38;
+final class ResourceCatalogOverlay extends JPanel {
+    private static final int RESOURCES_TAB = 0;
+    private static final int SYSTEMS_TAB = 1;
+    private static final Color PANEL = new Color(10, 18, 30);
+    private static final Color FIELD = new Color(7, 14, 24);
+    private static final Color BORDER = new Color(80, 145, 188);
+    private static final Color TEXT = new Color(229, 243, 252);
+    private static final Color MUTED = new Color(166, 197, 220);
 
     private final GamePanel returnFocus;
     private final World world;
-    private final List<ResourceSystemCatalog.Entry> entries = ResourceSystemCatalog.entries();
-    private int selectedIndex;
-    private int resourceScroll;
-    private int systemScroll;
+    private final JTextField searchField = new JTextField();
+    private final JTabbedPane tabs = new JTabbedPane();
+    private final DefaultListModel<ResourceSystemCatalog.Entry> resourceModel = new DefaultListModel<>();
+    private final JList<ResourceSystemCatalog.Entry> resourceList = new JList<>(resourceModel);
+    private final JTextArea resourceDetails = new JTextArea();
+    private final DefaultListModel<ResourceSystemCatalog.SystemEntry> systemModel = new DefaultListModel<>();
+    private final JList<ResourceSystemCatalog.SystemEntry> systemList = new JList<>(systemModel);
+    private final JTextArea systemDetails = new JTextArea();
+    private final JLabel countLabel = new JLabel();
     private String previousStatus = "";
 
     ResourceCatalogOverlay(GamePanel returnFocus, World world) {
+        super(new GridBagLayout());
         this.returnFocus = returnFocus;
         this.world = world;
         setOpaque(false);
         setVisible(false);
         setFocusable(true);
-        addMouseListener(this);
-        addMouseWheelListener(this);
+
+        JPanel card = buildCard();
+        GridBagConstraints constraints = new GridBagConstraints();
+        constraints.gridx = 0;
+        constraints.gridy = 0;
+        constraints.weightx = 1;
+        constraints.weighty = 1;
+        constraints.fill = GridBagConstraints.BOTH;
+        constraints.insets = new Insets(34, 42, 34, 42);
+        add(card, constraints);
+
+        searchField.getDocument().addDocumentListener(new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent e) { refresh(); }
+            @Override public void removeUpdate(DocumentEvent e) { refresh(); }
+            @Override public void changedUpdate(DocumentEvent e) { refresh(); }
+        });
+        tabs.addChangeListener(e -> updateCount());
+        resourceList.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) showSelectedResource();
+        });
+        systemList.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) showSelectedSystem();
+        });
         installKeyBindings();
+        refresh();
     }
 
     void toggle() {
         if (isVisible()) close(); else open();
     }
 
-    private void open() {
+    void open() {
         if (isVisible()) return;
         previousStatus = world.status;
-        world.status = "Resource catalog open. Select a material to view its system types; press I or Escape to close.";
+        world.status = "Resource catalog open. Search resources and items or switch to the Systems tab; press Escape to close.";
         setVisible(true);
-        ensureSelectedVisible();
-        repaint();
-        SwingUtilities.invokeLater(this::requestFocusInWindow);
+        refresh();
+        SwingUtilities.invokeLater(() -> {
+            searchField.requestFocusInWindow();
+            searchField.selectAll();
+        });
     }
 
-    private void close() {
+    void close() {
         if (!isVisible()) return;
         setVisible(false);
         if (world.status.startsWith("Resource catalog open.")) world.status = previousStatus;
-        returnFocus.requestFocusInWindow();
-        returnFocus.repaint();
+        if (returnFocus != null) {
+            returnFocus.requestFocusInWindow();
+            returnFocus.repaint();
+        }
+    }
+
+    boolean isSearchFocused() {
+        return isVisible() && searchField.isFocusOwner();
+    }
+
+    private JPanel buildCard() {
+        JPanel card = new JPanel(new BorderLayout(0, 14));
+        card.setBackground(PANEL);
+        card.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER, 2),
+                BorderFactory.createEmptyBorder(20, 22, 18, 22)));
+        card.setMinimumSize(new Dimension(760, 520));
+        card.setPreferredSize(new Dimension(1080, 700));
+
+        JPanel header = new JPanel(new BorderLayout(14, 10));
+        header.setOpaque(false);
+        JLabel title = new JLabel("RESOURCE & SYSTEM CATALOG");
+        title.setForeground(TEXT);
+        title.setFont(title.getFont().deriveFont(Font.BOLD, 24f));
+        JLabel subtitle = new JLabel("Loaded materials, natural spawn locations, system templates, belts, and orbital distances");
+        subtitle.setForeground(MUTED);
+        subtitle.setFont(subtitle.getFont().deriveFont(Font.PLAIN, 12f));
+        JPanel heading = new JPanel(new BorderLayout(0, 3));
+        heading.setOpaque(false);
+        heading.add(title, BorderLayout.NORTH);
+        heading.add(subtitle, BorderLayout.SOUTH);
+
+        JButton close = new MenuButton("CLOSE");
+        close.addActionListener(e -> close());
+        header.add(heading, BorderLayout.CENTER);
+        header.add(close, BorderLayout.EAST);
+
+        styleField(searchField);
+        searchField.setToolTipText("Search names, IDs, material families, systems, belts, node types, celestial bodies, or orbit distances");
+        JLabel searchLabel = new JLabel("SEARCH");
+        searchLabel.setForeground(MUTED);
+        searchLabel.setFont(searchLabel.getFont().deriveFont(Font.BOLD, 11f));
+        JPanel search = new JPanel(new BorderLayout(10, 0));
+        search.setOpaque(false);
+        search.add(searchLabel, BorderLayout.WEST);
+        search.add(searchField, BorderLayout.CENTER);
+
+        JPanel top = new JPanel(new BorderLayout(0, 12));
+        top.setOpaque(false);
+        top.add(header, BorderLayout.NORTH);
+        top.add(search, BorderLayout.SOUTH);
+        card.add(top, BorderLayout.NORTH);
+
+        tabs.setBackground(PANEL);
+        tabs.setForeground(TEXT);
+        tabs.setFont(tabs.getFont().deriveFont(Font.BOLD, 12f));
+        tabs.setBorder(BorderFactory.createEmptyBorder());
+        tabs.addTab("RESOURCES & ITEMS", buildResourceTab());
+        tabs.addTab("SYSTEMS", buildSystemTab());
+        card.add(tabs, BorderLayout.CENTER);
+
+        countLabel.setForeground(MUTED);
+        countLabel.setFont(countLabel.getFont().deriveFont(Font.PLAIN, 11f));
+        JLabel help = new JLabel("Type to search   Alt+1/Alt+2: switch tabs   Up/Down: select   Esc: close", SwingConstants.RIGHT);
+        help.setForeground(MUTED);
+        help.setFont(help.getFont().deriveFont(Font.PLAIN, 11f));
+        JPanel footer = new JPanel(new BorderLayout());
+        footer.setOpaque(false);
+        footer.add(countLabel, BorderLayout.WEST);
+        footer.add(help, BorderLayout.EAST);
+        card.add(footer, BorderLayout.SOUTH);
+        return card;
+    }
+
+    private JComponent buildResourceTab() {
+        styleList(resourceList);
+        resourceList.setCellRenderer(new ResourceRenderer());
+        configureDetails(resourceDetails);
+        return buildSplit(resourceList, resourceDetails);
+    }
+
+    private JComponent buildSystemTab() {
+        styleList(systemList);
+        systemList.setCellRenderer(new SystemRenderer());
+        configureDetails(systemDetails);
+        return buildSplit(systemList, systemDetails);
+    }
+
+    private JComponent buildSplit(JList<?> list, JTextArea details) {
+        JScrollPane listScroll = new JScrollPane(list);
+        styleScroll(listScroll);
+        listScroll.setPreferredSize(new Dimension(350, 500));
+        JScrollPane detailScroll = new JScrollPane(details);
+        styleScroll(detailScroll);
+
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, listScroll, detailScroll);
+        split.setOpaque(false);
+        split.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
+        split.setDividerSize(8);
+        split.setResizeWeight(0.34);
+        return split;
+    }
+
+    private void refresh() {
+        refreshResources();
+        refreshSystems();
+        updateCount();
+    }
+
+    private void refreshResources() {
+        ResourceSystemCatalog.Entry selected = resourceList.getSelectedValue();
+        Material selectedMaterial = selected == null ? null : selected.material();
+        List<ResourceSystemCatalog.Entry> filtered = ResourceSystemCatalog.filterEntries(searchField.getText());
+        resourceModel.clear();
+        for (ResourceSystemCatalog.Entry entry : filtered) resourceModel.addElement(entry);
+
+        int selectedIndex = -1;
+        if (selectedMaterial != null) {
+            for (int i = 0; i < resourceModel.size(); i++) {
+                if (resourceModel.get(i).material() == selectedMaterial) {
+                    selectedIndex = i;
+                    break;
+                }
+            }
+        }
+        if (selectedIndex < 0 && !filtered.isEmpty()) selectedIndex = 0;
+        if (selectedIndex >= 0) resourceList.setSelectedIndex(selectedIndex);
+        else resourceDetails.setText("No resources or items match this search.");
+    }
+
+    private void refreshSystems() {
+        ResourceSystemCatalog.SystemEntry selected = systemList.getSelectedValue();
+        String selectedId = selected == null ? "" : selected.id();
+        List<ResourceSystemCatalog.SystemEntry> filtered = ResourceSystemCatalog.filterSystems(searchField.getText());
+        systemModel.clear();
+        for (ResourceSystemCatalog.SystemEntry system : filtered) systemModel.addElement(system);
+
+        int selectedIndex = -1;
+        if (!selectedId.isBlank()) {
+            for (int i = 0; i < systemModel.size(); i++) {
+                if (systemModel.get(i).id().equals(selectedId)) {
+                    selectedIndex = i;
+                    break;
+                }
+            }
+        }
+        if (selectedIndex < 0 && !filtered.isEmpty()) selectedIndex = 0;
+        if (selectedIndex >= 0) systemList.setSelectedIndex(selectedIndex);
+        else systemDetails.setText("No systems match this search.");
+    }
+
+    private void showSelectedResource() {
+        ResourceSystemCatalog.Entry entry = resourceList.getSelectedValue();
+        resourceDetails.setText(entry == null ? "No resource or item selected." : entry.displayText());
+        resourceDetails.setCaretPosition(0);
+    }
+
+    private void showSelectedSystem() {
+        ResourceSystemCatalog.SystemEntry system = systemList.getSelectedValue();
+        systemDetails.setText(system == null ? "No system selected." : system.displayText());
+        systemDetails.setCaretPosition(0);
+    }
+
+    private void updateCount() {
+        if (tabs.getSelectedIndex() == SYSTEMS_TAB) {
+            countLabel.setText(systemModel.size() + " of " + ResourceSystemCatalog.systems().size() + " systems");
+        } else {
+            countLabel.setText(resourceModel.size() + " of " + ResourceSystemCatalog.entries().size() + " resources and items");
+        }
     }
 
     private void installKeyBindings() {
-        bind(KeyEvent.VK_ESCAPE, "close", this::close);
-        bind(KeyEvent.VK_UP, "previous-resource", () -> moveSelection(-1));
-        bind(KeyEvent.VK_DOWN, "next-resource", () -> moveSelection(1));
-        bind(KeyEvent.VK_PAGE_UP, "previous-page", () -> moveSelection(-Math.max(1, overlayLayout().visibleResourceRows())));
-        bind(KeyEvent.VK_PAGE_DOWN, "next-page", () -> moveSelection(Math.max(1, overlayLayout().visibleResourceRows())));
-        bind(KeyEvent.VK_HOME, "first-resource", () -> select(0));
-        bind(KeyEvent.VK_END, "last-resource", () -> select(entries.size() - 1));
-        bind(KeyEvent.VK_LEFT, "systems-up", () -> scrollSystems(-1));
-        bind(KeyEvent.VK_RIGHT, "systems-down", () -> scrollSystems(1));
+        bind(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "close-resource-catalog", this::close);
+        bind(KeyStroke.getKeyStroke(KeyEvent.VK_F, InputEvent.CTRL_DOWN_MASK), "focus-resource-search", () -> {
+            searchField.requestFocusInWindow();
+            searchField.selectAll();
+        });
+        bind(KeyStroke.getKeyStroke(KeyEvent.VK_1, InputEvent.ALT_DOWN_MASK), "resource-tab", () -> tabs.setSelectedIndex(RESOURCES_TAB));
+        bind(KeyStroke.getKeyStroke(KeyEvent.VK_2, InputEvent.ALT_DOWN_MASK), "system-tab", () -> tabs.setSelectedIndex(SYSTEMS_TAB));
+        bind(KeyStroke.getKeyStroke(KeyEvent.VK_UP, 0), "previous-catalog-entry", () -> moveSelection(-1));
+        bind(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0), "next-catalog-entry", () -> moveSelection(1));
     }
 
-    private void bind(int keyCode, String name, Runnable action) {
-        getInputMap(WHEN_FOCUSED).put(KeyStroke.getKeyStroke(keyCode, 0), name);
+    private void bind(KeyStroke stroke, String name, Runnable action) {
+        getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(stroke, name);
         getActionMap().put(name, new AbstractAction() {
             @Override public void actionPerformed(ActionEvent e) { action.run(); }
         });
     }
 
     private void moveSelection(int delta) {
-        if (entries.isEmpty()) return;
-        select(Math.max(0, Math.min(entries.size() - 1, selectedIndex + delta)));
+        if (tabs.getSelectedIndex() == SYSTEMS_TAB) moveSelection(systemList, systemModel.size(), delta);
+        else moveSelection(resourceList, resourceModel.size(), delta);
     }
 
-    private void select(int index) {
-        if (entries.isEmpty()) return;
-        int normalized = Math.max(0, Math.min(entries.size() - 1, index));
-        if (normalized != selectedIndex) systemScroll = 0;
-        selectedIndex = normalized;
-        ensureSelectedVisible();
-        repaint();
+    private void moveSelection(JList<?> list, int size, int delta) {
+        if (size <= 0) return;
+        int index = Math.max(0, Math.min(size - 1, list.getSelectedIndex() + delta));
+        list.setSelectedIndex(index);
+        list.ensureIndexIsVisible(index);
     }
 
-    private void ensureSelectedVisible() {
-        OverlayLayout layout = overlayLayout();
-        int rows = Math.max(1, layout.visibleResourceRows());
-        if (selectedIndex < resourceScroll) resourceScroll = selectedIndex;
-        if (selectedIndex >= resourceScroll + rows) resourceScroll = selectedIndex - rows + 1;
-        resourceScroll = clamp(resourceScroll, 0, Math.max(0, entries.size() - rows));
-        clampSystemScroll(layout);
+    private void styleField(JTextField field) {
+        field.setForeground(TEXT);
+        field.setCaretColor(TEXT);
+        field.setBackground(FIELD);
+        field.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER),
+                BorderFactory.createEmptyBorder(8, 10, 8, 10)));
     }
 
-    private void scrollResources(int amount) {
-        OverlayLayout layout = overlayLayout();
-        int max = Math.max(0, entries.size() - layout.visibleResourceRows());
-        resourceScroll = clamp(resourceScroll + amount, 0, max);
-        repaint();
+    private void styleList(JList<?> list) {
+        list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        list.setBackground(FIELD);
+        list.setForeground(TEXT);
+        list.setFixedCellHeight(52);
     }
 
-    private void scrollSystems(int amount) {
-        OverlayLayout layout = overlayLayout();
-        systemScroll = clamp(systemScroll + amount, 0, maxSystemScroll(layout));
-        repaint();
+    private void configureDetails(JTextArea details) {
+        details.setEditable(false);
+        details.setLineWrap(true);
+        details.setWrapStyleWord(true);
+        details.setBackground(FIELD);
+        details.setForeground(TEXT);
+        details.setCaretColor(TEXT);
+        details.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
+        details.setBorder(BorderFactory.createEmptyBorder(16, 18, 16, 18));
     }
 
-    private void clampSystemScroll(OverlayLayout layout) {
-        systemScroll = clamp(systemScroll, 0, maxSystemScroll(layout));
-    }
-
-    private int maxSystemScroll(OverlayLayout layout) {
-        if (entries.isEmpty()) return 0;
-        int systems = entries.get(selectedIndex).systems().size();
-        return Math.max(0, systems - layout.visibleSystemRows());
+    private void styleScroll(JScrollPane scroll) {
+        scroll.setBorder(BorderFactory.createLineBorder(new Color(54, 92, 122)));
+        scroll.getViewport().setBackground(FIELD);
+        scroll.getVerticalScrollBar().setUnitIncrement(22);
     }
 
     @Override protected void paintComponent(Graphics graphics) {
+        graphics.setColor(new Color(1, 4, 8, 220));
+        graphics.fillRect(0, 0, getWidth(), getHeight());
         super.paintComponent(graphics);
-        Graphics2D g = (Graphics2D) graphics.create();
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        OverlayLayout layout = overlayLayout();
-        clampSystemScroll(layout);
-
-        g.setColor(new Color(2, 5, 10, 224));
-        g.fillRect(0, 0, getWidth(), getHeight());
-        g.setColor(new Color(10, 18, 30, 246));
-        g.fillRoundRect(layout.panelX(), layout.panelY(), layout.panelWidth(), layout.panelHeight(), 24, 24);
-        g.setColor(new Color(92, 137, 180, 170));
-        g.setStroke(new BasicStroke(2f));
-        g.drawRoundRect(layout.panelX(), layout.panelY(), layout.panelWidth(), layout.panelHeight(), 24, 24);
-
-        drawHeader(g, layout);
-        drawResourceList(g, layout);
-        drawDetails(g, layout);
-        drawFooter(g, layout);
-        g.dispose();
     }
 
-    private void drawHeader(Graphics2D g, OverlayLayout layout) {
-        int x = layout.panelX() + 28;
-        int y = layout.panelY() + 38;
-        g.setFont(g.getFont().deriveFont(Font.BOLD, 22f));
-        g.setColor(new Color(230, 244, 255));
-        g.drawString("RESOURCE CATALOG", x, y);
-        g.setFont(g.getFont().deriveFont(Font.PLAIN, 12f));
-        g.setColor(new Color(185, 211, 235));
-        g.drawString(entries.size() + " loaded materials | " + ResourceSystemCatalog.systemTemplateCount()
-                + " loaded system templates | system type is shown by configured role", x, y + 23);
-    }
-
-    private void drawResourceList(Graphics2D g, OverlayLayout layout) {
-        g.setColor(new Color(6, 11, 19, 225));
-        g.fillRoundRect(layout.listX(), layout.contentY(), layout.listWidth(), layout.contentHeight(), 14, 14);
-        g.setColor(new Color(66, 96, 126, 150));
-        g.drawRoundRect(layout.listX(), layout.contentY(), layout.listWidth(), layout.contentHeight(), 14, 14);
-
-        g.setFont(g.getFont().deriveFont(Font.BOLD, 12f));
-        g.setColor(new Color(208, 229, 247));
-        g.drawString("LOADED RESOURCES", layout.listX() + 14, layout.contentY() + 23);
-
-        int first = resourceScroll;
-        int last = Math.min(entries.size(), first + layout.visibleResourceRows());
-        int rowTop = layout.resourceRowsY();
-        for (int index = first; index < last; index++) {
-            ResourceSystemCatalog.Entry entry = entries.get(index);
-            int y = rowTop + (index - first) * ROW_HEIGHT;
-            if (index == selectedIndex) {
-                g.setColor(new Color(38, 89, 122, 230));
-                g.fillRoundRect(layout.listX() + 7, y + 2, layout.listWidth() - 14, ROW_HEIGHT - 4, 9, 9);
-                g.setColor(new Color(112, 205, 255, 210));
-                g.drawRoundRect(layout.listX() + 7, y + 2, layout.listWidth() - 14, ROW_HEIGHT - 4, 9, 9);
+    private static final class ResourceRenderer extends DefaultListCellRenderer {
+        @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                                 boolean selected, boolean focused) {
+            JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, selected, focused);
+            if (value instanceof ResourceSystemCatalog.Entry entry) {
+                label.setText("<html><b>" + escape(entry.material().label) + "</b><br><span style='font-size:9px'>"
+                        + escape(entry.summary()) + "</span></html>");
             }
-
-            g.setColor(entry.material().color);
-            g.fillOval(layout.listX() + 17, y + 12, 16, 16);
-            g.setColor(new Color(245, 250, 255, 210));
-            g.drawOval(layout.listX() + 17, y + 12, 16, 16);
-
-            g.setFont(g.getFont().deriveFont(Font.BOLD, 13f));
-            g.setColor(Color.WHITE);
-            g.drawString(entry.material().label, layout.listX() + 43, y + 17);
-            g.setFont(g.getFont().deriveFont(Font.PLAIN, 10f));
-            g.setColor(new Color(177, 204, 228));
-            g.drawString(title(entry.material().family.name()) + " | " + title(entry.material().tier.name())
-                    + " | " + entry.sourceLabel(), layout.listX() + 43, y + 32);
-        }
-
-        if (entries.size() > layout.visibleResourceRows()) {
-            g.setFont(g.getFont().deriveFont(Font.PLAIN, 10f));
-            g.setColor(new Color(160, 190, 216));
-            g.drawString((first + 1) + "-" + last + " of " + entries.size(),
-                    layout.listX() + layout.listWidth() - 74, layout.contentY() + 23);
+            styleLabel(label, selected);
+            return label;
         }
     }
 
-    private void drawDetails(Graphics2D g, OverlayLayout layout) {
-        g.setColor(new Color(6, 11, 19, 225));
-        g.fillRoundRect(layout.detailX(), layout.contentY(), layout.detailWidth(), layout.contentHeight(), 14, 14);
-        g.setColor(new Color(66, 96, 126, 150));
-        g.drawRoundRect(layout.detailX(), layout.contentY(), layout.detailWidth(), layout.contentHeight(), 14, 14);
-        if (entries.isEmpty()) return;
-
-        ResourceSystemCatalog.Entry entry = entries.get(selectedIndex);
-        int x = layout.detailX() + 20;
-        int y = layout.contentY() + 34;
-        g.setColor(entry.material().color);
-        g.fillOval(x, y - 19, 22, 22);
-        g.setColor(new Color(245, 250, 255, 220));
-        g.drawOval(x, y - 19, 22, 22);
-        g.setFont(g.getFont().deriveFont(Font.BOLD, 21f));
-        g.setColor(Color.WHITE);
-        g.drawString(entry.material().label, x + 34, y);
-
-        g.setFont(g.getFont().deriveFont(Font.PLAIN, 12f));
-        g.setColor(new Color(185, 211, 235));
-        g.drawString("Family: " + title(entry.material().family.name())
-                + "   Rarity: " + title(entry.material().tier.name())
-                + "   Source: " + entry.sourceLabel(), x, y + 25);
-
-        int systemsTitleY = y + 62;
-        g.setFont(g.getFont().deriveFont(Font.BOLD, 12f));
-        g.setColor(new Color(208, 229, 247));
-        g.drawString("AVAILABLE IN SYSTEM TYPES", x, systemsTitleY);
-
-        if (entry.systems().isEmpty()) {
-            g.setFont(g.getFont().deriveFont(Font.PLAIN, 13f));
-            g.setColor(new Color(190, 208, 224));
-            String message = entry.material().family == MaterialFamily.SALVAGE
-                    ? "This material is obtained from salvage and is not placed in natural resource belts."
-                    : "This material is manufactured from other resources and is not placed in natural resource belts.";
-            drawWrapped(g, message, x, systemsTitleY + 30, layout.detailWidth() - 40, 19);
-            return;
-        }
-
-        int first = systemScroll;
-        int last = Math.min(entry.systems().size(), first + layout.visibleSystemRows());
-        int rowY = systemsTitleY + 16;
-        for (int index = first; index < last; index++) {
-            ResourceSystemCatalog.SystemAvailability system = entry.systems().get(index);
-            int top = rowY + (index - first) * SYSTEM_ROW_HEIGHT;
-            g.setColor(new Color(20, 35, 50, 220));
-            g.fillRoundRect(x, top, layout.detailWidth() - 40, SYSTEM_ROW_HEIGHT - 5, 9, 9);
-            g.setColor(new Color(60, 91, 120, 135));
-            g.drawRoundRect(x, top, layout.detailWidth() - 40, SYSTEM_ROW_HEIGHT - 5, 9, 9);
-
-            g.setFont(g.getFont().deriveFont(Font.BOLD, 13f));
-            g.setColor(new Color(236, 246, 255));
-            g.drawString(system.systemName() + "  [" + title(system.role()) + "]", x + 12, top + 17);
-            g.setFont(g.getFont().deriveFont(Font.PLAIN, 10f));
-            g.setColor(new Color(171, 202, 228));
-            g.drawString(system.systemId() + " | " + nodeKinds(system), x + 12, top + 34);
-        }
-
-        if (entry.systems().size() > layout.visibleSystemRows()) {
-            g.setFont(g.getFont().deriveFont(Font.PLAIN, 10f));
-            g.setColor(new Color(160, 190, 216));
-            g.drawString("Showing " + (first + 1) + "-" + last + " of " + entry.systems().size()
-                    + " systems | scroll over this panel", x, layout.contentY() + layout.contentHeight() - 13);
-        }
-    }
-
-    private void drawFooter(Graphics2D g, OverlayLayout layout) {
-        g.setFont(g.getFont().deriveFont(Font.PLAIN, 11f));
-        g.setColor(new Color(185, 211, 235));
-        g.drawString("Up/Down: select resource   Left/Right: scroll systems   Mouse wheel: scroll panel   I or Esc: close",
-                layout.panelX() + 28, layout.panelY() + layout.panelHeight() - 18);
-    }
-
-    private void drawWrapped(Graphics2D g, String text, int x, int y, int width, int lineHeight) {
-        List<String> lines = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
-        for (String word : text.split("\\s+")) {
-            String candidate = current.isEmpty() ? word : current + " " + word;
-            if (!current.isEmpty() && g.getFontMetrics().stringWidth(candidate) > width) {
-                lines.add(current.toString());
-                current = new StringBuilder(word);
-            } else {
-                current = new StringBuilder(candidate);
+    private static final class SystemRenderer extends DefaultListCellRenderer {
+        @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                                 boolean selected, boolean focused) {
+            JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, selected, focused);
+            if (value instanceof ResourceSystemCatalog.SystemEntry system) {
+                label.setText("<html><b>" + escape(system.name()) + "</b><br><span style='font-size:9px'>"
+                        + escape(system.summary()) + "</span></html>");
             }
+            styleLabel(label, selected);
+            return label;
         }
-        if (!current.isEmpty()) lines.add(current.toString());
-        for (int i = 0; i < lines.size(); i++) g.drawString(lines.get(i), x, y + i * lineHeight);
     }
 
-    private String nodeKinds(ResourceSystemCatalog.SystemAvailability system) {
-        List<String> labels = new ArrayList<>();
-        for (NodeKind kind : system.nodeKinds()) labels.add(title(kind.name()));
-        return labels.isEmpty() ? "Unspecified node type" : String.join(", ", labels);
+    private static void styleLabel(JLabel label, boolean selected) {
+        label.setBorder(BorderFactory.createEmptyBorder(5, 9, 5, 9));
+        label.setBackground(selected ? new Color(38, 89, 122) : FIELD);
+        label.setForeground(TEXT);
     }
 
-    private String title(String value) {
-        if (value == null || value.isBlank()) return "Standard";
-        String[] parts = value.toLowerCase(Locale.ROOT).split("[_\\s-]+");
-        StringBuilder out = new StringBuilder();
-        for (String part : parts) {
-            if (part.isBlank()) continue;
-            if (!out.isEmpty()) out.append(' ');
-            out.append(Character.toUpperCase(part.charAt(0))).append(part.substring(1));
-        }
-        return out.toString();
+    private static String escape(String value) {
+        if (value == null) return "";
+        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
-
-    private OverlayLayout overlayLayout() {
-        int panelX = MARGIN;
-        int panelY = 42;
-        int panelWidth = Math.max(1, getWidth() - MARGIN * 2);
-        int panelHeight = Math.max(1, getHeight() - 84);
-        int contentY = panelY + 78;
-        int contentHeight = Math.max(120, panelHeight - 116);
-        int gap = 18;
-        int listWidth = Math.min(390, Math.max(300, (int)Math.round(panelWidth * 0.36)));
-        int listX = panelX + 24;
-        int detailX = listX + listWidth + gap;
-        int detailWidth = Math.max(260, panelX + panelWidth - 24 - detailX);
-        int resourceRowsY = contentY + 32;
-        int visibleResourceRows = Math.max(1, (contentHeight - 42) / ROW_HEIGHT);
-        int visibleSystemRows = Math.max(1, (contentHeight - 130) / SYSTEM_ROW_HEIGHT);
-        return new OverlayLayout(panelX, panelY, panelWidth, panelHeight, contentY, contentHeight,
-                listX, listWidth, detailX, detailWidth, resourceRowsY, visibleResourceRows, visibleSystemRows);
-    }
-
-    private int clamp(int value, int min, int max) { return Math.max(min, Math.min(max, value)); }
-
-    @Override public void mousePressed(MouseEvent e) {
-        requestFocusInWindow();
-        OverlayLayout layout = overlayLayout();
-        if (e.getX() < layout.listX() || e.getX() > layout.listX() + layout.listWidth()) return;
-        if (e.getY() < layout.resourceRowsY()) return;
-        int row = (e.getY() - layout.resourceRowsY()) / ROW_HEIGHT;
-        if (row < 0 || row >= layout.visibleResourceRows()) return;
-        int index = resourceScroll + row;
-        if (index < entries.size()) select(index);
-    }
-
-    @Override public void mouseWheelMoved(MouseWheelEvent e) {
-        OverlayLayout layout = overlayLayout();
-        int amount = e.getWheelRotation();
-        if (e.getX() >= layout.detailX()) scrollSystems(amount);
-        else scrollResources(amount);
-    }
-
-    @Override public void mouseClicked(MouseEvent e) { }
-    @Override public void mouseReleased(MouseEvent e) { }
-    @Override public void mouseEntered(MouseEvent e) { }
-    @Override public void mouseExited(MouseEvent e) { }
-
-    private record OverlayLayout(
-            int panelX, int panelY, int panelWidth, int panelHeight,
-            int contentY, int contentHeight,
-            int listX, int listWidth, int detailX, int detailWidth,
-            int resourceRowsY, int visibleResourceRows, int visibleSystemRows
-    ) { }
 }
