@@ -65,6 +65,8 @@ Press `I` during a game to open the resource catalog. The catalog lists every lo
 
 Press `M` to open the galaxy map. Press `I` again or `Escape` to close the resource catalog.
 
+A tactical minimap appears in the lower-right corner during normal play. It shows resources, wormholes, friendly ships and bases, enemy contacts, and the current camera view. Click anywhere inside its map area to pan the camera there. Contact, wormhole, and friendly-loss pings briefly highlight important locations; build and developer panels take input priority if they overlap it.
+
 ## Manufacturing economy
 
 StarChem uses a JSON-driven intermediate manufacturing economy. Material display metadata, family, rarity, color, and raw/manufactured status are loaded from `config/materials.json`. Manufacturing recipes are loaded from the files listed under `files.craftables` in `config/starchem.json`.
