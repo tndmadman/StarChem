@@ -21,12 +21,25 @@ final class StationFuelRules {
         return base.inventory.getOrDefault(req.material(), 0.0) > 0.05;
     }
 
+    static boolean hasFuelDemand(Base base) {
+        if (base == null || requirement(base.typeId) == null) return false;
+        for (ProductionJob job : base.productionQueue) {
+            if (job.remaining <= 0.001 || ProductionSystem.waitingForResources(job)) continue;
+            return true;
+        }
+        return false;
+    }
+
     static void consume(World world, double dt) {
         if (dt <= 0) return;
         for (Base base : world.bases.values()) {
             StationFuelRequirement req = requirement(base.typeId);
             if (req == null || req.perSecond() <= 0) continue;
             String key = dryKey(world, base);
+            if (!hasFuelDemand(base)) {
+                DRY_STATIONS.remove(key);
+                continue;
+            }
             double held = base.inventory.getOrDefault(req.material(), 0.0);
             if (held <= 0.05) {
                 markDry(world, base, req, key);
