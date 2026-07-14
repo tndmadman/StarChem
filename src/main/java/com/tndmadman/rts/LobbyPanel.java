@@ -68,10 +68,13 @@ final class LobbyPanel extends JPanel {
         JButton solo = new MenuButton("SOLO");
         JButton serve = new MenuButton("HOST");
         JButton connect = new MenuButton("JOIN");
+        JButton codex = new MenuButton("CODEX");
         box.add(solo);
         box.add(serve);
         box.add(connect);
+        box.add(codex);
         statusLabel.setForeground(new Color(215, 232, 245));
+        box.add(label("Status"));
         box.add(statusLabel);
 
         MenuCardPanel card = new MenuCardPanel(new BorderLayout(0, 18));
@@ -83,6 +86,7 @@ final class LobbyPanel extends JPanel {
         solo.addActionListener(e -> owner.launchGame(Config.solo(nameField.getText(), devBox.isSelected(), disabledNpcFactions(), selectedSystemId(), selectedGalaxyCopies())));
         serve.addActionListener(e -> startServer());
         connect.addActionListener(e -> startClient());
+        codex.addActionListener(e -> owner.toggleCodexFromLobby());
     }
 
     private JLabel label(String text) {
