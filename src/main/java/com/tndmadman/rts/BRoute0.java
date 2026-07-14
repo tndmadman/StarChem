@@ -7,6 +7,9 @@ final class BRoute0 {
         if (message != null && message.startsWith("NOTICE|")) {
             return GameNoticeCenter.acceptRemote(c.world, message);
         }
+        if (message != null && message.startsWith("AUDIO|")) {
+            return AudioEventCenter.acceptRemote(c.world, message);
+        }
         if (!SyncFrame.matches(message)) return false;
         c.readFullView(message);
         return true;
