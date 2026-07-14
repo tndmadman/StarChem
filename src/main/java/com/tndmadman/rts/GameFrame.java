@@ -128,7 +128,7 @@ final class GameFrame extends JFrame {
         root.add(codexOverlay, JLayeredPane.POPUP_LAYER);
         root.add(endStatePanel, JLayeredPane.MODAL_LAYER);
         if (connectionOverlayPanel != null) root.add(connectionOverlayPanel, JLayeredPane.DRAG_LAYER);
-        if (!world.status.contains("Press I")) world.status = world.status + " Press I for resources; C for codex; F8 for narration.";
+        if (!world.status.contains("Press I")) world.status = world.status + " Press I for resources; F1 for codex; F8 for narration.";
         setTitle(BuildInfo.display() + " - " + config.modeLabel() + " - " + config.playerName + " - " + world.systemName() + (config.devMode ? " - DEV" : ""));
         layoutLayers();
         root.revalidate();
@@ -151,7 +151,7 @@ final class GameFrame extends JFrame {
 
     private void installCodexHotkey(JComponent target) {
         target.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
-                .put(KeyStroke.getKeyStroke(KeyEvent.VK_C, 0), CODEX_ACTION);
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_F1, 0), CODEX_ACTION);
         target.getActionMap().put(CODEX_ACTION, new AbstractAction() {
             @Override public void actionPerformed(ActionEvent e) {
                 if (codexOverlay == null) return;
