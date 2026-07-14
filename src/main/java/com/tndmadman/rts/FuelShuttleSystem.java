@@ -10,14 +10,113 @@ final class FuelShuttleSystem {
     private static final double LAB_FUEL_LOW_WATER = 150.0;
     private static final double MAX_DELIVERY_RANGE = 2400.0;
     private static final double LAUNCH_COOLDOWN_SECONDS = 3.5;
+    private static final double FUEL_REQUEST_COOLDOWN_SECONDS = 0.35;
     private static final Map<String, Double> launchCooldowns = new HashMap<>();
+    private static final Map<String, Double> fuelRequestCooldowns = new HashMap<>();
 
     private FuelShuttleSystem() { }
 
     static void update(World world, double dt) {
         deliverActiveShuttles(world);
+        requestFuelProduction(world, dt);
         launchFromManufacturing(world, dt);
         launchCooldowns.keySet().removeIf(id -> !world.bases.containsKey(id));
+    }
+
+    private static void requestFuelProduction(World world, double dt) {
+        Set<String> players = new LinkedHashSet<>();
+        for (Base base : world.bases.values()) {
+            if (!LABORATORY.equals(base.typeId) || !StationFuelRules.hasFuelDemand(base)) continue;
+            double supplied = base.inventory.getOrDefault(Material.FUEL, 0.0) + inboundFuel(world, base);
+            if (supplied <= LAB_FUEL_LOW_WATER) players.add(base.playerId);
+        }
+
+        String worldPrefix = System.identityHashCode(world) + "|";
+        Set<String> activeKeys = new HashSet<>();
+        for (String playerId : players) {
+            String key = worldPrefix + playerId;
+            activeKeys.add(key);
+            double cooldown = Math.max(0, fuelRequestCooldowns.getOrDefault(key, 0.0) - Math.max(0, dt));
+            if (cooldown > 0) {
+                fuelRequestCooldowns.put(key, cooldown);
+                continue;
+            }
+
+            double demand = refillDemand(world, playerId);
+            double available = manufacturingFuel(world, playerId) + queuedFuelOutput(world, playerId);
+            if (available + 0.05 >= demand) {
+                fuelRequestCooldowns.remove(key);
+                continue;
+            }
+
+            CraftableItem recipe = fuelRecipe(world, playerId);
+            Base plant = fuelPlant(world, playerId, recipe);
+            if (recipe == null || plant == null) {
+                fuelRequestCooldowns.put(key, 0.6);
+                continue;
+            }
+
+            if (ProductionPlanner.queueCraftable(world, plant, recipe)) {
+                fuelRequestCooldowns.put(key, FUEL_REQUEST_COOLDOWN_SECONDS);
+            } else {
+                fuelRequestCooldowns.put(key, 0.6);
+            }
+        }
+        fuelRequestCooldowns.keySet().removeIf(key -> key.startsWith(worldPrefix) && !activeKeys.contains(key));
+    }
+
+    private static double refillDemand(World world, String playerId) {
+        double total = 0;
+        for (Base lab : world.bases.values()) {
+            if (!LABORATORY.equals(lab.typeId) || !lab.playerId.equals(playerId)
+                    || !StationFuelRules.hasFuelDemand(lab)) continue;
+            double supplied = lab.inventory.getOrDefault(Material.FUEL, 0.0) + inboundFuel(world, lab);
+            if (supplied <= LAB_FUEL_LOW_WATER) total += Math.max(0, LAB_FUEL_TARGET - supplied);
+        }
+        return total;
+    }
+
+    private static double manufacturingFuel(World world, String playerId) {
+        double total = 0;
+        for (Base base : world.bases.values()) {
+            if (!MANUFACTURING.equals(base.typeId) || !base.playerId.equals(playerId)) continue;
+            total += base.inventory.getOrDefault(Material.FUEL, 0.0);
+        }
+        return total;
+    }
+
+    private static double queuedFuelOutput(World world, String playerId) {
+        double total = 0;
+        for (Base base : world.bases.values()) {
+            if (!MANUFACTURING.equals(base.typeId) || !base.playerId.equals(playerId)) continue;
+            for (ProductionJob job : base.productionQueue) {
+                if (job.kind != ProductionJobKind.CRAFTABLE) continue;
+                CraftableItem item = CraftingRules.item(job.itemId);
+                if (item != null && item.outputMaterial == Material.FUEL) total += item.outputAmount;
+            }
+        }
+        return total;
+    }
+
+    private static CraftableItem fuelRecipe(World world, String playerId) {
+        for (CraftableItem item : CraftingRules.recipesForOutput(Material.FUEL)) {
+            if (item.unlockedFor(world, playerId)) return item;
+        }
+        return null;
+    }
+
+    private static Base fuelPlant(World world, String playerId, CraftableItem recipe) {
+        if (recipe == null) return null;
+        Base best = null;
+        for (Base base : world.bases.values()) {
+            if (!MANUFACTURING.equals(base.typeId) || !base.playerId.equals(playerId)
+                    || !recipe.canCraftAt(base.typeId)) continue;
+            if (best == null || base.productionQueue.size() < best.productionQueue.size()
+                    || base.productionQueue.size() == best.productionQueue.size() && base.id.compareTo(best.id) < 0) {
+                best = base;
+            }
+        }
+        return best;
     }
 
     private static void deliverActiveShuttles(World world) {
@@ -81,7 +180,8 @@ final class FuelShuttleSystem {
         Base best = null;
         double bestDist = Double.MAX_VALUE;
         for (Base base : world.bases.values()) {
-            if (!LABORATORY.equals(base.typeId) || !base.playerId.equals(playerId)) continue;
+            if (!LABORATORY.equals(base.typeId) || !base.playerId.equals(playerId)
+                    || !StationFuelRules.hasFuelDemand(base)) continue;
             double stored = base.inventory.getOrDefault(Material.FUEL, 0.0) + inboundFuel(world, base);
             if (stored > LAB_FUEL_LOW_WATER) continue;
             double d = Calc.distance(x, y, base.x, base.y);
