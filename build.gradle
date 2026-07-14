@@ -221,6 +221,15 @@ tasks.register('validateResourceCatalog', JavaExec) {
     mainClass = 'com.tndmadman.rts.ResourceCatalogValidator'
 }
 
+tasks.register('validateMinimapHud', JavaExec) {
+    group = 'verification'
+    description = 'Validate tactical minimap layout, click-to-pan, and contact pings.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.MinimapHudValidator'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
 tasks.register('validateIntermediateCrafting', JavaExec) {
     group = 'verification'
     description = 'Validate JSON material metadata, intermediate recipes, progression gates, and crafting graph.'
@@ -388,6 +397,7 @@ tasks.named('check') {
     dependsOn tasks.named('validateNpcSystemIsolation')
     dependsOn tasks.named('validateMaterialCoverage')
     dependsOn tasks.named('validateResourceCatalog')
+    dependsOn tasks.named('validateMinimapHud')
     dependsOn tasks.named('validateIntermediateCrafting')
     dependsOn tasks.named('validateSystemControl')
     dependsOn tasks.named('validateGalaxyMapWire')

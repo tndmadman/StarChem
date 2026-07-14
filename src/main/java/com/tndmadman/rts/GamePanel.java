@@ -18,6 +18,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final Timer timer;
     private final BuildMenu buildMenu = new BuildMenu();
     private final GameCamera camera = new GameCamera();
+    private final MinimapHud minimapHud = new MinimapHud();
     private final HangarHud hangarHud = new HangarHud();
     private final LeaderboardHud leaderboardHud = new LeaderboardHud();
     private final ShieldDebugOverlay shieldDebugOverlay = new ShieldDebugOverlay();
@@ -102,6 +103,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         drawHud(g2);
         leaderboardHud.draw(g2, world, getWidth());
         hangarHud.draw(g2, world, getWidth());
+        if (!galaxyMapOpen) minimapHud.draw(g2, world, camera, getWidth(), getHeight());
         if (world.devFreeBuild) shieldDebugOverlay.draw(g2, world, getWidth());
         if (devMode) { devMenu.draw(g2, world, canEditDev()); aiDevPanel.draw(g2, world, canEditDev()); }
         buildMenu.draw(g2);
@@ -166,6 +168,15 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         if (devMode && aiDevPanel.click(world, devNetwork, e.getX(), e.getY(), canEditDev())) return;
         if (devMode && devMenu.click(world, devNetwork, e.getX(), e.getY(), canEditDev())) return;
         if (hangarHud.mousePressed(world, e.getX(), e.getY())) return;
+        if (SwingUtilities.isLeftMouseButton(e)
+                && minimapHud.click(world, camera, e.getX(), e.getY(), getWidth(), getHeight())) {
+            clearCommandMode();
+            dragStart = null;
+            dragNow = null;
+            ProceduralAudio.play(SoundCue.SELECT);
+            repaint();
+            return;
+        }
         if (SwingUtilities.isRightMouseButton(e)) { clickRight(screenToWorld(e.getPoint())); return; }
         if (SwingUtilities.isLeftMouseButton(e)) { dragStart = e.getPoint(); dragNow = e.getPoint(); }
     }
@@ -388,7 +399,11 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         if (devMode) { aiDevPanel.release(); devMenu.release(); }
     }
 
-    @Override public void mouseWheelMoved(MouseWheelEvent e) { if (!galaxyMapOpen) camera.zoomAt(e.getPoint(), e.getWheelRotation(), world, getWidth(), getHeight()); }
+    @Override public void mouseWheelMoved(MouseWheelEvent e) {
+        if (!galaxyMapOpen && !minimapHud.bounds(world, getWidth(), getHeight()).contains(e.getPoint())) {
+            camera.zoomAt(e.getPoint(), e.getWheelRotation(), world, getWidth(), getHeight());
+        }
+    }
     @Override public void mouseMoved(MouseEvent e) { }
     @Override public void mouseClicked(MouseEvent e) { }
     @Override public void mouseEntered(MouseEvent e) { }
