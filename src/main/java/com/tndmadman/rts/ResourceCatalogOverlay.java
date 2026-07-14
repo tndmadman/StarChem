@@ -50,9 +50,11 @@ final class ResourceCatalogOverlay extends JPanel {
     private final DefaultListModel<ResourceSystemCatalog.Entry> resourceModel = new DefaultListModel<>();
     private final JList<ResourceSystemCatalog.Entry> resourceList = new JList<>(resourceModel);
     private final JTextArea resourceDetails = new JTextArea();
+    private final CatalogVisuals.ResourcePreview resourcePreview = new CatalogVisuals.ResourcePreview();
     private final DefaultListModel<ResourceSystemCatalog.SystemEntry> systemModel = new DefaultListModel<>();
     private final JList<ResourceSystemCatalog.SystemEntry> systemList = new JList<>(systemModel);
     private final JTextArea systemDetails = new JTextArea();
+    private final CatalogVisuals.SystemPreview systemPreview = new CatalogVisuals.SystemPreview();
     private final JLabel countLabel = new JLabel();
     private String previousStatus = "";
 
@@ -71,7 +73,7 @@ final class ResourceCatalogOverlay extends JPanel {
         constraints.weightx = 1;
         constraints.weighty = 1;
         constraints.fill = GridBagConstraints.BOTH;
-        constraints.insets = new Insets(34, 42, 34, 42);
+        constraints.insets = new Insets(28, 34, 28, 34);
         add(card, constraints);
 
         searchField.getDocument().addDocumentListener(new DocumentListener() {
@@ -121,20 +123,20 @@ final class ResourceCatalogOverlay extends JPanel {
     }
 
     private JPanel buildCard() {
-        JPanel card = new JPanel(new BorderLayout(0, 14));
+        JPanel card = new JPanel(new BorderLayout(0, 12));
         card.setBackground(PANEL);
         card.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(BORDER, 2),
-                BorderFactory.createEmptyBorder(20, 22, 18, 22)));
-        card.setMinimumSize(new Dimension(760, 520));
-        card.setPreferredSize(new Dimension(1080, 700));
+                BorderFactory.createEmptyBorder(18, 20, 16, 20)));
+        card.setMinimumSize(new Dimension(780, 540));
+        card.setPreferredSize(new Dimension(1120, 730));
 
         JPanel header = new JPanel(new BorderLayout(14, 10));
         header.setOpaque(false);
         JLabel title = new JLabel("RESOURCE & SYSTEM CATALOG");
         title.setForeground(TEXT);
         title.setFont(title.getFont().deriveFont(Font.BOLD, 24f));
-        JLabel subtitle = new JLabel("Loaded materials, natural spawn locations, system templates, belts, and orbital distances");
+        JLabel subtitle = new JLabel("Visual material index, build-cost usage, system templates, belts, and orbital distances");
         subtitle.setForeground(MUTED);
         subtitle.setFont(subtitle.getFont().deriveFont(Font.PLAIN, 12f));
         JPanel heading = new JPanel(new BorderLayout(0, 3));
@@ -157,7 +159,7 @@ final class ResourceCatalogOverlay extends JPanel {
         search.add(searchLabel, BorderLayout.WEST);
         search.add(searchField, BorderLayout.CENTER);
 
-        JPanel top = new JPanel(new BorderLayout(0, 12));
+        JPanel top = new JPanel(new BorderLayout(0, 10));
         top.setOpaque(false);
         top.add(header, BorderLayout.NORTH);
         top.add(search, BorderLayout.SOUTH);
@@ -185,31 +187,41 @@ final class ResourceCatalogOverlay extends JPanel {
     }
 
     private JComponent buildResourceTab() {
-        styleList(resourceList);
+        styleList(resourceList, 62);
         resourceList.setCellRenderer(new ResourceRenderer());
         configureDetails(resourceDetails);
-        return buildSplit(resourceList, resourceDetails);
+        JPanel detail = buildVisualDetails(resourcePreview, resourceDetails);
+        return buildSplit(resourceList, detail);
     }
 
     private JComponent buildSystemTab() {
-        styleList(systemList);
+        styleList(systemList, 62);
         systemList.setCellRenderer(new SystemRenderer());
         configureDetails(systemDetails);
-        return buildSplit(systemList, systemDetails);
+        JPanel detail = buildVisualDetails(systemPreview, systemDetails);
+        return buildSplit(systemList, detail);
     }
 
-    private JComponent buildSplit(JList<?> list, JTextArea details) {
+    private JPanel buildVisualDetails(JComponent visual, JTextArea details) {
+        JPanel panel = new JPanel(new BorderLayout(0, 9));
+        panel.setBackground(FIELD);
+        panel.add(visual, BorderLayout.NORTH);
+        JScrollPane detailScroll = new JScrollPane(details);
+        styleScroll(detailScroll);
+        panel.add(detailScroll, BorderLayout.CENTER);
+        return panel;
+    }
+
+    private JComponent buildSplit(JList<?> list, JComponent details) {
         JScrollPane listScroll = new JScrollPane(list);
         styleScroll(listScroll);
         listScroll.setPreferredSize(new Dimension(350, 500));
-        JScrollPane detailScroll = new JScrollPane(details);
-        styleScroll(detailScroll);
 
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, listScroll, detailScroll);
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, listScroll, details);
         split.setOpaque(false);
-        split.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
+        split.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
         split.setDividerSize(8);
-        split.setResizeWeight(0.34);
+        split.setResizeWeight(0.32);
         return split;
     }
 
@@ -237,7 +249,10 @@ final class ResourceCatalogOverlay extends JPanel {
         }
         if (selectedIndex < 0 && !filtered.isEmpty()) selectedIndex = 0;
         if (selectedIndex >= 0) resourceList.setSelectedIndex(selectedIndex);
-        else resourceDetails.setText("No resources or items match this search.");
+        else {
+            resourcePreview.setEntry(null);
+            resourceDetails.setText("No resources or items match this search.");
+        }
     }
 
     private void refreshSystems() {
@@ -258,17 +273,22 @@ final class ResourceCatalogOverlay extends JPanel {
         }
         if (selectedIndex < 0 && !filtered.isEmpty()) selectedIndex = 0;
         if (selectedIndex >= 0) systemList.setSelectedIndex(selectedIndex);
-        else systemDetails.setText("No systems match this search.");
+        else {
+            systemPreview.setSystem(null);
+            systemDetails.setText("No systems match this search.");
+        }
     }
 
     private void showSelectedResource() {
         ResourceSystemCatalog.Entry entry = resourceList.getSelectedValue();
+        resourcePreview.setEntry(entry);
         resourceDetails.setText(entry == null ? "No resource or item selected." : entry.displayText());
         resourceDetails.setCaretPosition(0);
     }
 
     private void showSelectedSystem() {
         ResourceSystemCatalog.SystemEntry system = systemList.getSelectedValue();
+        systemPreview.setSystem(system);
         systemDetails.setText(system == null ? "No system selected." : system.displayText());
         systemDetails.setCaretPosition(0);
     }
@@ -321,11 +341,11 @@ final class ResourceCatalogOverlay extends JPanel {
                 BorderFactory.createEmptyBorder(8, 10, 8, 10)));
     }
 
-    private void styleList(JList<?> list) {
+    private void styleList(JList<?> list, int rowHeight) {
         list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         list.setBackground(FIELD);
         list.setForeground(TEXT);
-        list.setFixedCellHeight(52);
+        list.setFixedCellHeight(rowHeight);
     }
 
     private void configureDetails(JTextArea details) {
@@ -336,7 +356,7 @@ final class ResourceCatalogOverlay extends JPanel {
         details.setForeground(TEXT);
         details.setCaretColor(TEXT);
         details.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
-        details.setBorder(BorderFactory.createEmptyBorder(16, 18, 16, 18));
+        details.setBorder(BorderFactory.createEmptyBorder(14, 16, 14, 16));
     }
 
     private void styleScroll(JScrollPane scroll) {
@@ -354,10 +374,14 @@ final class ResourceCatalogOverlay extends JPanel {
     private static final class ResourceRenderer extends DefaultListCellRenderer {
         @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
                                                                  boolean selected, boolean focused) {
-            JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, selected, focused);
+            JLabel label = (JLabel)super.getListCellRendererComponent(list, value, index, selected, focused);
             if (value instanceof ResourceSystemCatalog.Entry entry) {
+                label.setIcon(CatalogVisuals.materialIcon(entry.material(), 42));
+                label.setIconTextGap(11);
                 label.setText("<html><b>" + escape(entry.material().label) + "</b><br><span style='font-size:9px'>"
                         + escape(entry.summary()) + "</span></html>");
+            } else {
+                label.setIcon(null);
             }
             styleLabel(label, selected);
             return label;
@@ -367,10 +391,14 @@ final class ResourceCatalogOverlay extends JPanel {
     private static final class SystemRenderer extends DefaultListCellRenderer {
         @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
                                                                  boolean selected, boolean focused) {
-            JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, selected, focused);
+            JLabel label = (JLabel)super.getListCellRendererComponent(list, value, index, selected, focused);
             if (value instanceof ResourceSystemCatalog.SystemEntry system) {
+                label.setIcon(CatalogVisuals.systemIcon(system, 42));
+                label.setIconTextGap(11);
                 label.setText("<html><b>" + escape(system.name()) + "</b><br><span style='font-size:9px'>"
                         + escape(system.summary()) + "</span></html>");
+            } else {
+                label.setIcon(null);
             }
             styleLabel(label, selected);
             return label;
