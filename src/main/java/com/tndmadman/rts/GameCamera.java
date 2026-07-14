@@ -30,6 +30,13 @@ final class GameCamera {
         clampToWorld(world, screenW, screenH);
     }
 
+    void centerAt(double worldX, double worldY, World world, int screenW, int screenH) {
+        x = worldX - screenW / (2.0 * zoom);
+        y = worldY - screenH / (2.0 * zoom);
+        initialized = true;
+        clampToWorld(world, screenW, screenH);
+    }
+
     void zoomAt(Point ignoredScreenPoint, int wheelRotation, World world, int screenW, int screenH) {
         if (wheelRotation == 0) return;
         double centerX = screenW / 2.0;
@@ -54,6 +61,10 @@ final class GameCamera {
 
     Point2D worldToScreen(double wx, double wy) {
         return new Point2D.Double((wx - x) * zoom, (wy - y) * zoom);
+    }
+
+    Rectangle2D visibleWorldRect(int screenW, int screenH) {
+        return new Rectangle2D.Double(x, y, screenW / zoom, screenH / zoom);
     }
 
     private boolean centerOnLocal(World world, int screenW, int screenH) {
