@@ -107,7 +107,7 @@
       "tractorBeams": 2,
       "tractorRange": 360,
       "orbitRadius": 88,
-      "idleStationOrbitRadius": 120,
+      "idleStationOrbitRadius": 108,
       "buildTimeSeconds": 16,
       "buildCost": {
         "STRUCTURAL_FRAME": 10,
