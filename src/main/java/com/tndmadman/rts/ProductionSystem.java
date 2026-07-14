@@ -232,7 +232,7 @@ final class ProductionSystem {
     private static void completed(World world, Base base, ProductionJob job, String message, SoundCue cue) {
         world.status = message;
         AlertCenter.push(world, message);
-        if (PlayerRegistry.isLocal(base.playerId)) ProceduralAudio.play(cue);
+        SystemAudio.playForPlayer(world, base.playerId, cue);
         job.resourcesReserved = false;
     }
 

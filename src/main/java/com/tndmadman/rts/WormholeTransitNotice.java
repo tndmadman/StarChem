@@ -22,7 +22,8 @@ final class WormholeTransitNotice {
     }
 
     static void incoming(String destinationSystemId) {
-        if (!SystemAudio.audible(destinationSystemId)) return;
+        World world = PlayerRegistry.activeWorld();
+        if (world == null || destinationSystemId == null || destinationSystemId.isBlank()) return;
         long now = System.nanoTime();
         synchronized (WormholeTransitNotice.class) {
             if (destinationSystemId.equals(lastIncomingSystemId)
@@ -30,7 +31,7 @@ final class WormholeTransitNotice {
             lastIncomingSystemId = destinationSystemId;
             lastIncomingAlarmNanos = now;
         }
-        SystemAudio.play(destinationSystemId, SoundCue.ATTACK_ORDER);
+        AudioEventCenter.play(world, destinationSystemId, SoundCue.ATTACK_ORDER);
         Thread secondTone = new Thread(() -> {
             try {
                 Thread.sleep(ALARM_SECOND_TONE_DELAY_MS);
@@ -38,15 +39,15 @@ final class WormholeTransitNotice {
                 Thread.currentThread().interrupt();
                 return;
             }
-            SystemAudio.play(destinationSystemId, SoundCue.ERROR);
+            AudioEventCenter.play(world, destinationSystemId, SoundCue.ERROR);
         }, "StarChem Incoming Wormhole Alarm");
         secondTone.setDaemon(true);
         secondTone.start();
     }
 
     private static void play(World world, String entrySystemId, String exitSystemId) {
-        if (!SystemAudio.audible(world, entrySystemId)) return;
-        ProceduralAudio.play(SoundCue.TRACTOR_BEAM);
+        if (world == null || entrySystemId == null || entrySystemId.isBlank()) return;
+        AudioEventCenter.play(world, entrySystemId, SoundCue.TRACTOR_BEAM);
         Thread exit = new Thread(() -> {
             try {
                 Thread.sleep(EXIT_DELAY_MS);
@@ -54,7 +55,7 @@ final class WormholeTransitNotice {
                 Thread.currentThread().interrupt();
                 return;
             }
-            SystemAudio.play(world, exitSystemId, SoundCue.ITEM_PICKUP);
+            AudioEventCenter.play(world, exitSystemId, SoundCue.ITEM_PICKUP);
         }, "StarChem Wormhole Exit Audio");
         exit.setDaemon(true);
         exit.start();

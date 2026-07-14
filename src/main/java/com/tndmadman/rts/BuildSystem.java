@@ -65,7 +65,7 @@ final class BuildSystem {
         world.bases.put(baseId, new Base(baseId, carrier.playerId, carrier.basePackageType, carrier.x, carrier.y));
         world.units.remove(carrier.key());
         world.status = "Placed " + placed.name + ". Deployer consumed.";
-        if (PlayerRegistry.isLocal(carrier.playerId)) ProceduralAudio.play(SoundCue.PLACE_STATION);
+        SystemAudio.playForPlayer(world, carrier.playerId, SoundCue.PLACE_STATION);
         return true;
     }
 

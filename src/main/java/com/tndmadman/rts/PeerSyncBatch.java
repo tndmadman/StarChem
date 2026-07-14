@@ -13,6 +13,7 @@ final class PeerSyncBatch {
         for (ServerPeer peer : peers) {
             next = PeerSyncSender.sendOne(world, views, peer, next, SyncKind.REGULAR, fullResources, out);
             sendNotices(world, peer, out);
+            sendAudio(world, views, peer, out);
         }
         return next;
     }
@@ -20,6 +21,7 @@ final class PeerSyncBatch {
     static long sendInitial(World world, ClientViewCache views, ServerPeer peer, long sequence, NetOutbound out) {
         long next = PeerSyncSender.sendOne(world, views, peer, sequence, SyncKind.INITIAL, out);
         sendNotices(world, peer, out);
+        sendAudio(world, views, peer, out);
         return next;
     }
 
@@ -27,6 +29,14 @@ final class PeerSyncBatch {
         if (world == null || peer == null || out == null) return;
         for (GameNotice notice : GameNoticeCenter.drain(world, peer.playerId())) {
             out.send(notice.packet(), peer.connectionId(), DeliveryClass.ORDERED);
+        }
+    }
+
+    private static void sendAudio(World world, ClientViewCache views, ServerPeer peer, NetOutbound out) {
+        if (world == null || views == null || peer == null || out == null) return;
+        String viewedSystemId = views.view(world, peer.playerId());
+        for (AudioEvent event : AudioEventCenter.drain(world, peer.playerId(), viewedSystemId)) {
+            out.send(event.packet(), peer.connectionId(), DeliveryClass.ORDERED);
         }
     }
 }

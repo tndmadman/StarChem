@@ -6,8 +6,8 @@ import java.util.Set;
 import java.util.WeakHashMap;
 
 /**
- * Routes world-simulation audio only when the simulated system matches the
- * system currently being rendered for the local player.
+ * Routes world-simulation audio through the authoritative event stream and
+ * keeps local playback scoped to the world and system currently rendered.
  */
 final class SystemAudio {
     private static final Set<World> NON_RENDERED_WORLDS =
@@ -26,20 +26,29 @@ final class SystemAudio {
         }
     }
 
+    static boolean nonRendered(World world) {
+        return world != null && NON_RENDERED_WORLDS.contains(world);
+    }
+
+    static boolean rendered(World world) {
+        return world != null && !nonRendered(world) && listenerWorld == world;
+    }
+
     static void listenTo(World world) {
-        if (world == null || NON_RENDERED_WORLDS.contains(world)) return;
+        if (world == null || nonRendered(world)) return;
         String systemId = world.activeSystemId();
         if (systemId == null || systemId.isBlank()) return;
         listenerWorld = world;
         listenerSystemId = systemId;
+        AudioEventCenter.listenerChanged(world);
     }
 
     static boolean audible(World world) {
-        return world != null && audible(world.activeSystemId());
+        return world != null && audible(world, world.activeSystemId());
     }
 
     static boolean audible(World world, String systemId) {
-        return world != null && audible(systemId);
+        return rendered(world) && audible(systemId);
     }
 
     static boolean audible(String systemId) {
@@ -47,11 +56,19 @@ final class SystemAudio {
     }
 
     static void play(World world, SoundCue cue) {
-        if (audible(world)) ProceduralAudio.play(cue);
+        AudioEventCenter.play(world, cue);
     }
 
     static void play(World world, String systemId, SoundCue cue) {
-        if (audible(world, systemId)) ProceduralAudio.play(cue);
+        AudioEventCenter.play(world, systemId, cue);
+    }
+
+    static void playForPlayer(World world, String playerId, SoundCue cue) {
+        AudioEventCenter.playForPlayer(world, playerId, cue);
+    }
+
+    static void playForPlayerInSystem(World world, String playerId, SoundCue cue) {
+        AudioEventCenter.playForPlayerInSystem(world, playerId, cue);
     }
 
     static void play(String systemId, SoundCue cue) {
@@ -59,18 +76,18 @@ final class SystemAudio {
     }
 
     static void playWeaponFire(World world, WeaponType weapon, double distance) {
-        if (audible(world)) ProceduralAudio.playWeaponFire(weapon, distance);
+        AudioEventCenter.playWeaponFire(world, weapon, distance);
     }
 
     static void playWeaponImpact(World world, WeaponType weapon) {
-        if (audible(world)) ProceduralAudio.playWeaponImpact(weapon);
+        AudioEventCenter.playWeaponImpact(world, weapon);
     }
 
     static void playDestruction(World world, double scale) {
-        if (audible(world)) ProceduralAudio.playDestruction(scale);
+        AudioEventCenter.playDestruction(world, scale);
     }
 
     static void playResourceDepleted(World world, Material material) {
-        if (audible(world)) ProceduralAudio.playResourceDepleted(material);
+        AudioEventCenter.playResourceDepleted(world, material);
     }
 }

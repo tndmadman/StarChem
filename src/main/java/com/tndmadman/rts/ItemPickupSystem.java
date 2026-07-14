@@ -67,16 +67,15 @@ final class ItemPickupSystem {
         if (take <= EPS) return;
         unit.addCargo(item.material, take);
         if (PlayerRegistry.isLocal(unit.playerId)) unit.unloadingThisFrame = true;
-        SystemAudio.play(world, SoundCue.ITEM_PICKUP);
+        SystemAudio.playForPlayerInSystem(world, unit.playerId, SoundCue.ITEM_PICKUP);
     }
 
     private void playTractorPulse(World world, Unit unit) {
-        if (!SystemAudio.audible(world)) return;
         long now = System.nanoTime();
         String key = unit.key();
         long last = lastTractorSoundNanos.getOrDefault(key, 0L);
         if (now - last < TRACTOR_SOUND_COOLDOWN_NANOS) return;
         lastTractorSoundNanos.put(key, now);
-        SystemAudio.play(world, SoundCue.TRACTOR_BEAM);
+        SystemAudio.playForPlayerInSystem(world, unit.playerId, SoundCue.TRACTOR_BEAM);
     }
 }

@@ -33,7 +33,9 @@ final class GameClient {
 
     private void announceLocalWormholeTransit(WormholeTouchRequest request) {
         WormholeGate gate = WormholeTouchRequest.gateById(world, request.gateId());
-        if (gate != null) WormholeTransitNotice.alert(world, gate.toSystemId);
+        if (gate != null) {
+            world.status = "Wormhole transit: entering " + StarSystems.get(gate.toSystemId).name() + ".";
+        }
         Unit unit = world.units.get(Unit.key(request.playerId(), request.unitId()));
         if (unit != null) unit.wormholeCooldown = Math.max(unit.wormholeCooldown, LOCAL_WORMHOLE_FEEDBACK_COOLDOWN);
     }
