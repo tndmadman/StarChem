@@ -128,7 +128,7 @@ final class GameFrame extends JFrame {
         root.add(codexOverlay, JLayeredPane.POPUP_LAYER);
         root.add(endStatePanel, JLayeredPane.MODAL_LAYER);
         if (connectionOverlayPanel != null) root.add(connectionOverlayPanel, JLayeredPane.DRAG_LAYER);
-        if (!world.status.contains("Press I")) world.status = world.status + " Press I for resources; F1 for codex; F8 for narration.";
+        if (!world.status.contains("Press I")) world.status = world.status + " Press I for catalog; F1 for codex; F8 for narration.";
         setTitle(BuildInfo.display() + " - " + config.modeLabel() + " - " + config.playerName + " - " + world.systemName() + (config.devMode ? " - DEV" : ""));
         layoutLayers();
         root.revalidate();
@@ -138,10 +138,11 @@ final class GameFrame extends JFrame {
 
     private void installResourceCatalogHotkey(JComponent target) {
         target.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
-                .put(KeyStroke.getKeyStroke(KeyEvent.VK_I, 0), RESOURCE_CATALOG_ACTION);
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_I, 0, true), RESOURCE_CATALOG_ACTION);
         target.getActionMap().put(RESOURCE_CATALOG_ACTION, new AbstractAction() {
             @Override public void actionPerformed(ActionEvent e) {
                 if (resourceCatalogOverlay == null) return;
+                if (resourceCatalogOverlay.isSearchFocused()) return;
                 if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
                 if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) narrationSettingsOverlay.close();
                 resourceCatalogOverlay.toggle();
@@ -155,7 +156,7 @@ final class GameFrame extends JFrame {
         target.getActionMap().put(CODEX_ACTION, new AbstractAction() {
             @Override public void actionPerformed(ActionEvent e) {
                 if (codexOverlay == null) return;
-                if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.setVisible(false);
+                if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
                 if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) narrationSettingsOverlay.close();
                 codexOverlay.toggle();
             }
@@ -168,7 +169,7 @@ final class GameFrame extends JFrame {
         target.getActionMap().put(NARRATION_SETTINGS_ACTION, new AbstractAction() {
             @Override public void actionPerformed(ActionEvent e) {
                 if (narrationSettingsOverlay == null) return;
-                if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.setVisible(false);
+                if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
                 if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
                 narrationSettingsOverlay.toggle();
             }
