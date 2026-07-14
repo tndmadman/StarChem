@@ -12,12 +12,16 @@ final class PlayerRegistry {
     private static final RegistryState DEFAULT = new RegistryState();
     private static final Map<World, RegistryState> BY_WORLD = Collections.synchronizedMap(new WeakHashMap<>());
     private static final ThreadLocal<RegistryState> ACTIVE = ThreadLocal.withInitial(() -> DEFAULT);
+    private static final ThreadLocal<World> ACTIVE_WORLD = new ThreadLocal<>();
 
     private PlayerRegistry() { }
 
     static void activate(World world) {
+        ACTIVE_WORLD.set(world);
         ACTIVE.set(world == null ? DEFAULT : BY_WORLD.computeIfAbsent(world, ignored -> new RegistryState()));
     }
+
+    static World activeWorld() { return ACTIVE_WORLD.get(); }
 
     static void reset(String id, String name, int rgb) {
         RegistryState state = state();
