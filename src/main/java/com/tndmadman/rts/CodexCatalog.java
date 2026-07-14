@@ -1,7 +1,6 @@
 package com.tndmadman.rts;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -195,13 +194,13 @@ final class CodexCatalog {
 
     private static void addControls(List<CodexEntry> out) {
         out.add(control("camera", "Camera and maps", "Navigate the battlefield",
-                "WASD or Arrow Keys: pan camera\nMouse Wheel: zoom\nM: galaxy map\nClick tactical minimap: pan camera\nI: resource catalog\nC: codex"));
+                "WASD or Arrow Keys: pan camera\nMouse Wheel: zoom\nM: galaxy map\nClick tactical minimap: pan camera\nI: resource catalog\nF1: codex"));
         out.add(control("selection", "Selection and movement", "Control friendly fleets",
                 "Left-click: select ship, station, or resource\nDrag left mouse: box-select ships\nDouble-click ship: select same visible type\nRight-click empty space: move selected ships\nRight-click resource: auto-harvest with compatible ships\nRight-click enemy: attack"));
         out.add(control("orders", "Fleet orders", "Assign persistent tactical behavior",
                 "F: cycle formation\nX: attack-move\nP: patrol\nG: guard\nE: escort\nH: hold position\nEscape: cancel command mode or close an overlay"));
         out.add(control("audio", "Audio and accessibility", "Sound and narration controls",
-                "Ctrl+M: mute or enable audio\nF8: narration settings\nC or Escape: close the codex"));
+                "Ctrl+M: mute or enable audio\nF8: narration settings\nEscape: close the codex"));
     }
 
     private static CodexEntry control(String id, String title, String summary, String body) {
