@@ -68,8 +68,7 @@ final class AudioEventCenter {
 
     static synchronized List<AudioEvent> drain(World world, String playerId, String viewedSystemId) {
         if (world == null || playerId == null || playerId.isBlank()) return List.of();
-        State state = STATES.get(world);
-        if (state == null) return List.of();
+        State state = STATES.computeIfAbsent(world, ignored -> new State());
         long now = System.currentTimeMillis();
         prune(state, now);
         long latest = state.nextId - 1;
