@@ -174,7 +174,7 @@ final class CodexOverlay extends JPanel {
 
         countLabel.setForeground(MUTED);
         countLabel.setFont(countLabel.getFont().deriveFont(Font.PLAIN, 11f));
-        JLabel help = new JLabel("Up/Down: select   Type to search   C or Escape: close", SwingConstants.RIGHT);
+        JLabel help = new JLabel("Up/Down: select   Type to search   Escape: close", SwingConstants.RIGHT);
         help.setForeground(MUTED);
         help.setFont(help.getFont().deriveFont(Font.PLAIN, 11f));
         JPanel footer = new JPanel(new BorderLayout());
@@ -216,7 +216,6 @@ final class CodexOverlay extends JPanel {
 
     private void installKeyBindings() {
         bind(KeyEvent.VK_ESCAPE, "close-codex", this::close);
-        bind(KeyEvent.VK_C, "close-codex-c", this::close);
         bind(KeyEvent.VK_UP, "previous-entry", () -> moveSelection(-1));
         bind(KeyEvent.VK_DOWN, "next-entry", () -> moveSelection(1));
     }
