@@ -14,6 +14,7 @@ final class GameFrame extends JFrame {
     private static final String ACTIVE_SESSION_NOTICE = "Session is already active on another connection.";
     private static final String DUPLICATE_NAME_NOTICE = "Duplicate player names are not allowed on this server. Choose a different name.";
     private static final String RESOURCE_CATALOG_ACTION = "toggle-resource-catalog";
+    private static final String CODEX_ACTION = "toggle-codex";
     private static final String NARRATION_SETTINGS_ACTION = "toggle-narration-settings";
 
     private final JLayeredPane root = new JLayeredPane();
@@ -21,6 +22,7 @@ final class GameFrame extends JFrame {
     private final LobbyPanel menuPanel = new LobbyPanel(this);
     private GamePanel gamePanel;
     private ResourceCatalogOverlay resourceCatalogOverlay;
+    private CodexOverlay codexOverlay;
     private NarrationSettingsOverlay narrationSettingsOverlay;
     private EndStatePanel endStatePanel;
     private ConnectionOverlayPanel connectionOverlayPanel;
@@ -50,12 +52,18 @@ final class GameFrame extends JFrame {
         root.removeAll();
         root.add(backdrop, JLayeredPane.DEFAULT_LAYER);
         root.add(menuPanel, JLayeredPane.PALETTE_LAYER);
+        codexOverlay = new CodexOverlay(menuPanel);
+        root.add(codexOverlay, JLayeredPane.POPUP_LAYER);
         menuPanel.setStatus(status);
         setTitle(BuildInfo.display() + " - Menu");
         layoutLayers();
         root.revalidate();
         root.repaint();
         menuPanel.requestFocusForName();
+    }
+
+    void toggleCodexFromLobby() {
+        if (codexOverlay != null) codexOverlay.toggle();
     }
 
     void launchGame(Config config) {
@@ -105,8 +113,10 @@ final class GameFrame extends JFrame {
     private void showGame(Config config, World world, PeerNetwork activeNetwork, PeerNetwork devAuthorityNetwork) {
         gamePanel = new GamePanel(world, this, activeNetwork, config.devMode, devAuthorityNetwork);
         resourceCatalogOverlay = new ResourceCatalogOverlay(gamePanel, world);
+        codexOverlay = new CodexOverlay(gamePanel);
         narrationSettingsOverlay = new NarrationSettingsOverlay();
         installResourceCatalogHotkey(gamePanel);
+        installCodexHotkey(gamePanel);
         installNarrationSettingsHotkey(gamePanel);
         endStatePanel = new EndStatePanel(world, this, activeNetwork);
         connectionOverlayPanel = activeNetwork != null && activeNetwork.clientMode()
@@ -115,9 +125,10 @@ final class GameFrame extends JFrame {
         root.add(gamePanel, JLayeredPane.DEFAULT_LAYER);
         root.add(resourceCatalogOverlay, JLayeredPane.PALETTE_LAYER);
         root.add(narrationSettingsOverlay, JLayeredPane.POPUP_LAYER);
+        root.add(codexOverlay, JLayeredPane.POPUP_LAYER);
         root.add(endStatePanel, JLayeredPane.MODAL_LAYER);
         if (connectionOverlayPanel != null) root.add(connectionOverlayPanel, JLayeredPane.DRAG_LAYER);
-        if (!world.status.contains("Press I")) world.status = world.status + " Press I for resources; F8 for narration.";
+        if (!world.status.contains("Press I")) world.status = world.status + " Press I for resources; F1 for codex; F8 for narration.";
         setTitle(BuildInfo.display() + " - " + config.modeLabel() + " - " + config.playerName + " - " + world.systemName() + (config.devMode ? " - DEV" : ""));
         layoutLayers();
         root.revalidate();
@@ -130,7 +141,23 @@ final class GameFrame extends JFrame {
                 .put(KeyStroke.getKeyStroke(KeyEvent.VK_I, 0), RESOURCE_CATALOG_ACTION);
         target.getActionMap().put(RESOURCE_CATALOG_ACTION, new AbstractAction() {
             @Override public void actionPerformed(ActionEvent e) {
-                if (resourceCatalogOverlay != null) resourceCatalogOverlay.toggle();
+                if (resourceCatalogOverlay == null) return;
+                if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
+                if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) narrationSettingsOverlay.close();
+                resourceCatalogOverlay.toggle();
+            }
+        });
+    }
+
+    private void installCodexHotkey(JComponent target) {
+        target.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_F1, 0), CODEX_ACTION);
+        target.getActionMap().put(CODEX_ACTION, new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) {
+                if (codexOverlay == null) return;
+                if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.setVisible(false);
+                if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) narrationSettingsOverlay.close();
+                codexOverlay.toggle();
             }
         });
     }
@@ -142,6 +169,7 @@ final class GameFrame extends JFrame {
             @Override public void actionPerformed(ActionEvent e) {
                 if (narrationSettingsOverlay == null) return;
                 if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.setVisible(false);
+                if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
                 narrationSettingsOverlay.toggle();
             }
         });
@@ -150,6 +178,7 @@ final class GameFrame extends JFrame {
     private void stopActiveGame() {
         if (gamePanel != null) gamePanel.stop();
         if (resourceCatalogOverlay != null) resourceCatalogOverlay.setVisible(false);
+        if (codexOverlay != null) codexOverlay.close();
         if (narrationSettingsOverlay != null) narrationSettingsOverlay.close();
         if (endStatePanel != null) endStatePanel.stop();
         if (connectionOverlayPanel != null) connectionOverlayPanel.stop();
@@ -158,6 +187,7 @@ final class GameFrame extends JFrame {
         else if (network != null) network.shutdown();
         gamePanel = null;
         resourceCatalogOverlay = null;
+        codexOverlay = null;
         narrationSettingsOverlay = null;
         endStatePanel = null;
         connectionOverlayPanel = null;
@@ -172,6 +202,7 @@ final class GameFrame extends JFrame {
         backdrop.setBounds(0, 0, w, h);
         if (gamePanel != null) gamePanel.setBounds(0, 0, w, h);
         if (resourceCatalogOverlay != null) resourceCatalogOverlay.setBounds(0, 0, w, h);
+        if (codexOverlay != null) codexOverlay.setBounds(0, 0, w, h);
         if (narrationSettingsOverlay != null) narrationSettingsOverlay.setBounds(0, 0, w, h);
         if (endStatePanel != null) endStatePanel.setBounds(0, 0, w, h);
         if (connectionOverlayPanel != null) connectionOverlayPanel.setBounds(0, 0, w, h);

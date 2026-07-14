@@ -61,9 +61,11 @@ StarChem multiplayer uses framed TCP connections. A host or dedicated server lis
 
 ## In-game reference menus
 
+Press `F1` during a game, or choose **CODEX** in the lobby, to open the searchable StarChem codex. It is generated from the currently loaded rule definitions and covers ships, stations, resources, research prerequisites and unlocks, manufacturing recipes, NPC factions, and controls. Filter by category or search names, IDs, stats, costs, descriptions, and unlock text. The codex is read-only and works during solo, hosted, and joined games without changing game state.
+
 Press `I` during a game to open the resource catalog. The catalog lists every loaded material and shows the loaded star-system templates, configured system roles, and resource-node types where the selected raw resource can naturally appear. Manufactured and salvage materials are identified separately because they are not placed in natural system belts.
 
-Press `M` to open the galaxy map. Press `I` again or `Escape` to close the resource catalog.
+Press `M` to open the galaxy map. Press the active menu key again or `Escape` to close a reference overlay.
 
 A tactical minimap appears in the lower-right corner during normal play. It shows resources, wormholes, friendly ships and bases, enemy contacts, and the current camera view. Click anywhere inside its map area to pan the camera there. Contact, wormhole, and friendly-loss pings briefly highlight important locations; build and developer panels take input priority if they overlap it.
 
