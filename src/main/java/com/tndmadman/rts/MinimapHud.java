@@ -41,7 +41,7 @@ final class MinimapHud {
         drawWormholes(g, world, layout.map);
         drawBases(g, world, layout.map);
         drawUnits(g, world, layout.map);
-        drawPings(g, layout.map);
+        drawPings(g, world, layout.map);
         drawCamera(g, camera.visibleWorldRect(screenW, screenH), world, layout.map);
         g.dispose();
     }
@@ -162,16 +162,17 @@ final class MinimapHud {
         g.draw(cameraRect);
     }
 
-    private void drawPings(Graphics2D g, Rectangle map) {
+    private void drawPings(Graphics2D g, World world, Rectangle map) {
         prunePings();
         long now = System.nanoTime();
         for (Ping ping : pings) {
             double age = (now - ping.createdNanos) / (double)PING_LIFETIME_NANOS;
             double radius = 4 + 15 * Math.min(1, age);
             int alpha = (int)Math.round(220 * Math.max(0, 1 - age));
+            Point2D point = mapPoint(world, map, ping.worldX, ping.worldY);
             g.setColor(new Color(ping.color.getRed(), ping.color.getGreen(), ping.color.getBlue(), alpha));
             g.setStroke(new BasicStroke(1.6f));
-            g.draw(new Ellipse2D.Double(ping.mapX - radius, ping.mapY - radius, radius * 2, radius * 2));
+            g.draw(new Ellipse2D.Double(point.getX() - radius, point.getY() - radius, radius * 2, radius * 2));
         }
     }
 
@@ -189,13 +190,13 @@ final class MinimapHud {
             for (Map.Entry<String, TrackedContact> entry : current.entrySet()) {
                 if (previousContacts.containsKey(entry.getKey())) continue;
                 TrackedContact contact = entry.getValue();
-                if (contact.kind == ContactKind.ENEMY) addWorldPing(world, contact.x, contact.y, new Color(255, 105, 90));
-                else if (contact.kind == ContactKind.WORMHOLE) addWorldPing(world, contact.x, contact.y, new Color(80, 230, 255));
+                if (contact.kind == ContactKind.ENEMY) addWorldPing(contact.x, contact.y, new Color(255, 105, 90));
+                else if (contact.kind == ContactKind.WORMHOLE) addWorldPing(contact.x, contact.y, new Color(80, 230, 255));
             }
             for (Map.Entry<String, TrackedContact> entry : previousContacts.entrySet()) {
                 if (current.containsKey(entry.getKey())) continue;
                 TrackedContact contact = entry.getValue();
-                if (contact.kind == ContactKind.LOCAL) addWorldPing(world, contact.x, contact.y, new Color(255, 80, 70));
+                if (contact.kind == ContactKind.LOCAL) addWorldPing(contact.x, contact.y, new Color(255, 80, 70));
             }
         }
         previousContacts.clear();
@@ -220,22 +221,16 @@ final class MinimapHud {
         return out;
     }
 
-    private void addWorldPing(World world, double worldX, double worldY, Color color) {
-        Layout layout = layout(world, Math.max(MIN_WIDTH + MARGIN * 2, lastScreenWidth), Math.max(220, lastScreenHeight));
-        Point2D point = mapPoint(world, layout.map, worldX, worldY);
-        pings.add(new Ping(point.getX(), point.getY(), color, System.nanoTime()));
+    private void addWorldPing(double worldX, double worldY, Color color) {
+        pings.add(new Ping(worldX, worldY, color, System.nanoTime()));
         while (pings.size() > 12) pings.remove(0);
     }
 
-    private int lastScreenWidth = 1280;
-    private int lastScreenHeight = 720;
-
     private Layout layout(World world, int screenW, int screenH) {
-        lastScreenWidth = Math.max(1, screenW);
-        lastScreenHeight = Math.max(1, screenH);
-        int width = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, screenW / 5));
-        int availableMapW = width - 16;
-        int availableMapH = Math.max(100, Math.min(MAX_MAP_HEIGHT, screenH / 4));
+        int maxAllowedWidth = Math.max(100, screenW - MARGIN * 2);
+        int width = Math.min(maxAllowedWidth, Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, screenW / 5)));
+        int availableMapW = Math.max(84, width - 16);
+        int availableMapH = Math.max(80, Math.min(MAX_MAP_HEIGHT, screenH / 4));
         double aspect = Math.max(0.2, world.width / Math.max(1.0, world.height));
         int mapW = availableMapW;
         int mapH = (int)Math.round(mapW / aspect);
@@ -243,11 +238,12 @@ final class MinimapHud {
             mapH = availableMapH;
             mapW = (int)Math.round(mapH * aspect);
         }
-        mapW = Math.max(90, Math.min(availableMapW, mapW));
-        mapH = Math.max(80, Math.min(availableMapH, mapH));
+        mapW = Math.max(80, Math.min(availableMapW, mapW));
+        mapH = Math.max(70, Math.min(availableMapH, mapH));
         int outerH = TITLE_HEIGHT + mapH + 12;
         int outerX = Math.max(MARGIN, screenW - width - MARGIN);
-        int outerY = Math.max(154, screenH - outerH - MARGIN);
+        int bottomY = screenH - outerH - MARGIN;
+        int outerY = bottomY >= 154 ? bottomY : Math.max(MARGIN, bottomY);
         Rectangle outer = new Rectangle(outerX, outerY, width, outerH);
         Rectangle map = new Rectangle(outerX + (width - mapW) / 2, outerY + TITLE_HEIGHT, mapW, mapH);
         return new Layout(outer, map);
@@ -267,5 +263,5 @@ final class MinimapHud {
     private enum ContactKind { LOCAL, ENEMY, WORMHOLE }
     private record Layout(Rectangle outer, Rectangle map) { }
     private record TrackedContact(double x, double y, ContactKind kind) { }
-    private record Ping(double mapX, double mapY, Color color, long createdNanos) { }
+    private record Ping(double worldX, double worldY, Color color, long createdNanos) { }
 }
