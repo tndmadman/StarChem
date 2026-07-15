@@ -17,6 +17,9 @@ final class NpcGalaxyDirector {
 
         for (NpcFaction faction : NpcRules.factions()) {
             if (!faction.enabled() || faction.behavior() != NpcBehavior.FACTION) continue;
+            NpcStrategicState strategy = NpcStrategicDirector.update(world, faction, dt);
+            if (strategy != NpcStrategicState.EXPAND) continue;
+            if (!NpcFactionRuntime.homeSystemIdFor(faction).equals(current.id())) continue;
             if (!faction.id().equals(current.controllerId())) continue;
             String key = current.id() + "|" + faction.id();
             if (cooldowns.getOrDefault(key, 0.0) > 0) continue;
