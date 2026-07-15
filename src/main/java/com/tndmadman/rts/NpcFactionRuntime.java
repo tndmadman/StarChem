@@ -11,7 +11,7 @@ final class NpcFactionRuntime {
 
     NpcFactionRuntime(NpcFaction faction) {
         this.factionId = faction.id();
-        this.homeSystemId = homeSystemId(faction);
+        this.homeSystemId = homeSystemIdFor(faction);
         this.spawnTimer = Math.max(0, faction.firstSpawnSeconds());
     }
 
@@ -49,8 +49,8 @@ final class NpcFactionRuntime {
         spawnTimer = Math.max(0.25, seconds);
     }
 
-    private static String homeSystemId(NpcFaction faction) {
-        if (Config.CORSAIRS_ID.equals(faction.id())) return StarSystems.CORSAIR_SYSTEM_ID;
+    static String homeSystemIdFor(NpcFaction faction) {
+        if (faction != null && Config.CORSAIRS_ID.equals(faction.id())) return StarSystems.CORSAIR_SYSTEM_ID;
         return StarSystems.DEFAULT_SYSTEM_ID;
     }
 }
