@@ -29,7 +29,7 @@ public final class NpcWorkerProductionValidator {
         require(initialWorkers == 2,
                 "forced Corsair spawn did not begin with the configured two workers");
 
-        NpcWorkerProductionSystem.update(fixture.world, fixture.faction);
+        runRecovery(fixture.world);
         require(workerCount(fixture.world, fixture.faction) == initialWorkers,
                 "worker recovery created a ship immediately");
         ProductionJob job = pendingWorkerJob(fixture.world, fixture.faction);
@@ -37,7 +37,7 @@ public final class NpcWorkerProductionValidator {
         require(ProductionSystem.waitingForResources(job),
                 "unfunded worker demand was not waiting for resources");
 
-        for (int i = 0; i < 20; i++) NpcWorkerProductionSystem.update(fixture.world, fixture.faction);
+        for (int i = 0; i < 20; i++) runRecovery(fixture.world);
         require(pendingWorkerJobCount(fixture.world, fixture.faction) == 1,
                 "repeated recovery updates duplicated the worker production request");
         require(workerCount(fixture.world, fixture.faction) == initialWorkers,
@@ -45,7 +45,7 @@ public final class NpcWorkerProductionValidator {
 
         ShipType worker = Rules.ship(job.itemId);
         addCosts(fixture.home, worker.buildCost);
-        NpcWorkerProductionSystem.update(fixture.world, fixture.faction);
+        runRecovery(fixture.world);
         require(job.resourcesReserved,
                 "worker-recovery budget did not fund the waiting production job");
         require(!ProductionSystem.waitingForResources(job),
@@ -69,7 +69,7 @@ public final class NpcWorkerProductionValidator {
                 "completed worker job remained in the production queue");
 
         for (int i = 0; i < 30; i++) {
-            NpcWorkerProductionSystem.update(fixture.world, fixture.faction);
+            runRecovery(fixture.world);
             ProductionQueueScheduler.update(fixture.world, 1.0);
         }
         require(workerCount(fixture.world, fixture.faction) == fixture.faction.maxWorkers(),
@@ -89,7 +89,7 @@ public final class NpcWorkerProductionValidator {
         fixture.world.bases.put(labId, laboratory);
         for (Material material : Material.values()) laboratory.inventory.put(material, 1000.0);
 
-        NpcWorkerProductionSystem.update(fixture.world, fixture.faction);
+        runRecovery(fixture.world);
         require(pendingWorkerJob(fixture.world, fixture.faction) == null,
                 "worker recovery queued at a station that cannot build the worker type");
         require(workerCount(fixture.world, fixture.faction) == 2,
@@ -109,9 +109,13 @@ public final class NpcWorkerProductionValidator {
 
         require(workerCount(fixture.world, fixture.faction) == fixture.faction.maxWorkers(),
                 "remote worker was not included in the galaxy-wide worker count");
-        NpcWorkerProductionSystem.update(fixture.world, fixture.faction);
+        runRecovery(fixture.world);
         require(pendingWorkerJob(fixture.world, fixture.faction) == null,
                 "Corsair Den queued a replacement despite the remote worker satisfying the cap");
+    }
+
+    private static void runRecovery(World world) {
+        NpcCollapseSystem.removeShipsWithoutStations(world);
     }
 
     private static Fixture fixture(String name) {
