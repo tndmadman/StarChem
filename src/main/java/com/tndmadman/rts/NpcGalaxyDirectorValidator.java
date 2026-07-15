@@ -1,5 +1,6 @@
 package com.tndmadman.rts;
 
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 public final class NpcGalaxyDirectorValidator {
@@ -33,16 +34,38 @@ public final class NpcGalaxyDirectorValidator {
         String target = expeditionTarget(world);
         require(!target.isBlank(), "organized NPC faction did not establish a neighboring foothold");
         world.activateSystem(target);
-        require(world.bases.values().stream().anyMatch(base -> Config.CORSAIRS_ID.equals(base.playerId)),
-                "NPC expedition did not create a target-system outpost");
-        long expeditionUnits = world.units.values().stream().filter(unit -> Config.CORSAIRS_ID.equals(unit.playerId)).count();
-        require(expeditionUnits >= 5, "NPC expedition did not transfer combat ships and a worker");
-        Base foothold = world.bases.values().stream().filter(base -> Config.CORSAIRS_ID.equals(base.playerId)).findFirst().orElseThrow();
+        Base foothold = world.bases.values().stream()
+                .filter(base -> Config.CORSAIRS_ID.equals(base.playerId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("NPC expedition did not create a target-system outpost"));
+        Set<String> expeditionUnitKeys = factionUnitKeys(world);
+        require(expeditionUnitKeys.size() >= 5,
+                "NPC expedition did not transfer combat ships and a worker");
         require(!foothold.inventory.isEmpty(), "NPC expedition foothold received no transferred supplies");
+
+        world.updateCurrentSystem(1.0);
+        require(world.bases.containsKey(foothold.id),
+                "active-system cleanup relocated the expedition foothold to Corsair Den");
+        require(world.units.keySet().containsAll(expeditionUnitKeys),
+                "active-system cleanup relocated expedition ships to Corsair Den");
+
         world.activateSystem(StarSystems.CORSAIR_SYSTEM_ID);
         require(world.bases.containsKey(source.id), "NPC expedition incorrectly moved the source station");
         require(world.units.values().stream().noneMatch(unit -> Config.CORSAIRS_ID.equals(unit.playerId) && unit.type().baseBuilder),
                 "NPC expedition did not consume its deployer");
+        require(!world.bases.containsKey(foothold.id),
+                "expedition foothold was merged into Corsair Den during cleanup");
+        for (String unitKey : expeditionUnitKeys) {
+            require(!world.units.containsKey(unitKey),
+                    "expedition ship was merged into Corsair Den during cleanup: " + unitKey);
+        }
+
+        for (int i = 0; i < 30; i++) world.update(1.0);
+        world.activateSystem(target);
+        require(world.bases.containsKey(foothold.id),
+                "background simulation relocated the expedition foothold to Corsair Den");
+        require(world.units.keySet().containsAll(expeditionUnitKeys),
+                "background simulation relocated expedition ships to Corsair Den");
     }
 
     private static String expeditionTarget(World world) {
@@ -53,6 +76,14 @@ public final class NpcGalaxyDirectorValidator {
             if (world.bases.values().stream().anyMatch(base -> Config.CORSAIRS_ID.equals(base.playerId))) return system.id();
         }
         return "";
+    }
+
+    private static Set<String> factionUnitKeys(World world) {
+        Set<String> keys = new LinkedHashSet<>();
+        for (Unit unit : world.units.values()) {
+            if (Config.CORSAIRS_ID.equals(unit.playerId) && unit.hp > 0) keys.add(unit.key());
+        }
+        return keys;
     }
 
     private static void add(World world, int id, String type, double x, double y) {
