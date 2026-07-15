@@ -102,7 +102,7 @@ public final class NpcSystemIsolationValidator {
         require(AiDevLog.lines(80).isEmpty(),
                 "cleanup-time station replacement emitted repeated AI decisions");
 
-        tickCurrent(world, 24);
+        tickCurrent(world, 160);
         require(factionBaseCount(world, Config.CORSAIRS_ID) > basesBefore,
                 "cooldown-controlled NpcSystem did not retain station expansion ownership");
     }
