@@ -2,11 +2,17 @@ package com.tndmadman.rts;
 
 import java.util.Iterator;
 
+/**
+ * Handles local NPC collapse after a system loses every living station.
+ *
+ * This system must never relocate faction assets between galaxy systems. An
+ * organized faction can legitimately own expeditions and footholds outside its
+ * home system; cross-system retreat belongs to an explicit strategic order.
+ */
 final class NpcCollapseSystem {
     private NpcCollapseSystem() { }
 
     static void removeShipsWithoutStations(World world) {
-        NpcHomeSystem.keepCorsairsHome(world);
         for (NpcFaction faction : NpcRules.factions()) {
             if (!faction.enabled()) continue;
             if (hasLivingStation(world, faction.id())) continue;
