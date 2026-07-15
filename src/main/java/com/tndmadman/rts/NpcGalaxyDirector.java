@@ -21,6 +21,7 @@ final class NpcGalaxyDirector {
             if (strategy != NpcStrategicState.EXPAND) continue;
             if (!NpcFactionRuntime.homeSystemIdFor(faction).equals(current.id())) continue;
             if (!faction.id().equals(current.controllerId())) continue;
+            if (!NpcResourceBudget.canLaunchExpansion(world, faction)) continue;
             String key = current.id() + "|" + faction.id();
             if (cooldowns.getOrDefault(key, 0.0) > 0) continue;
             GalaxyMapSystem target = target(snapshot, current.id(), faction.id());
