@@ -15,7 +15,10 @@ final class NpcCollapseSystem {
     static void removeShipsWithoutStations(World world) {
         for (NpcFaction faction : NpcRules.factions()) {
             if (!faction.enabled()) continue;
-            if (hasLivingStation(world, faction.id())) continue;
+            if (hasLivingStation(world, faction.id())) {
+                NpcWorkerProductionSystem.update(world, faction);
+                continue;
+            }
             clearShips(world, faction);
         }
     }
