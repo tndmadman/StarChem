@@ -3,6 +3,7 @@ package com.tndmadman.rts;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
@@ -52,6 +53,7 @@ final class ProductionPlanner {
         state.timer = 0;
 
         String activeSystem = world.activeSystemId();
+        Map<String, PlanningLedger> ledgers = new HashMap<>();
         Iterator<ProductionPlan> iterator = state.plans.iterator();
         while (iterator.hasNext()) {
             ProductionPlan plan = iterator.next();
@@ -75,8 +77,11 @@ final class ProductionPlanner {
                 continue;
             }
 
+            PlanningLedger ledger = ledgers.computeIfAbsent(plan.playerId,
+                    playerId -> PlanningLedger.capture(world, playerId));
             if (networkCanCover(world, plan.playerId, plan.root.cost)
                     && activateRoot(world, target, plan.root, rootJob)) {
+                ledger.claimAll(plan.root.cost);
                 world.status = "Auto-production prerequisites ready. Queued " + plan.root.displayName + ".";
                 GameNoticeCenter.publish(world, plan.playerId, NoticeCategory.PRODUCTION,
                         "All prerequisites are available. " + plan.root.displayName + " has been queued.", true);
@@ -84,16 +89,19 @@ final class ProductionPlanner {
                 continue;
             }
 
+            Analysis analysis = analyze(world, plan, ledger.copyAmounts());
+            List<Cost> deficits = ledger.claimAll(plan.root.cost);
             boolean queuedSomething = false;
             Set<Material> visiting = new HashSet<>();
-            for (Cost need : plan.root.cost) {
-                EnsureResult result = ensureMaterial(world, plan, need.material(), need.amount(), visiting);
+            for (Cost deficit : deficits) {
+                EnsureResult result = ensureMissingMaterial(world, plan, deficit.material(), deficit.amount(),
+                        visiting, ledger);
                 if (result == EnsureResult.QUEUED) {
                     queuedSomething = true;
                     break;
                 }
             }
-            reportState(world, plan, queuedSomething);
+            reportState(world, plan, queuedSomething, analysis);
         }
         if (state.plans.isEmpty()) STATES.remove(world);
     }
@@ -126,7 +134,8 @@ final class ProductionPlanner {
             world.status = "Created auto-production plan for " + displayName + ".";
             GameNoticeCenter.publish(world, target.playerId, NoticeCategory.PRODUCTION,
                     "Auto-production plan created for " + displayName + ".", false);
-            reportState(world, plan, false);
+            reportState(world, plan, false,
+                    analyze(world, plan, PlanningLedger.capture(world, target.playerId).copyAmounts()));
         }
         return true;
     }
@@ -169,12 +178,10 @@ final class ProductionPlanner {
         return true;
     }
 
-    private static EnsureResult ensureMaterial(World world, ProductionPlan plan, Material material,
-                                               double requiredAmount, Set<Material> visiting) {
-        double current = networkAmount(world, plan.playerId, material);
-        if (current + EPSILON >= requiredAmount) return EnsureResult.READY;
-        double future = futureOutput(world, plan.playerId, material);
-        if (current + future + EPSILON >= requiredAmount) return EnsureResult.WAITING;
+    private static EnsureResult ensureMissingMaterial(World world, ProductionPlan plan, Material material,
+                                                       double missingAmount, Set<Material> visiting,
+                                                       PlanningLedger ledger) {
+        if (missingAmount <= EPSILON) return EnsureResult.READY;
         if (!visiting.add(material)) return EnsureResult.BLOCKED;
         try {
             RecipeChoice choice = chooseRecipe(world, plan, material);
@@ -182,13 +189,17 @@ final class ProductionPlanner {
             CraftableItem recipe = choice.item;
 
             for (Cost input : recipe.requiredResources) {
-                EnsureResult inputResult = ensureMaterial(world, plan, input.material(), input.amount(), visiting);
-                if (inputResult == EnsureResult.QUEUED) return EnsureResult.QUEUED;
+                double missingInput = ledger.claim(input.material(), input.amount());
+                if (missingInput <= EPSILON) continue;
+                EnsureResult inputResult = ensureMissingMaterial(world, plan, input.material(), missingInput,
+                        visiting, ledger);
                 if (inputResult != EnsureResult.READY) return inputResult;
             }
 
             if (!networkCanCover(world, plan.playerId, recipe.requiredResources)) return EnsureResult.WAITING;
             if (!enqueueCraftableAt(world, choice.station, recipe)) return EnsureResult.WAITING;
+            ledger.add(recipe.outputMaterial, recipe.outputAmount);
+            ledger.claim(recipe.outputMaterial, Math.min(missingAmount, recipe.outputAmount));
             GameNoticeCenter.publish(world, plan.playerId, NoticeCategory.PRODUCTION,
                     "Auto-queued prerequisite: " + recipe.name + " at " + choice.station.type().name + ".", false);
             return EnsureResult.QUEUED;
@@ -259,8 +270,7 @@ final class ProductionPlanner {
         return total;
     }
 
-    private static void reportState(World world, ProductionPlan plan, boolean queuedSomething) {
-        Analysis analysis = analyze(world, plan);
+    private static void reportState(World world, ProductionPlan plan, boolean queuedSomething, Analysis analysis) {
         String summary = analysis.summary();
         if (!summary.equals(plan.lastSummary)) {
             plan.lastSummary = summary;
@@ -277,12 +287,7 @@ final class ProductionPlanner {
         }
     }
 
-    private static Analysis analyze(World world, ProductionPlan plan) {
-        EnumMap<Material, Double> ledger = new EnumMap<>(Material.class);
-        for (Material material : Material.values()) {
-            double amount = networkAmount(world, plan.playerId, material) + futureOutput(world, plan.playerId, material);
-            if (amount > EPSILON) ledger.put(material, amount);
-        }
+    private static Analysis analyze(World world, ProductionPlan plan, EnumMap<Material, Double> ledger) {
         Analysis analysis = new Analysis();
         for (Cost need : plan.root.cost) {
             resolveRequirement(world, plan, need.material(), need.amount(), ledger, analysis, new HashSet<>());
@@ -387,6 +392,47 @@ final class ProductionPlanner {
         long nextPlanId = 1;
         double timer;
         final List<ProductionPlan> plans = new ArrayList<>();
+    }
+
+    private static final class PlanningLedger {
+        final EnumMap<Material, Double> amounts = new EnumMap<>(Material.class);
+
+        static PlanningLedger capture(World world, String playerId) {
+            PlanningLedger ledger = new PlanningLedger();
+            for (Material material : Material.values()) {
+                double amount = networkAmount(world, playerId, material) + futureOutput(world, playerId, material);
+                if (amount > EPSILON) ledger.amounts.put(material, amount);
+            }
+            return ledger;
+        }
+
+        double claim(Material material, double amount) {
+            if (material == null || amount <= EPSILON) return 0;
+            double available = amounts.getOrDefault(material, 0.0);
+            double used = Math.min(available, amount);
+            double remaining = available - used;
+            if (remaining <= EPSILON) amounts.remove(material);
+            else amounts.put(material, remaining);
+            return Math.max(0, amount - used);
+        }
+
+        List<Cost> claimAll(List<Cost> cost) {
+            List<Cost> deficits = new ArrayList<>();
+            for (Cost need : cost) {
+                double missing = claim(need.material(), need.amount());
+                if (missing > EPSILON) deficits.add(new Cost(need.material(), missing));
+            }
+            return deficits;
+        }
+
+        void add(Material material, double amount) {
+            if (material == null || amount <= EPSILON) return;
+            amounts.merge(material, amount, Double::sum);
+        }
+
+        EnumMap<Material, Double> copyAmounts() {
+            return new EnumMap<>(amounts);
+        }
     }
 
     private static final class Analysis {

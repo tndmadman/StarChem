@@ -1,6 +1,7 @@
 package com.tndmadman.rts;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
@@ -83,6 +84,7 @@ public final class ProductionQueueValidator {
         validateMultiSystemRequestScope();
         validateDisabledTimers();
         validateAutoProductionQueueVisibility();
+        validateAutoProductionAllocation();
         validateMalformedQueueRejection();
     }
 
@@ -253,6 +255,63 @@ public final class ProductionQueueValidator {
                 "funded ship remained marked as waiting");
         require(!ProductionSystem.waitingForResources(outpost.productionQueue.get(1)),
                 "funded station remained marked as waiting");
+    }
+
+    private static void validateAutoProductionAllocation() {
+        World world = new World("Auto-Production Allocation Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        String playerId = "AUTO_ALLOCATION_TEST";
+        world.completeResearch(playerId, "advanced_industry");
+
+        List<Base> yards = new ArrayList<>();
+        List<Base> plants = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            yards.add(base(world, playerId + ":Y" + (i + 1), playerId, "shipyard",
+                    100 + i * 180, 100));
+            Base plant = base(world, playerId + ":M" + (i + 1), playerId, "manufacturing",
+                    100 + i * 180, 400);
+            plant.inventory.put(Material.STEEL_PLATE, 12.0);
+            plant.inventory.put(Material.NICKEL_STEEL, 6.0);
+            plant.inventory.put(Material.FUEL, 1_000.0);
+            plants.add(plant);
+        }
+
+        Base stock = plants.get(0);
+        stock.inventory.put(Material.CARGO_POD, 18.0);
+        stock.inventory.put(Material.LOGISTICS_CONTROL_MODULE, 3.0);
+        stock.inventory.put(Material.FUEL_CELL_STACK, 6.0);
+        stock.inventory.put(Material.CARBON, 60.0);
+        stock.inventory.put(Material.POINT_DEFENSE_LASER_ASSEMBLY, 3.0);
+
+        for (Base yard : yards) {
+            require(world.buildShip(yard.id, "hauler"),
+                    "hauler request should create an auto-production plan");
+        }
+        require(ProductionPlanner.planCount(world) == 3,
+                "competing ship requests did not create three plans");
+
+        ProductionPlanner.update(world, 1.0);
+        Set<String> plantsUsed = new HashSet<>();
+        int structuralFrameJobs = countCraftableJobs(plants, "structural_frame", plantsUsed);
+        require(structuralFrameJobs == 3,
+                "three haulers sharing 24 Structural Frames did not queue three recipe batches");
+        require(plantsUsed.size() == 3,
+                "auto-production did not distribute prerequisite batches across idle plants");
+
+        ProductionPlanner.update(world, 1.0);
+        require(countCraftableJobs(plants, "structural_frame", new HashSet<>()) == 3,
+                "rechecking allocated future output queued duplicate Structural Frame batches");
+    }
+
+    private static int countCraftableJobs(List<Base> bases, String itemId, Set<String> usedBaseIds) {
+        int count = 0;
+        for (Base base : bases) {
+            for (ProductionJob job : base.productionQueue) {
+                if (job.kind != ProductionJobKind.CRAFTABLE || !job.itemId.equals(itemId)) continue;
+                count++;
+                usedBaseIds.add(base.id);
+            }
+        }
+        return count;
     }
 
     private static void validateMalformedQueueRejection() {
