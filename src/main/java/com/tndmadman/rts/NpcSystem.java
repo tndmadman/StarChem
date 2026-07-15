@@ -25,6 +25,7 @@ final class NpcSystem {
 
             NpcState state = states.computeIfAbsent(faction.id(), ignored -> new NpcState(faction.firstSpawnSeconds()));
             if (!hasAssets(world, faction)) {
+                state.activeInitialized = false;
                 if (!spawnRequirementsMet(world, faction)) {
                     state.spawnTimer = faction.firstSpawnSeconds();
                     continue;
@@ -32,15 +33,12 @@ final class NpcSystem {
                 state.spawnTimer -= dt;
                 if (state.spawnTimer <= 0) {
                     spawnFaction(world, faction);
-                    state.spawnTimer = faction.respawnSeconds();
-                    state.orderTimer = 0;
-                    state.buildTimer = faction.buildSeconds();
-                    state.stationBuildTimer = faction.stationBuildSeconds();
-                    state.raidCooldownTimer = 0;
+                    initializeSpawnedState(state, faction);
                 }
                 continue;
             }
 
+            if (!state.activeInitialized) initializeSpawnedState(state, faction);
             state.buildTimer -= dt;
             state.stationBuildTimer -= dt;
             state.orderTimer -= dt;
@@ -50,6 +48,15 @@ final class NpcSystem {
                 state.orderTimer = faction.orderSeconds();
             }
         }
+    }
+
+    private void initializeSpawnedState(NpcState state, NpcFaction faction) {
+        state.spawnTimer = faction.respawnSeconds();
+        state.orderTimer = 0;
+        state.buildTimer = faction.buildSeconds();
+        state.stationBuildTimer = faction.stationBuildSeconds();
+        state.raidCooldownTimer = 0;
+        state.activeInitialized = true;
     }
 
     private boolean hasAssets(World world, NpcFaction faction) {
@@ -75,7 +82,6 @@ final class NpcSystem {
 
         spawnUnits(world, faction, point, faction.startingUnits());
         world.status = faction.spawnMessage();
-        orderFaction(world, faction, new NpcState(0));
     }
 
     private String validBaseType(String baseType) {
@@ -805,6 +811,7 @@ final class NpcSystem {
         double buildTimer;
         double stationBuildTimer;
         double raidCooldownTimer;
+        boolean activeInitialized;
         NpcState(double spawnTimer) { this.spawnTimer = spawnTimer; }
     }
 
