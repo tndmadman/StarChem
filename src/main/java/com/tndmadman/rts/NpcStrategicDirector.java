@@ -211,22 +211,25 @@ final class NpcStrategicDirector {
 
         int workerFloor = faction.maxWorkers() <= 0 ? 0
                 : Math.max(1, (int)Math.ceil(faction.maxWorkers() * 0.67));
-        boolean lowFuel = faction.fuelReserve() > 0
-                && snapshot.fuel() + 0.001 < faction.fuelReserve() * 0.40;
-        if (snapshot.workers() < workerFloor || lowFuel) return NpcStrategicState.STABILIZE_ECONOMY;
+        if (snapshot.workers() < workerFloor) return NpcStrategicState.STABILIZE_ECONOMY;
 
         int establishmentTarget = faction.maxStations() <= 0 ? 1 : Math.min(2, faction.maxStations());
         if (snapshot.stations() < establishmentTarget) return NpcStrategicState.ESTABLISH;
 
-        if (snapshot.missingResearch() > 0 && snapshot.researchCapable()) {
-            return NpcStrategicState.RESEARCH;
+        int infrastructureTarget = Math.max(establishmentTarget, faction.maxStations());
+        if (snapshot.stations() < infrastructureTarget) return NpcStrategicState.FORTIFY;
+
+        boolean lowFuel = faction.fuelReserve() > 0
+                && snapshot.fuel() + 0.001 < faction.fuelReserve() * 0.40;
+        if (lowFuel) return NpcStrategicState.STABILIZE_ECONOMY;
+
+        if (snapshot.missingResearch() > 0) {
+            return snapshot.researchCapable() ? NpcStrategicState.RESEARCH : NpcStrategicState.FORTIFY;
         }
 
         int supportFloor = Math.min(2, Math.max(0, faction.maxSupportUnits()));
         int industryFloor = Math.min(1, Math.max(0, faction.maxIndustryUnits()));
-        if (snapshot.stations() < Math.max(establishmentTarget, faction.maxStations())
-                || snapshot.support() < supportFloor
-                || snapshot.industry() < industryFloor) {
+        if (snapshot.support() < supportFloor || snapshot.industry() < industryFloor) {
             return NpcStrategicState.FORTIFY;
         }
 
@@ -337,5 +340,5 @@ record NpcStrategicSnapshot(
     static final NpcStrategicSnapshot EMPTY = new NpcStrategicSnapshot(
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false);
 
-    boolean hasAssets() { return stations > 0 || workers > 0 || combat > 0 || support > 0 || industry > 0; }
+    boolean hasAssets() { return systemsWithAssets > 0; }
 }
