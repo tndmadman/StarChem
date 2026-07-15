@@ -22,7 +22,10 @@ final class NpcWorkerProductionSystem {
         if (!homeSystemId.equals(world.activeSystemId())) return;
 
         WorkerSnapshot snapshot = inspect(world, faction);
-        if (snapshot.livingWorkers >= faction.maxWorkers()) return;
+        if (snapshot.livingWorkers >= faction.maxWorkers()) {
+            if (snapshot.pending != null) cancelPending(world, faction, snapshot.pending);
+            return;
+        }
 
         // Only one replacement request may be outstanding at a time. A funded
         // job continues to count as recovery work until the ship actually exits
@@ -125,6 +128,25 @@ final class NpcWorkerProductionSystem {
             AiDevLog.add(world, faction,
                     "funded worker recovery: " + worker.name + " at " + base.type().name);
             ProductionQueueScheduler.update(world, 0.0);
+        } finally {
+            if (previousSystemId != null && !previousSystemId.isBlank()) world.activateSystem(previousSystemId);
+            world.status = previousStatus;
+        }
+    }
+
+    private static void cancelPending(World world, NpcFaction faction, PendingWorkerJob pending) {
+        String previousSystemId = world.activeSystemId();
+        String previousStatus = world.status;
+        try {
+            world.activateSystem(pending.systemId);
+            Base base = world.bases.get(pending.baseId);
+            ProductionJob job = ProductionSystem.findJob(base, pending.jobId);
+            if (base == null || job == null || job.kind != ProductionJobKind.SHIP
+                    || !pending.workerTypeId.equals(job.itemId)) return;
+            if (ProductionSystem.cancel(world, faction.id(), base.id, job.id)) {
+                AiDevLog.add(world, faction,
+                        "cancelled excess worker recovery: " + Rules.ship(job.itemId).name);
+            }
         } finally {
             if (previousSystemId != null && !previousSystemId.isBlank()) world.activateSystem(previousSystemId);
             world.status = previousStatus;
