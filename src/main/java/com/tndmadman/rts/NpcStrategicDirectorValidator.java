@@ -40,16 +40,20 @@ public final class NpcStrategicDirectorValidator {
 
         addBase(world, faction.id(), "laboratory", home.x + 500, home.y + 120);
         refresh(world, faction);
+        requireState(world, faction, NpcStrategicState.FORTIFY,
+                "partial station infrastructure did not remain in fortification");
+
+        addBase(world, faction.id(), "shipyard", home.x - 500, home.y + 150);
+        addBase(world, faction.id(), "manufacturing", home.x, home.y - 520);
+        refresh(world, faction);
         requireState(world, faction, NpcStrategicState.RESEARCH,
-                "research-capable faction did not prioritize missing doctrine");
+                "complete research-capable infrastructure did not prioritize missing doctrine");
 
         for (String topicId : faction.researchTopicIds()) world.completeResearch(faction.id(), topicId);
         refresh(world, faction);
         requireState(world, faction, NpcStrategicState.FORTIFY,
-                "researched faction did not finish its local infrastructure");
+                "researched faction did not finish support and industry readiness");
 
-        addBase(world, faction.id(), "shipyard", home.x - 500, home.y + 150);
-        addBase(world, faction.id(), "manufacturing", home.x, home.y - 520);
         addUnit(world, faction.id(), "hauler", home.x + 210, home.y + 110);
         addUnit(world, faction.id(), "salvager", home.x + 240, home.y + 140);
         addUnit(world, faction.id(), "deep_miner", home.x - 210, home.y + 110);
