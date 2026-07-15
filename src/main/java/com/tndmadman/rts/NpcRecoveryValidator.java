@@ -15,6 +15,7 @@ public final class NpcRecoveryValidator {
     static void validateOrThrow() {
         validatePaidStationRepair();
         validateEmergencyRebuild();
+        validateLoadedDeployerRecovery();
         validateWormholeEvacuation();
         validateStrandedGraceAndScuttle();
         validateViableStrandedRecovery();
@@ -28,6 +29,8 @@ public final class NpcRecoveryValidator {
         for (Material material : Material.values()) base.inventory.put(material, 2000.0);
         Unit ship = addUnit(fixture.world, fixture.faction, 70_001, "frigate",
                 base.x + 500, base.y);
+        Unit escort = addUnit(fixture.world, fixture.faction, 70_002, "destroyer",
+                ship.x + 80, ship.y);
         ship.hp = ship.type().maxHp * 0.30;
         double damagedHp = ship.hp;
 
@@ -36,6 +39,9 @@ public final class NpcRecoveryValidator {
                 "damaged Corsair ship did not retreat toward a repair station");
         require(Math.abs(ship.targetX - base.x) < EPSILON && Math.abs(ship.targetY - base.y) < EPSILON,
                 "damaged ship retreat target was not the nearest friendly station");
+        require(escort.orderType == UnitOrderType.ESCORT
+                        && CombatTarget.unit(ship).equals(escort.orderTarget),
+                "healthy combat ship did not escort the retreating damaged ship");
         require(NpcRecoverySystem.state(fixture.world, fixture.faction, fixture.world.activeSystemId())
                         == NpcRecoveryState.REPAIRING,
                 "repairing group did not enter the REPAIRING recovery state");
@@ -59,6 +65,9 @@ public final class NpcRecoveryValidator {
         }
         require(Math.abs(ship.hp - ship.type().maxHp) < EPSILON,
                 "paid repair did not restore the ship to full hull integrity");
+        advanceRecovery(fixture.world, 1.0);
+        require(escort.orderType != UnitOrderType.ESCORT,
+                "repair escort order remained after the protected ship recovered");
     }
 
     private static void validateEmergencyRebuild() {
@@ -87,6 +96,24 @@ public final class NpcRecoveryValidator {
         require(NpcRecoverySystem.state(fixture.world, fixture.faction, fixture.world.activeSystemId())
                         == NpcRecoveryState.REBUILDING,
                 "emergency foothold did not report the REBUILDING state");
+    }
+
+    private static void validateLoadedDeployerRecovery() {
+        Fixture fixture = fixture("NPC Loaded Deployer Recovery", "red_dwarf");
+        fixture.world.wormholes.clear();
+        Unit builder = addUnit(fixture.world, fixture.faction, 71_101, "station_builder",
+                fixture.world.width * 0.5, fixture.world.height * 0.5);
+        builder.basePackageType = "shipyard";
+
+        runRecovery(fixture.world);
+        Base recovered = firstFactionBase(fixture.world, fixture.faction.id());
+        require(recovered != null && "shipyard".equals(recovered.typeId),
+                "loaded deployer did not restore its carried station package");
+        require(!fixture.world.units.containsKey(builder.key()),
+                "loaded deployer was not consumed after emergency placement");
+        require(NpcRecoverySystem.state(fixture.world, fixture.faction, fixture.world.activeSystemId())
+                        == NpcRecoveryState.REBUILDING,
+                "loaded-deployer recovery did not report REBUILDING state");
     }
 
     private static void validateWormholeEvacuation() {
