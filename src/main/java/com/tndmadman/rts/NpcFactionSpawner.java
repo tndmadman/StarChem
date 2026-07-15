@@ -8,28 +8,53 @@ final class NpcFactionSpawner {
     private NpcFactionSpawner() { }
 
     static boolean spawn(World world, NpcFaction faction) {
-        if (world == null || faction == null || hasLocalAssets(world, faction.id())) return false;
+        return spawn(world, faction, NpcSpawnReason.NATURAL);
+    }
 
-        SpawnPoint point = spawnPoint(world, faction);
-        String baseId = faction.id() + ":B" + nextBaseNumber(world, faction.id());
-        world.bases.put(baseId, new Base(baseId, faction.id(), validBaseType(faction.baseType()), point.x, point.y));
+    static boolean spawn(World world, NpcFaction faction, NpcSpawnReason reason) {
+        if (world == null || faction == null || reason == null) return false;
+        if (world.hasLiveAssets(faction.id())) return false;
 
-        List<String> units = validUnitList(faction, faction.startingUnits());
-        if (units.isEmpty()) units = fallbackUnits(faction);
-        int nextUnit = nextUnitNumber(world, faction.id());
-        for (int i = 0; i < units.size(); i++) {
-            double angle = i * Math.PI * 2.0 / Math.max(1, units.size());
-            double range = faction.unitSpacing() + i * 34;
-            Unit unit = new Unit(faction.id(), nextUnit++, units.get(i),
-                    Calc.clamp(point.x + Math.cos(angle) * range, 0, world.width),
-                    Calc.clamp(point.y + Math.sin(angle) * range, 0, world.height));
-            world.units.put(unit.key(), unit);
+        String previousSystemId = world.activeSystemId();
+        String homeSystemId = NpcFactionRuntime.homeSystemIdFor(faction);
+        boolean spawned = false;
+        try {
+            if (!homeSystemId.equals(world.activeSystemId())) world.activateSystem(homeSystemId);
+            if (!homeSystemId.equals(world.activeSystemId()) || hasLocalAssets(world, faction.id())) return false;
+
+            SpawnPoint point = spawnPoint(world, faction);
+            String baseId = faction.id() + ":B" + nextBaseNumber(world, faction.id());
+            world.bases.put(baseId, new Base(baseId, faction.id(), validBaseType(faction.baseType()), point.x, point.y));
+
+            List<String> units = validUnitList(faction, faction.startingUnits());
+            if (units.isEmpty()) units = fallbackUnits(faction);
+            int nextUnit = nextUnitNumber(world, faction.id());
+            for (int i = 0; i < units.size(); i++) {
+                double angle = i * Math.PI * 2.0 / Math.max(1, units.size());
+                double range = faction.unitSpacing() + i * 34;
+                Unit unit = new Unit(faction.id(), nextUnit++, units.get(i),
+                        Calc.clamp(point.x + Math.cos(angle) * range, 0, world.width),
+                        Calc.clamp(point.y + Math.sin(angle) * range, 0, world.height));
+                world.units.put(unit.key(), unit);
+            }
+            world.saveActiveSystem();
+            spawned = true;
+        } finally {
+            if (previousSystemId != null && !previousSystemId.isBlank()
+                    && !previousSystemId.equals(world.activeSystemId())) {
+                world.activateSystem(previousSystemId);
+            }
         }
 
+        if (!spawned) return false;
         PlayerRegistry.register(faction.id(), faction.name(), faction.rgb(), false);
-        world.status = faction.spawnMessage();
-        world.saveActiveSystem();
-        AiDevLog.add(world, faction, "galaxy lifecycle spawn");
+        if (reason == NpcSpawnReason.FORCED) {
+            world.status = "Dev spawned " + faction.name() + " in " + homeSystemId + ".";
+            AiDevLog.add(world, faction, "forced lifecycle spawn in " + homeSystemId);
+        } else {
+            world.status = faction.spawnMessage();
+            AiDevLog.add(world, faction, "galaxy lifecycle spawn");
+        }
         return true;
     }
 
@@ -107,3 +132,5 @@ final class NpcFactionSpawner {
 
     private record SpawnPoint(double x, double y) { }
 }
+
+enum NpcSpawnReason { NATURAL, FORCED }
