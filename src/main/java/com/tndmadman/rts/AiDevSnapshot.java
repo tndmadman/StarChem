@@ -16,23 +16,26 @@ final class AiDevSnapshot {
 
     static String factionState(World world, NpcFaction faction) {
         if (faction == null) return "NO FACTION";
-        if (threatNearBase(world, faction)) return "DEFENDING";
-        if (missingResearch(world, faction) != null) return "RESEARCHING";
-        if (needsFuel(world, faction)) return "CRAFTING_FUEL";
-        if (baseCount(world, faction) < faction.maxStations()) return "BUILDING_STATION";
-        if (combatCount(world, faction) >= Math.max(1, faction.raidFleetSize())) return "RAID_READY";
-        if (workerCount(world, faction) < faction.maxWorkers()) return "MINING";
-        return "BUILDING_FLEET";
+        return NpcStrategicDirector.state(world, faction).name();
     }
 
     static List<String> summary(World world, NpcFaction faction) {
         List<String> out = new ArrayList<>();
         if (faction == null) { out.add("No Corsair faction loaded."); return out; }
+        NpcStrategicSnapshot strategic = NpcStrategicDirector.snapshot(world, faction);
+        int workers = strategic.hasAssets() ? strategic.workers() : workerCount(world, faction);
+        int combat = strategic.hasAssets() ? strategic.combat() : combatCount(world, faction);
+        int support = strategic.hasAssets() ? strategic.support() : supportCount(world, faction);
+        int stations = strategic.hasAssets() ? strategic.stations() : baseCount(world, faction);
         out.add(faction.name() + " | " + factionState(world, faction) + " | " + NpcDifficultyPreset.current().label);
-        out.add("Workers " + workerCount(world, faction) + "/" + faction.maxWorkers()
-                + " | Combat " + combatCount(world, faction) + "/" + faction.targetFleetSize()
-                + " | Support " + supportCount(world, faction) + "/" + faction.maxSupportUnits()
-                + " | Stations " + baseCount(world, faction) + "/" + faction.maxStations());
+        out.add("Workers " + workers + "/" + faction.maxWorkers()
+                + " | Combat " + combat + "/" + faction.targetFleetSize()
+                + " | Support " + support + "/" + faction.maxSupportUnits()
+                + " | Stations " + stations + "/" + faction.maxStations());
+        if (strategic.hasAssets()) {
+            out.add("Systems " + strategic.systemsWithAssets() + " | Controlled " + strategic.controlledSystems()
+                    + " | Threats " + strategic.threats() + " | Fuel " + (int)strategic.fuel());
+        }
         out.add("Need: " + nextNeed(world, faction));
         out.add("Resources: " + resourceLine(world, faction, 6));
         return out;
@@ -77,13 +80,6 @@ final class AiDevSnapshot {
         g2.setColor(new Color(f.rgb()));
         int yy = (int)y;
         for (String line : lines) { g2.drawString(line, (int)x, yy); yy += 15; }
-    }
-
-    private static boolean threatNearBase(World world, NpcFaction f) {
-        for (Base b : world.bases.values()) if (b.playerId.equals(f.id())) {
-            for (Unit u : world.units.values()) if (!u.playerId.equals(f.id()) && !NpcRules.isNpcFaction(u.playerId) && Calc.distance(b.x, b.y, u.x, u.y) < f.defendRange()) return true;
-        }
-        return false;
     }
 
     private static boolean needsFuel(World world, NpcFaction f) { return f.fuelReserve() > 0 && material(world, f, Material.FUEL) < f.fuelReserve(); }
