@@ -38,6 +38,7 @@ final class AiDevCommands {
         } finally {
             if (previousSystemId != null && !previousSystemId.isBlank()) world.activateSystem(previousSystemId);
         }
+        NpcStrategicDirector.onDefeated(world, f);
         world.status = "Dev killed all Corsairs across the galaxy.";
         AiDevLog.add(world, f, "killed/reset " + removed + " asset(s) across galaxy");
     }
