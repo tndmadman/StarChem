@@ -102,6 +102,7 @@ final class NpcStrategicDirector {
         int threats = 0;
         double fuel = 0;
         boolean researchCapable = false;
+        boolean fuelCapable = false;
 
         Set<String> workerTypes = faction.workerTypeSet();
         Set<String> supportTypes = faction.supportTypeSet();
@@ -130,6 +131,11 @@ final class NpcStrategicDirector {
                             if (topic != null && !world.hasResearch(faction.id(), topic.id)
                                     && topic.canResearchAt(base.typeId)) {
                                 researchCapable = true;
+                            }
+                        }
+                        for (CraftableItem item : CraftingRules.recipesForOutput(Material.FUEL)) {
+                            if (item.canCraftAt(base.typeId) && item.unlockedFor(world, faction.id())) {
+                                fuelCapable = true;
                             }
                         }
                     }
@@ -179,7 +185,8 @@ final class NpcStrategicDirector {
                 completedResearch,
                 missingResearch,
                 fuel,
-                researchCapable);
+                researchCapable,
+                fuelCapable);
     }
 
     private static int localThreatCount(World world, NpcFaction faction) {
@@ -216,20 +223,22 @@ final class NpcStrategicDirector {
         int establishmentTarget = faction.maxStations() <= 0 ? 1 : Math.min(2, faction.maxStations());
         if (snapshot.stations() < establishmentTarget) return NpcStrategicState.ESTABLISH;
 
-        int infrastructureTarget = Math.max(establishmentTarget, faction.maxStations());
-        if (snapshot.stations() < infrastructureTarget) return NpcStrategicState.FORTIFY;
-
         boolean lowFuel = faction.fuelReserve() > 0
                 && snapshot.fuel() + 0.001 < faction.fuelReserve() * 0.40;
-        if (lowFuel) return NpcStrategicState.STABILIZE_ECONOMY;
+        if (lowFuel) {
+            return snapshot.fuelCapable() ? NpcStrategicState.STABILIZE_ECONOMY : NpcStrategicState.FORTIFY;
+        }
 
         if (snapshot.missingResearch() > 0) {
             return snapshot.researchCapable() ? NpcStrategicState.RESEARCH : NpcStrategicState.FORTIFY;
         }
 
+        int infrastructureTarget = Math.max(establishmentTarget, faction.maxStations());
         int supportFloor = Math.min(2, Math.max(0, faction.maxSupportUnits()));
         int industryFloor = Math.min(1, Math.max(0, faction.maxIndustryUnits()));
-        if (snapshot.support() < supportFloor || snapshot.industry() < industryFloor) {
+        if (snapshot.stations() < infrastructureTarget
+                || snapshot.support() < supportFloor
+                || snapshot.industry() < industryFloor) {
             return NpcStrategicState.FORTIFY;
         }
 
@@ -335,10 +344,11 @@ record NpcStrategicSnapshot(
         int completedResearch,
         int missingResearch,
         double fuel,
-        boolean researchCapable
+        boolean researchCapable,
+        boolean fuelCapable
 ) {
     static final NpcStrategicSnapshot EMPTY = new NpcStrategicSnapshot(
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false);
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false);
 
     boolean hasAssets() { return systemsWithAssets > 0; }
 }
