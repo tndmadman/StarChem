@@ -3,8 +3,10 @@ package com.tndmadman.rts;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.WeakHashMap;
 
 /**
@@ -105,6 +107,7 @@ final class NpcRecoverySystem {
                                               List<Base> bases, double dt) {
         boolean retreating = NpcStrategicDirector.state(world, faction) == NpcStrategicState.RETREAT;
         double threshold = retreating ? RETREAT_REPAIR_RATIO : REPAIR_START_RATIO;
+        List<Unit> retreatingShips = new ArrayList<>();
         boolean repairing = false;
         for (Unit unit : units) {
             ShipType type = unit.type();
@@ -113,6 +116,7 @@ final class NpcRecoverySystem {
             if (ratio + 0.0001 >= threshold && !retreating) continue;
 
             repairing = true;
+            retreatingShips.add(unit);
             Base station = nearestBase(bases, unit.x, unit.y);
             if (station == null) continue;
             double serviceRange = Math.max(55.0, station.type().unloadRange * 0.72);
@@ -133,7 +137,49 @@ final class NpcRecoverySystem {
             if (!NpcResourceBudget.spend(world, faction, NpcBudgetCategory.STATION_RECOVERY, cost)) continue;
             unit.hp = Math.min(type.maxHp, unit.hp + amount);
         }
+        assignRepairEscorts(world, units, retreatingShips);
         return repairing;
+    }
+
+    private static void assignRepairEscorts(World world, List<Unit> units, List<Unit> retreatingShips) {
+        Set<String> retreatingKeys = new LinkedHashSet<>();
+        for (Unit unit : retreatingShips) retreatingKeys.add(unit.key());
+
+        for (Unit unit : units) {
+            if (unit.orderType != UnitOrderType.ESCORT) continue;
+            Unit escorted = CombatTarget.unit(world, unit.orderTarget);
+            if (escorted != null && retreatingKeys.contains(escorted.key())) continue;
+            unit.clearOrder();
+            if (unit.task != UnitTask.ATTACK) unit.task = UnitTask.IDLE;
+        }
+        if (retreatingShips.isEmpty()) return;
+
+        List<Unit> escorts = new ArrayList<>();
+        for (Unit unit : units) {
+            if (retreatingKeys.contains(unit.key()) || !WeaponRules.armed(unit.type())) continue;
+            double ratio = unit.hp / Math.max(1.0, unit.type().maxHp);
+            if (ratio < 0.80) continue;
+            escorts.add(unit);
+        }
+        escorts.sort(Comparator.comparingInt(unit -> unit.unitId));
+        retreatingShips.sort(Comparator.comparingDouble(
+                unit -> unit.hp / Math.max(1.0, unit.type().maxHp)));
+
+        for (int i = 0; i < escorts.size() && i < retreatingShips.size(); i++) {
+            Unit escort = escorts.get(i);
+            Unit protectedShip = retreatingShips.get(i);
+            AUnitOrder.apply(world, new UnitOrderCommand(
+                    escort.playerId,
+                    escort.unitId,
+                    UnitOrderType.ESCORT,
+                    protectedShip.x,
+                    protectedShip.y,
+                    protectedShip.x,
+                    protectedShip.y,
+                    UnitOrderSystem.defaultRadius(UnitOrderType.ESCORT),
+                    CombatTarget.unit(protectedShip),
+                    0));
+        }
     }
 
     private static List<Cost> repairCost(double hp) {
