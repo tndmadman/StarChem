@@ -61,7 +61,8 @@ final class NpcResourceBudget {
 
         EnumMap<NpcBudgetCategory, EnumMap<Material, Double>> desired = emptyBuckets();
         for (NpcBudgetCategory category : NpcBudgetCategory.values()) {
-            desired.put(category, expandRequirements(world, faction, direct.get(category), scan.materials));
+            desired.put(category, expandRequirements(world, faction, scan,
+                    direct.get(category), scan.materials));
         }
 
         EnumMap<NpcBudgetCategory, EnumMap<Material, Double>> funded = emptyBuckets();
@@ -238,18 +239,19 @@ final class NpcResourceBudget {
     }
 
     private static EnumMap<Material, Double> expandRequirements(World world, NpcFaction faction,
+                                                                 Scan scan,
                                                                  EnumMap<Material, Double> direct,
                                                                  EnumMap<Material, Double> totals) {
         EnumMap<Material, Double> desired = copyMaterials(direct);
         EnumMap<Material, Integer> expandedBatches = new EnumMap<>(Material.class);
         for (Map.Entry<Material, Double> entry : copyMaterials(direct).entrySet()) {
-            expandMissing(world, faction, desired, totals, expandedBatches,
+            expandMissing(world, faction, scan, desired, totals, expandedBatches,
                     entry.getKey(), entry.getValue(), new HashSet<>());
         }
         return desired;
     }
 
-    private static void expandMissing(World world, NpcFaction faction,
+    private static void expandMissing(World world, NpcFaction faction, Scan scan,
                                       EnumMap<Material, Double> desired,
                                       EnumMap<Material, Double> totals,
                                       EnumMap<Material, Integer> expandedBatches,
@@ -258,7 +260,7 @@ final class NpcResourceBudget {
         double missing = Math.max(0.0, totalDemand - totals.getOrDefault(material, 0.0));
         if (missing <= EPSILON || !visiting.add(material)) return;
         try {
-            CraftableItem recipe = preferredRecipe(world, faction, material);
+            CraftableItem recipe = preferredRecipe(world, faction, scan, material);
             if (recipe == null || recipe.outputAmount <= EPSILON) return;
             int requiredBatches = (int)Math.ceil(missing / recipe.outputAmount);
             int previousBatches = expandedBatches.getOrDefault(material, 0);
@@ -269,7 +271,7 @@ final class NpcResourceBudget {
             for (Cost input : recipe.requiredResources) {
                 double amount = input.amount() * additionalBatches;
                 add(desired, input.material(), amount);
-                expandMissing(world, faction, desired, totals, expandedBatches,
+                expandMissing(world, faction, scan, desired, totals, expandedBatches,
                         input.material(), desired.getOrDefault(input.material(), 0.0), visiting);
             }
         } finally {
@@ -277,9 +279,11 @@ final class NpcResourceBudget {
         }
     }
 
-    private static CraftableItem preferredRecipe(World world, NpcFaction faction, Material output) {
+    private static CraftableItem preferredRecipe(World world, NpcFaction faction,
+                                                  Scan scan, Material output) {
         for (CraftableItem item : CraftingRules.recipesForOutput(output)) {
             if (!faction.craftableItemIds().contains(item.id)) continue;
+            if (!scan.craftableItemIds.contains(item.id)) continue;
             if (!item.unlockedFor(world, faction.id())) continue;
             return item;
         }
@@ -320,10 +324,18 @@ final class NpcResourceBudget {
             scan.buildablePackages.addAll(base.type().basePackages);
             addInventory(scan.materials, base.inventory);
             if (homeSystem) addInventory(scan.homeMaterials, base.inventory);
+            boolean operational = StationFuelRules.isOperational(base);
             for (String topicId : faction.researchTopicIds()) {
                 ResearchTopic topic = ResearchRules.topic(topicId);
-                if (topic != null && topic.canResearchAt(base.typeId) && StationFuelRules.isOperational(base)) {
+                if (topic != null && topic.canResearchAt(base.typeId) && operational) {
                     scan.researchCapableTopics.add(topic.id);
+                }
+            }
+            if (operational) {
+                for (CraftableItem item : CraftingRules.all()) {
+                    if (faction.craftableItemIds().contains(item.id) && item.canCraftAt(base.typeId)) {
+                        scan.craftableItemIds.add(item.id);
+                    }
                 }
             }
         }
@@ -410,6 +422,7 @@ final class NpcResourceBudget {
         final Set<String> buildablePackages = new LinkedHashSet<>();
         final Set<String> activeResearchTopics = new LinkedHashSet<>();
         final Set<String> researchCapableTopics = new LinkedHashSet<>();
+        final Set<String> craftableItemIds = new LinkedHashSet<>();
         int stations;
         int workers;
         int combat;
