@@ -22,6 +22,8 @@ final class AiDevLog {
         while (LINES.size() > LIMIT) LINES.remove(0);
     }
 
+    static void clear() { LINES.clear(); }
+
     static List<String> lines(int max) {
         int from = Math.max(0, LINES.size() - max);
         return List.copyOf(LINES.subList(from, LINES.size()));
