@@ -1,5 +1,6 @@
 package com.tndmadman.rts;
 
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 public final class NpcSystemIsolationValidator {
@@ -17,6 +18,7 @@ public final class NpcSystemIsolationValidator {
         validateIndependentFactionTimers();
         validateFactionSystemScope();
         validateExpansionScope();
+        validateStationReplacementOwnership();
         validateRuntimeCleanup();
     }
 
@@ -75,6 +77,35 @@ public final class NpcSystemIsolationValidator {
                 "organized NPC factions can expand into protected homes");
     }
 
+    private static void validateStationReplacementOwnership() {
+        PlayerRegistry.reset("WAIT", "NPC Station Ownership Validator", 0x50BEFF);
+        World world = new World("NPC Station Ownership Validator",
+                Set.of(Config.RAIDERS_ID, Config.FREE_MINERS_ID),
+                StarSystems.DEFAULT_SYSTEM_ID,
+                false);
+        world.activateSystem(StarSystems.CORSAIR_SYSTEM_ID);
+        AiDevCommands.spawnCorsairs(world);
+        AiDevCommands.giveCorsairResources(world);
+        world.completeResearch(Config.CORSAIRS_ID, "advanced_industry");
+
+        int basesBefore = factionBaseCount(world, Config.CORSAIRS_ID);
+        Set<String> unitsBefore = factionUnitKeys(world, Config.CORSAIRS_ID);
+        require(basesBefore == 1, "forced Corsair spawn did not start with exactly one station");
+
+        AiDevLog.clear();
+        for (int i = 0; i < 200; i++) NpcStationReplacementSystem.replaceMissingStations(world);
+        require(factionBaseCount(world, Config.CORSAIRS_ID) == basesBefore,
+                "cleanup-time station replacement changed the Corsair station count");
+        require(factionUnitKeys(world, Config.CORSAIRS_ID).equals(unitsBefore),
+                "cleanup-time station replacement created or consumed a Corsair unit");
+        require(AiDevLog.lines(80).isEmpty(),
+                "cleanup-time station replacement emitted repeated AI decisions");
+
+        tickCurrent(world, 24);
+        require(factionBaseCount(world, Config.CORSAIRS_ID) > basesBefore,
+                "cooldown-controlled NpcSystem did not retain station expansion ownership");
+    }
+
     private static void validateRuntimeCleanup() {
         PlayerRegistry.reset("SOLO", "NPC Cleanup Validator", 0x50BEFF);
         World world = new World("NPC Cleanup Validator",
@@ -113,6 +144,20 @@ public final class NpcSystemIsolationValidator {
         for (Base base : world.bases.values()) if (factionId.equals(base.playerId) && base.hp > 0) count++;
         if (previous != null && !previous.isBlank()) world.activateSystem(previous);
         return count;
+    }
+
+    private static int factionBaseCount(World world, String factionId) {
+        int count = 0;
+        for (Base base : world.bases.values()) if (factionId.equals(base.playerId) && base.hp > 0) count++;
+        return count;
+    }
+
+    private static Set<String> factionUnitKeys(World world, String factionId) {
+        Set<String> keys = new LinkedHashSet<>();
+        for (Unit unit : world.units.values()) {
+            if (factionId.equals(unit.playerId) && unit.hp > 0) keys.add(unit.key());
+        }
+        return keys;
     }
 
     private static void require(boolean condition, String message) {
