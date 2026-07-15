@@ -195,7 +195,6 @@ final class NpcSystem {
         Base base = firstBase(world, faction);
 
         if (strategy.runsEconomy()) {
-            if (faction.replaceWorkers()) maintainWorkers(world, faction);
             orderFactionWorkers(world, faction);
             orderSupportShips(world, faction, base);
             operateStations(world, faction, strategy.allowsResearch());
@@ -227,6 +226,11 @@ final class NpcSystem {
                     ? faction.buildSeconds()
                     : Math.max(2.0, faction.buildSeconds() * 0.5);
         }
+
+        // Phase 6 replaces this free placeholder with legitimate queued production.
+        // Keeping it after every material decision preserves the worker recovery
+        // reservation for this entire strategic order.
+        if (strategy.runsEconomy() && faction.replaceWorkers()) maintainWorkers(world, faction);
 
         List<Unit> combat = readyCombatUnits(world, faction, base);
         String defenseTarget = nearestThreatToBase(world, faction);
