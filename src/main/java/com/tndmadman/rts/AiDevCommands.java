@@ -11,37 +11,53 @@ final class AiDevCommands {
 
     static void spawnCorsairs(World world) {
         NpcFaction f = AiDevSnapshot.corsairs();
-        if (f == null || hasAssets(world, f.id())) { AiDevLog.add(world, f, "spawn skipped: already active"); return; }
-        Rectangle2D local = world.localBounds();
-        double x = local == null ? world.width * 0.65 : Calc.clamp(local.getCenterX() + f.spawnDistance(), 600, world.width - 600);
-        double y = local == null ? world.height * 0.55 : Calc.clamp(local.getCenterY() + f.spawnDistance() * 0.35, 600, world.height - 600);
-        String baseId = f.id() + ":B" + nextBaseNumber(world, f.id());
-        world.bases.put(baseId, new Base(baseId, f.id(), f.baseType(), x, y));
-        int n = nextUnitNumber(world, f.id());
-        for (String ship : f.startingUnits()) if (Rules.SHIPS.containsKey(ship)) {
-            Unit u = new Unit(f.id(), n++, ship, x + 120 + n * 20, y + 80);
-            world.units.put(u.key(), u);
-        }
-        PlayerRegistry.register(f.id(), f.name(), f.rgb(), false);
-        world.status = "Dev spawned Corsair Syndicate.";
-        AiDevLog.add(world, f, "forced spawn");
+        if (f == null) { world.status = "Corsair faction is not configured."; return; }
+        if (NpcFactionSpawner.spawn(world, f, NpcSpawnReason.FORCED)) return;
+        world.status = "Corsair Syndicate is already active somewhere in the galaxy.";
+        AiDevLog.add(world, f, "spawn skipped: already active");
     }
 
     static void killCorsairs(World world) {
-        NpcFaction f = AiDevSnapshot.corsairs(); if (f == null) return;
-        world.units.values().removeIf(u -> u.playerId.equals(f.id()));
-        world.bases.values().removeIf(b -> b.playerId.equals(f.id()));
-        world.status = "Dev killed all Corsairs.";
-        AiDevLog.add(world, f, "killed/reset all assets");
+        NpcFaction f = AiDevSnapshot.corsairs();
+        if (f == null) return;
+        String previousSystemId = world.activeSystemId();
+        GalaxyMapSnapshot snapshot = world.authoritativeGalaxyMapSnapshot();
+        int removed = 0;
+        try {
+            for (GalaxyMapSystem system : snapshot.systems()) {
+                if (system == null || system.id() == null || system.id().isBlank()) continue;
+                world.activateSystem(system.id());
+                int unitsBefore = world.units.size();
+                int basesBefore = world.bases.size();
+                world.units.values().removeIf(u -> u.playerId.equals(f.id()));
+                world.bases.values().removeIf(b -> b.playerId.equals(f.id()));
+                removed += unitsBefore - world.units.size();
+                removed += basesBefore - world.bases.size();
+                world.saveActiveSystem();
+            }
+        } finally {
+            if (previousSystemId != null && !previousSystemId.isBlank()) world.activateSystem(previousSystemId);
+        }
+        world.status = "Dev killed all Corsairs across the galaxy.";
+        AiDevLog.add(world, f, "killed/reset " + removed + " asset(s) across galaxy");
     }
 
     static void resetCorsairs(World world) { killCorsairs(world); spawnCorsairs(world); }
 
     static void giveCorsairResources(World world) {
-        NpcFaction f = AiDevSnapshot.corsairs(); Base b = firstBase(world, f == null ? "" : f.id());
-        if (b == null) { spawnCorsairs(world); b = firstBase(world, f.id()); }
-        if (b == null) return;
-        for (Material m : Material.values()) HangarStore.add(b.inventory, m, GIVE_AMOUNT);
+        NpcFaction f = AiDevSnapshot.corsairs();
+        if (f == null) return;
+        if (!world.hasLiveAssets(f.id())) spawnCorsairs(world);
+        String previousSystemId = world.activeSystemId();
+        try {
+            world.activateSystem(NpcFactionRuntime.homeSystemIdFor(f));
+            Base b = firstBase(world, f.id());
+            if (b == null) return;
+            for (Material m : Material.values()) HangarStore.add(b.inventory, m, GIVE_AMOUNT);
+            world.saveActiveSystem();
+        } finally {
+            if (previousSystemId != null && !previousSystemId.isBlank()) world.activateSystem(previousSystemId);
+        }
         world.status = "Dev gave Corsairs resources.";
         AiDevLog.add(world, f, "gave all resources");
     }
@@ -92,15 +108,25 @@ final class AiDevCommands {
     }
 
     static void forceStation(World world) {
-        NpcFaction f = AiDevSnapshot.corsairs(); Base b = firstBase(world, f == null ? "" : f.id());
-        if (f == null || b == null) return;
-        String type = "shipyard";
-        for (String candidate : f.stationPackageTypes()) if (!hasBaseType(world, f.id(), candidate)) { type = candidate; break; }
-        int n = nextBaseNumber(world, f.id());
-        double a = n * 2.2;
-        world.bases.put(f.id() + ":B" + n, new Base(f.id() + ":B" + n, f.id(), type, b.x + Math.cos(a) * f.stationSpacing(), b.y + Math.sin(a) * f.stationSpacing()));
-        world.status = "Dev forced Corsair station: " + type;
-        AiDevLog.add(world, f, "forced station " + type);
+        NpcFaction f = AiDevSnapshot.corsairs();
+        if (f == null) return;
+        String previousSystemId = world.activeSystemId();
+        try {
+            world.activateSystem(NpcFactionRuntime.homeSystemIdFor(f));
+            Base b = firstBase(world, f.id());
+            if (b == null) return;
+            String type = "shipyard";
+            for (String candidate : f.stationPackageTypes()) if (!hasBaseType(world, f.id(), candidate)) { type = candidate; break; }
+            int n = nextBaseNumber(world, f.id());
+            double a = n * 2.2;
+            world.bases.put(f.id() + ":B" + n, new Base(f.id() + ":B" + n, f.id(), type,
+                    b.x + Math.cos(a) * f.stationSpacing(), b.y + Math.sin(a) * f.stationSpacing()));
+            world.saveActiveSystem();
+            world.status = "Dev forced Corsair station: " + type;
+            AiDevLog.add(world, f, "forced station " + type);
+        } finally {
+            if (previousSystemId != null && !previousSystemId.isBlank()) world.activateSystem(previousSystemId);
+        }
     }
 
     static void forceResearch(World world) {
@@ -112,10 +138,20 @@ final class AiDevCommands {
     }
 
     static void forceCraft(World world) {
-        NpcFaction f = AiDevSnapshot.corsairs(); Base b = firstBase(world, f == null ? "" : f.id()); if (f == null || b == null) return;
-        HangarStore.add(b.inventory, Material.FUEL, 100);
-        world.status = "Dev crafted Corsair fuel.";
-        AiDevLog.add(world, f, "forced craft fuel");
+        NpcFaction f = AiDevSnapshot.corsairs();
+        if (f == null) return;
+        String previousSystemId = world.activeSystemId();
+        try {
+            world.activateSystem(NpcFactionRuntime.homeSystemIdFor(f));
+            Base b = firstBase(world, f.id());
+            if (b == null) return;
+            HangarStore.add(b.inventory, Material.FUEL, 100);
+            world.saveActiveSystem();
+            world.status = "Dev crafted Corsair fuel.";
+            AiDevLog.add(world, f, "forced craft fuel");
+        } finally {
+            if (previousSystemId != null && !previousSystemId.isBlank()) world.activateSystem(previousSystemId);
+        }
     }
 
     static void copySnapshot(World world) {
@@ -131,7 +167,6 @@ final class AiDevCommands {
         AiDevLog.add("DEV", "hot reload requested");
     }
 
-    private static boolean hasAssets(World w, String playerId) { for (Unit u : w.units.values()) if (u.playerId.equals(playerId)) return true; for (Base b : w.bases.values()) if (b.playerId.equals(playerId)) return true; return false; }
     private static Base firstBase(World w, String playerId) { for (Base b : w.bases.values()) if (b.playerId.equals(playerId)) return b; return null; }
     private static int nextUnitNumber(World w, String playerId) { int max = 0; for (Unit u : w.units.values()) if (u.playerId.equals(playerId)) max = Math.max(max, u.unitId); return max + 1; }
     private static int nextBaseNumber(World w, String playerId) { int max = 0; String p = playerId + ":B"; for (String id : w.bases.keySet()) if (id.startsWith(p)) try { max = Math.max(max, Integer.parseInt(id.substring(p.length()))); } catch(Exception ignored) { } return max + 1; }
