@@ -189,28 +189,46 @@ final class NpcSystem {
     }
 
     private void orderFullFaction(World world, NpcFaction faction, NpcState state) {
+        NpcStrategicState strategy = NpcStrategicDirector.state(world, faction);
         Base base = firstBase(world, faction);
-        if (faction.replaceWorkers()) maintainWorkers(world, faction);
-        orderFactionWorkers(world, faction);
-        orderSupportShips(world, faction, base);
-        operateStations(world, faction);
 
-        if (state.stationBuildTimer <= 0) {
+        if (strategy.runsEconomy()) {
+            if (faction.replaceWorkers()) maintainWorkers(world, faction);
+            orderFactionWorkers(world, faction);
+            orderSupportShips(world, faction, base);
+            operateStations(world, faction, strategy.allowsResearch());
+        }
+
+        if (strategy.buildsStations() && state.stationBuildTimer <= 0) {
             if (buildOrDeployStation(world, faction)) state.stationBuildTimer = faction.stationBuildSeconds();
             else state.stationBuildTimer = Math.max(3.0, faction.stationBuildSeconds() * 0.5);
         }
 
-        if (state.buildTimer <= 0) {
-            if (buildSupportShip(world, faction)) state.buildTimer = faction.buildSeconds();
-            else if (buildIndustryShip(world, faction)) state.buildTimer = faction.buildSeconds();
-            else if (buildFleetShip(world, faction)) state.buildTimer = faction.buildSeconds();
-            else state.buildTimer = Math.max(2.0, faction.buildSeconds() * 0.5);
+        if (strategy.buildsShips() && state.buildTimer <= 0) {
+            boolean built;
+            if (strategy.prioritizesFleet()) {
+                built = buildFleetShip(world, faction)
+                        || buildSupportShip(world, faction)
+                        || buildIndustryShip(world, faction);
+            } else {
+                built = buildSupportShip(world, faction)
+                        || buildIndustryShip(world, faction)
+                        || buildFleetShip(world, faction);
+            }
+            state.buildTimer = built
+                    ? faction.buildSeconds()
+                    : Math.max(2.0, faction.buildSeconds() * 0.5);
         }
 
         List<Unit> combat = readyCombatUnits(world, faction, base);
         String defenseTarget = nearestThreatToBase(world, faction);
         if (!defenseTarget.isBlank()) {
             for (Unit unit : combat) unit.attack(defenseTarget);
+            return;
+        }
+
+        if (!strategy.allowsRaid()) {
+            if (base != null) guardIdleCombat(world, combat, base);
             return;
         }
 
@@ -238,10 +256,10 @@ final class NpcSystem {
         if (base != null) guardIdleCombat(world, combat, base);
     }
 
-    private void operateStations(World world, NpcFaction faction) {
+    private void operateStations(World world, NpcFaction faction, boolean allowResearch) {
         craftConfiguredItems(world, faction);
         supplyFuelToStations(world, faction);
-        startConfiguredResearch(world, faction);
+        if (allowResearch) startConfiguredResearch(world, faction);
     }
 
     private boolean craftConfiguredItems(World world, NpcFaction faction) {
