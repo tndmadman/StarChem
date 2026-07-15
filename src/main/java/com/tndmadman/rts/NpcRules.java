@@ -139,7 +139,7 @@ final class NpcRules {
                         65.0, 90.0, 3.0, "outpost",
                         List.of("prospector", "prospector", "frigate"), List.of("prospector"), List.of("frigate", "destroyer"), List.of("hauler", "freighter", "salvager"), List.of("shipyard", "laboratory", "manufacturing"), List.of("deep_miner", "gas_harvester"), List.of("advanced_industry", "combat_doctrine", "battlefleet_engineering"), List.of("fuel"), 3, 5, 4, 2, 4, 4, 2, 12.0, 16.0, 1400.0, 22.0, 0.35, 560.0, 90.0,
                         3400.0, 700.0, 150.0, EnumSet.of(Material.IRON, Material.COPPER, Material.SILICATES, Material.ICE, Material.HYDROGEN, Material.HELIUM, Material.METHANE), EnumSet.noneOf(NodeKind.class),
-                        true, true, false, true, true, true, true, 1, "Corsair Syndicate has established a foothold."));
+                        true, true, false, false, true, true, true, 1, "Corsair Syndicate has established a foothold."));
     }
 
     @SuppressWarnings("unchecked")
