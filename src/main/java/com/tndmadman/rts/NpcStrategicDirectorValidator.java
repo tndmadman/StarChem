@@ -63,11 +63,14 @@ public final class NpcStrategicDirectorValidator {
         addUnit(world, faction.id(), "hauler", home.x + 210, home.y + 110);
         addUnit(world, faction.id(), "salvager", home.x + 240, home.y + 140);
         addUnit(world, faction.id(), "deep_miner", home.x - 210, home.y + 110);
+        advance(world, faction, 7);
+        requireState(world, faction, NpcStrategicState.BUILD_FLEET,
+                "complete infrastructure did not switch production to combat ships");
+
         while (armedCount(world, faction.id()) < faction.targetFleetSize()) {
             addUnit(world, faction.id(), "frigate", home.x - 220, home.y - 120);
         }
-
-        advance(world, faction, 7);
+        refresh(world, faction);
         requireState(world, faction, NpcStrategicState.PREPARE_RAID,
                 "mature faction did not assemble for a raid");
         advance(world, faction, 7);
