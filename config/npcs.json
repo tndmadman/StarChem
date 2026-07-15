@@ -1,5 +1,5 @@
 {
-  "npcAiVersion": 5,
+  "npcAiVersion": 6,
   "factions": [
     {
       "id": "NPC_RAIDERS",
@@ -268,7 +268,7 @@
       "attackBases": true,
       "attackUnits": true,
       "attackNpcFactions": true,
-      "replaceWorkers": true,
+      "replaceWorkers": false,
       "harassWorkers": true,
       "preferWorkerTargets": true,
       "requirePlayerCombatShips": false,
