@@ -21,6 +21,7 @@ public final class NpcSystemIsolationValidator {
         validateStationReplacementOwnership();
         NpcFactionLifecycleValidator.validateOrThrow();
         NpcStrategicDirectorValidator.validateOrThrow();
+        NpcResourceBudgetValidator.validateOrThrow();
         validateRuntimeCleanup();
     }
 
