@@ -60,6 +60,8 @@ public final class TcpRemoteSystemVisibilityValidator {
         PlayerRegistry.reset("SOLO", "Remote View Recovery", 0x50BEFF);
         World authoritative = new World("Remote View Authority", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
         authoritative.activateSystem(StarSystems.CORSAIR_SYSTEM_ID);
+        TcpIntegrationHarness.require(StarSystems.CORSAIR_SYSTEM_ID.equals(authoritative.activeSystemId()),
+                "authoritative Corsair Den system is unavailable");
         Snapshot corsairSnapshot = WorldNetAccess.snapshot(authoritative, 1);
 
         World client = new World("Remote View Client", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
@@ -99,6 +101,8 @@ public final class TcpRemoteSystemVisibilityValidator {
         String old = world.activeSystemId();
         try {
             world.activateSystem(StarSystems.CORSAIR_SYSTEM_ID);
+            TcpIntegrationHarness.require(StarSystems.CORSAIR_SYSTEM_ID.equals(world.activeSystemId()),
+                    "Corsair Den system is unavailable on the server");
             String key = Unit.key(Config.CORSAIRS_ID, CORSAIR_TEST_UNIT_ID);
             Unit unit = new Unit(Config.CORSAIRS_ID, CORSAIR_TEST_UNIT_ID, Rules.STARTING_SHIP,
                     world.width * 0.32, world.height * 0.48);
