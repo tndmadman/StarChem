@@ -34,8 +34,10 @@ public final class NpcGalaxyDirectorValidator {
         add(world, 7, "destroyer", x + 150, y + 100);
         add(world, 8, "destroyer", x - 150, y - 100);
         add(world, 9, "frigate", x + 210, y - 140);
-        add(world, 10, "hauler", x + 180, y + 180);
-        add(world, 11, "deep_miner", x - 220, y + 180);
+        add(world, 10, "frigate", x - 210, y + 140);
+        add(world, 11, "hauler", x + 180, y + 180);
+        add(world, 12, "salvager", x + 220, y + 210);
+        add(world, 13, "deep_miner", x - 220, y + 180);
         for (String topicId : corsairs().researchTopicIds()) world.completeResearch(Config.CORSAIRS_ID, topicId);
         world.saveActiveSystem();
 
