@@ -7,10 +7,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 
 final class NpcSystem {
     private final Map<String, NpcState> states = new LinkedHashMap<>();
     private final Set<String> disabledFactionIds;
+    private NpcBudgetCategory spendingCategory = NpcBudgetCategory.GENERAL;
 
     NpcSystem() { this(Set.of()); }
 
@@ -200,20 +202,26 @@ final class NpcSystem {
         }
 
         if (strategy.buildsStations() && state.stationBuildTimer <= 0) {
-            if (buildOrDeployStation(world, faction)) state.stationBuildTimer = faction.stationBuildSeconds();
-            else state.stationBuildTimer = Math.max(3.0, faction.stationBuildSeconds() * 0.5);
+            NpcBudgetCategory category = strategy == NpcStrategicState.EXPAND
+                    ? NpcBudgetCategory.EXPANSION
+                    : NpcBudgetCategory.STATION_RECOVERY;
+            if (withBudget(category, () -> buildOrDeployStation(world, faction))) {
+                state.stationBuildTimer = faction.stationBuildSeconds();
+            } else {
+                state.stationBuildTimer = Math.max(3.0, faction.stationBuildSeconds() * 0.5);
+            }
         }
 
         if (strategy.buildsShips() && state.buildTimer <= 0) {
             boolean built;
             if (strategy.prioritizesFleet()) {
-                built = buildFleetShip(world, faction)
-                        || buildSupportShip(world, faction)
-                        || buildIndustryShip(world, faction);
+                built = withBudget(NpcBudgetCategory.FLEET, () -> buildFleetShip(world, faction))
+                        || withBudget(NpcBudgetCategory.GENERAL, () -> buildSupportShip(world, faction))
+                        || withBudget(NpcBudgetCategory.GENERAL, () -> buildIndustryShip(world, faction));
             } else {
-                built = buildSupportShip(world, faction)
-                        || buildIndustryShip(world, faction)
-                        || buildFleetShip(world, faction);
+                built = withBudget(NpcBudgetCategory.GENERAL, () -> buildSupportShip(world, faction))
+                        || withBudget(NpcBudgetCategory.GENERAL, () -> buildIndustryShip(world, faction))
+                        || withBudget(NpcBudgetCategory.FLEET, () -> buildFleetShip(world, faction));
             }
             state.buildTimer = built
                     ? faction.buildSeconds()
@@ -257,9 +265,11 @@ final class NpcSystem {
     }
 
     private void operateStations(World world, NpcFaction faction, boolean allowResearch) {
-        craftConfiguredItems(world, faction);
+        withBudget(NpcBudgetCategory.EMERGENCY_FUEL, () -> craftConfiguredItems(world, faction));
         supplyFuelToStations(world, faction);
-        if (allowResearch) startConfiguredResearch(world, faction);
+        if (allowResearch) {
+            withBudget(NpcBudgetCategory.RESEARCH, () -> startConfiguredResearch(world, faction));
+        }
     }
 
     private boolean craftConfiguredItems(World world, NpcFaction faction) {
@@ -300,7 +310,7 @@ final class NpcSystem {
                     if (craftTowardCost(world, faction, topic.requiredResources)) return true;
                     continue;
                 }
-                spendFaction(world, faction, topic.requiredResources);
+                if (!spendFaction(world, faction, topic.requiredResources)) continue;
                 ResearchSystem.start(world, base, topic);
                 return true;
             }
@@ -367,7 +377,7 @@ final class NpcSystem {
         if (!factionCanAfford(world, faction, packageBase.buildCost)) {
             return craftTowardCost(world, faction, packageBase.buildCost);
         }
-        spendFaction(world, faction, packageBase.buildCost);
+        if (!spendFaction(world, faction, packageBase.buildCost)) return false;
         builder.basePackageType = packageType;
         placeStationFromBuilder(world, faction, source, builder, packageType);
         return true;
@@ -457,7 +467,7 @@ final class NpcSystem {
         if (!canBuildShip(world, faction, base, shipTypeId, false)) return false;
         ShipType ship = Rules.ship(shipTypeId);
         if (!factionCanAfford(world, faction, ship.buildCost)) return false;
-        spendFaction(world, faction, ship.buildCost);
+        if (!spendFaction(world, faction, ship.buildCost)) return false;
         int n = nextUnitNumber(world, faction);
         double a = n * 1.35;
         Unit unit = new Unit(faction.id(), n, shipTypeId,
@@ -507,7 +517,7 @@ final class NpcSystem {
                 }
                 if (missingRaw || !factionCanAfford(world, faction, item.requiredResources)) continue;
 
-                spendFaction(world, faction, item.requiredResources);
+                if (!spendFaction(world, faction, item.requiredResources)) continue;
                 HangarStore.add(base.inventory, item.outputMaterial, item.outputAmount);
                 return true;
             }
@@ -527,32 +537,27 @@ final class NpcSystem {
     }
 
     private boolean factionCanAfford(World world, NpcFaction faction, List<Cost> cost) {
-        for (Cost c : cost) if (factionMaterial(world, faction, c.material()) + 0.001 < c.amount()) return false;
-        return true;
+        return NpcResourceBudget.canAfford(world, faction, spendingCategory, cost);
     }
 
-    private void spendFaction(World world, NpcFaction faction, List<Cost> cost) {
-        for (Cost c : cost) spendFactionMaterial(world, faction, c.material(), c.amount());
+    private boolean spendFaction(World world, NpcFaction faction, List<Cost> cost) {
+        return NpcResourceBudget.spend(world, faction, spendingCategory, cost);
+    }
+
+    private boolean withBudget(NpcBudgetCategory category, BooleanSupplier action) {
+        NpcBudgetCategory previous = spendingCategory;
+        spendingCategory = category == null ? NpcBudgetCategory.GENERAL : category;
+        try {
+            return action.getAsBoolean();
+        } finally {
+            spendingCategory = previous;
+        }
     }
 
     private double factionMaterial(World world, NpcFaction faction, Material material) {
         double total = 0;
         for (Base base : world.bases.values()) if (base.playerId.equals(faction.id()) && base.hp > 0) total += base.inventory.getOrDefault(material, 0.0);
         return total;
-    }
-
-    private void spendFactionMaterial(World world, NpcFaction faction, Material material, double amount) {
-        double remaining = amount;
-        for (Base base : world.bases.values()) {
-            if (!base.playerId.equals(faction.id()) || base.hp <= 0 || remaining <= 0.001) continue;
-            double held = base.inventory.getOrDefault(material, 0.0);
-            if (held <= 0.001) continue;
-            double take = Math.min(held, remaining);
-            double next = held - take;
-            if (next <= 0.05) base.inventory.remove(material);
-            else base.inventory.put(material, next);
-            remaining -= take;
-        }
     }
 
     private void transferMaterialToBase(World world, NpcFaction faction, Base target, Material material, double amount) {
