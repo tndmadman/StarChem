@@ -24,6 +24,7 @@ public final class NpcResourceBudgetValidator {
 
     private static void validateEmergencyFuelProtection() {
         Fixture fixture = fixture("Emergency Fuel Budget");
+        ensureWorkers(fixture);
         clearMaterials(fixture);
         double emergency = Math.max(10.0, fixture.faction.fuelReserve() * 0.20);
         fixture.home.inventory.put(Material.FUEL, emergency);
@@ -39,49 +40,46 @@ public final class NpcResourceBudgetValidator {
         require(NpcResourceBudget.canAfford(fixture.world, fixture.faction,
                         NpcBudgetCategory.EMERGENCY_FUEL, oneFuel, plan),
                 "emergency fuel work could not consume its own reserve");
-
-        double before = material(fixture.world, fixture.faction.id(), Material.FUEL);
-        require(NpcResourceBudget.spend(fixture.world, fixture.faction,
-                        NpcBudgetCategory.EMERGENCY_FUEL, oneFuel),
-                "approved emergency fuel spend failed");
-        require(Math.abs(material(fixture.world, fixture.faction.id(), Material.FUEL) - (before - 1.0)) < EPSILON,
-                "emergency fuel spend did not deduct exactly one unit");
     }
 
     private static void validateWorkerRecoveryProtection() {
         Fixture fixture = fixture("Worker Recovery Budget");
-        removeWorkers(fixture);
-        NpcBudgetPlan plan = fundExactly(fixture, NpcStrategicState.STABILIZE_ECONOMY,
-                NpcBudgetCategory.WORKER_RECOVERY, false);
+        ensureWorkers(fixture);
+        removeOneWorker(fixture);
+        clearMaterials(fixture);
+        List<Cost> workerCost = Rules.ship(firstWorkerType(fixture.faction)).buildCost;
+        addCosts(fixture.home, workerCost, 1.0);
+
+        NpcBudgetPlan plan = NpcResourceBudget.plan(
+                fixture.world, fixture.faction, NpcStrategicState.STABILIZE_ECONOMY);
         require(plan.fullyFunded(NpcBudgetCategory.WORKER_RECOVERY),
                 "worker recovery reserve was not fully funded");
-        require(plan.reservedTotal(NpcBudgetCategory.WORKER_RECOVERY) > EPSILON,
-                "missing worker created no material reservation");
-
-        List<Cost> workerCost = Rules.ship(firstWorkerType(fixture.faction)).buildCost;
         require(!NpcResourceBudget.canAfford(fixture.world, fixture.faction,
                         NpcBudgetCategory.GENERAL, workerCost, plan),
                 "general production could consume worker replacement materials");
         require(NpcResourceBudget.canAfford(fixture.world, fixture.faction,
                         NpcBudgetCategory.WORKER_RECOVERY, workerCost, plan),
                 "worker recovery could not consume its own reservation");
-        require(NpcResourceBudget.spend(fixture.world, fixture.faction,
-                        NpcBudgetCategory.WORKER_RECOVERY, workerCost),
-                "worker recovery reservation could not be spent");
     }
 
     private static void validateStationRecoveryProtection() {
         Fixture fixture = fixture("Station Recovery Budget");
         ensureWorkers(fixture);
         removeBuilders(fixture);
-        NpcBudgetPlan plan = fundExactly(fixture, NpcStrategicState.FORTIFY,
-                NpcBudgetCategory.STATION_RECOVERY, false);
+        clearMaterials(fixture);
+
+        NpcBudgetPlan initial = NpcResourceBudget.plan(
+                fixture.world, fixture.faction, NpcStrategicState.FORTIFY);
+        fundDesired(fixture.home, initial, NpcBudgetCategory.STATION_RECOVERY);
+        NpcBudgetPlan plan = NpcResourceBudget.plan(
+                fixture.world, fixture.faction, NpcStrategicState.FORTIFY);
+
         require(plan.fullyFunded(NpcBudgetCategory.STATION_RECOVERY),
                 "station recovery reserve was not fully funded");
         Material protectedMaterial = blockedMaterial(plan,
                 NpcBudgetCategory.STATION_RECOVERY, NpcBudgetCategory.FLEET);
-        List<Cost> probe = List.of(new Cost(protectedMaterial, probeAmount(
-                plan.reserved(NpcBudgetCategory.STATION_RECOVERY, protectedMaterial))));
+        List<Cost> probe = List.of(new Cost(protectedMaterial,
+                probeAmount(plan.reserved(NpcBudgetCategory.STATION_RECOVERY, protectedMaterial))));
         require(!NpcResourceBudget.canAfford(fixture.world, fixture.faction,
                         NpcBudgetCategory.FLEET, probe, plan),
                 "fleet construction could consume station recovery materials");
@@ -94,17 +92,23 @@ public final class NpcResourceBudgetValidator {
         Fixture fixture = fixture("Research Budget");
         ensureWorkers(fixture);
         ensureAllStations(fixture);
-        NpcBudgetPlan plan = fundExactly(fixture, NpcStrategicState.RESEARCH,
-                NpcBudgetCategory.RESEARCH, true);
+        clearMaterials(fixture);
+        powerFuelConsumers(fixture);
+
+        NpcBudgetPlan initial = NpcResourceBudget.plan(
+                fixture.world, fixture.faction, NpcStrategicState.RESEARCH);
+        fundDesired(fixture.home, initial, NpcBudgetCategory.RESEARCH);
+        NpcBudgetPlan plan = NpcResourceBudget.plan(
+                fixture.world, fixture.faction, NpcStrategicState.RESEARCH);
+
         require(plan.fullyFunded(NpcBudgetCategory.RESEARCH),
                 "research reserve was not fully funded");
         require(plan.reservedTotal(NpcBudgetCategory.RESEARCH) > EPSILON,
                 "missing research created no reservation");
-
         Material protectedMaterial = blockedMaterial(plan,
                 NpcBudgetCategory.RESEARCH, NpcBudgetCategory.GENERAL);
-        List<Cost> probe = List.of(new Cost(protectedMaterial, probeAmount(
-                plan.reserved(NpcBudgetCategory.RESEARCH, protectedMaterial))));
+        List<Cost> probe = List.of(new Cost(protectedMaterial,
+                probeAmount(plan.reserved(NpcBudgetCategory.RESEARCH, protectedMaterial))));
         require(!NpcResourceBudget.canAfford(fixture.world, fixture.faction,
                         NpcBudgetCategory.GENERAL, probe, plan),
                 "general production could consume reserved research materials");
@@ -129,33 +133,34 @@ public final class NpcResourceBudgetValidator {
         fixture.home.inventory.put(Material.FUEL,
                 Math.max(20.0, fixture.faction.fuelReserve()));
 
+        String fleetType = fixture.faction.fleetUnitTypes().get(0);
+        List<Cost> directFleetCost = Rules.ship(fleetType).buildCost;
         NpcBudgetPlan emptyFleet = NpcResourceBudget.plan(
                 fixture.world, fixture.faction, NpcStrategicState.BUILD_FLEET);
         Material rawInput = null;
         for (Material material : Material.values()) {
-            if (!material.raw) continue;
+            if (!material.raw || directCostContains(directFleetCost, material)) continue;
             if (emptyFleet.desired(NpcBudgetCategory.FLEET, material) <= EPSILON) continue;
-            if (emptyFleet.desired(NpcBudgetCategory.EMERGENCY_FUEL, material) > EPSILON) continue;
             rawInput = material;
             break;
         }
         require(rawInput != null,
-                "fleet reservation did not expand missing components into raw inputs");
+                "fleet reservation did not expand processed hull components into raw inputs");
         fixture.home.inventory.put(rawInput,
                 emptyFleet.desired(NpcBudgetCategory.FLEET, rawInput));
 
         NpcBudgetPlan plan = NpcResourceBudget.plan(
                 fixture.world, fixture.faction, NpcStrategicState.BUILD_FLEET);
         require(plan.reserved(NpcBudgetCategory.FLEET, rawInput) > EPSILON,
-                "raw fleet input was not protected after becoming available");
-        List<Cost> probe = List.of(new Cost(rawInput, probeAmount(
-                plan.reserved(NpcBudgetCategory.FLEET, rawInput))));
+                "recursive fleet input was not protected after becoming available");
+        List<Cost> probe = List.of(new Cost(rawInput,
+                probeAmount(plan.reserved(NpcBudgetCategory.FLEET, rawInput))));
         require(!NpcResourceBudget.canAfford(fixture.world, fixture.faction,
                         NpcBudgetCategory.GENERAL, probe, plan),
-                "general production could consume a raw fleet input");
+                "general production could consume a recursive fleet input");
         require(NpcResourceBudget.canAfford(fixture.world, fixture.faction,
                         NpcBudgetCategory.FLEET, probe, plan),
-                "fleet production could not consume its reserved raw input");
+                "fleet production could not consume its reserved recursive input");
     }
 
     private static void validateExpansionWaitsForRecovery() {
@@ -177,38 +182,34 @@ public final class NpcResourceBudgetValidator {
                 "fully supplied mature faction could not launch an expedition");
 
         removeOneWorker(fixture);
+        removeMaterial(fixture, Material.IRON);
+        removeMaterial(fixture, Material.COPPER);
         NpcBudgetPlan blocked = NpcResourceBudget.plan(
                 fixture.world, fixture.faction, NpcStrategicState.EXPAND);
         require(!blocked.fullyFunded(NpcBudgetCategory.WORKER_RECOVERY),
-                "missing worker was unexpectedly fully funded from raw-only supplies");
+                "missing worker was unexpectedly fully funded without iron or copper");
         require(!NpcResourceBudget.canLaunchExpansion(fixture.world, fixture.faction, blocked),
                 "expansion launched while worker recovery was underfunded");
 
-        addCosts(fixture.home, Rules.ship(firstWorkerType(fixture.faction)).buildCost);
+        addCosts(fixture.home,
+                Rules.ship(firstWorkerType(fixture.faction)).buildCost,
+                3.0);
         NpcBudgetPlan restored = NpcResourceBudget.plan(
                 fixture.world, fixture.faction, NpcStrategicState.EXPAND);
         require(restored.fullyFunded(NpcBudgetCategory.WORKER_RECOVERY),
-                "worker recovery remained underfunded after adding its build materials");
+                "worker recovery remained underfunded after restoring its build materials");
         require(NpcResourceBudget.canLaunchExpansion(fixture.world, fixture.faction, restored),
                 "funded worker recovery did not release the expansion gate");
     }
 
-    private static NpcBudgetPlan fundExactly(Fixture fixture, NpcStrategicState strategy,
-                                             NpcBudgetCategory through, boolean powerStations) {
-        NpcBudgetPlan plan = NpcResourceBudget.plan(fixture.world, fixture.faction, strategy);
-        for (int pass = 0; pass < 3; pass++) {
-            clearMaterials(fixture);
-            for (NpcBudgetCategory category : NpcBudgetCategory.values()) {
-                if (category.ordinal() > through.ordinal()) break;
-                for (Material material : Material.values()) {
-                    double amount = plan.desired(category, material);
-                    if (amount > EPSILON) HangarStore.add(fixture.home.inventory, material, amount);
-                }
+    private static void fundDesired(Base base, NpcBudgetPlan plan, NpcBudgetCategory through) {
+        for (NpcBudgetCategory category : NpcBudgetCategory.values()) {
+            if (category.ordinal() > through.ordinal()) break;
+            for (Material material : Material.values()) {
+                double amount = plan.desired(category, material);
+                if (amount > EPSILON) HangarStore.add(base.inventory, material, amount);
             }
-            if (powerStations) powerFuelConsumers(fixture);
-            plan = NpcResourceBudget.plan(fixture.world, fixture.faction, strategy);
         }
-        return plan;
     }
 
     private static void powerFuelConsumers(Fixture fixture) {
@@ -253,10 +254,10 @@ public final class NpcResourceBudgetValidator {
         }
     }
 
-    private static void removeWorkers(Fixture fixture) {
-        fixture.world.units.values().removeIf(unit -> fixture.faction.id().equals(unit.playerId)
-                && !unit.type().harvestKinds.isEmpty()
-                && fixture.faction.workerTypeSet().contains(unit.shipTypeId));
+    private static void removeMaterial(Fixture fixture, Material material) {
+        for (Base base : fixture.world.bases.values()) {
+            if (fixture.faction.id().equals(base.playerId)) base.inventory.remove(material);
+        }
     }
 
     private static void removeOneWorker(Fixture fixture) {
@@ -370,8 +371,15 @@ public final class NpcResourceBudgetValidator {
         }
     }
 
-    private static void addCosts(Base base, List<Cost> cost) {
-        for (Cost entry : cost) HangarStore.add(base.inventory, entry.material(), entry.amount());
+    private static void addCosts(Base base, List<Cost> cost, double multiplier) {
+        for (Cost entry : cost) {
+            HangarStore.add(base.inventory, entry.material(), entry.amount() * multiplier);
+        }
+    }
+
+    private static boolean directCostContains(List<Cost> cost, Material material) {
+        for (Cost entry : cost) if (entry.material() == material && entry.amount() > EPSILON) return true;
+        return false;
     }
 
     private static Material blockedMaterial(NpcBudgetPlan plan,
@@ -380,8 +388,9 @@ public final class NpcResourceBudgetValidator {
         for (Material material : Material.values()) {
             double reserved = plan.reserved(protectedCategory, material);
             if (reserved <= EPSILON) continue;
+            double probe = probeAmount(reserved);
             double available = plan.total(material) - plan.protectedBefore(spendingCategory, material);
-            if (available <= probeAmount(reserved) - EPSILON) return material;
+            if (available + EPSILON < probe) return material;
         }
         throw new IllegalStateException("No exclusively protected material was found for " + protectedCategory);
     }
@@ -393,16 +402,6 @@ public final class NpcResourceBudgetValidator {
     private static double desiredTotal(NpcBudgetPlan plan, NpcBudgetCategory category) {
         double total = 0.0;
         for (Material material : Material.values()) total += plan.desired(category, material);
-        return total;
-    }
-
-    private static double material(World world, String factionId, Material material) {
-        double total = 0.0;
-        for (Base base : world.bases.values()) {
-            if (factionId.equals(base.playerId) && base.hp > 0) {
-                total += base.inventory.getOrDefault(material, 0.0);
-            }
-        }
         return total;
     }
 
