@@ -55,6 +55,7 @@ public final class NpcSystemIsolationValidator {
                 false);
 
         world.activateSystem(StarSystems.CORSAIR_SYSTEM_ID);
+        addCombatShip(world, "SCOPE_TEST_PLAYER", 9004);
         tickCurrent(world, 70);
         require(factionAssetCount(world, StarSystems.CORSAIR_SYSTEM_ID, Config.CORSAIRS_ID) > 0,
                 "Corsairs did not spawn in their initial controlled system");
