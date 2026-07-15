@@ -7,6 +7,7 @@ final class NpcFactionRuntime {
     private final String homeSystemId;
     private State state = State.INITIALIZING;
     private double spawnTimer;
+    private int spawnCount;
 
     NpcFactionRuntime(NpcFaction faction) {
         this.factionId = faction.id();
@@ -18,6 +19,7 @@ final class NpcFactionRuntime {
     String homeSystemId() { return homeSystemId; }
     State state() { return state; }
     double spawnTimer() { return Math.max(0, spawnTimer); }
+    int spawnCount() { return spawnCount; }
 
     void observe(boolean hasGalaxyAssets, NpcFaction faction) {
         if (hasGalaxyAssets) {
@@ -40,6 +42,7 @@ final class NpcFactionRuntime {
     void markSpawned(NpcFaction faction) {
         state = State.ACTIVE;
         spawnTimer = Math.max(0, faction.respawnSeconds());
+        spawnCount++;
     }
 
     void deferSpawn(double seconds) {
