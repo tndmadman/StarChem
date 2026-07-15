@@ -47,6 +47,7 @@ final class NpcFactionSpawner {
         }
 
         if (!spawned) return false;
+        NpcStrategicDirector.onSpawned(world, faction);
         PlayerRegistry.register(faction.id(), faction.name(), faction.rgb(), false);
         if (reason == NpcSpawnReason.FORCED) {
             world.status = "Dev spawned " + faction.name() + " in " + homeSystemId + ".";
