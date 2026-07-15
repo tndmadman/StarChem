@@ -17,6 +17,7 @@ public final class NpcWorkerProductionValidator {
         validateQueuedWorkerRecovery();
         validateRequiresProductionStation();
         validateGalaxyWideWorkerCap();
+        validatePendingCancellationAtCap();
     }
 
     private static void validateQueuedWorkerRecovery() {
@@ -99,19 +100,47 @@ public final class NpcWorkerProductionValidator {
     private static void validateGalaxyWideWorkerCap() {
         Fixture fixture = fixture("Galaxy Worker Cap");
         clearFactionMaterials(fixture);
-        String remoteSystem = "red_dwarf";
-        fixture.world.activateSystem(remoteSystem);
-        Unit remoteWorker = new Unit(fixture.faction.id(), 98_001, firstWorkerType(fixture.faction),
-                fixture.world.width * 0.5, fixture.world.height * 0.5);
-        fixture.world.units.put(remoteWorker.key(), remoteWorker);
-        fixture.world.saveActiveSystem();
-        fixture.world.activateSystem(StarSystems.CORSAIR_SYSTEM_ID);
+        addRemoteWorker(fixture, 98_001);
 
         require(workerCount(fixture.world, fixture.faction) == fixture.faction.maxWorkers(),
                 "remote worker was not included in the galaxy-wide worker count");
         runRecovery(fixture.world);
         require(pendingWorkerJob(fixture.world, fixture.faction) == null,
                 "Corsair Den queued a replacement despite the remote worker satisfying the cap");
+    }
+
+    private static void validatePendingCancellationAtCap() {
+        Fixture fixture = fixture("Worker Cancellation At Cap");
+        clearFactionMaterials(fixture);
+        ShipType worker = Rules.ship(firstWorkerType(fixture.faction));
+        addCosts(fixture.home, worker.buildCost);
+
+        runRecovery(fixture.world);
+        ProductionJob job = pendingWorkerJob(fixture.world, fixture.faction);
+        require(job != null && job.resourcesReserved,
+                "worker replacement was not funded before cancellation test");
+        require(!canAfford(fixture.home, worker.buildCost),
+                "funded worker replacement did not deduct its materials");
+
+        addRemoteWorker(fixture, 98_002);
+        runRecovery(fixture.world);
+        require(pendingWorkerJob(fixture.world, fixture.faction) == null,
+                "worker job remained queued after the galaxy-wide cap was satisfied");
+        require(canAfford(fixture.home, worker.buildCost),
+                "cancelling the prepaid worker job did not refund its materials");
+
+        ProductionQueueScheduler.update(fixture.world, worker.buildTimeSeconds + 1.0);
+        require(workerCount(fixture.world, fixture.faction) == fixture.faction.maxWorkers(),
+                "cancelled worker job still completed above the galaxy-wide cap");
+    }
+
+    private static void addRemoteWorker(Fixture fixture, int unitId) {
+        fixture.world.activateSystem("red_dwarf");
+        Unit remoteWorker = new Unit(fixture.faction.id(), unitId, firstWorkerType(fixture.faction),
+                fixture.world.width * 0.5, fixture.world.height * 0.5);
+        fixture.world.units.put(remoteWorker.key(), remoteWorker);
+        fixture.world.saveActiveSystem();
+        fixture.world.activateSystem(StarSystems.CORSAIR_SYSTEM_ID);
     }
 
     private static void runRecovery(World world) {
