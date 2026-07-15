@@ -39,21 +39,27 @@ public final class NpcStrategicDirectorValidator {
                 "stable starting economy did not establish a second station");
 
         addBase(world, faction.id(), "laboratory", home.x + 500, home.y + 120);
+        home.inventory.remove(Material.FUEL);
         refresh(world, faction);
         requireState(world, faction, NpcStrategicState.FORTIFY,
-                "partial station infrastructure did not remain in fortification");
+                "low fuel without production did not request manufacturing infrastructure");
 
-        addBase(world, faction.id(), "shipyard", home.x - 500, home.y + 150);
         addBase(world, faction.id(), "manufacturing", home.x, home.y - 520);
         refresh(world, faction);
+        requireState(world, faction, NpcStrategicState.STABILIZE_ECONOMY,
+                "fuel-capable faction did not stabilize its depleted reserve");
+
+        HangarStore.add(home.inventory, Material.FUEL, faction.fuelReserve() + 20.0);
+        refresh(world, faction);
         requireState(world, faction, NpcStrategicState.RESEARCH,
-                "complete research-capable infrastructure did not prioritize missing doctrine");
+                "fueled research-capable faction did not prioritize missing doctrine");
 
         for (String topicId : faction.researchTopicIds()) world.completeResearch(faction.id(), topicId);
         refresh(world, faction);
         requireState(world, faction, NpcStrategicState.FORTIFY,
-                "researched faction did not finish support and industry readiness");
+                "researched faction did not finish station and fleet infrastructure");
 
+        addBase(world, faction.id(), "shipyard", home.x - 500, home.y + 150);
         addUnit(world, faction.id(), "hauler", home.x + 210, home.y + 110);
         addUnit(world, faction.id(), "salvager", home.x + 240, home.y + 140);
         addUnit(world, faction.id(), "deep_miner", home.x - 210, home.y + 110);
