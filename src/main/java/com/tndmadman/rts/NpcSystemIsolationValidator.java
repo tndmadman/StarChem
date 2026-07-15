@@ -19,6 +19,7 @@ public final class NpcSystemIsolationValidator {
         validateFactionSystemScope();
         validateExpansionScope();
         validateStationReplacementOwnership();
+        NpcFactionLifecycleValidator.validateOrThrow();
         validateRuntimeCleanup();
     }
 
