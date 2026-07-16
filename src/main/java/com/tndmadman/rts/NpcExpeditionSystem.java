@@ -21,9 +21,9 @@ import java.util.WeakHashMap;
  * authoritative simulated system. Orders are reasserted from every local
  * system pass after ordinary tactical AI, allowing the exact roster to travel
  * through real wormholes without being replaced by local mining or combat
- * orders. Supplies are deducted once during reservation, refunded only when an
- * expedition aborts before its first wormhole transit, and delivered to the
- * completed Phase 7 foothold exactly once.
+ * orders. Supplies and the carried foothold package are deducted once during
+ * reservation, refunded only when an expedition aborts before its first
+ * wormhole transit, and never duplicated by retries or replanning.
  */
 final class NpcExpeditionSystem {
     private static final double SUCCESS_COOLDOWN_SECONDS = 150.0;
@@ -169,20 +169,37 @@ final class NpcExpeditionSystem {
         Base source = bestSupplyBase(world, faction.id());
         Roster roster = selectRoster(world, faction);
         if (source == null || roster == null) return;
+
+        String packageType = validFootholdType(faction);
+        BaseType packageBase = Rules.findBase(packageType);
+        if (packageBase == null) return;
+        if (!NpcResourceBudget.canAfford(world, faction,
+                NpcBudgetCategory.EXPANSION, packageBase.buildCost)) return;
+        if (!NpcResourceBudget.spend(world, faction,
+                NpcBudgetCategory.EXPANSION, packageBase.buildCost)) return;
+        EnumMap<Material, Double> packageCost = costMap(packageBase.buildCost);
+
         EnumMap<Material, Double> supplies = reserveSupplies(source);
-        if (supplies.isEmpty()) return;
+        if (supplies.isEmpty()) {
+            refundToBase(source, packageCost);
+            return;
+        }
 
         plan.sourceBaseId = source.id;
         plan.builderKey = roster.builder.key();
         plan.workerKey = roster.worker.key();
         plan.combatKeys.addAll(roster.combatKeys);
         plan.supportKeys.addAll(roster.supportKeys);
+        plan.packageType = packageType;
+        plan.packageCost.putAll(packageCost);
+        plan.packageCommitted = true;
         plan.supplies.putAll(supplies);
         plan.suppliesReserved = true;
-        roster.builder.basePackageType = validFootholdType(faction);
+        roster.builder.basePackageType = packageType;
         plan.routeIndex = 0;
         transition(world, faction, plan, NpcExpeditionState.ASSEMBLING,
-                "reserved supplies and roster of " + plan.rosterKeys().size() + " ships");
+                "reserved foothold package, supplies, and roster of "
+                        + plan.rosterKeys().size() + " ships");
     }
 
     private static void progressAssembling(World world, NpcFaction faction, ExpeditionPlan plan) {
@@ -274,9 +291,10 @@ final class NpcExpeditionSystem {
                     beginAbort(world, faction, plan, "foothold site failed repeatedly");
                     return;
                 }
-                builder.basePackageType = validFootholdType(faction);
+                if (plan.packageType.isBlank()) plan.packageType = validFootholdType(faction);
+                builder.basePackageType = plan.packageType;
                 boolean started = NpcStationConstructionSystem.startLoaded(
-                        world, faction, builder, builder.basePackageType);
+                        world, faction, builder, plan.packageType);
                 plan.establishRetries++;
                 if (!started) return;
             }
@@ -338,7 +356,7 @@ final class NpcExpeditionSystem {
             return;
         }
         if (!plan.launched) {
-            refundSupplies(world, faction, plan);
+            refundReservation(world, faction, plan);
             clearBuilderPackage(world, plan);
             fail(world, faction, runtime, plan, plan.reason + "; aborted before launch");
             return;
@@ -589,8 +607,26 @@ final class NpcExpeditionSystem {
         return reserved;
     }
 
-    private static void refundSupplies(World world, NpcFaction faction, ExpeditionPlan plan) {
-        if (!plan.suppliesReserved || plan.launched || plan.supplies.isEmpty()) return;
+    private static EnumMap<Material, Double> costMap(List<Cost> costs) {
+        EnumMap<Material, Double> result = new EnumMap<>(Material.class);
+        if (costs == null) return result;
+        for (Cost cost : costs) {
+            if (cost != null && cost.amount() > EPSILON) {
+                result.merge(cost.material(), cost.amount(), Double::sum);
+            }
+        }
+        return result;
+    }
+
+    private static void refundToBase(Base base, Map<Material, Double> materials) {
+        if (base == null || materials == null) return;
+        for (Map.Entry<Material, Double> entry : materials.entrySet()) {
+            if (entry.getValue() > EPSILON) HangarStore.add(base.inventory, entry.getKey(), entry.getValue());
+        }
+    }
+
+    private static void refundReservation(World world, NpcFaction faction, ExpeditionPlan plan) {
+        if (plan.launched || (!plan.suppliesReserved && !plan.packageCommitted)) return;
         String previous = world.activeSystemId();
         String previousStatus = world.status;
         world.activateSystem(plan.sourceSystemId);
@@ -598,11 +634,12 @@ final class NpcExpeditionSystem {
             Base source = world.bases.get(plan.sourceBaseId);
             if (source == null || source.hp <= 0) source = bestSupplyBase(world, faction.id());
             if (source == null) return;
-            for (Map.Entry<Material, Double> entry : plan.supplies.entrySet()) {
-                HangarStore.add(source.inventory, entry.getKey(), entry.getValue());
-            }
+            refundToBase(source, plan.supplies);
+            refundToBase(source, plan.packageCost);
             plan.supplies.clear();
+            plan.packageCost.clear();
             plan.suppliesReserved = false;
+            plan.packageCommitted = false;
         } finally {
             world.saveActiveSystem();
             if (previous != null && !previous.isBlank()) world.activateSystem(previous);
@@ -612,12 +649,12 @@ final class NpcExpeditionSystem {
 
     private static void deliverSupplies(Base foothold, ExpeditionPlan plan) {
         if (plan.suppliesDelivered) return;
-        for (Map.Entry<Material, Double> entry : plan.supplies.entrySet()) {
-            HangarStore.add(foothold.inventory, entry.getKey(), entry.getValue());
-        }
+        refundToBase(foothold, plan.supplies);
         plan.supplies.clear();
         plan.suppliesDelivered = true;
         plan.suppliesReserved = false;
+        plan.packageCost.clear();
+        plan.packageCommitted = false;
     }
 
     private static void clearBuilderPackage(World world, ExpeditionPlan plan) {
@@ -992,10 +1029,12 @@ final class NpcExpeditionSystem {
         final List<String> combatKeys = new ArrayList<>();
         final List<String> supportKeys = new ArrayList<>();
         final EnumMap<Material, Double> supplies = new EnumMap<>(Material.class);
+        final EnumMap<Material, Double> packageCost = new EnumMap<>(Material.class);
         NpcExpeditionState state = NpcExpeditionState.PLANNING;
         String sourceBaseId = "";
         String builderKey = "";
         String workerKey = "";
+        String packageType = "";
         String footholdBaseId = "";
         String reason = "";
         int routeIndex;
@@ -1005,6 +1044,7 @@ final class NpcExpeditionSystem {
         double footholdX;
         double footholdY;
         boolean suppliesReserved;
+        boolean packageCommitted;
         boolean suppliesDelivered;
         boolean launched;
         boolean released;
