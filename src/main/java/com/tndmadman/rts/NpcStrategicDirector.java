@@ -238,7 +238,9 @@ final class NpcStrategicDirector {
                 NpcFactionCapacitySystem.snapshot(world, faction);
         NpcExpeditionSnapshot expedition =
                 NpcExpeditionSystem.snapshot(world, faction);
-        boolean activeExpedition = activeExpansionCommitment(expedition);
+        boolean activeExpedition = activeExpansionCommitment(expedition)
+                && (faction.maxStations() <= 0
+                || capacity.livingStations() < faction.maxStations());
         boolean stationCapacityAvailable = faction.maxStations() <= 0
                 || capacity.stationCommitments() < faction.maxStations();
         boolean expansionAvailable = snapshot.controlledSystems() < 2
@@ -269,7 +271,7 @@ final class NpcStrategicDirector {
         if (snapshot.workers() < workerFloor) return NpcStrategicState.STABILIZE_ECONOMY;
 
         int establishmentTarget = faction.maxStations() <= 0
-                ? 1 : Math.min(2, faction.maxStations());
+                ? 1 : Math.min(2, Math.max(1, faction.maxStations() - 1));
         if (snapshot.stations() < establishmentTarget) return NpcStrategicState.ESTABLISH;
 
         boolean lowFuel = faction.fuelReserve() > 0
@@ -286,7 +288,9 @@ final class NpcStrategicDirector {
                     : NpcStrategicState.FORTIFY;
         }
 
-        int infrastructureTarget = Math.max(establishmentTarget, faction.maxStations());
+        int infrastructureTarget = faction.maxStations() <= 1
+                ? establishmentTarget
+                : Math.max(establishmentTarget, faction.maxStations() - 1);
         int supportFloor = Math.min(2, Math.max(0, faction.maxSupportUnits()));
         int industryFloor = Math.min(1, Math.max(0, faction.maxIndustryUnits()));
         if (snapshot.stations() < infrastructureTarget
