@@ -62,7 +62,7 @@ final class NpcRecoverySystem {
             RepairResult result = repairDamagedShips(world, faction, units, bases, dt, runtime);
             runtime.repairBlockedSeconds = result.blocked
                     ? runtime.repairBlockedSeconds + dt : 0;
-            if (result.blocked) orderEmergencyRepairMining(world, faction, units, bases);
+            if (result.blocked) orderEmergencyRepairMining(world, units, bases);
             transition(world, faction, runtime,
                     result.repairing ? NpcRecoveryState.REPAIRING : NpcRecoveryState.ACTIVE,
                     result.blocked
@@ -247,13 +247,12 @@ final class NpcRecoverySystem {
         releaseRepairEscorts(world, runtime, retreatingKeys);
         if (retreatingShips.isEmpty()) return;
 
-        Map<String, Unit> byKey = new LinkedHashMap<>();
-        for (Unit unit : units) byKey.put(unit.key(), unit);
         Set<String> alreadyProtected = new LinkedHashSet<>();
         for (Map.Entry<String, String> entry : runtime.repairEscortTargets.entrySet()) {
-            Unit escort = byKey.get(entry.getKey());
-            Unit protectedShip = byKey.get(entry.getValue());
-            if (escort == null || protectedShip == null || !retreatingKeys.contains(protectedShip.key())) continue;
+            Unit escort = world.units.get(entry.getKey());
+            Unit protectedShip = CombatTarget.unit(world, entry.getValue());
+            if (escort == null || protectedShip == null
+                    || !retreatingKeys.contains(protectedShip.key())) continue;
             alreadyProtected.add(protectedShip.key());
             runtime.managedUnitKeys.add(escort.key());
         }
@@ -275,6 +274,7 @@ final class NpcRecoverySystem {
         for (Unit protectedShip : retreatingShips) {
             if (alreadyProtected.contains(protectedShip.key()) || candidateIndex >= candidates.size()) continue;
             Unit escort = candidates.get(candidateIndex++);
+            String targetKey = CombatTarget.unit(protectedShip);
             if (AUnitOrder.apply(world, new UnitOrderCommand(
                     escort.playerId,
                     escort.unitId,
@@ -284,9 +284,9 @@ final class NpcRecoverySystem {
                     protectedShip.x,
                     protectedShip.y,
                     UnitOrderSystem.defaultRadius(UnitOrderType.ESCORT),
-                    CombatTarget.unit(protectedShip),
+                    targetKey,
                     0))) {
-                runtime.repairEscortTargets.put(escort.key(), protectedShip.key());
+                runtime.repairEscortTargets.put(escort.key(), targetKey);
                 runtime.managedUnitKeys.add(escort.key());
             }
         }
@@ -296,15 +296,11 @@ final class NpcRecoverySystem {
                                              Set<String> retreatingKeys) {
         for (Map.Entry<String, String> entry
                 : new ArrayList<>(runtime.repairEscortTargets.entrySet())) {
-            if (retreatingKeys.contains(entry.getValue())) continue;
+            Unit protectedShip = CombatTarget.unit(world, entry.getValue());
+            if (protectedShip != null && retreatingKeys.contains(protectedShip.key())) continue;
             Unit escort = world.units.get(entry.getKey());
             if (escort != null && escort.orderType == UnitOrderType.ESCORT
-                    && CombatTarget.unit(world, escort.orderTarget) != null
-                    && escort.orderTarget.equals(CombatTarget.unit(world.units.get(entry.getValue())))) {
-                escort.clearOrder();
-                if (escort.task != UnitTask.ATTACK) escort.task = UnitTask.IDLE;
-            } else if (escort != null && escort.orderType == UnitOrderType.ESCORT
-                    && escort.orderTarget.equals(CombatTarget.unitKey(entry.getValue()))) {
+                    && escort.orderTarget.equals(entry.getValue())) {
                 escort.clearOrder();
                 if (escort.task != UnitTask.ATTACK) escort.task = UnitTask.IDLE;
             }
@@ -319,7 +315,7 @@ final class NpcRecoverySystem {
                 new Cost(Material.COPPER, Math.max(0.02, hp * 0.015)));
     }
 
-    private static void orderEmergencyRepairMining(World world, NpcFaction faction,
+    private static void orderEmergencyRepairMining(World world,
                                                    List<Unit> units, List<Base> bases) {
         double iron = materialInBases(bases, Material.IRON);
         double copper = materialInBases(bases, Material.COPPER);
