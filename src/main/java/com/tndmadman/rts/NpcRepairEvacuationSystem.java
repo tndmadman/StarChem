@@ -16,21 +16,24 @@ import java.util.WeakHashMap;
  * Evacuates damaged organized-faction ships from a surviving but unusable local
  * station to a reachable friendly repair system.
  *
- * The plan is galaxy-persistent and follows a real multi-hop wormhole route.
- * Healthy workers and industry remain behind; only damaged combat ships and a
- * bounded number of healthy escorts are reserved by the evacuation.
+ * Each system owns an independent repair-feasibility assessment, while the
+ * faction owns at most one persistent multi-hop evacuation plan. Healthy
+ * workers and industry remain behind; only damaged combat ships and a bounded
+ * number of healthy escorts are reserved by the evacuation.
  */
 final class NpcRepairEvacuationSystem {
     private static final double DAMAGED_RATIO = 0.72;
     private static final double NO_LOCAL_PATH_GRACE_SECONDS = 20.0;
     private static final double LOCAL_PROGRESS_TIMEOUT_SECONDS = 45.0;
     private static final double PROGRESS_EPSILON = 0.05;
-    private static final Map<World, Map<String, RuntimeState>> RUNTIMES = new WeakHashMap<>();
+    private static final Map<World, Map<String, RuntimeState>> RUNTIMES =
+            new WeakHashMap<>();
 
     private NpcRepairEvacuationSystem() { }
 
     static synchronized void update(World world, NpcFaction faction, double dt) {
-        if (world == null || faction == null || faction.behavior() != NpcBehavior.FACTION) return;
+        if (world == null || faction == null
+                || faction.behavior() != NpcBehavior.FACTION) return;
         RuntimeState runtime = runtime(world, faction);
         runtime.resetForSeed(world.systemSeed());
 
@@ -39,49 +42,65 @@ final class NpcRepairEvacuationSystem {
             return;
         }
 
+        String systemId = world.activeSystemId();
+        LocalAssessment assessment = runtime.assessment(systemId);
         List<Unit> damaged = damagedCombat(world, faction.id());
         List<Base> bases = livingBases(world, faction.id());
         if (damaged.isEmpty() || bases.isEmpty()) {
-            runtime.resetLocalAssessment();
+            assessment.reset();
             return;
         }
 
         RepairNeed need = repairNeed(damaged);
-        double available = localRepairProgress(world, faction, need);
-        boolean locallyReachable = localRepairReachable(world, faction, need);
-        if (available > runtime.lastLocalProgress + PROGRESS_EPSILON) {
-            runtime.lastLocalProgress = available;
-            runtime.noProgressSeconds = 0;
+        double materialProgress = localRepairMaterialProgress(
+                world, faction, need);
+        boolean locallyReachable = localRepairReachable(
+                world, faction, need);
+        double step = Double.isFinite(dt) && dt > 0 ? dt : 0;
+
+        boolean healingProgress = assessment.lastNeedTotal > 0
+                && need.total() + PROGRESS_EPSILON < assessment.lastNeedTotal;
+        boolean materialGain = materialProgress
+                > assessment.lastMaterialProgress + PROGRESS_EPSILON;
+        if (healingProgress || materialGain) {
+            assessment.noProgressSeconds = 0;
         } else {
-            runtime.noProgressSeconds += Math.max(0, dt);
+            assessment.noProgressSeconds += step;
         }
+        assessment.lastNeedTotal = need.total();
+        assessment.lastMaterialProgress = materialProgress;
+
         if (locallyReachable) {
-            runtime.noPathSeconds = 0;
-            if (runtime.noProgressSeconds < LOCAL_PROGRESS_TIMEOUT_SECONDS) return;
+            assessment.noPathSeconds = 0;
+            if (assessment.noProgressSeconds
+                    < LOCAL_PROGRESS_TIMEOUT_SECONDS) return;
         } else {
-            runtime.noPathSeconds += Math.max(0, dt);
-            if (runtime.noPathSeconds < NO_LOCAL_PATH_GRACE_SECONDS) return;
+            assessment.noPathSeconds += step;
+            if (assessment.noPathSeconds
+                    < NO_LOCAL_PATH_GRACE_SECONDS) return;
         }
 
-        Destination destination = chooseDestination(world, faction, need);
-        if (destination == null || destination.route.size() < 2) return;
+        Destination destination = chooseDestination(
+                world, faction, need, systemId);
+        if (destination == null || destination.route().size() < 2) return;
+
         Set<String> roster = new LinkedHashSet<>();
-        damaged.sort(Comparator.comparingDouble(NpcRepairEvacuationSystem::hpRatio)
+        damaged.sort(Comparator
+                .comparingDouble(NpcRepairEvacuationSystem::hpRatio)
                 .thenComparingInt(unit -> unit.unitId));
         for (Unit unit : damaged) roster.add(unit.key());
-
         List<Unit> escorts = healthyEscorts(world, faction.id(), roster);
         for (int i = 0; i < Math.min(damaged.size(), escorts.size()); i++) {
             roster.add(escorts.get(i).key());
         }
+
         runtime.plan = new EvacuationPlan(
-                world.activeSystemId(), destination.systemId,
-                destination.route, roster);
-        runtime.resetLocalAssessment();
+                systemId, destination.systemId(), destination.route(), roster);
+        assessment.reset();
         AiDevLog.add(world, faction,
-                "repair evacuation started: " + world.activeSystemId()
-                        + " -> " + destination.systemId
-                        + " route=" + String.join(" -> ", destination.route));
+                "repair evacuation started: " + systemId
+                        + " -> " + destination.systemId()
+                        + " route=" + String.join(" -> ", destination.route()));
         progressPlan(world, faction, runtime);
     }
 
@@ -90,7 +109,8 @@ final class NpcRepairEvacuationSystem {
         Map<String, RuntimeState> byFaction = RUNTIMES.get(world);
         if (byFaction == null) return false;
         for (RuntimeState runtime : byFaction.values()) {
-            if (runtime.plan != null && runtime.plan.unitKeys.contains(unit.key())) return true;
+            if (runtime.plan != null
+                    && runtime.plan.unitKeys.contains(unit.key())) return true;
         }
         return false;
     }
@@ -115,23 +135,28 @@ final class NpcRepairEvacuationSystem {
         MemberLocations locations = locateMembers(world, plan);
         plan.unitKeys.retainAll(locations.livingKeys());
         if (plan.unitKeys.isEmpty()) {
-            runtime.plan = null;
+            releasePlan(world, faction, runtime,
+                    "all evacuation ships were lost");
             return;
         }
 
-        Destination validated = validateOrReplaceDestination(world, faction, plan);
-        if (validated == null) {
-            releasePlan(world, faction, runtime,
-                    "no reachable friendly repair system remains");
-            return;
-        }
-        if (!validated.systemId.equals(plan.destinationSystemId)
-                || !validated.route.equals(plan.route)) {
-            plan.destinationSystemId = validated.systemId;
+        RepairNeed need = repairNeedForKeys(world, plan.unitKeys, plan.route);
+        if (!destinationViable(world, faction,
+                plan.destinationSystemId, need)) {
+            String rerouteSource = locations.earliestSystem(plan.route);
+            Destination replacement = chooseDestination(
+                    world, faction, need, rerouteSource);
+            if (replacement == null || replacement.route().size() < 2) {
+                releasePlan(world, faction, runtime,
+                        "no reachable friendly repair system remains");
+                return;
+            }
+            plan.destinationSystemId = replacement.systemId();
             plan.route.clear();
-            plan.route.addAll(validated.route);
+            plan.route.addAll(replacement.route());
             AiDevLog.add(world, faction,
-                    "repair evacuation rerouted to " + validated.systemId);
+                    "repair evacuation rerouted to "
+                            + replacement.systemId());
             locations = locateMembers(world, plan);
         }
 
@@ -148,17 +173,14 @@ final class NpcRepairEvacuationSystem {
             Unit unit = world.units.get(key);
             if (unit != null && unit.hp > 0) local.add(unit);
         }
-        if (local.isEmpty() || activeSystemId.equals(plan.destinationSystemId)) return;
+        if (local.isEmpty()
+                || activeSystemId.equals(plan.destinationSystemId)) return;
 
         int routeIndex = plan.route.indexOf(activeSystemId);
         if (routeIndex < 0 || routeIndex + 1 >= plan.route.size()) {
-            Destination replacement = chooseDestination(
-                    world, faction, repairNeed(local));
-            if (replacement == null || replacement.route.size() < 2) return;
-            plan.destinationSystemId = replacement.systemId;
-            plan.route.clear();
-            plan.route.addAll(replacement.route);
-            routeIndex = 0;
+            // Static galaxy topology should keep every member on the same route.
+            // Do not replace the shared route from one split member's location.
+            return;
         }
         String nextSystemId = plan.route.get(routeIndex + 1);
         WormholeGate gate = gateTo(world, nextSystemId);
@@ -166,43 +188,30 @@ final class NpcRepairEvacuationSystem {
         for (Unit unit : local) unit.issueMove(gate.x, gate.y);
     }
 
-    private static Destination validateOrReplaceDestination(World world,
-                                                            NpcFaction faction,
-                                                            EvacuationPlan plan) {
-        RepairNeed need = repairNeedForKeys(world, plan.unitKeys, plan.route);
-        if (destinationViable(world, faction, plan.destinationSystemId, need)) {
-            List<String> route = shortestPath(
-                    world.authoritativeGalaxyMapSnapshot(),
-                    bestCurrentSystem(world, plan),
-                    plan.destinationSystemId);
-            if (!route.isEmpty()) return new Destination(
-                    plan.destinationSystemId, route, 0);
-        }
-        return chooseDestination(world, faction, need);
-    }
-
     private static Destination chooseDestination(World world, NpcFaction faction,
-                                                 RepairNeed need) {
-        String sourceSystemId = world.activeSystemId();
+                                                 RepairNeed need,
+                                                 String sourceSystemId) {
         GalaxyMapSnapshot map = world.authoritativeGalaxyMapSnapshot();
-        if (map == null || map.systems() == null) return null;
+        if (map == null || map.systems() == null
+                || sourceSystemId == null || sourceSystemId.isBlank()) return null;
         List<Destination> choices = new ArrayList<>();
         for (GalaxyMapSystem system : map.systems()) {
             if (system == null || system.id() == null || system.id().isBlank()
                     || system.id().equals(sourceSystemId) || system.home()) continue;
             List<String> route = shortestPath(map, sourceSystemId, system.id());
             if (route.size() < 2) continue;
-            double viability = destinationScore(world, faction, system.id(), need);
-            if (viability < 0) continue;
-            if (NpcFactionRuntime.homeSystemIdFor(faction).equals(system.id())) {
-                viability += 1000;
-            }
-            viability -= (route.size() - 1) * 100;
-            choices.add(new Destination(system.id(), route, viability));
+            double score = destinationScore(
+                    world, faction, system.id(), need);
+            if (score < 0) continue;
+            if (NpcFactionRuntime.homeSystemIdFor(faction)
+                    .equals(system.id())) score += 1000;
+            score -= (route.size() - 1) * 100;
+            choices.add(new Destination(system.id(), route, score));
         }
         return choices.stream()
-                .max(Comparator.comparingDouble((Destination choice) -> choice.score)
-                        .thenComparing(choice -> choice.systemId,
+                .max(Comparator
+                        .comparingDouble(Destination::score)
+                        .thenComparing(Destination::systemId,
                                 Comparator.reverseOrder()))
                 .orElse(null);
     }
@@ -222,18 +231,22 @@ final class NpcRepairEvacuationSystem {
             if (bases.isEmpty()) return -1;
             double iron = materialInBases(bases, Material.IRON);
             double copper = materialInBases(bases, Material.COPPER);
-            boolean direct = iron + 0.001 >= need.iron
-                    && copper + 0.001 >= need.copper;
-            boolean mineable = materialReachable(world, faction, Material.IRON,
-                    Math.max(0, need.iron - iron))
-                    && materialReachable(world, faction, Material.COPPER,
-                    Math.max(0, need.copper - copper));
+            boolean direct = iron + 0.001 >= need.iron()
+                    && copper + 0.001 >= need.copper();
+            boolean mineable = materialReachable(
+                    world, faction, Material.IRON,
+                    Math.max(0, need.iron() - iron))
+                    && materialReachable(
+                    world, faction, Material.COPPER,
+                    Math.max(0, need.copper() - copper));
             if (!direct && !mineable) return -1;
             double operational = bases.stream()
                     .anyMatch(StationFuelRules::isOperational) ? 120 : 0;
             return operational + Math.min(500, iron + copper);
         } finally {
-            if (previous != null && !previous.isBlank()) world.activateSystem(previous);
+            if (previous != null && !previous.isBlank()) {
+                world.activateSystem(previous);
+            }
             world.status = previousStatus;
         }
     }
@@ -244,9 +257,9 @@ final class NpcRepairEvacuationSystem {
         double iron = materialInBases(bases, Material.IRON);
         double copper = materialInBases(bases, Material.COPPER);
         return materialReachable(world, faction, Material.IRON,
-                Math.max(0, need.iron - iron))
+                Math.max(0, need.iron() - iron))
                 && materialReachable(world, faction, Material.COPPER,
-                Math.max(0, need.copper - copper));
+                Math.max(0, need.copper() - copper));
     }
 
     private static boolean materialReachable(World world, NpcFaction faction,
@@ -264,14 +277,16 @@ final class NpcRepairEvacuationSystem {
             if (!node.active || node.amount <= 0.001
                     || node.material != material) continue;
             boolean harvestable = workers.stream()
-                    .anyMatch(worker -> worker.type().harvestKinds.contains(node.kind));
+                    .anyMatch(worker -> worker.type().harvestKinds
+                            .contains(node.kind));
             if (harvestable) available += node.amount;
         }
         return available + 0.001 >= missing;
     }
 
-    private static double localRepairProgress(World world, NpcFaction faction,
-                                              RepairNeed need) {
+    private static double localRepairMaterialProgress(World world,
+                                                      NpcFaction faction,
+                                                      RepairNeed need) {
         double iron = 0;
         double copper = 0;
         for (Base base : world.bases.values()) {
@@ -284,14 +299,16 @@ final class NpcRepairEvacuationSystem {
             iron += unit.inventory.getOrDefault(Material.IRON, 0.0);
             copper += unit.inventory.getOrDefault(Material.COPPER, 0.0);
         }
-        return Math.min(need.iron, iron) + Math.min(need.copper, copper);
+        return Math.min(need.iron(), iron)
+                + Math.min(need.copper(), copper);
     }
 
     private static RepairNeed repairNeed(List<Unit> damaged) {
         double iron = 0;
         double copper = 0;
         for (Unit unit : damaged) {
-            double missingHp = Math.max(0, unit.type().maxHp - unit.hp);
+            double missingHp = Math.max(0,
+                    unit.type().maxHp - unit.hp);
             iron += Math.max(0.05, missingHp * 0.04);
             copper += Math.max(0.02, missingHp * 0.015);
         }
@@ -308,13 +325,14 @@ final class NpcRepairEvacuationSystem {
                 world.activateSystem(systemId);
                 for (String key : keys) {
                     Unit unit = world.units.get(key);
-                    if (unit != null && unit.hp > 0 && WeaponRules.armed(unit.type())) {
-                        units.add(unit);
-                    }
+                    if (unit != null && unit.hp > 0
+                            && WeaponRules.armed(unit.type())) units.add(unit);
                 }
             }
         } finally {
-            if (previous != null && !previous.isBlank()) world.activateSystem(previous);
+            if (previous != null && !previous.isBlank()) {
+                world.activateSystem(previous);
+            }
             world.status = previousStatus;
         }
         return repairNeed(units);
@@ -347,12 +365,15 @@ final class NpcRepairEvacuationSystem {
     private static List<Base> livingBases(World world, String factionId) {
         List<Base> result = new ArrayList<>();
         for (Base base : world.bases.values()) {
-            if (factionId.equals(base.playerId) && base.hp > 0) result.add(base);
+            if (factionId.equals(base.playerId) && base.hp > 0) {
+                result.add(base);
+            }
         }
         return result;
     }
 
-    private static double materialInBases(List<Base> bases, Material material) {
+    private static double materialInBases(List<Base> bases,
+                                          Material material) {
         double total = 0;
         for (Base base : bases) {
             total += base.inventory.getOrDefault(material, 0.0);
@@ -360,7 +381,8 @@ final class NpcRepairEvacuationSystem {
         return total;
     }
 
-    private static MemberLocations locateMembers(World world, EvacuationPlan plan) {
+    private static MemberLocations locateMembers(World world,
+                                                 EvacuationPlan plan) {
         String previous = world.activeSystemId();
         String previousStatus = world.status;
         Map<String, String> locations = new LinkedHashMap<>();
@@ -369,23 +391,18 @@ final class NpcRepairEvacuationSystem {
                 world.activateSystem(systemId);
                 for (String key : plan.unitKeys) {
                     Unit unit = world.units.get(key);
-                    if (unit != null && unit.hp > 0) locations.put(key, systemId);
+                    if (unit != null && unit.hp > 0) {
+                        locations.put(key, systemId);
+                    }
                 }
             }
         } finally {
-            if (previous != null && !previous.isBlank()) world.activateSystem(previous);
+            if (previous != null && !previous.isBlank()) {
+                world.activateSystem(previous);
+            }
             world.status = previousStatus;
         }
         return new MemberLocations(locations);
-    }
-
-    private static String bestCurrentSystem(World world, EvacuationPlan plan) {
-        MemberLocations locations = locateMembers(world, plan);
-        for (int i = plan.route.size() - 1; i >= 0; i--) {
-            String systemId = plan.route.get(i);
-            if (locations.byKey.containsValue(systemId)) return systemId;
-        }
-        return world.activeSystemId();
     }
 
     private static WormholeGate gateTo(World world, String systemId) {
@@ -403,19 +420,22 @@ final class NpcRepairEvacuationSystem {
         Set<String> forbiddenHomes = new HashSet<>();
         for (GalaxyMapSystem system : map.systems()) {
             if (system != null && system.home()
-                    && !source.equals(system.id()) && !target.equals(system.id())) {
+                    && !source.equals(system.id())
+                    && !target.equals(system.id())) {
                 forbiddenHomes.add(system.id());
             }
         }
         for (GalaxyMapLink link : map.links()) {
             if (forbiddenHomes.contains(link.fromSystemId())
                     || forbiddenHomes.contains(link.toSystemId())) continue;
-            adjacency.computeIfAbsent(link.fromSystemId(), ignored -> new ArrayList<>())
-                    .add(link.toSystemId());
-            adjacency.computeIfAbsent(link.toSystemId(), ignored -> new ArrayList<>())
-                    .add(link.fromSystemId());
+            adjacency.computeIfAbsent(link.fromSystemId(),
+                    ignored -> new ArrayList<>()).add(link.toSystemId());
+            adjacency.computeIfAbsent(link.toSystemId(),
+                    ignored -> new ArrayList<>()).add(link.fromSystemId());
         }
-        for (List<String> neighbors : adjacency.values()) neighbors.sort(String::compareTo);
+        for (List<String> neighbors : adjacency.values()) {
+            neighbors.sort(String::compareTo);
+        }
         ArrayDeque<String> queue = new ArrayDeque<>();
         Map<String, String> previous = new HashMap<>();
         Set<String> visited = new HashSet<>();
@@ -450,7 +470,6 @@ final class NpcRepairEvacuationSystem {
                     "repair evacuation ended: " + reason);
         }
         runtime.plan = null;
-        runtime.resetLocalAssessment();
     }
 
     private static double hpRatio(Unit unit) {
@@ -466,24 +485,37 @@ final class NpcRepairEvacuationSystem {
 
     private static final class RuntimeState {
         long seed;
-        double noPathSeconds;
-        double noProgressSeconds;
-        double lastLocalProgress;
+        final Map<String, LocalAssessment> assessments =
+                new LinkedHashMap<>();
         EvacuationPlan plan;
 
         RuntimeState(long seed) { this.seed = seed; }
+
+        LocalAssessment assessment(String systemId) {
+            String normalized = systemId == null ? "" : systemId;
+            return assessments.computeIfAbsent(
+                    normalized, ignored -> new LocalAssessment());
+        }
 
         void resetForSeed(long currentSeed) {
             if (seed == currentSeed) return;
             seed = currentSeed;
             plan = null;
-            resetLocalAssessment();
+            assessments.clear();
         }
+    }
 
-        void resetLocalAssessment() {
+    private static final class LocalAssessment {
+        double noPathSeconds;
+        double noProgressSeconds;
+        double lastNeedTotal;
+        double lastMaterialProgress;
+
+        void reset() {
             noPathSeconds = 0;
             noProgressSeconds = 0;
-            lastLocalProgress = 0;
+            lastNeedTotal = 0;
+            lastMaterialProgress = 0;
         }
     }
 
@@ -502,8 +534,12 @@ final class NpcRepairEvacuationSystem {
         }
     }
 
-    private record RepairNeed(double iron, double copper) { }
-    private record Destination(String systemId, List<String> route, double score) { }
+    private record RepairNeed(double iron, double copper) {
+        double total() { return iron + copper; }
+    }
+
+    private record Destination(String systemId, List<String> route,
+                               double score) { }
 
     private static final class MemberLocations {
         final Map<String, String> byKey;
@@ -518,6 +554,13 @@ final class NpcRepairEvacuationSystem {
                 if (!systemId.equals(byKey.get(key))) return false;
             }
             return true;
+        }
+
+        String earliestSystem(List<String> route) {
+            for (String systemId : route) {
+                if (byKey.containsValue(systemId)) return systemId;
+            }
+            return route.isEmpty() ? "" : route.get(0);
         }
     }
 }
