@@ -56,6 +56,10 @@ final class BuildSystem {
             world.status = "Select a loaded Deployer first.";
             return false;
         }
+        if (NpcStationConstructionSystem.ownsBuilder(world, carrier.key())) {
+            world.status = "Deployer is committed to an active construction site.";
+            return false;
+        }
         BaseType placed = Rules.findBase(carrier.basePackageType);
         if (placed == null) {
             world.status = "Unknown station type ID: " + carrier.basePackageType + ".";
