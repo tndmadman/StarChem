@@ -50,6 +50,15 @@ final class NpcStrategicDirector {
         return runtime.state;
     }
 
+    static synchronized boolean initialized(World world, NpcFaction faction) {
+        if (world == null || faction == null || faction.behavior() != NpcBehavior.FACTION) {
+            return false;
+        }
+        RuntimeState runtime = runtime(world, faction);
+        runtime.resetForSeed(world.systemSeed());
+        return runtime.initialized;
+    }
+
     static synchronized NpcStrategicSnapshot snapshot(World world, NpcFaction faction) {
         RuntimeState runtime = runtime(world, faction);
         runtime.resetForSeed(world.systemSeed());
@@ -219,19 +228,41 @@ final class NpcStrategicDirector {
     private static NpcStrategicState choose(World world, RuntimeState runtime,
                                              NpcFaction faction,
                                              NpcStrategicSnapshot snapshot) {
-        if (!snapshot.hasAssets()) return NpcStrategicState.DEFEATED;
+        if (!snapshot.hasAssets()) {
+            return world.hasLiveAssets(faction.id())
+                    ? NpcStrategicState.FORTIFY : NpcStrategicState.DEFEATED;
+        }
         if (snapshot.stations() <= 0) return NpcStrategicState.RECOVER;
 
+        NpcFactionCapacitySnapshot capacity =
+                NpcFactionCapacitySystem.snapshot(world, faction);
+        NpcExpeditionSnapshot expedition =
+                NpcExpeditionSystem.snapshot(world, faction);
+        boolean activeExpedition = activeExpansionCommitment(expedition);
+        boolean stationCapacityAvailable = faction.maxStations() <= 0
+                || capacity.stationCommitments() < faction.maxStations();
+        boolean expansionAvailable = snapshot.controlledSystems() < 2
+                && stationCapacityAvailable;
+
+        double retreatSeconds = Math.max(20.0, faction.orderSeconds() * 6.0);
         boolean severeDamage = snapshot.combat() > 0
                 && snapshot.damagedCombat() * 2 >= snapshot.combat();
         boolean overwhelmed = snapshot.threats() > Math.max(1, snapshot.combat());
         boolean repairsBlocked = NpcRecoverySystem.repairBlockedSeconds(world, faction)
                 >= NpcRecoverySystem.blockedStabilizeSeconds();
+        if (runtime.state == NpcStrategicState.RETREAT
+                && runtime.stateSeconds < retreatSeconds) {
+            return NpcStrategicState.RETREAT;
+        }
         if (severeDamage && repairsBlocked && !overwhelmed) {
             return NpcStrategicState.STABILIZE_ECONOMY;
         }
         if (severeDamage || overwhelmed) return NpcStrategicState.RETREAT;
         if (snapshot.threats() > 0) return NpcStrategicState.FORTIFY;
+
+        // Once supplies and a roster are committed, finish the expedition instead
+        // of abandoning it because the ordinary strategic review timer expired.
+        if (activeExpedition) return NpcStrategicState.EXPAND;
 
         int workerFloor = faction.maxWorkers() <= 0 ? 0
                 : Math.max(1, (int)Math.ceil(faction.maxWorkers() * 0.67));
@@ -268,10 +299,10 @@ final class NpcStrategicDirector {
             return NpcStrategicState.BUILD_FLEET;
         }
 
-        double prepareSeconds = Math.max(4.0, faction.orderSeconds() * 2.0);
-        double raidSeconds = Math.max(6.0, faction.orderSeconds() * 3.0);
-        double expansionSeconds = Math.max(10.0, faction.orderSeconds() * 5.0);
-        double fortifySeconds = Math.max(6.0, faction.orderSeconds() * 2.0);
+        double prepareSeconds = Math.max(12.0, faction.orderSeconds() * 4.0);
+        double raidSeconds = Math.max(18.0, faction.orderSeconds() * 6.0);
+        double expansionSeconds = Math.max(45.0, faction.orderSeconds() * 15.0);
+        double fortifySeconds = Math.max(15.0, faction.orderSeconds() * 5.0);
 
         if (runtime.state == NpcStrategicState.PREPARE_RAID) {
             return runtime.stateSeconds >= prepareSeconds
@@ -279,11 +310,11 @@ final class NpcStrategicDirector {
         }
         if (runtime.state == NpcStrategicState.RAID) {
             if (runtime.stateSeconds < raidSeconds) return runtime.state;
-            return snapshot.controlledSystems() < 2
+            return expansionAvailable
                     ? NpcStrategicState.EXPAND : NpcStrategicState.FORTIFY;
         }
         if (runtime.state == NpcStrategicState.EXPAND) {
-            if (snapshot.controlledSystems() < 2
+            if (expansionAvailable
                     && runtime.stateSeconds < expansionSeconds) return runtime.state;
             return NpcStrategicState.FORTIFY;
         }
@@ -292,6 +323,15 @@ final class NpcStrategicDirector {
             return runtime.state;
         }
         return NpcStrategicState.PREPARE_RAID;
+    }
+
+    private static boolean activeExpansionCommitment(NpcExpeditionSnapshot expedition) {
+        if (expedition == null || !expedition.active()) return false;
+        return switch (expedition.state()) {
+            case PLANNING, RESERVING, ASSEMBLING, LAUNCHING,
+                    TRAVELLING, ESTABLISHING, DEFENDING -> true;
+            case SUCCEEDED, ABORTING, FAILED -> false;
+        };
     }
 
     private static void transition(World world, NpcFaction faction,
