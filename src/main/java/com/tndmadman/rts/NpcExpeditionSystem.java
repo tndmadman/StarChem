@@ -113,13 +113,16 @@ final class NpcExpeditionSystem {
     }
 
     private static void begin(World world, NpcFaction faction, RuntimeState runtime) {
+        GalaxyMapSnapshot map = world.authoritativeGalaxyMapSnapshot();
+        String homeId = NpcFactionRuntime.homeSystemIdFor(faction);
+        GalaxyMapSystem home = system(map, homeId);
+        if (home == null || !faction.id().equals(home.controllerId())) return;
         if (!NpcResourceBudget.canLaunchExpansion(world, faction)) return;
         if (NpcStationConstructionSystem.hasAnyActivePlan(world, faction)) return;
-        GalaxyMapSnapshot map = world.authoritativeGalaxyMapSnapshot();
         TargetChoice choice = chooseTarget(world, faction, map);
         if (choice == null) return;
         runtime.plan = new ExpeditionPlan(
-                NpcFactionRuntime.homeSystemIdFor(faction), choice.system.id(), choice.system.name(),
+                homeId, choice.system.id(), choice.system.name(),
                 choice.route, choice.score, choice.system.controllerId(), choice.hostileBases);
         transition(world, faction, runtime.plan, NpcExpeditionState.PLANNING,
                 "selected " + choice.system.name() + " score=" + (int)Math.round(choice.score)
@@ -207,11 +210,12 @@ final class NpcExpeditionSystem {
     }
 
     private static void progressForwardTransit(World world, NpcFaction faction, ExpeditionPlan plan) {
+        MemberLocations locations = locateMembers(world, plan);
+        plan.launched |= locations.anyOutside(plan.rosterKeys(), plan.sourceSystemId);
         if (!refreshRouteAndTarget(world, faction, plan, plan.launched)) {
             beginAbort(world, faction, plan, "route or target invalidated in transit");
             return;
         }
-        MemberLocations locations = locateMembers(world, plan);
         if (!refreshRequiredRoster(world, faction, plan, locations, false)) return;
         if (plan.rosterKeys().isEmpty()) {
             beginAbort(world, faction, plan, "expedition fleet was destroyed");
@@ -239,7 +243,6 @@ final class NpcExpeditionSystem {
             beginAbort(world, faction, plan, "expedition members left the planned route");
             return;
         }
-        plan.launched |= maximum > 0;
         plan.routeIndex = Math.min(minimum, plan.route.size() - 1);
     }
 
@@ -659,7 +662,7 @@ final class NpcExpeditionSystem {
         GalaxyMapSnapshot map = world.authoritativeGalaxyMapSnapshot();
         GalaxyMapSystem target = system(map, plan.targetSystemId);
         if (target == null || !target.staticSystem() || target.home()
-                || faction.id().equals(target.controllerId())
+                || (!launched && faction.id().equals(target.controllerId()))
                 || !NpcSystemScope.allowsExpansion(target.id(), faction.id())) return false;
         List<String> route = shortestPath(map, plan.sourceSystemId, plan.targetSystemId);
         if (route.isEmpty()) return false;
@@ -678,9 +681,10 @@ final class NpcExpeditionSystem {
         GalaxyMapSystem target = system(world.authoritativeGalaxyMapSnapshot(), plan.targetSystemId);
         if (target == null) return false;
         String owner = target.controllerId() == null ? "" : target.controllerId();
-        if (!owner.equals(plan.initialControllerId) && !owner.isBlank() && !faction.id().equals(owner)) return false;
+        if (!owner.equals(plan.initialControllerId) && !owner.isBlank()
+                && !faction.id().equals(owner)) return false;
         CandidateScan scan = scanSystem(world, faction, plan.targetSystemId);
-        if (scan.friendlyAssets > 0 && plan.state.ordinal() < NpcExpeditionState.ESTABLISHING.ordinal()) return false;
+        if (!launched && scan.friendlyAssets > 0) return false;
         return launched || scan.hostileBases <= plan.initialHostileBases;
     }
 
@@ -1092,7 +1096,8 @@ final class NpcExpeditionSystem {
             for (String key : keys) {
                 String systemId = byKey.get(key);
                 if (systemId == null) continue;
-                maximum = Math.max(maximum, route.indexOf(systemId));
+                int index = route.indexOf(systemId);
+                if (index >= 0) maximum = Math.max(maximum, index);
             }
             return maximum;
         }
