@@ -14,6 +14,7 @@ final class NpcFactionSpawner {
     static boolean spawn(World world, NpcFaction faction, NpcSpawnReason reason) {
         if (world == null || faction == null || reason == null) return false;
         if (world.hasLiveAssets(faction.id())) return false;
+        world.resetOrganizedNpcFactionState(faction, false);
 
         String previousSystemId = world.activeSystemId();
         String homeSystemId = NpcFactionRuntime.homeSystemIdFor(faction);
