@@ -5,11 +5,10 @@ import java.util.Iterator;
 /**
  * Handles local NPC collapse after a system loses every living station.
  *
- * Organized factions use NpcRecoverySystem so expeditions can repair, rebuild,
- * evacuate, or remain alive while recovery is possible. Ships assigned to an
- * active Phase 8 transit or foothold plan are protected from stationless
- * recovery until that plan succeeds, aborts, or fails. Ordinary local NPC
- * factions retain their original immediate collapse behavior.
+ * Organized-faction recovery now runs from NpcGalaxyDirector immediately before
+ * unit movement. Cleanup only services legitimate worker production for living
+ * organized stations. Ordinary local NPC factions retain their original
+ * immediate collapse behavior.
  */
 final class NpcCollapseSystem {
     private NpcCollapseSystem() { }
@@ -19,11 +18,9 @@ final class NpcCollapseSystem {
             if (!faction.enabled()) continue;
 
             if (faction.behavior() == NpcBehavior.FACTION) {
-                boolean hasStation = hasLivingStation(world, faction.id());
-                if (hasStation || !NpcExpeditionSystem.protectsStationlessCurrentSystem(world, faction)) {
-                    NpcRecoverySystem.update(world, faction);
+                if (hasLivingStation(world, faction.id())) {
+                    NpcWorkerProductionSystem.update(world, faction);
                 }
-                if (hasStation) NpcWorkerProductionSystem.update(world, faction);
                 continue;
             }
 
@@ -51,7 +48,8 @@ final class NpcCollapseSystem {
         }
         if (removed > 0) {
             world.status = faction.name() + " lost all stations. Remaining ships were removed.";
-            AiDevLog.add(world, faction, "all stations lost; removed " + removed + " remaining ship(s)");
+            AiDevLog.add(world, faction,
+                    "all stations lost; removed " + removed + " remaining ship(s)");
         }
     }
 }
