@@ -258,14 +258,25 @@ final class World {
     }
 
     void resetOrganizedNpcFactionState(NpcFaction faction, boolean defeated) {
+        resetOrganizedNpcFactionState(faction,
+                defeated ? NpcFactionResetReason.DEFEATED
+                        : NpcFactionResetReason.SPAWN_PREP);
+    }
+
+    void resetOrganizedNpcFactionState(NpcFaction faction,
+                                       NpcFactionResetReason reason) {
         if (faction == null || faction.behavior() != NpcBehavior.FACTION) return;
+        NpcFactionResetReason normalized = reason == null
+                ? NpcFactionResetReason.SPAWN_PREP : reason;
         String suffix = "|" + faction.id();
         organizedNpcSystems.keySet().removeIf(key -> key.endsWith(suffix));
+        NpcFactionScopedRuntimeReset.clearExpedition(this, faction, normalized);
+        NpcStationConstructionSystem.clearFaction(this, faction, normalized);
         NpcRecoverySystem.clearFaction(this, faction);
-        NpcExpeditionSystem.clear(this);
-        NpcStationConstructionSystem.clear(this);
-        NpcSquadCombatSystem.clear(this);
-        if (defeated) NpcStrategicDirector.onDefeated(this, faction);
+        NpcFactionScopedRuntimeReset.clearSquads(this, faction);
+        if (normalized == NpcFactionResetReason.DEFEATED) {
+            NpcStrategicDirector.onDefeated(this, faction);
+        }
     }
 
     void updateEnvironment(double dt) { advanceEnvironment(dt); updateItems(dt); updateExplosions(dt); }
@@ -319,7 +330,7 @@ final class World {
             runtime.observe(galaxyAssets, faction);
             if (previousState == NpcFactionRuntime.State.ACTIVE
                     && runtime.state() == NpcFactionRuntime.State.RESPAWNING) {
-                resetOrganizedNpcFactionState(faction, true);
+                resetOrganizedNpcFactionState(faction, NpcFactionResetReason.DEFEATED);
             }
 
             if (hasLocalNpcAssets(faction.id())) {
@@ -426,7 +437,7 @@ final class World {
     boolean placePackage(Unit unit) { return buildSystem.placePackage(this, unit); }
     boolean craftItem(String baseId, String craftableId) { return buildSystem.craftItem(this, baseId, craftableId); }
     boolean research(String baseId, String topicId) { return buildSystem.research(this, baseId, topicId); }
-    void draw(Graphics2D g2) { drawMap(g2); galaxy.draw(this, g2); for (Base base : bases.values()) base.draw(g2, localColor, stockpile, true); for (ResourceNode node : resources) node.draw(g2, node.id == selectedResourceId); for (WorldItem item : items) item.draw(g2); for (Unit unit : units.values()) { ResourceNode node = findResource(unit.automationResourceId); if (MiningBeam.visible(unit, node)) UnitRenderer.drawWorkLine(g2, unit, node); if (shouldDrawRoute(unit)) UnitRenderer.drawRoute(g2, unit, localColor); UnitOrderRenderer.draw(g2, this, unit); } weaponSystem.draw(g2, this); for (ExplosionEffect explosion : explosions) explosion.draw(g2); for (Unit unit : units.values()) UnitRenderer.draw(g2, unit, localColor, true); }
+    void draw(Graphics2D g2) { drawMap(g2); galaxy.draw(this, g2); for (Base base : bases.values()) base.draw(g2, localColor, stockpile, true); for (ResourceNode node : resources) node.draw(g2, node.id == selectedResourceId); for (WorldItem item : items) item.draw(g2); for (Unit unit : units.values()) { ResourceNode node = findResource(unit.automationResourceId); if (MiningBeam.visible(unit, node)) UnitRenderer.drawWorkLine(g2, unit, node); if (shouldDrawRoute(unit)) UnitRenderer.drawRoute(g2, this, unit); } weaponSystem.draw(g2, this); for (ExplosionEffect explosion : explosions) explosion.draw(g2); for (Unit unit : units.values()) UnitRenderer.draw(g2, unit, localColor, true); }
     private boolean shouldDrawRoute(Unit unit) { return PlayerRegistry.isLocal(unit.playerId) && (unit.task == UnitTask.MOVE || unit.task == UnitTask.RETURN_TO_STATION || unit.task == UnitTask.ATTACK); }
     private void drawMap(Graphics2D g2) { galaxy.drawMap(g2, width, height); }
     void selectAt(double x, double y) { ResourceNode node = resourceAt(x, y); ResourceNetDebug.select(this, x, y, node); if (node != null) { selectedResourceId = node.id; status = "Targeted " + node.name + ". Right-click to auto-harvest."; return; } Unit unit = unitAt(x, y); for (Unit u : units.values()) u.selected = false; if (unit != null && PlayerRegistry.isLocal(unit.playerId)) { unit.selected = true; status = "Selected " + unit.type().name + " #" + unit.unitId + "."; } }
