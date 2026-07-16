@@ -49,6 +49,7 @@ final class NpcSystem {
                 orderFaction(world, faction, state);
                 state.orderTimer = faction.orderSeconds();
             }
+            NpcStationConstructionSystem.update(world, faction, dt);
         }
     }
 
@@ -371,6 +372,7 @@ final class NpcSystem {
     private boolean buildOrDeployStation(World world, NpcFaction faction) {
         if (faction.stationPackageTypes().isEmpty() || faction.maxStations() <= 0) return false;
         if (baseCount(world, faction) >= faction.maxStations()) return false;
+        if (NpcStationConstructionSystem.hasActivePlan(world, faction)) return true;
         Base source = stationPackageSource(world, faction);
         if (source == null) return false;
         Unit builder = emptyBuilder(world, faction, source);
@@ -381,10 +383,8 @@ final class NpcSystem {
         if (!factionCanAfford(world, faction, packageBase.buildCost)) {
             return craftTowardCost(world, faction, packageBase.buildCost);
         }
-        if (!spendFaction(world, faction, packageBase.buildCost)) return false;
-        builder.basePackageType = packageType;
-        placeStationFromBuilder(world, faction, source, builder, packageType);
-        return true;
+        return NpcStationConstructionSystem.start(
+                world, faction, source, builder, packageType, spendingCategory);
     }
 
     private Base stationPackageSource(World world, NpcFaction faction) {
@@ -426,6 +426,7 @@ final class NpcSystem {
         for (Unit unit : world.units.values()) {
             if (!unit.playerId.equals(faction.id()) || unit.hp <= 0) continue;
             if (!unit.type().baseBuilder || !unit.basePackageType.isBlank()) continue;
+            if (NpcStationConstructionSystem.ownsBuilder(world, unit.key())) continue;
             double d = Calc.distance(unit.x, unit.y, source.x, source.y);
             if (d < bestDist) { best = unit; bestDist = d; }
         }
