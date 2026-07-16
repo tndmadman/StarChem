@@ -21,6 +21,7 @@ final class NpcGalaxyDirector {
                     || !NpcExpeditionSystem.protectsStationlessCurrentSystem(world, faction)) {
                 NpcRecoverySystem.update(world, faction);
             }
+            NpcRepairEvacuationSystem.update(world, faction, dt);
         }
     }
 }
