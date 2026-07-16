@@ -103,6 +103,7 @@ public final class NpcSquadCombatValidator {
     private static void validateRangeManagement() {
         Fixture close = fixture("NPC Squad Close Range");
         Unit artillery = addCorsair(close, 30, "cruiser", 4000, 4000);
+        addCorsair(close, 33, "frigate", 3920, 4050);
         Base closeTarget = new Base("RANGE_ENEMY:B1", "RANGE_ENEMY", "outpost", 4100, 4000);
         close.world.bases.put(closeTarget.id, closeTarget);
         double before = Calc.distance(artillery.x, artillery.y, closeTarget.x, closeTarget.y);
