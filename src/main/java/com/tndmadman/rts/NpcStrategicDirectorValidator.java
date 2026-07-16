@@ -60,10 +60,11 @@ public final class NpcStrategicDirectorValidator {
                 "researched faction did not finish station and fleet infrastructure");
 
         addBase(world, faction.id(), "shipyard", home.x - 500, home.y + 150);
+        removeFirstBaseOfType(world, faction.id(), "laboratory");
         addUnit(world, faction.id(), "hauler", home.x + 210, home.y + 110);
         addUnit(world, faction.id(), "salvager", home.x + 240, home.y + 140);
         addUnit(world, faction.id(), "deep_miner", home.x - 210, home.y + 110);
-        advance(world, faction, 7);
+        advance(world, faction, 16);
         requireState(world, faction, NpcStrategicState.BUILD_FLEET,
                 "complete infrastructure did not switch production to combat ships");
 
@@ -73,12 +74,12 @@ public final class NpcStrategicDirectorValidator {
         refresh(world, faction);
         requireState(world, faction, NpcStrategicState.PREPARE_RAID,
                 "mature faction did not assemble for a raid");
-        advance(world, faction, 7);
+        advance(world, faction, 13);
         requireState(world, faction, NpcStrategicState.RAID,
                 "prepared faction did not enter its raid window");
-        advance(world, faction, 10);
+        advance(world, faction, 19);
         requireState(world, faction, NpcStrategicState.EXPAND,
-                "completed raid cycle did not request expansion");
+                "completed raid cycle did not request the reserved expansion slot");
 
         Unit playerThreat = new Unit("STRATEGY_ENEMY", 99_001, "frigate",
                 home.x + 120, home.y + 80);
@@ -115,7 +116,7 @@ public final class NpcStrategicDirectorValidator {
             world.systemTime += 1.0;
             NpcRecoverySystem.update(world, faction);
         }
-        refresh(world, faction);
+        advance(world, faction, 21);
         requireState(world, faction, NpcStrategicState.STABILIZE_ECONOMY,
                 "unfunded repairs did not break the faction out of RETREAT");
         require(NpcStrategicState.RETREAT.runsEconomy(),
@@ -167,6 +168,17 @@ public final class NpcStrategicDirectorValidator {
     private static void addBase(World world, String factionId, String type, double x, double y) {
         String id = factionId + ":STRATEGY_B" + (world.bases.size() + 1);
         world.bases.put(id, new Base(id, factionId, type, x, y));
+    }
+
+    private static void removeFirstBaseOfType(World world, String factionId, String typeId) {
+        String removeId = "";
+        for (Base base : world.bases.values()) {
+            if (factionId.equals(base.playerId) && typeId.equals(base.typeId)) {
+                removeId = base.id;
+                break;
+            }
+        }
+        if (!removeId.isBlank()) world.bases.remove(removeId);
     }
 
     private static void addUnit(World world, String factionId, String type, double x, double y) {
