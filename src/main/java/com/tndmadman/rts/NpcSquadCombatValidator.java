@@ -115,6 +115,7 @@ public final class NpcSquadCombatValidator {
 
         Fixture far = fixture("NPC Squad Chase Range");
         Unit line = addCorsair(far, 31, "frigate", 3000, 4000);
+        addCorsair(far, 32, "frigate", 3060, 4050);
         Unit farTarget = addEnemy(far, "RANGE_ENEMY", 2, "frigate", 5100, 4000);
         NpcSquadCombatSystem.update(far.world, far.faction, NpcStrategicState.RAID, 1.0);
         require(line.task == UnitTask.ATTACK
