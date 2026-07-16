@@ -16,14 +16,14 @@ final class NpcFactionScopedRuntimeReset {
     static void clearExpedition(World world, NpcFaction faction,
                                 NpcFactionResetReason reason) {
         if (world == null || faction == null) return;
+        NpcRepairEvacuationSystem.clearFaction(world, faction);
         try {
             Map<World, Map<String, Object>> runtimes = runtimeMap(
                     NpcExpeditionSystem.class, "RUNTIMES");
             Map<String, Object> byFaction = runtimes.get(world);
             if (byFaction == null) return;
             Object runtime = byFaction.get(faction.id());
-            if (runtime != null) settleExpedition(
-                    world, faction, runtime, reason);
+            if (runtime != null) settleExpedition(world, faction, runtime, reason);
             byFaction.remove(faction.id());
             if (byFaction.isEmpty()) runtimes.remove(world);
         } catch (ReflectiveOperationException ex) {
@@ -89,14 +89,11 @@ final class NpcFactionScopedRuntimeReset {
             refund(source, packageCost);
             world.saveActiveSystem();
         } finally {
-            if (previous != null && !previous.isBlank()) {
-                world.activateSystem(previous);
-            }
+            if (previous != null && !previous.isBlank()) world.activateSystem(previous);
             world.status = previousStatus;
         }
     }
 
-    @SuppressWarnings("unchecked")
     private static void clearBuilderPackage(World world, Object plan)
             throws ReflectiveOperationException {
         String builderKey = stringValue(plan, "builderKey");
