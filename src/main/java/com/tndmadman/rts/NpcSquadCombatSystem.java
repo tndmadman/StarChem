@@ -46,7 +46,10 @@ final class NpcSquadCombatSystem {
         }
 
         List<SquadState> squads = buildSquads(world, faction, combat, runtime.squads);
-        for (SquadState squad : squads) commandSquad(world, faction, strategy, squad);
+        Map<String, Double> fleetAssignedDamage = new LinkedHashMap<>();
+        for (SquadState squad : squads) {
+            commandSquad(world, faction, strategy, squad, fleetAssignedDamage);
+        }
         runtime.squads = List.copyOf(squads);
     }
 
@@ -161,7 +164,8 @@ final class NpcSquadCombatSystem {
     }
 
     private static void commandSquad(World world, NpcFaction faction,
-                                     NpcStrategicState strategy, SquadState squad) {
+                                     NpcStrategicState strategy, SquadState squad,
+                                     Map<String, Double> fleetAssignedDamage) {
         List<Unit> members = livingMembers(world, squad.memberKeys);
         if (members.isEmpty()) return;
 
@@ -216,8 +220,8 @@ final class NpcSquadCombatSystem {
         }
 
         squad.mode = NpcSquadMode.ENGAGING;
-        Map<String, Double> assignedDamage = new LinkedHashMap<>();
-        Map<String, String> assignments = assignTargets(world, faction, squad, active, targets, assignedDamage);
+        Map<String, String> assignments = assignTargets(
+                world, faction, squad, active, targets, fleetAssignedDamage);
         squad.targets.clear();
         squad.targets.putAll(assignments);
 
