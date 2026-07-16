@@ -56,8 +56,9 @@ final class BuildSystem {
             world.status = "Select a loaded Deployer first.";
             return false;
         }
-        if (NpcStationConstructionSystem.ownsBuilder(world, carrier.key())) {
-            world.status = "Deployer is committed to an active construction site.";
+        if (NpcStationConstructionSystem.ownsBuilder(world, carrier.key())
+                || NpcExpeditionSystem.ownsUnit(world, carrier.key())) {
+            world.status = "Deployer is committed to an active NPC construction or expedition plan.";
             return false;
         }
         BaseType placed = Rules.findBase(carrier.basePackageType);
