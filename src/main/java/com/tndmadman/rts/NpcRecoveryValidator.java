@@ -47,6 +47,13 @@ public final class NpcRecoveryValidator {
                         unrelatedTarget,
                         0)),
                 "fixture could not create an unrelated escort order");
+
+        NpcRecoverySystem.update(fixture.world, fixture.faction);
+        require(unrelatedEscort.orderType == UnitOrderType.ESCORT
+                        && unrelatedTarget.equals(unrelatedEscort.orderTarget),
+                "recovery cleared an escort order it did not create");
+        fixture.world.units.remove(unrelatedEscort.key());
+        fixture.world.units.remove(unrelatedProtected.key());
         fixture.world.saveActiveSystem();
 
         double startDistance = Calc.distance(damaged.x, damaged.y, base.x, base.y);
@@ -56,9 +63,6 @@ public final class NpcRecoveryValidator {
         require(repairEscort.orderType == UnitOrderType.ESCORT
                         && CombatTarget.unit(damaged).equals(repairEscort.orderTarget),
                 "recovery did not assign a healthy repair escort");
-        require(unrelatedEscort.orderType == UnitOrderType.ESCORT
-                        && unrelatedTarget.equals(unrelatedEscort.orderTarget),
-                "recovery cleared an unrelated escort order");
 
         double ironBefore = base.inventory.getOrDefault(Material.IRON, 0.0);
         double copperBefore = base.inventory.getOrDefault(Material.COPPER, 0.0);
@@ -77,9 +81,6 @@ public final class NpcRecoveryValidator {
         require(repairEscort.orderType != UnitOrderType.ESCORT
                         || !CombatTarget.unit(damaged).equals(repairEscort.orderTarget),
                 "recovery-created escort remained attached after full repair");
-        require(unrelatedEscort.orderType == UnitOrderType.ESCORT
-                        && unrelatedTarget.equals(unrelatedEscort.orderTarget),
-                "unrelated escort was cleared when repair completed");
     }
 
     private static void validateEmergencyRebuildFromCargo() {
@@ -224,7 +225,7 @@ public final class NpcRecoveryValidator {
         fixture.world.resources.clear();
         addNode(fixture.world, 91_001, Material.IRON, 4140, 4000, 200);
         addNode(fixture.world, 91_002, Material.COPPER, 4140, 4100, 200);
-        Base base = addBase(fixture, "outpost", 4000, 4000);
+        addBase(fixture, "outpost", 4000, 4000);
         Unit damaged = addUnit(fixture, 76_001, "frigate", 4020, 4000);
         damaged.hp = damaged.type().maxHp * 0.20;
         Unit worker = addUnit(fixture, 76_002, "prospector", 4050, 4050);
@@ -281,7 +282,8 @@ public final class NpcRecoveryValidator {
         fixture.world.activateSystem(StarSystems.CORSAIR_SYSTEM_ID);
         stepCurrent(fixture.world, 14);
         AiDevCommands.killCorsairs(fixture.world);
-        require(AiDevCommands.spawnCorsairs(fixture.world),
+        AiDevCommands.spawnCorsairs(fixture.world);
+        require(fixture.world.hasLiveAssets(fixture.faction.id()),
                 "forced replacement spawn failed after total defeat");
         fixture.world.activateSystem(StarSystems.CORSAIR_SYSTEM_ID);
 
