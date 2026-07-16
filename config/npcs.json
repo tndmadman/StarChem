@@ -1,5 +1,5 @@
 {
-  "npcAiVersion": 7,
+  "npcAiVersion": 8,
   "factions": [
     {
       "id": "NPC_RAIDERS",
