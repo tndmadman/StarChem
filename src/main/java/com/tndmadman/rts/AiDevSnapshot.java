@@ -16,6 +16,9 @@ final class AiDevSnapshot {
 
     static String factionState(World world, NpcFaction faction) {
         if (faction == null) return "NO FACTION";
+        if (!NpcStrategicDirector.initialized(world, faction)) {
+            return world.hasLiveAssets(faction.id()) ? "UNSYNCED" : "DEFEATED";
+        }
         return NpcStrategicDirector.state(world, faction).name();
     }
 
@@ -23,18 +26,30 @@ final class AiDevSnapshot {
         List<String> out = new ArrayList<>();
         if (faction == null) { out.add("No Corsair faction loaded."); return out; }
         NpcStrategicSnapshot strategic = NpcStrategicDirector.snapshot(world, faction);
-        int workers = strategic.hasAssets() ? strategic.workers() : workerCount(world, faction);
-        int combat = strategic.hasAssets() ? strategic.combat() : combatCount(world, faction);
-        int support = strategic.hasAssets() ? strategic.support() : supportCount(world, faction);
-        int stations = strategic.hasAssets() ? strategic.stations() : baseCount(world, faction);
+        NpcFactionCapacitySnapshot capacity = NpcFactionCapacitySystem.snapshot(world, faction);
+        int workers = strategic.hasAssets() ? strategic.workers() : capacity.workers();
+        int combat = strategic.hasAssets() ? strategic.combat() : capacity.combat();
+        int support = strategic.hasAssets() ? strategic.support() : capacity.support();
+        int stations = strategic.hasAssets() ? strategic.stations() : capacity.livingStations();
         out.add(faction.name() + " | " + factionState(world, faction) + " | " + NpcDifficultyPreset.current().label);
         out.add("Workers " + workers + "/" + faction.maxWorkers()
                 + " | Combat " + combat + "/" + faction.targetFleetSize()
                 + " | Support " + support + "/" + faction.maxSupportUnits()
                 + " | Stations " + stations + "/" + faction.maxStations());
+        if (capacity.stationCommitments() != stations) {
+            out.add("Station commitments " + capacity.stationCommitments()
+                    + " = living " + capacity.livingStations()
+                    + " + queued " + capacity.queuedStationPackages()
+                    + " + building " + capacity.activeConstructionPlans()
+                    + " + expedition " + capacity.committedExpeditionFootholds());
+        }
         if (strategic.hasAssets()) {
             out.add("Systems " + strategic.systemsWithAssets() + " | Controlled " + strategic.controlledSystems()
                     + " | Threats " + strategic.threats() + " | Fuel " + (int)strategic.fuel());
+        }
+        appendExpedition(out, world, faction);
+        if (!NpcStrategicDirector.initialized(world, faction) && world.hasLiveAssets(faction.id())) {
+            out.add("State note: this view is not synchronized with the authoritative AI runtime.");
         }
         out.add("Need: " + nextNeed(world, faction));
         out.add("Resources: " + resourceLine(world, faction, 6));
@@ -43,6 +58,12 @@ final class AiDevSnapshot {
 
     static String blockedReason(World world, NpcFaction faction) {
         if (faction == null) return "No faction.";
+        NpcFactionCapacitySnapshot capacity = NpcFactionCapacitySystem.snapshot(world, faction);
+        if (faction.maxStations() > 0
+                && capacity.stationCommitments() >= faction.maxStations()) {
+            return "Station cap reached " + capacity.stationCommitments()
+                    + "/" + faction.maxStations() + "; expansion disabled.";
+        }
         ResearchTopic missing = missingResearch(world, faction);
         if (missing != null) return "Research needed: " + missing.name + " | Missing: " + missingCost(world, faction, missing.requiredResources);
         for (String ship : faction.fleetUnitTypes()) {
@@ -76,10 +97,28 @@ final class AiDevSnapshot {
     static void drawLabel(Graphics2D g2, World world, NpcFaction f, double x, double y) {
         List<String> lines = summary(world, f);
         g2.setColor(new Color(0, 0, 0, 180));
-        g2.fillRoundRect((int)x - 8, (int)y - 18, 320, 18 + lines.size() * 15, 12, 12);
+        g2.fillRoundRect((int)x - 8, (int)y - 18, 420, 18 + lines.size() * 15, 12, 12);
         g2.setColor(new Color(f.rgb()));
         int yy = (int)y;
         for (String line : lines) { g2.drawString(line, (int)x, yy); yy += 15; }
+    }
+
+    private static void appendExpedition(List<String> out, World world, NpcFaction faction) {
+        NpcExpeditionSnapshot expedition = NpcExpeditionSystem.snapshot(world, faction);
+        if (!expedition.active()) return;
+        StringBuilder line = new StringBuilder("Expedition: ")
+                .append(expedition.state());
+        if (!expedition.sourceSystemId().isBlank() || !expedition.targetSystemId().isBlank()) {
+            line.append(' ').append(expedition.sourceSystemId())
+                    .append(" -> ").append(expedition.targetSystemId());
+        }
+        if (!expedition.route().isEmpty()) {
+            line.append(" hop ")
+                    .append(Math.min(expedition.routeIndex() + 1, expedition.route().size()))
+                    .append('/').append(expedition.route().size());
+        }
+        if (!expedition.reason().isBlank()) line.append(" | ").append(expedition.reason());
+        out.add(line.toString());
     }
 
     private static boolean needsFuel(World world, NpcFaction f) { return f.fuelReserve() > 0 && material(world, f, Material.FUEL) < f.fuelReserve(); }
@@ -93,6 +132,11 @@ final class AiDevSnapshot {
     }
 
     private static String nextNeed(World world, NpcFaction f) {
+        NpcFactionCapacitySnapshot capacity = NpcFactionCapacitySystem.snapshot(world, f);
+        if (f.maxStations() > 0 && capacity.stationCommitments() >= f.maxStations()) {
+            return "hold territory; station cap " + capacity.stationCommitments()
+                    + "/" + f.maxStations() + " blocks expansion";
+        }
         if (needsFuel(world, f)) return "fuel reserve " + (int)material(world, f, Material.FUEL) + "/" + (int)f.fuelReserve();
         ResearchTopic t = missingResearch(world, f);
         if (t != null) return t.name + " -> " + missingCost(world, f, t.requiredResources);
