@@ -114,17 +114,52 @@ final class AiDevCommands {
         String previousSystemId = world.activeSystemId();
         try {
             world.activateSystem(NpcFactionRuntime.homeSystemIdFor(f));
-            Base b = firstBase(world, f.id());
-            if (b == null) return;
-            String type = "shipyard";
-            for (String candidate : f.stationPackageTypes()) if (!hasBaseType(world, f.id(), candidate)) { type = candidate; break; }
-            int n = nextBaseNumber(world, f.id());
-            double a = n * 2.2;
-            world.bases.put(f.id() + ":B" + n, new Base(f.id() + ":B" + n, f.id(), type,
-                    b.x + Math.cos(a) * f.stationSpacing(), b.y + Math.sin(a) * f.stationSpacing()));
+            Base source = firstBase(world, f.id());
+            if (source == null) {
+                world.status = "Cannot deploy a Corsair station: no Corsair station exists.";
+                return;
+            }
+
+            NpcFactionCapacitySnapshot capacity = NpcFactionCapacitySystem.snapshot(world, f);
+            if (f.maxStations() <= 0 || capacity.stationCommitments() >= f.maxStations()) {
+                world.status = "Dev station skipped: Corsairs are at station cap "
+                        + capacity.stationCommitments() + "/" + f.maxStations() + ".";
+                AiDevLog.add(world, f, "dev station skipped at global cap");
+                return;
+            }
+            if (NpcStationConstructionSystem.hasAnyActivePlan(world, f)) {
+                world.status = "Corsair station deployment is already active.";
+                return;
+            }
+
+            Unit builder = availableBuilder(world, f);
+            if (builder == null) {
+                int id = nextUnitNumber(world, f.id());
+                builder = new Unit(f.id(), id, "station_builder",
+                        Calc.clamp(source.x + source.type().buildRadius + 70, 0, world.width),
+                        source.y);
+                world.units.put(builder.key(), builder);
+                AiDevLog.add(world, f, "dev created station deployer #" + builder.unitId);
+            }
+
+            String type = validLoadedPackage(builder.basePackageType)
+                    ? builder.basePackageType : nextStationType(world, f, capacity);
+            if (type.isBlank()) {
+                world.status = "Cannot deploy a Corsair station: no valid package type.";
+                return;
+            }
+            builder.basePackageType = type;
+            NpcStationDeployerRecoverySystem.park(builder);
+            boolean started = NpcStationConstructionSystem.startLoaded(world, f, builder, type);
             world.saveActiveSystem();
-            world.status = "Dev forced Corsair station: " + type;
-            AiDevLog.add(world, f, "forced station " + type);
+            if (started) {
+                world.status = "Dev started timed Corsair station deployment: " + type + ".";
+                AiDevLog.add(world, f, "dev started timed station deployment " + type);
+            } else {
+                world.status = "Corsair deployer is loaded with " + type
+                        + " but no viable construction site is available yet.";
+                AiDevLog.add(world, f, "dev deployer waiting for viable site for " + type);
+            }
         } finally {
             if (previousSystemId != null && !previousSystemId.isBlank()) world.activateSystem(previousSystemId);
         }
@@ -168,9 +203,38 @@ final class AiDevCommands {
         AiDevLog.add("DEV", "hot reload requested");
     }
 
+    private static Unit availableBuilder(World world, NpcFaction faction) {
+        Unit empty = null;
+        for (Unit unit : world.units.values()) {
+            if (!faction.id().equals(unit.playerId) || unit.hp <= 0
+                    || !unit.type().baseBuilder) continue;
+            if (NpcStationConstructionSystem.ownsBuilder(world, unit.key())
+                    || NpcExpeditionSystem.ownsUnit(world, unit.key())
+                    || NpcRecoverySystem.ownsUnit(world, unit)
+                    || NpcRepairEvacuationSystem.ownsUnit(world, unit)) continue;
+            if (!unit.basePackageType.isBlank()) return unit;
+            if (empty == null || unit.unitId < empty.unitId) empty = unit;
+        }
+        return empty;
+    }
+
+    private static String nextStationType(World world, NpcFaction faction,
+                                          NpcFactionCapacitySnapshot capacity) {
+        for (String candidate : faction.stationPackageTypes()) {
+            if (Rules.findBase(candidate) != null
+                    && !capacity.hasStationType(world, faction, candidate)) return candidate;
+        }
+        for (String candidate : faction.stationPackageTypes()) {
+            if (Rules.findBase(candidate) != null) return candidate;
+        }
+        return "";
+    }
+
+    private static boolean validLoadedPackage(String type) {
+        return type != null && !type.isBlank() && Rules.findBase(type) != null;
+    }
+
     private static Base firstBase(World w, String playerId) { for (Base b : w.bases.values()) if (b.playerId.equals(playerId)) return b; return null; }
     private static int nextUnitNumber(World w, String playerId) { int max = 0; for (Unit u : w.units.values()) if (u.playerId.equals(playerId)) max = Math.max(max, u.unitId); return max + 1; }
-    private static int nextBaseNumber(World w, String playerId) { int max = 0; String p = playerId + ":B"; for (String id : w.bases.keySet()) if (id.startsWith(p)) try { max = Math.max(max, Integer.parseInt(id.substring(p.length()))); } catch(Exception ignored) { } return max + 1; }
-    private static boolean hasBaseType(World w, String playerId, String type) { for (Base b : w.bases.values()) if (b.playerId.equals(playerId) && b.typeId.equals(type)) return true; return false; }
     private static String nearestLocalTarget(World world, double x, double y) { Base b = world.nearestBase(PlayerRegistry.localId(), x, y); if (b != null) return CombatTarget.base(b); Unit u = null; double dBest = Double.MAX_VALUE; for (Unit t : world.units.values()) if (PlayerRegistry.isLocal(t.playerId)) { double d = Calc.distance(x, y, t.x, t.y); if (d < dBest) { u = t; dBest = d; } } return u == null ? "" : CombatTarget.unit(u); }
 }
