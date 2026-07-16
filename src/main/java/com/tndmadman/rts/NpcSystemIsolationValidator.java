@@ -26,6 +26,7 @@ public final class NpcSystemIsolationValidator {
         NpcWorkerProductionValidator.validateOrThrow();
         NpcStationConstructionValidator.validateOrThrow();
         NpcExpeditionValidator.validateOrThrow();
+        NpcSquadCombatValidator.validateOrThrow();
         NpcRecoveryValidator.validateOrThrow();
         validateRuntimeCleanup();
     }
