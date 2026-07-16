@@ -1,11 +1,11 @@
 package com.tndmadman.rts;
 
 /**
- * Coordinates organized-faction strategy, persistent galaxy expeditions, and
- * local squad combat. Strategic review and expedition timers advance only from
- * the faction home. Expedition travel orders are reasserted before squad combat
- * so transit remains authoritative while establishing and defending fleets can
- * immediately use coordinated combat behavior.
+ * Coordinates organized-faction strategy, persistent galaxy expeditions, local
+ * squad combat, and authoritative recovery. Strategic review and expedition
+ * timers advance only from the faction home. Expedition travel orders are
+ * reasserted before squad combat, then recovery runs last so repair and
+ * evacuation orders remain authoritative for the following movement step.
  */
 final class NpcGalaxyDirector {
     void update(World world, double dt) {
@@ -15,6 +15,12 @@ final class NpcGalaxyDirector {
             NpcStrategicState strategy = NpcStrategicDirector.update(world, faction, dt);
             NpcExpeditionSystem.update(world, faction, strategy, dt);
             NpcSquadCombatSystem.update(world, faction, strategy, dt);
+            boolean hasLocalStation = world.bases.values().stream()
+                    .anyMatch(base -> faction.id().equals(base.playerId) && base.hp > 0);
+            if (hasLocalStation
+                    || !NpcExpeditionSystem.protectsStationlessCurrentSystem(world, faction)) {
+                NpcRecoverySystem.update(world, faction);
+            }
         }
     }
 }
