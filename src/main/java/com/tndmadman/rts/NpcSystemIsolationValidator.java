@@ -29,6 +29,7 @@ public final class NpcSystemIsolationValidator {
         NpcSquadCombatValidator.validateOrThrow();
         NpcRecoveryValidator.validateOrThrow();
         NpcRuntimeResetValidator.validateOrThrow();
+        NpcCrossSystemOperationsValidator.validateOrThrow();
         validateRuntimeCleanup();
     }
 
