@@ -80,23 +80,49 @@ public final class NpcStrategicDirectorValidator {
         requireState(world, faction, NpcStrategicState.EXPAND,
                 "completed raid cycle did not request expansion");
 
-        Unit threat = new Unit("STRATEGY_ENEMY", 99_001, "frigate", home.x + 120, home.y + 80);
-        world.units.put(threat.key(), threat);
+        Unit playerThreat = new Unit("STRATEGY_ENEMY", 99_001, "frigate",
+                home.x + 120, home.y + 80);
+        world.units.put(playerThreat.key(), playerThreat);
         refresh(world, faction);
         requireState(world, faction, NpcStrategicState.FORTIFY,
-                "nearby armed threat did not override expansion");
-        world.units.remove(threat.key());
+                "nearby armed player threat did not override expansion");
+        world.units.remove(playerThreat.key());
+
+        Unit npcThreat = new Unit(Config.RAIDERS_ID, 99_002, "destroyer",
+                home.x + 160, home.y + 40);
+        world.units.put(npcThreat.key(), npcThreat);
+        refresh(world, faction);
+        requireState(world, faction, NpcStrategicState.FORTIFY,
+                "hostile NPC combat ship did not count as a strategic threat");
+        world.units.remove(npcThreat.key());
 
         List<Unit> combat = factionCombat(world, faction.id());
         for (int i = 0; i < Math.min(3, combat.size()); i++) {
             Unit unit = combat.get(i);
             unit.hp = unit.type().maxHp * 0.20;
+            unit.x = home.x + 20 + i * 8;
+            unit.y = home.y;
+            unit.targetX = unit.x;
+            unit.targetY = unit.y;
         }
+        home.inventory.remove(Material.IRON);
+        home.inventory.remove(Material.COPPER);
         refresh(world, faction);
         requireState(world, faction, NpcStrategicState.RETREAT,
                 "major fleet damage did not trigger retreat");
-        for (Unit unit : combat) unit.hp = unit.type().maxHp;
 
+        for (int i = 0; i < 24; i++) {
+            world.systemTime += 1.0;
+            NpcRecoverySystem.update(world, faction);
+        }
+        refresh(world, faction);
+        requireState(world, faction, NpcStrategicState.STABILIZE_ECONOMY,
+                "unfunded repairs did not break the faction out of RETREAT");
+        require(NpcStrategicState.RETREAT.runsEconomy(),
+                "RETREAT disabled the emergency worker economy");
+
+        for (Unit unit : combat) unit.hp = unit.type().maxHp;
+        NpcRecoverySystem.update(world, faction);
         world.bases.values().removeIf(base -> faction.id().equals(base.playerId));
         refresh(world, faction);
         requireState(world, faction, NpcStrategicState.RECOVER,
@@ -119,7 +145,9 @@ public final class NpcStrategicDirectorValidator {
 
     private static void advance(World world, NpcFaction faction, int seconds) {
         world.activateSystem(StarSystems.CORSAIR_SYSTEM_ID);
-        for (int i = 0; i < seconds; i++) NpcStrategicDirector.update(world, faction, 1.0);
+        for (int i = 0; i < seconds; i++) {
+            NpcStrategicDirector.update(world, faction, 1.0);
+        }
     }
 
     private static NpcFaction corsairs() {
@@ -151,7 +179,8 @@ public final class NpcStrategicDirectorValidator {
     private static int armedCount(World world, String factionId) {
         int count = 0;
         for (Unit unit : world.units.values()) {
-            if (factionId.equals(unit.playerId) && unit.hp > 0 && WeaponRules.armed(unit.type())) count++;
+            if (factionId.equals(unit.playerId) && unit.hp > 0
+                    && WeaponRules.armed(unit.type())) count++;
         }
         return count;
     }
@@ -159,15 +188,18 @@ public final class NpcStrategicDirectorValidator {
     private static List<Unit> factionCombat(World world, String factionId) {
         List<Unit> out = new ArrayList<>();
         for (Unit unit : world.units.values()) {
-            if (factionId.equals(unit.playerId) && unit.hp > 0 && WeaponRules.armed(unit.type())) out.add(unit);
+            if (factionId.equals(unit.playerId) && unit.hp > 0
+                    && WeaponRules.armed(unit.type())) out.add(unit);
         }
         return out;
     }
 
-    private static void requireState(World world, NpcFaction faction, NpcStrategicState expected,
+    private static void requireState(World world, NpcFaction faction,
+                                     NpcStrategicState expected,
                                      String message) {
         NpcStrategicState actual = NpcStrategicDirector.state(world, faction);
-        require(actual == expected, message + ": expected " + expected + ", found " + actual);
+        require(actual == expected,
+                message + ": expected " + expected + ", found " + actual);
     }
 
     private static void require(boolean condition, String message) {
