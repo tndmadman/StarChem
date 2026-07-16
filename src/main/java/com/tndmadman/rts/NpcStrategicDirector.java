@@ -10,7 +10,7 @@ import java.util.WeakHashMap;
  *
  * Local NpcSystem instances remain responsible for executing orders in their
  * active system, but they all consult this shared director so production,
- * research, raids, and expansion support one galaxy-wide objective.
+ * research, raids, expansion, and recovery support one galaxy-wide objective.
  */
 final class NpcStrategicDirector {
     private static final Map<World, Map<String, RuntimeState>> RUNTIMES = new WeakHashMap<>();
@@ -33,7 +33,7 @@ final class NpcStrategicDirector {
         if (runtime.initialized && runtime.reviewTimer > 0) return runtime.state;
 
         NpcStrategicSnapshot snapshot = inspect(world, faction);
-        NpcStrategicState next = choose(runtime, faction, snapshot);
+        NpcStrategicState next = choose(world, runtime, faction, snapshot);
         transition(world, faction, runtime, next, snapshot);
         runtime.snapshot = snapshot;
         runtime.initialized = true;
@@ -84,9 +84,15 @@ final class NpcStrategicDirector {
         runtime.snapshot = NpcStrategicSnapshot.EMPTY;
     }
 
+    static synchronized void clear(World world) {
+        if (world != null) RUNTIMES.remove(world);
+    }
+
     private static RuntimeState runtime(World world, NpcFaction faction) {
-        Map<String, RuntimeState> byFaction = RUNTIMES.computeIfAbsent(world, ignored -> new LinkedHashMap<>());
-        return byFaction.computeIfAbsent(faction.id(), ignored -> new RuntimeState(faction, world.systemSeed()));
+        Map<String, RuntimeState> byFaction = RUNTIMES.computeIfAbsent(
+                world, ignored -> new LinkedHashMap<>());
+        return byFaction.computeIfAbsent(
+                faction.id(), ignored -> new RuntimeState(faction, world.systemSeed()));
     }
 
     private static NpcStrategicSnapshot inspect(World world, NpcFaction faction) {
@@ -149,7 +155,8 @@ final class NpcStrategicDirector {
                             if (WeaponRules.armed(type)) {
                                 combat++;
                                 double hpRatio = unit.hp / Math.max(1.0, type.maxHp);
-                                if (faction.retreatHpPercent() > 0 && hpRatio <= faction.retreatHpPercent()) {
+                                if (faction.retreatHpPercent() > 0
+                                        && hpRatio <= faction.retreatHpPercent()) {
                                     damagedCombat++;
                                 }
                             }
@@ -163,7 +170,9 @@ final class NpcStrategicDirector {
                 }
             }
         } finally {
-            if (previousSystemId != null && !previousSystemId.isBlank()) world.activateSystem(previousSystemId);
+            if (previousSystemId != null && !previousSystemId.isBlank()) {
+                world.activateSystem(previousSystemId);
+            }
             world.status = previousStatus;
         }
 
@@ -171,7 +180,8 @@ final class NpcStrategicDirector {
         for (String topicId : faction.researchTopicIds()) {
             if (world.hasResearch(faction.id(), topicId)) completedResearch++;
         }
-        int missingResearch = Math.max(0, faction.researchTopicIds().size() - completedResearch);
+        int missingResearch = Math.max(0,
+                faction.researchTopicIds().size() - completedResearch);
         return new NpcStrategicSnapshot(
                 stations,
                 workers,
@@ -192,8 +202,9 @@ final class NpcStrategicDirector {
     private static int localThreatCount(World world, NpcFaction faction) {
         int threats = 0;
         for (Unit enemy : world.units.values()) {
-            if (enemy.hp <= 0 || faction.id().equals(enemy.playerId) || NpcRules.isNpcFaction(enemy.playerId)
+            if (enemy.hp <= 0 || faction.id().equals(enemy.playerId)
                     || !WeaponRules.armed(enemy.type())) continue;
+            if (NpcRules.isNpcFaction(enemy.playerId) && !faction.attackNpcFactions()) continue;
             for (Base base : world.bases.values()) {
                 if (!faction.id().equals(base.playerId) || base.hp <= 0) continue;
                 if (Calc.distance(base.x, base.y, enemy.x, enemy.y) <= faction.defendRange()) {
@@ -205,7 +216,8 @@ final class NpcStrategicDirector {
         return threats;
     }
 
-    private static NpcStrategicState choose(RuntimeState runtime, NpcFaction faction,
+    private static NpcStrategicState choose(World world, RuntimeState runtime,
+                                             NpcFaction faction,
                                              NpcStrategicSnapshot snapshot) {
         if (!snapshot.hasAssets()) return NpcStrategicState.DEFEATED;
         if (snapshot.stations() <= 0) return NpcStrategicState.RECOVER;
@@ -213,6 +225,11 @@ final class NpcStrategicDirector {
         boolean severeDamage = snapshot.combat() > 0
                 && snapshot.damagedCombat() * 2 >= snapshot.combat();
         boolean overwhelmed = snapshot.threats() > Math.max(1, snapshot.combat());
+        boolean repairsBlocked = NpcRecoverySystem.repairBlockedSeconds(world, faction)
+                >= NpcRecoverySystem.blockedStabilizeSeconds();
+        if (severeDamage && repairsBlocked && !overwhelmed) {
+            return NpcStrategicState.STABILIZE_ECONOMY;
+        }
         if (severeDamage || overwhelmed) return NpcStrategicState.RETREAT;
         if (snapshot.threats() > 0) return NpcStrategicState.FORTIFY;
 
@@ -220,17 +237,22 @@ final class NpcStrategicDirector {
                 : Math.max(1, (int)Math.ceil(faction.maxWorkers() * 0.67));
         if (snapshot.workers() < workerFloor) return NpcStrategicState.STABILIZE_ECONOMY;
 
-        int establishmentTarget = faction.maxStations() <= 0 ? 1 : Math.min(2, faction.maxStations());
+        int establishmentTarget = faction.maxStations() <= 0
+                ? 1 : Math.min(2, faction.maxStations());
         if (snapshot.stations() < establishmentTarget) return NpcStrategicState.ESTABLISH;
 
         boolean lowFuel = faction.fuelReserve() > 0
                 && snapshot.fuel() + 0.001 < faction.fuelReserve() * 0.40;
         if (lowFuel) {
-            return snapshot.fuelCapable() ? NpcStrategicState.STABILIZE_ECONOMY : NpcStrategicState.FORTIFY;
+            return snapshot.fuelCapable()
+                    ? NpcStrategicState.STABILIZE_ECONOMY
+                    : NpcStrategicState.FORTIFY;
         }
 
         if (snapshot.missingResearch() > 0) {
-            return snapshot.researchCapable() ? NpcStrategicState.RESEARCH : NpcStrategicState.FORTIFY;
+            return snapshot.researchCapable()
+                    ? NpcStrategicState.RESEARCH
+                    : NpcStrategicState.FORTIFY;
         }
 
         int infrastructureTarget = Math.max(establishmentTarget, faction.maxStations());
@@ -252,24 +274,30 @@ final class NpcStrategicDirector {
         double fortifySeconds = Math.max(6.0, faction.orderSeconds() * 2.0);
 
         if (runtime.state == NpcStrategicState.PREPARE_RAID) {
-            return runtime.stateSeconds >= prepareSeconds ? NpcStrategicState.RAID : runtime.state;
+            return runtime.stateSeconds >= prepareSeconds
+                    ? NpcStrategicState.RAID : runtime.state;
         }
         if (runtime.state == NpcStrategicState.RAID) {
             if (runtime.stateSeconds < raidSeconds) return runtime.state;
-            return snapshot.controlledSystems() < 2 ? NpcStrategicState.EXPAND : NpcStrategicState.FORTIFY;
+            return snapshot.controlledSystems() < 2
+                    ? NpcStrategicState.EXPAND : NpcStrategicState.FORTIFY;
         }
         if (runtime.state == NpcStrategicState.EXPAND) {
-            if (snapshot.controlledSystems() < 2 && runtime.stateSeconds < expansionSeconds) return runtime.state;
+            if (snapshot.controlledSystems() < 2
+                    && runtime.stateSeconds < expansionSeconds) return runtime.state;
             return NpcStrategicState.FORTIFY;
         }
-        if (runtime.state == NpcStrategicState.FORTIFY && runtime.stateSeconds < fortifySeconds) {
+        if (runtime.state == NpcStrategicState.FORTIFY
+                && runtime.stateSeconds < fortifySeconds) {
             return runtime.state;
         }
         return NpcStrategicState.PREPARE_RAID;
     }
 
-    private static void transition(World world, NpcFaction faction, RuntimeState runtime,
-                                   NpcStrategicState next, NpcStrategicSnapshot snapshot) {
+    private static void transition(World world, NpcFaction faction,
+                                   RuntimeState runtime,
+                                   NpcStrategicState next,
+                                   NpcStrategicSnapshot snapshot) {
         if (next == runtime.state) return;
         NpcStrategicState previous = runtime.state;
         runtime.state = next;
@@ -323,7 +351,7 @@ enum NpcStrategicState {
     RETREAT,
     DEFEATED;
 
-    boolean runsEconomy() { return this != RETREAT && this != DEFEATED; }
+    boolean runsEconomy() { return this != DEFEATED; }
     boolean buildsShips() { return this != RETREAT && this != DEFEATED; }
     boolean buildsStations() { return this == ESTABLISH || this == FORTIFY || this == EXPAND || this == RECOVER; }
     boolean prioritizesFleet() { return this == BUILD_FLEET || this == PREPARE_RAID || this == RAID || this == EXPAND; }
