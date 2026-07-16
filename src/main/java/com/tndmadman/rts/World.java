@@ -252,6 +252,7 @@ final class World {
         npcFactionRuntimes.clear();
         NpcStrategicDirector.clear(this);
         NpcRecoverySystem.clear(this);
+        NpcRepairEvacuationSystem.clear(this);
         NpcExpeditionSystem.clear(this);
         NpcStationConstructionSystem.clear(this);
         NpcSquadCombatSystem.clear(this);
@@ -406,7 +407,8 @@ final class World {
     private void updateUnit(Unit unit, double dt) {
         unit.unloadingThisFrame = false;
         unit.wormholeCooldown = Math.max(0, unit.wormholeCooldown - dt);
-        boolean recoveryOwned = NpcRecoverySystem.ownsUnit(this, unit);
+        boolean recoveryOwned = NpcRecoverySystem.ownsUnit(this, unit)
+                || NpcRepairEvacuationSystem.ownsUnit(this, unit);
         if (!recoveryOwned) {
             sendFullHarvestCargoToUnload(unit);
             autoUnload(unit, dt);
@@ -437,7 +439,7 @@ final class World {
     boolean placePackage(Unit unit) { return buildSystem.placePackage(this, unit); }
     boolean craftItem(String baseId, String craftableId) { return buildSystem.craftItem(this, baseId, craftableId); }
     boolean research(String baseId, String topicId) { return buildSystem.research(this, baseId, topicId); }
-    void draw(Graphics2D g2) { drawMap(g2); galaxy.draw(this, g2); for (Base base : bases.values()) base.draw(g2, localColor, stockpile, true); for (ResourceNode node : resources) node.draw(g2, node.id == selectedResourceId); for (WorldItem item : items) item.draw(g2); for (Unit unit : units.values()) { ResourceNode node = findResource(unit.automationResourceId); if (MiningBeam.visible(unit, node)) UnitRenderer.drawWorkLine(g2, unit, node); if (shouldDrawRoute(unit)) UnitRenderer.drawRoute(g2, this, unit); } weaponSystem.draw(g2, this); for (ExplosionEffect explosion : explosions) explosion.draw(g2); for (Unit unit : units.values()) UnitRenderer.draw(g2, unit, localColor, true); }
+    void draw(Graphics2D g2) { drawMap(g2); galaxy.draw(this, g2); for (Base base : bases.values()) base.draw(g2, localColor, stockpile, true); for (ResourceNode node : resources) node.draw(g2, node.id == selectedResourceId); for (WorldItem item : items) item.draw(g2); for (Unit unit : units.values()) { ResourceNode node = findResource(unit.automationResourceId); if (MiningBeam.visible(unit, node)) UnitRenderer.drawWorkLine(g2, unit, node); if (shouldDrawRoute(unit)) UnitRenderer.drawRoute(g2, unit, localColor); UnitOrderRenderer.draw(g2, this, unit); } weaponSystem.draw(g2, this); for (ExplosionEffect explosion : explosions) explosion.draw(g2); for (Unit unit : units.values()) UnitRenderer.draw(g2, unit, localColor, true); }
     private boolean shouldDrawRoute(Unit unit) { return PlayerRegistry.isLocal(unit.playerId) && (unit.task == UnitTask.MOVE || unit.task == UnitTask.RETURN_TO_STATION || unit.task == UnitTask.ATTACK); }
     private void drawMap(Graphics2D g2) { galaxy.drawMap(g2, width, height); }
     void selectAt(double x, double y) { ResourceNode node = resourceAt(x, y); ResourceNetDebug.select(this, x, y, node); if (node != null) { selectedResourceId = node.id; status = "Targeted " + node.name + ". Right-click to auto-harvest."; return; } Unit unit = unitAt(x, y); for (Unit u : units.values()) u.selected = false; if (unit != null && PlayerRegistry.isLocal(unit.playerId)) { unit.selected = true; status = "Selected " + unit.type().name + " #" + unit.unitId + "."; } }
