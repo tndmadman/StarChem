@@ -26,7 +26,6 @@ final class NpcSquadCombatSystem {
     private static final double COHESION_DISTANCE = 760.0;
     private static final double REGROUP_THREAT_DISTANCE = 430.0;
     private static final double OVERKILL_ALLOWANCE = 1.12;
-    private static final double EPSILON = 0.001;
     private static final Map<World, Map<String, RuntimeState>> RUNTIMES = new WeakHashMap<>();
 
     private NpcSquadCombatSystem() { }
@@ -100,10 +99,12 @@ final class NpcSquadCombatSystem {
         Map<String, NpcSquadMode> priorModes = new LinkedHashMap<>();
         for (SquadState squad : previous) priorModes.put(String.join(",", squad.memberKeys), squad.mode);
 
+        int squadCount = Math.max(1, (combat.size() + MAX_SQUAD_SIZE - 1) / MAX_SQUAD_SIZE);
         List<SquadState> result = new ArrayList<>();
-        for (int offset = 0, index = 0; offset < combat.size(); offset += MAX_SQUAD_SIZE, index++) {
-            List<Unit> members = new ArrayList<>(combat.subList(
-                    offset, Math.min(combat.size(), offset + MAX_SQUAD_SIZE)));
+        for (int index = 0; index < squadCount; index++) {
+            int start = index * combat.size() / squadCount;
+            int end = (index + 1) * combat.size() / squadCount;
+            List<Unit> members = new ArrayList<>(combat.subList(start, end));
             String id = world.activeSystemId() + ":" + faction.id() + ":S" + (index + 1);
             SquadState squad = new SquadState(id);
             for (Unit member : members) squad.memberKeys.add(member.key());
@@ -151,7 +152,7 @@ final class NpcSquadCombatSystem {
                             .thenComparingInt(unit -> -unit.unitId))
                     .ifPresent(unit -> squad.roles.put(unit.key(), NpcSquadRole.ESCORT));
         }
-        if (members.size() == MAX_SQUAD_SIZE) {
+        if (members.size() >= MAX_SQUAD_SIZE) {
             Unit reserve = members.get(members.size() - 1);
             if (squad.roles.get(reserve.key()) == NpcSquadRole.LINE) {
                 squad.roles.put(reserve.key(), NpcSquadRole.RESERVE);
@@ -163,7 +164,6 @@ final class NpcSquadCombatSystem {
                                      NpcStrategicState strategy, SquadState squad) {
         List<Unit> members = livingMembers(world, squad.memberKeys);
         if (members.isEmpty()) return;
-        updateMetrics(squad, members);
 
         List<Unit> active = new ArrayList<>();
         for (Unit unit : members) {
@@ -174,8 +174,10 @@ final class NpcSquadCombatSystem {
         if (active.isEmpty()) {
             squad.mode = NpcSquadMode.WITHDRAWING;
             squad.targets.clear();
+            updateMetrics(squad, members);
             return;
         }
+        updateMetrics(squad, active);
 
         Base anchorBase = nearestFriendlyBase(world, faction.id(), squad.anchorX, squad.anchorY);
         double objectiveX = anchorBase == null ? squad.anchorX : anchorBase.x;
