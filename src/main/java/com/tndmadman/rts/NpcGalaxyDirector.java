@@ -8,6 +8,7 @@ final class NpcGalaxyDirector {
             if (!faction.enabled() || faction.behavior() != NpcBehavior.FACTION) continue;
 
             NpcStrategicState strategy = NpcStrategicDirector.update(world, faction, dt);
+            NpcStationDeployerRecoverySystem.update(world, faction, strategy);
             NpcStationConstructionSystem.update(world, faction, dt);
             if (NpcFactionRuntime.homeSystemIdFor(faction).equals(world.activeSystemId())) {
                 NpcWorkerProductionSystem.update(world, faction);
