@@ -50,6 +50,12 @@ public final class NpcStationConstructionValidator {
                 "station appeared immediately when the plan was created");
         require(station.id.equals(builder.basePackageType),
                 "deployer did not visibly carry the committed station package");
+        require(!fixture.world.placePackage(builder),
+                "manual or recovery placement bypassed an active timed construction plan");
+        require(NpcStationConstructionSystem.snapshot(fixture.world, fixture.faction).active()
+                        && fixture.world.units.containsKey(builder.key())
+                        && factionBaseCount(fixture.world, fixture.faction.id()) == 1,
+                "blocked direct placement damaged the active construction plan");
         assertSpentExactly(before, source.inventory, station.buildCost,
                 "initial construction reservation");
 
