@@ -13,10 +13,9 @@ import java.util.WeakHashMap;
 /**
  * Coordinates local organized-faction combat ships as deterministic squads.
  *
- * The ordinary tactical controller may issue broad attack or guard intentions,
- * then this system runs later in the simulation pass and converts eligible
- * ships into cohesive role-aware squads. Expedition travel orders and Phase 10
- * repair or evacuation orders remain authoritative and are never replaced.
+ * Ordinary tactical AI issues broad intentions first. This system then turns
+ * eligible combat ships into cohesive role-aware squads. Expedition transit
+ * and Phase 10 repair or evacuation orders remain authoritative.
  */
 final class NpcSquadCombatSystem {
     private static final int MAX_SQUAD_SIZE = 5;
@@ -258,8 +257,7 @@ final class NpcSquadCombatSystem {
             if (best == null) best = chooseTarget(world, faction, unit, role, targets, assignedDamage, false);
             if (best == null) continue;
             assignments.put(unit.key(), best.key);
-            double projected = projectedVolley(unit, best);
-            assignedDamage.merge(best.key, projected, Double::sum);
+            assignedDamage.merge(best.key, projectedVolley(unit, best), Double::sum);
         }
         return assignments;
     }
@@ -276,8 +274,7 @@ final class NpcSquadCombatSystem {
             double distance = Calc.distance(unit.x, unit.y, target.x, target.y);
             double range = Math.max(1.0, WeaponRules.maxRange(unit.type())
                     * SystemModifierRules.weaponRange(world));
-            double score = target.baseScore;
-            score += target.threatScore;
+            double score = target.baseScore + target.threatScore;
             score += (1.0 - target.hpRatio) * 105.0;
             score -= distance / Math.max(120.0, range) * 18.0;
             score -= assigned / Math.max(1.0, target.effectiveHp) * 190.0;
@@ -305,10 +302,8 @@ final class NpcSquadCombatSystem {
         double lateral = (index % 2 == 0 ? 1 : -1) * (45.0 + (index / 2) * 28.0);
         double nx = dx / length;
         double ny = dy / length;
-        double x = protectedUnit.x + nx * forward - ny * lateral;
-        double y = protectedUnit.y + ny * forward + nx * lateral;
-        x = Calc.clamp(x, 0, world.width);
-        y = Calc.clamp(y, 0, world.height);
+        double x = Calc.clamp(protectedUnit.x + nx * forward - ny * lateral, 0, world.width);
+        double y = Calc.clamp(protectedUnit.y + ny * forward + nx * lateral, 0, world.height);
         double distanceToSlot = Calc.distance(screen.x, screen.y, x, y);
         double threatDistance = Calc.distance(screen.x, screen.y, threat.x, threat.y);
         double range = Math.max(1.0, WeaponRules.maxRange(screen.type())
@@ -350,7 +345,6 @@ final class NpcSquadCombatSystem {
         double y = base == null ? fallbackY : base.y;
         int index = 0;
         for (Unit unit : units) {
-            if (recoveryOwns(unit, world)) continue;
             double angle = index++ * 1.7;
             issueMove(unit,
                     Calc.clamp(x + Math.cos(angle) * 125.0, 0, world.width),
@@ -456,10 +450,9 @@ final class NpcSquadCombatSystem {
     private static boolean recoveryOwns(Unit unit, World world) {
         if (unit == null) return false;
         if (hpRatio(unit) < RECOVERY_HP_RATIO) return true;
-        if (unit.orderType != UnitOrderType.ESCORT) return false;
+        if (unit.orderType != UnitOrderType.ESCORT || world == null) return false;
         Unit escorted = CombatTarget.unit(world, unit.orderTarget);
-        return escorted != null && escorted.hp > 0
-                && hpRatio(escorted) < 0.98;
+        return escorted != null && escorted.hp > 0 && hpRatio(escorted) < 0.98;
     }
 
     private static double projectedVolley(Unit unit, TargetInfo target) {
@@ -545,19 +538,11 @@ final class NpcSquadCombatSystem {
     }
 
     private static void issueMove(Unit unit, double x, double y) {
-        if (unit == null || recoveryOwns(unit, nullSafeWorld(unit))) return;
-        unit.issueMove(x, y);
+        if (unit != null) unit.issueMove(x, y);
     }
 
-    /*
-     * issueMove is also called from paths that already performed the recovery
-     * ownership test. The dummy-free overload below keeps those calls explicit
-     * and avoids storing World on Unit.
-     */
-    private static World nullSafeWorld(Unit ignored) { return null; }
-
     private static void issueAttack(Unit unit, String targetKey) {
-        unit.issueAttack(targetKey);
+        if (unit != null) unit.issueAttack(targetKey);
     }
 
     private static void hold(Unit unit) {
@@ -636,9 +621,10 @@ final class NpcSquadCombatSystem {
             boolean armed = WeaponRules.armed(type);
             double maxEffective = Math.max(1.0, type.maxHp + type.maxShield);
             double currentEffective = Math.max(0.0, unit.hp) + Math.max(0.0, unit.shield);
-            double dps = 0;
-            WeaponVolley volley = WeaponRules.volley(type, Math.max(1.0, WeaponRules.maxRange(type) * 0.75));
-            if (volley.damage() > 0) dps = volley.damage() / Math.max(0.2, volley.cooldownSeconds());
+            WeaponVolley volley = WeaponRules.volley(type,
+                    Math.max(1.0, WeaponRules.maxRange(type) * 0.75));
+            double dps = volley.damage() <= 0 ? 0
+                    : volley.damage() / Math.max(0.2, volley.cooldownSeconds());
             double threat = armed ? 85.0 + dps * 0.65 + type.size.scale * 18.0 : 8.0;
             double strategic = type.baseBuilder ? 88.0
                     : !type.harvestKinds.isEmpty() ? 48.0
