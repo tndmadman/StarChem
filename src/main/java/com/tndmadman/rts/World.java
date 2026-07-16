@@ -93,10 +93,8 @@ final class World {
         int normalized = Math.max(1, Math.min(2, copies));
         if (GalaxyRuntimeOptions.copiesPerTemplate() == normalized) return;
         GalaxyRuntimeOptions.configureCopies(normalized);
+        clearNpcAiRuntimeState();
         remoteGalaxyMapSnapshot = null;
-        npcSystems.clear();
-        organizedNpcSystems.clear();
-        npcFactionRuntimes.clear();
         celestials = galaxy.rebuild(this, starSystem, systemSeed);
         systemTime = galaxy.activeSystemTime();
     }
@@ -245,8 +243,30 @@ final class World {
     void syncEnvironment(long seed, double hostTime) { syncEnvironment(systemId(), seed, hostTime); }
     void syncEnvironment(String newSystemId, long seed, double hostTime) { boolean changed = !StarSystems.get(newSystemId).id().equals(systemId()); if (changed) setStarSystem(newSystemId); if (changed || seed != systemSeed) setSystemSeed(seed); double delta = hostTime - systemTime; if (Math.abs(delta) > 0.02) advanceEnvironment(delta); else { systemTime = hostTime; galaxy.setActiveSystemTime(hostTime); } }
     private void setStarSystem(String systemId) { starSystem = StarSystems.get(systemId); }
-    private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); npcSystems.clear(); organizedNpcSystems.clear(); npcFactionRuntimes.clear(); remoteGalaxyMapSnapshot = null; celestials = galaxy.rebuild(this, starSystem, seed); }
+    private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); clearNpcAiRuntimeState(); remoteGalaxyMapSnapshot = null; celestials = galaxy.rebuild(this, starSystem, seed); }
     private Point2D startShipPoint(Point2D basePoint) { return new Point2D.Double(basePoint.getX() + 180, basePoint.getY() - 80); }
+
+    private void clearNpcAiRuntimeState() {
+        npcSystems.clear();
+        organizedNpcSystems.clear();
+        npcFactionRuntimes.clear();
+        NpcStrategicDirector.clear(this);
+        NpcRecoverySystem.clear(this);
+        NpcExpeditionSystem.clear(this);
+        NpcStationConstructionSystem.clear(this);
+        NpcSquadCombatSystem.clear(this);
+    }
+
+    void resetOrganizedNpcFactionState(NpcFaction faction, boolean defeated) {
+        if (faction == null || faction.behavior() != NpcBehavior.FACTION) return;
+        String suffix = "|" + faction.id();
+        organizedNpcSystems.keySet().removeIf(key -> key.endsWith(suffix));
+        NpcRecoverySystem.clearFaction(this, faction);
+        NpcExpeditionSystem.clear(this);
+        NpcStationConstructionSystem.clear(this);
+        NpcSquadCombatSystem.clear(this);
+        if (defeated) NpcStrategicDirector.onDefeated(this, faction);
+    }
 
     void updateEnvironment(double dt) { advanceEnvironment(dt); updateItems(dt); updateExplosions(dt); }
     private void advanceEnvironment(double dt) { galaxy.update(this, dt); systemTime = galaxy.activeSystemTime(); celestials = galaxy.activeCelestials(); ResourceSpawner.update(resources, celestials, dt); ResourceNetDebug.worldTick(this, dt); }
@@ -295,7 +315,12 @@ final class World {
             NpcFactionRuntime runtime = npcFactionRuntimes.computeIfAbsent(
                     faction.id(), ignored -> new NpcFactionRuntime(faction));
             boolean galaxyAssets = hasLiveAssets(faction.id());
+            NpcFactionRuntime.State previousState = runtime.state();
             runtime.observe(galaxyAssets, faction);
+            if (previousState == NpcFactionRuntime.State.ACTIVE
+                    && runtime.state() == NpcFactionRuntime.State.RESPAWNING) {
+                resetOrganizedNpcFactionState(faction, true);
+            }
 
             if (hasLocalNpcAssets(faction.id())) {
                 organizedNpcSystemForActiveSystem(faction).update(this, dt);
@@ -367,7 +392,22 @@ final class World {
         }
     }
 
-    private void updateUnit(Unit unit, double dt) { unit.unloadingThisFrame = false; unit.wormholeCooldown = Math.max(0, unit.wormholeCooldown - dt); sendFullHarvestCargoToUnload(unit); autoUnload(unit, dt); haulerSystem.update(this, unit, dt); workSystem.update(this, unit, dt); UnitOrderSystem.update(this, unit, dt); if (unit.task == UnitTask.RETURN_TO_STATION) updateReturn(unit); if (unit.task == UnitTask.IDLE && unit.orderType == UnitOrderType.NONE) idleNearBase(unit, dt); if (unit.task == UnitTask.MOVE && Calc.distance(unit.x, unit.y, unit.targetX, unit.targetY) < 5) unit.task = UnitTask.IDLE; unit.updatePosition(dt * SystemModifierRules.movementSpeed(this), width, height); }
+    private void updateUnit(Unit unit, double dt) {
+        unit.unloadingThisFrame = false;
+        unit.wormholeCooldown = Math.max(0, unit.wormholeCooldown - dt);
+        boolean recoveryOwned = NpcRecoverySystem.ownsUnit(this, unit);
+        if (!recoveryOwned) {
+            sendFullHarvestCargoToUnload(unit);
+            autoUnload(unit, dt);
+            haulerSystem.update(this, unit, dt);
+            workSystem.update(this, unit, dt);
+        }
+        UnitOrderSystem.update(this, unit, dt);
+        if (!recoveryOwned && unit.task == UnitTask.RETURN_TO_STATION) updateReturn(unit);
+        if (!recoveryOwned && unit.task == UnitTask.IDLE && unit.orderType == UnitOrderType.NONE) idleNearBase(unit, dt);
+        if (unit.task == UnitTask.MOVE && Calc.distance(unit.x, unit.y, unit.targetX, unit.targetY) < 5) unit.task = UnitTask.IDLE;
+        unit.updatePosition(dt * SystemModifierRules.movementSpeed(this), width, height);
+    }
     private void sendFullHarvestCargoToUnload(Unit unit) { if (unit.type().harvestKinds.isEmpty() || unit.task == UnitTask.RETURN_TO_STATION || unit.cargoUsed() <= 0.05 || unit.freeCargo() > 0.05) return; sendToNearestBase(unit); }
     private void updateReturn(Unit unit) { Base base = nearestBase(unit.playerId, unit.x, unit.y); Unit depot = MobileDepot.preferredFor(this, unit, base); if (base == null && depot == null) { unit.task = UnitTask.IDLE; return; } if (unit.cargoUsed() <= 0.05) { ResourceNode resume = findResource(unit.automationResourceId); if (resume != null && resume.active) unit.task = UnitTask.AUTO_HARVEST; else if (!returnToMiningAnchor(unit)) unit.task = UnitTask.IDLE; return; } if (depot != null) moveTowardOrbit(unit, depot.x, depot.y, MobileDepot.range(depot) * 0.55); else moveTowardOrbit(unit, base.x, base.y, base.type().unloadRange * 0.55); }
     private void idleNearBase(Unit unit, double dt) { Base base = nearestBase(unit.playerId, unit.x, unit.y); if (base != null && Calc.distance(unit.x, unit.y, base.x, base.y) < base.type().unloadRange + 170) orbitAround(unit, base.x, base.y, unit.type().idleOrbitRadius, dt, 0.35); }
