@@ -8,9 +8,9 @@ import java.util.Set;
  * Computes authoritative galaxy-wide organized-faction capacity.
  *
  * Living assets, queued production, persistent station construction, and an
- * expedition foothold that already owns a paid package all count toward their
- * configured limits. Local systems may execute production, but they must check
- * this snapshot immediately before committing resources.
+ * expedition foothold that already owns or is reserving a package all count
+ * toward configured limits. Local systems may execute production, but they must
+ * check this snapshot immediately before committing resources.
  */
 final class NpcFactionCapacitySystem {
     private NpcFactionCapacitySystem() { }
@@ -125,7 +125,7 @@ final class NpcFactionCapacitySystem {
         NpcExpeditionSnapshot snapshot = NpcExpeditionSystem.snapshot(world, faction);
         if (!snapshot.active()) return 0;
         return switch (snapshot.state()) {
-            case ASSEMBLING, LAUNCHING, TRAVELLING -> 1;
+            case RESERVING, ASSEMBLING, LAUNCHING, TRAVELLING, ABORTING -> 1;
             default -> 0;
         };
     }
