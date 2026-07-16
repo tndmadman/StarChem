@@ -6,7 +6,9 @@ import java.util.Iterator;
  * Handles local NPC collapse after a system loses every living station.
  *
  * Organized factions use NpcRecoverySystem so expeditions can repair, rebuild,
- * evacuate, or remain alive while recovery is possible. Ordinary local NPC
+ * evacuate, or remain alive while recovery is possible. Ships assigned to an
+ * active Phase 8 transit or foothold plan are protected from stationless
+ * recovery until that plan succeeds, aborts, or fails. Ordinary local NPC
  * factions retain their original immediate collapse behavior.
  */
 final class NpcCollapseSystem {
@@ -17,10 +19,11 @@ final class NpcCollapseSystem {
             if (!faction.enabled()) continue;
 
             if (faction.behavior() == NpcBehavior.FACTION) {
-                NpcRecoverySystem.update(world, faction);
-                if (hasLivingStation(world, faction.id())) {
-                    NpcWorkerProductionSystem.update(world, faction);
+                boolean hasStation = hasLivingStation(world, faction.id());
+                if (hasStation || !NpcExpeditionSystem.protectsStationlessCurrentSystem(world, faction)) {
+                    NpcRecoverySystem.update(world, faction);
                 }
+                if (hasStation) NpcWorkerProductionSystem.update(world, faction);
                 continue;
             }
 
