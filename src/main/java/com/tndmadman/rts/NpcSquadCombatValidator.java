@@ -61,7 +61,9 @@ public final class NpcSquadCombatValidator {
 
     private static void validateFocusFireAndOverkillControl() {
         Fixture fixture = fixture("NPC Squad Focus Fire");
-        for (int i = 0; i < 4; i++) addCorsair(fixture, 10 + i, "frigate", 4100 + i * 45, 4000);
+        for (int i = 0; i < 6; i++) {
+            addCorsair(fixture, 10 + i, "frigate", 4100 + i * 45, 4000);
+        }
         Unit vulnerable = addEnemy(fixture, "FOCUS_ENEMY", 1, "destroyer", 4700, 4000);
         vulnerable.hp = 8.0;
         vulnerable.shield = 0;
@@ -69,15 +71,23 @@ public final class NpcSquadCombatValidator {
         fixture.world.bases.put(durable.id, durable);
 
         NpcSquadCombatSystem.update(fixture.world, fixture.faction, NpcStrategicState.RAID, 1.0);
-        NpcSquadView squad = onlySquad(fixture);
-        Map<String, Integer> counts = targetCounts(squad.targets());
+        NpcSquadCombatSnapshot snapshot = NpcSquadCombatSystem.snapshot(
+                fixture.world, fixture.faction);
+        require(snapshot.squads().size() == 2,
+                "configured six-ship fleet did not form two balanced squads");
+        for (NpcSquadView squad : snapshot.squads()) {
+            require(squad.members().size() == 3,
+                    "six-ship fleet produced an unbalanced or singleton squad");
+            require(squad.mode() == NpcSquadMode.ENGAGING,
+                    "armed squad with valid targets did not enter ENGAGING mode");
+        }
+
+        Map<String, Integer> counts = targetCounts(snapshot);
         String vulnerableKey = CombatTarget.unit(vulnerable);
         require(counts.getOrDefault(vulnerableKey, 0) <= 1,
-                "multiple volleys were assigned to an already overkilled target");
+                "separate squads assigned multiple volleys to an already overkilled target");
         require(counts.size() >= 2,
-                "squad did not distribute projected damage across viable targets");
-        require(squad.mode() == NpcSquadMode.ENGAGING,
-                "armed squad with valid targets did not enter ENGAGING mode");
+                "fleet did not distribute projected damage across viable targets");
     }
 
     private static void validateScreeningGeometry() {
@@ -232,9 +242,13 @@ public final class NpcSquadCombatValidator {
         return snapshot.squads().get(0);
     }
 
-    private static Map<String, Integer> targetCounts(Map<String, String> assignments) {
+    private static Map<String, Integer> targetCounts(NpcSquadCombatSnapshot snapshot) {
         Map<String, Integer> counts = new LinkedHashMap<>();
-        for (String target : assignments.values()) counts.merge(target, 1, Integer::sum);
+        for (NpcSquadView squad : snapshot.squads()) {
+            for (String target : squad.targets().values()) {
+                counts.merge(target, 1, Integer::sum);
+            }
+        }
         return counts;
     }
 
