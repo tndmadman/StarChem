@@ -57,12 +57,50 @@ final class NpcStationConstructionSystem {
         prepareBuilder(builder, site.x, site.y, true);
         ConstructionPlan plan = new ConstructionPlan(
                 world.activeSystemId(), world.systemSeed(), faction.id(), source.id,
-                builder.key(), packageType, normalized, site.x, site.y, duration);
+                builder.key(), packageType, normalized, source.x, source.y,
+                site.x, site.y, duration);
         plans(world).put(key, plan);
         AiDevLog.add(world, faction,
                 "station plan reserved: " + station.name + " at "
                         + coordinate(site.x, site.y) + " score=" + (int)Math.round(site.score));
         world.status = faction.name() + " committed a " + station.name + " construction package.";
+        return true;
+    }
+
+    /**
+     * Starts construction from a package already committed to a deployer.
+     * Expedition supplies and package accounting are owned by the caller, so
+     * this path never charges or refunds a station build cost.
+     */
+    static synchronized boolean startLoaded(World world, NpcFaction faction, Unit builder,
+                                            String packageType) {
+        if (world == null || faction == null || builder == null
+                || packageType == null || packageType.isBlank()) return false;
+        if (!faction.id().equals(builder.playerId) || builder.hp <= 0
+                || !builder.type().baseBuilder) return false;
+        String key = key(world.activeSystemId(), faction.id());
+        ConstructionPlan existing = plans(world).get(key);
+        if (existing != null) return existing.builderKey.equals(builder.key());
+
+        BaseType station = Rules.findBase(packageType);
+        if (station == null) return false;
+        Base anchor = anchorBase(faction, builder.x, builder.y);
+        Site site = selectSite(world, faction, anchor, station);
+        if (site == null) return false;
+
+        double duration = station.buildTimeSeconds > 0
+                ? station.buildTimeSeconds : Math.max(1.0, faction.stationBuildSeconds());
+        builder.basePackageType = packageType;
+        prepareBuilder(builder, site.x, site.y, true);
+        ConstructionPlan plan = new ConstructionPlan(
+                world.activeSystemId(), world.systemSeed(), faction.id(), "",
+                builder.key(), packageType, NpcBudgetCategory.EXPANSION,
+                builder.x, builder.y, site.x, site.y, duration);
+        plans(world).put(key, plan);
+        AiDevLog.add(world, faction,
+                "expedition foothold plan started: " + station.name + " at "
+                        + coordinate(site.x, site.y) + " score=" + (int)Math.round(site.score));
+        world.status = faction.name() + " selected an expedition foothold site.";
         return true;
     }
 
@@ -96,7 +134,9 @@ final class NpcStationConstructionSystem {
         builder.basePackageType = plan.packageType;
         Base source = world.bases.get(plan.sourceBaseId);
         if (!validSite(world, faction, source, station, plan.targetX, plan.targetY)) {
-            Site replacement = source == null ? null : selectSite(world, faction, source, station);
+            Base planningAnchor = source == null
+                    ? anchorBase(faction, plan.anchorX, plan.anchorY) : source;
+            Site replacement = selectSite(world, faction, planningAnchor, station);
             if (replacement == null) {
                 holdBuilder(builder);
                 plan.waitingForSite = true;
@@ -236,6 +276,11 @@ final class NpcStationConstructionSystem {
         builder.task = UnitTask.IDLE;
         builder.targetX = builder.x;
         builder.targetY = builder.y;
+    }
+
+    private static Base anchorBase(NpcFaction faction, double x, double y) {
+        String typeId = Rules.findBase(faction.baseType()) == null ? Rules.DEFAULT_BASE : faction.baseType();
+        return new Base(faction.id() + ":EXPEDITION_ANCHOR", faction.id(), typeId, x, y);
     }
 
     private static Site selectSite(World world, NpcFaction faction, Base source, BaseType station) {
@@ -425,6 +470,8 @@ final class NpcStationConstructionSystem {
         final String builderKey;
         final String packageType;
         final NpcBudgetCategory category;
+        final double anchorX;
+        final double anchorY;
         final double duration;
         double targetX;
         double targetY;
@@ -435,6 +482,7 @@ final class NpcStationConstructionSystem {
 
         ConstructionPlan(String systemId, long seed, String factionId, String sourceBaseId,
                          String builderKey, String packageType, NpcBudgetCategory category,
+                         double anchorX, double anchorY,
                          double targetX, double targetY, double duration) {
             this.systemId = systemId;
             this.seed = seed;
@@ -443,6 +491,8 @@ final class NpcStationConstructionSystem {
             this.builderKey = builderKey;
             this.packageType = packageType;
             this.category = category;
+            this.anchorX = anchorX;
+            this.anchorY = anchorY;
             this.targetX = targetX;
             this.targetY = targetY;
             this.duration = Math.max(1.0, duration);
