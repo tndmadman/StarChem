@@ -1,5 +1,5 @@
 {
-  "npcAiVersion": 6,
+  "npcAiVersion": 7,
   "factions": [
     {
       "id": "NPC_RAIDERS",
@@ -248,21 +248,19 @@
         "TUNGSTEN",
         "GOLD",
         "PLATINUM",
-        "URANIUM",
         "SILICATES",
         "ICE",
         "CARBON",
-        "SULFUR",
         "PHOSPHATES",
-        "RARE_EARTHS",
+        "URANIUM",
+        "THORIUM",
         "HYDROGEN",
         "HELIUM",
         "METHANE",
         "AMMONIA",
         "NITROGEN",
-        "NEON",
-        "ARGON",
-        "XENON"
+        "OXYGEN",
+        "SULFUR"
       ],
       "harvestNodeKinds": [],
       "attackBases": true,
@@ -271,8 +269,8 @@
       "replaceWorkers": false,
       "harassWorkers": true,
       "preferWorkerTargets": true,
-      "requirePlayerCombatShips": false,
-      "minPlayerCombatShips": 0,
+      "requirePlayerCombatShips": true,
+      "minPlayerCombatShips": 1,
       "spawnMessage": "Corsair Syndicate has established a foothold."
     }
   ]
