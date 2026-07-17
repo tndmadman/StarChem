@@ -64,9 +64,23 @@ final class AiBrainLog {
 
     private AiBrainLog() { }
 
-    /** Called only from the developer UI, which is not drawn outside dev mode. */
-    static synchronized void requestDevMode() {
+    /** Enables logging only for the lifetime of an authoritative developer session. */
+    static synchronized void setEnabled(boolean enabled) {
+        if (devModeRequested == enabled) return;
+        if (!enabled) {
+            devModeRequested = false;
+            shutdown();
+            MEMORIES.clear();
+            currentFile = null;
+            sessionId = "";
+            part = 0;
+            bytesWritten = 0;
+            sequence = 0;
+            lastError = "";
+            return;
+        }
         devModeRequested = true;
+        lastError = "";
     }
 
     static synchronized boolean recording() {

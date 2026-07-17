@@ -50,9 +50,26 @@ public final class AiBrainLogValidator {
             base.inventory.put(Material.COPPER, 40.0);
             world.status = "validator status change";
             AiBrainLog.observe(world);
+
+            AiBrainLog.setEnabled(false);
+            require(!AiBrainLog.recording() && "off".equals(AiBrainLog.status()),
+                    "brain log did not stop when the developer session ended");
+            long disabledBytes = totalBytes(directory);
+            world.systemTime += 1.1;
+            AiDevLog.add(world, faction, "event while logging is disabled");
+            AiBrainLog.observe(world);
+            require(totalBytes(directory) == disabledBytes,
+                    "brain log wrote data after it was disabled");
+
+            AiBrainLog.setEnabled(true);
+            world.systemTime += 1.1;
+            AiBrainLog.observe(world);
+            AiBrainLog.setEnabled(false);
             AiBrainLog.closeForTests();
 
             List<Path> files = jsonlFiles(directory);
+            require(files.size() >= 2,
+                    "re-enabling the brain log did not start a new session file");
             require(!files.isEmpty(), "brain log did not create a JSONL file");
             String text = readAll(files);
             require(text.contains("\"category\":\"session_start\""),
@@ -104,6 +121,12 @@ public final class AiBrainLogValidator {
                     .forEach(files::add);
         }
         return files;
+    }
+
+    private static long totalBytes(Path directory) throws IOException {
+        long total = 0;
+        for (Path path : jsonlFiles(directory)) total += Files.size(path);
+        return total;
     }
 
     private static String readAll(List<Path> files) throws IOException {
