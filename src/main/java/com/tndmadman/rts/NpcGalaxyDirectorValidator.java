@@ -14,6 +14,12 @@ public final class NpcGalaxyDirectorValidator {
     }
 
     static void validateOrThrow() {
-        NpcExpeditionValidator.validateOrThrow();
+        try {
+            NpcExpeditionValidator.validateOrThrow();
+        } catch (RuntimeException failure) {
+            String history = String.join(" || ", AiDevLog.lines(80));
+            throw new IllegalStateException(failure.getMessage()
+                    + (history.isBlank() ? "" : " | recent AI events: " + history), failure);
+        }
     }
 }
