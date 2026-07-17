@@ -1,6 +1,7 @@
 package com.tndmadman.rts;
 
 final class MobileDepot {
+    static final String ROUTE_PREFIX = "MOBILE_DEPOT";
     private static final double RANGE = 125;
     private static final double RATE = 120;
 
@@ -10,6 +11,10 @@ final class MobileDepot {
     static boolean isHauler(Unit unit) { return unit != null && "hauler".equals(unit.shipTypeId); }
     static boolean haulerCanDrain(Unit unit) { return isDepot(unit) || isSalvager(unit); }
     static double range(Unit unit) { return RANGE + (unit == null ? 0 : unit.type().size.scale * 18); }
+    static boolean automatedRoute(Unit unit) {
+        return isHauler(unit) && unit.logisticsRequestId != null
+                && unit.logisticsRequestId.startsWith(ROUTE_PREFIX);
+    }
 
     private static boolean isSalvager(Unit unit) { return unit != null && "salvager".equals(unit.shipTypeId); }
 
@@ -32,10 +37,10 @@ final class MobileDepot {
 
     static boolean transfer(Unit miner, Unit depot, double dt) {
         if (miner == null) return false;
-        // Hauler cargo is owned by HaulerSystem. Returning true here tells the
-        // generic World auto-unload pass that the cargo has an authoritative
-        // logistics handler and must not be dumped into the nearest station.
-        if (isHauler(miner)) return true;
+        // Hauler cargo on an automated depot route is owned by HaulerSystem.
+        // Returning true tells the generic World auto-unload pass not to dump
+        // that cargo into whichever station happens to be closest.
+        if (isHauler(miner)) return automatedRoute(miner);
         if (!isDepot(depot)) return false;
         if (miner.cargoUsed() <= 0.05 || depot.freeCargo() <= 0.05) return false;
         if (Calc.distance(miner.x, miner.y, depot.x, depot.y) > range(depot)) return false;
