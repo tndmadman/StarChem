@@ -54,7 +54,10 @@ Every record includes:
 
 - Each segment rotates at approximately 16 MiB.
 - Up to 24 recent `.jsonl` files are retained.
-- The writer flushes at least every two seconds and on clean shutdown.
+- JSON encoding, file writes, rotation, pruning, and flushes run on a dedicated daemon writer thread.
+- The simulation submits immutable records through a bounded non-blocking queue.
+- Under sustained pressure, position/checkpoint rows are dropped before the reserved critical-event capacity is consumed, and one `logger_backpressure` record reports the loss.
+- The writer flushes at least every two seconds and drains for a bounded period on clean shutdown.
 - Logging errors are shown in the AI developer panel and never propagate into the simulation.
 
 ## Sending a report

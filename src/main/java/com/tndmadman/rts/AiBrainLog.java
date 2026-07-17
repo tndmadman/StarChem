@@ -45,17 +45,14 @@ final class AiBrainLog {
             .ofPattern("yyyyMMdd-HHmmss-SSS", Locale.ROOT)
             .withZone(ZoneOffset.UTC);
 
+    private static final int DEFAULT_QUEUE_CAPACITY = 8192;
+    private static final long WRITER_DRAIN_MILLIS = 2000L;
     private static final Map<World, WorldMemory> MEMORIES = new WeakHashMap<>();
     private static Path logDirectory = DEFAULT_LOG_DIRECTORY;
+    private static int queueCapacity = DEFAULT_QUEUE_CAPACITY;
     private static boolean devModeRequested;
-    private static BufferedWriter writer;
-    private static Path currentFile;
-    private static String sessionId = "";
-    private static int part;
-    private static long bytesWritten;
-    private static long sequence;
-    private static long lastFlushNanos;
-    private static String lastError = "";
+    private static AiBrainLogAsyncWriter asyncWriter;
+    private static volatile String lastError = "";
 
     static {
         Runtime.getRuntime().addShutdownHook(new Thread(AiBrainLog::shutdown,
@@ -66,37 +63,38 @@ final class AiBrainLog {
 
     /** Enables logging only for the lifetime of an authoritative developer session. */
     static synchronized void setEnabled(boolean enabled) {
-        if (devModeRequested == enabled) return;
-        if (!enabled) {
-            devModeRequested = false;
-            shutdown();
-            MEMORIES.clear();
-            currentFile = null;
-            sessionId = "";
-            part = 0;
-            bytesWritten = 0;
-            sequence = 0;
+        if (enabled) {
+            if (devModeRequested) return;
+            devModeRequested = true;
             lastError = "";
             return;
         }
-        devModeRequested = true;
+        if (!devModeRequested && asyncWriter == null) return;
+        devModeRequested = false;
+        stopWriter(WRITER_DRAIN_MILLIS);
+        MEMORIES.clear();
+        queueCapacity = DEFAULT_QUEUE_CAPACITY;
         lastError = "";
     }
 
     static synchronized boolean recording() {
-        return writer != null;
+        AiBrainLogAsyncWriter active = asyncWriter;
+        return active != null && active.recording();
     }
 
     static synchronized String status() {
         if (!lastError.isBlank()) return "ERROR: " + lastError;
-        if (writer != null && currentFile != null) {
-            return "REC " + currentFile.toAbsolutePath().normalize();
+        AiBrainLogAsyncWriter active = asyncWriter;
+        if (active != null && active.currentFile() != null) {
+            return "REC " + active.currentFile().toAbsolutePath().normalize()
+                    + " | queued " + active.queueDepth();
         }
         return devModeRequested ? "waiting for authoritative AI tick" : "off";
     }
 
     static synchronized Path currentFile() {
-        return currentFile;
+        AiBrainLogAsyncWriter active = asyncWriter;
+        return active == null ? null : active.currentFile();
     }
 
     /**
@@ -139,7 +137,6 @@ final class AiBrainLog {
                 checkpoint(world);
                 memory.nextCheckpointTime = gameTime + CHECKPOINT_SECONDS;
             }
-            flushIfDue();
         } catch (RuntimeException ex) {
             fail("capture failed: " + compactException(ex));
         }
@@ -153,11 +150,10 @@ final class AiBrainLog {
     static synchronized void event(World world, String source,
                                    String category, String message) {
         if (!devModeRequested || !lastError.isBlank()) return;
-        if (writer == null) {
+        if (asyncWriter == null || !asyncWriter.accepting()) {
             if (world == null || !ensureOpen(world)) return;
         }
         write(world, safe(source), safe(category), "", safe(message), Map.of());
-        flushIfDue();
     }
 
     private static void captureEntityDeltas(World world, SystemMemory memory) {
@@ -381,169 +377,52 @@ final class AiBrainLog {
     }
 
     private static boolean ensureOpen(World world) {
-        if (writer != null) return true;
+        AiBrainLogAsyncWriter active = asyncWriter;
+        if (active != null && active.accepting()) return true;
         if (!lastError.isBlank()) return false;
         try {
-            Files.createDirectories(logDirectory);
-            pruneOldFiles();
-            sessionId = FILE_TIME.format(Instant.now())
-                    + "-p" + ProcessHandle.current().pid()
-                    + "-" + Long.toUnsignedString(System.nanoTime(), 36);
-            part = 0;
-            sequence = 0;
-            openNextPart();
-            write(world, "BRAIN", "session_start", "",
-                    "Authoritative AI brain log started",
-                    mapOf("schema", SCHEMA_VERSION,
-                            "world", world.localPlayerName,
-                            "system", safe(world.activeSystemId()),
-                            "seed", world.systemSeed(),
-                            "difficulty", NpcDifficultyPreset.current().label,
-                            "directory", logDirectory.toAbsolutePath().normalize().toString()));
-            flushNow();
+            AiBrainLogAsyncWriter.Entry context = AiBrainLogAsyncWriter.Entry.capture(
+                    world, "BRAIN", "session_context", "", "", Map.of());
+            active = new AiBrainLogAsyncWriter(logDirectory, queueCapacity,
+                    AiBrainLog::recordWriterError);
+            asyncWriter = active;
+            active.start(context);
             return true;
-        } catch (IOException | RuntimeException ex) {
-            fail("could not open log: " + compactException(ex));
+        } catch (RuntimeException ex) {
+            fail("could not start async log: " + compactException(ex));
             return false;
         }
-    }
-
-    private static void openNextPart() throws IOException {
-        closeWriterOnly();
-        part++;
-        String name = "starchem-ai-" + sessionId
-                + "-part" + String.format(Locale.ROOT, "%03d", part) + ".jsonl";
-        currentFile = logDirectory.resolve(name);
-        writer = Files.newBufferedWriter(currentFile, StandardCharsets.UTF_8,
-                StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
-        bytesWritten = 0;
-        lastFlushNanos = System.nanoTime();
-    }
-
-    private static void rotate(World world) throws IOException {
-        long previousBytes = bytesWritten;
-        int previousPart = part;
-        flushNow();
-        openNextPart();
-        Map<String, Object> row = baseRow(world, "BRAIN", "session_continue", "",
-                "AI brain log rotated");
-        row.put("data", mapOf("previousPart", previousPart,
-                "previousBytes", previousBytes, "newPart", part));
-        writeRow(row);
-        pruneOldFiles();
     }
 
     private static void write(World world, String source, String category,
                               String entity, String message,
                               Map<String, ?> data) {
-        if (writer == null) return;
-        try {
-            Map<String, Object> row = baseRow(world, source, category, entity, message);
-            row.put("data", data == null ? Map.of() : data);
-            int bytes = encodedBytes(row);
-            if (bytesWritten > 0 && bytesWritten + bytes > ROTATE_BYTES) {
-                rotate(world);
-                row = baseRow(world, source, category, entity, message);
-                row.put("data", data == null ? Map.of() : data);
-            }
-            writeRow(row);
-        } catch (IOException | RuntimeException ex) {
-            fail("write failed: " + compactException(ex));
-        }
-    }
-
-    private static Map<String, Object> baseRow(World world, String source,
-                                                String category, String entity,
-                                                String message) {
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("schema", SCHEMA_VERSION);
-        row.put("seq", ++sequence);
-        row.put("utc", Instant.now().toString());
-        row.put("session", sessionId);
-        row.put("part", part);
-        row.put("source", safe(source));
-        row.put("category", safe(category));
-        row.put("entity", safe(entity));
-        row.put("message", safe(message));
-        if (world != null) {
-            row.put("world", safe(world.localPlayerName));
-            row.put("system", safe(world.activeSystemId()));
-            row.put("systemName", safe(world.systemName()));
-            row.put("gameTime", round(world.systemTime(), 3));
-            row.put("seed", world.systemSeed());
-        }
-        return row;
-    }
-
-    private static int encodedBytes(Map<String, Object> row) {
-        return (json(row) + System.lineSeparator()).getBytes(StandardCharsets.UTF_8).length;
-    }
-
-    private static void writeRow(Map<String, Object> row) throws IOException {
-        if (writer == null) return;
-        String encoded = json(row) + System.lineSeparator();
-        writer.write(encoded);
-        bytesWritten += encoded.getBytes(StandardCharsets.UTF_8).length;
-    }
-
-    private static void flushIfDue() {
-        if (writer == null) return;
-        if (System.nanoTime() - lastFlushNanos < FLUSH_NANOS) return;
-        flushNow();
-    }
-
-    private static void flushNow() {
-        if (writer == null) return;
-        try {
-            writer.flush();
-            lastFlushNanos = System.nanoTime();
-        } catch (IOException ex) {
-            fail("flush failed: " + compactException(ex));
-        }
-    }
-
-    private static void pruneOldFiles() {
-        try {
-            if (!Files.isDirectory(logDirectory)) return;
-            List<Path> files = new ArrayList<>();
-            try (DirectoryStream<Path> stream = Files.newDirectoryStream(
-                    logDirectory, "starchem-ai-*.jsonl")) {
-                for (Path path : stream) if (Files.isRegularFile(path)) files.add(path);
-            }
-            files.sort(Comparator.comparingLong(AiBrainLog::modifiedTime).reversed());
-            for (int i = MAX_LOG_FILES; i < files.size(); i++) {
-                try { Files.deleteIfExists(files.get(i)); }
-                catch (IOException ignored) { }
-            }
-        } catch (IOException ignored) { }
-    }
-
-    private static long modifiedTime(Path path) {
-        try { return Files.getLastModifiedTime(path).toMillis(); }
-        catch (IOException ex) { return 0L; }
+        AiBrainLogAsyncWriter active = asyncWriter;
+        if (active == null || !active.accepting()) return;
+        active.offer(AiBrainLogAsyncWriter.Entry.capture(world, source, category,
+                entity, message, data));
     }
 
     private static void shutdown() {
         synchronized (AiBrainLog.class) {
-            if (writer != null) {
-                write(null, "BRAIN", "session_end", "",
-                        "AI brain log closed", mapOf("lines", sequence));
-                flushNow();
-            }
-            closeWriterOnly();
+            devModeRequested = false;
+            stopWriter(WRITER_DRAIN_MILLIS);
         }
     }
 
-    private static void closeWriterOnly() {
-        if (writer == null) return;
-        try { writer.close(); }
-        catch (IOException ignored) { }
-        writer = null;
+    private static void stopWriter(long timeoutMillis) {
+        AiBrainLogAsyncWriter active = asyncWriter;
+        asyncWriter = null;
+        if (active != null) active.stopAndDrain(timeoutMillis);
+    }
+
+    private static void recordWriterError(String message) {
+        lastError = safe(message);
     }
 
     private static void fail(String message) {
         lastError = safe(message);
-        closeWriterOnly();
+        stopWriter(250L);
     }
 
     private static String compactException(Throwable ex) {
@@ -674,29 +553,44 @@ final class AiBrainLog {
 
     /** Test hook; production code never changes the configured directory. */
     static synchronized void resetForTests(Path directory) {
-        shutdown();
+        resetForTests(directory, DEFAULT_QUEUE_CAPACITY);
+    }
+
+    static synchronized void resetForTests(Path directory, int capacity) {
+        devModeRequested = false;
+        stopWriter(250L);
         MEMORIES.clear();
         logDirectory = directory;
+        queueCapacity = Math.max(2, capacity);
         devModeRequested = true;
-        currentFile = null;
-        sessionId = "";
-        part = 0;
-        bytesWritten = 0;
-        sequence = 0;
         lastError = "";
     }
 
     static synchronized void closeForTests() {
-        shutdown();
         devModeRequested = false;
+        stopWriter(WRITER_DRAIN_MILLIS);
         MEMORIES.clear();
         logDirectory = DEFAULT_LOG_DIRECTORY;
-        currentFile = null;
-        sessionId = "";
-        part = 0;
-        bytesWritten = 0;
-        sequence = 0;
+        queueCapacity = DEFAULT_QUEUE_CAPACITY;
         lastError = "";
+    }
+
+    static boolean awaitIdleForTests(long timeoutMillis) {
+        AiBrainLogAsyncWriter active;
+        synchronized (AiBrainLog.class) { active = asyncWriter; }
+        return active == null || active.awaitIdle(timeoutMillis);
+    }
+
+    static synchronized void pauseWriterForTests(boolean paused) {
+        if (asyncWriter != null) asyncWriter.pauseForTests(paused);
+    }
+
+    static synchronized int queueDepthForTests() {
+        return asyncWriter == null ? 0 : asyncWriter.queueDepth();
+    }
+
+    static synchronized long droppedRecordsForTests() {
+        return asyncWriter == null ? 0 : asyncWriter.droppedCount();
     }
 
     private static final class WorldMemory {
