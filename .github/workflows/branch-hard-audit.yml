@@ -1,0 +1,70 @@
+name: Branch Hard Audit
+
+on:
+  push:
+    branches:
+      - agent/fix-corsair-remote-view
+
+permissions:
+  contents: read
+
+concurrency:
+  group: branch-hard-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Full compile, validation, package, and smoke audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Run full Gradle verification
+        id: verify
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p build/branch-audit
+          gradle clean check jar --no-daemon --stacktrace 2>&1 \
+            | tee build/branch-audit/gradle.log
+
+      - name: Smoke-test built jar
+        id: smoke
+        if: steps.verify.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            test -f build/libs/StarChem.jar
+            java -jar build/libs/StarChem.jar --version
+            java -jar build/libs/StarChem.jar --help | grep -F -- '--server [PORT]'
+          } 2>&1 | tee build/branch-audit/smoke.log
+
+      - name: Upload complete audit logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: branch-hard-audit-${{ github.sha }}
+          path: build/branch-audit
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Fail audit when verification failed
+        if: steps.verify.outcome != 'success' || steps.smoke.outcome == 'failure'
+        shell: bash
+        run: exit 1
