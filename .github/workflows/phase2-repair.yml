@@ -38,7 +38,9 @@ jobs:
           gradle-version: '8.10.2'
 
       - name: Apply Phase 2 repairs
-        run: python3 tools/phase2_repair.py
+        run: |
+          sed -i 's/fixture("NPC Emergency Builder Cargo")/fixture("NPC Emergency Builder Cargo", "red_dwarf")/' tools/phase2_repair.py
+          python3 tools/phase2_repair.py
 
       - name: Validate resource budgeting
         run: |
