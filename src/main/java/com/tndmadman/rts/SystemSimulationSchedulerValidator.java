@@ -32,6 +32,12 @@ public final class SystemSimulationSchedulerValidator {
         require(SystemSimulationScheduler.step(warm, 0.05) == 0, "warm system ticked too frequently");
         require(SystemSimulationScheduler.step(warm, 0.08) >= 0.12, "warm system did not release accumulated time");
 
+        World warmFast = new World("Warm Fast Forward", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
+        warmFast.bases.put("NPC_CORSAIRS:B1", new Base("NPC_CORSAIRS:B1", Config.CORSAIRS_ID,
+                Rules.DEFAULT_BASE, warmFast.width * 0.5, warmFast.height * 0.5));
+        require(Math.abs(SystemSimulationScheduler.step(warmFast, 1.0) - 1.0) < 0.0001,
+                "warm-system fast-forward tick discarded elapsed simulation time");
+
         World hot = new World("Hot", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
         hot.units.put("P1:1", new Unit("P1", 1, "prospector", 1000, 1000));
         require(Math.abs(SystemSimulationScheduler.step(hot, 0.016) - 0.016) < 0.0001,
