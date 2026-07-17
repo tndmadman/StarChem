@@ -24,7 +24,7 @@ jobs:
         with:
           gradle-version: '8.10.2'
       - name: Apply repair
-        run: python3 tools/phase4_repair.py
+        run: python3 tools/phase4_repair_v2.py
       - name: Capture complete AI suite
         shell: bash
         run: |
