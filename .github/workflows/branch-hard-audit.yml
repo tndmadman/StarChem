@@ -55,7 +55,10 @@ jobs:
           for pass in 1 2 3; do
             echo "===== timing-sensitive validation pass ${pass} =====" \
               | tee -a .branch-audit/stress.log
-            gradle validateDedicatedTcpServer validateNpcSystemIsolation \
+            gradle validateDedicatedTcpServer \
+              validateTcpRemoteSystemVisibility \
+              validateTcpViewSwitching \
+              validateNpcSystemIsolation \
               --rerun-tasks --no-daemon --stacktrace 2>&1 \
               | tee -a .branch-audit/stress.log || failed=1
           done
