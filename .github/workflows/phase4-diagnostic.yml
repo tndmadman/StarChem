@@ -1,43 +1,11 @@
 name: Phase 4 Diagnostic
 
 on:
-  pull_request:
-    branches:
-      - main
-
-permissions:
-  contents: read
+  workflow_dispatch:
 
 jobs:
-  diagnose:
-    if: github.actor != 'github-actions[bot]'
+  disabled:
+    if: false
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: agent/fix-corsair-remote-view
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.10.2'
-      - name: Apply repair
-        run: python3 tools/phase4_repair.py
-      - name: Capture logger validator output
-        shell: bash
-        run: |
-          set +e
-          gradle validateAiBrainLog --quiet --no-daemon > logger-validator.log 2>&1
-          code=$?
-          cat logger-validator.log
-          echo "$code" > logger-validator.exit
-          exit 0
-      - name: Upload diagnostic
-        uses: actions/upload-artifact@v4
-        with:
-          name: phase4-logger-diagnostic
-          path: |
-            logger-validator.log
-            logger-validator.exit
+      - run: echo disabled
