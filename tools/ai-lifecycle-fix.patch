@@ -1,0 +1,92 @@
+--- a/src/main/java/com/tndmadman/rts/AiBrainLog.java
++++ b/src/main/java/com/tndmadman/rts/AiBrainLog.java
+@@ -64,9 +64,23 @@
+ 
+     private AiBrainLog() { }
+ 
+-    /** Called only from the developer UI, which is not drawn outside dev mode. */
+-    static synchronized void requestDevMode() {
++    /** Enables logging only for the lifetime of an authoritative developer session. */
++    static synchronized void setEnabled(boolean enabled) {
++        if (devModeRequested == enabled) return;
++        if (!enabled) {
++            devModeRequested = false;
++            shutdown();
++            MEMORIES.clear();
++            currentFile = null;
++            sessionId = "";
++            part = 0;
++            bytesWritten = 0;
++            sequence = 0;
++            lastError = "";
++            return;
++        }
+         devModeRequested = true;
++        lastError = "";
+     }
+ 
+     static synchronized boolean recording() {
+--- a/src/main/java/com/tndmadman/rts/GamePanel.java
++++ b/src/main/java/com/tndmadman/rts/GamePanel.java
+@@ -61,8 +61,17 @@
+         timer = new Timer(16, e -> tick());
+     }
+ 
+-    void start() { requestFocusInWindow(); ProceduralAudio.prime(); timer.start(); }
+-    void stop() { timer.stop(); }
++    void start() {
++        AiBrainLog.setEnabled(devMode && client == null);
++        requestFocusInWindow();
++        ProceduralAudio.prime();
++        timer.start();
++    }
++
++    void stop() {
++        timer.stop();
++        AiBrainLog.setEnabled(false);
++    }
+ 
+     private void tick() {
+         long now = System.nanoTime();
+--- a/src/main/java/com/tndmadman/rts/AiBrainLogValidator.java
++++ b/src/main/java/com/tndmadman/rts/AiBrainLogValidator.java
+@@ -50,9 +50,26 @@
+             base.inventory.put(Material.COPPER, 40.0);
+             world.status = "validator status change";
+             AiBrainLog.observe(world);
++
++            AiBrainLog.setEnabled(false);
++            require(!AiBrainLog.recording() && "off".equals(AiBrainLog.status()),
++                    "brain log did not stop when the developer session ended");
++            long disabledBytes = totalBytes(directory);
++            world.systemTime += 1.1;
++            AiDevLog.add(world, faction, "event while logging is disabled");
++            AiBrainLog.observe(world);
++            require(totalBytes(directory) == disabledBytes,
++                    "brain log wrote data after it was disabled");
++
++            AiBrainLog.setEnabled(true);
++            world.systemTime += 1.1;
++            AiBrainLog.observe(world);
++            AiBrainLog.setEnabled(false);
+             AiBrainLog.closeForTests();
+ 
+             List<Path> files = jsonlFiles(directory);
++            require(files.size() >= 2,
++                    "re-enabling the brain log did not start a new session file");
+             require(!files.isEmpty(), "brain log did not create a JSONL file");
+             String text = readAll(files);
+             require(text.contains("\"category\":\"session_start\""),
+@@ -106,6 +123,12 @@
+         return files;
+     }
+ 
++    private static long totalBytes(Path directory) throws IOException {
++        long total = 0;
++        for (Path path : jsonlFiles(directory)) total += Files.size(path);
++        return total;
++    }
++
+     private static String readAll(List<Path> files) throws IOException {
+         StringBuilder out = new StringBuilder();
+         for (Path path : files) out.append(Files.readString(path));
