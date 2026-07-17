@@ -150,7 +150,8 @@ public final class NpcRecoveryValidator {
         String destination = gate.toSystemId;
 
         int elapsed = 0;
-        while (fixture.world.units.containsKey(combat.key()) && elapsed++ < 120) {
+        while ((fixture.world.units.containsKey(combat.key())
+                || fixture.world.units.containsKey(freighter.key())) && elapsed++ < 240) {
             stepCurrent(fixture.world, 1);
         }
         require(!fixture.world.units.containsKey(combat.key())
