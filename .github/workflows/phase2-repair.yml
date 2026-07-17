@@ -40,14 +40,17 @@ jobs:
       - name: Apply Phase 2 repairs
         run: python3 tools/phase2_repair.py
 
-      - name: Run affected validators
-        run: >-
-          gradle -I gradle/ai-validation.gradle
-          validateNpcResourceBudget
-          validateNpcExpedition
-          validateNpcRecovery
-          validateNpcStationConstruction
-          --quiet --no-daemon
+      - name: Validate resource budgeting
+        run: gradle -I gradle/ai-validation.gradle validateNpcResourceBudget --quiet --no-daemon
+
+      - name: Validate expeditions
+        run: gradle -I gradle/ai-validation.gradle validateNpcExpedition --quiet --no-daemon
+
+      - name: Validate recovery
+        run: gradle -I gradle/ai-validation.gradle validateNpcRecovery --quiet --no-daemon
+
+      - name: Validate station construction
+        run: gradle -I gradle/ai-validation.gradle validateNpcStationConstruction --quiet --no-daemon
 
       - name: Commit validated repairs
         run: |
