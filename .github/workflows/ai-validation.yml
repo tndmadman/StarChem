@@ -29,3 +29,21 @@ jobs:
 
       - name: Run complete AI validator suite
         run: ./gradlew -I gradle/ai-validation.gradle validateNpcAiSuite --stacktrace
+
+      - name: Archive checked-out source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: starchem-ai-source-${{ github.sha }}
+          retention-days: 1
+          if-no-files-found: error
+          include-hidden-files: true
+          path: |
+            build.gradle
+            settings.gradle
+            gradle/**
+            gradlew
+            gradlew.bat
+            src/**
+            config/**
+            .github/**
