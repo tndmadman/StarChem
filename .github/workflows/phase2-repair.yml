@@ -41,25 +41,44 @@ jobs:
         run: |
           sed -i 's/fixture("NPC Emergency Builder Cargo")/fixture("NPC Emergency Builder Cargo", "red_dwarf")/' tools/phase2_repair.py
           python3 tools/phase2_repair.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('src/main/java/com/tndmadman/rts/NpcFactionCapacitySystem.java')
+          text = path.read_text(encoding='utf-8')
+          old = '''    private static int committedExpeditionFootholds(World world, NpcFaction faction) {
+              NpcExpeditionSnapshot snapshot = NpcExpeditionSystem.snapshot(world, faction);
+              if (!snapshot.active()) return 0;
+              return switch (snapshot.state()) {
+                  case ASSEMBLING, LAUNCHING, TRAVELLING, ESTABLISHING -> 1;
+                  case ABORTING -> snapshot.builderKey().isBlank() ? 0 : 1;
+                  default -> 0;
+              };
+          }
+          '''
+          new = '''    private static int committedExpeditionFootholds(World world, NpcFaction faction) {
+              NpcExpeditionSnapshot snapshot = NpcExpeditionSystem.snapshot(world, faction);
+              if (!snapshot.active()) return 0;
+              if (snapshot.state() == NpcExpeditionState.ESTABLISHING
+                      && NpcStationConstructionSystem.hasAnyActivePlan(world, faction)) {
+                  return 0;
+              }
+              return switch (snapshot.state()) {
+                  case ASSEMBLING, LAUNCHING, TRAVELLING, ESTABLISHING -> 1;
+                  case ABORTING -> snapshot.builderKey().isBlank() ? 0 : 1;
+                  default -> 0;
+              };
+          }
+          '''
+          if text.count(old) != 1:
+              raise SystemExit('capacity conversion target was not found exactly once')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
 
       - name: Validate resource budgeting
         run: gradle -I gradle/ai-validation.gradle validateNpcResourceBudget --quiet --no-daemon
 
       - name: Validate expeditions
-        run: |
-          set +e
-          gradle -I gradle/ai-validation.gradle validateNpcExpedition --quiet --no-daemon > phase2-expedition.log 2>&1
-          status=$?
-          cat phase2-expedition.log
-          exit $status
-
-      - name: Upload expedition validator log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: phase2-expedition-validator
-          path: phase2-expedition.log
-          if-no-files-found: error
+        run: gradle -I gradle/ai-validation.gradle validateNpcExpedition --quiet --no-daemon
 
       - name: Validate recovery
         run: gradle -I gradle/ai-validation.gradle validateNpcRecovery --quiet --no-daemon
@@ -74,6 +93,7 @@ jobs:
           git add \
             src/main/java/com/tndmadman/rts/NpcResourceBudget.java \
             src/main/java/com/tndmadman/rts/NpcExpeditionSystem.java \
+            src/main/java/com/tndmadman/rts/NpcFactionCapacitySystem.java \
             src/main/java/com/tndmadman/rts/NpcStationConstructionSystem.java \
             src/main/java/com/tndmadman/rts/NpcRecoverySystem.java \
             src/main/java/com/tndmadman/rts/NpcResourceBudgetValidator.java \
