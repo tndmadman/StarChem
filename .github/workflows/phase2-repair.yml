@@ -1,0 +1,62 @@
+name: Phase 2 Repair
+
+on:
+  push:
+    branches:
+      - agent/fix-corsair-remote-view
+    paths:
+      - tools/phase2_repair.py
+      - .github/workflows/phase2-repair.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out candidate branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/fix-corsair-remote-view
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Apply Phase 2 repairs
+        run: python3 tools/phase2_repair.py
+
+      - name: Run affected validators
+        run: >-
+          gradle -I gradle/ai-validation.gradle
+          validateNpcResourceBudget
+          validateNpcExpedition
+          validateNpcRecovery
+          validateNpcStationConstruction
+          --quiet --no-daemon
+
+      - name: Commit validated repairs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/main/java/com/tndmadman/rts/NpcResourceBudget.java \
+            src/main/java/com/tndmadman/rts/NpcExpeditionSystem.java \
+            src/main/java/com/tndmadman/rts/NpcStationConstructionSystem.java \
+            src/main/java/com/tndmadman/rts/NpcRecoverySystem.java \
+            src/main/java/com/tndmadman/rts/NpcResourceBudgetValidator.java \
+            src/main/java/com/tndmadman/rts/NpcExpeditionValidator.java \
+            src/main/java/com/tndmadman/rts/NpcRecoveryValidator.java
+          git diff --cached --check
+          git commit -m "Fix Phase 2 AI resource lifecycle defects"
+          git push origin HEAD:agent/fix-corsair-remote-view
