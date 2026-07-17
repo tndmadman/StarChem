@@ -34,7 +34,16 @@ jobs:
         run: python3 tools/phase3_repair.py
 
       - name: Validate remote visibility
-        run: gradle validateTcpRemoteSystemVisibility --quiet --no-daemon
+        run: |
+          set -o pipefail
+          gradle validateTcpRemoteSystemVisibility --quiet --no-daemon 2>&1 | tee /tmp/phase3-remote.log
+
+      - name: Upload remote visibility log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase3-remote-validator
+          path: /tmp/phase3-remote.log
 
       - name: Validate reconnect
         run: gradle validateTcpReconnect --quiet --no-daemon
