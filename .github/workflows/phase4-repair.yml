@@ -1,0 +1,65 @@
+name: Phase 4 Repair
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out candidate branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/fix-corsair-remote-view
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Apply Phase 4 repairs
+        run: python3 tools/phase4_repair.py
+
+      - name: Check repair diff
+        run: git diff --check
+
+      - name: Validate AI brain logger
+        run: gradle -I gradle/ai-validation.gradle validateAiBrainLog --quiet --no-daemon
+
+      - name: Validate complete AI suite
+        run: gradle -I gradle/ai-validation.gradle validateNpcAiSuite --quiet --no-daemon
+
+      - name: Benchmark simulation-thread logger cost
+        run: bash tools/phase4_benchmark.sh
+
+      - name: Upload benchmark metrics
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase4-logger-benchmark
+          path: logger-benchmark.txt
+
+      - name: Commit validated repairs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/main/java/com/tndmadman/rts/AiBrainLog.java \
+            src/main/java/com/tndmadman/rts/AiBrainLogAsyncWriter.java \
+            src/main/java/com/tndmadman/rts/AiBrainLogValidator.java \
+            docs/AI_BRAIN_LOG.md
+          git diff --cached --check
+          git commit -m "Move AI brain logging off simulation thread"
+          git push origin HEAD:agent/fix-corsair-remote-view
