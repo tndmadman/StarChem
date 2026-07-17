@@ -47,6 +47,7 @@ final class AiDevPanel {
     void release() { window.release(); }
 
     void draw(Graphics2D g2, World world, boolean canEdit) {
+        AiBrainLog.requestDevMode();
         window.draw(g2, "AI DEVTOOLS", bodyHeight(), new Color(180, 120, 255, 190));
         if (window.collapsed) return;
         int x = window.x + 12;
@@ -66,7 +67,9 @@ final class AiDevPanel {
 
         int logY = y + ROW_BASELINE_Y + rows.length * ROW + 16;
         g2.setColor(new Color(190, 220, 255));
-        g2.drawString("Brain log:", x, logY);
+        g2.drawString("Brain file: " + trim(AiBrainLog.status(), 56), x, logY);
+        logY += 15;
+        g2.drawString("Recent AI events:", x, logY);
         logY += 15;
         List<String> log = AiDevLog.lines(7);
         g2.setColor(new Color(220, 235, 245));
@@ -119,5 +122,5 @@ final class AiDevPanel {
 
     private String check(String label, boolean on) { return (on ? "[x] " : "[ ] ") + label; }
     private String trim(String text, int max) { return text.length() <= max ? text : text.substring(0, Math.max(0, max - 3)) + "..."; }
-    private int bodyHeight() { return ROW_BASELINE_Y + rows().length * ROW + 120; }
+    private int bodyHeight() { return ROW_BASELINE_Y + rows().length * ROW + 140; }
 }
