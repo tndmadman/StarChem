@@ -8,9 +8,9 @@ import java.util.Set;
  * Computes authoritative galaxy-wide organized-faction capacity.
  *
  * Living assets, queued production, persistent station construction, and an
- * expedition foothold that already owns or is reserving a package all count
- * toward configured limits. Local systems may execute production, but they must
- * check this snapshot immediately before committing resources.
+ * expedition foothold that already owns a package count toward configured
+ * limits. Local systems may execute production, but they must check this
+ * snapshot immediately before committing resources.
  */
 final class NpcFactionCapacitySystem {
     private NpcFactionCapacitySystem() { }
@@ -99,7 +99,7 @@ final class NpcFactionCapacitySystem {
                 if (ship == null) continue;
                 shipTypes.merge(ship.id, 1, Integer::sum);
                 if (WeaponRules.armed(ship)) combat++;
-                if (supportTypes.contains(ship.id) || ship.baseBuilder) support++;
+                if (supportTypes.contains(ship.id)) support++;
                 if (faction.industryUnitTypes().contains(ship.id)) industry++;
                 if (!ship.harvestKinds.isEmpty()
                         && (workerTypes.isEmpty() || workerTypes.contains(ship.id))) workers++;
@@ -111,7 +111,7 @@ final class NpcFactionCapacitySystem {
             ShipType ship = unit.type();
             shipTypes.merge(unit.shipTypeId, 1, Integer::sum);
             if (WeaponRules.armed(ship)) combat++;
-            if (supportTypes.contains(unit.shipTypeId) || ship.baseBuilder) support++;
+            if (supportTypes.contains(unit.shipTypeId)) support++;
             if (faction.industryUnitTypes().contains(unit.shipTypeId)) industry++;
             if (!ship.harvestKinds.isEmpty()
                     && (workerTypes.isEmpty() || workerTypes.contains(unit.shipTypeId))) workers++;
@@ -125,7 +125,7 @@ final class NpcFactionCapacitySystem {
         NpcExpeditionSnapshot snapshot = NpcExpeditionSystem.snapshot(world, faction);
         if (!snapshot.active()) return 0;
         return switch (snapshot.state()) {
-            case RESERVING, ASSEMBLING, LAUNCHING, TRAVELLING, ABORTING -> 1;
+            case ASSEMBLING, LAUNCHING, TRAVELLING, ABORTING -> 1;
             default -> 0;
         };
     }
