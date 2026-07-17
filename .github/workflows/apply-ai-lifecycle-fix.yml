@@ -8,10 +8,10 @@ on:
     types: [reopened]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  diagnose:
+  apply:
     if: github.event_name == 'push' || github.event.pull_request.head.ref == 'agent/fix-corsair-remote-view'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -139,28 +139,44 @@ jobs:
 
       - name: Compile lifecycle fix
         id: compile
-        continue-on-error: true
         shell: bash
-        run: ./gradlew classes --stacktrace > compile.log 2>&1
+        run: |
+          set +e
+          ./gradlew classes --stacktrace > compile.log 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
 
-      - name: Show compiler result
-        if: always()
+      - name: Publish source fix or compiler log
         shell: bash
-        run: tail -n 200 compile.log || true
+        run: |
+          git config user.name 'starchem-ai-fix-bot'
+          git config user.email 'starchem-ai-fix-bot@users.noreply.github.com'
 
-      - name: Archive compiler diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ai-lifecycle-compiler-${{ github.sha }}
-          retention-days: 1
-          if-no-files-found: error
-          path: |
-            compile.log
-            src/main/java/com/tndmadman/rts/AiBrainLog.java
-            src/main/java/com/tndmadman/rts/GamePanel.java
-            src/main/java/com/tndmadman/rts/AiBrainLogValidator.java
+          if [ '${{ steps.compile.outputs.exit_code }}' = '0' ]; then
+            git add src/main/java/com/tndmadman/rts/AiBrainLog.java \
+                    src/main/java/com/tndmadman/rts/GamePanel.java \
+                    src/main/java/com/tndmadman/rts/AiBrainLogValidator.java
+            if git diff --cached --quiet; then
+              echo 'Lifecycle fix is already applied.'
+              exit 0
+            fi
+            git diff --cached --check
+            git commit -m 'Fix AI brain log lifecycle'
+            git push origin HEAD:agent/fix-corsair-remote-view
+            exit 0
+          fi
 
-      - name: Fail on compiler error
-        if: steps.compile.outcome == 'failure'
-        run: exit 1
+          mkdir -p diagnostics
+          cp compile.log diagnostics/ai-lifecycle-compile.log
+          git restore src/main/java/com/tndmadman/rts/AiBrainLog.java \
+                      src/main/java/com/tndmadman/rts/GamePanel.java \
+                      src/main/java/com/tndmadman/rts/AiBrainLogValidator.java
+          if git cat-file -e HEAD:diagnostics/ai-lifecycle-compile.log 2>/dev/null; then
+            echo 'Compiler log is already recorded on the branch.'
+            exit 1
+          fi
+          git add diagnostics/ai-lifecycle-compile.log
+          git commit -m 'Record AI lifecycle compile failure'
+          git push origin HEAD:agent/fix-corsair-remote-view
+          exit 1
