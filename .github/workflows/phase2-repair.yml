@@ -41,7 +41,20 @@ jobs:
         run: python3 tools/phase2_repair.py
 
       - name: Validate resource budgeting
-        run: gradle -I gradle/ai-validation.gradle validateNpcResourceBudget --quiet --no-daemon
+        run: |
+          set +e
+          gradle -I gradle/ai-validation.gradle validateNpcResourceBudget --quiet --no-daemon > phase2-resource.log 2>&1
+          status=$?
+          cat phase2-resource.log
+          exit $status
+
+      - name: Upload resource validator log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase2-resource-validator
+          path: phase2-resource.log
+          if-no-files-found: error
 
       - name: Validate expeditions
         run: gradle -I gradle/ai-validation.gradle validateNpcExpedition --quiet --no-daemon
