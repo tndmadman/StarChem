@@ -1,6 +1,6 @@
 package com.tndmadman.rts;
 
-/** Coordinates organized-faction strategy, construction, expeditions, combat, and recovery. */
+/** Coordinates organized-faction strategy, construction, expeditions, combat, logistics, and recovery. */
 final class NpcGalaxyDirector {
     void update(World world, double dt) {
         if (world == null || dt <= 0) return;
@@ -15,6 +15,7 @@ final class NpcGalaxyDirector {
             }
             NpcExpeditionSystem.update(world, faction, strategy, dt);
             NpcSquadCombatSystem.update(world, faction, strategy, dt);
+            NpcMobileDepotSystem.update(world, faction);
 
             boolean hasLocalStation = world.bases.values().stream()
                     .anyMatch(base -> faction.id().equals(base.playerId) && base.hp > 0);
