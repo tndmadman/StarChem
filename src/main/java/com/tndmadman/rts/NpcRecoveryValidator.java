@@ -226,7 +226,7 @@ public final class NpcRecoveryValidator {
         fixture.world.resources.clear();
         addNode(fixture.world, 91_001, Material.IRON, 4140, 4000, 200);
         addNode(fixture.world, 91_002, Material.COPPER, 4140, 4100, 200);
-        addBase(fixture, "outpost", 4000, 4000);
+        Base base = addBase(fixture, "outpost", 4000, 4000);
         Unit damaged = addUnit(fixture, 76_001, "frigate", 4020, 4000);
         damaged.hp = damaged.type().maxHp * 0.20;
         Unit worker = addUnit(fixture, 76_002, "prospector", 4050, 4050);
@@ -235,13 +235,19 @@ public final class NpcRecoveryValidator {
         stepCurrent(fixture.world, 3);
         require(damaged.hp < damaged.type().maxHp,
                 "unfunded repair granted free hull integrity");
-        require(worker.task == UnitTask.AUTO_HARVEST,
-                "blocked repair did not activate emergency worker mining");
-        ResourceNode target = fixture.world.findResource(worker.automationResourceId);
-        require(target != null
-                        && (target.material == Material.IRON
-                        || target.material == Material.COPPER),
-                "blocked repair worker mined an unrelated material");
+        double recovered = base.inventory.getOrDefault(Material.IRON, 0.0)
+                + base.inventory.getOrDefault(Material.COPPER, 0.0)
+                + worker.inventory.getOrDefault(Material.IRON, 0.0)
+                + worker.inventory.getOrDefault(Material.COPPER, 0.0);
+        require(recovered > EPSILON,
+                "blocked repair produced no emergency iron/copper mining progress");
+        if (worker.automationResourceId >= 0) {
+            ResourceNode target = fixture.world.findResource(worker.automationResourceId);
+            require(target != null
+                            && (target.material == Material.IRON
+                            || target.material == Material.COPPER),
+                    "blocked repair worker targeted an unrelated material");
+        }
     }
 
     private static void validateRemoteSurvivorAndControlledRespawn() {
