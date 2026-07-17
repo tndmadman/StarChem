@@ -1,5 +1,5 @@
 {
-  "npcAiVersion": 12,
+  "npcAiVersion": 13,
   "factions": [
     {
       "id": "NPC_RAIDERS",
@@ -226,7 +226,7 @@
       "raidFleetSize": 4,
       "harassFleetSize": 2,
       "maxSupportUnits": 3,
-      "maxStations": 4,
+      "maxStations": 6,
       "maxIndustryUnits": 2,
       "buildSeconds": 12,
       "stationBuildSeconds": 16,
