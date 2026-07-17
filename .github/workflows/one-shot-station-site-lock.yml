@@ -1,3 +1,4 @@
+# Temporary trigger; removed by the branch hard audit after patching.
 name: One-shot station site lock patch
 
 on:
