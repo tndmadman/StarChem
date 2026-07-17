@@ -36,13 +36,13 @@ public final class NpcStrategicDirectorValidator {
         addUnit(world, faction.id(), "prospector", home.x + 180, home.y);
         refresh(world, faction);
         requireState(world, faction, NpcStrategicState.ESTABLISH,
-                "stable starting economy did not establish a second station");
+                "stable starting economy did not establish home infrastructure");
 
         addBase(world, faction.id(), "laboratory", home.x + 500, home.y + 120);
         home.inventory.remove(Material.FUEL);
         refresh(world, faction);
-        requireState(world, faction, NpcStrategicState.FORTIFY,
-                "low fuel without production did not request manufacturing infrastructure");
+        requireState(world, faction, NpcStrategicState.ESTABLISH,
+                "two-station faction stopped before completing its three-station home");
 
         addBase(world, faction.id(), "manufacturing", home.x, home.y - 520);
         refresh(world, faction);
@@ -57,7 +57,7 @@ public final class NpcStrategicDirectorValidator {
         for (String topicId : faction.researchTopicIds()) world.completeResearch(faction.id(), topicId);
         refresh(world, faction);
         requireState(world, faction, NpcStrategicState.FORTIFY,
-                "researched faction did not finish station and fleet infrastructure");
+                "researched faction did not finish support and fleet infrastructure");
 
         addBase(world, faction.id(), "shipyard", home.x - 500, home.y + 150);
         removeFirstBaseOfType(world, faction.id(), "laboratory");
@@ -79,7 +79,7 @@ public final class NpcStrategicDirectorValidator {
                 "prepared faction did not enter its raid window");
         advance(world, faction, 19);
         requireState(world, faction, NpcStrategicState.EXPAND,
-                "completed raid cycle did not request the reserved expansion slot");
+                "completed raid cycle did not request an available frontier slot");
 
         Unit playerThreat = new Unit("STRATEGY_ENEMY", 99_001, "frigate",
                 home.x + 120, home.y + 80);
