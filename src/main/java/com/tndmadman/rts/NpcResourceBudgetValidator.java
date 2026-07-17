@@ -69,10 +69,10 @@ public final class NpcResourceBudgetValidator {
         clearMaterials(fixture);
 
         NpcBudgetPlan initial = NpcResourceBudget.plan(
-                fixture.world, fixture.faction, NpcStrategicState.FORTIFY);
+                fixture.world, fixture.faction, NpcStrategicState.ESTABLISH);
         fundDesired(fixture.home, initial, NpcBudgetCategory.STATION_RECOVERY);
         NpcBudgetPlan plan = NpcResourceBudget.plan(
-                fixture.world, fixture.faction, NpcStrategicState.FORTIFY);
+                fixture.world, fixture.faction, NpcStrategicState.ESTABLISH);
 
         require(plan.fullyFunded(NpcBudgetCategory.STATION_RECOVERY),
                 "station recovery reserve was not fully funded");
