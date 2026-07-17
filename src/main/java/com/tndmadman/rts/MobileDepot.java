@@ -31,7 +31,12 @@ final class MobileDepot {
     }
 
     static boolean transfer(Unit miner, Unit depot, double dt) {
-        if (miner == null || isHauler(miner) || !isDepot(depot)) return false;
+        if (miner == null) return false;
+        // Hauler cargo is owned by HaulerSystem. Returning true here tells the
+        // generic World auto-unload pass that the cargo has an authoritative
+        // logistics handler and must not be dumped into the nearest station.
+        if (isHauler(miner)) return true;
+        if (!isDepot(depot)) return false;
         if (miner.cargoUsed() <= 0.05 || depot.freeCargo() <= 0.05) return false;
         if (Calc.distance(miner.x, miner.y, depot.x, depot.y) > range(depot)) return false;
         return moveCargo(miner, depot, Math.min(RATE * Math.max(0, dt),
