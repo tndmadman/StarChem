@@ -87,9 +87,9 @@ public final class NpcMobileDepotValidator {
         Fixture fixture = fixture("Mobile Depot Demand Delivery");
         World world = fixture.world;
         NpcFaction faction = fixture.faction;
-        Base warehouse = fixture.outpost;
-        warehouse.x = 2100;
-        warehouse.y = 2100;
+        Base warehouse = new Base(fixture.outpost.id, faction.id(), "outpost",
+                2100, 2100);
+        world.bases.put(warehouse.id, warehouse);
         Base laboratory = new Base(faction.id() + ":LAB", faction.id(), "laboratory",
                 4700, 4300);
         world.bases.put(laboratory.id, laboratory);
