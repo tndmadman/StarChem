@@ -20,6 +20,7 @@ public final class NpcResourceBudgetValidator {
         validateResearchProtectionAndRelease();
         validateRecursiveFleetInputs();
         validateExpansionWaitsForRecovery();
+        validateExpansionUsesRichestSupplyBase();
     }
 
     private static void validateEmergencyFuelProtection() {
@@ -200,6 +201,36 @@ public final class NpcResourceBudgetValidator {
                 "worker recovery remained underfunded after restoring its build materials");
         require(NpcResourceBudget.canLaunchExpansion(fixture.world, fixture.faction, restored),
                 "funded worker recovery did not release the expansion gate");
+    }
+
+    private static void validateExpansionUsesRichestSupplyBase() {
+        Fixture fixture = fixture("Expansion Richest Supply Base");
+        ensureWorkers(fixture);
+        ensureAllStations(fixture);
+        ensureCombat(fixture);
+        ensureSupportAndIndustry(fixture);
+        ensureBuilder(fixture);
+        completeResearch(fixture);
+        clearMaterials(fixture);
+
+        Base rich = null;
+        for (Base base : fixture.world.bases.values()) {
+            if (fixture.faction.id().equals(base.playerId) && base != fixture.home) {
+                rich = base;
+                break;
+            }
+        }
+        require(rich != null, "expansion fixture had no secondary supply station");
+        for (Material material : Material.values()) {
+            if (material.raw || material == Material.FUEL) rich.inventory.put(material, 1000.0);
+        }
+
+        NpcBudgetPlan plan = NpcResourceBudget.plan(
+                fixture.world, fixture.faction, NpcStrategicState.EXPAND);
+        require(NpcResourceBudget.expansionSupplyBase(fixture.world, fixture.faction) == rich,
+                "expansion did not select the richest deterministic supply station");
+        require(NpcResourceBudget.canLaunchExpansion(fixture.world, fixture.faction, plan),
+                "an empty first station blocked a fully funded later supply station");
     }
 
     private static void fundDesired(Base base, NpcBudgetPlan plan, NpcBudgetCategory through) {

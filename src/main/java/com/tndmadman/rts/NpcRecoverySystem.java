@@ -365,8 +365,8 @@ final class NpcRecoverySystem {
         Base base = new Base(baseId, faction.id(), typeId,
                 Calc.clamp(builder.x, 0, world.width),
                 Calc.clamp(builder.y, 0, world.height));
+        transferSurplusToBase(units, base);
         world.units.remove(builder.key());
-        transferSurplusToBase(units, builder, base);
         world.bases.put(base.id, base);
         world.status = faction.name() + " established an emergency " + base.type().name + ".";
         return true;
@@ -540,9 +540,8 @@ final class NpcRecoverySystem {
         }
     }
 
-    private static void transferSurplusToBase(List<Unit> units, Unit consumedBuilder, Base base) {
+    private static void transferSurplusToBase(List<Unit> units, Base base) {
         for (Unit unit : units) {
-            if (unit == consumedBuilder) continue;
             for (Material material : new ArrayList<>(unit.inventory.keySet())) {
                 double amount = unit.inventory.getOrDefault(material, 0.0);
                 if (amount <= EPSILON) continue;

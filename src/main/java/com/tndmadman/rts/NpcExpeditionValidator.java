@@ -17,6 +17,7 @@ public final class NpcExpeditionValidator {
 
     static void validateOrThrow() {
         validateSuccessfulPersistentEstablishment();
+        validateFinalCapacityExpeditionEstablishment();
         validatePrelaunchAbortRefund();
         validateTransitFailureAndRecovery();
         validateTargetCaptureInvalidation();
@@ -100,6 +101,47 @@ public final class NpcExpeditionValidator {
         require(globalLiveKeys(fixture.world(), fixture.faction().id()).size()
                         == fixture.initialUnitKeys().size() - 1,
                 "successful expedition duplicated or lost ships beyond its consumed deployer");
+    }
+
+    private static void validateFinalCapacityExpeditionEstablishment() {
+        Fixture fixture = fixture("NPC Expedition Final Capacity");
+        fixture.world().activateSystem(StarSystems.CORSAIR_SYSTEM_ID);
+        Base fifth = addBase(fixture.world(), fixture.faction(), 5, "shipyard",
+                fixture.world().width * 0.5 - 1400,
+                fixture.world().height * 0.5 + 1400);
+        fifth.inventory.put(Material.FUEL, 100.0);
+        fixture.world().saveActiveSystem();
+
+        require(globalStationCount(fixture.world(), fixture.faction().id())
+                        == fixture.faction().maxStations() - 1,
+                "final-capacity fixture did not begin one station below the limit");
+        NpcExpeditionSnapshot reserved = startReservedPlan(fixture);
+        assembleAtIssuedPositions(fixture, reserved);
+        NpcExpeditionSnapshot launching = updateAtHome(fixture, 1.0);
+        require(launching.state() == NpcExpeditionState.LAUNCHING,
+                "final-capacity expedition did not launch");
+        moveRosterAlongRoute(fixture, launching);
+
+        NpcExpeditionSnapshot establishing = NpcExpeditionSystem.snapshot(
+                fixture.world(), fixture.faction());
+        require(establishing.state() == NpcExpeditionState.ESTABLISHING,
+                "final-capacity expedition did not reach establishment");
+        updateAtHome(fixture, 1.0);
+        fixture.world().activateSystem(establishing.targetSystemId());
+        require(NpcStationConstructionSystem.snapshot(fixture.world(), fixture.faction()).active(),
+                "the expedition's own commitment blocked its final allowed construction plan");
+
+        int guard = 0;
+        while (NpcStationConstructionSystem.snapshot(fixture.world(), fixture.faction()).active()
+                && guard++ < 240) {
+            fixture.world().updateCurrentSystem(1.0);
+        }
+        require(guard < 240 && targetHasCorsairStation(
+                        fixture.world(), establishing.targetSystemId()),
+                "the final allowed expedition foothold did not complete");
+        require(globalStationCount(fixture.world(), fixture.faction().id())
+                        == fixture.faction().maxStations(),
+                "final-capacity establishment exceeded or failed to reach the station cap");
     }
 
     private static void validatePrelaunchAbortRefund() {
@@ -364,6 +406,25 @@ public final class NpcExpeditionValidator {
             if (system != null && !system.id().equals(excluded)) return system.id();
         }
         throw new IllegalStateException("galaxy contains no background system");
+    }
+
+    private static int globalStationCount(World world, String factionId) {
+        String previous = world.activeSystemId();
+        String status = world.status;
+        int count = 0;
+        try {
+            for (GalaxyMapSystem system : world.authoritativeGalaxyMapSnapshot().systems()) {
+                if (system == null) continue;
+                world.activateSystem(system.id());
+                for (Base base : world.bases.values()) {
+                    if (factionId.equals(base.playerId) && base.hp > 0) count++;
+                }
+            }
+        } finally {
+            if (previous != null && !previous.isBlank()) world.activateSystem(previous);
+            world.status = status;
+        }
+        return count;
     }
 
     private static Set<String> globalLiveKeys(World world, String factionId) {

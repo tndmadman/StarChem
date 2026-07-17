@@ -126,7 +126,7 @@ final class NpcResourceBudget {
                 || !plan.fullyFunded(NpcBudgetCategory.EXPANSION)
                 || plan.reservedTotal(NpcBudgetCategory.EXPANSION) <= EPSILON) return false;
 
-        Base source = firstLivingBase(world, faction.id());
+        Base source = expansionSupplyBase(world, faction);
         if (source == null) return false;
         EnumMap<Material, Double> local = localMaterials(world, faction.id());
         double transferred = 0.0;
@@ -393,11 +393,26 @@ final class NpcResourceBudget {
         }
     }
 
-    private static Base firstLivingBase(World world, String factionId) {
+    static Base expansionSupplyBase(World world, NpcFaction faction) {
+        if (world == null || faction == null) return null;
+        Base best = null;
+        double bestTotal = -1.0;
         for (Base base : world.bases.values()) {
-            if (factionId.equals(base.playerId) && base.hp > 0) return base;
+            if (!faction.id().equals(base.playerId) || base.hp <= 0) continue;
+            double total = 0.0;
+            for (Material material : Material.values()) {
+                if (material.raw || material == Material.FUEL) {
+                    total += base.inventory.getOrDefault(material, 0.0);
+                }
+            }
+            if (total > bestTotal + EPSILON
+                    || (Math.abs(total - bestTotal) <= EPSILON
+                    && (best == null || base.id.compareTo(best.id) < 0))) {
+                best = base;
+                bestTotal = total;
+            }
         }
-        return null;
+        return best;
     }
 
     private static EnumMap<NpcBudgetCategory, EnumMap<Material, Double>> emptyBuckets() {

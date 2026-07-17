@@ -85,7 +85,7 @@ final class NpcStationConstructionSystem {
         BaseType station = Rules.findBase(packageType);
         if (station == null) return false;
         if (NpcFactionCapacitySystem.snapshot(world, faction).stationCommitments()
-                >= faction.maxStations()) return false;
+                > faction.maxStations()) return false;
         Base anchor = anchorBase(faction, builder.x, builder.y);
         Site site = selectSite(world, faction, anchor, station);
         if (site == null) return false;

@@ -166,7 +166,7 @@ final class NpcExpeditionSystem {
         }
         if (!NpcResourceBudget.canLaunchExpansion(world, faction)) return;
 
-        Base source = bestSupplyBase(world, faction.id());
+        Base source = NpcResourceBudget.expansionSupplyBase(world, faction);
         Roster roster = selectRoster(world, faction);
         if (source == null || roster == null) return;
 
@@ -569,25 +569,6 @@ final class NpcExpeditionSystem {
         return new Roster(builder, worker, combatKeys, supportKeys);
     }
 
-    private static Base bestSupplyBase(World world, String factionId) {
-        Base best = null;
-        double bestTotal = -1;
-        for (Base base : world.bases.values()) {
-            if (!factionId.equals(base.playerId) || base.hp <= 0) continue;
-            double total = 0;
-            for (Material material : Material.values()) {
-                if (material.raw || material == Material.FUEL) {
-                    total += base.inventory.getOrDefault(material, 0.0);
-                }
-            }
-            if (total > bestTotal) {
-                best = base;
-                bestTotal = total;
-            }
-        }
-        return best;
-    }
-
     private static EnumMap<Material, Double> reserveSupplies(Base source) {
         EnumMap<Material, Double> reserved = new EnumMap<>(Material.class);
         for (Material material : Material.values()) {
@@ -632,7 +613,7 @@ final class NpcExpeditionSystem {
         world.activateSystem(plan.sourceSystemId);
         try {
             Base source = world.bases.get(plan.sourceBaseId);
-            if (source == null || source.hp <= 0) source = bestSupplyBase(world, faction.id());
+            if (source == null || source.hp <= 0) source = NpcResourceBudget.expansionSupplyBase(world, faction);
             if (source == null) return;
             refundToBase(source, plan.supplies);
             refundToBase(source, plan.packageCost);

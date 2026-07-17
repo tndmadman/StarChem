@@ -15,6 +15,7 @@ public final class NpcRecoveryValidator {
     static void validateOrThrow() {
         validatePhysicalPaidRepairAndEscortOwnership();
         validateEmergencyRebuildFromCargo();
+        validateEmergencyRebuildPreservesBuilderCargo();
         validateLoadedPackageRecoveryRules();
         validatePhysicalWormholeEvacuation();
         validateImpossibleGroupsAreScuttled();
@@ -105,6 +106,26 @@ public final class NpcRecoveryValidator {
                 "emergency rebuild consumed the surviving freighter");
         require(emergency.inventory.getOrDefault(Material.FUEL, 0.0) >= 29.9,
                 "emergency station did not receive surplus expedition cargo");
+    }
+
+    private static void validateEmergencyRebuildPreservesBuilderCargo() {
+        Fixture fixture = fixture("NPC Emergency Builder Cargo", "red_dwarf");
+        fixture.world.wormholes.clear();
+        Unit builder = addUnit(fixture, 71_101, "station_builder", 4000, 4000);
+        builder.inventory.put(Material.IRON, 220.0);
+        builder.inventory.put(Material.COPPER, 120.0);
+        builder.inventory.put(Material.SILICATES, 140.0);
+        builder.inventory.put(Material.ICE, 60.0);
+        builder.inventory.put(Material.XENON, 7.0);
+        fixture.world.saveActiveSystem();
+
+        stepCurrent(fixture.world, 1);
+        Base emergency = firstFactionBase(fixture.world, fixture.faction.id());
+        require(emergency != null, "builder-funded emergency rebuild did not create a station");
+        require(!fixture.world.units.containsKey(builder.key()),
+                "builder-funded emergency rebuild did not consume its deployer");
+        require(emergency.inventory.getOrDefault(Material.XENON, 0.0) >= 6.999,
+                "emergency rebuild discarded surplus cargo aboard the consumed deployer");
     }
 
     private static void validateLoadedPackageRecoveryRules() {

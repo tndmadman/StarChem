@@ -124,6 +124,10 @@ final class NpcFactionCapacitySystem {
     private static int committedExpeditionFootholds(World world, NpcFaction faction) {
         NpcExpeditionSnapshot snapshot = NpcExpeditionSystem.snapshot(world, faction);
         if (!snapshot.active()) return 0;
+        if (snapshot.state() == NpcExpeditionState.ESTABLISHING
+                && NpcStationConstructionSystem.hasAnyActivePlan(world, faction)) {
+            return 0;
+        }
         return switch (snapshot.state()) {
             case ASSEMBLING, LAUNCHING, TRAVELLING, ESTABLISHING -> 1;
             case ABORTING -> snapshot.builderKey().isBlank() ? 0 : 1;
