@@ -169,7 +169,7 @@ final class NpcStrategicDirector {
                                     damagedCombat++;
                                 }
                             }
-                            if (supportTypes.contains(unit.shipTypeId) || type.baseBuilder) support++;
+                            if (supportTypes.contains(unit.shipTypeId)) support++;
                             if (faction.industryUnitTypes().contains(unit.shipTypeId)) industry++;
                         }
                     }
@@ -243,8 +243,8 @@ final class NpcStrategicDirector {
                 || capacity.livingStations() < faction.maxStations());
         boolean stationCapacityAvailable = faction.maxStations() <= 0
                 || capacity.stationCommitments() < faction.maxStations();
-        boolean expansionAvailable = snapshot.controlledSystems() < 2
-                && stationCapacityAvailable;
+        boolean expansionAvailable = snapshot.controlledSystems()
+                < faction.maxControlledSystems() && stationCapacityAvailable;
 
         double retreatSeconds = Math.max(20.0, faction.orderSeconds() * 6.0);
         boolean severeDamage = snapshot.combat() > 0
@@ -262,17 +262,18 @@ final class NpcStrategicDirector {
         if (severeDamage || overwhelmed) return NpcStrategicState.RETREAT;
         if (snapshot.threats() > 0) return NpcStrategicState.FORTIFY;
 
-        // Once supplies and a roster are committed, finish the expedition instead
-        // of abandoning it because the ordinary strategic review timer expired.
+        // Once a target is selected, keep strategy committed while readiness
+        // obtains a deployer/roster and while the expedition is in flight.
         if (activeExpedition) return NpcStrategicState.EXPAND;
 
         int workerFloor = faction.maxWorkers() <= 0 ? 0
                 : Math.max(1, (int)Math.ceil(faction.maxWorkers() * 0.67));
         if (snapshot.workers() < workerFloor) return NpcStrategicState.STABILIZE_ECONOMY;
 
-        int establishmentTarget = faction.maxStations() <= 0
-                ? 1 : Math.min(2, Math.max(1, faction.maxStations() - 1));
-        if (snapshot.stations() < establishmentTarget) return NpcStrategicState.ESTABLISH;
+        int infrastructureTarget = faction.homeInfrastructureTarget();
+        if (snapshot.stations() < infrastructureTarget) {
+            return NpcStrategicState.ESTABLISH;
+        }
 
         boolean lowFuel = faction.fuelReserve() > 0
                 && snapshot.fuel() + 0.001 < faction.fuelReserve() * 0.40;
@@ -288,13 +289,9 @@ final class NpcStrategicDirector {
                     : NpcStrategicState.FORTIFY;
         }
 
-        int infrastructureTarget = faction.maxStations() <= 1
-                ? establishmentTarget
-                : Math.max(establishmentTarget, faction.maxStations() - 1);
         int supportFloor = Math.min(2, Math.max(0, faction.maxSupportUnits()));
         int industryFloor = Math.min(1, Math.max(0, faction.maxIndustryUnits()));
-        if (snapshot.stations() < infrastructureTarget
-                || snapshot.support() < supportFloor
+        if (snapshot.support() < supportFloor
                 || snapshot.industry() < industryFloor) {
             return NpcStrategicState.FORTIFY;
         }
@@ -397,7 +394,7 @@ enum NpcStrategicState {
 
     boolean runsEconomy() { return this != DEFEATED; }
     boolean buildsShips() { return this != RETREAT && this != DEFEATED; }
-    boolean buildsStations() { return this == ESTABLISH || this == FORTIFY || this == EXPAND || this == RECOVER; }
+    boolean buildsStations() { return this == ESTABLISH || this == RECOVER; }
     boolean prioritizesFleet() { return this == BUILD_FLEET || this == PREPARE_RAID || this == RAID || this == EXPAND; }
     boolean allowsResearch() { return this == RESEARCH; }
     boolean allowsRaid() { return this == RAID; }
