@@ -12,7 +12,7 @@ import java.util.Set;
  *
  * Anchors are derived deterministically from local miners and their assigned
  * resource nodes. Multiple freighters use weighted farthest-first clustering,
- * followed by a small separation pass, so they cover distinct mining areas
+ * followed by a bounded separation pass, so they cover distinct mining areas
  * without jittering between equivalent choices every simulation tick.
  */
 final class NpcMobileDepotSystem {
@@ -21,6 +21,7 @@ final class NpcMobileDepotSystem {
     private static final double RETARGET_DISTANCE = 120.0;
     private static final double MAP_MARGIN = 190.0;
     private static final int CLUSTER_ITERATIONS = 4;
+    private static final int SEPARATION_ITERATIONS = 12;
 
     private NpcMobileDepotSystem() { }
 
@@ -96,7 +97,7 @@ final class NpcMobileDepotSystem {
     }
 
     private static List<Anchor> anchors(World world, NpcFaction faction,
-                                        List<WeightedPoint> points, int count) {
+                                         List<WeightedPoint> points, int count) {
         if (count <= 0) return List.of();
         if (points.isEmpty()) return fallbackAnchors(world, faction, count);
 
@@ -138,29 +139,26 @@ final class NpcMobileDepotSystem {
 
         if (centers.size() < count) {
             Anchor center = weightedCenter(points);
-            int missing = count - centers.size();
+            int startIndex = centers.size();
+            int missing = count - startIndex;
             double radius = Math.max(MIN_DEPOT_SPACING,
                     MIN_DEPOT_SPACING * (0.7 + count * 0.12));
             for (int i = 0; i < missing; i++) {
-                double angle = (centers.size() + i) * Math.PI * 2.0 / count
+                double angle = (startIndex + i) * Math.PI * 2.0 / count
                         + deterministicAngle(world, faction);
                 centers.add(new Anchor(center.x + Math.cos(angle) * radius,
                         center.y + Math.sin(angle) * radius));
             }
         }
 
+        clampAll(world, centers);
         separate(world, faction, centers);
-        List<Anchor> clamped = new ArrayList<>();
-        for (Anchor anchor : centers) {
-            clamped.add(new Anchor(
-                    Calc.clamp(anchor.x, MAP_MARGIN, world.width - MAP_MARGIN),
-                    Calc.clamp(anchor.y, MAP_MARGIN, world.height - MAP_MARGIN)));
-        }
-        return clamped;
+        return List.copyOf(centers);
     }
 
     private static void separate(World world, NpcFaction faction, List<Anchor> anchors) {
-        for (int iteration = 0; iteration < 5; iteration++) {
+        for (int iteration = 0; iteration < SEPARATION_ITERATIONS; iteration++) {
+            boolean changed = false;
             for (int i = 0; i < anchors.size(); i++) {
                 for (int j = i + 1; j < anchors.size(); j++) {
                     Anchor a = anchors.get(i);
@@ -168,7 +166,7 @@ final class NpcMobileDepotSystem {
                     double dx = b.x - a.x;
                     double dy = b.y - a.y;
                     double distance = Math.hypot(dx, dy);
-                    if (distance >= MIN_DEPOT_SPACING) continue;
+                    if (distance + 0.001 >= MIN_DEPOT_SPACING) continue;
                     if (distance < 0.001) {
                         double angle = deterministicAngle(world, faction)
                                 + (i * 31 + j * 17) * 0.37;
@@ -176,13 +174,36 @@ final class NpcMobileDepotSystem {
                         dy = Math.sin(angle);
                         distance = 1.0;
                     }
-                    double push = (MIN_DEPOT_SPACING - distance) * 0.5;
                     double nx = dx / distance;
                     double ny = dy / distance;
-                    anchors.set(i, new Anchor(a.x - nx * push, a.y - ny * push));
-                    anchors.set(j, new Anchor(b.x + nx * push, b.y + ny * push));
+                    double deficit = MIN_DEPOT_SPACING - distance;
+                    Anchor nextA = clamp(world,
+                            new Anchor(a.x - nx * deficit * 0.5,
+                                    a.y - ny * deficit * 0.5));
+                    Anchor nextB = clamp(world,
+                            new Anchor(b.x + nx * deficit * 0.5,
+                                    b.y + ny * deficit * 0.5));
+
+                    double remaining = MIN_DEPOT_SPACING
+                            - Calc.distance(nextA.x, nextA.y, nextB.x, nextB.y);
+                    if (remaining > 0.001) {
+                        nextB = clamp(world, new Anchor(
+                                nextB.x + nx * remaining,
+                                nextB.y + ny * remaining));
+                        remaining = MIN_DEPOT_SPACING
+                                - Calc.distance(nextA.x, nextA.y, nextB.x, nextB.y);
+                    }
+                    if (remaining > 0.001) {
+                        nextA = clamp(world, new Anchor(
+                                nextA.x - nx * remaining,
+                                nextA.y - ny * remaining));
+                    }
+                    anchors.set(i, nextA);
+                    anchors.set(j, nextB);
+                    changed = true;
                 }
             }
+            if (!changed) break;
         }
     }
 
@@ -201,13 +222,24 @@ final class NpcMobileDepotSystem {
         for (int i = 0; i < count; i++) {
             double angle = deterministicAngle(world, faction)
                     + i * Math.PI * 2.0 / count;
-            out.add(new Anchor(
-                    Calc.clamp(cx + Math.cos(angle) * radius,
-                            MAP_MARGIN, world.width - MAP_MARGIN),
-                    Calc.clamp(cy + Math.sin(angle) * radius,
-                            MAP_MARGIN, world.height - MAP_MARGIN)));
+            out.add(new Anchor(cx + Math.cos(angle) * radius,
+                    cy + Math.sin(angle) * radius));
         }
-        return out;
+        clampAll(world, out);
+        separate(world, faction, out);
+        return List.copyOf(out);
+    }
+
+    private static void clampAll(World world, List<Anchor> anchors) {
+        for (int i = 0; i < anchors.size(); i++) {
+            anchors.set(i, clamp(world, anchors.get(i)));
+        }
+    }
+
+    private static Anchor clamp(World world, Anchor anchor) {
+        return new Anchor(
+                Calc.clamp(anchor.x, MAP_MARGIN, world.width - MAP_MARGIN),
+                Calc.clamp(anchor.y, MAP_MARGIN, world.height - MAP_MARGIN));
     }
 
     private static void command(World world, NpcFaction faction,
