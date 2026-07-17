@@ -34,9 +34,26 @@ jobs:
         run: git apply --check tools/ai-lifecycle-fix.patch && git apply tools/ai-lifecycle-fix.patch
 
       - name: Compile patched source
-        run: ./gradlew classes --stacktrace
+        id: compile
+        continue-on-error: true
+        shell: bash
+        run: ./gradlew classes --stacktrace > lifecycle-compile.log 2>&1
+
+      - name: Archive compile log and patched files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-lifecycle-compiled-${{ github.sha }}
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            lifecycle-compile.log
+            src/main/java/com/tndmadman/rts/AiBrainLog.java
+            src/main/java/com/tndmadman/rts/GamePanel.java
+            src/main/java/com/tndmadman/rts/AiBrainLogValidator.java
 
       - name: Publish compiled commit to temporary branch
+        if: steps.compile.outcome == 'success'
         shell: bash
         run: |
           git config user.name 'starchem-ai-fix-bot'
@@ -47,3 +64,7 @@ jobs:
           git diff --cached --check
           git commit -m 'Fix AI brain log lifecycle'
           git push --force origin HEAD:automation/ai-lifecycle-fix
+
+      - name: Fail on compiler error
+        if: steps.compile.outcome == 'failure'
+        run: exit 1
