@@ -1,42 +1,11 @@
 name: Phase 4 Suite Diagnostic
 
 on:
-  pull_request:
-    branches:
-      - main
-
-permissions:
-  contents: read
+  workflow_dispatch:
 
 jobs:
-  diagnose:
-    if: github.actor != 'github-actions[bot]'
+  disabled:
+    if: false
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: agent/fix-corsair-remote-view
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.10.2'
-      - name: Apply repair
-        run: python3 tools/phase4_repair_v2.py
-      - name: Capture complete AI suite
-        shell: bash
-        run: |
-          set +e
-          gradle -I gradle/ai-validation.gradle validateNpcAiSuite --quiet --no-daemon > phase4-suite.log 2>&1
-          code=$?
-          cat phase4-suite.log
-          echo "$code" > phase4-suite.exit
-          exit 0
-      - uses: actions/upload-artifact@v4
-        with:
-          name: phase4-suite-diagnostic
-          path: |
-            phase4-suite.log
-            phase4-suite.exit
+      - run: echo disabled
