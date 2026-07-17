@@ -3,6 +3,7 @@ build/
 out/
 *.class
 *.log
+logs/ai-brain/
 .DS_Store
 .idea/
 .vscode/
