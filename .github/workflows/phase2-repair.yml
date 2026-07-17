@@ -64,18 +64,20 @@ jobs:
 
           validator = Path('src/main/java/com/tndmadman/rts/NpcRecoveryValidator.java')
           text = validator.read_text(encoding='utf-8')
-          old = '''        BaseType recoveryBase = Rules.base(fixture.faction.baseType());
-                  for (Cost cost : recoveryBase.buildCost) {
-                      builder.inventory.merge(cost.material(), cost.amount(), Double::sum);
-                  }
-                  builder.inventory.merge(Material.XENON, 7.0, Double::sum);
-          '''
-          new = '''        builder.inventory.put(Material.IRON, 220.0);
-                  builder.inventory.put(Material.COPPER, 120.0);
-                  builder.inventory.put(Material.SILICATES, 140.0);
-                  builder.inventory.put(Material.ICE, 60.0);
-                  builder.inventory.put(Material.XENON, 7.0);
-          '''
+          old = (
+              "        BaseType recoveryBase = Rules.base(fixture.faction.baseType());\n"
+              "        for (Cost cost : recoveryBase.buildCost) {\n"
+              "            builder.inventory.merge(cost.material(), cost.amount(), Double::sum);\n"
+              "        }\n"
+              "        builder.inventory.merge(Material.XENON, 7.0, Double::sum);\n"
+          )
+          new = (
+              "        builder.inventory.put(Material.IRON, 220.0);\n"
+              "        builder.inventory.put(Material.COPPER, 120.0);\n"
+              "        builder.inventory.put(Material.SILICATES, 140.0);\n"
+              "        builder.inventory.put(Material.ICE, 60.0);\n"
+              "        builder.inventory.put(Material.XENON, 7.0);\n"
+          )
           if text.count(old) != 1:
               raise SystemExit('builder cargo fixture target was not found exactly once')
           validator.write_text(text.replace(old, new, 1), encoding='utf-8')
