@@ -4,13 +4,15 @@ on:
   push:
     paths:
       - .github/workflows/apply-ai-lifecycle-fix.yml
+  pull_request:
+    types: [reopened]
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    if: github.ref == 'refs/heads/agent/fix-corsair-remote-view'
+    if: github.event_name == 'push' || github.event.pull_request.head.ref == 'agent/fix-corsair-remote-view'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
