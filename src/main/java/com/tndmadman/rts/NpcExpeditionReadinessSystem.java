@@ -39,6 +39,7 @@ final class NpcExpeditionReadinessSystem {
     static synchronized boolean allowProgress(
             World world, NpcFaction faction, NpcStrategicState strategy, double dt) {
         if (world == null || faction == null || strategy != NpcStrategicState.EXPAND) return true;
+        if (!NpcFactionRuntime.homeSystemIdFor(faction).equals(world.activeSystemId())) return true;
         RuntimeState runtime = runtime(world, faction);
         runtime.resetForSeed(world.systemSeed());
         NpcExpeditionSnapshot expedition = NpcExpeditionSystem.snapshot(world, faction);
