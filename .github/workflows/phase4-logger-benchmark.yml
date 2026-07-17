@@ -143,4 +143,11 @@ jobs:
           JAVA
           mkdir -p /tmp/ai-log-bench
           javac -cp build/classes/java/main -d /tmp/ai-log-bench /tmp/AiBrainLogBenchmark.java
-          java -cp build/classes/java/main:/tmp/ai-log-bench com.tndmadman.rts.AiBrainLogBenchmark
+          java -cp build/classes/java/main:/tmp/ai-log-bench com.tndmadman.rts.AiBrainLogBenchmark | tee logger-benchmark.txt
+
+      - name: Upload benchmark metrics
+        uses: actions/upload-artifact@v4
+        with:
+          name: logger-benchmark
+          path: logger-benchmark.txt
+          if-no-files-found: error
