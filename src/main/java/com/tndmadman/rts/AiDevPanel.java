@@ -47,7 +47,6 @@ final class AiDevPanel {
     void release() { window.release(); }
 
     void draw(Graphics2D g2, World world, boolean canEdit) {
-        AiBrainLog.requestDevMode();
         window.draw(g2, "AI DEVTOOLS", bodyHeight(), new Color(180, 120, 255, 190));
         if (window.collapsed) return;
         int x = window.x + 12;
