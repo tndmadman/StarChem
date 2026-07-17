@@ -1,9 +1,13 @@
 name: Phase 2 Repair
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/fix-corsair-remote-view
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
     paths:
       - tools/phase2_repair.py
       - .github/workflows/phase2-repair.yml
