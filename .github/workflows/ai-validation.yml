@@ -28,7 +28,14 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Run complete AI validator suite
-        run: ./gradlew -I gradle/ai-validation.gradle validateNpcAiSuite --stacktrace
+        shell: bash
+        run: |
+          if ! ./gradlew -I gradle/ai-validation.gradle validateNpcAiSuite --quiet > ai-validation.log 2>&1; then
+            echo 'AI validator suite failed. Relevant output:'
+            tail -n 100 ai-validation.log
+            exit 1
+          fi
+          echo 'AI validator suite passed.'
 
       - name: Archive checked-out source
         if: always()
