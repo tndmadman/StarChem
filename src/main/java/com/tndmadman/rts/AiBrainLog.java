@@ -40,12 +40,13 @@ final class AiBrainLog {
     private static final double POSITION_SECONDS = 5.0;
     private static final double CHECKPOINT_SECONDS = 10.0;
     private static final double MATERIAL_EPSILON = 0.05;
+    private static final Path DEFAULT_LOG_DIRECTORY = Path.of("logs", "ai-brain");
     private static final DateTimeFormatter FILE_TIME = DateTimeFormatter
             .ofPattern("yyyyMMdd-HHmmss-SSS", Locale.ROOT)
             .withZone(ZoneOffset.UTC);
 
     private static final Map<World, WorldMemory> MEMORIES = new WeakHashMap<>();
-    private static Path logDirectory = Path.of("logs", "ai-brain");
+    private static Path logDirectory = DEFAULT_LOG_DIRECTORY;
     private static boolean devModeRequested;
     private static BufferedWriter writer;
     private static Path currentFile;
@@ -90,7 +91,7 @@ final class AiBrainLog {
      * misleading second journal from synchronized view data.
      */
     static synchronized void observe(World world) {
-        if (!devModeRequested || world == null) return;
+        if (!devModeRequested || world == null || !lastError.isBlank()) return;
         if (!ensureOpen(world)) return;
         try {
             String systemId = safe(world.activeSystemId());
@@ -137,7 +138,7 @@ final class AiBrainLog {
 
     static synchronized void event(World world, String source,
                                    String category, String message) {
-        if (!devModeRequested) return;
+        if (!devModeRequested || !lastError.isBlank()) return;
         if (writer == null) {
             if (world == null || !ensureOpen(world)) return;
         }
@@ -305,6 +306,24 @@ final class AiBrainLog {
                     mapOf("before", memory.lastResearch, "after", research));
             memory.lastResearch = research;
         }
+        String devSettings = devSettingsSignature();
+        if (!Objects.equals(memory.lastDevSettings, devSettings)) {
+            write(world, "DEV", "dev_settings", "",
+                    "AI developer settings changed",
+                    mapOf("before", memory.lastDevSettings, "after", devSettings));
+            memory.lastDevSettings = devSettings;
+        }
+    }
+
+    private static String devSettingsSignature() {
+        return "pauseAi=" + AiDevSettings.pauseAi
+                + ",stepAi=" + AiDevSettings.stepAi
+                + ",fastAi=" + AiDevSettings.fastAi
+                + ",freezePlayerUnits=" + AiDevSettings.freezePlayerUnits
+                + ",freezeNpcCombat=" + AiDevSettings.freezeNpcCombat
+                + ",disableAttacks=" + AiDevSettings.disableAttacks
+                + ",disableEconomy=" + AiDevSettings.disableEconomy
+                + ",difficulty=" + NpcDifficultyPreset.current().name();
     }
 
     private static void checkpoint(World world) {
@@ -326,6 +345,7 @@ final class AiBrainLog {
                         "shots", world.shots.size(),
                         "items", world.items.size(),
                         "wormholes", world.wormholes.size(),
+                        "devSettings", devSettingsSignature(),
                         "status", safe(world.status)));
     }
 
@@ -348,10 +368,13 @@ final class AiBrainLog {
 
     private static boolean ensureOpen(World world) {
         if (writer != null) return true;
+        if (!lastError.isBlank()) return false;
         try {
             Files.createDirectories(logDirectory);
             pruneOldFiles();
-            sessionId = FILE_TIME.format(Instant.now()) + "-p" + ProcessHandle.current().pid();
+            sessionId = FILE_TIME.format(Instant.now())
+                    + "-p" + ProcessHandle.current().pid()
+                    + "-" + Long.toUnsignedString(System.nanoTime(), 36);
             part = 0;
             sequence = 0;
             openNextPart();
@@ -378,19 +401,21 @@ final class AiBrainLog {
                 + "-part" + String.format(Locale.ROOT, "%03d", part) + ".jsonl";
         currentFile = logDirectory.resolve(name);
         writer = Files.newBufferedWriter(currentFile, StandardCharsets.UTF_8,
-                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING,
-                StandardOpenOption.WRITE);
+                StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
         bytesWritten = 0;
         lastFlushNanos = System.nanoTime();
     }
 
-    private static void rotateIfNeeded(int nextBytes) throws IOException {
-        if (writer == null || bytesWritten + nextBytes <= ROTATE_BYTES) return;
+    private static void rotate(World world) throws IOException {
+        long previousBytes = bytesWritten;
+        int previousPart = part;
         flushNow();
         openNextPart();
-        Map<String, Object> row = baseRow(null, "BRAIN", "session_continue", "", "Log rotated");
-        row.put("data", mapOf("part", part, "previousBytes", bytesWritten));
-        writeRow(row, false);
+        Map<String, Object> row = baseRow(world, "BRAIN", "session_continue", "",
+                "AI brain log rotated");
+        row.put("data", mapOf("previousPart", previousPart,
+                "previousBytes", previousBytes, "newPart", part));
+        writeRow(row);
         pruneOldFiles();
     }
 
@@ -398,9 +423,19 @@ final class AiBrainLog {
                               String entity, String message,
                               Map<String, ?> data) {
         if (writer == null) return;
-        Map<String, Object> row = baseRow(world, source, category, entity, message);
-        row.put("data", data == null ? Map.of() : data);
-        writeRow(row, true);
+        try {
+            Map<String, Object> row = baseRow(world, source, category, entity, message);
+            row.put("data", data == null ? Map.of() : data);
+            int bytes = encodedBytes(row);
+            if (bytesWritten > 0 && bytesWritten + bytes > ROTATE_BYTES) {
+                rotate(world);
+                row = baseRow(world, source, category, entity, message);
+                row.put("data", data == null ? Map.of() : data);
+            }
+            writeRow(row);
+        } catch (IOException | RuntimeException ex) {
+            fail("write failed: " + compactException(ex));
+        }
     }
 
     private static Map<String, Object> baseRow(World world, String source,
@@ -426,17 +461,15 @@ final class AiBrainLog {
         return row;
     }
 
-    private static void writeRow(Map<String, Object> row, boolean rotate) {
+    private static int encodedBytes(Map<String, Object> row) {
+        return (json(row) + System.lineSeparator()).getBytes(StandardCharsets.UTF_8).length;
+    }
+
+    private static void writeRow(Map<String, Object> row) throws IOException {
         if (writer == null) return;
-        try {
-            String json = json(row) + System.lineSeparator();
-            int bytes = json.getBytes(StandardCharsets.UTF_8).length;
-            if (rotate) rotateIfNeeded(bytes);
-            writer.write(json);
-            bytesWritten += bytes;
-        } catch (IOException | RuntimeException ex) {
-            fail("write failed: " + compactException(ex));
-        }
+        String encoded = json(row) + System.lineSeparator();
+        writer.write(encoded);
+        bytesWritten += encoded.getBytes(StandardCharsets.UTF_8).length;
     }
 
     private static void flushIfDue() {
@@ -643,6 +676,13 @@ final class AiBrainLog {
         shutdown();
         devModeRequested = false;
         MEMORIES.clear();
+        logDirectory = DEFAULT_LOG_DIRECTORY;
+        currentFile = null;
+        sessionId = "";
+        part = 0;
+        bytesWritten = 0;
+        sequence = 0;
+        lastError = "";
     }
 
     private static final class WorldMemory {
@@ -662,6 +702,7 @@ final class AiBrainLog {
         final Map<String, String> factionSummary = new LinkedHashMap<>();
         String lastStatus = "";
         String lastResearch = "";
+        String lastDevSettings = "";
 
         void clear() {
             initialized = false;
@@ -675,6 +716,7 @@ final class AiBrainLog {
             factionSummary.clear();
             lastStatus = "";
             lastResearch = "";
+            lastDevSettings = "";
         }
     }
 
