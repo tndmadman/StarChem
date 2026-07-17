@@ -8,10 +8,10 @@ on:
     types: [reopened]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply:
+  diagnose:
     if: github.event_name == 'push' || github.event.pull_request.head.ref == 'agent/fix-corsair-remote-view'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -34,117 +34,133 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          def replace_exact(path, old, new):
+          def replace_once(path, old, new, already_present):
               file = Path(path)
               text = file.read_text()
-              if old not in text:
-                  raise SystemExit(f'expected block not found in {path}')
-              file.write_text(text.replace(old, new, 1))
+              if old in text:
+                  file.write_text(text.replace(old, new, 1))
+                  return
+              if already_present not in text:
+                  raise SystemExit(f'expected source block not found in {path}')
 
-          replace_exact(
-              'src/main/java/com/tndmadman/rts/AiBrainLog.java',
-              '''    /** Called only from the developer UI, which is not drawn outside dev mode. */
-              static synchronized void requestDevMode() {
-                  devModeRequested = true;
-              }
-          ''',
-              '''    /** Enables logging only for the lifetime of an authoritative developer session. */
-              static synchronized void setEnabled(boolean enabled) {
-                  if (devModeRequested == enabled) return;
-                  if (!enabled) {
-                      devModeRequested = false;
-                      shutdown();
-                      MEMORIES.clear();
-                      currentFile = null;
-                      sessionId = "";
-                      part = 0;
-                      bytesWritten = 0;
-                      sequence = 0;
-                      lastError = "";
-                      return;
-                  }
-                  devModeRequested = true;
-                  lastError = "";
-              }
-          ''')
+          old_logger = (
+              "    /** Called only from the developer UI, which is not drawn outside dev mode. */\n"
+              "    static synchronized void requestDevMode() {\n"
+              "        devModeRequested = true;\n"
+              "    }\n"
+          )
+          new_logger = (
+              "    /** Enables logging only for the lifetime of an authoritative developer session. */\n"
+              "    static synchronized void setEnabled(boolean enabled) {\n"
+              "        if (devModeRequested == enabled) return;\n"
+              "        if (!enabled) {\n"
+              "            devModeRequested = false;\n"
+              "            shutdown();\n"
+              "            MEMORIES.clear();\n"
+              "            currentFile = null;\n"
+              "            sessionId = \"\";\n"
+              "            part = 0;\n"
+              "            bytesWritten = 0;\n"
+              "            sequence = 0;\n"
+              "            lastError = \"\";\n"
+              "            return;\n"
+              "        }\n"
+              "        devModeRequested = true;\n"
+              "        lastError = \"\";\n"
+              "    }\n"
+          )
+          replace_once('src/main/java/com/tndmadman/rts/AiBrainLog.java', old_logger, new_logger,
+                       'static synchronized void setEnabled(boolean enabled)')
 
-          replace_exact(
-              'src/main/java/com/tndmadman/rts/GamePanel.java',
-              '''    void start() { requestFocusInWindow(); ProceduralAudio.prime(); timer.start(); }
-              void stop() { timer.stop(); }
-          ''',
-              '''    void start() {
-                  AiBrainLog.setEnabled(devMode && client == null);
-                  requestFocusInWindow();
-                  ProceduralAudio.prime();
-                  timer.start();
-              }
-
-              void stop() {
-                  timer.stop();
-                  AiBrainLog.setEnabled(false);
-              }
-          ''')
+          old_panel = "    void start() { requestFocusInWindow(); ProceduralAudio.prime(); timer.start(); }\n    void stop() { timer.stop(); }\n"
+          new_panel = (
+              "    void start() {\n"
+              "        AiBrainLog.setEnabled(devMode && client == null);\n"
+              "        requestFocusInWindow();\n"
+              "        ProceduralAudio.prime();\n"
+              "        timer.start();\n"
+              "    }\n\n"
+              "    void stop() {\n"
+              "        timer.stop();\n"
+              "        AiBrainLog.setEnabled(false);\n"
+              "    }\n"
+          )
+          replace_once('src/main/java/com/tndmadman/rts/GamePanel.java', old_panel, new_panel,
+                       'AiBrainLog.setEnabled(devMode && client == null)')
 
           validator = Path('src/main/java/com/tndmadman/rts/AiBrainLogValidator.java')
           text = validator.read_text()
-          old = '''            world.status = "validator status change";
-                      AiBrainLog.observe(world);
-                      AiBrainLog.closeForTests();
-
-                      List<Path> files = jsonlFiles(directory);
-          '''
-          new = '''            world.status = "validator status change";
-                      AiBrainLog.observe(world);
-
-                      AiBrainLog.setEnabled(false);
-                      require(!AiBrainLog.recording() && "off".equals(AiBrainLog.status()),
-                              "brain log did not stop when the developer session ended");
-                      long disabledBytes = totalBytes(directory);
-                      world.systemTime += 1.1;
-                      AiDevLog.add(world, faction, "event while logging is disabled");
-                      AiBrainLog.observe(world);
-                      require(totalBytes(directory) == disabledBytes,
-                              "brain log wrote data after it was disabled");
-
-                      AiBrainLog.setEnabled(true);
-                      world.systemTime += 1.1;
-                      AiBrainLog.observe(world);
-                      AiBrainLog.setEnabled(false);
-                      AiBrainLog.closeForTests();
-
-                      List<Path> files = jsonlFiles(directory);
-                      require(files.size() >= 2,
-                              "re-enabling the brain log did not start a new session file");
-          '''
-          if old not in text:
+          old_validation = (
+              "            world.status = \"validator status change\";\n"
+              "            AiBrainLog.observe(world);\n"
+              "            AiBrainLog.closeForTests();\n\n"
+              "            List<Path> files = jsonlFiles(directory);\n"
+          )
+          new_validation = (
+              "            world.status = \"validator status change\";\n"
+              "            AiBrainLog.observe(world);\n\n"
+              "            AiBrainLog.setEnabled(false);\n"
+              "            require(!AiBrainLog.recording() && \"off\".equals(AiBrainLog.status()),\n"
+              "                    \"brain log did not stop when the developer session ended\");\n"
+              "            long disabledBytes = totalBytes(directory);\n"
+              "            world.systemTime += 1.1;\n"
+              "            AiDevLog.add(world, faction, \"event while logging is disabled\");\n"
+              "            AiBrainLog.observe(world);\n"
+              "            require(totalBytes(directory) == disabledBytes,\n"
+              "                    \"brain log wrote data after it was disabled\");\n\n"
+              "            AiBrainLog.setEnabled(true);\n"
+              "            world.systemTime += 1.1;\n"
+              "            AiBrainLog.observe(world);\n"
+              "            AiBrainLog.setEnabled(false);\n"
+              "            AiBrainLog.closeForTests();\n\n"
+              "            List<Path> files = jsonlFiles(directory);\n"
+              "            require(files.size() >= 2,\n"
+              "                    \"re-enabling the brain log did not start a new session file\");\n"
+          )
+          if old_validation in text:
+              text = text.replace(old_validation, new_validation, 1)
+          elif 'brain log wrote data after it was disabled' not in text:
               raise SystemExit('expected validator lifecycle block not found')
-          text = text.replace(old, new, 1)
-          marker = '''    private static String readAll(List<Path> files) throws IOException {
-          '''
-          helper = '''    private static long totalBytes(Path directory) throws IOException {
-                  long total = 0;
-                  for (Path path : jsonlFiles(directory)) total += Files.size(path);
-                  return total;
-              }
 
-          '''
-          if marker not in text:
-              raise SystemExit('validator helper insertion point not found')
-          validator.write_text(text.replace(marker, helper + marker, 1))
+          marker = "    private static String readAll(List<Path> files) throws IOException {\n"
+          helper = (
+              "    private static long totalBytes(Path directory) throws IOException {\n"
+              "        long total = 0;\n"
+              "        for (Path path : jsonlFiles(directory)) total += Files.size(path);\n"
+              "        return total;\n"
+              "    }\n\n"
+          )
+          if 'private static long totalBytes(Path directory)' not in text:
+              if marker not in text:
+                  raise SystemExit('validator helper insertion point not found')
+              text = text.replace(marker, helper + marker, 1)
+          validator.write_text(text)
           PY
 
       - name: Compile lifecycle fix
-        run: ./gradlew classes --stacktrace
-
-      - name: Commit lifecycle fix
+        id: compile
+        continue-on-error: true
         shell: bash
-        run: |
-          git config user.name 'starchem-ai-fix-bot'
-          git config user.email 'starchem-ai-fix-bot@users.noreply.github.com'
-          git add src/main/java/com/tndmadman/rts/AiBrainLog.java \
-                  src/main/java/com/tndmadman/rts/GamePanel.java \
-                  src/main/java/com/tndmadman/rts/AiBrainLogValidator.java
-          git diff --cached --check
-          git commit -m 'Fix AI brain log lifecycle'
-          git push origin HEAD:agent/fix-corsair-remote-view
+        run: ./gradlew classes --stacktrace > compile.log 2>&1
+
+      - name: Show compiler result
+        if: always()
+        shell: bash
+        run: tail -n 200 compile.log || true
+
+      - name: Archive compiler diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-lifecycle-compiler-${{ github.sha }}
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            compile.log
+            src/main/java/com/tndmadman/rts/AiBrainLog.java
+            src/main/java/com/tndmadman/rts/GamePanel.java
+            src/main/java/com/tndmadman/rts/AiBrainLogValidator.java
+
+      - name: Fail on compiler error
+        if: steps.compile.outcome == 'failure'
+        run: exit 1
