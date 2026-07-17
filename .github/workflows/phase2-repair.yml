@@ -69,7 +69,20 @@ jobs:
         run: gradle -I gradle/ai-validation.gradle validateNpcExpedition --quiet --no-daemon
 
       - name: Validate recovery
-        run: gradle -I gradle/ai-validation.gradle validateNpcRecovery --quiet --no-daemon
+        run: |
+          set +e
+          gradle -I gradle/ai-validation.gradle validateNpcRecovery --quiet --no-daemon > phase2-recovery.log 2>&1
+          status=$?
+          cat phase2-recovery.log
+          exit $status
+
+      - name: Upload recovery validator log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase2-recovery-validator
+          path: phase2-recovery.log
+          if-no-files-found: error
 
       - name: Validate station construction
         run: gradle -I gradle/ai-validation.gradle validateNpcStationConstruction --quiet --no-daemon
