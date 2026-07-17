@@ -84,12 +84,32 @@ final class TcpIntegrationHarness implements AutoCloseable {
     }
 
     void awaitConverged(TestClient client, int unitId, double tolerance, long timeoutMs) throws Exception {
-        await(() -> {
-            Unit authoritative = unit(serverWorld, client.playerId(), unitId);
-            Unit replicated = unit(client.world, client.playerId(), unitId);
-            return authoritative != null && replicated != null
-                    && distance(authoritative.x, authoritative.y, replicated.x, replicated.y) <= tolerance;
-        }, timeoutMs, client.config.playerName + " did not converge to authoritative state");
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        Unit authoritative;
+        Unit replicated;
+        double separation;
+        do {
+            authoritative = unit(serverWorld, client.playerId(), unitId);
+            replicated = unit(client.world, client.playerId(), unitId);
+            separation = authoritative == null || replicated == null
+                    ? Double.POSITIVE_INFINITY
+                    : distance(authoritative.x, authoritative.y, replicated.x, replicated.y);
+            if (separation <= tolerance) return;
+            tick();
+        } while (System.currentTimeMillis() < deadline);
+
+        authoritative = unit(serverWorld, client.playerId(), unitId);
+        replicated = unit(client.world, client.playerId(), unitId);
+        separation = authoritative == null || replicated == null
+                ? Double.POSITIVE_INFINITY
+                : distance(authoritative.x, authoritative.y, replicated.x, replicated.y);
+        throw new IllegalStateException(client.config.playerName
+                + " did not converge to authoritative state"
+                + " | serverSystem=" + serverWorld.activeSystemId()
+                + " | clientSystem=" + client.world.activeSystemId()
+                + " | distance=" + separation
+                + " | authoritative=" + describe(authoritative)
+                + " | replicated=" + describe(replicated));
     }
 
     Unit firstUnit(World world, String playerId) { return findAcrossSystems(world, playerId, -1); }
@@ -169,6 +189,15 @@ final class TcpIntegrationHarness implements AutoCloseable {
             for (GalaxyMapSystem system : galaxy.systems()) if (system != null) ids.add(system.id());
         }
         return ids;
+    }
+
+    private static String describe(Unit unit) {
+        if (unit == null) return "missing";
+        return unit.key()
+                + " pos=(" + unit.x + ',' + unit.y + ')'
+                + " target=(" + unit.targetX + ',' + unit.targetY + ')'
+                + " task=" + unit.task
+                + " order=" + unit.orderType;
     }
 
     private static boolean validSystem(String value) {
