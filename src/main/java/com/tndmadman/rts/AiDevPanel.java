@@ -5,7 +5,7 @@ import java.util.List;
 
 final class AiDevPanel {
     private static final int ROW = 18;
-    private static final int ROW_BASELINE_Y = 96;
+    private static final int ROW_BASELINE_Y = 170;
     private final HudWindow window = new HudWindow(330, 205, 430);
 
     boolean click(World world, PeerNetwork devAuthorityNetwork, int sx, int sy, boolean canEdit) {
@@ -60,7 +60,7 @@ final class AiDevPanel {
         int yy = y + 14;
         for (String line : AiDevSnapshot.summary(world, f)) { g2.drawString(line, x, yy); yy += 15; }
         g2.setColor(new Color(255, 225, 150));
-        g2.drawString("Blocked: " + AiDevSnapshot.blockedReason(world, f), x, yy); yy += 18;
+        g2.drawString("Blocked: " + AiDevSnapshot.blockedReason(world, f), x, yy);
 
         String[] rows = rows();
         for (int i = 0; i < rows.length; i++) drawRow(g2, x, y + ROW_BASELINE_Y + i * ROW, rows[i]);
