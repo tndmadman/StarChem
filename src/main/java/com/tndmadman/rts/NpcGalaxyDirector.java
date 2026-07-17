@@ -24,5 +24,6 @@ final class NpcGalaxyDirector {
             }
             NpcRepairEvacuationSystem.update(world, faction, dt);
         }
+        AiBrainLog.observe(world);
     }
 }
