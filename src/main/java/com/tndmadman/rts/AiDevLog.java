@@ -13,6 +13,7 @@ final class AiDevLog {
         String line = String.format("%6.1fs %-12s %s", System.nanoTime() / 1_000_000_000.0, source, message);
         LINES.add(line);
         while (LINES.size() > LIMIT) LINES.remove(0);
+        AiBrainLog.event(null, source, "ai_event", message);
     }
 
     static void add(World world, NpcFaction faction, String message) {
@@ -20,6 +21,7 @@ final class AiDevLog {
         String name = faction == null ? "AI" : faction.name();
         LINES.add(time + "s " + name + ": " + message);
         while (LINES.size() > LIMIT) LINES.remove(0);
+        AiBrainLog.event(world, faction, "ai_event", message);
     }
 
     static void clear() { LINES.clear(); }
