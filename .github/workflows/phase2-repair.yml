@@ -43,8 +43,9 @@ jobs:
           python3 tools/phase2_repair.py
           python3 - <<'PY'
           from pathlib import Path
-          path = Path('src/main/java/com/tndmadman/rts/NpcFactionCapacitySystem.java')
-          text = path.read_text(encoding='utf-8')
+
+          capacity = Path('src/main/java/com/tndmadman/rts/NpcFactionCapacitySystem.java')
+          text = capacity.read_text(encoding='utf-8')
           old = (
               "        if (!snapshot.active()) return 0;\n"
               "        return switch (snapshot.state()) {\n"
@@ -59,7 +60,25 @@ jobs:
           )
           if text.count(old) != 1:
               raise SystemExit('capacity conversion insertion point was not found exactly once')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          capacity.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          validator = Path('src/main/java/com/tndmadman/rts/NpcRecoveryValidator.java')
+          text = validator.read_text(encoding='utf-8')
+          old = '''        BaseType recoveryBase = Rules.base(fixture.faction.baseType());
+                  for (Cost cost : recoveryBase.buildCost) {
+                      builder.inventory.merge(cost.material(), cost.amount(), Double::sum);
+                  }
+                  builder.inventory.merge(Material.XENON, 7.0, Double::sum);
+          '''
+          new = '''        builder.inventory.put(Material.IRON, 220.0);
+                  builder.inventory.put(Material.COPPER, 120.0);
+                  builder.inventory.put(Material.SILICATES, 140.0);
+                  builder.inventory.put(Material.ICE, 60.0);
+                  builder.inventory.put(Material.XENON, 7.0);
+          '''
+          if text.count(old) != 1:
+              raise SystemExit('builder cargo fixture target was not found exactly once')
+          validator.write_text(text.replace(old, new, 1), encoding='utf-8')
           PY
 
       - name: Validate resource budgeting
@@ -69,20 +88,7 @@ jobs:
         run: gradle -I gradle/ai-validation.gradle validateNpcExpedition --quiet --no-daemon
 
       - name: Validate recovery
-        run: |
-          set +e
-          gradle -I gradle/ai-validation.gradle validateNpcRecovery --quiet --no-daemon > phase2-recovery.log 2>&1
-          status=$?
-          cat phase2-recovery.log
-          exit $status
-
-      - name: Upload recovery validator log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: phase2-recovery-validator
-          path: phase2-recovery.log
-          if-no-files-found: error
+        run: gradle -I gradle/ai-validation.gradle validateNpcRecovery --quiet --no-daemon
 
       - name: Validate station construction
         run: gradle -I gradle/ai-validation.gradle validateNpcStationConstruction --quiet --no-daemon
