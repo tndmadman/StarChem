@@ -17,6 +17,17 @@ final class NpcFactionScopedRuntimeReset {
                                 NpcFactionResetReason reason) {
         if (world == null || faction == null) return;
         NpcRepairEvacuationSystem.clearFaction(world, faction);
+        removeExpeditionRuntime(world, faction, reason);
+    }
+
+    /** Cancels only the unlaunched expedition plan, leaving recovery state intact. */
+    static void cancelUnlaunchedExpedition(World world, NpcFaction faction) {
+        if (world == null || faction == null) return;
+        removeExpeditionRuntime(world, faction, NpcFactionResetReason.DEV_RESET);
+    }
+
+    private static void removeExpeditionRuntime(World world, NpcFaction faction,
+                                                NpcFactionResetReason reason) {
         try {
             Map<World, Map<String, Object>> runtimes = runtimeMap(
                     NpcExpeditionSystem.class, "RUNTIMES");
