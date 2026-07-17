@@ -7,7 +7,6 @@ def starchemAiValidators = [
         validateNpcMobileDepot                : 'com.tndmadman.rts.NpcMobileDepotValidator',
         validateNpcRecovery                   : 'com.tndmadman.rts.NpcRecoveryValidator',
         validateNpcResourceBudget             : 'com.tndmadman.rts.NpcResourceBudgetValidator',
-        validateNpcResourceBudgetCapability   : 'com.tndmadman.rts.NpcResourceBudgetCapabilityValidator',
         validateNpcRuntimeReset               : 'com.tndmadman.rts.NpcRuntimeResetValidator',
         validateNpcSquadCombat                : 'com.tndmadman.rts.NpcSquadCombatValidator',
         validateNpcStationConstruction        : 'com.tndmadman.rts.NpcStationConstructionValidator',
