@@ -104,6 +104,8 @@ public final class NpcSystemIsolationValidator {
         AiDevCommands.spawnCorsairs(world);
         AiDevCommands.giveCorsairResources(world);
         world.completeResearch(Config.CORSAIRS_ID, "advanced_industry");
+        NpcFaction faction = AiDevSnapshot.corsairs();
+        require(faction != null, "Corsair faction is not configured");
 
         int basesBefore = factionBaseCount(world, Config.CORSAIRS_ID);
         Set<String> unitsBefore = factionUnitKeys(world, Config.CORSAIRS_ID);
@@ -119,8 +121,21 @@ public final class NpcSystemIsolationValidator {
                 "cleanup-time station replacement emitted repeated AI decisions");
 
         tickCurrent(world, 160);
-        require(factionBaseCount(world, Config.CORSAIRS_ID) > basesBefore,
-                "cooldown-controlled NpcSystem did not retain station expansion ownership");
+        int basesAfter = factionBaseCount(world, Config.CORSAIRS_ID);
+        if (basesAfter <= basesBefore) {
+            NpcStrategicState state = NpcStrategicDirector.state(world, faction);
+            NpcStationConstructionSnapshot construction =
+                    NpcStationConstructionSystem.snapshot(world, faction);
+            NpcFactionCapacitySnapshot capacity =
+                    NpcFactionCapacitySystem.snapshot(world, faction);
+            throw new IllegalStateException(
+                    "organized home infrastructure did not grow after 160s"
+                            + " | strategy=" + state
+                            + " | construction=" + construction
+                            + " | capacity=" + capacity
+                            + " | builders=" + builderCount(world, faction.id())
+                            + " | recent=" + String.join(" || ", AiDevLog.lines(30)));
+        }
     }
 
     private static void validateRuntimeCleanup() {
@@ -166,6 +181,14 @@ public final class NpcSystemIsolationValidator {
     private static int factionBaseCount(World world, String factionId) {
         int count = 0;
         for (Base base : world.bases.values()) if (factionId.equals(base.playerId) && base.hp > 0) count++;
+        return count;
+    }
+
+    private static int builderCount(World world, String factionId) {
+        int count = 0;
+        for (Unit unit : world.units.values()) {
+            if (factionId.equals(unit.playerId) && unit.hp > 0 && unit.type().baseBuilder) count++;
+        }
         return count;
     }
 
