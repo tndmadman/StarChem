@@ -1,0 +1,49 @@
+name: Publish AI Lifecycle Fix
+
+on:
+  push:
+    paths:
+      - .github/workflows/publish-ai-lifecycle-fix.yml
+      - tools/ai-lifecycle-fix.patch
+  pull_request:
+    types: [reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.event_name == 'push' || github.event.pull_request.head.ref == 'agent/fix-corsair-remote-view'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out AI branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/fix-corsair-remote-view
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Apply lifecycle patch
+        shell: bash
+        run: git apply --check tools/ai-lifecycle-fix.patch && git apply tools/ai-lifecycle-fix.patch
+
+      - name: Compile patched source
+        run: ./gradlew classes --stacktrace
+
+      - name: Publish compiled commit to temporary branch
+        shell: bash
+        run: |
+          git config user.name 'starchem-ai-fix-bot'
+          git config user.email 'starchem-ai-fix-bot@users.noreply.github.com'
+          git add src/main/java/com/tndmadman/rts/AiBrainLog.java \
+                  src/main/java/com/tndmadman/rts/GamePanel.java \
+                  src/main/java/com/tndmadman/rts/AiBrainLogValidator.java
+          git diff --cached --check
+          git commit -m 'Fix AI brain log lifecycle'
+          git push --force origin HEAD:automation/ai-lifecycle-fix
