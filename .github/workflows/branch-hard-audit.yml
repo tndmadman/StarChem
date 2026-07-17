@@ -40,9 +40,9 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          mkdir -p build/branch-audit
+          mkdir -p .branch-audit
           gradle clean check jar --no-daemon --stacktrace 2>&1 \
-            | tee build/branch-audit/gradle.log
+            | tee .branch-audit/gradle.log
 
       - name: Smoke-test built jar
         id: smoke
@@ -55,14 +55,14 @@ jobs:
             test -f build/libs/StarChem.jar
             java -jar build/libs/StarChem.jar --version
             java -jar build/libs/StarChem.jar --help | grep -F -- '--server [PORT]'
-          } 2>&1 | tee build/branch-audit/smoke.log
+          } 2>&1 | tee .branch-audit/smoke.log
 
       - name: Upload complete audit logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: branch-hard-audit-${{ github.sha }}
-          path: build/branch-audit
+          path: .branch-audit
           if-no-files-found: error
           retention-days: 7
 
@@ -83,7 +83,7 @@ jobs:
             if (pulls.data.length === 0) return;
 
             let log = 'No Gradle log was produced.';
-            const logPath = 'build/branch-audit/gradle.log';
+            const logPath = '.branch-audit/gradle.log';
             if (fs.existsSync(logPath)) log = fs.readFileSync(logPath, 'utf8');
             let tail = log.split(/\r?\n/).slice(-220).join('\n');
             if (tail.length > 60000) tail = tail.slice(-60000);
