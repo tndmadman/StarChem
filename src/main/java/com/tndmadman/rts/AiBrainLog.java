@@ -777,7 +777,7 @@ final class AiBrainLog {
             return new BaseView(base.playerId, base.typeId,
                     round(base.x, 2), round(base.y, 2),
                     round(base.hp, 2), round(base.shield, 2),
-                    materials(base.inventory), queue(base), safe(base.logisticsStatus));
+                    materials(base.inventory), AiBrainLog.queue(base), safe(base.logisticsStatus));
         }
 
         Map<String, Object> data() {
