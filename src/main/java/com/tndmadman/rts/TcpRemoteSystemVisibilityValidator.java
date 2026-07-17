@@ -45,7 +45,7 @@ public final class TcpRemoteSystemVisibilityValidator {
             TcpIntegrationHarness.require(expectedBases.equals(new LinkedHashSet<>(viewer.world().bases.keySet())),
                     "remote system station set did not match the authoritative server state");
 
-            validateCorsairViewRemainsLive(harness, viewer, viewerId);
+            validateCorsairViewRemainsLive(harness, viewer, viewerId, ownerId);
 
             viewer.network().viewSystem(viewerId, "missing_system_for_validation");
             harness.await(() -> !viewer.network().clientViewSwitchPending(), 5_000,
@@ -73,9 +73,10 @@ public final class TcpRemoteSystemVisibilityValidator {
     }
 
     private static void validateCorsairViewRemainsLive(TcpIntegrationHarness harness,
-                                                       TcpIntegrationHarness.TestClient viewer,
-                                                       String viewerId) throws Exception {
-        String unitKey = seedCorsairUnit(harness.serverWorld);
+                                                        TcpIntegrationHarness.TestClient viewer,
+                                                        String viewerId,
+                                                        String ownerId) throws Exception {
+        String unitKey = seedCorsairUnit(harness.serverWorld, ownerId);
         viewer.network().viewSystem(viewerId, StarSystems.CORSAIR_SYSTEM_ID);
         harness.await(() -> !viewer.network().clientViewSwitchPending()
                         && StarSystems.CORSAIR_SYSTEM_ID.equals(viewer.network().clientViewedSystemId())
@@ -97,14 +98,14 @@ public final class TcpRemoteSystemVisibilityValidator {
         }, 8_000, "Corsair Den stopped accepting live authoritative snapshots after the view switch");
     }
 
-    private static String seedCorsairUnit(World world) {
+    private static String seedCorsairUnit(World world, String ownerId) {
         String old = world.activeSystemId();
         try {
             world.activateSystem(StarSystems.CORSAIR_SYSTEM_ID);
             TcpIntegrationHarness.require(StarSystems.CORSAIR_SYSTEM_ID.equals(world.activeSystemId()),
                     "Corsair Den system is unavailable on the server");
-            String key = Unit.key(Config.CORSAIRS_ID, CORSAIR_TEST_UNIT_ID);
-            Unit unit = new Unit(Config.CORSAIRS_ID, CORSAIR_TEST_UNIT_ID, Rules.STARTING_SHIP,
+            String key = Unit.key(ownerId, CORSAIR_TEST_UNIT_ID);
+            Unit unit = new Unit(ownerId, CORSAIR_TEST_UNIT_ID, Rules.STARTING_SHIP,
                     world.width * 0.32, world.height * 0.48);
             unit.task = UnitTask.IDLE;
             unit.targetX = unit.x;
