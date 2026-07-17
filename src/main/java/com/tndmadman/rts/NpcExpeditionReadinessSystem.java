@@ -69,10 +69,10 @@ final class NpcExpeditionReadinessSystem {
             setStatus(world, faction, runtime,
                     "friendly transit did not clear after "
                             + (int)FRIENDLY_TRANSIT_GRACE_SECONDS
-                            + "s; allowing target revalidation");
-        } else {
-            runtime.transitSeconds = 0;
+                            + "s; releasing target for replanning");
+            return true;
         }
+        runtime.transitSeconds = 0;
 
         RosterReadiness readiness = rosterReadiness(world, faction);
         if (!readiness.builderReady) {
@@ -82,7 +82,7 @@ final class NpcExpeditionReadinessSystem {
             }
         }
 
-        if (readiness.ready()) {
+        if (readiness.ready(faction)) {
             runtime.rosterSeconds = 0;
             setStatus(world, faction, runtime, "");
             return true;
@@ -112,6 +112,14 @@ final class NpcExpeditionReadinessSystem {
 
     static synchronized void clear(World world) {
         if (world != null) RUNTIMES.remove(world);
+    }
+
+    static synchronized void clearFaction(World world, NpcFaction faction) {
+        if (world == null || faction == null) return;
+        Map<String, RuntimeState> byFaction = RUNTIMES.get(world);
+        if (byFaction == null) return;
+        byFaction.remove(faction.id());
+        if (byFaction.isEmpty()) RUNTIMES.remove(world);
     }
 
     private static boolean preLaunch(NpcExpeditionState state) {
@@ -321,7 +329,10 @@ final class NpcExpeditionReadinessSystem {
 
     private record RosterReadiness(boolean builderReady, boolean workerReady,
                                    int combatReady) {
-        boolean ready() { return builderReady && workerReady && combatReady >= 2; }
+        boolean ready(NpcFaction faction) {
+            return builderReady && workerReady
+                    && combatReady >= Math.max(2, faction.raidFleetSize());
+        }
 
         String blocker(NpcFaction faction) {
             if (!builderReady) return "waiting for an available station deployer";
