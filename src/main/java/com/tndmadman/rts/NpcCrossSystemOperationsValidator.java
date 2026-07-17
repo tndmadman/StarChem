@@ -27,9 +27,13 @@ public final class NpcCrossSystemOperationsValidator {
         NpcFaction faction = fixture.faction;
         clearFactionAssets(world, faction.id());
 
+        int homeStations = Math.max(1, faction.maxStations() / 2);
+        int remoteStations = Math.max(0, faction.maxStations() - homeStations);
+
         world.activateSystem(StarSystems.CORSAIR_SYSTEM_ID);
-        addBase(world, faction, "outpost", 1);
-        addBase(world, faction, "shipyard", 2);
+        for (int i = 1; i <= homeStations; i++) {
+            addBase(world, faction, i == 1 ? "outpost" : "shipyard", i);
+        }
         addCategoryUnits(world, faction, 10_000,
                 Math.max(1, faction.targetFleetSize() / 2),
                 Math.max(1, faction.maxWorkers() / 2),
@@ -39,8 +43,11 @@ public final class NpcCrossSystemOperationsValidator {
         world.saveActiveSystem();
 
         world.activateSystem("red_dwarf");
-        addBase(world, faction, "outpost", 3);
-        addBase(world, faction, "manufacturing", 4);
+        for (int i = 1; i <= remoteStations; i++) {
+            int ordinal = homeStations + i;
+            String type = i == remoteStations ? "manufacturing" : "shipyard";
+            addBase(world, faction, type, ordinal);
+        }
         addCategoryUnits(world, faction, 20_000,
                 faction.targetFleetSize() - Math.max(1, faction.targetFleetSize() / 2),
                 faction.maxWorkers() - Math.max(1, faction.maxWorkers() / 2),
@@ -56,7 +63,7 @@ public final class NpcCrossSystemOperationsValidator {
 
         NpcFactionCapacitySnapshot before = NpcFactionCapacitySystem.snapshot(world, faction);
         require(before.stationCommitments() == faction.maxStations(),
-                "fixture did not reach the global station cap");
+                "fixture did not reach the configured global station cap");
         require(before.combat() == faction.targetFleetSize(),
                 "fixture did not reach the global combat cap");
         require(before.workers() == faction.maxWorkers(),
@@ -113,6 +120,8 @@ public final class NpcCrossSystemOperationsValidator {
                 "queued combat production was not counted toward global capacity");
         require(snapshot.stationCommitments() == 2,
                 "active construction was not counted toward global station capacity");
+        require(snapshot.support() == 0,
+                "disposable station deployer was incorrectly counted as permanent support");
     }
 
     private static void validateConstructionCleanup() {
