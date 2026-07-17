@@ -29,6 +29,11 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Set up Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
       - name: Apply lifecycle patch
         shell: bash
         run: git apply --check tools/ai-lifecycle-fix.patch && git apply tools/ai-lifecycle-fix.patch
@@ -37,7 +42,7 @@ jobs:
         id: compile
         continue-on-error: true
         shell: bash
-        run: ./gradlew classes --stacktrace > lifecycle-compile.log 2>&1
+        run: gradle classes --no-daemon --stacktrace > lifecycle-compile.log 2>&1
 
       - name: Archive compile log and patched files
         if: always()
