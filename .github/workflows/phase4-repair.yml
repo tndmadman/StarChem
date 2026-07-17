@@ -31,7 +31,7 @@ jobs:
           gradle-version: '8.10.2'
 
       - name: Apply Phase 4 repairs
-        run: python3 tools/phase4_repair.py
+        run: python3 tools/phase4_repair_v2.py
 
       - name: Check repair diff
         run: git diff --check
