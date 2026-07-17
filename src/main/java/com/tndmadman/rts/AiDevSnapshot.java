@@ -65,6 +65,8 @@ final class AiDevSnapshot {
             return "Station cap reached " + capacity.stationCommitments()
                     + "/" + faction.maxStations() + "; expansion disabled.";
         }
+        String readiness = NpcExpeditionReadinessSystem.status(world, faction);
+        if (!readiness.isBlank()) return "Expedition: " + readiness;
         ResearchTopic missing = missingResearch(world, faction);
         if (missing != null) return "Research needed: " + missing.name + " | Missing: " + missingCost(world, faction, missing.requiredResources);
         for (String ship : faction.fleetUnitTypes()) {
@@ -121,6 +123,8 @@ final class AiDevSnapshot {
                     .append('/').append(expedition.route().size());
         }
         if (!expedition.reason().isBlank()) line.append(" | ").append(expedition.reason());
+        String readiness = NpcExpeditionReadinessSystem.status(world, faction);
+        if (!readiness.isBlank()) line.append(" | ").append(readiness);
         out.add(line.toString());
     }
 
