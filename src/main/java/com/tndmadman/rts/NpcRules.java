@@ -137,7 +137,7 @@ final class NpcRules {
                         false, false, false, true, false, false, false, 0, "Independent miners have entered the sector."),
                 new NpcFaction("NPC_CORSAIRS", "Corsair Syndicate", 0xC77DFF, true, NpcBehavior.FACTION,
                         65.0, 90.0, 3.0, "outpost",
-                        List.of("prospector", "prospector", "frigate"), List.of("prospector"), List.of("frigate", "destroyer"), List.of("hauler", "freighter", "salvager"), List.of("shipyard", "laboratory", "manufacturing"), List.of("deep_miner", "gas_harvester"), List.of("advanced_industry", "combat_doctrine", "battlefleet_engineering"), List.of("fuel"), 3, 5, 4, 2, 4, 4, 2, 12.0, 16.0, 1400.0, 22.0, 0.35, 560.0, 90.0,
+                        List.of("prospector", "prospector", "frigate"), List.of("prospector"), List.of("frigate", "destroyer"), List.of("hauler", "freighter", "salvager"), List.of("shipyard", "laboratory", "manufacturing"), List.of("deep_miner", "gas_harvester"), List.of("advanced_industry", "combat_doctrine", "battlefleet_engineering"), List.of("fuel"), 3, 5, 4, 2, 4, 6, 2, 12.0, 16.0, 1400.0, 22.0, 0.35, 560.0, 90.0,
                         3400.0, 700.0, 150.0, EnumSet.of(Material.IRON, Material.COPPER, Material.SILICATES, Material.ICE, Material.HYDROGEN, Material.HELIUM, Material.METHANE), EnumSet.noneOf(NodeKind.class),
                         true, true, false, false, true, true, true, 1, "Corsair Syndicate has established a foothold."));
     }
@@ -275,4 +275,18 @@ record NpcFaction(
     boolean allowsKind(NodeKind kind) { return harvestNodeKinds.isEmpty() || harvestNodeKinds.contains(kind); }
     Set<String> workerTypeSet() { return workerUnitTypes.stream().collect(Collectors.toUnmodifiableSet()); }
     Set<String> supportTypeSet() { return supportUnitTypes.stream().collect(Collectors.toUnmodifiableSet()); }
+
+    /** Home keeps an outpost plus at most two specialized infrastructure stations. */
+    int homeInfrastructureTarget() {
+        if (maxStations <= 0) return 0;
+        if (behavior != NpcBehavior.FACTION) return 1;
+        int specialized = Math.min(2, stationPackageTypes.size());
+        return Math.min(maxStations, 1 + specialized);
+    }
+
+    /** Remaining global station slots become one-station frontier systems. */
+    int maxControlledSystems() {
+        if (behavior != NpcBehavior.FACTION || maxStations <= 0) return 1;
+        return Math.max(1, 1 + Math.max(0, maxStations - homeInfrastructureTarget()));
+    }
 }
