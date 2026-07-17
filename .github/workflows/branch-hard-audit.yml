@@ -16,17 +16,14 @@ concurrency:
 
 jobs:
   audit:
-    name: Full compile, validation, package, and smoke audit
     runs-on: ubuntu-latest
-
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: agent/fix-corsair-remote-view
           fetch-depth: 0
 
-      - name: Apply exact committed-site patch
+      - name: Apply idempotent station site lock
         shell: bash
         run: |
           python3 - <<'PY'
@@ -34,18 +31,23 @@ jobs:
 
           source_path = Path('src/main/java/com/tndmadman/rts/NpcStationConstructionSystem.java')
           source = source_path.read_text()
-          old_call = '''        if (!validSite(world, faction, source, station, plan.targetX, plan.targetY)) {'''
-          new_call = '''        if (!committedSiteValid(world, faction, source, station,
-                  plan.targetX, plan.targetY)) {'''
-          if source.count(old_call) != 1:
-              raise SystemExit(f'expected one committed-site call, found {source.count(old_call)}')
-          source = source.replace(old_call, new_call)
+          if 'private static boolean committedSiteValid(' not in source:
+              candidates = [
+                  '''        if (plan.phase == NpcConstructionPhase.TRAVELLING
+                  && !validSite(world, faction, source, station, plan.targetX, plan.targetY)) {''',
+                  '''        if (!validSite(world, faction, source, station, plan.targetX, plan.targetY)) {'''
+              ]
+              matches = [candidate for candidate in candidates if candidate in source]
+              if len(matches) != 1:
+                  raise SystemExit(f'expected one site-retention form, found {len(matches)}')
+              source = source.replace(matches[0], '''        if (!committedSiteValid(world, faction, source, station,
+                  plan.targetX, plan.targetY)) {''', 1)
 
-          marker = '''    private static boolean validSite(World world, NpcFaction faction, Base source,
+              marker = '''    private static boolean validSite(World world, NpcFaction faction, Base source,
                                      BaseType station, double x, double y) {'''
-          committed_method = '''    /**
+              method = '''    /**
      * Keeps a paid construction site stable after initial selection. Moving
-     * resource nodes and ships are temporary traffic, not reasons to throw away
+     * resource nodes and ships are temporary traffic, not reasons to discard
      * travel or construction progress. Only persistent geometry may invalidate
      * an already committed site.
      */
@@ -71,18 +73,19 @@ jobs:
     }
 
 '''
-          if source.count(marker) != 1:
-              raise SystemExit(f'expected one validSite marker, found {source.count(marker)}')
-          source = source.replace(marker, committed_method + marker)
-          source_path.write_text(source)
+              if source.count(marker) != 1:
+                  raise SystemExit(f'expected one validSite marker, found {source.count(marker)}')
+              source = source.replace(marker, method + marker, 1)
+              source_path.write_text(source)
 
           validator_path = Path('src/main/java/com/tndmadman/rts/NpcStationConstructionValidator.java')
           validator = validator_path.read_text()
-          old_test = '''        require(Calc.distance(builder.x, builder.y, constructing.targetX(), constructing.targetY()) <= 1.0,
+          if 'moving resource traffic reset a committed construction site' not in validator:
+              old = '''        require(Calc.distance(builder.x, builder.y, constructing.targetX(), constructing.targetY()) <= 1.0,
                 "construction-site deployer was not anchored at the selected site");
 
         double almostComplete = Math.max(0, constructing.duration() - 0.25);'''
-          new_test = '''        require(Calc.distance(builder.x, builder.y, constructing.targetX(), constructing.targetY()) <= 1.0,
+              new = '''        require(Calc.distance(builder.x, builder.y, constructing.targetX(), constructing.targetY()) <= 1.0,
                 "construction-site deployer was not anchored at the selected site");
 
         ResourceNode crossing = new ResourceNode(90_999, "Crossing Resource",
@@ -103,10 +106,9 @@ jobs:
         fixture.world.resources.remove(crossing);
 
         double almostComplete = Math.max(0, locked.remaining() - 0.25);'''
-          if validator.count(old_test) != 1:
-              raise SystemExit(f'expected one construction test block, found {validator.count(old_test)}')
-          validator = validator.replace(old_test, new_test)
-          validator_path.write_text(validator)
+              if validator.count(old) != 1:
+                  raise SystemExit(f'expected one construction regression insertion point, found {validator.count(old)}')
+              validator_path.write_text(validator.replace(old, new, 1))
           PY
 
           rm -f .github/workflows/one-shot-station-site-lock.yml
@@ -120,26 +122,23 @@ jobs:
             git push origin HEAD:agent/fix-corsair-remote-view
           fi
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle 8.10.2
-        uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
 
-      - name: Run full Gradle verification
+      - name: Full verification
         id: verify
         continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
           mkdir -p .branch-audit
-          gradle clean check jar --no-daemon --stacktrace 2>&1 \
-            | tee .branch-audit/gradle.log
+          gradle clean check jar --no-daemon --stacktrace 2>&1 | tee .branch-audit/gradle.log
 
       - name: Repeat timing-sensitive validators
         id: stress
@@ -150,8 +149,7 @@ jobs:
           set -o pipefail
           failed=0
           for pass in 1 2 3; do
-            echo "===== timing-sensitive validation pass ${pass} =====" \
-              | tee -a .branch-audit/stress.log
+            echo "===== pass ${pass} =====" | tee -a .branch-audit/stress.log
             gradle validateDedicatedTcpServer \
               validateTcpRemoteSystemVisibility \
               validateTcpViewSwitching \
@@ -161,7 +159,7 @@ jobs:
           done
           exit "$failed"
 
-      - name: Smoke-test built jar
+      - name: Smoke-test jar
         id: smoke
         if: steps.verify.outcome == 'success'
         continue-on-error: true
@@ -174,89 +172,64 @@ jobs:
             java -jar build/libs/StarChem.jar --help | grep -F -- '--server [PORT]'
           } 2>&1 | tee .branch-audit/smoke.log
 
-      - name: Upload complete audit logs
-        if: always()
+      - if: always()
         uses: actions/upload-artifact@v4
         with:
           name: branch-hard-audit-${{ github.sha }}
           path: .branch-audit
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 7
 
-      - name: Publish audit summary to draft PR
+      - name: Report audit result
         if: always()
         uses: actions/github-script@v7
         env:
-          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
-          STRESS_OUTCOME: ${{ steps.stress.outcome }}
-          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          VERIFY: ${{ steps.verify.outcome }}
+          STRESS: ${{ steps.stress.outcome }}
+          SMOKE: ${{ steps.smoke.outcome }}
         with:
           script: |
             const fs = require('fs');
             const marker = '<!-- branch-hard-audit -->';
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            const head = `${owner}:agent/fix-corsair-remote-view`;
-            const pulls = await github.rest.pulls.list({ owner, repo, head, state: 'open' });
-            if (pulls.data.length === 0) return;
-
-            const paths = ['.branch-audit/gradle.log', '.branch-audit/stress.log'];
-            let log = paths.filter(path => fs.existsSync(path))
-              .map(path => `===== ${path} =====\n${fs.readFileSync(path, 'utf8')}`)
-              .join('\n');
-            if (!log) log = 'No Gradle log was produced.';
-            const lines = log.split(/\r?\n/);
-            const needles = [
-              /error:/i,
-              /Exception in thread/,
-              /IllegalStateException/,
-              /AssertionError/,
-              /^Caused by:/,
-              /^> Task .* FAILED/,
-              /^\* What went wrong:/,
-              /validation failed/i,
-              /did not /i,
-              /unexpected/i
-            ];
-            const selected = new Set();
+            const pulls = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: `${context.repo.owner}:agent/fix-corsair-remote-view`,
+              state: 'open'
+            });
+            if (!pulls.data.length) return;
+            const files = ['.branch-audit/gradle.log', '.branch-audit/stress.log'];
+            let text = files.filter(fs.existsSync).map(file => fs.readFileSync(file, 'utf8')).join('\n');
+            const lines = text.split(/\r?\n/);
+            const hits = [];
             for (let i = 0; i < lines.length; i++) {
-              if (!needles.some(pattern => pattern.test(lines[i]))) continue;
-              for (let j = Math.max(0, i - 4); j <= Math.min(lines.length - 1, i + 8); j++) {
-                selected.add(j);
+              if (/error:|Exception in thread|IllegalStateException|AssertionError|FAILED|validation failed/i.test(lines[i])) {
+                hits.push(...lines.slice(Math.max(0, i - 3), Math.min(lines.length, i + 8)));
               }
             }
-            let report;
-            if (selected.size > 0) {
-              report = [...selected].sort((a, b) => a - b)
-                .map(index => `${String(index + 1).padStart(5, ' ')} | ${lines[index]}`)
-                .join('\n');
-            } else {
-              report = lines.slice(-120).join('\n');
-            }
+            let report = (hits.length ? hits : lines.slice(-100)).join('\n');
             if (report.length > 60000) report = report.slice(-60000);
-
-            const body = `${marker}\n## Branch hard audit\n\n` +
-              `Commit: \`${context.sha}\`\n\n` +
-              `Gradle: **${process.env.VERIFY_OUTCOME || 'unknown'}**  ` +
-              `Repeated validators: **${process.env.STRESS_OUTCOME || 'skipped'}**  ` +
-              `Smoke: **${process.env.SMOKE_OUTCOME || 'skipped'}**\n\n` +
-              `<details open><summary>Actionable output</summary>\n\n` +
-              `\`\`\`text\n${report}\n\`\`\`\n</details>`;
-
+            const body = `${marker}\n## Branch hard audit\n\nCommit: \`${context.sha}\`\n\n` +
+              `Gradle: **${process.env.VERIFY || 'unknown'}**  ` +
+              `Repeated validators: **${process.env.STRESS || 'skipped'}**  ` +
+              `Smoke: **${process.env.SMOKE || 'skipped'}**\n\n` +
+              `<details><summary>Audit output</summary>\n\n\`\`\`text\n${report}\n\`\`\`\n</details>`;
             const comments = await github.paginate(github.rest.issues.listComments, {
-              owner, repo, issue_number: pulls.data[0].number, per_page: 100
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pulls.data[0].number,
+              per_page: 100
             });
-            const existing = comments.find(comment =>
-              comment.body && comment.body.includes(marker) && comment.user && comment.user.type === 'Bot');
-            if (existing) {
-              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
-            } else {
-              await github.rest.issues.createComment({
-                owner, repo, issue_number: pulls.data[0].number, body
-              });
-            }
+            const old = comments.find(c => c.body?.includes(marker) && c.user?.type === 'Bot');
+            if (old) await github.rest.issues.updateComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              comment_id: old.id, body
+            });
+            else await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: pulls.data[0].number, body
+            });
 
-      - name: Fail audit when verification failed
+      - name: Enforce audit
         if: steps.verify.outcome != 'success' || steps.stress.outcome == 'failure' || steps.smoke.outcome == 'failure'
-        shell: bash
         run: exit 1
