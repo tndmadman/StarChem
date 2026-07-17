@@ -125,7 +125,8 @@ final class NpcFactionCapacitySystem {
         NpcExpeditionSnapshot snapshot = NpcExpeditionSystem.snapshot(world, faction);
         if (!snapshot.active()) return 0;
         return switch (snapshot.state()) {
-            case ASSEMBLING, LAUNCHING, TRAVELLING, ABORTING -> 1;
+            case ASSEMBLING, LAUNCHING, TRAVELLING, ESTABLISHING -> 1;
+            case ABORTING -> snapshot.builderKey().isBlank() ? 0 : 1;
             default -> 0;
         };
     }
