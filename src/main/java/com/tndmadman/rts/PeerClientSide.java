@@ -285,9 +285,11 @@ final class PeerClientSide {
             ResourceNetDebug.clientReceive("REGULAR", snapshot, lastSnapshotSequence, viewSnapshotMode);
             if (holdingDifferentView(snapshot)) return;
             if (stale(snapshot, "REGULAR")) return;
-            if (viewSnapshotMode) WorldNetAccess.applyView(world, snapshot);
+            boolean applyAsView = shouldApplyAsView(snapshot);
+            if (applyAsView) WorldNetAccess.applyView(world, snapshot);
             else WorldNetAccess.apply(world, snapshot);
             acceptSnapshot(snapshot);
+            updateViewModeFromRegularSnapshot(snapshot);
         } catch (SnapshotDecodeException ex) {
             rejectSnapshot(ex);
         }
@@ -300,8 +302,10 @@ final class PeerClientSide {
                 ResourceNetDebug.clientReceive("FULL_CORRECTION", snapshot, lastSnapshotSequence, viewSnapshotMode);
                 if (holdingDifferentView(snapshot)) return;
                 if (stale(snapshot, "FULL_CORRECTION")) return;
-                WorldNetAccess.applyResourceCorrection(world, snapshot, viewSnapshotMode);
+                boolean applyAsView = shouldApplyAsView(snapshot);
+                WorldNetAccess.applyResourceCorrection(world, snapshot, applyAsView);
                 acceptSnapshot(snapshot);
+                updateViewModeFromRegularSnapshot(snapshot);
                 return;
             }
 
@@ -317,16 +321,11 @@ final class PeerClientSide {
             if (stale(snapshot, "FULL_VIEW")) return;
             WorldNetAccess.applyFullView(world, snapshot);
             acceptSnapshot(snapshot);
-            if (requestedView && snapshot.systemId() != null && !snapshot.systemId().isBlank()) {
-                viewedSystemId = snapshot.systemId();
+            acceptAuthoritativeView(snapshot);
+            if (requestedView) {
                 viewRequestPending = false;
-                viewSnapshotMode = !WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId);
                 viewRequestFallbackSystemId = "";
                 viewRequestFallbackMode = false;
-            }
-            if (!requestedView && WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId)) {
-                viewedSystemId = world.activeSystemId();
-                viewSnapshotMode = false;
             }
             completeInitialSync();
         } catch (SnapshotDecodeException ex) {
@@ -467,6 +466,29 @@ final class PeerClientSide {
     private String ownerFromHomeSystem(String systemId) {
         String prefix = StarSystems.PLAYER_HOME_SYSTEM_ID + "_";
         return systemId != null && systemId.startsWith(prefix) ? systemId.substring(prefix.length()) : "";
+    }
+
+    private boolean shouldApplyAsView(Snapshot snapshot) {
+        return viewSnapshotMode || currentViewSnapshot(snapshot)
+                && !WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId);
+    }
+
+    private void updateViewModeFromRegularSnapshot(Snapshot snapshot) {
+        if (!currentViewSnapshot(snapshot)) return;
+        viewedSystemId = snapshot.systemId();
+        viewSnapshotMode = !WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId);
+    }
+
+    private void acceptAuthoritativeView(Snapshot snapshot) {
+        if (snapshot == null || snapshot.systemId() == null || snapshot.systemId().isBlank()) return;
+        viewedSystemId = snapshot.systemId();
+        viewSnapshotMode = !WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId);
+    }
+
+    private boolean currentViewSnapshot(Snapshot snapshot) {
+        if (snapshot == null || snapshot.systemId() == null || snapshot.systemId().isBlank()) return false;
+        return snapshot.systemId().equals(viewedSystemId)
+                || snapshot.systemId().equals(world.activeSystemId());
     }
 
     private boolean holdingDifferentView(Snapshot snapshot) {

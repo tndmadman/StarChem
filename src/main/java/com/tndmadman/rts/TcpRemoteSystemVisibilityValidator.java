@@ -21,6 +21,7 @@ public final class TcpRemoteSystemVisibilityValidator {
             String ownerId = owner.playerId();
             String source = viewer.world().activeSystemId();
             String target = harness.serverWorld.playerHomeSystemId(ownerId);
+            validateViewSurvivesLastLocalAssetRemoval(harness, viewer, viewerId, source);
             TcpIntegrationHarness.require(!source.equals(target), "remote-view target matched the viewer's current system");
             TcpIntegrationHarness.require(!directlyConnected(harness.serverWorld, source, target),
                     "visibility regression requires a non-adjacent target system");
@@ -70,6 +71,46 @@ public final class TcpRemoteSystemVisibilityValidator {
         WorldNetAccess.applyView(client, corsairSnapshot);
         TcpIntegrationHarness.require(StarSystems.CORSAIR_SYSTEM_ID.equals(client.activeSystemId()),
                 "regular view snapshot did not recover the requested static-system view");
+    }
+
+    private static void validateViewSurvivesLastLocalAssetRemoval(TcpIntegrationHarness harness,
+                                                                          TcpIntegrationHarness.TestClient viewer,
+                                                                          String viewerId,
+                                                                          String systemId) throws Exception {
+        long sequenceBeforeRemoval = viewer.network().clientSnapshotSequence();
+        removePlayerAssets(harness.serverWorld, systemId, viewerId);
+        harness.await(() -> viewer.network().clientSnapshotSequence() > sequenceBeforeRemoval
+                        && systemId.equals(viewer.network().clientViewedSystemId())
+                        && systemId.equals(viewer.world().activeSystemId())
+                        && !currentSystemHasPlayerAssets(viewer.world(), viewerId),
+                8_000, "client abandoned the selected view after its last local asset disappeared");
+        harness.runTicks(30);
+        TcpIntegrationHarness.require(systemId.equals(viewer.world().activeSystemId())
+                        && !currentSystemHasPlayerAssets(viewer.world(), viewerId),
+                "client created local fallback assets after authoritative removal");
+    }
+
+    private static void removePlayerAssets(World world, String systemId, String playerId) {
+        String old = world.activeSystemId();
+        try {
+            world.activateSystem(systemId);
+            world.units.values().removeIf(unit -> playerId.equals(unit.playerId));
+            world.bases.values().removeIf(base -> playerId.equals(base.playerId));
+            world.shots.removeIf(shot -> playerId.equals(shot.ownerId));
+            world.saveActiveSystem();
+        } finally {
+            world.activateSystem(old);
+        }
+    }
+
+    private static boolean currentSystemHasPlayerAssets(World world, String playerId) {
+        for (Unit unit : world.units.values()) {
+            if (playerId.equals(unit.playerId) && unit.hp > 0) return true;
+        }
+        for (Base base : world.bases.values()) {
+            if (playerId.equals(base.playerId) && base.hp > 0) return true;
+        }
+        return false;
     }
 
     private static void validateCorsairViewRemainsLive(TcpIntegrationHarness harness,
