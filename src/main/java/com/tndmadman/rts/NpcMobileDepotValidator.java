@@ -14,6 +14,7 @@ public final class NpcMobileDepotValidator {
 
     static void validateOrThrow() {
         validateFreightersSpreadAcrossMiningClusters();
+        validateFallbackAnchorsNearMapEdge();
         validateHaulersBalanceDepotClaims();
         validateDemandAwareStationDelivery();
     }
@@ -59,6 +60,34 @@ public final class NpcMobileDepotValidator {
                         && Math.abs(second.targetX - secondX) < EPSILON
                         && Math.abs(second.targetY - secondY) < EPSILON,
                 "stable mining clusters produced jittering freighter assignments");
+    }
+
+    private static void validateFallbackAnchorsNearMapEdge() {
+        Fixture fixture = fixture("Mobile Depot Edge Spacing");
+        World world = fixture.world;
+        NpcFaction faction = fixture.faction;
+        Base edgeOutpost = new Base(fixture.outpost.id, faction.id(), "outpost", 205, 205);
+        world.bases.put(edgeOutpost.id, edgeOutpost);
+
+        Unit first = unit(world, faction, 96_251, "freighter", 260, 260);
+        Unit second = unit(world, faction, 96_252, "freighter", 300, 300);
+        Unit third = unit(world, faction, 96_253, "freighter", 340, 340);
+        NpcMobileDepotSystem.update(world, faction);
+
+        for (Unit depot : new Unit[]{first, second, third}) {
+            require(depot.targetX >= 190.0 - EPSILON
+                            && depot.targetY >= 190.0 - EPSILON
+                            && depot.targetX <= world.width - 190.0 + EPSILON
+                            && depot.targetY <= world.height - 190.0 + EPSILON,
+                    "edge fallback assigned an out-of-bounds depot anchor");
+        }
+        require(Calc.distance(first.targetX, first.targetY,
+                        second.targetX, second.targetY) >= 700.0
+                        && Calc.distance(first.targetX, first.targetY,
+                        third.targetX, third.targetY) >= 700.0
+                        && Calc.distance(second.targetX, second.targetY,
+                        third.targetX, third.targetY) >= 700.0,
+                "map-edge clamping collapsed fallback depot anchors together");
     }
 
     private static void validateHaulersBalanceDepotClaims() {
