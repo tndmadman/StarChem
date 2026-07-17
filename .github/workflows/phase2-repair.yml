@@ -45,16 +45,18 @@ jobs:
           from pathlib import Path
           path = Path('src/main/java/com/tndmadman/rts/NpcFactionCapacitySystem.java')
           text = path.read_text(encoding='utf-8')
-          old = '''        if (!snapshot.active()) return 0;
-              return switch (snapshot.state()) {
-          '''
-          new = '''        if (!snapshot.active()) return 0;
-              if (snapshot.state() == NpcExpeditionState.ESTABLISHING
-                      && NpcStationConstructionSystem.hasAnyActivePlan(world, faction)) {
-                  return 0;
-              }
-              return switch (snapshot.state()) {
-          '''
+          old = (
+              "        if (!snapshot.active()) return 0;\n"
+              "        return switch (snapshot.state()) {\n"
+          )
+          new = (
+              "        if (!snapshot.active()) return 0;\n"
+              "        if (snapshot.state() == NpcExpeditionState.ESTABLISHING\n"
+              "                && NpcStationConstructionSystem.hasAnyActivePlan(world, faction)) {\n"
+              "            return 0;\n"
+              "        }\n"
+              "        return switch (snapshot.state()) {\n"
+          )
           if text.count(old) != 1:
               raise SystemExit('capacity conversion insertion point was not found exactly once')
           path.write_text(text.replace(old, new, 1), encoding='utf-8')
