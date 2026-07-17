@@ -13,7 +13,7 @@ import java.util.WeakHashMap;
  * A plan reserves and pays for one package, assigns one deployer, selects a
  * scored site, moves the deployer there, and then uses the parked loaded
  * deployer as the visible construction site until the configured build time is
- * complete. Replanning before or during construction never charges twice.
+ * complete. Replanning before ground work starts never charges twice.
  * Cancellation before ground work starts refunds the package to its source
  * station; once construction starts, the committed package is not refundable.
  */
@@ -139,7 +139,8 @@ final class NpcStationConstructionSystem {
 
         builder.basePackageType = plan.packageType;
         Base source = world.bases.get(plan.sourceBaseId);
-        if (!validSite(world, faction, source, station, plan.targetX, plan.targetY)) {
+        if (plan.phase == NpcConstructionPhase.TRAVELLING
+                && !validSite(world, faction, source, station, plan.targetX, plan.targetY)) {
             Base planningAnchor = source == null
                     ? anchorBase(faction, plan.anchorX, plan.anchorY) : source;
             Site replacement = selectSite(world, faction, planningAnchor, station);
