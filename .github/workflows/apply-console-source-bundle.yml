@@ -50,7 +50,7 @@ jobs:
               body = item.get("body") or ""
               first, _, rest = body.partition("\n")
               if first.startswith("STARCHEM_SOURCE_BUNDLE_PART "):
-                  parts[int(first.split()[2].split("/")[0])] = rest.strip()
+                  parts[int(first.split()[1].split("/")[0])] = rest.strip()
           if sorted(parts) != [1, 2, 3]:
               raise SystemExit(f"missing source bundle parts: {sorted(parts)}")
           raw = base64.b64decode("".join(parts[number] for number in (1, 2, 3)), validate=True)
