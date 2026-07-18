@@ -1,101 +1,68 @@
-name: Release StarChem v1.5.6 TLS Identity Fix
+name: Audit StarChem v1.5.6 Release
 
 on:
   pull_request:
     branches: [main]
     paths:
       - '.github/workflows/release-v1.5.6-tls-identity.yml'
-      - '.github/patches/release-v1.5.6.py.gz.b64'
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: write
   issues: write
 
 jobs:
-  patch-test-tag:
-    name: Patch, verify, commit, and tag v1.5.6
+  audit-release:
+    name: Verify published v1.5.6 package
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 20
     steps:
-      - name: Load patch from PR head
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 1
-      - name: Decode patch
-        shell: bash
-        run: |
-          set -euo pipefail
-          base64 -d .github/patches/release-v1.5.6.py.gz.b64 | gzip -d > /tmp/patch-v1.5.6.py
-          python3 -m py_compile /tmp/patch-v1.5.6.py
-      - name: Check out current main
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - name: Set up Gradle 8.10.2
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.10.2'
-      - name: Verify base and tag
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = '247006d9166c0f3c600f78ee8195bb1a8a630468'
-          ! git show-ref --verify --quiet refs/tags/v1.5.6
-      - name: Apply TLS identity lifecycle fix
-        id: patch
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 /tmp/patch-v1.5.6.py > /tmp/patch-v1.5.6.log 2>&1
-          cat /tmp/patch-v1.5.6.log
-      - name: Report patch failure
-        if: steps.patch.outcome == 'failure'
+      - name: Wait for validated release publication
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          {
-            echo 'The v1.5.6 patch did not apply. Diagnostic output:'
-            echo
-            echo '```text'
-            cat /tmp/patch-v1.5.6.log
-            echo '```'
-          } > /tmp/patch-comment.md
-          gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/patch-comment.md
-          exit 1
-      - name: Run full verification
+          set -euo pipefail
+          READY=0
+          for _ in {1..180}; do
+            if gh release view v1.5.6 --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,isPrerelease,publishedAt,targetCommitish,assets > /tmp/release.json 2>/dev/null; then
+              if python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/release.json'))
+          names={item['name'] for item in data.get('assets', [])}
+          assert data['tagName']=='v1.5.6'
+          assert not data['isDraft'] and not data['isPrerelease']
+          assert {'StarChem-v1.5.6.zip','StarChem-v1.5.6.zip.sha256'} <= names
+          PY
+              then
+                READY=1
+                break
+              fi
+            fi
+            sleep 5
+          done
+          test "$READY" -eq 1
+          cat /tmp/release.json
+      - name: Download and verify release package
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          gradle clean check jar --no-daemon \
-            -PreleaseVersion=1.5.6 \
-            -PbuildCommit=validation-v1.5.6
-      - name: Commit validated fix to main
-        id: commit
+          mkdir /tmp/starchem-release
+          cd /tmp/starchem-release
+          gh release download v1.5.6 --repo "$GITHUB_REPOSITORY" --pattern 'StarChem-v1.5.6.zip*'
+          sha256sum -c StarChem-v1.5.6.zip.sha256
+          unzip -q StarChem-v1.5.6.zip
+          VERSION_OUTPUT="$(./StarChem/run-starchem.sh --version)"
+          echo "$VERSION_OUTPUT"
+          test "$VERSION_OUTPUT" = 'StarChem 1.5.6 (ae79a1d281e4)'
+          test -f StarChem/run-starchem.bat
+          test -f StarChem/run-starchem-server.bat
+      - name: Report successful publication
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add RELEASE_NOTES.md README.md src/main/java/com/tndmadman/rts
-          git commit -m 'Fix TLS identity lifecycle for v1.5.6'
-          FIX_SHA="$(git rev-parse HEAD)"
-          git push origin HEAD:main
-          echo "sha=$FIX_SHA" >> "$GITHUB_OUTPUT"
-      - name: Create immutable v1.5.6 tag
-        shell: bash
-        run: |
-          set -euo pipefail
-          FIX_SHA='${{ steps.commit.outputs.sha }}'
-          git tag -a v1.5.6 "$FIX_SHA" -m 'StarChem v1.5.6'
-          git push origin refs/tags/v1.5.6
+          gh pr comment "${{ github.event.pull_request.number }}" --body 'v1.5.6 publication audit passed: the release is published, both assets are present, the SHA-256 checksum validates, the extracted package reports `StarChem 1.5.6 (ae79a1d281e4)`, and both Windows launchers are included.'
