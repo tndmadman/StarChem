@@ -47,6 +47,7 @@ public final class TcpSlowClientIsolationValidator {
             TcpIntegrationHarness.require(healthy.network().clientConnected(), "healthy client was disconnected by another client's backpressure");
 
             proxy.resumeServerToClient();
+            harness.setAuthoritativePosition(slow.playerId(), slowUnit.unitId, 2400, 2600);
             harness.awaitConverged(slow, slowUnit.unitId, 1.25, 10_000);
             TcpIntegrationHarness.require(healthy.network().clientConnected(), "healthy client did not remain connected after slow client recovery");
             System.out.println("StarChem TCP slow-client isolation validation passed.");

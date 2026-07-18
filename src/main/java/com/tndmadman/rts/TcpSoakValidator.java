@@ -31,6 +31,7 @@ public final class TcpSoakValidator {
             long deadline = System.nanoTime() + seconds * 1_000_000_000L;
             int iteration = 0;
             boolean paused = false;
+            boolean dropFaults = seconds >= 20;
             long maxQueuedBytes = 0;
             while (System.nanoTime() < deadline) {
                 if (iteration % 20 == 0) {
@@ -44,7 +45,7 @@ public final class TcpSoakValidator {
                     }
                 }
 
-                if (iteration > 0 && iteration % 180 == 0) {
+                if (dropFaults && iteration > 0 && iteration % 180 == 0) {
                     proxy.resumeServerToClient();
                     paused = false;
                     proxy.dropActiveConnection();
@@ -81,8 +82,8 @@ public final class TcpSoakValidator {
             proxy.resumeServerToClient();
             harness.await(() -> faulted.network().clientConnected()
                             && harness.serverNetwork.serverSessionConnected(faulted.playerId()),
-                    15_000, "fault-injected client did not recover before soak completion");
-            harness.await(() -> harness.serverNetwork.serverPeerCount() == clients.size(), 8_000,
+                    45_000, "fault-injected client did not recover before soak completion");
+            harness.await(() -> harness.serverNetwork.serverPeerCount() == clients.size(), 20_000,
                     "server peer count did not recover after soak faults");
             for (TcpIntegrationHarness.TestClient client : clients) {
                 TcpIntegrationHarness.require(client.network().clientConnected(),

@@ -1,6 +1,6 @@
-# StarChem v1.5.0
+# StarChem v1.5.1
 
-StarChem v1.5.0 is a dedicated-server save-state, multiplayer identity, reconnect-security, and encrypted-transport release covering changes introduced after v1.4.0.
+StarChem v1.5.1 is a dedicated-server save-state, multiplayer identity, reconnect-security, and encrypted-transport release covering changes introduced after v1.4.0.
 
 ## Durable Dedicated Server Saves
 
@@ -52,7 +52,7 @@ StarChem v1.5.0 is a dedicated-server save-state, multiplayer identity, reconnec
 
 ## Compatibility
 
-All multiplayer clients and servers must use the same v1.5.0 release package and matching packaged configuration files. Older builds are rejected by the compatibility handshake. Existing v1.4.0 dedicated servers do not have durable v1.5.0 server save archives; start v1.5.0 with the desired save directory/name and let the server create its first save.
+All multiplayer clients and servers must use the same v1.5.1 release package and matching packaged configuration files. Older builds are rejected by the compatibility handshake. Existing v1.4.0 dedicated servers do not have durable v1.5.1 server save archives; start v1.5.1 with the desired save directory/name and let the server create its first save.
 
 ## Security Notes
 
