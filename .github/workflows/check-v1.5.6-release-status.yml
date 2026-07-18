@@ -1,0 +1,33 @@
+name: Check v1.5.6 Release Status
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/check-v1.5.6-release-status.yml']
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report workflows for release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=ae79a1d281e42aa14f13577bc3bdd1f83fc5340c&per_page=100" > /tmp/runs.json
+          python3 - <<'PY' > /tmp/status.md
+          import json
+          data=json.load(open('/tmp/runs.json'))
+          print('Workflows currently associated with release commit `ae79a1d281e4`:')
+          print()
+          for run in data.get('workflow_runs', []):
+              print(f"- {run['name']}: {run['status']} / {run.get('conclusion') or 'pending'} ({run['event']})")
+          PY
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/status.md
