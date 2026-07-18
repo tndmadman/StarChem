@@ -177,7 +177,7 @@ public final class TcpRemoteSystemVisibilityValidator {
             TcpIntegrationHarness.require(StarSystems.CORSAIR_SYSTEM_ID.equals(world.activeSystemId()),
                     "Corsair Den system is unavailable on the server");
             String key = Unit.key(ownerId, CORSAIR_TEST_UNIT_ID);
-            Unit unit = new Unit(ownerId, CORSAIR_TEST_UNIT_ID, Rules.STARTING_SHIP,
+            Unit unit = new Unit(ownerId, CORSAIR_TEST_UNIT_ID, "station_builder",
                     world.width * 0.32, world.height * 0.48);
             unit.task = UnitTask.IDLE;
             unit.targetX = unit.x;
