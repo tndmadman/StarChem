@@ -90,7 +90,10 @@ public final class App {
             server = HeadlessGameServer.start(config);
             HeadlessGameServer activeServer = server;
             shutdownHook = new Thread(() -> {
-                if (running.getAndSet(false)) System.out.println("Server shutdown requested.");
+                if (running.getAndSet(false)) {
+                    System.out.println("Server shutdown requested.");
+                    activeServer.stop();
+                }
             }, "starchem-server-shutdown");
             Runtime.getRuntime().addShutdownHook(shutdownHook);
 
