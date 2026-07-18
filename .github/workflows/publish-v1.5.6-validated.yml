@@ -1,0 +1,85 @@
+name: Publish Validated StarChem v1.5.6
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/publish-v1.5.6-validated.yml']
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  publish:
+    name: Publish validated v1.5.6 artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out immutable release tag
+        uses: actions/checkout@v4
+        with:
+          ref: v1.5.6
+          fetch-depth: 1
+      - name: Wait for standard release validation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VALIDATION_RUN: '29661968368'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for _ in {1..300}; do
+            gh run view "$VALIDATION_RUN" --repo "$GITHUB_REPOSITORY" --json status,conclusion > /tmp/validation.json
+            STATUS="$(python3 -c "import json; print(json.load(open('/tmp/validation.json'))['status'])")"
+            if [ "$STATUS" = completed ]; then
+              CONCLUSION="$(python3 -c "import json; print(json.load(open('/tmp/validation.json'))['conclusion'])")"
+              test "$CONCLUSION" = success
+              exit 0
+            fi
+            sleep 5
+          done
+          echo 'Timed out waiting for standard release validation.' >&2
+          exit 1
+      - name: Download and verify validated artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VALIDATION_RUN: '29661968368'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/release-artifact /tmp/extracted
+          gh run download "$VALIDATION_RUN" --repo "$GITHUB_REPOSITORY" --name 'StarChem-release-ae79a1d281e42aa14f13577bc3bdd1f83fc5340c' --dir /tmp/release-artifact
+          cd /tmp/release-artifact
+          test -f StarChem-v1.5.6.zip
+          test -f StarChem-v1.5.6.zip.sha256
+          sha256sum -c StarChem-v1.5.6.zip.sha256
+          unzip -q StarChem-v1.5.6.zip -d /tmp/extracted
+          VERSION_OUTPUT="$(/tmp/extracted/StarChem/run-starchem.sh --version)"
+          echo "$VERSION_OUTPUT"
+          test "$VERSION_OUTPUT" = 'StarChem 1.5.6 (ae79a1d281e4)'
+          test -f /tmp/extracted/StarChem/run-starchem.bat
+          test -f /tmp/extracted/StarChem/run-starchem-server.bat
+      - name: Publish immutable GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view v1.5.6 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Release v1.5.6 already exists; refusing to replace it.' >&2
+            exit 1
+          fi
+          gh release create v1.5.6 \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title 'StarChem v1.5.6' \
+            --notes-file RELEASE_NOTES.md \
+            /tmp/release-artifact/StarChem-v1.5.6.zip \
+            /tmp/release-artifact/StarChem-v1.5.6.zip.sha256
+      - name: Report success
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh pr comment "${{ github.event.pull_request.number }}" --repo "$GITHUB_REPOSITORY" --body 'StarChem v1.5.6 was published from standard release run `29661968368` after its full validation completed successfully. The downloaded ZIP checksum and runtime identity were independently reverified before publication.'
