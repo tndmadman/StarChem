@@ -40,6 +40,7 @@ public final class NpcExpeditionValidator {
                 base -> !fixture.faction().id().equals(base.playerId));
         fixture.world().shots.removeIf(
                 shot -> !fixture.faction().id().equals(shot.ownerId));
+        fixture.world().resources.clear();
         fixture.world().saveActiveSystem();
         fixture.world().activateSystem(previousSystem);
         fixture.world().status = previousStatus;
