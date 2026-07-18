@@ -217,17 +217,87 @@ final class NpcMobileDepotSystem {
         }
         double cx = centerBase == null ? world.width * 0.5 : centerBase.x;
         double cy = centerBase == null ? world.height * 0.5 : centerBase.y;
-        double radius = count == 1 ? 540.0 : Math.max(700.0, MIN_DEPOT_SPACING);
+        double startAngle = deterministicAngle(world, faction);
+        double firstRadius = count == 1 ? 540.0 : MIN_DEPOT_SPACING;
         List<Anchor> out = new ArrayList<>();
-        for (int i = 0; i < count; i++) {
-            double angle = deterministicAngle(world, faction)
-                    + i * Math.PI * 2.0 / count;
-            out.add(new Anchor(cx + Math.cos(angle) * radius,
-                    cy + Math.sin(angle) * radius));
+        out.add(clamp(world, new Anchor(cx + Math.cos(startAngle) * firstRadius,
+                cy + Math.sin(startAngle) * firstRadius)));
+        if (count == 1) return List.copyOf(out);
+
+        List<Anchor> candidates = fallbackCandidates(world, cx, cy, startAngle, count);
+        candidates.removeIf(candidate -> nearestDistance(candidate.x, candidate.y, out) < 1.0);
+        while (out.size() < count && !candidates.isEmpty()) {
+            Anchor best = null;
+            double bestSpacing = -1.0;
+            double bestCenterDistance = Double.MAX_VALUE;
+            boolean bestMeetsSpacing = false;
+            for (Anchor candidate : candidates) {
+                double spacing = nearestDistance(candidate.x, candidate.y, out);
+                double centerDistance = Calc.distance(cx, cy, candidate.x, candidate.y);
+                boolean meetsSpacing = spacing + 0.001 >= MIN_DEPOT_SPACING;
+                if (best == null
+                        || meetsSpacing && !bestMeetsSpacing
+                        || meetsSpacing == bestMeetsSpacing
+                        && (meetsSpacing
+                        ? centerDistance < bestCenterDistance - 0.001
+                        : spacing > bestSpacing + 0.001)
+                        || meetsSpacing == bestMeetsSpacing
+                        && Math.abs(meetsSpacing ? centerDistance - bestCenterDistance
+                        : spacing - bestSpacing) <= 0.001
+                        && fallbackOrder(candidate, world) < fallbackOrder(best, world)) {
+                    best = candidate;
+                    bestSpacing = spacing;
+                    bestCenterDistance = centerDistance;
+                    bestMeetsSpacing = meetsSpacing;
+                }
+            }
+            if (best == null) break;
+            out.add(best);
+            candidates.remove(best);
         }
-        clampAll(world, out);
+
         separate(world, faction, out);
         return List.copyOf(out);
+    }
+
+    private static List<Anchor> fallbackCandidates(World world, double cx, double cy,
+                                                    double startAngle, int count) {
+        List<Anchor> candidates = new ArrayList<>();
+        int rings = Math.max(2, (int)Math.ceil(Math.sqrt(count)) + 1);
+        int samples = Math.max(24, count * 12);
+        for (int ring = 1; ring <= rings; ring++) {
+            double radius = MIN_DEPOT_SPACING * ring;
+            for (int i = 0; i < samples; i++) {
+                double angle = startAngle + i * Math.PI * 2.0 / samples;
+                addFallbackCandidate(candidates, clamp(world,
+                        new Anchor(cx + Math.cos(angle) * radius,
+                                cy + Math.sin(angle) * radius)));
+            }
+        }
+        double maxX = world.width - MAP_MARGIN;
+        double maxY = world.height - MAP_MARGIN;
+        addFallbackCandidate(candidates, new Anchor(MAP_MARGIN, MAP_MARGIN));
+        addFallbackCandidate(candidates, new Anchor(maxX, MAP_MARGIN));
+        addFallbackCandidate(candidates, new Anchor(MAP_MARGIN, maxY));
+        addFallbackCandidate(candidates, new Anchor(maxX, maxY));
+        addFallbackCandidate(candidates, new Anchor(world.width * 0.5, MAP_MARGIN));
+        addFallbackCandidate(candidates, new Anchor(world.width * 0.5, maxY));
+        addFallbackCandidate(candidates, new Anchor(MAP_MARGIN, world.height * 0.5));
+        addFallbackCandidate(candidates, new Anchor(maxX, world.height * 0.5));
+        return candidates;
+    }
+
+    private static void addFallbackCandidate(List<Anchor> candidates, Anchor candidate) {
+        for (Anchor existing : candidates) {
+            if (Calc.distance(existing.x, existing.y, candidate.x, candidate.y) < 1.0) return;
+        }
+        candidates.add(candidate);
+    }
+
+    private static long fallbackOrder(Anchor anchor, World world) {
+        long x = Math.round(anchor.x * 10.0);
+        long y = Math.round(anchor.y * 10.0);
+        return x * Math.max(1L, Math.round(world.height * 10.0) + 1L) + y;
     }
 
     private static void clampAll(World world, List<Anchor> anchors) {

@@ -63,9 +63,19 @@ public final class NpcMobileDepotValidator {
     }
 
     private static void validateFallbackAnchorsNearMapEdge() {
-        Fixture fixture = fixture("Mobile Depot Edge Spacing");
+        for (long seed = 41_000; seed < 41_064; seed++) {
+            validateFallbackAnchorsNearMapEdge(seed);
+        }
+    }
+
+    private static void validateFallbackAnchorsNearMapEdge(long seed) {
+        Fixture fixture = fixture("Mobile Depot Edge Spacing " + seed);
         World world = fixture.world;
         NpcFaction faction = fixture.faction;
+        world.useSystemSeed(seed);
+        world.units.clear();
+        world.bases.clear();
+        world.resources.clear();
         Base edgeOutpost = new Base(fixture.outpost.id, faction.id(), "outpost", 205, 205);
         world.bases.put(edgeOutpost.id, edgeOutpost);
 
@@ -79,7 +89,7 @@ public final class NpcMobileDepotValidator {
                             && depot.targetY >= 190.0 - EPSILON
                             && depot.targetX <= world.width - 190.0 + EPSILON
                             && depot.targetY <= world.height - 190.0 + EPSILON,
-                    "edge fallback assigned an out-of-bounds depot anchor");
+                    "edge fallback assigned an out-of-bounds depot anchor for seed " + seed);
         }
         require(Calc.distance(first.targetX, first.targetY,
                         second.targetX, second.targetY) >= 700.0
@@ -87,7 +97,10 @@ public final class NpcMobileDepotValidator {
                         third.targetX, third.targetY) >= 700.0
                         && Calc.distance(second.targetX, second.targetY,
                         third.targetX, third.targetY) >= 700.0,
-                "map-edge clamping collapsed fallback depot anchors together");
+                "map-edge clamping collapsed fallback depot anchors together for seed " + seed
+                        + " | first=(" + first.targetX + ',' + first.targetY + ')'
+                        + " | second=(" + second.targetX + ',' + second.targetY + ')'
+                        + " | third=(" + third.targetX + ',' + third.targetY + ')');
     }
 
     private static void validateHaulersBalanceDepotClaims() {
