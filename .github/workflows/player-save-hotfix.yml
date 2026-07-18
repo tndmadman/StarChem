@@ -1,18 +1,12 @@
 name: Permanent Player Save Hotfix
-# Trigger after workflow registration on main.
-# Pull-request trigger commit, revision 6.
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/player-save-hotfix.yml'
+    branches: [main]
+    paths: ['.github/workflows/player-save-hotfix.yml']
   pull_request:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/player-save-hotfix.yml'
+    branches: [main]
+    paths: ['.github/workflows/player-save-hotfix.yml']
 
 permissions:
   contents: write
@@ -24,49 +18,46 @@ jobs:
     outputs:
       new_sha: ${{ steps.commit.outputs.new_sha }}
     steps:
-      - name: Check out main
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle 8.10.2
-        uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
 
-      - name: Remove automatic player deletion and update regression coverage
+      - name: Preserve offline players permanently
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
 
-          def remove_java_method(lines: list[str], signature: str) -> list[str]:
+          def remove_method(text: str, signature: str) -> str:
+              lines = text.splitlines(keepends=True)
               starts = [i for i, line in enumerate(lines) if signature in line]
               if len(starts) != 1:
-                  raise SystemExit(f"Expected one method containing {signature!r}, found {len(starts)}")
+                  raise SystemExit(f"Expected one {signature}, found {len(starts)}")
               start = starts[0]
               depth = 0
-              seen_open = False
-              for i in range(start, len(lines)):
-                  depth += lines[i].count('{')
-                  seen_open = seen_open or '{' in lines[i]
-                  depth -= lines[i].count('}')
-                  if seen_open and depth == 0:
-                      end = i
+              opened = False
+              for end in range(start, len(lines)):
+                  depth += lines[end].count('{')
+                  opened = opened or '{' in lines[end]
+                  depth -= lines[end].count('}')
+                  if opened and depth == 0:
                       break
               else:
-                  raise SystemExit(f"Could not find end of method {signature}")
-              while end + 1 < len(lines) and lines[end + 1].strip() == '':
+                  raise SystemExit(f"Unclosed method: {signature}")
+              while end + 1 < len(lines) and not lines[end + 1].strip():
                   end += 1
-              return lines[:start] + lines[end + 1:]
+              return ''.join(lines[:start] + lines[end + 1:])
 
           server_path = Path('src/main/java/com/tndmadman/rts/PeerServerSide.java')
           server = server_path.read_text(encoding='utf-8')
@@ -85,12 +76,12 @@ jobs:
               '        world.status = session.name + " " + reason + "; session retained for " + (DISCONNECT_GRACE_MS / 1000) + " seconds.";\n',
               '        world.status = session.name + " " + reason + "; player identity and world state retained indefinitely.";\n')
           server = server.replace('    static long disconnectGraceMs() { return DISCONNECT_GRACE_MS; }\n', '')
-          server_lines = server.splitlines(keepends=True)
-          server_lines = remove_java_method(server_lines, 'private void destroySession(String playerId)')
-          server_lines = remove_java_method(server_lines, 'private void removeExpiredSessions(long now)')
-          server_lines = remove_java_method(server_lines, 'private boolean sessionExpired(PlayerSession session, long now)')
-          server = ''.join(server_lines)
-          forbidden = ('destroySession', 'sessionExpired', 'removeExpiredSessions', 'disconnectGraceMs', 'DISCONNECT_GRACE_MS')
+          server = server.replace('Session expired or token was rejected.', 'Session token was rejected.')
+          server = remove_method(server, 'private void destroySession(String playerId)')
+          server = remove_method(server, 'private void removeExpiredSessions(long now)')
+          server = remove_method(server, 'private boolean sessionExpired(PlayerSession session, long now)')
+          forbidden = ('destroySession', 'sessionExpired', 'removeExpiredSessions',
+                       'disconnectGraceMs', 'DISCONNECT_GRACE_MS')
           remaining = [token for token in forbidden if token in server]
           if remaining:
               raise SystemExit('Automatic deletion code remains: ' + ', '.join(remaining))
@@ -101,37 +92,45 @@ jobs:
           socket_line = next(i for i, line in enumerate(lines)
                              if 'Socket restartedClient = connect(loopback, transport.localPort())) {' in line)
           indent = lines[socket_line].split('Socket', 1)[0]
-          lines[socket_line] = lines[socket_line].replace(')) {', '));')
-          lines.insert(socket_line + 1, indent + 'Socket longOfflineClient = connect(loopback, transport.localPort())) {\n')
+          lines[socket_line] = lines[socket_line].replace(') {', ';')
+          lines.insert(socket_line + 1,
+                       indent + 'Socket longOfflineClient = connect(loopback, transport.localPort())) {\n')
 
           wait_line = next(i for i, line in enumerate(lines)
                            if 'waitConnection(transport, loopback, restartedClient.getLocalPort());' in line)
           wait_indent = lines[wait_line].split('waitConnection', 1)[0]
-          lines.insert(wait_line + 1, wait_indent + 'waitConnection(transport, loopback, longOfflineClient.getLocalPort());\n')
+          lines.insert(wait_line + 1,
+                       wait_indent + 'waitConnection(transport, loopback, longOfflineClient.getLocalPort());\n')
 
-          start = next(i for i, line in enumerate(lines) if 'server.removePeer(restartedEndpoint);' in line)
-          end = next(i for i in range(start, len(lines)) if 'expired session did not remove P1 research' in lines[i])
-          block = (
-              '            server.removePeer(restartedEndpoint);\n'
-              '            long longOfflineNow = System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000;\n'
-              '            server.tick(longOfflineNow);\n'
-              '            require(world.hasLiveAssets("P1"), "long offline period deleted P1 assets");\n'
-              '            require(world.hasResearch("P1", "session-recovery-marker"), "long offline period deleted P1 research");\n'
-              '            require(server.persistentSessions().stream().anyMatch(saved -> "P1".equals(saved.playerId())),\n'
-              '                    "long offline period deleted the persistent P1 identity");\n'
-              '\n'
-              '            ConnectionId longOfflineEndpoint = transport.connectionId(loopback, longOfflineClient.getLocalPort());\n'
-              '            server.join(longOfflineEndpoint, loopback, longOfflineClient.getLocalPort(), "Recovery Client",\n'
-              '                    PasswordAuth.verifier("Recovery Client", "validator-password"), false, "");\n'
-              '            String longOfflineWelcome = receivePayload(longOfflineClient, "WELCOME|");\n'
-              '            require(longOfflineWelcome.startsWith("WELCOME|P1|"),\n'
-              '                    "same name and password received a new player slot after a long offline period");\n'
-              '            require(server.owns(longOfflineEndpoint, "P1"),\n'
-              '                    "long-offline password reclaim did not restore P1 ownership");\n'
-              '            require(world.hasLiveAssets("P1"), "long-offline password reclaim changed P1 assets");\n'
-              '            require(world.hasResearch("P1", "session-recovery-marker"),\n'
-              '                    "long-offline password reclaim changed P1 research");\n'
-          )
+          start = next(i for i, line in enumerate(lines)
+                       if 'server.removePeer(restartedEndpoint);' in line)
+          end = next(i for i in range(start, len(lines))
+                     if 'expired session did not remove P1 research' in lines[i])
+          block = '''            server.removePeer(restartedEndpoint);
+              long longOfflineNow = System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000;
+              server.tick(longOfflineNow);
+              require(world.hasLiveAssets("P1"), "long offline period deleted P1 assets");
+              require(world.hasResearch("P1", "session-recovery-marker"),
+                      "long offline period deleted P1 research");
+              require(server.persistentSessions().stream()
+                              .anyMatch(saved -> "P1".equals(saved.playerId())),
+                      "long offline period deleted the persistent P1 identity");
+
+              ConnectionId longOfflineEndpoint = transport.connectionId(
+                      loopback, longOfflineClient.getLocalPort());
+              server.join(longOfflineEndpoint, loopback, longOfflineClient.getLocalPort(),
+                      "Recovery Client",
+                      PasswordAuth.verifier("Recovery Client", "validator-password"), false, "");
+              String longOfflineWelcome = receivePayload(longOfflineClient, "WELCOME|");
+              require(longOfflineWelcome.startsWith("WELCOME|P1|"),
+                      "same name and password received a new player slot after a long offline period");
+              require(server.owns(longOfflineEndpoint, "P1"),
+                      "long-offline password reclaim did not restore P1 ownership");
+              require(world.hasLiveAssets("P1"),
+                      "long-offline password reclaim changed P1 assets");
+              require(world.hasResearch("P1", "session-recovery-marker"),
+                      "long-offline password reclaim changed P1 research");
+          '''
           lines[start:end + 1] = block.splitlines(keepends=True)
           validator = ''.join(lines)
           if 'disconnectGraceMs' in validator or 'expired session did not remove' in validator:
@@ -140,14 +139,16 @@ jobs:
 
           notes_path = Path('RELEASE_NOTES.md')
           notes = notes_path.read_text(encoding='utf-8')
-          old_note = '- Preserved disconnected players for the configured grace period instead of immediately deleting their assets, while still pruning expired abandoned sessions.\n'
-          new_note = (
-              '- Player identities, research, ships, stations, inventories, production queues, home systems, and ownership now remain indefinitely when clients disconnect, time out, close the game, or leave normally.\n'
-              '- Removed automatic session-expiry deletion; only future explicit server administration commands may delete player save data.\n'
-          )
-          if old_note not in notes:
-              raise SystemExit('Obsolete grace-period release note was not found')
-          notes_path.write_text(notes.replace(old_note, new_note, 1), encoding='utf-8')
+          old = ('- Preserved disconnected players for the configured grace period instead of '
+                 'immediately deleting their assets, while still pruning expired abandoned sessions.\n')
+          new = ('- Player identities, research, ships, stations, inventories, production queues, '
+                 'home systems, and ownership now remain indefinitely when clients disconnect, '
+                 'time out, close the game, or leave normally.\n'
+                 '- Removed automatic session-expiry deletion; only future explicit server '
+                 'administration commands may delete player save data.\n')
+          if old not in notes:
+              raise SystemExit('Obsolete grace-period release note not found')
+          notes_path.write_text(notes.replace(old, new, 1), encoding='utf-8')
           PY
 
           ! grep -R -n -E 'destroySession|sessionExpired|removeExpiredSessions|disconnectGraceMs|DISCONNECT_GRACE_MS' \
@@ -155,29 +156,7 @@ jobs:
             src/main/java/com/tndmadman/rts/SessionRecoveryValidator.java
 
       - name: Run full verification
-        id: verification
-        continue-on-error: true
-        shell: bash
-        run: |
-          set +e
-          gradle clean check --no-daemon -PreleaseVersion=1.5.3 -PbuildCommit="$(git rev-parse HEAD)" > verification.log 2>&1
-          STATUS=$?
-          cat verification.log
-          exit "$STATUS"
-
-      - name: Upload verification diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: StarChem-hotfix-verification-${{ github.run_id }}
-          path: verification.log
-          if-no-files-found: error
-          retention-days: 2
-
-      - name: Stop after failed verification
-        if: steps.verification.outcome == 'failure'
-        shell: bash
-        run: exit 1
+        run: gradle clean check --no-daemon -PreleaseVersion=1.5.3 -PbuildCommit="$(git rev-parse HEAD)"
 
       - name: Commit hotfix directly to main
         id: commit
@@ -196,40 +175,35 @@ jobs:
           git push origin HEAD:main
           echo "new_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Build deterministic v1.5.3 package
+      - name: Build v1.5.3 package
         shell: bash
         run: |
           set -euo pipefail
           NEW_SHA='${{ steps.commit.outputs.new_sha }}'
-          gradle clean check jar --no-daemon -PreleaseVersion=1.5.3 -PbuildCommit="$NEW_SHA"
-
+          gradle clean check jar --no-daemon \
+            -PreleaseVersion=1.5.3 -PbuildCommit="$NEW_SHA"
           rm -rf release
           mkdir -p release/StarChem
           cp build/libs/StarChem.jar release/StarChem/StarChem.jar
           cp -R config release/StarChem/config
-          cp packaging/run-starchem.bat release/StarChem/run-starchem.bat
-          cp packaging/run-starchem-server.bat release/StarChem/run-starchem-server.bat
-          cp packaging/run-starchem.sh release/StarChem/run-starchem.sh
-          cp packaging/run-starchem-server.sh release/StarChem/run-starchem-server.sh
+          cp packaging/run-starchem.bat packaging/run-starchem-server.bat release/StarChem/
+          cp packaging/run-starchem.sh packaging/run-starchem-server.sh release/StarChem/
           chmod +x release/StarChem/run-starchem.sh release/StarChem/run-starchem-server.sh
-          cp README.md release/StarChem/README.md
-          cp LICENSE release/StarChem/LICENSE
-          cp THIRD_PARTY_NOTICES.md release/StarChem/THIRD_PARTY_NOTICES.md
-
+          cp README.md LICENSE THIRD_PARTY_NOTICES.md release/StarChem/
           COMMIT_EPOCH="$(git show -s --format=%ct "$NEW_SHA")"
           find release/StarChem -exec touch -d "@$COMMIT_EPOCH" {} +
           (
             cd release
-            mapfile -t ZIP_ENTRIES < <(find StarChem -print | LC_ALL=C sort)
-            printf '%s\n' "${ZIP_ENTRIES[@]}" | zip -X -q StarChem-v1.5.3.zip -@
+            mapfile -t ENTRIES < <(find StarChem -print | LC_ALL=C sort)
+            printf '%s\n' "${ENTRIES[@]}" | zip -X -q StarChem-v1.5.3.zip -@
           )
           cp release/StarChem-v1.5.3.zip .
           sha256sum StarChem-v1.5.3.zip > StarChem-v1.5.3.zip.sha256
           sha256sum -c StarChem-v1.5.3.zip.sha256
-          java -jar build/libs/StarChem.jar --version | grep -Fx "StarChem 1.5.3 (${NEW_SHA:0:12})"
+          java -jar build/libs/StarChem.jar --version | \
+            grep -Fx "StarChem 1.5.3 (${NEW_SHA:0:12})"
 
-      - name: Upload release package
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: StarChem-v1.5.3-hotfix
           path: |
@@ -243,62 +217,52 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Download release package
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: StarChem-v1.5.3-hotfix
           path: release-artifact
-
-      - name: Validate Windows launchers
+      - name: Validate Windows package
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $zip = Join-Path 'release-artifact' 'StarChem-v1.5.3.zip'
           $checksum = Join-Path 'release-artifact' 'StarChem-v1.5.3.zip.sha256'
-          $expected = ((Get-Content -LiteralPath $checksum -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
-          $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
-          if ($expected -ne $actual) { throw 'Release checksum mismatch.' }
+          $expected = ((Get-Content $checksum -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+          $actual = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+          if ($expected -ne $actual) { throw 'Checksum mismatch.' }
           $root = Join-Path $env:RUNNER_TEMP 'starchem-v153-hotfix'
-          Remove-Item -Recurse -Force $root -ErrorAction SilentlyContinue
-          Expand-Archive -LiteralPath $zip -DestinationPath $root
+          Expand-Archive $zip $root
           Push-Location (Join-Path $root 'StarChem')
           try {
             $version = (& cmd /c run-starchem.bat --version | Out-String).Trim()
             $sha = '${{ needs.apply-test-package.outputs.new_sha }}'
-            $expectedVersion = "StarChem 1.5.3 ($($sha.Substring(0, 12)))"
-            if ($version -ne $expectedVersion) { throw "Unexpected version output: $version" }
+            if ($version -ne "StarChem 1.5.3 ($($sha.Substring(0, 12)))") {
+              throw "Unexpected version: $version"
+            }
             $help = (& cmd /c run-starchem-server.bat --help | Out-String)
-            if ($LASTEXITCODE -ne 0 -or $help -notmatch '--server \[PORT\]') { throw 'Server launcher smoke test failed.' }
-          } finally {
-            Pop-Location
-          }
+            if ($LASTEXITCODE -ne 0 -or $help -notmatch '--server \[PORT\]') {
+              throw 'Server launcher smoke failed.'
+            }
+          } finally { Pop-Location }
 
   replace-release:
-    needs:
-      - apply-test-package
-      - windows-launcher-smoke
+    needs: [apply-test-package, windows-launcher-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Check out fixed main
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
-
-      - name: Download validated package
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: StarChem-v1.5.3-hotfix
           path: release-artifact
-
-      - name: Replace v1.5.3 tag and GitHub release
+      - name: Replace v1.5.3 release
         env:
           GH_TOKEN: ${{ github.token }}
           NEW_SHA: ${{ needs.apply-test-package.outputs.new_sha }}
