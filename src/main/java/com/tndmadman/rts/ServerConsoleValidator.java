@@ -4,6 +4,8 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 
@@ -20,6 +22,7 @@ public final class ServerConsoleValidator {
         validateBoundedQueue();
         validateReaderEof();
         validateDurationParsing();
+        validateAdminPolicyPersistence();
         validateDispatch();
     }
 
@@ -54,10 +57,29 @@ public final class ServerConsoleValidator {
         require(ServerCommandDispatcher.parseDurationSeconds("15") == 15, "plain seconds were not parsed");
         require(ServerCommandDispatcher.parseDurationSeconds("2m") == 120, "minutes were not parsed");
         require(ServerCommandDispatcher.parseDurationSeconds("1h") == 3600, "hours were not parsed");
+        require(ServerCommandDispatcher.parseDurationSeconds("1d") == 86_400, "days were not parsed");
         boolean rejected = false;
         try { ServerCommandDispatcher.parseDurationSeconds("0"); }
         catch (IllegalArgumentException ex) { rejected = true; }
-        require(rejected, "zero shutdown duration was accepted");
+        require(rejected, "zero duration was accepted");
+    }
+
+    private static void validateAdminPolicyPersistence() throws Exception {
+        Path dir = Files.createTempDirectory("starchem-admin-validator-");
+        try {
+            ServerAdminStore store = new ServerAdminStore(dir, "validation");
+            ServerAccessPolicy expected = new ServerAccessPolicy(true, "Testing", 12, "Welcome pilot");
+            store.save(expected);
+            ServerAccessPolicy restored = store.load();
+            require(expected.equals(restored), "server administration policy did not round-trip");
+            require(Files.isRegularFile(store.path()), "server administration file was not created");
+        } finally {
+            try (var stream = Files.walk(dir)) {
+                stream.sorted((a, b) -> b.compareTo(a)).forEach(path -> {
+                    try { Files.deleteIfExists(path); } catch (Exception ignored) { }
+                });
+            }
+        }
     }
 
     private static void validateDispatch() {
@@ -73,12 +95,22 @@ public final class ServerConsoleValidator {
         require(target.statusCalls == 1, "status command was not dispatched");
 
         dispatcher.execute("players");
+        dispatcher.execute("leaderboard top 5");
+        dispatcher.execute("player P1 assets");
+        dispatcher.execute("sessions connected");
         dispatcher.execute("uptime");
         dispatcher.execute("perf network");
         dispatcher.execute("systems controlled");
         dispatcher.execute("system SYS-1");
         dispatcher.execute("connection P1");
+        dispatcher.execute("resync P1");
+        dispatcher.execute("server-info compatibility");
         dispatcher.execute("save-info");
+        dispatcher.execute("autosave set 5m");
+        dispatcher.execute("backups verify current");
+        dispatcher.execute("maintenance on Testing");
+        dispatcher.execute("slots set 12");
+        dispatcher.execute("motd set Welcome pilot");
         dispatcher.execute("save");
         dispatcher.execute("say Maintenance soon");
         dispatcher.execute("shutdown 2m Maintenance");
@@ -92,11 +124,19 @@ public final class ServerConsoleValidator {
         dispatcher.execute("stop");
 
         require(target.playerCalls == 1, "players command was not dispatched");
+        require(target.leaderboardCalls == 1 && target.leaderboardLimit == 5, "leaderboard command was not dispatched");
+        require(target.playerDetailCalls == 1, "player detail command was not dispatched");
+        require(target.sessionsCalls == 1, "sessions command was not dispatched");
         require(target.uptimeCalls == 1, "uptime command was not dispatched");
         require(target.performanceCalls == 1, "perf command was not dispatched");
         require(target.systemsCalls == 1 && target.systemCalls == 1, "system commands were not dispatched");
         require(target.connectionCalls == 1, "connection command was not dispatched");
+        require(target.resyncCalls == 1, "resync command was not dispatched");
+        require(target.serverInfoCalls == 1, "server-info command was not dispatched");
         require(target.saveInfoCalls == 1, "save-info command was not dispatched");
+        require(target.autosaveCalls == 1 && target.backupCalls == 1, "save administration commands were not dispatched");
+        require(target.maintenanceCalls == 1 && target.slotsCalls == 1 && target.motdCalls == 1,
+                "access-policy commands were not dispatched");
         require(target.saveCalls == 1, "save command was not dispatched");
         require(target.announceCalls == 1, "say command was not dispatched");
         require(target.scheduleCalls == 1 && target.scheduledSeconds == 120, "scheduled shutdown was not dispatched");
@@ -133,12 +173,23 @@ public final class ServerConsoleValidator {
     private static final class FakeTarget implements ServerCommandDispatcher.Target {
         int statusCalls;
         int playerCalls;
+        int leaderboardCalls;
+        int leaderboardLimit;
+        int playerDetailCalls;
+        int sessionsCalls;
         int uptimeCalls;
         int performanceCalls;
         int systemsCalls;
         int systemCalls;
         int connectionCalls;
+        int resyncCalls;
+        int serverInfoCalls;
         int saveInfoCalls;
+        int autosaveCalls;
+        int backupCalls;
+        int maintenanceCalls;
+        int slotsCalls;
+        int motdCalls;
         int saveCalls;
         int announceCalls;
         int scheduleCalls;
@@ -152,12 +203,22 @@ public final class ServerConsoleValidator {
 
         @Override public String status() { statusCalls++; return "HOST Test"; }
         @Override public List<String> players() { playerCalls++; return List.of("P1 | Alpha | connected", "P2 | Beta | retained"); }
+        @Override public List<String> leaderboard(int limit) { leaderboardCalls++; leaderboardLimit = limit; return List.of("1. Alpha"); }
+        @Override public List<String> player(String selector, String section) { playerDetailCalls++; return List.of(selector + " " + section); }
+        @Override public List<String> sessions(String filter) { sessionsCalls++; return List.of(filter); }
         @Override public List<String> uptime() { uptimeCalls++; return List.of("Uptime: 1m"); }
         @Override public List<String> performance(String scope) { performanceCalls++; return List.of("Network: " + scope); }
         @Override public List<String> systems(String filter, String value) { systemsCalls++; return List.of("SYS-1"); }
         @Override public List<String> system(String selector) { systemCalls++; return List.of(selector); }
         @Override public List<String> connection(String selector) { connectionCalls++; return List.of(selector + " connected"); }
+        @Override public List<String> resync(String selector) { resyncCalls++; return List.of("resync " + selector); }
+        @Override public List<String> serverInfo(String scope) { serverInfoCalls++; return List.of(scope); }
         @Override public List<String> saveInfo() { saveInfoCalls++; return List.of("Save: test"); }
+        @Override public List<String> autosave(List<String> args) { autosaveCalls++; return List.of("autosave"); }
+        @Override public List<String> backups(List<String> args) { backupCalls++; return List.of("backups"); }
+        @Override public List<String> maintenance(List<String> args) { maintenanceCalls++; return List.of("maintenance"); }
+        @Override public List<String> slots(List<String> args) { slotsCalls++; return List.of("slots"); }
+        @Override public List<String> motd(List<String> args) { motdCalls++; return List.of("motd"); }
         @Override public String announce(String message) { announceCalls++; return "sent " + message; }
         @Override public String scheduleShutdown(long delaySeconds, String reason) { scheduleCalls++; scheduledSeconds = delaySeconds; return "scheduled"; }
         @Override public String cancelShutdown() { cancelCalls++; return "cancelled"; }
