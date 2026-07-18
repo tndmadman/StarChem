@@ -14,7 +14,7 @@ jobs:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
-      - name: Download failed standard CI logs
+      - name: Download failed standard CI log
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -24,25 +24,13 @@ jobs:
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/tndmadman/StarChem/actions/jobs/88020433957/logs" \
+            "https://api.github.com/repos/tndmadman/StarChem/actions/jobs/88020995498/logs" \
             -o failed-ci.log
-          curl -fsSL \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/tndmadman/StarChem/actions/jobs/88020433874/logs" \
-            -o failed-java-ci.log || true
           grep -n -E 'FAILED|Exception|Caused by|What went wrong|Execution failed|IllegalState|FAILURE|error|Error' failed-ci.log > failed-ci-summary.txt || true
-          tail -n 180 failed-ci.log > failed-ci-tail.txt
-          if [[ -f failed-java-ci.log ]]; then
-            grep -n -E 'FAILED|Exception|Caused by|What went wrong|Execution failed|IllegalState|FAILURE|error|Error' failed-java-ci.log > failed-java-ci-summary.txt || true
-            tail -n 180 failed-java-ci.log > failed-java-ci-tail.txt
-          fi
+          tail -n 220 failed-ci.log > failed-ci-tail.txt
       - uses: actions/upload-artifact@v4
         with:
           name: phase4-failed-standard-logs
           path: |
             failed-ci-summary.txt
             failed-ci-tail.txt
-            failed-java-ci-summary.txt
-            failed-java-ci-tail.txt
