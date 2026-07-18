@@ -9,18 +9,28 @@ import java.util.Map;
 
 /** Parses and executes local dedicated-server administration commands. */
 final class ServerCommandDispatcher {
-    private static final long MAX_SHUTDOWN_SECONDS = 24 * 60 * 60;
+    private static final long MAX_DURATION_SECONDS = 24 * 60 * 60;
     private static final int MAX_NOTICE_LENGTH = 512;
 
     interface Target {
         String status();
         List<String> players();
+        List<String> leaderboard(int limit);
+        List<String> player(String selector, String section);
+        List<String> sessions(String filter);
         List<String> uptime();
         List<String> performance(String scope);
         List<String> systems(String filter, String value);
         List<String> system(String selector);
         List<String> connection(String selector);
+        List<String> resync(String selector);
+        List<String> serverInfo(String scope);
         List<String> saveInfo();
+        List<String> autosave(List<String> args);
+        List<String> backups(List<String> args);
+        List<String> maintenance(List<String> args);
+        List<String> slots(List<String> args);
+        List<String> motd(List<String> args);
         String announce(String message);
         String scheduleShutdown(long delaySeconds, String reason);
         String cancelShutdown();
@@ -46,13 +56,23 @@ final class ServerCommandDispatcher {
         register("help", "help [command]", "Show available commands or detailed command help.", this::help);
         register("status", "status", "Print server, network, save, and autosave status.", this::status);
         register("players", "players", "List connected and retained player sessions.", this::players);
+        register("leaderboard", "leaderboard [top <count>]", "Show authoritative player rankings.", this::leaderboard);
+        register("player", "player <id-or-name> [assets|research|systems]", "Show detailed player state.", this::player);
+        register("sessions", "sessions [connected|retained]", "Show sanitized server session details.", this::sessions);
         register("uptime", "uptime", "Show server start time, uptime, saves, and autosave timing.", this::uptime);
         register("perf", "perf [all|network|simulation]", "Show simulation and network performance counters.", this::performance);
         register("systems", "systems [active|controlled|player <id-or-name>]", "List authoritative galaxy systems.", this::systems);
         register("system", "system <id-or-name>", "Show detailed information for one galaxy system.", this::system);
         register("connection", "connection <player-id-or-name>", "Show sanitized connection diagnostics for a player.", this::connection);
+        register("resync", "resync <player-id-or-name|all|resources>", "Resend authoritative state or force resource correction.", this::resync);
+        register("server-info", "server-info [compatibility|tls]", "Show server build, protocol, configuration, and TLS identity.", this::serverInfo);
         register("save-info", "save-info", "Show the current save path and save-file state.", this::saveInfo);
         register("save", "save", "Write a manual dedicated-server save.", this::save);
+        register("autosave", "autosave <status|set <duration>|on|off|reset>", "Inspect or change the runtime autosave interval.", this::autosave);
+        register("backups", "backups <list|create [label]|verify <selector>|prune>", "Manage and verify save backups.", this::backups);
+        register("maintenance", "maintenance <status|on [reason]|off>", "Control admission of new player identities.", this::maintenance);
+        register("slots", "slots [set <count>|unlimited]", "Inspect or change the player-session limit.", this::slots);
+        register("motd", "motd <show|set <message>|clear|send>", "Manage the persistent message of the day.", this::motd);
         register("say", "say <message>", "Broadcast a server notice to connected clients.", this::say);
         register("shutdown", "shutdown [now|status|cancel|<duration>] [reason]", "Schedule, inspect, cancel, or perform shutdown.", this::shutdown);
         register("disconnect", "disconnect <player-id-or-name> [reason]", "Temporarily disconnect a player while retaining the session.", this::disconnect);
@@ -134,7 +154,7 @@ final class ServerCommandDispatcher {
     }
 
     static long parseDurationSeconds(String value) {
-        if (value == null || value.isBlank()) throw new IllegalArgumentException("shutdown duration is required.");
+        if (value == null || value.isBlank()) throw new IllegalArgumentException("duration is required.");
         String normalized = value.trim().toLowerCase(Locale.ROOT);
         long multiplier = 1;
         char suffix = normalized.charAt(normalized.length() - 1);
@@ -143,18 +163,19 @@ final class ServerCommandDispatcher {
                 case 's' -> 1;
                 case 'm' -> 60;
                 case 'h' -> 60 * 60;
-                default -> throw new IllegalArgumentException("shutdown duration must use seconds, m, or h.");
+                case 'd' -> 24 * 60 * 60;
+                default -> throw new IllegalArgumentException("duration must use seconds, s, m, h, or d.");
             };
             normalized = normalized.substring(0, normalized.length() - 1);
         }
         try {
             long amount = Long.parseLong(normalized);
-            if (amount < 1 || amount > MAX_SHUTDOWN_SECONDS / multiplier) {
-                throw new IllegalArgumentException("shutdown duration must be between 1 second and 24 hours.");
+            if (amount < 1 || amount > MAX_DURATION_SECONDS / multiplier) {
+                throw new IllegalArgumentException("duration must be between 1 second and 24 hours.");
             }
             return amount * multiplier;
         } catch (NumberFormatException ex) {
-            throw new IllegalArgumentException("shutdown duration is not numeric.");
+            throw new IllegalArgumentException("duration is not numeric.");
         }
     }
 
@@ -191,12 +212,54 @@ final class ServerCommandDispatcher {
     private void players(List<String> args) {
         if (!requireNoArgs("players", args)) return;
         List<String> players = target.players();
-        if (players == null || players.isEmpty()) {
-            output.println("No player sessions.");
+        if (players == null || players.isEmpty()) output.println("No player sessions.");
+        else {
+            output.println("Players (" + players.size() + "):");
+            printLines(players);
+        }
+    }
+
+    private void leaderboard(List<String> args) {
+        int limit = Integer.MAX_VALUE;
+        if (!args.isEmpty()) {
+            if (args.size() != 2 || !"top".equalsIgnoreCase(args.get(0))) {
+                errors.println("Usage: leaderboard [top <count>]");
+                return;
+            }
+            try { limit = Integer.parseInt(args.get(1)); }
+            catch (NumberFormatException ex) { limit = -1; }
+            if (limit < 1 || limit > 1000) {
+                errors.println("Leaderboard count must be between 1 and 1000.");
+                return;
+            }
+        }
+        printLines(target.leaderboard(limit));
+    }
+
+    private void player(List<String> args) {
+        if (args.size() < 1 || args.size() > 2) {
+            errors.println("Usage: player <id-or-name> [assets|research|systems]");
             return;
         }
-        output.println("Players (" + players.size() + "):");
-        printLines(players);
+        String section = args.size() == 2 ? args.get(1).toLowerCase(Locale.ROOT) : "summary";
+        if (!List.of("summary", "assets", "research", "systems").contains(section)) {
+            errors.println("Usage: player <id-or-name> [assets|research|systems]");
+            return;
+        }
+        printLines(target.player(args.get(0), section));
+    }
+
+    private void sessions(List<String> args) {
+        if (args.size() > 1) {
+            errors.println("Usage: sessions [connected|retained]");
+            return;
+        }
+        String filter = args.isEmpty() ? "all" : args.get(0).toLowerCase(Locale.ROOT);
+        if (!List.of("all", "connected", "retained").contains(filter)) {
+            errors.println("Usage: sessions [connected|retained]");
+            return;
+        }
+        printLines(target.sessions(filter));
     }
 
     private void uptime(List<String> args) {
@@ -250,6 +313,27 @@ final class ServerCommandDispatcher {
         printLines(target.connection(args.get(0)));
     }
 
+    private void resync(List<String> args) {
+        if (args.size() != 1) {
+            errors.println("Usage: resync <player-id-or-name|all|resources>");
+            return;
+        }
+        printLines(target.resync(args.get(0)));
+    }
+
+    private void serverInfo(List<String> args) {
+        if (args.size() > 1) {
+            errors.println("Usage: server-info [compatibility|tls]");
+            return;
+        }
+        String scope = args.isEmpty() ? "all" : args.get(0).toLowerCase(Locale.ROOT);
+        if (!List.of("all", "compatibility", "tls").contains(scope)) {
+            errors.println("Usage: server-info [compatibility|tls]");
+            return;
+        }
+        printLines(target.serverInfo(scope));
+    }
+
     private void saveInfo(List<String> args) {
         if (!requireNoArgs("save-info", args)) return;
         printLines(target.saveInfo());
@@ -257,12 +341,15 @@ final class ServerCommandDispatcher {
 
     private void save(List<String> args) {
         if (!requireNoArgs("save", args)) return;
-        if (!target.running()) {
-            errors.println("Server is not running.");
-            return;
-        }
-        if (!target.save()) errors.println("Manual server save failed.");
+        if (!target.running()) errors.println("Server is not running.");
+        else if (!target.save()) errors.println("Manual server save failed.");
     }
+
+    private void autosave(List<String> args) { printLines(target.autosave(args)); }
+    private void backups(List<String> args) { printLines(target.backups(args)); }
+    private void maintenance(List<String> args) { printLines(target.maintenance(args)); }
+    private void slots(List<String> args) { printLines(target.slots(args)); }
+    private void motd(List<String> args) { printLines(target.motd(args)); }
 
     private void say(List<String> args) {
         if (args.isEmpty()) {
@@ -279,12 +366,11 @@ final class ServerCommandDispatcher {
 
     private void shutdown(List<String> args) {
         if (args.isEmpty() || "now".equalsIgnoreCase(args.get(0))) {
-            if (!target.running()) {
-                output.println("Server is already stopped.");
-                return;
+            if (!target.running()) output.println("Server is already stopped.");
+            else {
+                output.println("Stopping dedicated server.");
+                target.stop();
             }
-            output.println("Stopping dedicated server.");
-            target.stop();
             return;
         }
         String action = args.get(0).toLowerCase(Locale.ROOT);
@@ -297,9 +383,8 @@ final class ServerCommandDispatcher {
             return;
         }
         long seconds;
-        try {
-            seconds = parseDurationSeconds(args.get(0));
-        } catch (IllegalArgumentException ex) {
+        try { seconds = parseDurationSeconds(args.get(0)); }
+        catch (IllegalArgumentException ex) {
             errors.println(ex.getMessage());
             errors.println("Usage: shutdown [now|status|cancel|<duration>] [reason]");
             return;
@@ -315,9 +400,7 @@ final class ServerCommandDispatcher {
         output.println(target.disconnect(args.get(0), join(args, 1)));
     }
 
-    private void developer(List<String> args) {
-        printLines(target.developer(args));
-    }
+    private void developer(List<String> args) { printLines(target.developer(args)); }
 
     private void version(List<String> args) {
         if (!requireNoArgs("version", args)) return;
@@ -326,20 +409,16 @@ final class ServerCommandDispatcher {
 
     private void stop(List<String> args) {
         if (!requireNoArgs("stop", args)) return;
-        if (!target.running()) {
-            output.println("Server is already stopped.");
-            return;
+        if (!target.running()) output.println("Server is already stopped.");
+        else {
+            output.println("Stopping dedicated server.");
+            target.stop();
         }
-        output.println("Stopping dedicated server.");
-        target.stop();
     }
 
     private void printLines(List<String> lines) {
-        if (lines == null || lines.isEmpty()) {
-            output.println("No matching results.");
-            return;
-        }
-        for (String line : lines) output.println(line);
+        if (lines == null || lines.isEmpty()) output.println("No matching results.");
+        else for (String line : lines) output.println(line);
     }
 
     private boolean requireNoArgs(String command, List<String> args) {
