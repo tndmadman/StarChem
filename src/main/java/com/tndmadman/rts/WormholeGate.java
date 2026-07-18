@@ -24,7 +24,7 @@ final class WormholeGate {
     }
 
     boolean contains(double wx, double wy) {
-        return Calc.distance(wx, wy, x, y) <= radius;
+        return Calc.distance(wx, wy, x, y) <= radius * 0.68;
     }
 
     String label() {
