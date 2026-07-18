@@ -1,6 +1,6 @@
 name: Permanent Player Save Hotfix
 # Trigger after workflow registration on main.
-# Pull-request trigger commit, revision 2.
+# Pull-request trigger commit, revision 3.
 
 on:
   push:
@@ -47,122 +47,130 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
-          def replace_once(text: str, old: str, new: str, label: str) -> str:
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f"Expected exactly one {label}, found {count}")
-              return text.replace(old, new, 1)
-
-          def sub_once(text: str, pattern: str, replacement: str, label: str) -> str:
-              updated, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
-              if count != 1:
-                  raise SystemExit(f"Expected exactly one {label}, found {count}")
-              return updated
+          def remove_java_method(lines: list[str], signature: str) -> list[str]:
+              starts = [i for i, line in enumerate(lines) if signature in line]
+              if len(starts) != 1:
+                  raise SystemExit(f"Expected one method containing {signature!r}, found {len(starts)}")
+              start = starts[0]
+              depth = 0
+              seen_open = False
+              end = None
+              for i in range(start, len(lines)):
+                  depth += lines[i].count('{')
+                  if lines[i].count('{'):
+                      seen_open = True
+                  depth -= lines[i].count('}')
+                  if seen_open and depth == 0:
+                      end = i
+                      break
+              if end is None:
+                  raise SystemExit(f"Could not find end of method {signature}")
+              while end + 1 < len(lines) and lines[end + 1].strip() == '':
+                  end += 1
+              return lines[:start] + lines[end + 1:]
 
           server_path = Path('src/main/java/com/tndmadman/rts/PeerServerSide.java')
           server = server_path.read_text(encoding='utf-8')
-          server = replace_once(server,
-              '    private static final long DISCONNECT_GRACE_MS = 60_000;\n', '',
-              'disconnect grace constant')
-          server = replace_once(server,
-              '        removeExpiredSessions(now);\n', '',
-              'automatic expired-session sweep')
-          server = sub_once(server,
-              r'''        if \(session == null \|\| sessionExpired\(session, now\) \|\| !tokenMatches\(session, token, connectionId, now\)\) \{
-                  if \(session != null && sessionExpired\(session, now\)\) destroySession\(playerId\);
-                  transport\.sendOrdered\(sessionDenied\("Session expired or token was rejected\."\), connectionId\);
-                  return false;
-              \}''',
-              '''        if (session == null || !tokenMatches(session, token, connectionId, now)) {
-                  transport.sendOrdered(sessionDenied("Session token was rejected."), connectionId);
-                  return false;
-              }''',
-              'raw resume expiry deletion')
-          server = sub_once(server,
-              r'''        if \(session == null \|\| sessionExpired\(session, now\)\) \{
-                  if \(session != null\) destroySession\(playerId\);
-                  transport\.sendOrdered\(sessionDenied\("Session expired or token was rejected\."\), connectionId\);
-                  return false;
-              \}''',
-              '''        if (session == null) {
-                  transport.sendOrdered(sessionDenied("Session token was rejected."), connectionId);
-                  return false;
-              }''',
-              'proof resume expiry deletion')
-          server = replace_once(server,
+          required = {
+              'disconnect grace constant': 'private static final long DISCONNECT_GRACE_MS = 60_000;',
+              'expired sweep call': 'removeExpiredSessions(now);',
+              'raw resume expiry check': 'session == null || sessionExpired(session, now) || !tokenMatches',
+              'proof resume expiry check': 'session == null || sessionExpired(session, now)',
+              'destroy on raw resume': 'if (session != null && sessionExpired(session, now)) destroySession(playerId);',
+              'destroy on proof resume': 'if (session != null) destroySession(playerId);',
+              'disconnect status': 'session retained for " + (DISCONNECT_GRACE_MS / 1000) + " seconds.',
+              'grace accessor': 'static long disconnectGraceMs() { return DISCONNECT_GRACE_MS; }',
+          }
+          for label, token in required.items():
+              if server.count(token) != 1:
+                  raise SystemExit(f"Expected one {label}, found {server.count(token)}")
+
+          server = server.replace('    private static final long DISCONNECT_GRACE_MS = 60_000;\n', '', 1)
+          server = server.replace('        removeExpiredSessions(now);\n', '', 1)
+          server = server.replace(
+              'session == null || sessionExpired(session, now) || !tokenMatches',
+              'session == null || !tokenMatches', 1)
+          server = server.replace(
+              'session == null || sessionExpired(session, now)',
+              'session == null', 1)
+          server = server.replace(
+              '            if (session != null && sessionExpired(session, now)) destroySession(playerId);\n', '', 1)
+          server = server.replace('            if (session != null) destroySession(playerId);\n', '', 1)
+          server = server.replace(
               '        world.status = session.name + " " + reason + "; session retained for " + (DISCONNECT_GRACE_MS / 1000) + " seconds.";\n',
-              '        world.status = session.name + " " + reason + "; player identity and world state retained indefinitely.";\n',
-              'disconnect retention status')
-          server = sub_once(server,
-              r'\n    private void destroySession\(String playerId\) \{.*?\n    \}\n\n    private void broadcastLeaderboard\(\)',
-              '\n\n    private void broadcastLeaderboard()',
-              'destroySession method')
-          server = sub_once(server,
-              r'\n    private void removeExpiredSessions\(long now\) \{.*?\n    \}\n\n    private boolean sessionExpired\(PlayerSession session, long now\) \{.*?\n    \}\n',
-              '\n',
-              'expired-session cleanup block')
-          server = replace_once(server,
-              '    static long disconnectGraceMs() { return DISCONNECT_GRACE_MS; }\n', '',
-              'disconnect grace test accessor')
+              '        world.status = session.name + " " + reason + "; player identity and world state retained indefinitely.";\n', 1)
+          server = server.replace('    static long disconnectGraceMs() { return DISCONNECT_GRACE_MS; }\n', '', 1)
+          lines = server.splitlines(keepends=True)
+          lines = remove_java_method(lines, 'private void destroySession(String playerId)')
+          lines = remove_java_method(lines, 'private void removeExpiredSessions(long now)')
+          lines = remove_java_method(lines, 'private boolean sessionExpired(PlayerSession session, long now)')
+          server = ''.join(lines)
+          forbidden = ('destroySession', 'sessionExpired', 'removeExpiredSessions', 'disconnectGraceMs', 'DISCONNECT_GRACE_MS')
+          for token in forbidden:
+              if token in server:
+                  raise SystemExit(f"Forbidden automatic deletion token remains: {token}")
           server_path.write_text(server, encoding='utf-8')
 
           validator_path = Path('src/main/java/com/tndmadman/rts/SessionRecoveryValidator.java')
-          validator = validator_path.read_text(encoding='utf-8')
-          validator = sub_once(validator,
-              r'''        try \(Socket firstClient = connect\(loopback, transport\.localPort\(\)\);
-                   Socket reboundClient = connect\(loopback, transport\.localPort\(\)\);
-                   Socket restartedClient = connect\(loopback, transport\.localPort\(\)\)\) \{
-                  waitConnection\(transport, loopback, firstClient\.getLocalPort\(\)\);
-                  waitConnection\(transport, loopback, reboundClient\.getLocalPort\(\)\);
-                  waitConnection\(transport, loopback, restartedClient\.getLocalPort\(\)\);''',
-              '''        try (Socket firstClient = connect(loopback, transport.localPort());
-                   Socket reboundClient = connect(loopback, transport.localPort());
-                   Socket restartedClient = connect(loopback, transport.localPort());
-                   Socket longOfflineClient = connect(loopback, transport.localPort())) {
-                  waitConnection(transport, loopback, firstClient.getLocalPort());
-                  waitConnection(transport, loopback, reboundClient.getLocalPort());
-                  waitConnection(transport, loopback, restartedClient.getLocalPort());
-                  waitConnection(transport, loopback, longOfflineClient.getLocalPort());''',
-              'long-offline test socket setup')
-          validator = sub_once(validator,
-              r'''            server\.removePeer\(restartedEndpoint\);
-                  server\.tick\(System\.currentTimeMillis\(\) \+ PeerServerSide\.disconnectGraceMs\(\) \+ 1000\);
-                  require\(!world\.hasLiveAssets\("P1"\), "expired session did not remove P1 assets"\);
-                  require\(!world\.hasResearch\("P1", "session-recovery-marker"\), "expired session did not remove P1 research"\);''',
-              '''            server.removePeer(restartedEndpoint);
-                  long longOfflineNow = System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000;
-                  server.tick(longOfflineNow);
-                  require(world.hasLiveAssets("P1"), "long offline period deleted P1 assets");
-                  require(world.hasResearch("P1", "session-recovery-marker"), "long offline period deleted P1 research");
-                  require(server.persistentSessions().stream().anyMatch(saved -> "P1".equals(saved.playerId())),
-                          "long offline period deleted the persistent P1 identity");
+          lines = validator_path.read_text(encoding='utf-8').splitlines(keepends=True)
+          socket_line = next((i for i, line in enumerate(lines) if 'Socket restartedClient = connect(loopback, transport.localPort())) {' in line), None)
+          if socket_line is None:
+              raise SystemExit('Could not find restarted client resource line')
+          indent = lines[socket_line].split('Socket', 1)[0]
+          lines[socket_line] = lines[socket_line].replace(')) {', '));')
+          lines.insert(socket_line + 1, indent + 'Socket longOfflineClient = connect(loopback, transport.localPort())) {\n')
 
-                  ConnectionId longOfflineEndpoint = transport.connectionId(loopback, longOfflineClient.getLocalPort());
-                  server.join(longOfflineEndpoint, loopback, longOfflineClient.getLocalPort(), "Recovery Client",
-                          PasswordAuth.verifier("Recovery Client", "validator-password"), false, "");
-                  String longOfflineWelcome = receivePayload(longOfflineClient, "WELCOME|");
-                  require(longOfflineWelcome.startsWith("WELCOME|P1|"),
-                          "same name and password received a new player slot after a long offline period");
-                  require(server.owns(longOfflineEndpoint, "P1"),
-                          "long-offline password reclaim did not restore P1 ownership");
-                  require(world.hasLiveAssets("P1"), "long-offline password reclaim changed P1 assets");
-                  require(world.hasResearch("P1", "session-recovery-marker"),
-                          "long-offline password reclaim changed P1 research");''',
-              'expired-session deletion assertions')
+          wait_line = next((i for i, line in enumerate(lines) if 'waitConnection(transport, loopback, restartedClient.getLocalPort());' in line), None)
+          if wait_line is None:
+              raise SystemExit('Could not find restarted client wait line')
+          wait_indent = lines[wait_line].split('waitConnection', 1)[0]
+          lines.insert(wait_line + 1, wait_indent + 'waitConnection(transport, loopback, longOfflineClient.getLocalPort());\n')
+
+          start = next((i for i, line in enumerate(lines) if 'server.removePeer(restartedEndpoint);' in line), None)
+          if start is None:
+              raise SystemExit('Could not find final restarted disconnect block')
+          end = next((i for i in range(start, len(lines)) if 'expired session did not remove P1 research' in lines[i]), None)
+          if end is None:
+              raise SystemExit('Could not find end of expired-session assertions')
+          block = '''            server.removePeer(restartedEndpoint);
+              long longOfflineNow = System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000;
+              server.tick(longOfflineNow);
+              require(world.hasLiveAssets("P1"), "long offline period deleted P1 assets");
+              require(world.hasResearch("P1", "session-recovery-marker"), "long offline period deleted P1 research");
+              require(server.persistentSessions().stream().anyMatch(saved -> "P1".equals(saved.playerId())),
+                      "long offline period deleted the persistent P1 identity");
+
+              ConnectionId longOfflineEndpoint = transport.connectionId(loopback, longOfflineClient.getLocalPort());
+              server.join(longOfflineEndpoint, loopback, longOfflineClient.getLocalPort(), "Recovery Client",
+                      PasswordAuth.verifier("Recovery Client", "validator-password"), false, "");
+              String longOfflineWelcome = receivePayload(longOfflineClient, "WELCOME|");
+              require(longOfflineWelcome.startsWith("WELCOME|P1|"),
+                      "same name and password received a new player slot after a long offline period");
+              require(server.owns(longOfflineEndpoint, "P1"),
+                      "long-offline password reclaim did not restore P1 ownership");
+              require(world.hasLiveAssets("P1"), "long-offline password reclaim changed P1 assets");
+              require(world.hasResearch("P1", "session-recovery-marker"),
+                      "long-offline password reclaim changed P1 research");
+          '''
+          lines[start:end + 1] = block.splitlines(keepends=True)
+          validator = ''.join(lines)
+          if 'disconnectGraceMs' in validator or 'expired session did not remove' in validator:
+              raise SystemExit('Old destructive session assertions remain')
           validator_path.write_text(validator, encoding='utf-8')
 
           notes_path = Path('RELEASE_NOTES.md')
           notes = notes_path.read_text(encoding='utf-8')
-          notes = replace_once(notes,
-              '- Preserved disconnected players for the configured grace period instead of immediately deleting their assets, while still pruning expired abandoned sessions.\n',
-              '- Player identities, research, ships, stations, inventories, production queues, home systems, and ownership now remain indefinitely when clients disconnect, time out, close the game, or leave normally.\n- Removed automatic session-expiry deletion; only future explicit server administration commands may delete player save data.\n',
-              'obsolete grace-period release note')
+          old_note = '- Preserved disconnected players for the configured grace period instead of immediately deleting their assets, while still pruning expired abandoned sessions.\n'
+          if notes.count(old_note) != 1:
+              raise SystemExit(f'Expected one obsolete grace-period release note, found {notes.count(old_note)}')
+          notes = notes.replace(old_note,
+              '- Player identities, research, ships, stations, inventories, production queues, home systems, and ownership now remain indefinitely when clients disconnect, time out, close the game, or leave normally.\n'
+              '- Removed automatic session-expiry deletion; only future explicit server administration commands may delete player save data.\n', 1)
           notes_path.write_text(notes, encoding='utf-8')
           PY
 
-          ! grep -R -n -E 'destroySession|sessionExpired|removeExpiredSessions|disconnectGraceMs' \
+          ! grep -R -n -E 'destroySession|sessionExpired|removeExpiredSessions|disconnectGraceMs|DISCONNECT_GRACE_MS' \
             src/main/java/com/tndmadman/rts/PeerServerSide.java \
             src/main/java/com/tndmadman/rts/SessionRecoveryValidator.java
 
