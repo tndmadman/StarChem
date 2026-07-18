@@ -117,16 +117,16 @@ final class MultiplayerCompatibility {
         if (!client.applicationVersion().equals(server.applicationVersion())) {
             return mismatch("APPLICATION_MISMATCH", "application version", client, server);
         }
-        if (!client.buildCommit().equals(server.buildCommit())) {
-            return mismatch("BUILD_MISMATCH", "build commit", client, server);
-        }
         if (client.rulesVersion() != server.rulesVersion()) {
             return mismatch("RULES_MISMATCH", "rules version", client, server);
         }
         if (!client.configHash().equals(server.configHash())) {
             return mismatch("CONFIG_MISMATCH", "configuration fingerprint", client, server);
         }
-        return new Decision(true, "MATCH", "Compatible multiplayer build.");
+        String detail = client.buildCommit().equals(server.buildCommit())
+                ? "Compatible multiplayer build."
+                : "Compatible multiplayer release; build commits differ but protocol, application version, rules, and configuration match.";
+        return new Decision(true, "MATCH", detail);
     }
 
     private static Decision mismatch(String code, String label, Descriptor client, Descriptor server) {

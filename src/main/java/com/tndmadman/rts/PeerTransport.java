@@ -12,6 +12,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Framed TCP transport with per-connection identity, bounded queues, and asynchronous I/O. */
 final class PeerTransport {
@@ -37,6 +38,7 @@ final class PeerTransport {
     private final Map<String, ConnectionId> endpointIndex = new ConcurrentHashMap<>();
     private final Set<ConnectionId> compatibleConnections = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean clientDisconnectPending = new AtomicBoolean();
+    private final AtomicReference<String> clientConnectFailure = new AtomicReference<>("");
     private volatile TcpConnection clientConnection;
     private volatile boolean compatibilityAccepted;
     private volatile boolean running = true;
@@ -123,6 +125,7 @@ final class PeerTransport {
     }
 
     boolean consumeClientDisconnect() { return clientDisconnectPending.getAndSet(false); }
+    String consumeClientConnectFailure() { return clientConnectFailure.getAndSet(""); }
     boolean isDisconnectEvent(NetPacket packet) { return packet != null && DISCONNECT_EVENT.equals(packet.message()); }
 
     PerfSnapshot perfSnapshot() {
@@ -246,6 +249,7 @@ final class PeerTransport {
             clientConnection = null;
         }
         compatibleConnections.clear();
+        clientConnectFailure.set("");
         inbox.clear();
         inboxSize.set(0);
     }
@@ -366,10 +370,15 @@ final class PeerTransport {
                     break;
                 }
                 compatibilityAccepted = false;
+                clientConnectFailure.set("");
                 clientConnection = connection;
                 perfStats.recordConnectionOpened();
                 connection.start();
             } catch (IOException ex) {
+                String detail = ex.getMessage();
+                clientConnectFailure.set(detail == null || detail.isBlank()
+                        ? ex.getClass().getSimpleName()
+                        : detail.trim());
                 sleep(RECONNECT_DELAY_MS);
             }
         }

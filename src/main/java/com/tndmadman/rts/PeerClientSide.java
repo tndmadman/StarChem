@@ -33,6 +33,7 @@ final class PeerClientSide {
     private boolean authRegistrationRequested;
     private String viewedSystemId = "";
     private String failureMessage = "";
+    private String lastTransportFailure = "";
     private String pendingReadyName = "";
 
     PeerClientSide(Config config, World world, PeerTransport transport) {
@@ -89,7 +90,7 @@ final class PeerClientSide {
                     ? new ClientConnectionProgress(ConnectionPhase.HANDSHAKING, "NEGOTIATING CONNECTION",
                     "TCP connected. Waiting for server approval and compatibility checks.", 2, 4, elapsed)
                     : new ClientConnectionProgress(ConnectionPhase.CONNECTING, "CONNECTING TO SERVER",
-                    "Opening TCP connection to " + config.serverAddress + ".", 1, 4, elapsed);
+                    transportDetail("Opening TCP connection to " + config.serverAddress + "."), 1, 4, elapsed);
             case SYNCING -> new ClientConnectionProgress(ConnectionPhase.SYNCHRONIZING,
                     syncingResume ? "RESTORING SESSION" : "SYNCHRONIZING FLEET",
                     syncingResume ? "Receiving authoritative state for the saved session."
@@ -101,7 +102,7 @@ final class PeerClientSide {
                     ? new ClientConnectionProgress(ConnectionPhase.HANDSHAKING, "RECONNECTING",
                     "TCP restored. Requesting the saved session from the server.", 2, 4, elapsed)
                     : new ClientConnectionProgress(ConnectionPhase.RECONNECTING, "CONNECTION INTERRUPTED",
-                    "Opening a new TCP connection without dropping player state.", 1, 4, elapsed);
+                    transportDetail("Opening a new TCP connection without dropping player state."), 1, 4, elapsed);
             case FAILED -> new ClientConnectionProgress(ConnectionPhase.FAILED, "CONNECTION FAILED",
                     failureMessage(), 0, 4, elapsed);
             case DISCONNECTED -> new ClientConnectionProgress(ConnectionPhase.DISCONNECTED, "DISCONNECTED",
@@ -111,6 +112,16 @@ final class PeerClientSide {
 
     void tick(long now) {
         PlayerRegistry.activate(world);
+        String transportFailure = transport.consumeClientConnectFailure();
+        if (!transportFailure.isBlank()) {
+            lastTransportFailure = transportFailure;
+            String lower = transportFailure.toLowerCase(java.util.Locale.ROOT);
+            if (lower.contains("tls fingerprint changed") || lower.contains("refusing to send login secrets")) {
+                failConnection("Connection failed: " + transportFailure
+                        + " Restore the server's original TLS key or remove the saved server trust entry before reconnecting.");
+                return;
+            }
+        }
         boolean connectionDropped = transport.consumeClientDisconnect();
         if ((state == ConnectionState.CONNECTED || state == ConnectionState.SYNCING) && connectionDropped) {
             beginReconnect(now);
@@ -139,7 +150,7 @@ final class PeerClientSide {
             }
             case JOINING -> {
                 if (now - attemptStarted >= JOIN_TIMEOUT_MS) {
-                    failConnection("Connection failed: no response from server at " + config.serverAddress + ".");
+                    failConnection(transportDetail("Connection failed: no response from server at " + config.serverAddress + "."));
                     return;
                 }
                 if (now - lastHandshake >= HEARTBEAT_MS) {
@@ -153,7 +164,7 @@ final class PeerClientSide {
                     return;
                 }
                 if (now - attemptStarted >= RECONNECT_TIMEOUT_MS) {
-                    failConnection("Connection failed: the saved session could not be resumed before it expired.");
+                    failConnection(transportDetail("Connection failed: the saved session could not be resumed."));
                     return;
                 }
                 if (now - lastHandshake >= HEARTBEAT_MS) {
@@ -268,6 +279,7 @@ final class PeerClientSide {
         syncingResume = previousState == ConnectionState.RECONNECTING || connectedOnce;
         pendingReadyName = parts[2];
         failureMessage = "";
+        lastTransportFailure = "";
         transport.clearOutbound();
         long now = System.currentTimeMillis();
         attemptStarted = now;
@@ -608,6 +620,11 @@ final class PeerClientSide {
         transport.clearOutbound();
         transport.reconnectClient();
         world.status = "Connection interrupted. Reconnecting to " + config.serverAddress + " without dropping player state.";
+    }
+
+    private String transportDetail(String message) {
+        if (lastTransportFailure.isBlank()) return message;
+        return message + " Last transport error: " + lastTransportFailure;
     }
 
     private void failConnection(String message) {

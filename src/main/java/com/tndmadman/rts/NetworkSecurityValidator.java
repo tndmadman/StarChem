@@ -131,6 +131,16 @@ public final class NetworkSecurityValidator {
             secondClient.start();
             Thread.sleep(1_000);
             require(!secondClient.connected(), "client accepted a changed server TLS fingerprint");
+            String pinFailure = "";
+            long failureDeadline = System.currentTimeMillis() + 3_000;
+            while (!pinFailure.contains("TLS fingerprint changed")
+                    && System.currentTimeMillis() < failureDeadline) {
+                String nextFailure = secondClient.consumeClientConnectFailure();
+                if (!nextFailure.isBlank()) pinFailure = nextFailure;
+                if (!pinFailure.contains("TLS fingerprint changed")) Thread.sleep(10);
+            }
+            require(pinFailure.contains("TLS fingerprint changed"),
+                    "changed TLS fingerprint failure was not exposed to the client");
         } finally {
             if (firstClient != null) firstClient.shutdown();
             if (firstServer != null) firstServer.shutdown();
@@ -148,6 +158,19 @@ public final class NetworkSecurityValidator {
         MultiplayerCompatibility.WireResult exact = MultiplayerCompatibility.inspectClientHandshake(exactJoin);
         require(exact.action() == MultiplayerCompatibility.WireAction.ACCEPT, "exact compatibility match was rejected");
         require("JOIN|Compatibility Client|NODEV|".equals(exact.message()), "accepted handshake was not normalized");
+
+        MultiplayerCompatibility.Descriptor commitMismatch = new MultiplayerCompatibility.Descriptor(
+                local.protocolVersion(), local.applicationVersion(), local.buildCommit() + "-different",
+                local.rulesVersion(), local.configHash());
+        MultiplayerCompatibility.WireResult commitResult = MultiplayerCompatibility.inspectClientHandshake(
+                joinPacket(commitMismatch));
+        require(commitResult.action() == MultiplayerCompatibility.WireAction.ACCEPT,
+                "matching release was rejected solely because the build commit differed");
+
+        MultiplayerCompatibility.Descriptor applicationMismatch = new MultiplayerCompatibility.Descriptor(
+                local.protocolVersion(), local.applicationVersion() + "-different", local.buildCommit(),
+                local.rulesVersion(), local.configHash());
+        expectCompatibilityReject(joinPacket(applicationMismatch), "APPLICATION_MISMATCH");
 
         MultiplayerCompatibility.Descriptor protocolMismatch = new MultiplayerCompatibility.Descriptor(
                 local.protocolVersion() + 1, local.applicationVersion(), local.buildCommit(),
