@@ -61,6 +61,22 @@ java -Djava.awt.headless=true -jar StarChem.jar --server 50000 --name StarChem-S
 
 Open or forward the selected **TCP** port. Stop the server with `Ctrl+C` or a normal termination signal; the server closes its network transport before the process exits. It prints a status line at startup and every 60 seconds while running.
 
+### Console commands
+
+When the dedicated server is attached to an interactive terminal, enter commands directly in that terminal. Input is queued and executed by the authoritative server tick instead of changing game state from the console-reader thread. Closing or redirecting standard input does not stop the server.
+
+Available commands:
+
+```text
+help [command]  Show available commands or detailed command help.
+status          Print server, network, save, and autosave status.
+players         List connected and retained player sessions.
+save            Write a manual server save.
+version         Print the running build identity.
+stop            Save and stop the server cleanly.
+shutdown        Alias for stop.
+```
+
 Run `java -jar StarChem.jar --help` to view all supported startup options. Unknown options and missing option values are rejected instead of being silently ignored.
 
 ## Version
