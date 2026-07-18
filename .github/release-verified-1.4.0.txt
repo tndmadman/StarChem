@@ -1,0 +1,6 @@
+VERIFIED
+tag=v1.4.0
+commit=8165ee2d8b7501e251b77abae761114343bcf22b
+zip=StarChem-v1.4.0.zip
+checksum_file=StarChem-v1.4.0.zip.sha256
+sha256=5b640503c1882708f2de3a4ea5aff54f3bc1d1bfee07bce6100a036a254056e3
