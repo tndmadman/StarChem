@@ -30,4 +30,5 @@ jobs:
           for run in data.get('workflow_runs', []):
               print(f"- {run['name']}: {run['status']} / {run.get('conclusion') or 'pending'} ({run['event']})")
           PY
-          gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/status.md
+          cat /tmp/status.md
+          gh pr comment "${{ github.event.pull_request.number }}" --repo "$GITHUB_REPOSITORY" --body-file /tmp/status.md
