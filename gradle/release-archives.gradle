@@ -1,4 +1,0 @@
-tasks.withType(org.gradle.api.tasks.bundling.AbstractArchiveTask).configureEach {
-    preserveFileTimestamps = false
-    reproducibleFileOrder = true
-}
