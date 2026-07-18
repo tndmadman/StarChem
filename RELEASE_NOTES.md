@@ -1,70 +1,64 @@
-# StarChem v1.4.0
+# StarChem v1.5.0
 
-StarChem v1.4.0 is a major organized-NPC AI, production-planning, multiplayer-state, diagnostics, and release-hardening update covering only changes introduced after v1.3.1.
+StarChem v1.5.0 is a dedicated-server save-state, multiplayer identity, reconnect-security, and encrypted-transport release covering changes introduced after v1.4.0.
 
-## Organized NPC strategy and expeditions
+## Durable Dedicated Server Saves
 
-- Added persistent faction-scoped runtime state, strategic modes, lifecycle resets, galaxy-wide capacity accounting, and deterministic recovery behavior.
-- Added persistent cross-system expeditions with reservation, staging, wormhole transit, foothold construction, defense, completion, retreat, cancellation, and recovery phases.
-- Added resilient expedition-readiness coordination so blocked launches report their reason and can resume when capacity, resources, or deployers become available.
-- Corrected station-cap accounting so construction commitments and completed footholds are counted consistently and the final permitted expansion can launch.
-- Added deterministic expedition supply-base selection and protected expedition formations and construction sites from wormhole and placement conflicts.
+- Added server-side save archives for dedicated/headless servers so player sessions, galaxy state, NPC runtime state, production state, research, resources, bases, units, and cross-system simulation data can survive server restarts.
+- Added autosave controls, backup retention, save naming, save directory selection, and a `--new-world` startup option for intentionally replacing the current saved world.
+- Added update-safe save loading with a manifest, content checksums, schema/version metadata, and fallback behavior for corrupted or incomplete current saves.
+- Added migration scaffolding so future save formats can be upgraded without requiring old saves to be thrown away.
+- Added save content resolution so persisted worlds can restore JSON-driven game data consistently with the packaged rule/config files.
+- Ensured restored player sessions keep their player IDs, colors, password records, session token digests, home systems, galaxy map ownership, and retained disconnected state.
 
-## NPC construction, recovery, logistics, and combat
+## Player Identity And Passwords
 
-- Added persistent NPC station-construction plans, station replacement, orphaned deployer recovery, and restoration of interrupted construction work.
-- Added routed repair evacuation, recovery convoys, escort behavior for damaged ships and loaded deployers, and protection from conflicting combat or placement orders.
-- Added distributed mobile-depot logistics, bounded depot placement, cargo routing, hauler coordination, and map-edge spacing safeguards.
-- Added galaxy-wide worker-production failover and faction-scoped handling for workers, stations, deployers, support ships, and expedition commitments.
-- Added squad-based Corsair combat coordination, balanced squad assignment, range management, recovery detachment, and fleet-wide projected-damage control.
-- Preserved surplus deployer cargo during emergency station rebuilding.
+- Added per-server player passwords for multiplayer names, so a returning player must prove ownership of the saved commander identity instead of claiming a name directly.
+- Added a password prompt in the lobby join flow for first-time server identity setup or returning-player password entry.
+- Added a remember-password checkbox. When enabled, StarChem remembers the password-derived verifier for that server/player on this computer. When disabled, the verifier is kept only for the current launch and is not written to the local session file.
+- Server saves store salted PBKDF2-HMAC-SHA256 password digests instead of raw passwords or fast unsalted hashes.
+- Returning-player login now uses server nonce challenges and one-time HMAC proofs instead of sending reusable password verifier material after registration.
+- Password rejection clears stale local saved session/auth data so the client can safely re-prompt instead of repeatedly retrying bad credentials.
 
-## NPC resource planning
+## Encrypted Multiplayer Transport
 
-- Added strategic resource-budget categories for emergency fuel, worker recovery, station recovery, research, fleet growth, expansion, and general spending.
-- Added recursive component planning and validation for organized-NPC construction, repairs, production, and expansion.
-- Added developer-visible budget, strategy, expedition, recovery, and construction diagnostics.
+- Multiplayer host/client startup now uses TLS sockets, so login, registration, resume, dev-token requests, gameplay commands, snapshots, and save-session tokens are encrypted on the wire.
+- Dedicated and hosted servers generate and reuse a local PKCS12 TLS identity beside their save data.
+- Clients pin the server certificate fingerprint on first contact and refuse changed fingerprints before sending login secrets.
+- Generated save data and TLS key material are ignored by Git by default.
+- Low-level transport validators still exercise the raw framed TCP codec separately, while real game startup uses encrypted transport.
 
-## Auto-production allocation
+## Reconnect And Session Security
 
-- Fixed competing auto-production plans incorrectly treating the same stored or queued materials as available to every plan.
-- Added a shared per-player planning ledger so prerequisite materials and future output are reserved across plans during each planning pass.
-- Distributed prerequisite production across compatible idle stations instead of repeatedly selecting the same station.
-- Prevented duplicate prerequisite jobs when previously queued output already covers a plan.
-- Added regression coverage for competing plans, shared inventory, future output, and visible production roots.
+- Session resume no longer sends the raw resume token in network packets.
+- Resume now uses a server nonce challenge and one-time proof derived from the saved token digest.
+- Resume tokens still rotate after successful reconnects, with a short replay window only for idempotent retry on the same active connection.
+- Raw-token network resume attempts are converted to a challenge and cannot reclaim a player session by themselves.
+- Active-session protection still prevents a second TCP connection from displacing a currently connected player.
 
-## Multiplayer state and remote views
+## Dedicated Server And Simulation Persistence
 
-- Preserved approved remote-system views through automatic TCP reconnect and session resume.
-- Derived remote-view mode from authoritative asset presence in full snapshots and resource corrections.
-- Prevented loss of the final local asset from creating client-only fallback assets.
-- Strengthened remote-system visibility and convergence validation under reconnect, view switching, snapshot traffic, server restart, and slow-client conditions.
-- Improved dedicated-server lifecycle and TCP integration probes used by release validation.
+- Added `GalaxyCoordinator`, `SystemSimulationScheduler`, and `SystemControlState` support for saving and restoring active multi-system simulation state.
+- Added persistence hooks for organized NPC runtime systems, including strategic director, expeditions, expedition readiness, recovery, repair evacuation, squad combat, station construction, and production planning state.
+- Preserved disconnected players for the configured grace period instead of immediately deleting their assets, while still pruning expired abandoned sessions.
+- Restored server worlds avoid hidden local `SOLO` player leakage in authoritative dedicated-server sessions.
 
-## AI diagnostics
+## Validation
 
-- Added persistent structured JSON Lines AI brain logging for authorized developer sessions.
-- Moved JSON encoding, file writes, flushing, rotation, and retention to a dedicated asynchronous daemon writer.
-- Added bounded non-blocking queues, reserved critical-event capacity, backpressure reporting, bounded shutdown draining, and clean disable/re-enable behavior.
-- Isolated logging and filesystem failures from normal gameplay, dedicated servers, and remote clients.
-- Added documented performance guardrails and repeated logger lifecycle validation.
-
-## Validation and release engineering
-
-- Added permanent organized-NPC AI validation and stress workflows.
-- Added deterministic expedition seed sweeps and repeated recovery, reset, lifecycle, cross-system, defense, and logging validation.
-- Expanded validation for station construction, deployer recovery, mobile depots, squad combat, resource budgets, worker failover, strategic stability, remote views, and TCP lifecycle behavior.
-- Added a Windows dedicated-server launcher to the packaged release.
-- Hardened the release workflow with tag/version/release-note consistency checks, byte-identical JAR and ZIP rebuild verification, SHA-256 artifacts, extracted-package testing, Linux server lifecycle testing, and Windows client/server launcher checks.
-- Release publishing remains tag-only; release tags are not created, moved, or force-updated by the workflow.
+- Added dedicated save-store validation for current saves, previous-save fallback, checksum failure handling, and restored persistent player sessions.
+- Expanded TCP session recovery validation for retained player assets, token rotation, server restart recovery, password challenge rejection, and raw-token replay resistance.
+- Added network-security validation for TLS startup, certificate pinning, changed-certificate refusal, framed TCP handling, compatibility rejection, snapshot coalescing, and slow-client backlog limits.
+- Revalidated multiplayer join, automatic reconnect, server save restore, network hardening, and release hygiene after the merge.
 
 ## Compatibility
 
-All multiplayer clients and servers must use the same v1.4.0 release package and matching packaged configuration files. Older builds are rejected by the compatibility handshake.
+All multiplayer clients and servers must use the same v1.5.0 release package and matching packaged configuration files. Older builds are rejected by the compatibility handshake. Existing v1.4.0 dedicated servers do not have durable v1.5.0 server save archives; start v1.5.0 with the desired save directory/name and let the server create its first save.
 
-## Known limitation
+## Security Notes
 
-- Galaxy-wide organized-NPC resource-budget planning still performs repeated full-system scans in some decision paths and has an overlapping intermediate-reservation edge case. This is tracked in GitHub issue #167. Normal validation passes, but very large long-running galaxies may experience additional AI-planning cost until that optimization is completed.
+- StarChem now encrypts multiplayer traffic with self-hosted TLS and pins the first server certificate seen for each saved server/player identity.
+- On a first connection to a new server, players should treat the server fingerprint like any first-contact trust decision. If the fingerprint changes later, StarChem refuses to send login material.
+- Server owners cannot see raw player passwords from StarChem save files; saves contain salted PBKDF2 digests and token digests.
 
 ## Requirements
 
