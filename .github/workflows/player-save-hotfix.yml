@@ -1,6 +1,6 @@
 name: Permanent Player Save Hotfix
 # Trigger after workflow registration on main.
-# Pull-request trigger commit.
+# Pull-request trigger commit, revision 2.
 
 on:
   push:
@@ -55,119 +55,101 @@ jobs:
                   raise SystemExit(f"Expected exactly one {label}, found {count}")
               return text.replace(old, new, 1)
 
+          def sub_once(text: str, pattern: str, replacement: str, label: str) -> str:
+              updated, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+              if count != 1:
+                  raise SystemExit(f"Expected exactly one {label}, found {count}")
+              return updated
+
           server_path = Path('src/main/java/com/tndmadman/rts/PeerServerSide.java')
           server = server_path.read_text(encoding='utf-8')
           server = replace_once(server,
-              '    private static final long DISCONNECT_GRACE_MS = 60_000;\n',
-              '',
+              '    private static final long DISCONNECT_GRACE_MS = 60_000;\n', '',
               'disconnect grace constant')
           server = replace_once(server,
-              '        removeExpiredSessions(now);\n',
-              '',
+              '        removeExpiredSessions(now);\n', '',
               'automatic expired-session sweep')
-          server = replace_once(server,
-              '''        if (session == null || sessionExpired(session, now) || !tokenMatches(session, token, connectionId, now)) {
-              if (session != null && sessionExpired(session, now)) destroySession(playerId);
-              transport.sendOrdered(sessionDenied("Session expired or token was rejected."), connectionId);
-              return false;
-          }
-          ''',
+          server = sub_once(server,
+              r'''        if \(session == null \|\| sessionExpired\(session, now\) \|\| !tokenMatches\(session, token, connectionId, now\)\) \{
+                  if \(session != null && sessionExpired\(session, now\)\) destroySession\(playerId\);
+                  transport\.sendOrdered\(sessionDenied\("Session expired or token was rejected\."\), connectionId\);
+                  return false;
+              \}''',
               '''        if (session == null || !tokenMatches(session, token, connectionId, now)) {
-              transport.sendOrdered(sessionDenied("Session token was rejected."), connectionId);
-              return false;
-          }
-          ''',
+                  transport.sendOrdered(sessionDenied("Session token was rejected."), connectionId);
+                  return false;
+              }''',
               'raw resume expiry deletion')
-          server = replace_once(server,
-              '''        if (session == null || sessionExpired(session, now)) {
-              if (session != null) destroySession(playerId);
-              transport.sendOrdered(sessionDenied("Session expired or token was rejected."), connectionId);
-              return false;
-          }
-          ''',
+          server = sub_once(server,
+              r'''        if \(session == null \|\| sessionExpired\(session, now\)\) \{
+                  if \(session != null\) destroySession\(playerId\);
+                  transport\.sendOrdered\(sessionDenied\("Session expired or token was rejected\."\), connectionId\);
+                  return false;
+              \}''',
               '''        if (session == null) {
-              transport.sendOrdered(sessionDenied("Session token was rejected."), connectionId);
-              return false;
-          }
-          ''',
+                  transport.sendOrdered(sessionDenied("Session token was rejected."), connectionId);
+                  return false;
+              }''',
               'proof resume expiry deletion')
           server = replace_once(server,
               '        world.status = session.name + " " + reason + "; session retained for " + (DISCONNECT_GRACE_MS / 1000) + " seconds.";\n',
               '        world.status = session.name + " " + reason + "; player identity and world state retained indefinitely.";\n',
               'disconnect retention status')
-
-          server, count = re.subn(
+          server = sub_once(server,
               r'\n    private void destroySession\(String playerId\) \{.*?\n    \}\n\n    private void broadcastLeaderboard\(\)',
               '\n\n    private void broadcastLeaderboard()',
-              server,
-              count=1,
-              flags=re.S,
-          )
-          if count != 1:
-              raise SystemExit(f'Expected one destroySession method, found {count}')
-
-          server, count = re.subn(
+              'destroySession method')
+          server = sub_once(server,
               r'\n    private void removeExpiredSessions\(long now\) \{.*?\n    \}\n\n    private boolean sessionExpired\(PlayerSession session, long now\) \{.*?\n    \}\n',
               '\n',
-              server,
-              count=1,
-              flags=re.S,
-          )
-          if count != 1:
-              raise SystemExit(f'Expected one expired-session cleanup block, found {count}')
-
+              'expired-session cleanup block')
           server = replace_once(server,
-              '    static long disconnectGraceMs() { return DISCONNECT_GRACE_MS; }\n',
-              '',
+              '    static long disconnectGraceMs() { return DISCONNECT_GRACE_MS; }\n', '',
               'disconnect grace test accessor')
           server_path.write_text(server, encoding='utf-8')
 
           validator_path = Path('src/main/java/com/tndmadman/rts/SessionRecoveryValidator.java')
           validator = validator_path.read_text(encoding='utf-8')
-          validator = replace_once(validator,
+          validator = sub_once(validator,
+              r'''        try \(Socket firstClient = connect\(loopback, transport\.localPort\(\)\);
+                   Socket reboundClient = connect\(loopback, transport\.localPort\(\)\);
+                   Socket restartedClient = connect\(loopback, transport\.localPort\(\)\)\) \{
+                  waitConnection\(transport, loopback, firstClient\.getLocalPort\(\)\);
+                  waitConnection\(transport, loopback, reboundClient\.getLocalPort\(\)\);
+                  waitConnection\(transport, loopback, restartedClient\.getLocalPort\(\)\);''',
               '''        try (Socket firstClient = connect(loopback, transport.localPort());
-               Socket reboundClient = connect(loopback, transport.localPort());
-               Socket restartedClient = connect(loopback, transport.localPort())) {
-              waitConnection(transport, loopback, firstClient.getLocalPort());
-              waitConnection(transport, loopback, reboundClient.getLocalPort());
-              waitConnection(transport, loopback, restartedClient.getLocalPort());
-          ''',
-              '''        try (Socket firstClient = connect(loopback, transport.localPort());
-               Socket reboundClient = connect(loopback, transport.localPort());
-               Socket restartedClient = connect(loopback, transport.localPort());
-               Socket longOfflineClient = connect(loopback, transport.localPort())) {
-              waitConnection(transport, loopback, firstClient.getLocalPort());
-              waitConnection(transport, loopback, reboundClient.getLocalPort());
-              waitConnection(transport, loopback, restartedClient.getLocalPort());
-              waitConnection(transport, loopback, longOfflineClient.getLocalPort());
-          ''',
+                   Socket reboundClient = connect(loopback, transport.localPort());
+                   Socket restartedClient = connect(loopback, transport.localPort());
+                   Socket longOfflineClient = connect(loopback, transport.localPort())) {
+                  waitConnection(transport, loopback, firstClient.getLocalPort());
+                  waitConnection(transport, loopback, reboundClient.getLocalPort());
+                  waitConnection(transport, loopback, restartedClient.getLocalPort());
+                  waitConnection(transport, loopback, longOfflineClient.getLocalPort());''',
               'long-offline test socket setup')
-          validator = replace_once(validator,
+          validator = sub_once(validator,
+              r'''            server\.removePeer\(restartedEndpoint\);
+                  server\.tick\(System\.currentTimeMillis\(\) \+ PeerServerSide\.disconnectGraceMs\(\) \+ 1000\);
+                  require\(!world\.hasLiveAssets\("P1"\), "expired session did not remove P1 assets"\);
+                  require\(!world\.hasResearch\("P1", "session-recovery-marker"\), "expired session did not remove P1 research"\);''',
               '''            server.removePeer(restartedEndpoint);
-              server.tick(System.currentTimeMillis() + PeerServerSide.disconnectGraceMs() + 1000);
-              require(!world.hasLiveAssets("P1"), "expired session did not remove P1 assets");
-              require(!world.hasResearch("P1", "session-recovery-marker"), "expired session did not remove P1 research");
-          ''',
-              '''            server.removePeer(restartedEndpoint);
-              long longOfflineNow = System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000;
-              server.tick(longOfflineNow);
-              require(world.hasLiveAssets("P1"), "long offline period deleted P1 assets");
-              require(world.hasResearch("P1", "session-recovery-marker"), "long offline period deleted P1 research");
-              require(server.persistentSessions().stream().anyMatch(saved -> "P1".equals(saved.playerId())),
-                      "long offline period deleted the persistent P1 identity");
+                  long longOfflineNow = System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000;
+                  server.tick(longOfflineNow);
+                  require(world.hasLiveAssets("P1"), "long offline period deleted P1 assets");
+                  require(world.hasResearch("P1", "session-recovery-marker"), "long offline period deleted P1 research");
+                  require(server.persistentSessions().stream().anyMatch(saved -> "P1".equals(saved.playerId())),
+                          "long offline period deleted the persistent P1 identity");
 
-              ConnectionId longOfflineEndpoint = transport.connectionId(loopback, longOfflineClient.getLocalPort());
-              server.join(longOfflineEndpoint, loopback, longOfflineClient.getLocalPort(), "Recovery Client",
-                      PasswordAuth.verifier("Recovery Client", "validator-password"), false, "");
-              String longOfflineWelcome = receivePayload(longOfflineClient, "WELCOME|");
-              require(longOfflineWelcome.startsWith("WELCOME|P1|"),
-                      "same name and password received a new player slot after a long offline period");
-              require(server.owns(longOfflineEndpoint, "P1"),
-                      "long-offline password reclaim did not restore P1 ownership");
-              require(world.hasLiveAssets("P1"), "long-offline password reclaim changed P1 assets");
-              require(world.hasResearch("P1", "session-recovery-marker"),
-                      "long-offline password reclaim changed P1 research");
-          ''',
+                  ConnectionId longOfflineEndpoint = transport.connectionId(loopback, longOfflineClient.getLocalPort());
+                  server.join(longOfflineEndpoint, loopback, longOfflineClient.getLocalPort(), "Recovery Client",
+                          PasswordAuth.verifier("Recovery Client", "validator-password"), false, "");
+                  String longOfflineWelcome = receivePayload(longOfflineClient, "WELCOME|");
+                  require(longOfflineWelcome.startsWith("WELCOME|P1|"),
+                          "same name and password received a new player slot after a long offline period");
+                  require(server.owns(longOfflineEndpoint, "P1"),
+                          "long-offline password reclaim did not restore P1 ownership");
+                  require(world.hasLiveAssets("P1"), "long-offline password reclaim changed P1 assets");
+                  require(world.hasResearch("P1", "session-recovery-marker"),
+                          "long-offline password reclaim changed P1 research");''',
               'expired-session deletion assertions')
           validator_path.write_text(validator, encoding='utf-8')
 
@@ -281,7 +263,8 @@ jobs:
           Push-Location (Join-Path $root 'StarChem')
           try {
             $version = (& cmd /c run-starchem.bat --version | Out-String).Trim()
-            $expectedVersion = "StarChem 1.5.3 ($('${{ needs.apply-test-package.outputs.new_sha }}'.Substring(0, 12)))"
+            $sha = '${{ needs.apply-test-package.outputs.new_sha }}'
+            $expectedVersion = "StarChem 1.5.3 ($($sha.Substring(0, 12)))"
             if ($version -ne $expectedVersion) { throw "Unexpected version output: $version" }
             $help = (& cmd /c run-starchem-server.bat --help | Out-String)
             if ($LASTEXITCODE -ne 0 -or $help -notmatch '--server \[PORT\]') { throw 'Server launcher smoke test failed.' }
