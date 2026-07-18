@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/server-console-commands
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
