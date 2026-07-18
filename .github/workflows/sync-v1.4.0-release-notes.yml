@@ -41,3 +41,19 @@ jobs:
               raise SystemExit('Published v1.4.0 release body does not match RELEASE_NOTES.md')
           print('Published v1.4.0 release notes verified.')
           PY
+
+      - name: Record successful synchronization
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          marker="release=v1.4.0
+          notes_commit=$GITHUB_SHA
+          status=verified
+          "
+          encoded="$(printf '%s' "$marker" | base64 -w0)"
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/.github/v1.4.0-release-notes-synced.txt" \
+            -f message='Verify published v1.4.0 release notes' \
+            -f content="$encoded" \
+            -f branch=main
