@@ -1,8 +1,13 @@
 package com.tndmadman.rts;
 
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadMXBean;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -12,12 +17,15 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 final class ServerModerationStore {
     private final Path path;
@@ -105,12 +113,24 @@ final class ServerModerationStore {
 
 final class ServerEventJournal {
     private static final int MAX_EVENTS = 500;
+    private static final long MAX_FILE_BYTES = 2L * 1024 * 1024;
     private static final DateTimeFormatter TIME = DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC);
     private final Deque<ServerEvent> events = new ArrayDeque<>();
+    private final Path path;
+
+    ServerEventJournal() { this.path = null; }
+
+    ServerEventJournal(Path saveDir, String saveName) {
+        Path dir = saveDir == null ? Path.of("saves") : saveDir;
+        this.path = dir.resolve(Config.cleanSaveName(saveName) + "-activity.log");
+        load();
+    }
 
     synchronized void add(String type, String subject, String detail) {
-        events.addLast(new ServerEvent(System.currentTimeMillis(), safe(type, 32), safe(subject, 128), safe(detail, 512)));
+        ServerEvent event = new ServerEvent(System.currentTimeMillis(), safe(type, 32), safe(subject, 128), safe(detail, 512));
+        events.addLast(event);
         while (events.size() > MAX_EVENTS) events.removeFirst();
+        append(event);
     }
 
     synchronized List<String> lines(int limit, String type, String subject) {
@@ -122,14 +142,78 @@ final class ServerEventJournal {
             ServerEvent event = snapshot.get(i);
             if (!wantedType.isBlank() && !event.type().toLowerCase(Locale.ROOT).contains(wantedType)) continue;
             if (!wantedSubject.isBlank() && !(event.subject() + " " + event.detail()).toLowerCase(Locale.ROOT).contains(wantedSubject)) continue;
-            out.add(TIME.format(Instant.ofEpochMilli(event.at())) + " | " + event.type() + " | "
-                    + (event.subject().isBlank() ? "server" : event.subject())
-                    + (event.detail().isBlank() ? "" : " | " + event.detail()));
+            out.add(format(event));
         }
         return out.isEmpty() ? List.of("No activity matched that filter.") : List.copyOf(out);
     }
 
-    synchronized void clear() { events.clear(); }
+    synchronized void export(Path target) throws IOException {
+        if (target == null) throw new IOException("export path is missing");
+        Path parent = target.toAbsolutePath().getParent();
+        if (parent != null) Files.createDirectories(parent);
+        ArrayList<String> rows = new ArrayList<>();
+        for (ServerEvent event : events) rows.add(format(event));
+        Files.write(target, rows, StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+    }
+
+    synchronized void clear() {
+        events.clear();
+        if (path != null) try { Files.deleteIfExists(path); } catch (IOException ignored) { }
+    }
+
+    private void load() {
+        if (path == null || !Files.isRegularFile(path)) return;
+        try {
+            List<String> rows = Files.readAllLines(path, StandardCharsets.UTF_8);
+            int start = Math.max(0, rows.size() - MAX_EVENTS);
+            for (int i = start; i < rows.size(); i++) {
+                String[] parts = rows.get(i).split("\\t", 4);
+                if (parts.length != 4) continue;
+                long at;
+                try { at = Long.parseLong(parts[0]); } catch (NumberFormatException ex) { continue; }
+                events.addLast(new ServerEvent(at, decode(parts[1]), decode(parts[2]), decode(parts[3])));
+            }
+        } catch (IOException ex) {
+            System.err.println("Could not load server activity journal: " + ex.getMessage());
+        }
+    }
+
+    private void append(ServerEvent event) {
+        if (path == null) return;
+        try {
+            Path parent = path.toAbsolutePath().getParent();
+            if (parent != null) Files.createDirectories(parent);
+            if (Files.isRegularFile(path) && Files.size(path) > MAX_FILE_BYTES) rewrite();
+            String row = event.at() + "\t" + encode(event.type()) + "\t" + encode(event.subject()) + "\t" + encode(event.detail()) + "\n";
+            Files.writeString(path, row, StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND, StandardOpenOption.WRITE);
+        } catch (IOException ex) {
+            System.err.println("Could not append server activity journal: " + ex.getMessage());
+        }
+    }
+
+    private void rewrite() throws IOException {
+        ArrayList<String> rows = new ArrayList<>();
+        for (ServerEvent event : events) rows.add(event.at() + "\t" + encode(event.type()) + "\t" + encode(event.subject()) + "\t" + encode(event.detail()));
+        Files.write(path, rows, StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+    }
+
+    private static String format(ServerEvent event) {
+        return TIME.format(Instant.ofEpochMilli(event.at())) + " | " + event.type() + " | "
+                + (event.subject().isBlank() ? "server" : event.subject())
+                + (event.detail().isBlank() ? "" : " | " + event.detail());
+    }
+
+    private static String encode(String value) {
+        return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String decode(String value) {
+        try { return new String(java.util.Base64.getUrlDecoder().decode(value), StandardCharsets.UTF_8); }
+        catch (IllegalArgumentException ex) { return ""; }
+    }
 
     private static String safe(String value, int max) {
         String clean = ServerModeration.clean(value);

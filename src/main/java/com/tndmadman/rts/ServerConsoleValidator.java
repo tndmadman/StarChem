@@ -24,9 +24,11 @@ public final class ServerConsoleValidator {
         validateDurationParsing();
         validateAdminPolicyPersistence();
         validateModerationPersistence();
+        validatePersistentAdministrationTelemetry();
         validateIpAndDeviceIdentity();
         validateDeviceHandshake();
         validateDispatch();
+        ServerDevCommandValidator.validate();
     }
 
     private static void validateBoundedQueue() {
@@ -104,6 +106,32 @@ public final class ServerConsoleValidator {
             require(restored.whitelisted("P1", "Alpha"), "moderation whitelist identity did not round-trip");
             require(restored.active(null, now).size() == 2, "moderation entries did not round-trip");
             require(Files.isRegularFile(store.path()), "moderation file was not created");
+        } finally {
+            try (var stream = Files.walk(dir)) {
+                stream.sorted((a, b) -> b.compareTo(a)).forEach(path -> {
+                    try { Files.deleteIfExists(path); } catch (Exception ignored) { }
+                });
+            }
+        }
+    }
+
+    private static void validatePersistentAdministrationTelemetry() throws Exception {
+        Path dir = Files.createTempDirectory("starchem-admin-telemetry-validator-");
+        try {
+            ServerEventJournal journal = new ServerEventJournal(dir, "validation");
+            journal.add("ADMIN", "dev-mode", "enabled");
+            ServerEventJournal restored = new ServerEventJournal(dir, "validation");
+            require(restored.lines(10, "ADMIN", "dev-mode").get(0).contains("enabled"),
+                    "persistent server activity journal did not reload");
+
+            ServerPlayerObservationStore observations = new ServerPlayerObservationStore(dir, "validation");
+            observations.record("P9", "Observer", java.net.InetAddress.getByName("192.0.2.44"),
+                    "device-observation-validator-1234");
+            ServerPlayerObservationStore restoredObservations = new ServerPlayerObservationStore(dir, "validation");
+            ServerPlayerObservationStore.PlayerObservation observation = restoredObservations.find("P9");
+            require(observation != null && observation.ips().contains("192.0.2.44")
+                            && observation.devices().contains("device-observation-validator-1234"),
+                    "player moderation observations did not round-trip");
         } finally {
             try (var stream = Files.walk(dir)) {
                 stream.sorted((a, b) -> b.compareTo(a)).forEach(path -> {

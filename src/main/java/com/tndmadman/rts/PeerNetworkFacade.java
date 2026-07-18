@@ -22,9 +22,13 @@ final class PeerNetwork implements CommandSink {
     private final Map<String, String> deviceByPlayer = new LinkedHashMap<>();
     private final Set<String> retainedModerationPlayers = new LinkedHashSet<>();
     private final ServerModerationStore moderationStore;
-    private final ServerEventJournal journal = new ServerEventJournal();
+    private final ServerPlayerObservationStore observationStore;
+    private final ServerEventJournal journal;
+    private final Set<String> runtimeDevAccess = new LinkedHashSet<>();
+    private final Set<String> runtimeFreeBuild = new LinkedHashSet<>();
     private ServerAccessPolicy accessPolicy;
     private ServerModerationState moderation;
+    private boolean runtimeDevEnabled;
     private boolean simulationPaused;
     private String simulationPauseReason = "";
 
@@ -38,7 +42,12 @@ final class PeerNetwork implements CommandSink {
         this.accessPolicy = accessPolicy == null ? ServerAccessPolicy.open() : accessPolicy;
         this.moderationStore = new ServerModerationStore(config == null ? null : config.saveDir,
                 config == null ? "server" : config.saveName);
+        this.observationStore = new ServerPlayerObservationStore(config == null ? null : config.saveDir,
+                config == null ? "server" : config.saveName);
+        this.journal = new ServerEventJournal(config == null ? null : config.saveDir,
+                config == null ? "server" : config.saveName);
         this.moderation = server == null ? ServerModerationState.open() : moderationStore.load();
+        this.runtimeDevEnabled = config != null && config.devMode;
     }
 
     static PeerNetwork start(Config config, World world) throws IOException {
@@ -259,27 +268,99 @@ final class PeerNetwork implements CommandSink {
         perfStats.recordServerUpdate(System.nanoTime() - started);
     }
 
-    boolean devToolsAllowed() { return server != null ? config.devMode : client != null && client.devToolsAllowed(); }
+    boolean devToolsAllowed() { return server != null ? runtimeDevEnabled : client != null && client.devToolsAllowed(); }
+    boolean runtimeDevEnabled() { return runtimeDevEnabled; }
+    int runtimeDevAccessCount() { return runtimeDevAccess.size(); }
+    int runtimeFreeBuildCount() { return runtimeFreeBuild.size(); }
+    boolean runtimeDevAccessGranted(String playerId) {
+        if (playerId == null) return false;
+        if (runtimeDevAccess.contains(playerId)) return true;
+        if (server != null) for (DevPeerAccess peer : server.devAccessPeers()) if (playerId.equals(peer.playerId()) && peer.authorized()) return true;
+        return false;
+    }
+    boolean runtimeFreeBuildEnabled(String playerId) {
+        return playerId != null && (runtimeFreeBuild.contains(playerId) || server != null && server.world.devFreeBuildFor(playerId));
+    }
     List<DevPeerAccess> devAccessPeers() { return server == null ? List.of() : server.devAccessPeers(); }
-    void setRemoteDevAccess(String playerId, boolean enabled) { if (server != null) server.setDevAccess(playerId, enabled); }
+
+    void setRuntimeDevEnabled(boolean enabled) {
+        runtimeDevEnabled = enabled;
+        if (enabled || server == null) return;
+        revokeAllRuntimeDevAccess();
+        for (String playerId : new ArrayList<>(runtimeFreeBuild)) setServerFreeBuild(playerId, false);
+        runtimeFreeBuild.clear();
+        AiDevSettings.pauseAi = false;
+        AiDevSettings.stepAi = false;
+        AiDevSettings.fastAi = false;
+        AiDevSettings.freezePlayerUnits = false;
+        AiDevSettings.freezeNpcCombat = false;
+        AiDevSettings.disableAttacks = false;
+        AiDevSettings.disableEconomy = false;
+        AiDevSettings.hotReloadRequested = false;
+        int guard = NpcDifficultyPreset.values().length + 1;
+        while (NpcDifficultyPreset.current() != NpcDifficultyPreset.NORMAL && guard-- > 0) NpcDifficultyPreset.next();
+        DevTimerSettings.configure(server.world, config.disableProductionTimers);
+    }
+
+    void setRemoteDevAccess(String playerId, boolean enabled) {
+        if (server == null || playerId == null || playerId.isBlank()) return;
+        if (enabled && !runtimeDevEnabled) return;
+        if (enabled) runtimeDevAccess.add(playerId); else runtimeDevAccess.remove(playerId);
+        if (config.devMode) server.setDevAccess(playerId, enabled);
+        else PeerServerAdminBridge.setDevAccess(server, playerId, enabled);
+        if (enabled && !runtimeFreeBuild.contains(playerId)) server.applyDevFreeCrafting(playerId, false);
+        if (!enabled && runtimeFreeBuild.remove(playerId)) server.applyDevFreeCrafting(playerId, false);
+        journal.add("DEV_ACCESS", playerId, enabled ? "granted" : "revoked");
+    }
+
+    int revokeAllRuntimeDevAccess() {
+        if (server == null) return 0;
+        LinkedHashSet<String> players = new LinkedHashSet<>(runtimeDevAccess);
+        for (DevPeerAccess peer : server.devAccessPeers()) if (peer.authorized()) players.add(peer.playerId());
+        for (String playerId : players) setRemoteDevAccess(playerId, false);
+        PeerServerAdminBridge.revokeAllDev(server);
+        runtimeDevAccess.clear();
+        return players.size();
+    }
+
+    void setServerFreeBuild(String playerId, boolean enabled) {
+        if (server == null || playerId == null || playerId.isBlank()) return;
+        if (enabled) runtimeFreeBuild.add(playerId); else runtimeFreeBuild.remove(playerId);
+        server.applyDevFreeCrafting(playerId, enabled);
+        journal.add("DEV_FREEBUILD", playerId, enabled ? "enabled" : "disabled");
+    }
 
     void devSetFreeCrafting(String playerId, boolean enabled) {
         if (server != null) {
-            if (server.localDevAllowed(playerId)) server.applyDevFreeCrafting(playerId, enabled);
+            if (runtimeDevEnabled && runtimeAuthorized(playerId, server.connectionIdForPlayer(playerId))) setServerFreeBuild(playerId, enabled);
         } else if (client != null) client.devSetFreeCrafting(playerId, enabled);
     }
 
     void devAddHangarResource(String playerId, String baseId, Material material, double amount) {
         if (server != null) {
-            if (server.localDevAllowed(playerId)) server.applyDevHangarResource(playerId, baseId, material, amount);
+            if (runtimeDevEnabled && runtimeAuthorized(playerId, server.connectionIdForPlayer(playerId))) server.applyDevHangarResource(playerId, baseId, material, amount);
         } else if (client != null) client.devAddHangarResource(playerId, baseId, material, amount);
     }
 
     void devAiCommand(String playerId, String command) {
         if (server != null) {
-            if (server.localDevAllowed(playerId)) server.applyDevAiCommand(playerId, command);
+            if (runtimeDevEnabled && ("SOLO".equals(playerId) || runtimeAuthorized(playerId, server.connectionIdForPlayer(playerId)))) server.applyDevAiCommand(playerId, command);
         } else if (client != null) client.devAiCommand(playerId, command);
     }
+
+    boolean sendServerNotice(String playerId, String message) {
+        if (server == null || playerId == null || message == null || message.isBlank()) return false;
+        ConnectionId connectionId = server.connectionIdForPlayer(playerId);
+        if (!connectionId.valid()) return false;
+        String clean = packetPart(message);
+        if (clean.length() > ServerAccessPolicy.MAX_TEXT) clean = clean.substring(0, ServerAccessPolicy.MAX_TEXT);
+        transport.sendOrdered("SERVER_NOTICE|" + clean, connectionId);
+        journal.add("NOTICE", playerId, "targeted content redacted");
+        return true;
+    }
+
+    List<String> playerObservationLines(String selector) { return observationStore.lines(selector); }
+    ServerPlayerObservationStore.PlayerObservation playerObservation(String selector) { return observationStore.find(selector); }
 
     void tick() {
         long started = System.nanoTime();
@@ -303,6 +384,7 @@ final class PeerNetwork implements CommandSink {
                     if (message == null) continue;
                     if (server != null) {
                         if (rejectAdmission(message, packet)) continue;
+                        if (handleRuntimeDevMessage(message, packet.connectionId())) continue;
                         server.handle(message, packet);
                         bindDeviceToOwner(packet.connectionId());
                         recordAdmission(message, packet.connectionId());
@@ -351,6 +433,40 @@ final class PeerNetwork implements CommandSink {
     void jump(String playerId, String targetSystemId, double x, double y) { viewSystem(playerId, targetSystemId); }
     void wormholeTouch(String playerId) { if (server != null) serverCommand(server.world::transferTouchingShips, playerId); else client.wormholeTouch(playerId); }
     void wormholeTouch(WormholeTouchRequest request) { if (request == null || !request.valid()) return; if (server != null) serverCommand(() -> server.world.transferTouchingShips(request.playerId()), request.playerId()); else client.wormholeTouch(request); }
+
+    private boolean runtimeAuthorized(String playerId, ConnectionId connectionId) {
+        if (!runtimeDevEnabled || playerId == null || playerId.isBlank()) return false;
+        return runtimeDevAccess.contains(playerId) || server != null && server.devAllowed(connectionId, playerId);
+    }
+
+    private boolean handleRuntimeDevMessage(String message, ConnectionId connectionId) {
+        if (server == null || message == null || connectionId == null || !connectionId.valid()) return false;
+        if (!(message.startsWith("DEVFREE|") || message.startsWith("DEVHANGAR|") || message.startsWith("DEVAI|"))) return false;
+        String[] parts = message.split("\\|", -1);
+        String playerId = parts.length > 1 ? parts[1] : "";
+        if (!server.owns(connectionId, playerId) || !runtimeAuthorized(playerId, connectionId)) {
+            journal.add("DEV_DENIED", playerId, parts.length == 0 ? "unknown" : parts[0]);
+            return true;
+        }
+        try {
+            if ("DEVFREE".equals(parts[0]) && parts.length >= 3) {
+                setServerFreeBuild(playerId, devFlag(parts[2]));
+            } else if ("DEVHANGAR".equals(parts[0]) && parts.length >= 5) {
+                Material material = Material.valueOf(parts[3]);
+                double amount = Double.parseDouble(parts[4]);
+                if (Double.isFinite(amount) && amount > 0) server.applyDevHangarResource(playerId, parts[2], material, amount);
+            } else if ("DEVAI".equals(parts[0]) && parts.length >= 3) {
+                server.applyDevAiCommand(playerId, parts[2]);
+            }
+        } catch (RuntimeException ex) {
+            journal.add("DEV_ERROR", playerId, parts[0]);
+        }
+        return true;
+    }
+
+    private boolean devFlag(String value) {
+        return "1".equals(value) || "true".equalsIgnoreCase(value) || "DEV".equalsIgnoreCase(value) || "YES".equalsIgnoreCase(value);
+    }
 
     private boolean rejectAdmission(String message, NetPacket packet) {
         if (server == null || packet == null || !admissionMessage(message)) return false;
@@ -417,6 +533,18 @@ final class PeerNetwork implements CommandSink {
         if (!admissionMessage(message) || connectionId == null || !connectionId.valid() || !admissionRecorded.add(connectionId)) return;
         String playerId = server.ownerId(connectionId, "");
         if (playerId.isBlank()) return;
+        PersistentPlayerSession session = sessionById(playerId);
+        String device = deviceByConnection.getOrDefault(connectionId, deviceByPlayer.getOrDefault(playerId, ""));
+        observationStore.record(playerId, session == null ? playerId : session.name(), serverPlayerAddress(playerId), device);
+        for (DevPeerAccess peer : server.devAccessPeers()) if (playerId.equals(peer.playerId()) && peer.authorized()) {
+            runtimeDevAccess.add(playerId);
+            if (server.world.devFreeBuildFor(playerId)) runtimeFreeBuild.add(playerId);
+        }
+        if (runtimeDevEnabled && runtimeDevAccess.contains(playerId)) {
+            if (config.devMode) server.setDevAccess(playerId, true);
+            else PeerServerAdminBridge.setDevAccess(server, playerId, true);
+            server.applyDevFreeCrafting(playerId, runtimeFreeBuild.contains(playerId));
+        }
         journal.add(joinMessage(message) ? "JOIN" : "RECONNECT", playerId, "accepted");
     }
 

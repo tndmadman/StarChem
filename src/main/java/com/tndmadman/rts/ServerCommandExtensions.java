@@ -47,12 +47,15 @@ final class ServerCommandExtensions {
             case "pause" -> pause(host.network, args);
             case "prune-systems" -> prune(host, target, args);
             case "health" -> health(host, args);
-            case "activity" -> activity(host.network, args);
+            case "activity" -> activity(host, args);
             case "factions" -> factions(host.world, args, false);
             case "faction" -> factions(host.world, args, true);
             case "production" -> production(host.world, args);
             case "assets" -> assets(host.world, args, false);
             case "asset" -> assets(host.world, args, true);
+            case "research" -> ServerDevCommands.researchInspect(host, args);
+            case "tell", "notice", "threads", "memory", "gc-status", "dump", "observations" ->
+                    ServerDevCommands.diagnostics(host, command, args);
             default -> List.of("Unknown extended command: " + command);
         };
     }
@@ -61,7 +64,7 @@ final class ServerCommandExtensions {
         HeadlessGameServer host = host(target);
         if (host == null || host.network == null) return;
         String detail;
-        if ("say".equals(command) || "motd".equals(command)) detail = "content redacted";
+        if ("say".equals(command) || "tell".equals(command) || "notice".equals(command) || "motd".equals(command)) detail = "content redacted";
         else if ("ban".equals(command) || "kick".equals(command)) detail = "moderation arguments redacted";
         else detail = args == null || args.isEmpty() ? "" : String.join(" ", args);
         host.network.serverJournal().add("ADMIN", command, detail);
@@ -143,27 +146,38 @@ final class ServerCommandExtensions {
         catch (IllegalArgumentException ex) { return List.of(ex.getMessage()); }
         String reason = join(args, index + 2);
         PersistentPlayerSession session = resolve(network, selector);
+        ServerPlayerObservationStore.PlayerObservation observation = network.playerObservation(selector);
         ServerModerationState updated = network.serverModeration();
         ArrayList<String> scopes = new ArrayList<>();
-        String playerId = session == null ? "" : session.playerId();
-        String playerName = session == null ? ("player".equals(type) ? selector : "") : session.name();
+        String playerId = session != null ? session.playerId() : observation == null ? "" : observation.playerId();
+        String playerName = session != null ? session.name() : observation != null ? observation.playerName() : ("player".equals(type) ? selector : "");
 
         if ("player".equals(type)) {
             updated = updated.add(new ModerationEntry("", ModerationKind.PLAYER_BAN, playerId, playerName,
-                    session == null ? selector : session.playerId(), now, expiry, reason));
+                    playerId.isBlank() ? selector : playerId, now, expiry, reason));
             scopes.add("player");
+            LinkedHashSet<String> capturedIps = new LinkedHashSet<>();
+            LinkedHashSet<String> capturedDevices = new LinkedHashSet<>();
             if (session != null) {
                 InetAddress address = network.serverPlayerAddress(session.playerId());
                 String ip = address == null ? "" : address.getHostAddress();
-                if (!ip.isBlank()) {
-                    updated = updated.add(new ModerationEntry("", ModerationKind.IP_BAN, playerId, playerName, ip, now, expiry, reason));
-                    scopes.add("IP " + ip);
-                }
+                if (!ip.isBlank()) capturedIps.add(ip);
                 String device = network.serverPlayerDeviceId(session.playerId());
-                if (ServerDeviceIdentity.valid(device)) {
-                    updated = updated.add(new ModerationEntry("", ModerationKind.DEVICE_BAN, playerId, playerName, device, now, expiry, reason));
-                    scopes.add("device " + ServerDeviceIdentity.mask(device));
-                }
+                if (ServerDeviceIdentity.valid(device)) capturedDevices.add(device);
+            }
+            if (observation != null) {
+                capturedIps.addAll(observation.ips());
+                capturedDevices.addAll(observation.devices());
+            }
+            for (String ip : capturedIps) {
+                String normalized = IpBanMatcher.normalize(ip);
+                if (normalized.isBlank()) continue;
+                updated = updated.add(new ModerationEntry("", ModerationKind.IP_BAN, playerId, playerName, normalized, now, expiry, reason));
+                scopes.add("IP " + normalized);
+            }
+            for (String device : capturedDevices) if (ServerDeviceIdentity.valid(device)) {
+                updated = updated.add(new ModerationEntry("", ModerationKind.DEVICE_BAN, playerId, playerName, device, now, expiry, reason));
+                scopes.add("device " + ServerDeviceIdentity.mask(device));
             }
         } else if ("ip".equals(type)) {
             String raw = session == null ? selector : addressText(network.serverPlayerAddress(session.playerId()));
@@ -333,7 +347,8 @@ final class ServerCommandExtensions {
         return List.copyOf(lines);
     }
 
-    private static List<String> activity(PeerNetwork network, List<String> args) {
+    private static List<String> activity(HeadlessGameServer host, List<String> args) {
+        PeerNetwork network = host.network;
         if (args == null || args.isEmpty()) return network.serverJournal().lines(25, "", "");
         String action = args.get(0).toLowerCase(Locale.ROOT);
         if ("clear".equals(action) && args.size() == 1) {
@@ -346,7 +361,17 @@ final class ServerCommandExtensions {
         }
         if ("type".equals(action) && args.size() == 2) return network.serverJournal().lines(100, args.get(1), "");
         if ("player".equals(action) && args.size() == 2) return network.serverJournal().lines(100, "", args.get(1));
-        return List.of("Usage: activity [last <count>|player <player>|type <type>|clear]");
+        if ("export".equals(action) && args.size() == 2) {
+            Path directory = network.serverConfig().saveDir.resolve("admin-dumps");
+            Path target = directory.resolve(Path.of(args.get(1)).getFileName().toString()).normalize();
+            if (!target.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".log")) target = target.resolveSibling(target.getFileName() + ".log");
+            try {
+                Files.createDirectories(directory);
+                network.serverJournal().export(target);
+                return List.of("Activity journal exported to " + target.toAbsolutePath().normalize());
+            } catch (IOException ex) { return List.of("Could not export activity journal: " + ex.getMessage()); }
+        }
+        return List.of("Usage: activity [last <count>|player <player>|type <type>|clear|export <filename>]");
     }
 
     private static List<String> factions(World world, List<String> args, boolean single) {

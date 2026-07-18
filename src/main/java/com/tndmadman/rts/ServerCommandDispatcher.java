@@ -84,16 +84,24 @@ final class ServerCommandDispatcher {
         register("pause", "pause <status|on [reason]|off>", "Pause authoritative simulation while administration remains active.", args -> extended("pause", args));
         register("prune-systems", "prune-systems <preview|run confirm>", "Preview or safely prune abandoned dynamic systems.", args -> extended("prune-systems", args));
         register("health", "health [disk|network|simulation]", "Show JVM, disk, simulation, and network health.", args -> extended("health", args));
-        register("activity", "activity [last <count>|player <player>|type <type>|clear]", "Inspect the bounded server event journal.", args -> extended("activity", args));
+        register("activity", "activity [last <count>|player <player>|type <type>|clear|export <filename>]", "Inspect the bounded server event journal.", args -> extended("activity", args));
         register("factions", "factions [npc]", "Show authoritative NPC faction totals and runtime state.", args -> extended("factions", args));
         register("faction", "faction <id-or-name>", "Inspect one NPC faction.", args -> extended("faction", args));
         register("production", "production <summary|player <player>|system <system>|base <base-id>|stalled>", "Inspect authoritative production queues.", args -> extended("production", args));
         register("assets", "assets <player|system> <selector> [ships|bases]", "List detailed authoritative assets.", args -> extended("assets", args));
         register("asset", "asset <unit-or-base-id>", "Inspect one authoritative unit or base.", args -> extended("asset", args));
+        register("research", "research <topics|topic <topic>|status|completed|queued|available|blocked <player>>", "Inspect research rules and player research state.", args -> extended("research", args));
+        register("tell", "tell <player> <message>", "Send a private server notice to one connected player.", args -> extended("tell", args));
+        register("notice", "notice <all <message>|system <system> <message>>", "Send a scoped server notice.", args -> extended("notice", args));
+        register("threads", "threads", "List live JVM threads and states.", args -> extended("threads", args));
+        register("memory", "memory", "Show JVM heap and non-heap usage.", args -> extended("memory", args));
+        register("gc-status", "gc-status", "Show garbage collector statistics without forcing collection.", args -> extended("gc-status", args));
+        register("dump", "dump <player|system> <selector> [filename]", "Write a sanitized administration dump.", args -> extended("dump", args));
+        register("observations", "observations [player]", "Show retained last-seen IP and client-device moderation signals.", args -> extended("observations", args));
         register("say", "say <message>", "Broadcast a server notice to connected clients.", this::say);
         register("shutdown", "shutdown [now|status|cancel|<duration>] [reason]", "Schedule, inspect, cancel, or perform shutdown.", this::shutdown);
         register("disconnect", "disconnect <player-id-or-name> [reason]", "Temporarily disconnect a player while retaining the session.", this::disconnect);
-        register("dev", "dev <status|access|ai|timers|trigger|spawn|remove|reset> ...", "Run developer-only server controls.", this::developer);
+        register("dev", "dev <status|mode|access|freebuild|resource|research|ai|timers|faction|production|asset|player|spawn> ...", "Run trusted local-console developer and recovery controls.", this::developer);
         register("version", "version", "Print the running StarChem build identity.", this::version);
         register("stop", "stop", "Save and stop the dedicated server immediately.", this::stop);
     }

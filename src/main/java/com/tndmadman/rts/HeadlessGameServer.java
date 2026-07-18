@@ -115,6 +115,7 @@ final class HeadlessGameServer {
             @Override public boolean save() { return saveNow("manual-console"); }
             @Override public void stop() { HeadlessGameServer.this.stop(); }
             @Override public boolean running() { return HeadlessGameServer.this.running(); }
+            @Override public Object extensionContext() { return HeadlessGameServer.this; }
         }, System.out, System.err);
     }
 
@@ -569,17 +570,7 @@ final class HeadlessGameServer {
     }
 
     private List<String> developerCommand(List<String> args) {
-        if (!config.devMode) return List.of("Developer console commands require the server to start with --dev.");
-        if (args == null || args.isEmpty() || "status".equalsIgnoreCase(args.get(0))) return developerStatusLines();
-        String group = args.get(0).toLowerCase(Locale.ROOT);
-        if ("access".equals(group)) return developerAccess(args);
-        if ("ai".equals(group)) return developerAi(args);
-        if ("timers".equals(group)) return developerTimers(args);
-        if ("trigger".equals(group)) return developerTrigger(args);
-        if ("spawn".equals(group)) return developerSpawn(args);
-        if ("remove".equals(group)) return developerRemove(args);
-        if ("reset".equals(group)) return developerReset(args);
-        return List.of("Usage: dev <status|access|ai|timers|trigger|spawn|remove|reset> ...");
+        return ServerDevCommands.execute(this, args);
     }
 
     private List<String> developerStatusLines() {
@@ -713,6 +704,8 @@ final class HeadlessGameServer {
                 ? Long.MAX_VALUE
                 : System.nanoTime() + runtimeAutosaveSeconds * 1_000_000_000L;
     }
+
+    boolean saveForAdmin(String reason) { return saveNow(reason); }
 
     private boolean saveNow(String reason) {
         try {
