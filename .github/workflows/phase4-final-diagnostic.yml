@@ -1,0 +1,40 @@
+name: Phase 4 Final Diagnostic
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-corsair-remote-view
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Capture full project verification
+        shell: bash
+        run: |
+          set +e
+          gradle clean check jar --no-daemon --stacktrace > phase4-final-build.log 2>&1
+          code=$?
+          cat phase4-final-build.log
+          echo "$code" > phase4-final-build.exit
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase4-final-build-diagnostic
+          path: |
+            phase4-final-build.log
+            phase4-final-build.exit
