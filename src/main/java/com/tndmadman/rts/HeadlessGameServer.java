@@ -8,9 +8,11 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 final class HeadlessGameServer {
@@ -23,9 +25,14 @@ final class HeadlessGameServer {
     final PeerNetwork network;
     private final Config config;
     private final ServerSaveStore saves;
+    private final ServerAdminStore adminStore;
+    private final ServerBackupAdmin backupAdmin;
     private final AtomicBoolean stopped = new AtomicBoolean();
     private final Instant startedAt = Instant.now();
     private final long startedNanos = System.nanoTime();
+    private final int startupAutosaveSeconds;
+    private int runtimeAutosaveSeconds;
+    private ServerAccessPolicy accessPolicy;
     private long nextAutosaveNanos;
     private long autosaveCount;
     private long manualSaveCount;
@@ -37,11 +44,18 @@ final class HeadlessGameServer {
     private ServerConsole console;
     private ServerCommandDispatcher consoleCommands;
 
-    private HeadlessGameServer(World world, PeerNetwork network, Config config, ServerSaveStore saves) {
+    private HeadlessGameServer(World world, PeerNetwork network, Config config, ServerSaveStore saves,
+                               ServerAdminStore adminStore, ServerBackupAdmin backupAdmin,
+                               ServerAccessPolicy accessPolicy) {
         this.world = world;
         this.network = network;
         this.config = config;
         this.saves = saves;
+        this.adminStore = adminStore;
+        this.backupAdmin = backupAdmin;
+        this.accessPolicy = accessPolicy == null ? ServerAccessPolicy.open() : accessPolicy;
+        this.startupAutosaveSeconds = Math.max(0, config.autosaveSeconds);
+        this.runtimeAutosaveSeconds = startupAutosaveSeconds;
         scheduleNextAutosave();
     }
 
@@ -51,14 +65,17 @@ final class HeadlessGameServer {
         }
         GalaxyRuntimeOptions.configure(config);
         ServerSaveStore saves = new ServerSaveStore(config.saveDir, config.saveName, config.backupCount);
+        ServerAdminStore adminStore = new ServerAdminStore(config.saveDir, config.saveName);
+        ServerBackupAdmin backupAdmin = new ServerBackupAdmin(config.saveDir, config.saveName, config.backupCount);
+        ServerAccessPolicy accessPolicy = adminStore.load();
         Optional<World> loaded = config.newWorld ? Optional.empty() : saves.load(config);
         World world = loaded.orElseGet(() -> new World(config.playerName, config.disabledNpcFactionIds, config.systemId, false));
         if (loaded.isPresent()) System.out.println("Loaded server save '" + config.saveName + "'.");
         else System.out.println(config.newWorld ? "Starting a new server world by request." : "No server save found; starting a new world.");
         DevTimerSettings.configure(world, config.disableProductionTimers);
-        PeerNetwork network = PeerNetwork.start(config, world, saves.loadedPlayerSessions());
+        PeerNetwork network = PeerNetwork.start(config, world, saves.loadedPlayerSessions(), accessPolicy);
         if (network == null) throw new IOException("Dedicated server network did not start.");
-        return new HeadlessGameServer(world, network, config, saves);
+        return new HeadlessGameServer(world, network, config, saves, adminStore, backupAdmin, accessPolicy);
     }
 
     void attachConsole(ServerConsole console) {
@@ -73,12 +90,22 @@ final class HeadlessGameServer {
         this.consoleCommands = new ServerCommandDispatcher(new ServerCommandDispatcher.Target() {
             @Override public String status() { return consoleStatusLine(); }
             @Override public List<String> players() { return playerStatusLines(); }
+            @Override public List<String> leaderboard(int limit) { return leaderboardLines(limit); }
+            @Override public List<String> player(String selector, String section) { return playerDetailLines(selector, section); }
+            @Override public List<String> sessions(String filter) { return sessionLines(filter); }
             @Override public List<String> uptime() { return uptimeLines(); }
             @Override public List<String> performance(String scope) { return performanceLines(scope); }
             @Override public List<String> systems(String filter, String value) { return systemLines(filter, value); }
             @Override public List<String> system(String selector) { return systemDetailLines(selector); }
             @Override public List<String> connection(String selector) { return connectionLines(selector); }
+            @Override public List<String> resync(String selector) { return resyncLines(selector); }
+            @Override public List<String> serverInfo(String scope) { return serverInfoLines(scope); }
             @Override public List<String> saveInfo() { return saveInfoLines(); }
+            @Override public List<String> autosave(List<String> args) { return autosaveCommand(args); }
+            @Override public List<String> backups(List<String> args) { return backupCommand(args); }
+            @Override public List<String> maintenance(List<String> args) { return maintenanceCommand(args); }
+            @Override public List<String> slots(List<String> args) { return slotsCommand(args); }
+            @Override public List<String> motd(List<String> args) { return motdCommand(args); }
             @Override public String announce(String message) { return announceNow(message); }
             @Override public String scheduleShutdown(long delaySeconds, String reason) { return HeadlessGameServer.this.scheduleShutdown(delaySeconds, reason); }
             @Override public String cancelShutdown() { return HeadlessGameServer.this.cancelShutdown(); }
@@ -101,13 +128,8 @@ final class HeadlessGameServer {
         autosaveIfDue();
     }
 
-    boolean running() {
-        return !stopped.get();
-    }
-
-    String statusLine() {
-        return stopped.get() ? "SERVER STOPPED" : network.statusLine();
-    }
+    boolean running() { return !stopped.get(); }
+    String statusLine() { return stopped.get() ? "SERVER STOPPED" : network.statusLine(); }
 
     void stop() {
         if (!stopped.compareAndSet(false, true)) return;
@@ -134,11 +156,11 @@ final class HeadlessGameServer {
     }
 
     private String consoleStatusLine() {
-        String autosave = config.autosaveSeconds <= 0
-                ? "autosave disabled"
-                : "autosave every " + config.autosaveSeconds + "s";
+        String autosave = runtimeAutosaveSeconds <= 0 ? "autosave disabled" : "autosave every " + runtimeAutosaveSeconds + "s";
         String shutdown = shutdownDeadlineNanos == NO_SHUTDOWN ? "" : " | shutdown " + shutdownRemainingSeconds() + "s";
-        return statusLine() + " | save " + config.saveName + " | " + autosave + shutdown;
+        String maintenance = accessPolicy.maintenance() ? " | maintenance" : "";
+        String slots = accessPolicy.maxSlots() <= 0 ? "" : " | slots " + sortedSessions().size() + "/" + accessPolicy.maxSlots();
+        return statusLine() + " | save " + config.saveName + " | " + autosave + maintenance + slots + shutdown;
     }
 
     private List<String> playerStatusLines() {
@@ -151,9 +173,81 @@ final class HeadlessGameServer {
         return List.copyOf(lines);
     }
 
+    private List<String> leaderboardLines(int limit) {
+        List<LeaderboardEntry> entries = new ArrayList<>(GlobalLeaderboard.aggregate(world, authoritativeSystemIds()));
+        entries.sort(Comparator.comparingInt(LeaderboardEntry::score).reversed().thenComparing(LeaderboardEntry::playerId));
+        if (entries.isEmpty()) return List.of("Leaderboard is empty.");
+        List<String> lines = new ArrayList<>();
+        int rank = 1;
+        for (LeaderboardEntry entry : entries) {
+            if (rank > limit) break;
+            PersistentPlayerSession session = sessionById(entry.playerId());
+            String name = session == null ? PlayerRegistry.name(entry.playerId()) : session.name();
+            lines.add(rank + ". " + name + " (" + entry.playerId() + ") | score " + entry.score()
+                    + " | units " + entry.units() + " | bases " + entry.bases());
+            rank++;
+        }
+        return List.copyOf(lines);
+    }
+
+    private List<String> playerDetailLines(String selector, String section) {
+        String playerId = resolvePlayerId(selector);
+        if (playerId.isBlank()) return List.of("Unknown player session: " + selector);
+        PersistentPlayerSession session = sessionById(playerId);
+        String name = session == null ? PlayerRegistry.name(playerId) : session.name();
+        LeaderboardEntry score = leaderboardEntry(playerId);
+        String home = world.playerHomeSystemId(playerId);
+        List<GalaxyMapSystem> controlled = controlledSystems(playerId);
+        List<String> research = new ArrayList<>(world.completedResearch.getOrDefault(playerId, Set.of()));
+        research.sort(String::compareTo);
+        boolean connected = network.serverSessionConnected(playerId);
+        if ("assets".equals(section)) {
+            return List.of(name + " (" + playerId + ")", "Home: " + home,
+                    "Assets: units " + score.units() + " | bases " + score.bases() + " | live " + world.hasLiveAssets(playerId),
+                    "Score: " + score.score());
+        }
+        if ("research".equals(section)) {
+            List<String> lines = new ArrayList<>();
+            lines.add(name + " (" + playerId + ") | completed research " + research.size());
+            lines.add(research.isEmpty() ? "Research: none" : "Research: " + String.join(", ", research));
+            return List.copyOf(lines);
+        }
+        if ("systems".equals(section)) {
+            List<String> lines = new ArrayList<>();
+            lines.add(name + " (" + playerId + ") | home " + home);
+            if (controlled.isEmpty()) lines.add("Controlled systems: none");
+            else for (GalaxyMapSystem system : controlled) lines.add(systemSummary(system));
+            return List.copyOf(lines);
+        }
+        return List.of(
+                name + " (" + playerId + ") | " + (connected ? "connected" : "retained"),
+                "Home: " + home + " | controlled systems " + controlled.size(),
+                "Assets: units " + score.units() + " | bases " + score.bases() + " | score " + score.score(),
+                "Research completed: " + research.size(),
+                "Developer server: " + (config.devMode ? "enabled" : "disabled"));
+    }
+
+    private List<String> sessionLines(String filter) {
+        List<String> lines = new ArrayList<>();
+        for (PersistentPlayerSession session : sortedSessions()) {
+            boolean connected = network.serverSessionConnected(session.playerId());
+            if ("connected".equals(filter) && !connected) continue;
+            if ("retained".equals(filter) && connected) continue;
+            ConnectionId connectionId = network.connectionIdForPlayer(session.playerId());
+            String detail;
+            if (connected) {
+                ConnectionDiagnostics diagnostics = network.connectionDiagnostics(connectionId);
+                detail = "connection " + connectionId + " | queued " + diagnostics.queuedFrames() + " frames / "
+                        + humanBytes(diagnostics.queuedBytes());
+            } else detail = "retained | reconnect eligible";
+            lines.add(session.playerId() + " | " + session.name() + " | " + detail);
+        }
+        return lines.isEmpty() ? List.of("No sessions matched that filter.") : List.copyOf(lines);
+    }
+
     private List<String> uptimeLines() {
         long uptimeSeconds = Math.max(0, (System.nanoTime() - startedNanos) / 1_000_000_000L);
-        String autosave = config.autosaveSeconds <= 0
+        String autosave = runtimeAutosaveSeconds <= 0
                 ? "disabled"
                 : formatDuration(Math.max(0, (nextAutosaveNanos - System.nanoTime() + 999_999_999L) / 1_000_000_000L));
         List<String> lines = new ArrayList<>();
@@ -161,9 +255,7 @@ final class HeadlessGameServer {
         lines.add("Uptime: " + formatDuration(uptimeSeconds));
         lines.add("Saves: manual " + manualSaveCount + " | autosave " + autosaveCount);
         lines.add("Next autosave: " + autosave);
-        if (lastSuccessfulSaveAt != null) {
-            lines.add("Last save: " + UTC_TIME.format(lastSuccessfulSaveAt) + " | " + lastSuccessfulSaveReason);
-        }
+        if (lastSuccessfulSaveAt != null) lines.add("Last save: " + UTC_TIME.format(lastSuccessfulSaveAt) + " | " + lastSuccessfulSaveReason);
         return List.copyOf(lines);
     }
 
@@ -171,18 +263,14 @@ final class HeadlessGameServer {
         PerfSnapshot perf = network.perfSnapshot();
         List<String> lines = new ArrayList<>();
         if (!"network".equals(scope)) {
-            lines.add(String.format(Locale.ROOT, "Simulation: avg %.3f ms | max %.3f ms",
-                    perf.serverUpdateAvgMs(), perf.serverUpdateMaxMs()));
-            lines.add(String.format(Locale.ROOT, "Frame/update: %.1f fps | avg %.3f ms | max %.3f ms",
-                    perf.fps(), perf.updateAvgMs(), perf.updateMaxMs()));
+            lines.add(String.format(Locale.ROOT, "Simulation: avg %.3f ms | max %.3f ms", perf.serverUpdateAvgMs(), perf.serverUpdateMaxMs()));
+            lines.add(String.format(Locale.ROOT, "Frame/update: %.1f fps | avg %.3f ms | max %.3f ms", perf.fps(), perf.updateAvgMs(), perf.updateMaxMs()));
         }
         if (!"simulation".equals(scope)) {
-            lines.add(String.format(Locale.ROOT, "Network: avg %.3f ms | max %.3f ms",
-                    perf.networkAvgMs(), perf.networkMaxMs()));
+            lines.add(String.format(Locale.ROOT, "Network: avg %.3f ms | max %.3f ms", perf.networkAvgMs(), perf.networkMaxMs()));
             lines.add(String.format(Locale.ROOT, "Traffic: sent %s/s | received %s/s | snapshots %.1f/s",
                     humanBytes(perf.bytesSentPerSecond()), humanBytes(perf.bytesReceivedPerSecond()), perf.snapshotsSentPerSecond()));
-            lines.add("Connections: " + perf.activeConnections() + " | queued " + perf.queuedFrames()
-                    + " frames / " + humanBytes(perf.queuedBytes()));
+            lines.add("Connections: " + perf.activeConnections() + " | queued " + perf.queuedFrames() + " frames / " + humanBytes(perf.queuedBytes()));
             lines.add(String.format(Locale.ROOT,
                     "Network events/s: rejected %.2f | slow-close %.2f | overflow %.2f | malformed %.2f | coalesced %.2f",
                     perf.rejectedConnectionsPerSecond(), perf.slowConnectionClosesPerSecond(),
@@ -210,8 +298,7 @@ final class HeadlessGameServer {
             }
             lines.add(systemSummary(system));
         }
-        if (lines.isEmpty()) return List.of("No galaxy systems matched that filter.");
-        return List.copyOf(lines);
+        return lines.isEmpty() ? List.of("No galaxy systems matched that filter.") : List.copyOf(lines);
     }
 
     private List<String> systemDetailLines(String selector) {
@@ -253,6 +340,44 @@ final class HeadlessGameServer {
         return List.copyOf(lines);
     }
 
+    private List<String> resyncLines(String selector) {
+        if ("all".equalsIgnoreCase(selector)) {
+            int count = network.resyncAllServerPlayers();
+            return List.of("Resent authoritative state to " + count + " connected client" + (count == 1 ? "" : "s") + ".");
+        }
+        if ("resources".equalsIgnoreCase(selector)) {
+            network.forceServerResourceCorrection();
+            return List.of("A full resource correction will be sent on the next network update.");
+        }
+        String playerId = resolvePlayerId(selector);
+        if (playerId.isBlank()) return List.of("Unknown player session: " + selector);
+        int count = network.resyncServerPlayer(playerId);
+        return count == 0 ? List.of(playerId + " is not connected.") : List.of("Resent authoritative state to " + playerId + ".");
+    }
+
+    private List<String> serverInfoLines(String scope) {
+        List<String> lines = new ArrayList<>();
+        if (!"tls".equals(scope) && !"compatibility".equals(scope)) {
+            lines.add("Server: " + config.playerName + " | TCP " + config.port + " | galaxy copies " + config.galaxyCopies);
+            lines.add("Build: " + BuildInfo.display());
+            lines.add("Save: " + currentSavePath().toAbsolutePath().normalize());
+            lines.add("Admin policy: " + adminStore.path().toAbsolutePath().normalize());
+        }
+        if (!"tls".equals(scope)) {
+            MultiplayerCompatibility.Descriptor descriptor = MultiplayerCompatibility.local();
+            lines.add("Compatibility: protocol " + descriptor.protocolVersion() + " | rules " + descriptor.rulesVersion());
+            lines.add("Application: " + descriptor.applicationVersion() + " | commit " + descriptor.buildCommit());
+            lines.add("Config fingerprint: " + descriptor.configHash());
+        }
+        if (!"compatibility".equals(scope)) {
+            Path tls = (config.saveDir == null ? Path.of("saves") : config.saveDir)
+                    .resolve(Config.cleanSaveName(config.saveName) + "-tls.p12");
+            lines.add("TLS identity: " + tls.toAbsolutePath().normalize() + " | " + fileState(tls));
+            lines.add("TLS certificate SHA-256: " + ServerBackupAdmin.tlsFingerprint(config));
+        }
+        return List.copyOf(lines);
+    }
+
     private List<String> saveInfoLines() {
         Path current = currentSavePath();
         Path previous = previousSavePath();
@@ -262,9 +387,140 @@ final class HeadlessGameServer {
         lines.add("Previous fallback: " + fileState(previous));
         lines.add("Backup retention: " + config.backupCount);
         lines.add("Format: " + ServerSaveStore.SAVE_FORMAT_VERSION + " | name " + config.saveName);
+        lines.add("Administration: " + adminStore.path().toAbsolutePath().normalize() + " | " + fileState(adminStore.path()));
         if (lastSuccessfulSaveAt == null) lines.add("Last save this process: none");
         else lines.add("Last save this process: " + UTC_TIME.format(lastSuccessfulSaveAt) + " | " + lastSuccessfulSaveReason);
         return List.copyOf(lines);
+    }
+
+    private List<String> autosaveCommand(List<String> args) {
+        if (args == null || args.isEmpty() || "status".equalsIgnoreCase(args.get(0))) {
+            if (args != null && args.size() > 1) return List.of("Usage: autosave <status|set <duration>|on|off|reset>");
+            String next = runtimeAutosaveSeconds <= 0 ? "disabled" : formatDuration(Math.max(0,
+                    (nextAutosaveNanos - System.nanoTime() + 999_999_999L) / 1_000_000_000L));
+            return List.of("Autosave: " + (runtimeAutosaveSeconds <= 0 ? "disabled" : "every " + formatDuration(runtimeAutosaveSeconds)),
+                    "Startup interval: " + (startupAutosaveSeconds <= 0 ? "disabled" : formatDuration(startupAutosaveSeconds)),
+                    "Next autosave: " + next);
+        }
+        String action = args.get(0).toLowerCase(Locale.ROOT);
+        if ("set".equals(action) && args.size() == 2) {
+            try { runtimeAutosaveSeconds = Math.toIntExact(ServerCommandDispatcher.parseDurationSeconds(args.get(1))); }
+            catch (RuntimeException ex) { return List.of(ex.getMessage(), "Usage: autosave set <duration>"); }
+            scheduleNextAutosave();
+            return List.of("Autosave interval set to " + formatDuration(runtimeAutosaveSeconds) + " for this process.");
+        }
+        if ("off".equals(action) && args.size() == 1) {
+            runtimeAutosaveSeconds = 0;
+            scheduleNextAutosave();
+            return List.of("Autosave disabled for this process.");
+        }
+        if ("on".equals(action) && args.size() == 1) {
+            runtimeAutosaveSeconds = startupAutosaveSeconds > 0 ? startupAutosaveSeconds : 60;
+            scheduleNextAutosave();
+            return List.of("Autosave enabled every " + formatDuration(runtimeAutosaveSeconds) + ".");
+        }
+        if ("reset".equals(action) && args.size() == 1) {
+            runtimeAutosaveSeconds = startupAutosaveSeconds;
+            scheduleNextAutosave();
+            return List.of("Autosave restored to the startup setting: "
+                    + (runtimeAutosaveSeconds <= 0 ? "disabled" : formatDuration(runtimeAutosaveSeconds)) + ".");
+        }
+        return List.of("Usage: autosave <status|set <duration>|on|off|reset>");
+    }
+
+    private List<String> backupCommand(List<String> args) {
+        if (args == null || args.isEmpty() || "list".equalsIgnoreCase(args.get(0))) {
+            if (args != null && args.size() > 1) return List.of("Usage: backups list");
+            return backupAdmin.list();
+        }
+        String action = args.get(0).toLowerCase(Locale.ROOT);
+        if ("create".equals(action)) {
+            if (args.size() > 2) return List.of("Usage: backups create [label]");
+            if (!saveNow("backup-source")) return List.of("Backup source save failed.");
+            return List.of(backupAdmin.create(args.size() == 2 ? args.get(1) : "manual"));
+        }
+        if ("verify".equals(action) && args.size() == 2) return List.of(backupAdmin.verifySelector(args.get(1)));
+        if ("prune".equals(action) && args.size() == 1) return List.of(backupAdmin.prune());
+        return List.of("Usage: backups <list|create [label]|verify <current|previous|filename>|prune>");
+    }
+
+    private List<String> maintenanceCommand(List<String> args) {
+        if (args == null || args.isEmpty() || "status".equalsIgnoreCase(args.get(0))) {
+            if (args != null && args.size() > 1) return List.of("Usage: maintenance status");
+            return List.of("Maintenance: " + (accessPolicy.maintenance() ? "enabled" : "disabled"),
+                    "Reason: " + (accessPolicy.maintenanceReason().isBlank() ? "none" : accessPolicy.maintenanceReason()));
+        }
+        String action = args.get(0).toLowerCase(Locale.ROOT);
+        if ("on".equals(action)) {
+            ServerAccessPolicy updated = accessPolicy.withMaintenance(true, join(args, 1));
+            String result = applyAccessPolicy(updated);
+            if (result != null) return List.of(result);
+            String notice = "Server maintenance mode enabled" + (updated.maintenanceReason().isBlank() ? "." : ": " + updated.maintenanceReason());
+            network.broadcastServerNotice(notice);
+            return List.of(notice + " Existing and retained sessions may continue or reconnect.");
+        }
+        if ("off".equals(action) && args.size() == 1) {
+            String result = applyAccessPolicy(accessPolicy.withMaintenance(false, ""));
+            if (result != null) return List.of(result);
+            network.broadcastServerNotice("Server maintenance mode disabled; new players may join.");
+            return List.of("Maintenance mode disabled.");
+        }
+        return List.of("Usage: maintenance <status|on [reason]|off>");
+    }
+
+    private List<String> slotsCommand(List<String> args) {
+        if (args == null || args.isEmpty() || "status".equalsIgnoreCase(args.get(0))) {
+            if (args != null && args.size() > 1) return List.of("Usage: slots");
+            int connected = network.serverPeerCount();
+            return List.of("Slots: " + connected + " connected | " + sortedSessions().size() + " total sessions | "
+                    + (accessPolicy.maxSlots() <= 0 ? "unlimited" : accessPolicy.maxSlots() + " maximum"));
+        }
+        String action = args.get(0).toLowerCase(Locale.ROOT);
+        int slots;
+        if ("unlimited".equals(action) && args.size() == 1) slots = 0;
+        else if ("set".equals(action) && args.size() == 2) {
+            try { slots = Integer.parseInt(args.get(1)); }
+            catch (NumberFormatException ex) { return List.of("Slot count is not numeric."); }
+            if (slots < 1 || slots > ServerAccessPolicy.MAX_SLOTS) return List.of("Slot count must be between 1 and " + ServerAccessPolicy.MAX_SLOTS + ".");
+        } else return List.of("Usage: slots [set <count>|unlimited]");
+        String result = applyAccessPolicy(accessPolicy.withMaxSlots(slots));
+        if (result != null) return List.of(result);
+        return List.of(slots <= 0 ? "Player slots are unlimited." : "Player-session limit set to " + slots + ". Existing sessions were not disconnected.");
+    }
+
+    private List<String> motdCommand(List<String> args) {
+        if (args == null || args.isEmpty() || "show".equalsIgnoreCase(args.get(0))) {
+            if (args != null && args.size() > 1) return List.of("Usage: motd show");
+            return List.of(accessPolicy.motd().isBlank() ? "MOTD is not set." : "MOTD: " + accessPolicy.motd());
+        }
+        String action = args.get(0).toLowerCase(Locale.ROOT);
+        if ("set".equals(action) && args.size() >= 2) {
+            ServerAccessPolicy updated = accessPolicy.withMotd(join(args, 1));
+            if (updated.motd().isBlank()) return List.of("MOTD may not be empty; use 'motd clear'.");
+            String result = applyAccessPolicy(updated);
+            return List.of(result == null ? "MOTD updated." : result);
+        }
+        if ("clear".equals(action) && args.size() == 1) {
+            String result = applyAccessPolicy(accessPolicy.withMotd(""));
+            return List.of(result == null ? "MOTD cleared." : result);
+        }
+        if ("send".equals(action) && args.size() == 1) {
+            if (accessPolicy.motd().isBlank()) return List.of("MOTD is not set.");
+            int recipients = network.broadcastServerNotice("MOTD: " + accessPolicy.motd());
+            return List.of("MOTD sent to " + recipients + " connected client" + (recipients == 1 ? "" : "s") + ".");
+        }
+        return List.of("Usage: motd <show|set <message>|clear|send>");
+    }
+
+    private String applyAccessPolicy(ServerAccessPolicy updated) {
+        try {
+            adminStore.save(updated);
+            accessPolicy = updated;
+            network.configureServerPolicy(updated);
+            return null;
+        } catch (IOException ex) {
+            return "Could not save server administration settings: " + ex.getMessage();
+        }
     }
 
     private String announceNow(String message) {
@@ -444,20 +700,18 @@ final class HeadlessGameServer {
         return nanos <= 0 ? 0 : (nanos + 999_999_999L) / 1_000_000_000L;
     }
 
-    private String shutdownReasonSuffix() {
-        return shutdownReason.isBlank() ? "." : ": " + shutdownReason;
-    }
+    private String shutdownReasonSuffix() { return shutdownReason.isBlank() ? "." : ": " + shutdownReason; }
 
     private void autosaveIfDue() {
-        if (config.autosaveSeconds <= 0 || System.nanoTime() < nextAutosaveNanos) return;
+        if (runtimeAutosaveSeconds <= 0 || System.nanoTime() < nextAutosaveNanos) return;
         saveNow("autosave");
         scheduleNextAutosave();
     }
 
     private void scheduleNextAutosave() {
-        nextAutosaveNanos = config.autosaveSeconds <= 0
+        nextAutosaveNanos = runtimeAutosaveSeconds <= 0
                 ? Long.MAX_VALUE
-                : System.nanoTime() + config.autosaveSeconds * 1_000_000_000L;
+                : System.nanoTime() + runtimeAutosaveSeconds * 1_000_000_000L;
     }
 
     private boolean saveNow(String reason) {
@@ -498,6 +752,33 @@ final class HeadlessGameServer {
         return "";
     }
 
+    private LeaderboardEntry leaderboardEntry(String playerId) {
+        for (LeaderboardEntry entry : GlobalLeaderboard.aggregate(world, authoritativeSystemIds())) {
+            if (entry != null && entry.playerId().equals(playerId)) return entry;
+        }
+        return new LeaderboardEntry(playerId, 0, 0, 0);
+    }
+
+    private String[] authoritativeSystemIds() {
+        GalaxyMapSnapshot snapshot = world.authoritativeGalaxyMapSnapshot();
+        if (snapshot == null || snapshot.systems() == null) return new String[]{world.activeSystemId()};
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        ids.add(world.activeSystemId());
+        for (GalaxyMapSystem system : snapshot.systems()) if (system != null && !blank(system.id())) ids.add(system.id());
+        return ids.toArray(String[]::new);
+    }
+
+    private List<GalaxyMapSystem> controlledSystems(String playerId) {
+        GalaxyMapSnapshot snapshot = world.authoritativeGalaxyMapSnapshot();
+        if (snapshot == null || snapshot.systems() == null) return List.of();
+        List<GalaxyMapSystem> out = new ArrayList<>();
+        for (GalaxyMapSystem system : snapshot.systems()) {
+            if (system != null && playerId.equalsIgnoreCase(system.controllerId())) out.add(system);
+        }
+        out.sort(Comparator.comparing(GalaxyMapSystem::id));
+        return List.copyOf(out);
+    }
+
     private GalaxyMapSystem findSystem(GalaxyMapSnapshot snapshot, String selector) {
         if (snapshot == null || snapshot.empty() || selector == null || selector.isBlank()) return null;
         for (GalaxyMapSystem system : snapshot.systems()) {
@@ -534,7 +815,12 @@ final class HeadlessGameServer {
     private String cleanNotice(String value) {
         if (value == null) return "";
         String clean = value.replace('|', ' ').replace('\n', ' ').replace('\r', ' ').trim();
-        return clean.length() <= 512 ? clean : clean.substring(0, 512);
+        return clean.length() <= ServerAccessPolicy.MAX_TEXT ? clean : clean.substring(0, ServerAccessPolicy.MAX_TEXT);
+    }
+
+    private String join(List<String> args, int from) {
+        if (args == null || from >= args.size()) return "";
+        return cleanNotice(String.join(" ", args.subList(Math.max(0, from), args.size())));
     }
 
     private Boolean onOff(String value) {
@@ -543,9 +829,7 @@ final class HeadlessGameServer {
         return null;
     }
 
-    private String percent(double value) {
-        return String.format(Locale.ROOT, "%.1f%%", Math.max(0, Math.min(1, value)) * 100.0);
-    }
+    private String percent(double value) { return String.format(Locale.ROOT, "%.1f%%", Math.max(0, Math.min(1, value)) * 100.0); }
 
     private String humanBytes(double bytes) {
         double safe = Math.max(0, bytes);
@@ -566,7 +850,5 @@ final class HeadlessGameServer {
         return remainder + "s";
     }
 
-    private boolean blank(String value) {
-        return value == null || value.isBlank();
-    }
+    private boolean blank(String value) { return value == null || value.isBlank(); }
 }
