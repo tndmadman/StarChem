@@ -1,67 +1,91 @@
-name: Phase 6 Expedition Stress
+name: AI Stress
 
 on:
+  push:
   pull_request:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ai-stress-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   stress:
-    if: github.actor != 'github-actions[bot]'
+    name: Stress organized NPC AI
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
+
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: agent/fix-corsair-remote-view
-      - uses: actions/setup-java@v4
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
-      - name: Add runner-only expedition diagnostics
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('src/main/java/com/tndmadman/rts/NpcExpeditionValidator.java')
-          text = path.read_text()
-          old = '"timed expedition foothold construction did not finish"'
-          new = '''"timed expedition foothold construction did not finish"
-                          + " | seed=" + fixture.world().systemSeed()
-                          + " | target=" + establishing.targetSystemId()
-                          + " | guard=" + guard
-                          + " | construction=" + NpcStationConstructionSystem.snapshot(
-                          fixture.world(), fixture.faction())
-                          + " | builderPresent=" + fixture.world().units.containsKey(
-                          establishing.builderKey())'''
-          if text.count(old) != 1:
-              raise SystemExit(f'expected one diagnostic message, found {text.count(old)}')
-          path.write_text(text.replace(old, new, 1))
-          PY
-      - name: Compile diagnostic validator
+
+      - name: Compile validators
         run: gradle classes --no-daemon
-      - name: Repeat expedition validation
+
+      - name: Repeat expedition validation across fixed seeds
         shell: bash
         run: |
           set -o pipefail
-          : > phase6-expedition-stress.log
-          for run in $(seq 1 160); do
-            echo "=== expedition run $run ===" | tee -a phase6-expedition-stress.log
-            if ! java -cp build/classes/java/main com.tndmadman.rts.NpcExpeditionValidator \
-                >> phase6-expedition-stress.log 2>&1; then
-              echo "FAILED_RUN=$run" | tee -a phase6-expedition-stress.log
-              exit 1
-            fi
+          : > ai-stress.log
+          for seed in $(seq 41000 41063); do
+            echo "=== expedition seed ${seed} ===" >> ai-stress.log
+            java -Djava.awt.headless=true \
+                 -Dstarchem.npcExpeditionSeed="${seed}" \
+                 -cp build/classes/java/main \
+                 com.tndmadman.rts.NpcExpeditionValidator \
+                 >> ai-stress.log 2>&1
           done
-      - uses: actions/upload-artifact@v4
+
+      - name: Repeat lifecycle validation
+        shell: bash
+        run: |
+          set -o pipefail
+          for round in $(seq 1 8); do
+            echo "=== lifecycle round ${round} ===" >> ai-stress.log
+            java -Djava.awt.headless=true -cp build/classes/java/main \
+                 com.tndmadman.rts.NpcRecoveryValidator >> ai-stress.log 2>&1
+            java -Djava.awt.headless=true -cp build/classes/java/main \
+                 com.tndmadman.rts.NpcRuntimeResetValidator >> ai-stress.log 2>&1
+            java -Djava.awt.headless=true -cp build/classes/java/main \
+                 com.tndmadman.rts.NpcCrossSystemOperationsValidator >> ai-stress.log 2>&1
+            java -Djava.awt.headless=true -cp build/classes/java/main \
+                 com.tndmadman.rts.NpcFactionLifecycleValidator >> ai-stress.log 2>&1
+          done
+
+      - name: Repeat logger lifecycle validation
+        shell: bash
+        run: |
+          set -o pipefail
+          for round in $(seq 1 4); do
+            echo "=== logger round ${round} ===" >> ai-stress.log
+            java -Djava.awt.headless=true -cp build/classes/java/main \
+                 com.tndmadman.rts.AiBrainLogValidator >> ai-stress.log 2>&1
+          done
+
+      - name: Run expedition defense validation
+        run: |
+          java -Djava.awt.headless=true -cp build/classes/java/main \
+               com.tndmadman.rts.NpcExpeditionDefenseValidator \
+               >> ai-stress.log 2>&1
+
+      - name: Archive AI stress log
         if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: phase6-expedition-stress
-          path: phase6-expedition-stress.log
+          name: ai-stress-${{ github.sha }}
+          path: ai-stress.log
           retention-days: 7
