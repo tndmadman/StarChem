@@ -10,7 +10,6 @@ final class PeerServerSide {
     private static final long GALAXY_MS = 1000;
     private static final long RESOURCE_CORRECTION_MS = 5000;
     private static final long TIMEOUT_MS = 4000;
-    private static final long DISCONNECT_GRACE_MS = 60_000;
     private static final long RESUME_REPLAY_MS = 10_000;
     private static final long AUTH_CHALLENGE_MS = 30_000;
     private static final double MAX_DEV_RESOURCE_AMOUNT = 100_000.0;
@@ -80,7 +79,6 @@ final class PeerServerSide {
         PlayerRegistry.activate(world);
         removeExpiredAuthChallenges(now);
         removeTimedOut(now);
-        removeExpiredSessions(now);
         if (now - lastSnapshot >= SNAPSHOT_MS) {
             boolean fullResources = now - lastResourceCorrection >= RESOURCE_CORRECTION_MS;
             broadcastNow(fullResources);
@@ -346,9 +344,8 @@ final class PeerServerSide {
                    boolean requestedDev, String suppliedDevToken) {
         long now = System.currentTimeMillis();
         PlayerSession session = sessions.get(playerId);
-        if (session == null || sessionExpired(session, now) || !tokenMatches(session, token, connectionId, now)) {
-            if (session != null && sessionExpired(session, now)) destroySession(playerId);
-            transport.sendOrdered(sessionDenied("Session expired or token was rejected."), connectionId);
+        if (session == null || !tokenMatches(session, token, connectionId, now)) {
+            transport.sendOrdered(sessionDenied("Session token was rejected."), connectionId);
             return false;
         }
 
@@ -373,9 +370,8 @@ final class PeerServerSide {
                    String proofNonce, String proof, boolean requestedDev, String suppliedDevToken) {
         long now = System.currentTimeMillis();
         PlayerSession session = sessions.get(playerId);
-        if (session == null || sessionExpired(session, now)) {
-            if (session != null) destroySession(playerId);
-            transport.sendOrdered(sessionDenied("Session expired or token was rejected."), connectionId);
+        if (session == null) {
+            transport.sendOrdered(sessionDenied("Session token was rejected."), connectionId);
             return false;
         }
         if (PasswordAuth.validVerifier(proof) && PasswordAuth.validNonce(proofNonce)) {
@@ -388,7 +384,7 @@ final class PeerServerSide {
     private void issueSessionChallenge(ConnectionId connectionId, PlayerSession session) {
         if (connectionId == null || !connectionId.valid() || session == null
                 || session.tokenDigest == null || session.tokenDigest.length == 0) {
-            transport.sendOrdered(sessionDenied("Session expired or token was rejected."), connectionId);
+            transport.sendOrdered(sessionDenied("Session token was rejected."), connectionId);
             return;
         }
         String nonce = PasswordAuth.newNonce();
@@ -403,7 +399,7 @@ final class PeerServerSide {
         if (challenge == null || !session.playerId.equals(challenge.playerId)
                 || !challenge.nonce.equals(proofNonce) || now - challenge.createdAt > AUTH_CHALLENGE_MS
                 || !PasswordAuth.sessionProofMatches(session.tokenDigest, session.playerId, proofNonce, proof)) {
-            transport.sendOrdered(sessionDenied("Session expired or token was rejected."), connectionId);
+            transport.sendOrdered(sessionDenied("Session token was rejected."), connectionId);
             return false;
         }
         return bindResumedSession(connectionId, address, port, session, requestedDev, suppliedDevToken, now);
@@ -494,27 +490,7 @@ final class PeerServerSide {
         session.devFreeBuild = false;
         devRequests.remove(peer.playerId());
         world.setDevFreeBuild(peer.playerId(), false);
-        world.status = session.name + " " + reason + "; session retained for " + (DISCONNECT_GRACE_MS / 1000) + " seconds.";
-        broadcastNow();
-    }
-
-    private void destroySession(String playerId) {
-        PlayerSession session = sessions.remove(playerId);
-        if (session == null) return;
-        if (session.connectionId != null && session.connectionId.valid()) {
-            ServerPeer peer = peers.remove(session.connectionId);
-            if (peer != null) transport.closeConnection(peer.connectionId());
-        }
-        devRequests.remove(playerId);
-        world.setDevFreeBuild(playerId, false);
-        PlayerRegistry.remove(playerId);
-        views.remove(playerId);
-        Set<String> deletedSystems = world.removePlayerAndPruneEmptySystems(playerId);
-        views.removeSystems(deletedSystems);
-        sendDeletedSystems(deletedSystems);
-        world.status = deletedSystems.isEmpty()
-                ? "Expired disconnected session " + playerId + "."
-                : "Removed " + deletedSystems.size() + " abandoned system(s) after session " + playerId + " expired.";
+        world.status = session.name + " " + reason + "; player identity and world state retained indefinitely.";
         broadcastNow();
     }
 
@@ -636,18 +612,6 @@ final class PeerServerSide {
         sessionChallenges.entrySet().removeIf(entry -> now - entry.getValue().createdAt > AUTH_CHALLENGE_MS);
     }
 
-    private void removeExpiredSessions(long now) {
-        for (String playerId : new ArrayList<>(sessions.keySet())) {
-            PlayerSession session = sessions.get(playerId);
-            if (session != null && sessionExpired(session, now)) destroySession(playerId);
-        }
-    }
-
-    private boolean sessionExpired(PlayerSession session, long now) {
-        return session != null && !session.connected && session.disconnectedAt > 0
-                && now - session.disconnectedAt > DISCONNECT_GRACE_MS;
-    }
-
     private String rotateToken(PlayerSession session, long now) {
         String token = newSessionToken();
         session.previousTokenDigest = session.tokenDigest;
@@ -685,7 +649,6 @@ final class PeerServerSide {
     String requestedDevToken(String[] parts) { return parts.length > 3 ? parts[3] : ""; }
     boolean requestedResumeDev(String[] parts) { return parts.length > 3 && flag(parts[3]); }
     String requestedResumeDevToken(String[] parts) { return parts.length > 4 ? parts[4] : ""; }
-    static long disconnectGraceMs() { return DISCONNECT_GRACE_MS; }
     private String envMessage() { return "ENV|" + world.systemId() + "|" + world.systemSeed() + "|" + Calc.round(world.systemTime()); }
     private String welcome(String id, String name, int rgb, boolean devAllowed, String token) {
         return "WELCOME|" + id + "|" + Config.clean(name) + "|" + rgb + "|" + world.systemId() + "|"

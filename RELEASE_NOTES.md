@@ -40,7 +40,8 @@ StarChem v1.5.3 is a dedicated-server save-state, multiplayer identity, reconnec
 
 - Added `GalaxyCoordinator`, `SystemSimulationScheduler`, and `SystemControlState` support for saving and restoring active multi-system simulation state.
 - Added persistence hooks for organized NPC runtime systems, including strategic director, expeditions, expedition readiness, recovery, repair evacuation, squad combat, station construction, and production planning state.
-- Preserved disconnected players for the configured grace period instead of immediately deleting their assets, while still pruning expired abandoned sessions.
+- Player identities, research, ships, stations, inventories, production queues, home systems, and ownership now remain indefinitely when clients disconnect, time out, close the game, or leave normally.
+- Removed automatic session-expiry deletion; only future explicit server administration commands may delete player save data.
 - Restored server worlds avoid hidden local `SOLO` player leakage in authoritative dedicated-server sessions.
 
 ## Validation

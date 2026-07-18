@@ -22,10 +22,12 @@ public final class SessionRecoveryValidator {
         transport.start();
         try (Socket firstClient = connect(loopback, transport.localPort());
              Socket reboundClient = connect(loopback, transport.localPort());
-             Socket restartedClient = connect(loopback, transport.localPort())) {
+             Socket restartedClient = connect(loopback, transport.localPort());
+             Socket longOfflineClient = connect(loopback, transport.localPort())) {
             waitConnection(transport, loopback, firstClient.getLocalPort());
             waitConnection(transport, loopback, reboundClient.getLocalPort());
             waitConnection(transport, loopback, restartedClient.getLocalPort());
+            waitConnection(transport, loopback, longOfflineClient.getLocalPort());
 
             Config config = Config.host("Session Host", transport.localPort(), false);
             World world = new World("Session Host", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
@@ -97,9 +99,29 @@ public final class SessionRecoveryValidator {
             require(world.hasResearch("P1", "session-recovery-marker"), "client restart changed P1 research");
 
             server.removePeer(restartedEndpoint);
-            server.tick(System.currentTimeMillis() + PeerServerSide.disconnectGraceMs() + 1000);
-            require(!world.hasLiveAssets("P1"), "expired session did not remove P1 assets");
-            require(!world.hasResearch("P1", "session-recovery-marker"), "expired session did not remove P1 research");
+    long longOfflineNow = System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000;
+    server.tick(longOfflineNow);
+    require(world.hasLiveAssets("P1"), "long offline period deleted P1 assets");
+    require(world.hasResearch("P1", "session-recovery-marker"),
+            "long offline period deleted P1 research");
+    require(server.persistentSessions().stream()
+                    .anyMatch(saved -> "P1".equals(saved.playerId())),
+            "long offline period deleted the persistent P1 identity");
+
+    ConnectionId longOfflineEndpoint = transport.connectionId(
+            loopback, longOfflineClient.getLocalPort());
+    server.join(longOfflineEndpoint, loopback, longOfflineClient.getLocalPort(),
+            "Recovery Client",
+            PasswordAuth.verifier("Recovery Client", "validator-password"), false, "");
+    String longOfflineWelcome = receivePayload(longOfflineClient, "WELCOME|");
+    require(longOfflineWelcome.startsWith("WELCOME|P1|"),
+            "same name and password received a new player slot after a long offline period");
+    require(server.owns(longOfflineEndpoint, "P1"),
+            "long-offline password reclaim did not restore P1 ownership");
+    require(world.hasLiveAssets("P1"),
+            "long-offline password reclaim changed P1 assets");
+    require(world.hasResearch("P1", "session-recovery-marker"),
+            "long-offline password reclaim changed P1 research");
         } finally {
             transport.shutdown();
         }
