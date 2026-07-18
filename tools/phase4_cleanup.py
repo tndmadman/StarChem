@@ -10,6 +10,7 @@ TEMPORARY_PATHS = [
     'tools/phase4_repair_v3.py',
     'tools/phase4_benchmark.sh',
     'tools/phase4_cleanup.py',
+    'tools/phase4_cleanup_commit.sh',
 ]
 
 for raw in TEMPORARY_PATHS:
