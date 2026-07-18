@@ -69,8 +69,13 @@ Available commands:
 
 ```text
 help [command]             Show available commands or detailed command help.
-status                     Print server, network, save, and autosave status.
+status                     Print server, network, save, admission, and autosave status.
 players                    List connected and retained player sessions.
+leaderboard [top <count>]  Show authoritative cross-system player rankings.
+player <player> [assets|research|systems]
+                           Show detailed player state.
+sessions [connected|retained]
+                           Show sanitized session and queue details.
 uptime                     Show start time, uptime, save counts, and autosave timing.
 perf [all|network|simulation]
                            Show simulation and network performance counters.
@@ -78,12 +83,30 @@ systems [active|controlled|player <player>]
                            List authoritative galaxy systems.
 system <id-or-name>        Show detailed information for one galaxy system.
 connection <player>        Show sanitized connection diagnostics.
-save-info                  Show current and fallback save-file state.
+resync <player|all|resources>
+                           Resend authoritative state or force resource correction.
+server-info [compatibility|tls]
+                           Show build, protocol, config fingerprint, and TLS identity.
+save-info                  Show current, fallback, and administration-file state.
 save                       Write a manual dedicated-server save.
+autosave status            Show runtime and startup autosave settings.
+autosave set <duration>    Change the interval for the current process.
+autosave on|off|reset      Enable, disable, or restore the startup interval.
+backups list               List current, previous, and timestamped save archives.
+backups create [label]     Save, copy, and checksum-verify a manual backup.
+backups verify <selector>  Verify current, previous, or a named archive.
+backups prune              Apply the configured backup-retention limit.
+maintenance status         Show admission-control state.
+maintenance on [reason]    Reject new identities while allowing reconnects.
+maintenance off            Allow new player identities again.
+slots                      Show connected, retained, and maximum sessions.
+slots set <count>          Set the persistent player-session limit.
+slots unlimited            Remove the session limit.
+motd show|set|clear|send   Manage the persistent message of the day.
 say <message>              Broadcast a server notice to connected clients.
 shutdown now               Save and stop immediately.
 shutdown <duration> [reason]
-                           Schedule shutdown; durations accept seconds, m, or h.
+                           Schedule shutdown; durations accept seconds, s, m, h, or d.
 shutdown status            Show the pending shutdown.
 shutdown cancel            Cancel the pending shutdown.
 disconnect <player> [reason]
@@ -92,6 +115,10 @@ dev ...                    Run developer controls when the server started with -
 version                    Print the running build identity.
 stop                       Save and stop immediately.
 ```
+
+Maintenance mode and the slot limit apply only to brand-new player identities. Existing connected players remain online, and retained identities may reconnect or reclaim their session. Lowering the slot limit never disconnects an existing session.
+
+The message of the day, maintenance state, maintenance reason, and slot limit are stored beside the server save in `<save-name>-admin.json`. The MOTD is sent after a successful join or reconnect. Runtime autosave changes last until the process exits; `autosave reset` restores the startup argument.
 
 The `say` and scheduled-shutdown commands send notices to connected clients. A temporary `disconnect` keeps the player's resumable session and assets; it is not a ban or permanent kick. Developer controls support explicit access grants, AI pause/speed/step controls, production timers, NPC triggers, spawns, removal, and reset operations. Run `help dev` for the command group and `dev status` for current developer state.
 
