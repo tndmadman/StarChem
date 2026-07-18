@@ -10,6 +10,7 @@ on:
     paths:
       - '.github/workflows/release.yml'
       - 'build.gradle'
+      - 'settings.gradle'
       - 'config/**'
       - 'packaging/**'
       - 'src/main/java/com/tndmadman/rts/App.java'
@@ -338,14 +339,14 @@ jobs:
       contents: write
 
     steps:
+      - name: Check out release notes
+        uses: actions/checkout@v4
+
       - name: Download validated release artifacts
         uses: actions/download-artifact@v4
         with:
           name: StarChem-release-${{ github.sha }}
           path: release-artifact
-
-      - name: Check out release notes
-        uses: actions/checkout@v4
 
       - name: Attach immutable artifacts to tagged release
         uses: softprops/action-gh-release@v2
