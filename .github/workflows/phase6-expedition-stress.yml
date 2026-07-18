@@ -1,0 +1,75 @@
+name: Phase 6 Expedition Stress
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  stress:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-corsair-remote-view
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Add runner-only expedition diagnostics
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('src/main/java/com/tndmadman/rts/NpcExpeditionValidator.java')
+          text = path.read_text()
+          old = '''        require(guard < 240 && targetHasCorsairStation(fixture.world(), establishing.targetSystemId()),
+                  "timed expedition foothold construction did not finish");'''
+          new = '''        if (!(guard < 240 && targetHasCorsairStation(fixture.world(), establishing.targetSystemId()))) {
+              NpcStationConstructionSnapshot stuck = NpcStationConstructionSystem.snapshot(
+                      fixture.world(), fixture.faction());
+              Unit stuckBuilder = fixture.world().units.get(establishing.builderKey());
+              throw new IllegalStateException(
+                      "timed expedition foothold construction did not finish"
+                              + " | seed=" + fixture.world().systemSeed()
+                              + " | target=" + establishing.targetSystemId()
+                              + " | guard=" + guard
+                              + " | construction=" + stuck
+                              + " | builder=" + (stuckBuilder == null ? "missing"
+                              : stuckBuilder.key() + " pos=(" + stuckBuilder.x + ',' + stuckBuilder.y + ')'
+                              + " target=(" + stuckBuilder.targetX + ',' + stuckBuilder.targetY + ')'
+                              + " task=" + stuckBuilder.task + " hp=" + stuckBuilder.hp));
+          }'''
+          if old not in text:
+              raise SystemExit('diagnostic target block not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Compile diagnostic validator
+        run: gradle classes --no-daemon
+      - name: Repeat expedition validation
+        shell: bash
+        run: |
+          set -o pipefail
+          : > phase6-expedition-stress.log
+          for run in $(seq 1 160); do
+            echo "=== expedition run $run ===" | tee -a phase6-expedition-stress.log
+            if ! java -cp build/classes/java/main com.tndmadman.rts.NpcExpeditionValidator \
+                >> phase6-expedition-stress.log 2>&1; then
+              echo "FAILED_RUN=$run" | tee -a phase6-expedition-stress.log
+              exit 1
+            fi
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phase6-expedition-stress
+          path: phase6-expedition-stress.log
+          retention-days: 7
