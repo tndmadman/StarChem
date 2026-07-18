@@ -31,25 +31,17 @@ jobs:
           from pathlib import Path
           path = Path('src/main/java/com/tndmadman/rts/NpcExpeditionValidator.java')
           text = path.read_text()
-          old = '''        require(guard < 240 && targetHasCorsairStation(fixture.world(), establishing.targetSystemId()),
-                  "timed expedition foothold construction did not finish");'''
-          new = '''        if (!(guard < 240 && targetHasCorsairStation(fixture.world(), establishing.targetSystemId()))) {
-              NpcStationConstructionSnapshot stuck = NpcStationConstructionSystem.snapshot(
-                      fixture.world(), fixture.faction());
-              Unit stuckBuilder = fixture.world().units.get(establishing.builderKey());
-              throw new IllegalStateException(
-                      "timed expedition foothold construction did not finish"
-                              + " | seed=" + fixture.world().systemSeed()
-                              + " | target=" + establishing.targetSystemId()
-                              + " | guard=" + guard
-                              + " | construction=" + stuck
-                              + " | builder=" + (stuckBuilder == null ? "missing"
-                              : stuckBuilder.key() + " pos=(" + stuckBuilder.x + ',' + stuckBuilder.y + ')'
-                              + " target=(" + stuckBuilder.targetX + ',' + stuckBuilder.targetY + ')'
-                              + " task=" + stuckBuilder.task + " hp=" + stuckBuilder.hp));
-          }'''
-          if old not in text:
-              raise SystemExit('diagnostic target block not found')
+          old = '"timed expedition foothold construction did not finish"'
+          new = '''"timed expedition foothold construction did not finish"
+                          + " | seed=" + fixture.world().systemSeed()
+                          + " | target=" + establishing.targetSystemId()
+                          + " | guard=" + guard
+                          + " | construction=" + NpcStationConstructionSystem.snapshot(
+                          fixture.world(), fixture.faction())
+                          + " | builderPresent=" + fixture.world().units.containsKey(
+                          establishing.builderKey())'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one diagnostic message, found {text.count(old)}')
           path.write_text(text.replace(old, new, 1))
           PY
       - name: Compile diagnostic validator
