@@ -1,4 +1,5 @@
 name: Permanent Player Save Hotfix
+# Trigger after workflow registration on main.
 
 on:
   push:
