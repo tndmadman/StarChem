@@ -1,36 +1,11 @@
 name: Phase 4 Failed Log Extract
 
 on:
-  pull_request:
-    branches:
-      - main
-
-permissions:
-  contents: read
-  actions: read
+  workflow_dispatch:
 
 jobs:
-  extract:
-    if: github.actor != 'github-actions[bot]'
+  disabled:
+    if: false
     runs-on: ubuntu-latest
     steps:
-      - name: Download failed standard CI log
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -fsSL \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/tndmadman/StarChem/actions/jobs/88020995498/logs" \
-            -o failed-ci.log
-          grep -n -E 'FAILED|Exception|Caused by|What went wrong|Execution failed|IllegalState|FAILURE|error|Error' failed-ci.log > failed-ci-summary.txt || true
-          tail -n 220 failed-ci.log > failed-ci-tail.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: phase4-failed-standard-logs
-          path: |
-            failed-ci-summary.txt
-            failed-ci-tail.txt
+      - run: echo disabled
