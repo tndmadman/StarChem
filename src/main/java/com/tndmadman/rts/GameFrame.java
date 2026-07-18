@@ -87,7 +87,7 @@ final class GameFrame extends JFrame {
                     showLobby(notice);
                     return;
                 }
-                if (peer.connectionFailed()) showLobby(peer.failureMessage());
+                if (peer.connectionFailed() && !peer.serverCertificateTrustRequired()) showLobby(peer.failureMessage());
             });
             networkTimer.start();
         }

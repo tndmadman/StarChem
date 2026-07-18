@@ -77,6 +77,8 @@ Clients and servers should use the same StarChem release version.
 
 StarChem multiplayer uses framed TCP connections. A host or dedicated server listens on the selected game port, and remote clients connect to that same host and port. Internet-hosted games must allow inbound TCP traffic on the selected port; StarChem no longer uses UDP for multiplayer.
 
+Remote servers use a pinned TLS certificate. If a server is intentionally moved or its TLS key is replaced, StarChem blocks login secrets and displays the old and new fingerprints. Verify the change with the server owner before choosing **TRUST NEW CERTIFICATE**. Graphical HOST mode uses an isolated in-process client and never reuses or overwrites remote-server passwords, sessions, or certificate pins. Dedicated-server operators should still back up the complete save directory, including the `*-tls.p12` identity file.
+
 ## In-game reference menus
 
 Press `F1` during a game, or choose **CODEX** in the lobby, to open the searchable StarChem codex. It is generated from the currently loaded rule definitions and covers ships, stations, resources, research prerequisites and unlocks, manufacturing recipes, NPC factions, and controls. Filter by category or search names, IDs, stats, costs, descriptions, and unlock text. The codex is read-only and works during solo, hosted, and joined games without changing game state.

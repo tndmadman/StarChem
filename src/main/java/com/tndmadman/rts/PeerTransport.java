@@ -39,6 +39,7 @@ final class PeerTransport {
     private final Set<ConnectionId> compatibleConnections = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean clientDisconnectPending = new AtomicBoolean();
     private final AtomicReference<String> clientConnectFailure = new AtomicReference<>("");
+    private final AtomicReference<TlsIdentity.FingerprintChange> pendingServerFingerprintChange = new AtomicReference<>();
     private volatile TcpConnection clientConnection;
     private volatile boolean compatibilityAccepted;
     private volatile boolean running = true;
@@ -126,6 +127,18 @@ final class PeerTransport {
 
     boolean consumeClientDisconnect() { return clientDisconnectPending.getAndSet(false); }
     String consumeClientConnectFailure() { return clientConnectFailure.getAndSet(""); }
+    boolean serverCertificateTrustRequired() { return pendingServerFingerprintChange.get() != null; }
+    TlsIdentity.FingerprintChange pendingServerFingerprintChange() { return pendingServerFingerprintChange.get(); }
+    boolean trustPendingServerCertificate() {
+        if (serverMode) return false;
+        TlsIdentity.FingerprintChange change = pendingServerFingerprintChange.get();
+        if (change == null || !change.valid()) return false;
+        if (!SessionTokenStore.replaceServerFingerprint(config, change.expected(), change.presented())) return false;
+        if (!pendingServerFingerprintChange.compareAndSet(change, null)) return false;
+        clientConnectFailure.set("");
+        reconnectClient();
+        return true;
+    }
     boolean isDisconnectEvent(NetPacket packet) { return packet != null && DISCONNECT_EVENT.equals(packet.message()); }
 
     PerfSnapshot perfSnapshot() {
@@ -250,6 +263,7 @@ final class PeerTransport {
         }
         compatibleConnections.clear();
         clientConnectFailure.set("");
+        pendingServerFingerprintChange.set(null);
         inbox.clear();
         inboxSize.set(0);
     }
@@ -354,33 +368,45 @@ final class PeerTransport {
 
     private void connectLoop() {
         while (running) {
-            TcpConnection existing = clientConnection;
-            if (existing != null && existing.open()) {
-                sleep(100);
-                continue;
-            }
-            try {
-                Socket socket = clientSocketFactory == null ? new Socket() : clientSocketFactory.createSocket();
-                socket.connect(expectedRemote, CONNECT_TIMEOUT_MS);
-                configure(socket);
-                if (clientSocketFactory != null) TlsIdentity.verifyPinnedServer(socket, config);
-                TcpConnection connection = new TcpConnection(new ConnectionId(nextConnectionId.getAndIncrement()), socket);
-                if (!running) {
-                    connection.close();
-                    break;
-                }
-                compatibilityAccepted = false;
-                clientConnectFailure.set("");
-                clientConnection = connection;
-                perfStats.recordConnectionOpened();
-                connection.start();
-            } catch (IOException ex) {
-                String detail = ex.getMessage();
-                clientConnectFailure.set(detail == null || detail.isBlank()
-                        ? ex.getClass().getSimpleName()
-                        : detail.trim());
-                sleep(RECONNECT_DELAY_MS);
-            }
+  if (pendingServerFingerprintChange.get() != null) {
+      sleep(100);
+      continue;
+  }
+  TcpConnection existing = clientConnection;
+  if (existing != null && existing.open()) {
+      sleep(100);
+      continue;
+  }
+  Socket socket = null;
+  try {
+      socket = clientSocketFactory == null ? new Socket() : clientSocketFactory.createSocket();
+      socket.connect(expectedRemote, CONNECT_TIMEOUT_MS);
+      configure(socket);
+      if (clientSocketFactory != null) TlsIdentity.verifyPinnedServer(socket, config);
+      TcpConnection connection = new TcpConnection(new ConnectionId(nextConnectionId.getAndIncrement()), socket);
+      socket = null;
+      if (!running) {
+          connection.close();
+          break;
+      }
+      compatibilityAccepted = false;
+      clientConnectFailure.set("");
+      pendingServerFingerprintChange.set(null);
+      clientConnection = connection;
+      perfStats.recordConnectionOpened();
+      connection.start();
+  } catch (TlsIdentity.FingerprintChangedException ex) {
+      closeQuietly(socket);
+      pendingServerFingerprintChange.set(ex.change());
+      clientConnectFailure.set(ex.getMessage());
+  } catch (IOException ex) {
+      closeQuietly(socket);
+      String detail = ex.getMessage();
+      clientConnectFailure.set(detail == null || detail.isBlank()
+              ? ex.getClass().getSimpleName()
+              : detail.trim());
+      sleep(RECONNECT_DELAY_MS);
+  }
         }
     }
 

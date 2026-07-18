@@ -1,9 +1,14 @@
-# StarChem v1.5.4
+# StarChem v1.5.6
 
-StarChem v1.5.4 is a multiplayer connectivity and dedicated-server save-state hotfix covering changes introduced after v1.4.0.
+StarChem v1.5.6 is a multiplayer connectivity and dedicated-server save-state hotfix covering changes introduced after v1.4.0.
 
 ## Multiplayer Connectivity Hotfix
 
+- Fixed graphical HOST mode failing against its own loopback TLS server after extracting an update.
+- Local-host authentication, resume sessions, and certificate trust are now isolated and process-only; they cannot overwrite dedicated-server credentials.
+- Server certificate trust is now scoped to the server endpoint rather than to each commander name. Existing per-commander pins migrate automatically.
+- A changed dedicated-server certificate remains blocked before login secrets are sent, but the connection screen now shows an explicit TRUST NEW CERTIFICATE confirmation with both fingerprints.
+- Added regression coverage for certificate replacement, endpoint-wide trust, and repeated local-host startup isolation.
 - Fixed clients being rejected solely because the client and server JARs were compiled from different Git commits while using the same application version, protocol, rules, and packaged configuration.
 - Build commit remains visible in version and compatibility diagnostics, but it is no longer a hard connection requirement.
 - Application version, network protocol, rules version, and packaged configuration fingerprint remain strict multiplayer compatibility requirements.
@@ -61,7 +66,7 @@ StarChem v1.5.4 is a multiplayer connectivity and dedicated-server save-state ho
 
 ## Compatibility
 
-All multiplayer clients and servers must use StarChem v1.5.4 with matching network protocol, rules, and packaged configuration files. The embedded Git commit is diagnostic only and does not block otherwise compatible v1.5.4 builds. Older application versions remain rejected. Existing v1.4.0 dedicated servers do not have durable v1.5.4 server save archives; start v1.5.4 with the desired save directory/name and let the server create its first save.
+All multiplayer clients and servers must use StarChem v1.5.6 with matching network protocol, rules, and packaged configuration files. The embedded Git commit is diagnostic only and does not block otherwise compatible v1.5.6 builds. Older application versions remain rejected. Existing v1.4.0 dedicated servers do not have durable v1.5.6 server save archives; start v1.5.6 with the desired save directory/name and let the server create its first save.
 
 ## Security Notes
 

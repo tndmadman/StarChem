@@ -97,58 +97,88 @@ public final class NetworkSecurityValidator {
         java.nio.file.Files.deleteIfExists(store);
         java.nio.file.Path firstDir = java.nio.file.Files.createTempDirectory("starchem-tls-first-");
         java.nio.file.Path secondDir = java.nio.file.Files.createTempDirectory("starchem-tls-second-");
+        java.nio.file.Path localDir = java.nio.file.Files.createTempDirectory("starchem-tls-local-");
         System.setProperty("starchem.sessionStore", store.toString());
         InetAddress loopback = InetAddress.getLoopbackAddress();
         PeerTransport firstServer = null;
         PeerTransport firstClient = null;
         PeerTransport secondServer = null;
         PeerTransport secondClient = null;
+        PeerTransport localServer = null;
+        PeerTransport localClient = null;
         try {
-            Config firstServerConfig = Config.dedicatedServer("TLS Server", 0, false, false,
-                    java.util.Set.of(), StarSystems.DEFAULT_SYSTEM_ID, "", 1, firstDir, "server", 60, 5, false);
-            firstServer = PeerTransport.server(firstServerConfig, new PerfStats());
-            int port = firstServer.localPort();
-            Config clientConfig = Config.join("TLS Client", loopback.getHostAddress(), port, false);
-            firstClient = PeerTransport.client(clientConfig, new PerfStats());
-            firstServer.start();
-            firstClient.start();
-            waitFor(firstClient::connected, 5_000, "encrypted TCP client did not connect");
-            require(PasswordAuth.validVerifier(SessionTokenStore.serverFingerprint(clientConfig)),
-                    "client did not pin the server TLS fingerprint");
-            firstClient.send("JOIN|TLS Client|NODEV|", loopback, port);
-            NetPacket encryptedJoin = poll(firstServer, 5_000);
-            require(encryptedJoin != null, "encrypted JOIN did not reach the server");
-            require("JOIN|TLS Client|NODEV|".equals(firstServer.processInbound(encryptedJoin)),
-                    "encrypted JOIN compatibility wrapper was not normalized");
-            firstClient.shutdown();
-            firstServer.shutdown();
+  Config firstServerConfig = Config.dedicatedServer("TLS Server", 0, false, false,
+          java.util.Set.of(), StarSystems.DEFAULT_SYSTEM_ID, "", 1, firstDir, "server", 60, 5, false);
+  firstServer = PeerTransport.server(firstServerConfig, new PerfStats());
+  int port = firstServer.localPort();
+  Config clientConfig = Config.join("TLS Client", loopback.getHostAddress(), port, false);
+  firstClient = PeerTransport.client(clientConfig, new PerfStats());
+  firstServer.start();
+  firstClient.start();
+  waitFor(firstClient::connected, 5_000, "encrypted TCP client did not connect");
+  String firstFingerprint = SessionTokenStore.serverFingerprint(clientConfig);
+  require(PasswordAuth.validVerifier(firstFingerprint),
+          "client did not pin the server TLS fingerprint");
+  Config alternateCommander = Config.join("Alternate Commander", loopback.getHostAddress(), port, false);
+  require(firstFingerprint.equals(SessionTokenStore.serverFingerprint(alternateCommander)),
+          "server TLS trust was incorrectly scoped to commander credentials");
+  firstClient.send("JOIN|TLS Client|NODEV|", loopback, port);
+  NetPacket encryptedJoin = poll(firstServer, 5_000);
+  require(encryptedJoin != null, "encrypted JOIN did not reach the server");
+  require("JOIN|TLS Client|NODEV|".equals(firstServer.processInbound(encryptedJoin)),
+          "encrypted JOIN compatibility wrapper was not normalized");
+  firstClient.shutdown();
+  firstClient = null;
+  firstServer.shutdown();
+  firstServer = null;
 
-            Config secondServerConfig = Config.dedicatedServer("TLS Server", port, false, false,
-                    java.util.Set.of(), StarSystems.DEFAULT_SYSTEM_ID, "", 1, secondDir, "server", 60, 5, false);
-            secondServer = PeerTransport.server(secondServerConfig, new PerfStats());
-            secondClient = PeerTransport.client(clientConfig, new PerfStats());
-            secondServer.start();
-            secondClient.start();
-            Thread.sleep(1_000);
-            require(!secondClient.connected(), "client accepted a changed server TLS fingerprint");
-            String pinFailure = "";
-            long failureDeadline = System.currentTimeMillis() + 3_000;
-            while (!pinFailure.contains("TLS fingerprint changed")
-                    && System.currentTimeMillis() < failureDeadline) {
-                String nextFailure = secondClient.consumeClientConnectFailure();
-                if (!nextFailure.isBlank()) pinFailure = nextFailure;
-                if (!pinFailure.contains("TLS fingerprint changed")) Thread.sleep(10);
-            }
-            require(pinFailure.contains("TLS fingerprint changed"),
-                    "changed TLS fingerprint failure was not exposed to the client");
+  Config secondServerConfig = Config.dedicatedServer("TLS Server", port, false, false,
+          java.util.Set.of(), StarSystems.DEFAULT_SYSTEM_ID, "", 1, secondDir, "server", 60, 5, false);
+  secondServer = PeerTransport.server(secondServerConfig, new PerfStats());
+  secondClient = PeerTransport.client(clientConfig, new PerfStats());
+  secondServer.start();
+  secondClient.start();
+  waitFor(secondClient::serverCertificateTrustRequired, 5_000,
+          "changed TLS fingerprint did not require an explicit trust decision");
+  require(!secondClient.connected(), "client accepted a changed server TLS fingerprint before approval");
+  TlsIdentity.FingerprintChange change = secondClient.pendingServerFingerprintChange();
+  require(change != null && change.valid() && firstFingerprint.equals(change.expected()),
+          "pending TLS trust decision did not retain the expected fingerprint");
+  require(secondClient.trustPendingServerCertificate(),
+          "explicit TLS fingerprint replacement was rejected");
+  waitFor(secondClient::connected, 5_000,
+          "client did not reconnect after explicitly trusting the replacement certificate");
+  require(change.presented().equals(SessionTokenStore.serverFingerprint(alternateCommander)),
+          "replacement TLS trust was not stored for the server endpoint");
+  secondClient.shutdown();
+  secondClient = null;
+  secondServer.shutdown();
+  secondServer = null;
+
+  Config localServerConfig = Config.dedicatedServer("Local TLS Server", port, false, false,
+          java.util.Set.of(), StarSystems.DEFAULT_SYSTEM_ID, "", 1, localDir, "server", 60, 5, false);
+  localServer = PeerTransport.server(localServerConfig, new PerfStats());
+  Config hostConfig = Config.host("Local Host", port, false);
+  Config localClientConfig = Config.localHostClient(hostConfig);
+  localClient = PeerTransport.client(localClientConfig, new PerfStats());
+  localServer.start();
+  localClient.start();
+  waitFor(localClient::connected, 5_000,
+          "graphical local-host client was blocked by remote-server certificate history");
+  require(SessionTokenStore.serverFingerprint(localClientConfig).isBlank(),
+          "local-host client wrote a persistent remote-server trust record");
+  require(SessionTokenStore.load(localClientConfig) == SessionTokenStore.StoredSession.EMPTY,
+          "local-host client loaded a persistent remote multiplayer session");
         } finally {
-            if (firstClient != null) firstClient.shutdown();
-            if (firstServer != null) firstServer.shutdown();
-            if (secondClient != null) secondClient.shutdown();
-            if (secondServer != null) secondServer.shutdown();
-            SessionTokenStore.clear(Config.join("TLS Client", loopback.getHostAddress(), 1, false));
-            System.clearProperty("starchem.sessionStore");
-            java.nio.file.Files.deleteIfExists(store);
+  if (firstClient != null) firstClient.shutdown();
+  if (firstServer != null) firstServer.shutdown();
+  if (secondClient != null) secondClient.shutdown();
+  if (secondServer != null) secondServer.shutdown();
+  if (localClient != null) localClient.shutdown();
+  if (localServer != null) localServer.shutdown();
+  SessionTokenStore.clear(Config.join("TLS Client", loopback.getHostAddress(), 1, false));
+  System.clearProperty("starchem.sessionStore");
+  java.nio.file.Files.deleteIfExists(store);
         }
     }
 

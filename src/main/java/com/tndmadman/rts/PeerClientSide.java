@@ -82,6 +82,29 @@ final class PeerClientSide {
     String viewedSystemId() { return viewedSystemId; }
     long pendingViewRevision() { return pendingViewRevision; }
     boolean viewSwitchPending() { return viewRequestPending; }
+    boolean serverCertificateTrustRequired() { return transport.serverCertificateTrustRequired(); }
+    String serverCertificateTrustPrompt() {
+        TlsIdentity.FingerprintChange change = transport.pendingServerFingerprintChange();
+        if (change == null || !change.valid()) return "No pending server certificate change.";
+        return "The server at " + config.serverAddress + " presented a different TLS certificate.\n\n"
+                + "Previously trusted fingerprint:\n" + change.expected() + "\n\n"
+                + "Newly presented fingerprint:\n" + change.presented() + "\n\n"
+                + "Only trust it if you expected the server identity to change or verified it with the server owner.";
+    }
+    boolean trustChangedServerCertificate() {
+        if (!transport.trustPendingServerCertificate()) return false;
+        long now = System.currentTimeMillis();
+        failureMessage = "";
+        lastTransportFailure = "";
+        attemptStarted = now;
+        lastHandshake = 0;
+        lastPing = 0;
+        lastServerPacket = now;
+        syncingResume = !sessionToken.isBlank();
+        state = sessionToken.isBlank() ? ConnectionState.JOINING : ConnectionState.RECONNECTING;
+        world.status = "Trusted the new server certificate. Reconnecting to " + config.serverAddress + ".";
+        return true;
+    }
 
     ClientConnectionProgress connectionProgress() {
         long elapsed = Math.max(0, System.currentTimeMillis() - attemptStarted);
@@ -117,8 +140,8 @@ final class PeerClientSide {
             lastTransportFailure = transportFailure;
             String lower = transportFailure.toLowerCase(java.util.Locale.ROOT);
             if (lower.contains("tls fingerprint changed") || lower.contains("refusing to send login secrets")) {
-                failConnection("Connection failed: " + transportFailure
-                        + " Restore the server's original TLS key or remove the saved server trust entry before reconnecting.");
+                failConnection("Server identity changed. StarChem blocked login secrets. "
+                        + "Verify the fingerprints, then choose TRUST NEW CERTIFICATE to reconnect.");
                 return;
             }
         }

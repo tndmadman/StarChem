@@ -14,6 +14,7 @@ final class Config {
     final boolean showLobby;
     final boolean hostMode;
     final boolean dedicatedServer;
+    final boolean localHostClient;
     final boolean devMode;
     final String devToken;
     final boolean disableProductionTimers;
@@ -28,7 +29,7 @@ final class Config {
     final int backupCount;
     final boolean newWorld;
 
-    private Config(String playerName, boolean showLobby, boolean hostMode, boolean dedicatedServer, boolean devMode,
+    private Config(String playerName, boolean showLobby, boolean hostMode, boolean dedicatedServer, boolean localHostClient, boolean devMode,
                    String devToken, boolean disableProductionTimers, int port, InetSocketAddress serverAddress,
                    Set<String> disabledNpcFactionIds, String systemId, int galaxyCopies, Path saveDir,
                    String saveName, int autosaveSeconds, int backupCount, boolean newWorld) {
@@ -36,6 +37,7 @@ final class Config {
         this.showLobby = showLobby;
         this.hostMode = hostMode;
         this.dedicatedServer = dedicatedServer;
+        this.localHostClient = localHostClient;
         this.devMode = devMode;
         this.devToken = DevAccessPolicy.normalizeToken(devToken);
         this.disableProductionTimers = devMode && disableProductionTimers;
@@ -119,7 +121,7 @@ final class Config {
         return index < args.length && args[index] != null && !args[index].isBlank() && !args[index].startsWith("--");
     }
 
-    static Config lobby() { return new Config(defaultName(), true, false, false, false, "", false, 0, null, Set.of(), StarSystems.DEFAULT_SYSTEM_ID, 1, Path.of("saves"), "server", 60, 5, false); }
+    static Config lobby() { return new Config(defaultName(), true, false, false, false, false, "", false, 0, null, Set.of(), StarSystems.DEFAULT_SYSTEM_ID, 1, Path.of("saves"), "server", 60, 5, false); }
     static Config solo(String name) { return solo(name, false); }
     static Config host(String name, int port) { return host(name, port, false); }
     static Config join(String name, String host, int port) { return join(name, host, port, false); }
@@ -145,11 +147,20 @@ final class Config {
     static Config host(String name, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken) { return host(name, port, dev, disableProductionTimers, disabledNpcFactionIds, systemId, devToken, 1); }
     static Config dedicatedServer(String name, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken) { return dedicatedServer(name, port, dev, disableProductionTimers, disabledNpcFactionIds, systemId, devToken, 1); }
     static Config join(String name, String host, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken) { return join(name, host, port, dev, disableProductionTimers, disabledNpcFactionIds, systemId, devToken, 1); }
-    static Config solo(String name, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken, int galaxyCopies) { return new Config(clean(name), false, false, false, dev, devToken, disableProductionTimers, 0, null, disabledNpcFactionIds, systemId, galaxyCopies, Path.of("saves"), "server", 60, 5, false); }
-    static Config host(String name, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken, int galaxyCopies) { return new Config(clean(name), false, true, false, dev, devToken, disableProductionTimers, port, null, disabledNpcFactionIds, systemId, galaxyCopies, Path.of("saves"), "server", 60, 5, false); }
+    static Config solo(String name, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken, int galaxyCopies) { return new Config(clean(name), false, false, false, false, dev, devToken, disableProductionTimers, 0, null, disabledNpcFactionIds, systemId, galaxyCopies, Path.of("saves"), "server", 60, 5, false); }
+    static Config host(String name, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken, int galaxyCopies) { return new Config(clean(name), false, true, false, false, dev, devToken, disableProductionTimers, port, null, disabledNpcFactionIds, systemId, galaxyCopies, Path.of("saves"), "server", 60, 5, false); }
     static Config dedicatedServer(String name, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken, int galaxyCopies) { return dedicatedServer(name, port, dev, disableProductionTimers, disabledNpcFactionIds, systemId, devToken, galaxyCopies, Path.of("saves"), "server", 60, 5, false); }
-    static Config dedicatedServer(String name, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken, int galaxyCopies, Path saveDir, String saveName, int autosaveSeconds, int backupCount, boolean newWorld) { return new Config(clean(name), false, true, true, dev, devToken, disableProductionTimers, port, null, disabledNpcFactionIds, systemId, galaxyCopies, saveDir, saveName, autosaveSeconds, backupCount, newWorld); }
-    static Config join(String name, String host, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken, int galaxyCopies) { return new Config(clean(name), false, false, false, dev, devToken, disableProductionTimers, 0, new InetSocketAddress(parseHost(host), port), disabledNpcFactionIds, systemId, galaxyCopies, Path.of("saves"), "server", 60, 5, false); }
+    static Config dedicatedServer(String name, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken, int galaxyCopies, Path saveDir, String saveName, int autosaveSeconds, int backupCount, boolean newWorld) { return new Config(clean(name), false, true, true, false, dev, devToken, disableProductionTimers, port, null, disabledNpcFactionIds, systemId, galaxyCopies, saveDir, saveName, autosaveSeconds, backupCount, newWorld); }
+    static Config join(String name, String host, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken, int galaxyCopies) { return new Config(clean(name), false, false, false, false, dev, devToken, disableProductionTimers, 0, new InetSocketAddress(parseHost(host), port), disabledNpcFactionIds, systemId, galaxyCopies, Path.of("saves"), "server", 60, 5, false); }
+    static Config localHostClient(Config hostConfig) {
+        if (hostConfig == null || !hostConfig.hostMode || hostConfig.dedicatedServer) {
+            throw new IllegalArgumentException("Local host client requires graphical host configuration.");
+        }
+        return new Config(hostConfig.playerName, false, false, false, true, hostConfig.devMode,
+                hostConfig.devToken, hostConfig.disableProductionTimers, 0,
+                new InetSocketAddress(DEFAULT_HOST, hostConfig.port), hostConfig.disabledNpcFactionIds,
+                hostConfig.systemId, hostConfig.galaxyCopies, Path.of("saves"), "server", 60, 5, false);
+    }
 
     NetworkRole role() {
         if (hostMode) return NetworkRole.SERVER;
@@ -159,6 +170,7 @@ final class Config {
 
     boolean clientMode() { return serverAddress != null; }
     boolean dedicatedServerMode() { return dedicatedServer; }
+    boolean localHostClientMode() { return localHostClient; }
     String modeLabel() { return dedicatedServer ? "Server" : switch (role()) { case SERVER -> "Host"; case CLIENT -> "Client"; case SOLO -> "Solo"; }; }
 
     static String parseHost(String value) {

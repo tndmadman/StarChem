@@ -25,10 +25,9 @@ final class LocalHostSession {
         DevTimerSettings.configure(serverWorld, hostConfig.disableProductionTimers);
         PlayerRegistry.activate(serverWorld);
         PeerNetwork serverNetwork = PeerNetwork.start(hostConfig, serverWorld);
-        Config clientConfig = Config.join(hostConfig.playerName, "127.0.0.1", hostConfig.port, hostConfig.devMode,
-                hostConfig.disableProductionTimers, hostConfig.disabledNpcFactionIds, hostConfig.systemId,
-                hostConfig.devToken, hostConfig.galaxyCopies);
-        SessionTokenStore.saveAuthDigest(clientConfig, PasswordAuth.verifier(clientConfig.playerName, "local-host"));
+        Config clientConfig = Config.localHostClient(hostConfig);
+        SessionTokenStore.rememberAuthDigestForProcess(clientConfig,
+                PasswordAuth.verifier(clientConfig.playerName, "local-host"));
         GalaxyRuntimeOptions.configure(clientConfig);
         World clientWorld = new World(clientConfig.playerName, clientConfig.disabledNpcFactionIds, clientConfig.systemId, false);
         DevTimerSettings.configure(clientWorld, clientConfig.disableProductionTimers);

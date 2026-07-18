@@ -10,6 +10,7 @@ final class ConnectionOverlayPanel extends JPanel {
     private final JLabel detail = new JLabel("Opening TCP connection...", SwingConstants.CENTER);
     private final JLabel elapsed = new JLabel("Elapsed: 0.0s", SwingConstants.CENTER);
     private final JProgressBar progress = new JProgressBar(0, 4);
+    private final JButton trust = new JButton("TRUST NEW CERTIFICATE");
     private final Timer timer;
 
     ConnectionOverlayPanel(GameFrame owner, PeerNetwork network) {
@@ -26,13 +27,19 @@ final class ConnectionOverlayPanel extends JPanel {
         progress.setStringPainted(true);
         progress.setValue(0);
 
+        trust.setVisible(false);
+        trust.addActionListener(e -> trustChangedCertificate());
         JButton cancel = new JButton("CANCEL");
         cancel.addActionListener(e -> owner.showLobby("Connection cancelled."));
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 0));
+        buttons.setOpaque(false);
+        buttons.add(trust);
+        buttons.add(cancel);
 
         JPanel card = new JPanel(new GridBagLayout());
         card.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(70, 135, 180)),
-                BorderFactory.createEmptyBorder(28, 34, 28, 34)));
+      BorderFactory.createLineBorder(new Color(70, 135, 180)),
+      BorderFactory.createEmptyBorder(28, 34, 28, 34)));
         card.setBackground(new Color(8, 18, 30, 242));
 
         GridBagConstraints c = new GridBagConstraints();
@@ -55,7 +62,7 @@ final class ConnectionOverlayPanel extends JPanel {
         c.fill = GridBagConstraints.NONE;
         c.anchor = GridBagConstraints.CENTER;
         c.insets = new Insets(0, 0, 0, 0);
-        card.add(cancel, c);
+        card.add(buttons, c);
 
         GridBagConstraints root = new GridBagConstraints();
         root.gridx = 0;
@@ -72,24 +79,51 @@ final class ConnectionOverlayPanel extends JPanel {
 
     void stop() { timer.stop(); }
 
+    private void trustChangedCertificate() {
+        if (network == null || !network.serverCertificateTrustRequired()) return;
+        int choice = JOptionPane.showConfirmDialog(this,
+      network.serverCertificateTrustPrompt(),
+      "Server Certificate Changed",
+      JOptionPane.YES_NO_OPTION,
+      JOptionPane.WARNING_MESSAGE);
+        if (choice != JOptionPane.YES_OPTION) return;
+        if (!network.trustChangedServerCertificate()) {
+  JOptionPane.showMessageDialog(this,
+          "The pending certificate changed again or could not be stored. Reconnect and verify it again.",
+          "Certificate Trust Failed",
+          JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
     private void refresh() {
         if (network == null || !network.clientMode()) {
-            setVisible(false);
-            return;
+  setVisible(false);
+  return;
         }
         ClientConnectionProgress state = network.clientConnectionProgress();
         if (state.ready()) {
-            setVisible(false);
-            return;
+  setVisible(false);
+  return;
         }
         setVisible(true);
         title.setText(state.title());
-        detail.setText(state.detail());
+        detail.setText(asHtml(state.detail()));
         progress.setMaximum(state.stageCount());
         progress.setValue(state.stage());
         progress.setString("Step " + state.stage() + " of " + state.stageCount());
         elapsed.setText(String.format("Elapsed: %.1fs", state.elapsedMillis() / 1000.0));
+        trust.setVisible(network.serverCertificateTrustRequired());
+        revalidate();
         repaint();
+    }
+
+    private static String asHtml(String value) {
+        String safe = value == null ? "" : value
+      .replace("&", "&amp;")
+      .replace("<", "&lt;")
+      .replace(">", "&gt;")
+      .replace("\n", "<br>");
+        return "<html><div style='text-align:center;width:1050px'>" + safe + "</div></html>";
     }
 
     @Override protected void paintComponent(Graphics g) {

@@ -54,17 +54,35 @@ final class TlsIdentity {
             if (chain.length == 0) throw new IOException("Server did not present a TLS certificate.");
             String fingerprint = PasswordAuth.encodeVerifier(
                     MessageDigest.getInstance("SHA-256").digest(chain[0].getEncoded()));
+            if (config != null && config.localHostClientMode()) return;
             String pinned = SessionTokenStore.serverFingerprint(config);
             if (pinned.isBlank()) {
                 SessionTokenStore.saveServerFingerprint(config, fingerprint);
             } else if (!MessageDigest.isEqual(PasswordAuth.decodeVerifier(pinned), PasswordAuth.decodeVerifier(fingerprint))) {
-                throw new IOException("Server TLS fingerprint changed. Refusing to send login secrets.");
+                throw new FingerprintChangedException(new FingerprintChange(pinned, fingerprint));
             }
         } catch (IOException ex) {
             throw ex;
         } catch (Exception ex) {
             throw new IOException("Could not verify server TLS fingerprint: " + ex.getMessage(), ex);
         }
+    }
+
+    record FingerprintChange(String expected, String presented) {
+        FingerprintChange {
+            expected = PasswordAuth.validVerifier(expected) ? expected.toLowerCase(java.util.Locale.ROOT) : "";
+            presented = PasswordAuth.validVerifier(presented) ? presented.toLowerCase(java.util.Locale.ROOT) : "";
+        }
+        boolean valid() { return PasswordAuth.validVerifier(expected) && PasswordAuth.validVerifier(presented); }
+    }
+
+    static final class FingerprintChangedException extends IOException {
+        private final FingerprintChange change;
+        FingerprintChangedException(FingerprintChange change) {
+            super("Server TLS fingerprint changed. Refusing to send login secrets.");
+            this.change = change;
+        }
+        FingerprintChange change() { return change; }
     }
 
     static boolean encrypted(Socket socket) {

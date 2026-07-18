@@ -21,6 +21,7 @@ final class SessionTokenStore {
     private SessionTokenStore() { }
 
     static synchronized StoredSession load(Config config) {
+        if (config != null && config.localHostClientMode()) return StoredSession.EMPTY;
         String key = key(config);
         if (key.isBlank()) return StoredSession.EMPTY;
         Properties properties = readProperties();
@@ -33,26 +34,55 @@ final class SessionTokenStore {
         String storedAuth = authSeparator < 0 ? "" : value.substring(authSeparator + 1);
         String auth = PasswordAuth.validVerifier(storedAuth) ? storedAuth : transientAuthDigests.getOrDefault(key, "");
         return validPlayerId(playerId) && validToken(token)
-                ? new StoredSession(playerId, token, PasswordAuth.validVerifier(auth) ? auth : "")
-                : StoredSession.EMPTY;
+      ? new StoredSession(playerId, token, PasswordAuth.validVerifier(auth) ? auth : "")
+      : StoredSession.EMPTY;
     }
 
     static synchronized String serverFingerprint(Config config) {
-        String key = key(config);
-        if (key.isBlank()) return "";
-        String value = readProperties().getProperty(tlsKey(key), "");
-        return PasswordAuth.validVerifier(value) ? value : "";
+        if (config == null || config.localHostClientMode()) return "";
+        String trustKey = trustKey(config);
+        if (trustKey.isBlank()) return "";
+        Properties properties = readProperties();
+        String current = properties.getProperty(serverTlsKey(trustKey), "");
+        if (PasswordAuth.validVerifier(current)) return current.toLowerCase(Locale.ROOT);
+
+        String legacy = properties.getProperty(legacyTlsKey(config), "");
+        if (!PasswordAuth.validVerifier(legacy)) return "";
+        String migrated = legacy.toLowerCase(Locale.ROOT);
+        properties.setProperty(serverTlsKey(trustKey), migrated);
+        writeProperties(properties);
+        return migrated;
     }
 
     static synchronized void saveServerFingerprint(Config config, String fingerprint) {
-        String key = key(config);
-        if (key.isBlank() || !PasswordAuth.validVerifier(fingerprint)) return;
+        if (config == null || config.localHostClientMode() || !PasswordAuth.validVerifier(fingerprint)) return;
+        String trustKey = trustKey(config);
+        if (trustKey.isBlank()) return;
         Properties properties = readProperties();
-        properties.setProperty(tlsKey(key), fingerprint.toLowerCase(Locale.ROOT));
+        properties.setProperty(serverTlsKey(trustKey), fingerprint.toLowerCase(Locale.ROOT));
         writeProperties(properties);
     }
 
+    static synchronized boolean replaceServerFingerprint(Config config, String expected, String replacement) {
+        if (config == null || config.localHostClientMode() || !PasswordAuth.validVerifier(replacement)) return false;
+        String current = serverFingerprint(config);
+        if (!current.isBlank() && !current.equalsIgnoreCase(expected)) return false;
+        saveServerFingerprint(config, replacement);
+        return replacement.equalsIgnoreCase(serverFingerprint(config));
+    }
+
+    static synchronized void clearServerFingerprint(Config config) {
+        if (config == null || config.localHostClientMode()) return;
+        String trustKey = trustKey(config);
+        if (trustKey.isBlank()) return;
+        Properties properties = readProperties();
+        boolean changed = properties.remove(serverTlsKey(trustKey)) != null;
+        changed |= properties.remove(legacyTlsKey(config)) != null;
+        if (changed) persistOrDelete(properties);
+    }
+
     static synchronized void save(Config config, String playerId, String token) {
+        if (config != null && config.localHostClientMode()) return;
         String key = key(config);
         if (key.isBlank() || !validPlayerId(playerId) || !validToken(token)) return;
         Properties properties = readProperties();
@@ -66,6 +96,7 @@ final class SessionTokenStore {
         if (key.isBlank()) return "";
         String transientAuth = transientAuthDigests.getOrDefault(key, "");
         if (PasswordAuth.validVerifier(transientAuth)) return transientAuth;
+        if (config != null && config.localHostClientMode()) return "";
         Properties properties = readProperties();
         String value = properties.getProperty(key, "");
         int first = value.indexOf('|');
@@ -75,6 +106,7 @@ final class SessionTokenStore {
     }
 
     private static synchronized String persistedAuthDigest(Config config) {
+        if (config != null && config.localHostClientMode()) return "";
         String key = key(config);
         if (key.isBlank()) return "";
         Properties properties = readProperties();
@@ -89,16 +121,17 @@ final class SessionTokenStore {
         String key = key(config);
         if (key.isBlank() || !PasswordAuth.validVerifier(authDigest)) return;
         transientAuthDigests.put(key, authDigest);
+        if (config != null && config.localHostClientMode()) return;
         Properties properties = readProperties();
         String value = properties.getProperty(key, "");
         int first = value.indexOf('|');
         int second = first < 0 ? -1 : value.indexOf('|', first + 1);
         if (first > 0 && second > first) {
-            properties.setProperty(key, value.substring(0, second + 1) + authDigest);
+  properties.setProperty(key, value.substring(0, second + 1) + authDigest);
         } else if (first > 0) {
-            properties.setProperty(key, value + "|" + authDigest);
+  properties.setProperty(key, value + "|" + authDigest);
         } else {
-            properties.setProperty(key, "PENDING|PENDING|" + authDigest);
+  properties.setProperty(key, "PENDING|PENDING|" + authDigest);
         }
         writeProperties(properties);
     }
@@ -113,15 +146,10 @@ final class SessionTokenStore {
         String key = key(config);
         if (key.isBlank()) return;
         transientAuthDigests.remove(key);
+        if (config != null && config.localHostClientMode()) return;
         Properties properties = readProperties();
         if (properties.remove(key) == null) return;
-        Path file = storePath();
-        if (properties.isEmpty()) {
-            try { Files.deleteIfExists(file); }
-            catch (IOException ex) { System.err.println("Could not clear saved multiplayer session: " + ex.getMessage()); }
-            return;
-        }
-        writeProperties(properties);
+        persistOrDelete(properties);
     }
 
     private static Properties readProperties() {
@@ -129,11 +157,20 @@ final class SessionTokenStore {
         Path file = storePath();
         if (!Files.isRegularFile(file)) return properties;
         try (InputStream input = Files.newInputStream(file)) {
-            properties.load(input);
+  properties.load(input);
         } catch (IOException ex) {
-            System.err.println("Could not read saved multiplayer sessions: " + ex.getMessage());
+  System.err.println("Could not read saved multiplayer sessions: " + ex.getMessage());
         }
         return properties;
+    }
+
+    private static void persistOrDelete(Properties properties) {
+        if (properties.isEmpty()) {
+  try { Files.deleteIfExists(storePath()); }
+  catch (IOException ex) { System.err.println("Could not clear saved multiplayer data: " + ex.getMessage()); }
+        } else {
+  writeProperties(properties);
+        }
     }
 
     private static void writeProperties(Properties properties) {
@@ -142,19 +179,19 @@ final class SessionTokenStore {
         if (parent == null) return;
         Path temporary = null;
         try {
-            Files.createDirectories(parent);
-            temporary = Files.createTempFile(parent, "sessions-", ".tmp");
-            try (OutputStream output = Files.newOutputStream(temporary)) {
-                properties.store(output, "StarChem multiplayer resume sessions");
-            }
-            try {
-                Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-            } catch (AtomicMoveNotSupportedException ex) {
-                Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
-            }
+  Files.createDirectories(parent);
+  temporary = Files.createTempFile(parent, "sessions-", ".tmp");
+  try (OutputStream output = Files.newOutputStream(temporary)) {
+      properties.store(output, "StarChem multiplayer sessions and server trust");
+  }
+  try {
+      Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+  } catch (AtomicMoveNotSupportedException ex) {
+      Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
+  }
         } catch (IOException ex) {
-            System.err.println("Could not save multiplayer session: " + ex.getMessage());
-            if (temporary != null) try { Files.deleteIfExists(temporary); } catch (IOException ignored) { }
+  System.err.println("Could not save multiplayer data: " + ex.getMessage());
+  if (temporary != null) try { Files.deleteIfExists(temporary); } catch (IOException ignored) { }
         }
     }
 
@@ -167,17 +204,30 @@ final class SessionTokenStore {
 
     private static String key(Config config) {
         if (config == null || config.serverAddress == null) return "";
-        String host = config.serverAddress.getAddress() == null
-                ? config.serverAddress.getHostString()
-                : config.serverAddress.getAddress().getHostAddress();
-        String raw = host + ':' + config.serverAddress.getPort() + '|'
-                + Config.clean(config.playerName).toLowerCase(Locale.ROOT);
+        String host = resolvedHost(config);
+        String scope = config.localHostClientMode() ? "local-host|" : "";
+        String raw = scope + host + ':' + config.serverAddress.getPort() + '|'
+      + Config.clean(config.playerName).toLowerCase(Locale.ROOT);
+        return encodeKey(raw);
+    }
+
+    private static String trustKey(Config config) {
+        if (config == null || config.serverAddress == null) return "";
+        return encodeKey(resolvedHost(config) + ':' + config.serverAddress.getPort());
+    }
+
+    private static String resolvedHost(Config config) {
+        return config.serverAddress.getAddress() == null
+      ? config.serverAddress.getHostString().toLowerCase(Locale.ROOT)
+      : config.serverAddress.getAddress().getHostAddress().toLowerCase(Locale.ROOT);
+    }
+
+    private static String encodeKey(String raw) {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
     }
 
-    private static String tlsKey(String sessionKey) {
-        return "tls." + sessionKey;
-    }
+    private static String serverTlsKey(String trustKey) { return "tls-server." + trustKey; }
+    private static String legacyTlsKey(Config config) { return "tls." + key(config); }
 
     private static boolean validPlayerId(String value) {
         return value != null && !value.isBlank() && value.length() <= 64 && value.indexOf('|') < 0;
@@ -186,8 +236,8 @@ final class SessionTokenStore {
     private static boolean validToken(String value) {
         if (value == null || value.length() < 32 || value.length() > 256) return false;
         for (int i = 0; i < value.length(); i++) {
-            char c = value.charAt(i);
-            if (!Character.isLetterOrDigit(c) && c != '-' && c != '_') return false;
+  char c = value.charAt(i);
+  if (!Character.isLetterOrDigit(c) && c != '-' && c != '_') return false;
         }
         return true;
     }
