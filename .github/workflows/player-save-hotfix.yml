@@ -1,6 +1,6 @@
 name: Permanent Player Save Hotfix
 # Trigger after workflow registration on main.
-# Pull-request trigger commit, revision 3.
+# Pull-request trigger commit, revision 4.
 
 on:
   push:
@@ -76,7 +76,6 @@ jobs:
               'disconnect grace constant': 'private static final long DISCONNECT_GRACE_MS = 60_000;',
               'expired sweep call': 'removeExpiredSessions(now);',
               'raw resume expiry check': 'session == null || sessionExpired(session, now) || !tokenMatches',
-              'proof resume expiry check': 'session == null || sessionExpired(session, now)',
               'destroy on raw resume': 'if (session != null && sessionExpired(session, now)) destroySession(playerId);',
               'destroy on proof resume': 'if (session != null) destroySession(playerId);',
               'disconnect status': 'session retained for " + (DISCONNECT_GRACE_MS / 1000) + " seconds.',
@@ -91,6 +90,8 @@ jobs:
           server = server.replace(
               'session == null || sessionExpired(session, now) || !tokenMatches',
               'session == null || !tokenMatches', 1)
+          if server.count('session == null || sessionExpired(session, now)') != 1:
+              raise SystemExit('Expected one remaining proof resume expiry check')
           server = server.replace(
               'session == null || sessionExpired(session, now)',
               'session == null', 1)
