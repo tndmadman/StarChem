@@ -4,19 +4,41 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  pull_request:
     branches:
-      - 'release/**'
+      - main
     paths:
-      - '.github/release-request.txt'
+      - '.github/workflows/release.yml'
+      - 'build.gradle'
+      - 'config/**'
+      - 'packaging/**'
+      - 'src/main/java/com/tndmadman/rts/App.java'
+      - 'src/main/java/com/tndmadman/rts/BuildInfo.java'
+      - 'README.md'
+      - 'RELEASE_NOTES.md'
+      - 'LICENSE'
+      - 'THIRD_PARTY_NOTICES.md'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Build-only semantic version; must match RELEASE_NOTES.md'
+        required: false
+        type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   jar-release:
-    name: Build StarChem release zip
+    name: Build and validate StarChem release archive
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      release_tag: ${{ steps.metadata.outputs.release_tag }}
+      release_zip: ${{ steps.metadata.outputs.release_zip }}
+      checksum_file: ${{ steps.metadata.outputs.checksum_file }}
+      build_commit: ${{ steps.metadata.outputs.build_commit }}
 
     steps:
       - name: Check out source
@@ -33,52 +55,111 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Resolve build metadata
+      - name: Resolve and validate release metadata
+        id: metadata
         shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
+          set -euo pipefail
+
+          NOTES_VERSION="$(sed -n 's/^# StarChem v//p' RELEASE_NOTES.md | head -n 1 | tr -d '\r')"
+          if [[ -z "$NOTES_VERSION" ]]; then
+            echo 'RELEASE_NOTES.md must begin with: # StarChem v<version>' >&2
+            exit 1
+          fi
+
           RELEASE_TAG=""
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            RELEASE_TAG="${GITHUB_REF_NAME}"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            RELEASE_TAG="$GITHUB_REF_NAME"
             VERSION="${GITHUB_REF_NAME#v}"
-          elif [[ -f .github/release-request.txt ]]; then
-            VERSION="$(tr -d '[:space:]' < .github/release-request.txt)"
-            RELEASE_TAG="v${VERSION#v}"
+          elif [[ -n "${REQUESTED_VERSION:-}" ]]; then
+            VERSION="${REQUESTED_VERSION#v}"
           else
-            VERSION="$(gradle -q printVersion)"
+            VERSION="$NOTES_VERSION"
           fi
 
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
             echo "Invalid StarChem version: $VERSION" >&2
             exit 1
           fi
+          if [[ "$NOTES_VERSION" != "$VERSION" ]]; then
+            echo "Release notes version $NOTES_VERSION does not match build version $VERSION" >&2
+            exit 1
+          fi
+          if [[ -n "$RELEASE_TAG" && "$RELEASE_TAG" != "v$VERSION" ]]; then
+            echo "Release tag $RELEASE_TAG does not match version $VERSION" >&2
+            exit 1
+          fi
+          if [[ ! "$GITHUB_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "Invalid release commit SHA: $GITHUB_SHA" >&2
+            exit 1
+          fi
 
-          PACKAGE_TAG="${RELEASE_TAG:-v${VERSION}}"
+          PACKAGE_TAG="v${VERSION}"
+          RELEASE_ZIP="StarChem-${PACKAGE_TAG}.zip"
+          CHECKSUM_FILE="${RELEASE_ZIP}.sha256"
+
           echo "STARCHEM_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "STARCHEM_COMMIT=$GITHUB_SHA" >> "$GITHUB_ENV"
-          echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
           echo "PACKAGE_TAG=$PACKAGE_TAG" >> "$GITHUB_ENV"
+          echo "RELEASE_ZIP=$RELEASE_ZIP" >> "$GITHUB_ENV"
+          echo "CHECKSUM_FILE=$CHECKSUM_FILE" >> "$GITHUB_ENV"
 
-      - name: Verify and build jar
-        run: gradle clean check jar --no-daemon -PreleaseVersion="$STARCHEM_VERSION" -PbuildCommit="$STARCHEM_COMMIT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "release_zip=$RELEASE_ZIP" >> "$GITHUB_OUTPUT"
+          echo "checksum_file=$CHECKSUM_FILE" >> "$GITHUB_OUTPUT"
+          echo "build_commit=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Verify and build release jar
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle clean check jar --no-daemon \
+            -PreleaseVersion="$STARCHEM_VERSION" \
+            -PbuildCommit="$STARCHEM_COMMIT"
+
+      - name: Verify reproducible jar
+        shell: bash
+        run: |
+          set -euo pipefail
+          FIRST_JAR="$RUNNER_TEMP/StarChem-first.jar"
+          cp build/libs/StarChem.jar "$FIRST_JAR"
+          FIRST_SHA="$(sha256sum "$FIRST_JAR" | awk '{print $1}')"
+
+          gradle clean jar --no-daemon \
+            -PreleaseVersion="$STARCHEM_VERSION" \
+            -PbuildCommit="$STARCHEM_COMMIT"
+
+          SECOND_SHA="$(sha256sum build/libs/StarChem.jar | awk '{print $1}')"
+          echo "First JAR SHA-256:  $FIRST_SHA"
+          echo "Second JAR SHA-256: $SECOND_SHA"
+          cmp "$FIRST_JAR" build/libs/StarChem.jar
 
       - name: Smoke-test release jar
         shell: bash
         run: |
+          set -euo pipefail
           test -f build/libs/StarChem.jar
           VERSION_OUTPUT="$(java -jar build/libs/StarChem.jar --version)"
+          EXPECTED_OUTPUT="StarChem ${STARCHEM_VERSION} (${STARCHEM_COMMIT:0:12})"
           echo "$VERSION_OUTPUT"
-          [[ "$VERSION_OUTPUT" == "StarChem ${STARCHEM_VERSION}"* ]]
+          [[ "$VERSION_OUTPUT" == "$EXPECTED_OUTPUT" ]]
           java -jar build/libs/StarChem.jar --help | grep -Fq -- '--server [PORT]'
           jar tf build/libs/StarChem.jar | grep -Fx 'META-INF/LICENSE'
           jar tf build/libs/StarChem.jar | grep -Fx 'META-INF/THIRD_PARTY_NOTICES.md'
 
-      - name: Stage release files
+      - name: Stage deterministic release files
         shell: bash
         run: |
+          set -euo pipefail
+          rm -rf release
           mkdir -p release/StarChem
           cp build/libs/StarChem.jar release/StarChem/StarChem.jar
           cp -R config release/StarChem/config
           cp packaging/run-starchem.bat release/StarChem/run-starchem.bat
+          cp packaging/run-starchem-server.bat release/StarChem/run-starchem-server.bat
           cp packaging/run-starchem.sh release/StarChem/run-starchem.sh
           cp packaging/run-starchem-server.sh release/StarChem/run-starchem-server.sh
           chmod +x release/StarChem/run-starchem.sh release/StarChem/run-starchem-server.sh
@@ -95,38 +176,185 @@ jobs:
 
           mapfile -t TOP_LEVEL_FILES < <(find release/StarChem -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)
           mapfile -t TOP_LEVEL_DIRS < <(find release/StarChem -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
-          [[ "${TOP_LEVEL_FILES[*]}" == "LICENSE README.md StarChem.jar THIRD_PARTY_NOTICES.md run-starchem-server.sh run-starchem.bat run-starchem.sh" ]]
+          [[ "${TOP_LEVEL_FILES[*]}" == "LICENSE README.md StarChem.jar THIRD_PARTY_NOTICES.md run-starchem-server.bat run-starchem-server.sh run-starchem.bat run-starchem.sh" ]]
           [[ "${TOP_LEVEL_DIRS[*]}" == "config" ]]
 
-          cd release
-          zip -r "StarChem-${PACKAGE_TAG}.zip" StarChem
-          cd ..
-          cp "release/StarChem-${PACKAGE_TAG}.zip" .
-          echo "RELEASE_ZIP=StarChem-${PACKAGE_TAG}.zip" >> "$GITHUB_ENV"
+          COMMIT_EPOCH="$(git show -s --format=%ct "$STARCHEM_COMMIT")"
+          find release/StarChem -exec touch -d "@${COMMIT_EPOCH}" {} +
 
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: StarChem-release
-          path: ${{ env.RELEASE_ZIP }}
+          (
+            cd release
+            mapfile -t ZIP_ENTRIES < <(find StarChem -print | LC_ALL=C sort)
+            printf '%s\n' "${ZIP_ENTRIES[@]}" | zip -X -q "$RELEASE_ZIP" -@
+            printf '%s\n' "${ZIP_ENTRIES[@]}" | zip -X -q "${RELEASE_ZIP}.repro" -@
+            cmp "$RELEASE_ZIP" "${RELEASE_ZIP}.repro"
+            rm "${RELEASE_ZIP}.repro"
+          )
 
-      - name: Move release tag to validated commit
-        if: env.RELEASE_TAG != '' && github.ref_type != 'tag'
+          cp "release/$RELEASE_ZIP" .
+          sha256sum "$RELEASE_ZIP" > "$CHECKSUM_FILE"
+          sha256sum -c "$CHECKSUM_FILE"
+
+      - name: Validate extracted release package
         shell: bash
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git tag -f "$RELEASE_TAG" "$GITHUB_SHA"
-          git push origin "refs/tags/$RELEASE_TAG" --force
+          set -euo pipefail
+          VERIFY_ROOT="$RUNNER_TEMP/starchem-release-verify"
+          rm -rf "$VERIFY_ROOT"
+          mkdir -p "$VERIFY_ROOT"
+          unzip -q "$RELEASE_ZIP" -d "$VERIFY_ROOT"
+          PACKAGE_DIR="$VERIFY_ROOT/StarChem"
 
-      - name: Attach compiled zip to release
-        if: env.RELEASE_TAG != ''
+          test -f "$PACKAGE_DIR/StarChem.jar"
+          test -d "$PACKAGE_DIR/config"
+          test -x "$PACKAGE_DIR/run-starchem.sh"
+          test -x "$PACKAGE_DIR/run-starchem-server.sh"
+
+          VERSION_OUTPUT="$("$PACKAGE_DIR/run-starchem.sh" --version)"
+          EXPECTED_OUTPUT="StarChem ${STARCHEM_VERSION} (${STARCHEM_COMMIT:0:12})"
+          [[ "$VERSION_OUTPUT" == "$EXPECTED_OUTPUT" ]]
+          "$PACKAGE_DIR/run-starchem-server.sh" --help | grep -Fq -- '--server [PORT]'
+
+          PORT="$(python3 - <<'PY'
+          import socket
+          with socket.socket() as sock:
+              sock.bind(('127.0.0.1', 0))
+              print(sock.getsockname()[1])
+          PY
+          )"
+          SERVER_LOG="$RUNNER_TEMP/starchem-release-server.log"
+          STARCHEM_PORT="$PORT" STARCHEM_SERVER_NAME="Release-Validation" \
+            "$PACKAGE_DIR/run-starchem-server.sh" >"$SERVER_LOG" 2>&1 &
+          SERVER_PID=$!
+
+          cleanup() {
+            kill -TERM "$SERVER_PID" 2>/dev/null || true
+            wait "$SERVER_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          READY=0
+          for _ in {1..120}; do
+            if grep -Fq 'Dedicated server ready.' "$SERVER_LOG"; then
+              READY=1
+              break
+            fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              cat "$SERVER_LOG"
+              echo 'Extracted release server exited before becoming ready.' >&2
+              exit 1
+            fi
+            sleep 0.1
+          done
+          [[ "$READY" -eq 1 ]]
+          grep -Fq "TCP $PORT" "$SERVER_LOG"
+
+          kill -TERM "$SERVER_PID"
+          set +e
+          wait "$SERVER_PID"
+          SERVER_STATUS=$?
+          set -e
+          trap - EXIT
+
+          cat "$SERVER_LOG"
+          [[ "$SERVER_STATUS" -eq 0 || "$SERVER_STATUS" -eq 143 ]]
+          grep -Fq 'Dedicated server stopped.' "$SERVER_LOG"
+
+      - name: Upload validated release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: StarChem-release-${{ github.sha }}
+          path: |
+            ${{ env.RELEASE_ZIP }}
+            ${{ env.CHECKSUM_FILE }}
+          if-no-files-found: error
+          retention-days: 14
+
+  windows-launcher-smoke:
+    name: Validate Windows launchers
+    needs: jar-release
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Download validated release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: StarChem-release-${{ github.sha }}
+          path: release-artifact
+
+      - name: Verify checksum and Windows launchers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zipName = '${{ needs.jar-release.outputs.release_zip }}'
+          $checksumName = '${{ needs.jar-release.outputs.checksum_file }}'
+          $zipPath = Join-Path 'release-artifact' $zipName
+          $checksumPath = Join-Path 'release-artifact' $checksumName
+
+          $expectedHash = ((Get-Content -LiteralPath $checksumPath -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+          $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash.ToLowerInvariant()
+          if ($actualHash -ne $expectedHash) {
+            throw "Release ZIP checksum mismatch: expected $expectedHash, got $actualHash"
+          }
+
+          $extractRoot = Join-Path $env:RUNNER_TEMP 'starchem-windows-release'
+          Remove-Item -Recurse -Force $extractRoot -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath $zipPath -DestinationPath $extractRoot
+          Push-Location (Join-Path $extractRoot 'StarChem')
+          try {
+            $versionOutput = (& cmd /c run-starchem.bat --version | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0) { throw "Windows player launcher exited with $LASTEXITCODE" }
+            $commit = '${{ needs.jar-release.outputs.build_commit }}'
+            $expectedIdentity = "StarChem ${{ needs.jar-release.outputs.version }} ($($commit.Substring(0, 12)))"
+            if ($versionOutput -ne $expectedIdentity) {
+              throw "Windows launcher reported '$versionOutput' instead of '$expectedIdentity'"
+            }
+
+            $helpOutput = (& cmd /c run-starchem-server.bat --help | Out-String)
+            if ($LASTEXITCODE -ne 0) { throw "Windows server launcher exited with $LASTEXITCODE" }
+            if ($helpOutput -notmatch '--server \[PORT\]') {
+              throw 'Windows server launcher did not reach StarChem help output.'
+            }
+          }
+          finally {
+            Pop-Location
+          }
+
+  publish-release:
+    name: Publish validated GitHub Release
+    needs:
+      - jar-release
+      - windows-launcher-smoke
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download validated release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: StarChem-release-${{ github.sha }}
+          path: release-artifact
+
+      - name: Check out release notes
+        uses: actions/checkout@v4
+
+      - name: Attach immutable artifacts to tagged release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          target_commitish: ${{ github.sha }}
-          name: StarChem ${{ env.RELEASE_TAG }}
+          tag_name: ${{ needs.jar-release.outputs.release_tag }}
+          name: StarChem ${{ needs.jar-release.outputs.release_tag }}
           body_path: RELEASE_NOTES.md
-          prerelease: ${{ contains(env.STARCHEM_VERSION, '-') }}
+          prerelease: ${{ contains(needs.jar-release.outputs.version, '-') }}
           fail_on_unmatched_files: true
-          files: ${{ env.RELEASE_ZIP }}
+          files: |
+            release-artifact/${{ needs.jar-release.outputs.release_zip }}
+            release-artifact/${{ needs.jar-release.outputs.checksum_file }}
