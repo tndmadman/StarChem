@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
+  issues: write
 
 jobs:
   patch-test-tag:
@@ -36,6 +38,8 @@ jobs:
           test "$(git rev-parse HEAD)" = '247006d9166c0f3c600f78ee8195bb1a8a630468'
           ! git show-ref --verify --quiet refs/tags/v1.5.6
       - name: Apply TLS identity lifecycle fix
+        id: patch
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -142,7 +146,23 @@ jobs:
           jvMpo6/YFJ9NvgVV+z8qKep8pZwAAA==
           PATCH_B64
           base64 -d /tmp/patch.gz.b64 | gzip -d > /tmp/patch.py
-          python3 /tmp/patch.py
+          python3 /tmp/patch.py > /tmp/patch-v1.5.6.log 2>&1
+          cat /tmp/patch-v1.5.6.log
+      - name: Report patch failure
+        if: steps.patch.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          {
+            echo 'The v1.5.6 patch did not apply. Diagnostic output:'
+            echo
+            echo '```text'
+            cat /tmp/patch-v1.5.6.log
+            echo '```'
+          } > /tmp/patch-comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/patch-comment.md
+          exit 1
       - name: Run full verification
         shell: bash
         run: |
