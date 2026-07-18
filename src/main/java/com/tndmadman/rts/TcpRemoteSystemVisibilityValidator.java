@@ -74,9 +74,9 @@ public final class TcpRemoteSystemVisibilityValidator {
     }
 
     private static void validateViewSurvivesLastLocalAssetRemoval(TcpIntegrationHarness harness,
-                                                                          TcpIntegrationHarness.TestClient viewer,
-                                                                          String viewerId,
-                                                                          String systemId) throws Exception {
+                                                                   TcpIntegrationHarness.TestClient viewer,
+                                                                   String viewerId,
+                                                                   String systemId) throws Exception {
         long sequenceBeforeRemoval = viewer.network().clientSnapshotSequence();
         removePlayerAssets(harness.serverWorld, systemId, viewerId);
         harness.await(() -> viewer.network().clientSnapshotSequence() > sequenceBeforeRemoval
@@ -117,26 +117,57 @@ public final class TcpRemoteSystemVisibilityValidator {
                                                         TcpIntegrationHarness.TestClient viewer,
                                                         String viewerId,
                                                         String ownerId) throws Exception {
-        String unitKey = seedCorsairUnit(harness.serverWorld, ownerId);
-        viewer.network().viewSystem(viewerId, StarSystems.CORSAIR_SYSTEM_ID);
-        harness.await(() -> !viewer.network().clientViewSwitchPending()
-                        && StarSystems.CORSAIR_SYSTEM_ID.equals(viewer.network().clientViewedSystemId())
-                        && StarSystems.CORSAIR_SYSTEM_ID.equals(viewer.world().activeSystemId())
-                        && viewer.world().units.containsKey(unitKey),
-                12_000, "client did not settle on the server-approved Corsair Den view");
+        boolean previousDisableAttacks = AiDevSettings.disableAttacks;
+        boolean previousFreezeNpcCombat = AiDevSettings.freezeNpcCombat;
+        AiDevSettings.disableAttacks = true;
+        AiDevSettings.freezeNpcCombat = true;
+        try {
+            String unitKey = seedCorsairUnit(harness.serverWorld, ownerId);
+            viewer.network().viewSystem(viewerId, StarSystems.CORSAIR_SYSTEM_ID);
+            harness.await(() -> !viewer.network().clientViewSwitchPending()
+                            && StarSystems.CORSAIR_SYSTEM_ID.equals(viewer.network().clientViewedSystemId())
+                            && StarSystems.CORSAIR_SYSTEM_ID.equals(viewer.world().activeSystemId())
+                            && viewer.world().units.containsKey(unitKey),
+                    12_000, "client did not settle on the server-approved Corsair Den view");
 
-        double targetX = 240.0;
-        double targetY = 260.0;
-        long sequenceBeforeMove = viewer.network().clientSnapshotSequence();
-        setUnitPosition(harness.serverWorld, StarSystems.CORSAIR_SYSTEM_ID, unitKey, targetX, targetY);
+            double targetX = 240.0;
+            double targetY = 260.0;
+            long sequenceBeforeMove = viewer.network().clientSnapshotSequence();
+            setUnitPosition(harness.serverWorld, StarSystems.CORSAIR_SYSTEM_ID, unitKey, targetX, targetY);
+            awaitCorsairReplication(harness, viewer, unitKey, sequenceBeforeMove, targetX, targetY);
+        } finally {
+            AiDevSettings.disableAttacks = previousDisableAttacks;
+            AiDevSettings.freezeNpcCombat = previousFreezeNpcCombat;
+        }
+    }
 
-        harness.await(() -> {
+    private static void awaitCorsairReplication(TcpIntegrationHarness harness,
+                                                TcpIntegrationHarness.TestClient viewer,
+                                                String unitKey,
+                                                long sequenceBeforeMove,
+                                                double targetX,
+                                                double targetY) throws Exception {
+        long deadline = System.currentTimeMillis() + 12_000;
+        while (System.currentTimeMillis() < deadline) {
             Unit replicated = viewer.world().units.get(unitKey);
-            return viewer.network().clientSnapshotSequence() > sequenceBeforeMove
+            if (viewer.network().clientSnapshotSequence() > sequenceBeforeMove
                     && StarSystems.CORSAIR_SYSTEM_ID.equals(viewer.world().activeSystemId())
                     && replicated != null
-                    && TcpIntegrationHarness.distance(replicated.x, replicated.y, targetX, targetY) <= 8.0;
-        }, 8_000, "Corsair Den stopped accepting live authoritative snapshots after the view switch");
+                    && TcpIntegrationHarness.distance(replicated.x, replicated.y, targetX, targetY) <= 8.0) {
+                return;
+            }
+            harness.tick();
+        }
+
+        Unit authoritative = unitInSystem(harness.serverWorld, StarSystems.CORSAIR_SYSTEM_ID, unitKey);
+        Unit replicated = viewer.world().units.get(unitKey);
+        throw new IllegalStateException("Corsair Den stopped accepting live authoritative snapshots after the view switch"
+                + " | beforeSequence=" + sequenceBeforeMove
+                + " | clientSequence=" + viewer.network().clientSnapshotSequence()
+                + " | viewed=" + viewer.network().clientViewedSystemId()
+                + " | active=" + viewer.world().activeSystemId()
+                + " | serverUnit=" + describe(authoritative)
+                + " | clientUnit=" + describe(replicated));
     }
 
     private static String seedCorsairUnit(World world, String ownerId) {
@@ -174,6 +205,24 @@ public final class TcpRemoteSystemVisibilityValidator {
         } finally {
             world.activateSystem(old);
         }
+    }
+
+    private static Unit unitInSystem(World world, String systemId, String unitKey) {
+        String old = world.activeSystemId();
+        try {
+            world.activateSystem(systemId);
+            return world.units.get(unitKey);
+        } finally {
+            world.activateSystem(old);
+        }
+    }
+
+    private static String describe(Unit unit) {
+        if (unit == null) return "missing";
+        return unit.key() + "@(" + unit.x + ',' + unit.y + ")"
+                + " target=(" + unit.targetX + ',' + unit.targetY + ')'
+                + " hp=" + unit.hp + " shield=" + unit.shield
+                + " task=" + unit.task;
     }
 
     private static boolean directlyConnected(World world, String source, String target) {
