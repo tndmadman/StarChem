@@ -101,3 +101,5 @@ observations P2
 ```
 
 The bounded operator journal persists in `<save-name>-activity.log`. Last-seen player IP and StarChem client-device signals persist in `<save-name>-observations.json` for moderation use. These files contain sensitive operational data and should be protected with the same care as server saves.
+
+`ServerDevCommandValidator` exercises trusted developer mutations against a real connected TCP client, including runtime authorization, free-build separation, resources, production, research, spawning, healing, notices, resynchronization, and runtime-mode shutdown.
