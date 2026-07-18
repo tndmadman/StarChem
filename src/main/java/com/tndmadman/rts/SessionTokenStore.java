@@ -10,10 +10,13 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Base64;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ConcurrentHashMap;
 
 final class SessionTokenStore {
     private static final String STORE_OVERRIDE = "starchem.sessionStore";
+    private static final Map<String, String> transientAuthDigests = new ConcurrentHashMap<>();
 
     private SessionTokenStore() { }
 
@@ -27,7 +30,8 @@ final class SessionTokenStore {
         String playerId = value.substring(0, separator);
         int authSeparator = value.indexOf('|', separator + 1);
         String token = authSeparator < 0 ? value.substring(separator + 1) : value.substring(separator + 1, authSeparator);
-        String auth = authSeparator < 0 ? "" : value.substring(authSeparator + 1);
+        String storedAuth = authSeparator < 0 ? "" : value.substring(authSeparator + 1);
+        String auth = PasswordAuth.validVerifier(storedAuth) ? storedAuth : transientAuthDigests.getOrDefault(key, "");
         return validPlayerId(playerId) && validToken(token)
                 ? new StoredSession(playerId, token, PasswordAuth.validVerifier(auth) ? auth : "")
                 : StoredSession.EMPTY;
@@ -52,12 +56,25 @@ final class SessionTokenStore {
         String key = key(config);
         if (key.isBlank() || !validPlayerId(playerId) || !validToken(token)) return;
         Properties properties = readProperties();
-        String auth = authDigest(config);
+        String auth = persistedAuthDigest(config);
         properties.setProperty(key, playerId + "|" + token + "|" + auth);
         writeProperties(properties);
     }
 
     static synchronized String authDigest(Config config) {
+        String key = key(config);
+        if (key.isBlank()) return "";
+        String transientAuth = transientAuthDigests.getOrDefault(key, "");
+        if (PasswordAuth.validVerifier(transientAuth)) return transientAuth;
+        Properties properties = readProperties();
+        String value = properties.getProperty(key, "");
+        int first = value.indexOf('|');
+        int second = first < 0 ? -1 : value.indexOf('|', first + 1);
+        String auth = second < 0 ? "" : value.substring(second + 1);
+        return PasswordAuth.validVerifier(auth) ? auth : "";
+    }
+
+    private static synchronized String persistedAuthDigest(Config config) {
         String key = key(config);
         if (key.isBlank()) return "";
         Properties properties = readProperties();
@@ -71,6 +88,7 @@ final class SessionTokenStore {
     static synchronized void saveAuthDigest(Config config, String authDigest) {
         String key = key(config);
         if (key.isBlank() || !PasswordAuth.validVerifier(authDigest)) return;
+        transientAuthDigests.put(key, authDigest);
         Properties properties = readProperties();
         String value = properties.getProperty(key, "");
         int first = value.indexOf('|');
@@ -85,9 +103,16 @@ final class SessionTokenStore {
         writeProperties(properties);
     }
 
+    static synchronized void rememberAuthDigestForProcess(Config config, String authDigest) {
+        String key = key(config);
+        if (key.isBlank() || !PasswordAuth.validVerifier(authDigest)) return;
+        transientAuthDigests.put(key, authDigest);
+    }
+
     static synchronized void clear(Config config) {
         String key = key(config);
         if (key.isBlank()) return;
+        transientAuthDigests.remove(key);
         Properties properties = readProperties();
         if (properties.remove(key) == null) return;
         Path file = storePath();

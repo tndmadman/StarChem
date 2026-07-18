@@ -179,6 +179,17 @@ public final class SessionRecoveryValidator {
                     "session token store did not round-trip the saved identity");
             require(PasswordAuth.validVerifier(stored.authDigest()),
                     "session token store did not round-trip the saved password verifier");
+            Config transientConfig = Config.join("Transient Client", "127.0.0.1", 50001, false);
+            String transientVerifier = PasswordAuth.verifier(transientConfig.playerName, "one-run-password");
+            SessionTokenStore.rememberAuthDigestForProcess(transientConfig, transientVerifier);
+            require(transientVerifier.equals(SessionTokenStore.authDigest(transientConfig)),
+                    "process-only password verifier was not available for the current launch");
+            SessionTokenStore.save(transientConfig, "P8", "C".repeat(43));
+            String savedTransientAuth = SessionTokenStore.load(transientConfig).authDigest();
+            require(transientVerifier.equals(savedTransientAuth),
+                    "process-only password verifier was not available after token save");
+            require(!Files.readString(store).contains(transientVerifier),
+                    "process-only password verifier was persisted to disk");
 
             World firstWorld = new World("Recovery Client", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
             PlayerRegistry.activate(firstWorld);

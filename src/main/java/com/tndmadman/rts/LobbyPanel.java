@@ -153,14 +153,17 @@ final class LobbyPanel extends JPanel {
         if (!SessionTokenStore.authDigest(config).isBlank()) return true;
         JPasswordField password = new JPasswordField(18);
         JPasswordField confirm = new JPasswordField(18);
+        JCheckBox remember = new JCheckBox("Remember password on this computer", true);
         styleField(password);
         styleField(confirm);
+        styleCheck(remember);
         JPanel panel = new JPanel(new GridLayout(0, 1, 6, 6));
         panel.add(new JLabel("Create or enter the password for this commander on this server."));
         panel.add(new JLabel("Password"));
         panel.add(password);
         panel.add(new JLabel("Confirm password"));
         panel.add(confirm);
+        panel.add(remember);
         int result = JOptionPane.showConfirmDialog(this, panel, "Server Player Password",
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (result != JOptionPane.OK_OPTION) {
@@ -178,7 +181,9 @@ final class LobbyPanel extends JPanel {
                 setStatus("Passwords did not match.");
                 return false;
             }
-            SessionTokenStore.saveAuthDigest(config, PasswordAuth.verifier(config.playerName, first));
+            String verifier = PasswordAuth.verifier(config.playerName, first);
+            if (remember.isSelected()) SessionTokenStore.saveAuthDigest(config, verifier);
+            else SessionTokenStore.rememberAuthDigestForProcess(config, verifier);
             return true;
         } finally {
             java.util.Arrays.fill(first, '\0');
