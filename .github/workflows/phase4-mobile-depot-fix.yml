@@ -1,0 +1,46 @@
+name: Phase 4 Mobile Depot Fix
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-corsair-remote-view
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Apply geometry repair
+        run: python3 tools/phase4_mobile_depot_fix.py
+      - name: Check repair diff
+        run: git diff --check
+      - name: Validate mobile depots
+        run: gradle -I gradle/ai-validation.gradle validateNpcMobileDepot --quiet --no-daemon
+      - name: Validate repeated isolation suite
+        run: gradle validateNpcSystemIsolation --quiet --no-daemon
+      - name: Validate full project
+        run: gradle clean check jar --no-daemon
+      - name: Commit validated repair
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/main/java/com/tndmadman/rts/NpcMobileDepotSystem.java \
+            src/main/java/com/tndmadman/rts/NpcMobileDepotValidator.java
+          git diff --cached --check
+          git commit -m "Keep fallback mobile depots separated at map edges"
+          git push origin HEAD:agent/fix-corsair-remote-view
