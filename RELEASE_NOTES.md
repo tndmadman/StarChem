@@ -1,63 +1,62 @@
 # StarChem v1.4.0
 
-StarChem v1.4.0 is a major organized-NPC AI, interface, multiplayer-audio, production, diagnostics, and release-hardening update.
+StarChem v1.4.0 is a major organized-NPC AI, production-planning, multiplayer-state, diagnostics, and release-hardening update built on v1.3.1.
 
-## Organized NPC factions and expeditions
+## Organized NPC strategy and expeditions
 
-- Added persistent faction-scoped runtime state, lifecycle reset handling, strategic states, capacity accounting, and deterministic faction recovery.
-- Added galaxy-wide organized NPC expeditions with reservation, staging, wormhole transit, foothold deployment, defense, completion, retreat, and recovery phases.
-- Added strategic station construction, mobile depots, station replacement, deployer recovery, repair evacuation, worker production, and squad-combat coordination.
-- NPC factions now reserve resources by strategic priority for emergency fuel, workers, station recovery, research, fleet growth, and expansion.
-- Added deterministic selection of expedition supply bases and corrected station-cap accounting so the final allowed foothold can be launched.
-- Preserved deployer cargo during emergency rebuilding and protected active construction and recovery units from conflicting orders.
-- Added escort behavior for damaged ships and loaded deployers retreating for repairs or recovery.
-- Improved station placement around map edges, wormholes, existing structures, and active expedition formations.
+- Added persistent faction-scoped runtime state, strategic modes, lifecycle resets, galaxy-wide capacity accounting, and deterministic recovery behavior.
+- Added persistent cross-system expeditions with reservation, staging, wormhole transit, foothold construction, defense, completion, retreat, cancellation, and recovery phases.
+- Added resilient expedition-readiness coordination so blocked launches report their reason and can resume when capacity, resources, or deployers become available.
+- Corrected station-cap accounting so construction commitments and completed footholds are counted consistently and the final permitted expansion can launch.
+- Added deterministic expedition supply-base selection and protected expedition formations and construction sites from wormhole and placement conflicts.
 
-## Tactical reference and navigation tools
+## NPC construction, recovery, logistics, and combat
 
-- Added a tactical minimap showing resources, wormholes, friendly assets, hostile contacts, the current camera view, and temporary event pings.
-- The minimap supports click-to-pan navigation while respecting overlapping build and developer panels.
-- Added an F1 searchable codex generated from loaded rules for ships, stations, resources, research, manufacturing, NPC factions, and controls.
-- Expanded the resource catalog into searchable material and star-system tabs.
-- Added graphical ship, station, material, orbit, and system previews to the codex and catalog.
-- Preserved normal text entry while searching so gameplay shortcut keys do not consume typed letters.
+- Added persistent NPC station-construction plans, station replacement, orphaned deployer recovery, and restoration of interrupted construction work.
+- Added routed repair evacuation, recovery convoys, escort behavior for damaged ships and loaded deployers, and protection from conflicting combat or placement orders.
+- Added distributed mobile-depot logistics, bounded depot placement, cargo routing, hauler coordination, and map-edge spacing safeguards.
+- Added galaxy-wide worker-production failover and faction-scoped handling for workers, stations, deployers, support ships, and expedition commitments.
+- Added squad-based Corsair combat coordination, balanced squad assignment, range management, recovery detachment, and fleet-wide projected-damage control.
+- Preserved surplus deployer cargo during emergency station rebuilding.
 
-## Multiplayer, remote views, and game audio
+## NPC resource planning
 
-- Added a server-authoritative audio event stream for multiplayer simulation events.
-- Production completion, station placement, pickup, tractor, wormhole, and related effects are delivered to the correct owning client.
-- Prevented duplicate client-side wormhole audio and primed event cursors so clients do not replay stale sounds after joining.
+- Added strategic resource-budget categories for emergency fuel, worker recovery, station recovery, research, fleet growth, expansion, and general spending.
+- Added recursive component planning and validation for organized-NPC construction, repairs, production, and expansion.
+- Added developer-visible budget, strategy, expedition, recovery, and construction diagnostics.
+
+## Auto-production allocation
+
+- Fixed competing auto-production plans incorrectly treating the same stored or queued materials as available to every plan.
+- Added a shared per-player planning ledger so prerequisite materials and future output are reserved across plans during each planning pass.
+- Distributed prerequisite production across compatible idle stations instead of repeatedly selecting the same station.
+- Prevented duplicate prerequisite jobs when previously queued output already covers a plan.
+- Added regression coverage for competing plans, shared inventory, future output, and visible production roots.
+
+## Multiplayer state and remote views
+
 - Preserved approved remote-system views through automatic TCP reconnect and session resume.
-- Full snapshots and resource corrections now derive remote-view state from authoritative asset presence.
-- Prevented removal of the final local asset from creating client-only fallback assets.
-- Strengthened remote-system visibility, reconnect churn, snapshot hardening, slow-client isolation, and dedicated-server lifecycle validation.
+- Derived remote-view mode from authoritative asset presence in full snapshots and resource corrections.
+- Prevented loss of the final local asset from creating client-only fallback assets.
+- Strengthened remote-system visibility and convergence validation under reconnect, view switching, snapshot traffic, server restart, and slow-client conditions.
+- Improved dedicated-server lifecycle and TCP integration probes used by release validation.
 
-## Production, logistics, fuel, and progression
+## AI diagnostics
 
-- Fixed auto-production allocation when multiple plans compete for compatible stations and resources.
-- Added regression coverage for visible production roots and competing plan allocation.
-- Improved hauler routing, fuel-shuttle behavior, station fueling, and automatic Research Lab resupply.
-- Kept Salvagers within reliable station unload range while idle.
-- Expanded system and resource catalog data used by production and discovery interfaces.
-- Continued synchronizing queue state, research completion, and production results through authoritative snapshots.
-
-## AI diagnostics and developer tooling
-
-- Added persistent structured AI brain logging for authorized developer sessions.
-- Moved JSON encoding, disk writes, flushing, rotation, and retention to a dedicated asynchronous writer.
-- Added a bounded non-blocking queue, reserved critical-event capacity, backpressure reporting, bounded shutdown draining, and clean re-enable behavior.
-- Logging filesystem failures remain isolated from normal gameplay, dedicated servers, and remote clients.
-- Expanded developer snapshots and commands for faction strategy, budgets, expeditions, recovery, construction, and cross-system operations.
+- Added persistent structured JSON Lines AI brain logging for authorized developer sessions.
+- Moved JSON encoding, file writes, flushing, rotation, and retention to a dedicated asynchronous daemon writer.
+- Added bounded non-blocking queues, reserved critical-event capacity, backpressure reporting, bounded shutdown draining, and clean disable/re-enable behavior.
+- Isolated logging and filesystem failures from normal gameplay, dedicated servers, and remote clients.
+- Added documented performance guardrails and repeated logger lifecycle validation.
 
 ## Validation and release engineering
 
-- Added dedicated organized-NPC AI validation and repeated AI stress workflows.
-- Added deterministic expedition seed sweeps and repeated lifecycle, recovery, reset, cross-system, and logging validation.
-- Expanded the standard Gradle verification suite with minimap, codex, NPC expedition, station construction, mobile depot, recovery, combat, resource-budget, and faction-lifecycle validators.
-- Release builds require release-note, semantic-version, and tag consistency.
-- Release validation rebuilds the JAR and ZIP and requires byte-identical output.
-- Every release publishes a SHA-256 checksum and validates the extracted Linux package and both Windows launchers.
-- Added a Windows dedicated-server launcher alongside the existing Windows client and Linux client/server launchers.
+- Added permanent organized-NPC AI validation and stress workflows.
+- Added deterministic expedition seed sweeps and repeated recovery, reset, lifecycle, cross-system, defense, and logging validation.
+- Expanded validation for station construction, deployer recovery, mobile depots, squad combat, resource budgets, worker failover, strategic stability, remote views, and TCP lifecycle behavior.
+- Added a Windows dedicated-server launcher to the packaged release.
+- Hardened the release workflow with tag/version/release-note consistency checks, byte-identical JAR and ZIP rebuild verification, SHA-256 artifacts, extracted-package testing, Linux server lifecycle testing, and Windows client/server launcher checks.
+- Release publishing remains tag-only; release tags are not created, moved, or force-updated by the workflow.
 
 ## Compatibility
 
@@ -65,7 +64,7 @@ All multiplayer clients and servers must use the same v1.4.0 release package and
 
 ## Known limitation
 
-- Galaxy-wide organized-NPC resource-budget planning still performs repeated full-system scans in some decision paths and has an overlapping intermediate-reservation edge case. This is tracked in GitHub issue #167. Normal validation passes, but very large long-running galaxies may experience extra AI planning cost until that optimization is completed.
+- Galaxy-wide organized-NPC resource-budget planning still performs repeated full-system scans in some decision paths and has an overlapping intermediate-reservation edge case. This is tracked in GitHub issue #167. Normal validation passes, but very large long-running galaxies may experience additional AI-planning cost until that optimization is completed.
 
 ## Requirements
 
