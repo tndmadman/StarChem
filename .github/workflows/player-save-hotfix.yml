@@ -1,6 +1,6 @@
 name: Permanent Player Save Hotfix
 # Trigger after workflow registration on main.
-# Pull-request trigger commit, revision 5.
+# Pull-request trigger commit, revision 6.
 
 on:
   push:
@@ -155,10 +155,29 @@ jobs:
             src/main/java/com/tndmadman/rts/SessionRecoveryValidator.java
 
       - name: Run full verification
+        id: verification
+        continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
-          gradle clean check --no-daemon -PreleaseVersion=1.5.3 -PbuildCommit="$(git rev-parse HEAD)"
+          set +e
+          gradle clean check --no-daemon -PreleaseVersion=1.5.3 -PbuildCommit="$(git rev-parse HEAD)" > verification.log 2>&1
+          STATUS=$?
+          cat verification.log
+          exit "$STATUS"
+
+      - name: Upload verification diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: StarChem-hotfix-verification-${{ github.run_id }}
+          path: verification.log
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Stop after failed verification
+        if: steps.verification.outcome == 'failure'
+        shell: bash
+        run: exit 1
 
       - name: Commit hotfix directly to main
         id: commit
