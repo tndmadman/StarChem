@@ -1,6 +1,7 @@
 def starchemAiValidators = [
         validateAiBrainLog                    : 'com.tndmadman.rts.AiBrainLogValidator',
         validateNpcCrossSystemOperations      : 'com.tndmadman.rts.NpcCrossSystemOperationsValidator',
+        validateNpcExpeditionDefense          : 'com.tndmadman.rts.NpcExpeditionDefenseValidator',
         validateNpcExpedition                 : 'com.tndmadman.rts.NpcExpeditionValidator',
         validateNpcExpeditionResilience       : 'com.tndmadman.rts.NpcExpeditionResilienceValidator',
         validateNpcFactionLifecycle           : 'com.tndmadman.rts.NpcFactionLifecycleValidator',
