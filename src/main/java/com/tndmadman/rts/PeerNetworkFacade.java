@@ -1,7 +1,9 @@
 package com.tndmadman.rts;
 
 import java.io.IOException;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 final class PeerNetwork implements CommandSink {
     private final Config config;
@@ -87,6 +89,28 @@ final class PeerNetwork implements CommandSink {
     boolean serverSessionConnected(String playerId) { return server != null && server.sessionConnected(playerId); }
     List<PersistentPlayerSession> persistentPlayerSessions() { return server == null ? List.of() : server.persistentSessions(); }
     void forceServerResourceCorrectionForTest() { if (server != null) server.forceResourceCorrectionForTest(); }
+
+    int broadcastServerNotice(String message) {
+        if (server == null || message == null || message.isBlank()) return 0;
+        String clean = message.replace('|', ' ').replace('\n', ' ').replace('\r', ' ').trim();
+        if (clean.length() > 512) clean = clean.substring(0, 512);
+        Set<ConnectionId> recipients = new LinkedHashSet<>();
+        for (PersistentPlayerSession session : server.persistentSessions()) {
+            if (session == null) continue;
+            ConnectionId connectionId = server.connectionIdForPlayer(session.playerId());
+            if (connectionId.valid()) recipients.add(connectionId);
+        }
+        for (ConnectionId connectionId : recipients) transport.sendOrdered("SERVER_NOTICE|" + clean, connectionId);
+        return recipients.size();
+    }
+
+    boolean disconnectServerPlayer(String playerId) {
+        if (server == null || playerId == null || playerId.isBlank()) return false;
+        ConnectionId connectionId = server.connectionIdForPlayer(playerId);
+        if (!connectionId.valid()) return false;
+        server.removePeer(connectionId);
+        return true;
+    }
 
     void updateServerWorlds(double dt) {
         if (server == null) return;
