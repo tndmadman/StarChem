@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_DIR="${1:?repository directory is required}"
-ARTIFACT_DIR="${2:?artifact directory is required}"
+REPO_DIR="$(realpath "${1:?repository directory is required}")"
+ARTIFACT_DIR="$(realpath "${2:?artifact directory is required}")"
 NEW_SHA="${3:?validated commit SHA is required}"
 
 cd "$REPO_DIR"
@@ -18,7 +18,10 @@ if gh release view v1.5.7 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
   exit 1
 fi
 
-sha256sum -c "$ARTIFACT_DIR/StarChem-v1.5.7.zip.sha256"
+(
+  cd "$ARTIFACT_DIR"
+  sha256sum -c StarChem-v1.5.7.zip.sha256
+)
 gh release create v1.5.7 \
   --repo "$GITHUB_REPOSITORY" \
   --target "$NEW_SHA" \
