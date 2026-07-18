@@ -22,29 +22,34 @@ public final class DedicatedTcpServerValidator {
             TcpIntegrationHarness.require(!first.network().devToolsAllowed() && !second.network().devToolsAllowed(),
                     "dedicated server granted unauthenticated loopback developer access");
 
-            Unit firstUnit = harness.firstUnit(harness.serverWorld, first.playerId());
-            Unit secondUnit = harness.firstUnit(harness.serverWorld, second.playerId());
-            TcpIntegrationHarness.require(firstUnit != null && secondUnit != null, "dedicated server did not create client units");
-            stabilizeProbe(harness.serverWorld, first.playerId(), firstUnit.unitId);
-            stabilizeProbe(harness.serverWorld, second.playerId(), secondUnit.unitId);
-            harness.await(() -> stableProbe(first.world(), first.playerId(), firstUnit.unitId)
-                            && stableProbe(second.world(), second.playerId(), secondUnit.unitId),
+            Unit firstJoinedUnit = harness.firstUnit(harness.serverWorld, first.playerId());
+            Unit secondJoinedUnit = harness.firstUnit(harness.serverWorld, second.playerId());
+            TcpIntegrationHarness.require(firstJoinedUnit != null && secondJoinedUnit != null,
+                    "dedicated server did not create client units");
+            int firstUnitId = firstJoinedUnit.unitId;
+            int secondUnitId = secondJoinedUnit.unitId;
+            stabilizeProbe(harness.serverWorld, first.playerId(), firstUnitId);
+            stabilizeProbe(harness.serverWorld, second.playerId(), secondUnitId);
+            harness.await(() -> stableProbe(first.world(), first.playerId(), firstUnitId)
+                            && stableProbe(second.world(), second.playerId(), secondUnitId),
                     5_000, "dedicated clients did not receive the stable convergence probes");
 
-            firstUnit = harness.unit(harness.serverWorld, first.playerId(), firstUnit.unitId);
-            secondUnit = harness.unit(harness.serverWorld, second.playerId(), secondUnit.unitId);
-            double firstStartX = firstUnit.x;
-            double secondStartX = secondUnit.x;
-            first.network().move(new MoveCommand(first.playerId(), firstUnit.unitId, firstUnit.x + 45, firstUnit.y + 10));
-            second.network().move(new MoveCommand(second.playerId(), secondUnit.unitId, secondUnit.x + 35, secondUnit.y + 15));
+            Unit firstProbe = harness.unit(harness.serverWorld, first.playerId(), firstUnitId);
+            Unit secondProbe = harness.unit(harness.serverWorld, second.playerId(), secondUnitId);
+            TcpIntegrationHarness.require(firstProbe != null && secondProbe != null,
+                    "dedicated-server convergence probes disappeared");
+            double firstStartX = firstProbe.x;
+            double secondStartX = secondProbe.x;
+            first.network().move(new MoveCommand(first.playerId(), firstUnitId, firstProbe.x + 45, firstProbe.y + 10));
+            second.network().move(new MoveCommand(second.playerId(), secondUnitId, secondProbe.x + 35, secondProbe.y + 15));
             harness.await(() -> {
-                Unit a = harness.unit(harness.serverWorld, first.playerId(), firstUnit.unitId);
-                Unit b = harness.unit(harness.serverWorld, second.playerId(), secondUnit.unitId);
+                Unit a = harness.unit(harness.serverWorld, first.playerId(), firstUnitId);
+                Unit b = harness.unit(harness.serverWorld, second.playerId(), secondUnitId);
                 return a != null && b != null && a.targetX != firstStartX && b.targetX != secondStartX;
             }, 5_000, "dedicated server did not process client commands");
             harness.runTicks(250);
-            harness.awaitConverged(first, firstUnit.unitId, 1.0, 6_000);
-            harness.awaitConverged(second, secondUnit.unitId, 1.0, 6_000);
+            harness.awaitConverged(first, firstUnitId, 1.0, 6_000);
+            harness.awaitConverged(second, secondUnitId, 1.0, 6_000);
             System.out.println("StarChem dedicated TCP server validation passed.");
         }
     }
