@@ -64,6 +64,8 @@ Every record includes:
 
 The producer path is validated with 800 AI ships, 80 stations, 160 forced delta captures, and 5,000 immediate events. The current implementation recorded a 7.191 ms p99 producer cost in that CI scenario, below the 8 ms developer-mode target. This is a regression guardrail rather than a guarantee for every machine or storage device.
 
+The permanent logger validator also checks bounded queue behavior, priority preservation under backpressure, contiguous per-session ordering, clean shutdown and re-enable behavior, no writes after disable, and isolation of filesystem failures from the simulation.
+
 ## Sending a report
 
 Reproduce the problem, close the game normally when possible, then provide every `partNNN.jsonl` file sharing the same session name. For a short reproduction there will normally be only `part001`.
