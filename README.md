@@ -68,14 +68,32 @@ When the dedicated server is attached to an interactive terminal, enter commands
 Available commands:
 
 ```text
-help [command]  Show available commands or detailed command help.
-status          Print server, network, save, and autosave status.
-players         List connected and retained player sessions.
-save            Write a manual server save.
-version         Print the running build identity.
-stop            Save and stop the server cleanly.
-shutdown        Alias for stop.
+help [command]             Show available commands or detailed command help.
+status                     Print server, network, save, and autosave status.
+players                    List connected and retained player sessions.
+uptime                     Show start time, uptime, save counts, and autosave timing.
+perf [all|network|simulation]
+                           Show simulation and network performance counters.
+systems [active|controlled|player <player>]
+                           List authoritative galaxy systems.
+system <id-or-name>        Show detailed information for one galaxy system.
+connection <player>        Show sanitized connection diagnostics.
+save-info                  Show current and fallback save-file state.
+save                       Write a manual dedicated-server save.
+say <message>              Broadcast a server notice to connected clients.
+shutdown now               Save and stop immediately.
+shutdown <duration> [reason]
+                           Schedule shutdown; durations accept seconds, m, or h.
+shutdown status            Show the pending shutdown.
+shutdown cancel            Cancel the pending shutdown.
+disconnect <player> [reason]
+                           Temporarily disconnect a player while retaining the session.
+dev ...                    Run developer controls when the server started with --dev.
+version                    Print the running build identity.
+stop                       Save and stop immediately.
 ```
+
+The `say` and scheduled-shutdown commands send notices to connected clients. A temporary `disconnect` keeps the player's resumable session and assets; it is not a ban or permanent kick. Developer controls support explicit access grants, AI pause/speed/step controls, production timers, NPC triggers, spawns, removal, and reset operations. Run `help dev` for the command group and `dev status` for current developer state.
 
 Run `java -jar StarChem.jar --help` to view all supported startup options. Unknown options and missing option values are rejected instead of being silently ignored.
 
