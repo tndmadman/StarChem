@@ -1,6 +1,6 @@
 # StarChem v1.4.0
 
-StarChem v1.4.0 is a major organized-NPC AI, production-planning, multiplayer-state, diagnostics, and release-hardening update built on v1.3.1.
+StarChem v1.4.0 is a major organized-NPC AI, production-planning, multiplayer-state, diagnostics, and release-hardening update covering only changes introduced after v1.3.1.
 
 ## Organized NPC strategy and expeditions
 
