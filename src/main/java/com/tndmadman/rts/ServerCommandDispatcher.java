@@ -40,6 +40,7 @@ final class ServerCommandDispatcher {
         boolean save();
         void stop();
         boolean running();
+        default Object extensionContext() { return null; }
     }
 
     private final Target target;
@@ -73,6 +74,22 @@ final class ServerCommandDispatcher {
         register("maintenance", "maintenance <status|on [reason]|off>", "Control admission of new player identities.", this::maintenance);
         register("slots", "slots [set <count>|unlimited]", "Inspect or change the player-session limit.", this::slots);
         register("motd", "motd <show|set <message>|clear|send>", "Manage the persistent message of the day.", this::motd);
+        register("whitelist", "whitelist <status|on|off|list|add|remove|add-connected> ...", "Control persistent player admission by identity.", args -> extended("whitelist", args));
+        register("kick", "kick <player> [duration] [reason]", "Temporarily block a player while retaining all assets.", args -> extended("kick", args));
+        register("kicks", "kicks", "List active temporary kicks.", args -> extended("kicks", args));
+        register("unkick", "unkick <entry-id|player|name>", "Remove matching temporary kicks.", args -> extended("unkick", args));
+        register("ban", "ban [player|ip|device|mac] <target> <duration|permanent> [reason]", "Persistently block an identity, IP/CIDR, or client device ID.", args -> extended("ban", args));
+        register("bans", "bans [all|player|ip|device]", "List active bans.", args -> extended("bans", args));
+        register("unban", "unban <entry-id|player|name|target>", "Remove matching bans.", args -> extended("unban", args));
+        register("pause", "pause <status|on [reason]|off>", "Pause authoritative simulation while administration remains active.", args -> extended("pause", args));
+        register("prune-systems", "prune-systems <preview|run confirm>", "Preview or safely prune abandoned dynamic systems.", args -> extended("prune-systems", args));
+        register("health", "health [disk|network|simulation]", "Show JVM, disk, simulation, and network health.", args -> extended("health", args));
+        register("activity", "activity [last <count>|player <player>|type <type>|clear]", "Inspect the bounded server event journal.", args -> extended("activity", args));
+        register("factions", "factions [npc]", "Show authoritative NPC faction totals and runtime state.", args -> extended("factions", args));
+        register("faction", "faction <id-or-name>", "Inspect one NPC faction.", args -> extended("faction", args));
+        register("production", "production <summary|player <player>|system <system>|base <base-id>|stalled>", "Inspect authoritative production queues.", args -> extended("production", args));
+        register("assets", "assets <player|system> <selector> [ships|bases]", "List detailed authoritative assets.", args -> extended("assets", args));
+        register("asset", "asset <unit-or-base-id>", "Inspect one authoritative unit or base.", args -> extended("asset", args));
         register("say", "say <message>", "Broadcast a server notice to connected clients.", this::say);
         register("shutdown", "shutdown [now|status|cancel|<duration>] [reason]", "Schedule, inspect, cancel, or perform shutdown.", this::shutdown);
         register("disconnect", "disconnect <player-id-or-name> [reason]", "Temporarily disconnect a player while retaining the session.", this::disconnect);
@@ -98,7 +115,9 @@ final class ServerCommandDispatcher {
             return;
         }
         try {
-            command.handler().run(parts.subList(1, parts.size()));
+            List<String> arguments = parts.subList(1, parts.size());
+            ServerCommandExtensions.auditCommand(target, commandName, arguments);
+            command.handler().run(arguments);
         } catch (RuntimeException ex) {
             String detail = ex.getMessage();
             errors.println("Console command failed" + (detail == null || detail.isBlank() ? "." : ": " + detail));
@@ -350,6 +369,10 @@ final class ServerCommandDispatcher {
     private void maintenance(List<String> args) { printLines(target.maintenance(args)); }
     private void slots(List<String> args) { printLines(target.slots(args)); }
     private void motd(List<String> args) { printLines(target.motd(args)); }
+
+    private void extended(String command, List<String> args) {
+        printLines(ServerCommandExtensions.execute(target, command, args));
+    }
 
     private void say(List<String> args) {
         if (args.isEmpty()) {

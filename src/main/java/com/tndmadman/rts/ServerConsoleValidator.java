@@ -23,6 +23,9 @@ public final class ServerConsoleValidator {
         validateReaderEof();
         validateDurationParsing();
         validateAdminPolicyPersistence();
+        validateModerationPersistence();
+        validateIpAndDeviceIdentity();
+        validateDeviceHandshake();
         validateDispatch();
     }
 
@@ -82,6 +85,81 @@ public final class ServerConsoleValidator {
         }
     }
 
+
+    private static void validateModerationPersistence() throws Exception {
+        Path dir = Files.createTempDirectory("starchem-moderation-validator-");
+        try {
+            long now = System.currentTimeMillis();
+            ServerModerationStore store = new ServerModerationStore(dir, "validation");
+            ServerModerationState expected = ServerModerationState.open()
+                    .addWhitelist("P1", "Alpha")
+                    .withWhitelistEnabled(true)
+                    .add(new ModerationEntry("entry-one", ModerationKind.PLAYER_BAN, "P2", "Beta",
+                            "P2", now, now + 60_000, "Testing"))
+                    .add(new ModerationEntry("entry-two", ModerationKind.IP_BAN, "", "",
+                            "192.0.2.0/24", now, 0, "CIDR test"));
+            store.save(expected);
+            ServerModerationState restored = store.load();
+            require(restored.whitelistEnabled(), "moderation whitelist state did not round-trip");
+            require(restored.whitelisted("P1", "Alpha"), "moderation whitelist identity did not round-trip");
+            require(restored.active(null, now).size() == 2, "moderation entries did not round-trip");
+            require(Files.isRegularFile(store.path()), "moderation file was not created");
+        } finally {
+            try (var stream = Files.walk(dir)) {
+                stream.sorted((a, b) -> b.compareTo(a)).forEach(path -> {
+                    try { Files.deleteIfExists(path); } catch (Exception ignored) { }
+                });
+            }
+        }
+    }
+
+    private static void validateIpAndDeviceIdentity() throws Exception {
+        require("192.0.2.0/24".equals(IpBanMatcher.normalize("192.0.2.0/24")), "IPv4 CIDR was not normalized");
+        require(IpBanMatcher.matches("192.0.2.0/24", java.net.InetAddress.getByName("192.0.2.55")),
+                "IPv4 CIDR did not match an address in range");
+        require(!IpBanMatcher.matches("192.0.2.0/24", java.net.InetAddress.getByName("198.51.100.1")),
+                "IPv4 CIDR matched an address outside the range");
+        require(IpBanMatcher.matches("2001:db8::/32", java.net.InetAddress.getByName("2001:db8::1234")),
+                "IPv6 CIDR did not match an address in range");
+        String device = "device-validator-0123456789";
+        require(ServerDeviceIdentity.valid(device), "valid client device ID was rejected");
+        require(ServerDeviceIdentity.equal(device, device.toUpperCase(java.util.Locale.ROOT)),
+                "device IDs were not compared consistently");
+        long now = System.currentTimeMillis();
+        ServerModerationState state = ServerModerationState.open()
+                .add(new ModerationEntry("player", ModerationKind.PLAYER_BAN, "P7", "Pilot", "P7", now, 0, ""))
+                .add(new ModerationEntry("ip", ModerationKind.IP_BAN, "", "", "192.0.2.0/24", now, 0, ""))
+                .add(new ModerationEntry("device", ModerationKind.DEVICE_BAN, "", "", device, now, 0, ""));
+        require(state.blocked("P7", "Other", java.net.InetAddress.getByName("198.51.100.1"), "other-device-123456", now).kind() == ModerationKind.PLAYER_BAN,
+                "player ban did not block a matching player ID");
+        require(state.blocked("P8", "Other", java.net.InetAddress.getByName("192.0.2.10"), "other-device-123456", now).kind() == ModerationKind.IP_BAN,
+                "IP ban did not block a matching address");
+        require(state.blocked("P8", "Other", java.net.InetAddress.getByName("198.51.100.1"), device, now).kind() == ModerationKind.DEVICE_BAN,
+                "device ban did not block a matching device ID");
+    }
+
+    private static void validateDeviceHandshake() throws Exception {
+        Path store = Files.createTempFile("starchem-device-validator-", ".properties");
+        Files.deleteIfExists(store);
+        String previous = System.getProperty("starchem.sessionStore");
+        try {
+            System.setProperty("starchem.sessionStore", store.toString());
+            String first = ClientDeviceIdentityStore.deviceId();
+            String second = ClientDeviceIdentityStore.deviceId();
+            require(ServerDeviceIdentity.valid(first) && first.equals(second), "client device ID was not stable");
+            String versioned = MultiplayerCompatibility.versionClientHandshake("JOIN|Alpha|NODEV|");
+            require(versioned.contains("|DEVICE|" + first + "|PROTO|"), "device ID was not included in the versioned handshake");
+            MultiplayerCompatibility.WireResult inspected = MultiplayerCompatibility.inspectClientHandshake(versioned);
+            require(inspected.action() == MultiplayerCompatibility.WireAction.ACCEPT, "device handshake was not accepted");
+            require("JOIN|Alpha|NODEV|".equals(inspected.message()),
+                    "server compatibility normalization did not restore the original JOIN payload");
+        } finally {
+            if (previous == null) System.clearProperty("starchem.sessionStore");
+            else System.setProperty("starchem.sessionStore", previous);
+            Files.deleteIfExists(store);
+        }
+    }
+
     private static void validateDispatch() {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         ByteArrayOutputStream errors = new ByteArrayOutputStream();
@@ -111,6 +189,22 @@ public final class ServerConsoleValidator {
         dispatcher.execute("maintenance on Testing");
         dispatcher.execute("slots set 12");
         dispatcher.execute("motd set Welcome pilot");
+        dispatcher.execute("whitelist status");
+        dispatcher.execute("kick P1 5m Testing");
+        dispatcher.execute("kicks");
+        dispatcher.execute("unkick P1");
+        dispatcher.execute("ban player P1 1h Testing");
+        dispatcher.execute("bans all");
+        dispatcher.execute("unban P1");
+        dispatcher.execute("pause status");
+        dispatcher.execute("prune-systems preview");
+        dispatcher.execute("health");
+        dispatcher.execute("activity last 10");
+        dispatcher.execute("factions");
+        dispatcher.execute("faction CORSAIR");
+        dispatcher.execute("production summary");
+        dispatcher.execute("assets player P1");
+        dispatcher.execute("asset P1:1");
         dispatcher.execute("save");
         dispatcher.execute("say Maintenance soon");
         dispatcher.execute("shutdown 2m Maintenance");

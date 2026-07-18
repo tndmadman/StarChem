@@ -16,24 +16,24 @@ import java.util.Set;
 import java.util.TreeSet;
 
 final class MultiplayerCompatibility {
-    static final int PROTOCOL_VERSION = 6;
+    static final int PROTOCOL_VERSION = 7;
     private static final Path DEFAULT_MANIFEST = Path.of("config/starchem.json");
     private static final String CONFIG_HASH_SCHEMA = "StarChemConfigFingerprint/v1";
     private static final int WIRE_FIELD_COUNT = 10;
 
     private MultiplayerCompatibility() { }
 
-    static Descriptor local() {
-        return LocalHolder.VALUE;
-    }
+    static Descriptor local() { return LocalHolder.VALUE; }
 
     static String versionClientHandshake(String message) {
         if (message == null) return null;
+        String device = ClientDeviceIdentityStore.deviceId();
+        String deviceFields = ServerDeviceIdentity.valid(device) ? "|DEVICE|" + device : "";
         if (message.startsWith("JOIN|")) {
-            return "JOIN_V1|" + message.substring("JOIN|".length()) + '|' + local().wireFields();
+            return "JOIN_V1|" + message.substring("JOIN|".length()) + deviceFields + '|' + local().wireFields();
         }
         if (message.startsWith("RESUME|")) {
-            return "RESUME_V1|" + message.substring("RESUME|".length()) + '|' + local().wireFields();
+            return "RESUME_V1|" + message.substring("RESUME|".length()) + deviceFields + '|' + local().wireFields();
         }
         return message;
     }
@@ -73,7 +73,14 @@ final class MultiplayerCompatibility {
             Descriptor client = Descriptor.parse(parts, compatibilityStart);
             Decision decision = compare(client, local());
             if (!decision.compatible()) return WireResult.reject(denialPayload(decision.code(), decision.message()));
-            String normalized = legacyCommand + '|' + String.join("|", Arrays.copyOfRange(parts, 1, compatibilityStart));
+            int payloadEnd = compatibilityStart;
+            if (payloadEnd >= 2 && "DEVICE".equals(parts[payloadEnd - 2])) {
+                if (!ServerDeviceIdentity.valid(parts[payloadEnd - 1])) {
+                    throw new WireFormatException("MALFORMED_HANDSHAKE", "client device identifier is invalid");
+                }
+                payloadEnd -= 2;
+            }
+            String normalized = legacyCommand + '|' + String.join("|", Arrays.copyOfRange(parts, 1, payloadEnd));
             return WireResult.accept(normalized);
         } catch (WireFormatException ex) {
             String reason = "Connection refused: malformed multiplayer handshake (" + ex.getMessage() + "). "
@@ -236,11 +243,8 @@ final class MultiplayerCompatibility {
     }
 
     private static MessageDigest sha256() {
-        try {
-            return MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException ex) {
-            throw new IllegalStateException("SHA-256 is unavailable", ex);
-        }
+        try { return MessageDigest.getInstance("SHA-256"); }
+        catch (NoSuchAlgorithmException ex) { throw new IllegalStateException("SHA-256 is unavailable", ex); }
     }
 
     private static String hex(byte[] bytes) {
@@ -249,9 +253,7 @@ final class MultiplayerCompatibility {
         return out.toString();
     }
 
-    private static String portable(Path path) {
-        return path.toString().replace('\\', '/');
-    }
+    private static String portable(Path path) { return path.toString().replace('\\', '/'); }
 
     private static String packetPart(String value) {
         return value == null ? "" : value.replace('|', ' ').replace('\n', ' ').replace('\r', ' ').trim();
@@ -297,12 +299,8 @@ final class MultiplayerCompatibility {
             requireMarker(parts, start + 6, "RULES");
             requireMarker(parts, start + 8, "CFG");
             try {
-                return new Descriptor(
-                        Integer.parseInt(parts[start + 1]),
-                        parts[start + 3],
-                        parts[start + 5],
-                        Integer.parseInt(parts[start + 7]),
-                        parts[start + 9]);
+                return new Descriptor(Integer.parseInt(parts[start + 1]), parts[start + 3], parts[start + 5],
+                        Integer.parseInt(parts[start + 7]), parts[start + 9]);
             } catch (NumberFormatException ex) {
                 throw new WireFormatException("MALFORMED_HANDSHAKE", "protocol or rules version is not numeric");
             } catch (IllegalArgumentException ex) {
@@ -318,7 +316,8 @@ final class MultiplayerCompatibility {
 
         private static String cleanWireValue(String value, String label) {
             String clean = value == null ? "" : value.trim();
-            if (clean.isBlank() || clean.length() > 128 || clean.indexOf('|') >= 0 || clean.indexOf('\n') >= 0 || clean.indexOf('\r') >= 0) {
+            if (clean.isBlank() || clean.length() > 128 || clean.indexOf('|') >= 0
+                    || clean.indexOf('\n') >= 0 || clean.indexOf('\r') >= 0) {
                 throw new IllegalArgumentException(label + " is invalid");
             }
             return clean;
@@ -337,15 +336,16 @@ final class MultiplayerCompatibility {
         }
     }
 
+    private static final class LocalHolder {
+        private static final Descriptor VALUE = load(DEFAULT_MANIFEST);
+        private LocalHolder() { }
+    }
+
     private static final class WireFormatException extends RuntimeException {
         final String code;
         WireFormatException(String code, String message) {
-            super(message == null || message.isBlank() ? "invalid compatibility packet" : message);
+            super(message);
             this.code = code == null || code.isBlank() ? "MALFORMED_HANDSHAKE" : code;
         }
-    }
-
-    private static final class LocalHolder {
-        private static final Descriptor VALUE = load(DEFAULT_MANIFEST);
     }
 }

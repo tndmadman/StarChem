@@ -1,9 +1,13 @@
 package com.tndmadman.rts;
 
 import java.io.IOException;
+import java.net.InetAddress;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 final class PeerNetwork implements CommandSink {
@@ -13,7 +17,16 @@ final class PeerNetwork implements CommandSink {
     private final PeerClientSide client;
     private final PerfStats perfStats;
     private final Set<ConnectionId> motdDelivered = new LinkedHashSet<>();
+    private final Set<ConnectionId> admissionRecorded = new LinkedHashSet<>();
+    private final Map<ConnectionId, String> deviceByConnection = new LinkedHashMap<>();
+    private final Map<String, String> deviceByPlayer = new LinkedHashMap<>();
+    private final Set<String> retainedModerationPlayers = new LinkedHashSet<>();
+    private final ServerModerationStore moderationStore;
+    private final ServerEventJournal journal = new ServerEventJournal();
     private ServerAccessPolicy accessPolicy;
+    private ServerModerationState moderation;
+    private boolean simulationPaused;
+    private String simulationPauseReason = "";
 
     private PeerNetwork(Config config, PeerTransport transport, PeerServerSide server, PeerClientSide client,
                         PerfStats perfStats, ServerAccessPolicy accessPolicy) {
@@ -23,6 +36,9 @@ final class PeerNetwork implements CommandSink {
         this.client = client;
         this.perfStats = perfStats;
         this.accessPolicy = accessPolicy == null ? ServerAccessPolicy.open() : accessPolicy;
+        this.moderationStore = new ServerModerationStore(config == null ? null : config.saveDir,
+                config == null ? "server" : config.saveName);
+        this.moderation = server == null ? ServerModerationState.open() : moderationStore.load();
     }
 
     static PeerNetwork start(Config config, World world) throws IOException {
@@ -70,6 +86,7 @@ final class PeerNetwork implements CommandSink {
             client = new PeerClientSide(config, world, transport);
         }
         PeerNetwork network = new PeerNetwork(config, transport, server, client, perfStats, accessPolicy);
+        network.refreshModerationRetention();
         transport.start();
         return network;
     }
@@ -101,6 +118,79 @@ final class PeerNetwork implements CommandSink {
     List<PersistentPlayerSession> persistentPlayerSessions() { return server == null ? List.of() : server.persistentSessions(); }
     void forceServerResourceCorrectionForTest() { if (server != null) server.forceResourceCorrectionForTest(); }
 
+    Config serverConfig() { return config; }
+    ServerEventJournal serverJournal() { return journal; }
+    ServerModerationState serverModeration() { return moderation == null ? ServerModerationState.open() : moderation; }
+    boolean simulationPaused() { return simulationPaused; }
+    String simulationPauseReason() { return simulationPauseReason; }
+
+    void setSimulationPaused(boolean paused, String reason) {
+        simulationPaused = paused;
+        simulationPauseReason = paused ? packetPart(reason) : "";
+        journal.add(paused ? "PAUSE" : "RESUME", "simulation", simulationPauseReason);
+    }
+
+    String saveServerModeration(ServerModerationState state) {
+        ServerModerationState safe = state == null ? ServerModerationState.open() : state.activeOnly(System.currentTimeMillis());
+        try {
+            moderationStore.save(safe);
+            moderation = safe;
+            refreshModerationRetention();
+            return null;
+        } catch (IOException ex) {
+            return "Could not save server moderation settings: " + ex.getMessage();
+        }
+    }
+
+    void refreshModerationRetention() {
+        if (server == null) return;
+        long now = System.currentTimeMillis();
+        ServerModerationState active = serverModeration().activeOnly(now);
+        if (!active.equals(moderation)) {
+            moderation = active;
+            try { moderationStore.save(active); }
+            catch (IOException ex) { System.err.println("Could not prune expired moderation entries: " + ex.getMessage()); }
+        }
+        LinkedHashSet<String> shouldRetain = new LinkedHashSet<>();
+        for (ModerationEntry entry : active.active(null, now)) {
+            if (!entry.playerId().isBlank()) shouldRetain.add(entry.playerId());
+        }
+        for (String playerId : shouldRetain) PeerServerAdminBridge.retain(server, playerId);
+        for (String playerId : new ArrayList<>(retainedModerationPlayers)) {
+            if (!shouldRetain.contains(playerId)) PeerServerAdminBridge.release(server, playerId);
+        }
+        retainedModerationPlayers.clear();
+        retainedModerationPlayers.addAll(shouldRetain);
+    }
+
+    InetAddress serverPlayerAddress(String playerId) {
+        return server == null ? null : PeerServerAdminBridge.address(server, playerId);
+    }
+
+    String serverPlayerDeviceId(String playerId) {
+        return playerId == null ? "" : deviceByPlayer.getOrDefault(playerId, "");
+    }
+
+    void disconnectModeratedPlayer(String playerId, String action, String reason) {
+        if (server == null || playerId == null || playerId.isBlank()) return;
+        ConnectionId connectionId = server.connectionIdForPlayer(playerId);
+        String notice = packetPart(action) + (reason == null || reason.isBlank() ? "." : ": " + packetPart(reason));
+        if (connectionId.valid()) {
+            transport.sendOrdered("SERVER_NOTICE|" + notice, connectionId);
+            motdDelivered.remove(connectionId);
+            admissionRecorded.remove(connectionId);
+            server.removePeer(connectionId);
+        }
+        PeerServerAdminBridge.retain(server, playerId);
+        retainedModerationPlayers.add(playerId);
+        journal.add(action == null ? "MODERATION" : action.toUpperCase(Locale.ROOT), playerId, packetPart(reason));
+    }
+
+    void notifyDeletedSystems(Set<String> deletedSystems) {
+        if (server == null || deletedSystems == null || deletedSystems.isEmpty()) return;
+        PeerServerAdminBridge.sendDeleted(server, deletedSystems);
+    }
+
     ServerAccessPolicy serverAccessPolicy() { return accessPolicy; }
 
     void configureServerPolicy(ServerAccessPolicy policy) {
@@ -126,6 +216,8 @@ final class PeerNetwork implements CommandSink {
         ConnectionId connectionId = server.connectionIdForPlayer(playerId);
         if (!connectionId.valid()) return false;
         motdDelivered.remove(connectionId);
+        admissionRecorded.remove(connectionId);
+        journal.add("DISCONNECT", playerId, "temporary operator disconnect");
         server.removePeer(connectionId);
         return true;
     }
@@ -135,6 +227,7 @@ final class PeerNetwork implements CommandSink {
         ConnectionId connectionId = server.connectionIdForPlayer(playerId);
         if (!connectionId.valid()) return 0;
         server.sendInitialTo(connectionId);
+        journal.add("RESYNC", playerId, "authoritative state resent");
         return 1;
     }
 
@@ -148,15 +241,19 @@ final class PeerNetwork implements CommandSink {
             server.sendInitialTo(connectionId);
             sent++;
         }
+        journal.add("RESYNC", "all", "authoritative state resent to " + sent + " clients");
         return sent;
     }
 
     void forceServerResourceCorrection() {
-        if (server != null) server.forceResourceCorrectionForTest();
+        if (server != null) {
+            server.forceResourceCorrectionForTest();
+            journal.add("RESYNC", "resources", "full correction requested");
+        }
     }
 
     void updateServerWorlds(double dt) {
-        if (server == null) return;
+        if (server == null || simulationPaused) return;
         long started = System.nanoTime();
         server.updateWorlds(dt);
         perfStats.recordServerUpdate(System.nanoTime() - started);
@@ -192,26 +289,39 @@ final class PeerNetwork implements CommandSink {
             while ((packet = transport.poll()) != null) {
                 if (!transport.accepts(packet)) continue;
                 if (transport.isDisconnectEvent(packet)) {
+                    String playerId = server == null ? "" : server.ownerId(packet.connectionId(), "");
                     motdDelivered.remove(packet.connectionId());
+                    admissionRecorded.remove(packet.connectionId());
+                    deviceByConnection.remove(packet.connectionId());
                     if (server != null) server.connectionClosed(packet);
+                    if (!playerId.isBlank()) journal.add("LEAVE", playerId, "connection closed");
                     continue;
                 }
                 try {
+                    if (server != null) captureDevice(packet.message(), packet.connectionId());
                     String message = transport.processInbound(packet);
                     if (message == null) continue;
                     if (server != null) {
-                        if (rejectAdmission(message, packet.connectionId())) continue;
+                        if (rejectAdmission(message, packet)) continue;
                         server.handle(message, packet);
+                        bindDeviceToOwner(packet.connectionId());
+                        recordAdmission(message, packet.connectionId());
                         deliverMotdAfterAdmission(message, packet.connectionId());
                     } else client.handle(packet, message);
                 } catch (RuntimeException ex) {
                     transport.recordMalformedPacket();
                     if (client != null) client.rejectPacket(ex);
-                    else System.err.println("Rejected malformed TCP frame: " + ex.getClass().getSimpleName());
+                    else {
+                        journal.add("ERROR", "network", "Rejected malformed TCP frame: " + ex.getClass().getSimpleName());
+                        System.err.println("Rejected malformed TCP frame: " + ex.getClass().getSimpleName());
+                    }
                 }
             }
-            if (server != null) server.tick(now);
-            else client.tick(now);
+            if (server != null) {
+                refreshModerationRetention();
+                server.tick(now);
+                refreshModerationRetention();
+            } else client.tick(now);
         } finally {
             perfStats.recordNetwork(System.nanoTime() - started);
         }
@@ -242,19 +352,57 @@ final class PeerNetwork implements CommandSink {
     void wormholeTouch(String playerId) { if (server != null) serverCommand(server.world::transferTouchingShips, playerId); else client.wormholeTouch(playerId); }
     void wormholeTouch(WormholeTouchRequest request) { if (request == null || !request.valid()) return; if (server != null) serverCommand(() -> server.world.transferTouchingShips(request.playerId()), request.playerId()); else client.wormholeTouch(request); }
 
-    private boolean rejectAdmission(String message, ConnectionId connectionId) {
-        if (server == null || !joinMessage(message)) return false;
-        String name = joinName(message);
-        if (name.isBlank() || existingSessionName(name)) return false;
+    private boolean rejectAdmission(String message, NetPacket packet) {
+        if (server == null || packet == null || !admissionMessage(message)) return false;
+        ConnectionId connectionId = packet.connectionId();
+        String[] parts = message.split("\\|", -1);
+        boolean join = joinMessage(message);
+        String requestedName = join && parts.length > 1 ? Config.clean(parts[1]) : "";
+        String requestedPlayerId = !join && parts.length > 1 ? parts[1].trim() : "";
+        PersistentPlayerSession existing = join ? sessionByName(requestedName) : sessionById(requestedPlayerId);
+        String playerId = existing == null ? requestedPlayerId : existing.playerId();
+        String playerName = existing == null ? requestedName : existing.name();
+        String deviceId = deviceByConnection.getOrDefault(connectionId, deviceMarker(parts));
+        long now = System.currentTimeMillis();
+
+        ModerationEntry blocked = serverModeration().blocked(playerId, playerName, packet.address(), deviceId, now);
+        if (blocked != null) {
+            String reason = blocked.kind() == ModerationKind.KICK ? "Temporarily kicked" : "Banned";
+            if (!blocked.reason().isBlank()) reason += ": " + blocked.reason();
+            reason += " (" + ServerModeration.duration(blocked.expiresAt(), now) + ")";
+            rejectIdentity(join, connectionId, reason);
+            if (!playerId.isBlank()) PeerServerAdminBridge.retain(server, playerId);
+            journal.add("ADMISSION_DENIED", playerId.isBlank() ? playerName : playerId,
+                    blocked.kind().name().toLowerCase(Locale.ROOT));
+            return true;
+        }
+
+        ServerModerationState state = serverModeration();
+        if (!state.whitelisted(playerId, playerName)) {
+            rejectIdentity(join, connectionId, "Server whitelist does not include this identity.");
+            journal.add("ADMISSION_DENIED", playerId.isBlank() ? playerName : playerId, "whitelist");
+            return true;
+        }
+
+        boolean newIdentity = join && existing == null;
         ServerAccessPolicy policy = accessPolicy == null ? ServerAccessPolicy.open() : accessPolicy;
         String reason = "";
-        if (policy.maintenance()) reason = policy.maintenanceMessage();
-        else if (policy.maxSlots() > 0 && server.persistentSessions().size() >= policy.maxSlots()) {
+        if (newIdentity && policy.maintenance()) reason = policy.maintenanceMessage();
+        else if (newIdentity && policy.maxSlots() > 0 && server.persistentSessions().size() >= policy.maxSlots()) {
             reason = "Server player slots are full (" + policy.maxSlots() + ").";
         }
         if (reason.isBlank()) return false;
-        transport.sendOrdered("JOIN_DENIED|" + packetPart(reason), connectionId);
+        rejectIdentity(true, connectionId, reason);
+        journal.add("ADMISSION_DENIED", playerName, policy.maintenance() ? "maintenance" : "slots");
         return true;
+    }
+
+    private void rejectIdentity(boolean join, ConnectionId connectionId, String reason) {
+        String clean = packetPart(reason);
+        transport.sendOrdered((join ? "JOIN_DENIED|" : "SESSION_DENIED|") + clean, connectionId);
+        motdDelivered.remove(connectionId);
+        admissionRecorded.remove(connectionId);
+        deviceByConnection.remove(connectionId);
     }
 
     private void deliverMotdAfterAdmission(String message, ConnectionId connectionId) {
@@ -265,12 +413,48 @@ final class PeerNetwork implements CommandSink {
         transport.sendOrdered("SERVER_NOTICE|MOTD: " + packetPart(motd), connectionId);
     }
 
-    private boolean existingSessionName(String name) {
+    private void recordAdmission(String message, ConnectionId connectionId) {
+        if (!admissionMessage(message) || connectionId == null || !connectionId.valid() || !admissionRecorded.add(connectionId)) return;
+        String playerId = server.ownerId(connectionId, "");
+        if (playerId.isBlank()) return;
+        journal.add(joinMessage(message) ? "JOIN" : "RECONNECT", playerId, "accepted");
+    }
+
+    private void captureDevice(String message, ConnectionId connectionId) {
+        if (!admissionMessage(message) || connectionId == null || !connectionId.valid()) return;
+        String device = deviceMarker(message.split("\\|", -1));
+        if (ServerDeviceIdentity.valid(device)) deviceByConnection.put(connectionId, device);
+    }
+
+    private void bindDeviceToOwner(ConnectionId connectionId) {
+        if (connectionId == null || !connectionId.valid()) return;
+        String playerId = server.ownerId(connectionId, "");
+        String device = deviceByConnection.getOrDefault(connectionId, "");
+        if (!playerId.isBlank() && ServerDeviceIdentity.valid(device)) deviceByPlayer.put(playerId, device);
+    }
+
+    private String deviceMarker(String[] parts) {
+        if (parts == null) return "";
+        for (int i = 0; i + 1 < parts.length; i++) {
+            if ("DEVICE".equals(parts[i]) && ServerDeviceIdentity.valid(parts[i + 1])) return parts[i + 1];
+        }
+        return "";
+    }
+
+    private PersistentPlayerSession sessionByName(String name) {
         String wanted = Config.clean(name).toLowerCase(Locale.ROOT);
         for (PersistentPlayerSession session : server.persistentSessions()) {
-            if (session != null && Config.clean(session.name()).toLowerCase(Locale.ROOT).equals(wanted)) return true;
+            if (session != null && Config.clean(session.name()).toLowerCase(Locale.ROOT).equals(wanted)) return session;
         }
-        return false;
+        return null;
+    }
+
+    private PersistentPlayerSession sessionById(String playerId) {
+        if (playerId == null) return null;
+        for (PersistentPlayerSession session : server.persistentSessions()) {
+            if (session != null && session.playerId().equalsIgnoreCase(playerId)) return session;
+        }
+        return null;
     }
 
     private boolean joinMessage(String message) {
@@ -279,11 +463,6 @@ final class PeerNetwork implements CommandSink {
 
     private boolean admissionMessage(String message) {
         return message != null && (joinMessage(message) || message.startsWith("RESUME|") || message.startsWith("RESUME_V1|"));
-    }
-
-    private String joinName(String message) {
-        String[] parts = message == null ? new String[0] : message.split("\\|", -1);
-        return parts.length > 1 ? Config.clean(parts[1]) : "";
     }
 
     private String packetPart(String value) {

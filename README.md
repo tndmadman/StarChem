@@ -79,10 +79,17 @@ sessions [connected|retained]
 uptime                     Show start time, uptime, save counts, and autosave timing.
 perf [all|network|simulation]
                            Show simulation and network performance counters.
+health [disk|network|simulation]
+                           Show JVM, disk, network, and simulation health.
 systems [active|controlled|player <player>]
                            List authoritative galaxy systems.
 system <id-or-name>        Show detailed information for one galaxy system.
 connection <player>        Show sanitized connection diagnostics.
+assets <player|system> <selector> [ships|bases]
+asset <unit-or-base-id>    Inspect authoritative ships and bases.
+production <summary|player <player>|system <system>|base <base-id>|stalled>
+factions [npc]             Show NPC faction totals and runtime-record count.
+faction <id-or-name>       Inspect one NPC faction.
 resync <player|all|resources>
                            Resend authoritative state or force resource correction.
 server-info [compatibility|tls]
@@ -103,6 +110,22 @@ slots                      Show connected, retained, and maximum sessions.
 slots set <count>          Set the persistent player-session limit.
 slots unlimited            Remove the session limit.
 motd show|set|clear|send   Manage the persistent message of the day.
+whitelist status|on|off|list
+whitelist add|remove <player-or-name>
+whitelist add-connected    Manage persistent identity admission.
+kick <player> [duration] [reason]
+kicks                      List active temporary kicks.
+unkick <entry-id|player|name>
+ban [player|ip|device|mac] <target> <duration|permanent> [reason]
+bans [all|player|ip|device]
+unban <entry-id|player|name|target>
+                           Manage persistent identity, IP/CIDR, and client-device bans.
+pause status|on [reason]|off
+                           Pause simulation while networking and administration continue.
+activity [last <count>|player <player>|type <type>|clear]
+                           Inspect the bounded in-memory operator event journal.
+prune-systems preview      Preview abandoned dynamic systems.
+prune-systems run confirm Create a verified backup, then prune eligible systems.
 say <message>              Broadcast a server notice to connected clients.
 shutdown now               Save and stop immediately.
 shutdown <duration> [reason]
@@ -118,7 +141,11 @@ stop                       Save and stop immediately.
 
 Maintenance mode and the slot limit apply only to brand-new player identities. Existing connected players remain online, and retained identities may reconnect or reclaim their session. Lowering the slot limit never disconnects an existing session.
 
-The message of the day, maintenance state, maintenance reason, and slot limit are stored beside the server save in `<save-name>-admin.json`. The MOTD is sent after a successful join or reconnect. Runtime autosave changes last until the process exits; `autosave reset` restores the startup argument.
+The message of the day, maintenance state, maintenance reason, and slot limit are stored beside the server save in `<save-name>-admin.json`. Whitelist entries, kicks, and bans are stored in `<save-name>-moderation.json`. Runtime autosave and simulation-pause changes last only until the process exits.
+
+A player ban records the player identity and, when available, also records that connection's numeric IP address and client device ID. IP bans accept exact IPv4 or IPv6 addresses and CIDR ranges. A game server cannot obtain a remote computer's Ethernet or Wi-Fi MAC address across the internet because routers do not forward MAC addresses. The `mac` spelling is therefore an explicit alias for StarChem's locally persisted random client device ID, not a hardware MAC address. Client device IDs can be reset or spoofed, IP addresses can change or be hidden by VPNs, and an IP ban may affect multiple players behind the same shared address; use identity, IP/CIDR, and device bans together when stronger enforcement is needed.
+
+Kicks and bans retain the player's session, ships, bases, research, and systems. They prevent JOIN, password reclaim, and RESUME until removed or expired instead of using the normal disconnected-session expiry path. `prune-systems run confirm` is intentionally separate and creates a verified backup before deleting abandoned dynamic systems.
 
 The `say` and scheduled-shutdown commands send notices to connected clients. A temporary `disconnect` keeps the player's resumable session and assets; it is not a ban or permanent kick. Developer controls support explicit access grants, AI pause/speed/step controls, production timers, NPC triggers, spawns, removal, and reset operations. Run `help dev` for the command group and `dev status` for current developer state.
 
