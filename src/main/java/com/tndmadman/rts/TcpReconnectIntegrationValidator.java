@@ -7,6 +7,12 @@ public final class TcpReconnectIntegrationValidator {
     private TcpReconnectIntegrationValidator() { }
 
     public static void main(String[] args) throws Exception {
+        validateNormalReconnect();
+        validateRemoteViewReconnect();
+        System.out.println("StarChem TCP automatic reconnect validation passed.");
+    }
+
+    private static void validateNormalReconnect() throws Exception {
         try (TcpIntegrationHarness harness = TcpIntegrationHarness.host();
              TcpFaultProxy proxy = new TcpFaultProxy(InetAddress.getLoopbackAddress(), harness.serverConfig.port)) {
             TcpIntegrationHarness.TestClient reconnecting = harness.addProxiedClient("TCP Reconnect", proxy);
@@ -54,7 +60,56 @@ public final class TcpReconnectIntegrationValidator {
                 return current != null && Math.abs(current.targetX - Double.parseDouble(Calc.round(targetX))) < 0.001;
             }, 5_000, "post-resume command did not reach the authoritative server");
 
-            System.out.println("StarChem TCP automatic reconnect validation passed.");
         }
+    }
+
+    private static void validateRemoteViewReconnect() throws Exception {
+        try (TcpIntegrationHarness harness = TcpIntegrationHarness.host();
+             TcpFaultProxy proxy = new TcpFaultProxy(InetAddress.getLoopbackAddress(), harness.serverConfig.port)) {
+            TcpIntegrationHarness.TestClient reconnecting = harness.addProxiedClient("TCP Remote View Reconnect", proxy);
+            TcpIntegrationHarness.TestClient observer = harness.addClient("TCP Remote View Observer");
+            harness.awaitJoined(reconnecting);
+            harness.awaitJoined(observer);
+
+            String playerId = reconnecting.playerId();
+            String remoteSystem = StarSystems.CORSAIR_SYSTEM_ID;
+            reconnecting.network().viewSystem(playerId, remoteSystem);
+            harness.await(() -> !reconnecting.network().clientViewSwitchPending()
+                            && remoteSystem.equals(reconnecting.network().clientViewedSystemId())
+                            && remoteSystem.equals(reconnecting.world().activeSystemId())
+                            && !currentSystemHasPlayerAssets(reconnecting.world(), playerId),
+                    12_000, "client did not establish a remote view before reconnect validation");
+
+            proxy.dropActiveConnection();
+            harness.await(() -> reconnecting.network().clientReconnecting(), 5_000,
+                    "remote-view client did not begin reconnecting after socket loss");
+            harness.await(() -> !harness.serverNetwork.serverSessionConnected(playerId), 5_000,
+                    "server did not detach the remote-view client connection");
+            harness.await(() -> reconnecting.network().clientConnected()
+                            && harness.serverNetwork.serverSessionConnected(playerId)
+                            && remoteSystem.equals(reconnecting.network().clientViewedSystemId())
+                            && remoteSystem.equals(reconnecting.world().activeSystemId())
+                            && !currentSystemHasPlayerAssets(reconnecting.world(), playerId),
+                    15_000, "resumed session did not restore its authoritative remote view");
+
+            long resumedSequence = reconnecting.network().clientSnapshotSequence();
+            harness.await(() -> reconnecting.network().clientSnapshotSequence() > resumedSequence
+                            && remoteSystem.equals(reconnecting.network().clientViewedSystemId())
+                            && remoteSystem.equals(reconnecting.world().activeSystemId())
+                            && !currentSystemHasPlayerAssets(reconnecting.world(), playerId),
+                    8_000, "remote view did not remain synchronized after session resume");
+            TcpIntegrationHarness.require(observer.network().clientConnected(),
+                    "observer was affected by remote-view reconnect");
+        }
+    }
+
+    private static boolean currentSystemHasPlayerAssets(World world, String playerId) {
+        for (Unit unit : world.units.values()) {
+            if (playerId.equals(unit.playerId) && unit.hp > 0) return true;
+        }
+        for (Base base : world.bases.values()) {
+            if (playerId.equals(base.playerId) && base.hp > 0) return true;
+        }
+        return false;
     }
 }

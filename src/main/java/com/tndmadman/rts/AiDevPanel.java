@@ -5,7 +5,7 @@ import java.util.List;
 
 final class AiDevPanel {
     private static final int ROW = 18;
-    private static final int ROW_BASELINE_Y = 96;
+    private static final int ROW_BASELINE_Y = 170;
     private final HudWindow window = new HudWindow(330, 205, 430);
 
     boolean click(World world, PeerNetwork devAuthorityNetwork, int sx, int sy, boolean canEdit) {
@@ -59,14 +59,16 @@ final class AiDevPanel {
         int yy = y + 14;
         for (String line : AiDevSnapshot.summary(world, f)) { g2.drawString(line, x, yy); yy += 15; }
         g2.setColor(new Color(255, 225, 150));
-        g2.drawString("Blocked: " + AiDevSnapshot.blockedReason(world, f), x, yy); yy += 18;
+        g2.drawString("Blocked: " + AiDevSnapshot.blockedReason(world, f), x, yy);
 
         String[] rows = rows();
         for (int i = 0; i < rows.length; i++) drawRow(g2, x, y + ROW_BASELINE_Y + i * ROW, rows[i]);
 
         int logY = y + ROW_BASELINE_Y + rows.length * ROW + 16;
         g2.setColor(new Color(190, 220, 255));
-        g2.drawString("Brain log:", x, logY);
+        g2.drawString("Brain file: " + trim(AiBrainLog.status(), 56), x, logY);
+        logY += 15;
+        g2.drawString("Recent AI events:", x, logY);
         logY += 15;
         List<String> log = AiDevLog.lines(7);
         g2.setColor(new Color(220, 235, 245));
@@ -119,5 +121,5 @@ final class AiDevPanel {
 
     private String check(String label, boolean on) { return (on ? "[x] " : "[ ] ") + label; }
     private String trim(String text, int max) { return text.length() <= max ? text : text.substring(0, Math.max(0, max - 3)) + "..."; }
-    private int bodyHeight() { return ROW_BASELINE_Y + rows().length * ROW + 120; }
+    private int bodyHeight() { return ROW_BASELINE_Y + rows().length * ROW + 140; }
 }

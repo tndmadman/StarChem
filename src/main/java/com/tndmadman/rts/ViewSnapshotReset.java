@@ -11,7 +11,11 @@ final class ViewSnapshotReset {
         String owner = ownerFromHome(systemId);
         if (!owner.isBlank() && !"WAIT".equals(owner)) world.ensurePlayerHome(owner);
         world.activateSystem(systemId);
-        world.syncClientEnvironment(systemId, time);
+        if (!systemId.equals(world.activeSystemId())) {
+            world.syncEnvironment(systemId, seed, time);
+            world.activateSystem(systemId);
+        }
+        if (systemId.equals(world.activeSystemId())) world.syncClientEnvironment(systemId, time);
     }
 
     static void applyPreservingEntities(World world, String systemId, long seed, double time) {

@@ -1,5 +1,6 @@
 package com.tndmadman.rts;
 
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 public final class NpcSystemIsolationValidator {
@@ -17,6 +18,23 @@ public final class NpcSystemIsolationValidator {
         validateIndependentFactionTimers();
         validateFactionSystemScope();
         validateExpansionScope();
+        validateStationReplacementOwnership();
+        NpcFactionLifecycleValidator.validateOrThrow();
+        NpcStrategicDirectorValidator.validateOrThrow();
+        NpcStrategicStabilityValidator.validateOrThrow();
+        NpcResourceBudgetValidator.validateOrThrow();
+        NpcResourceBudgetCapabilityValidator.validateOrThrow();
+        NpcWorkerProductionValidator.validateOrThrow();
+        NpcStationConstructionValidator.validateOrThrow();
+        NpcStationDeployerRecoveryValidator.validateOrThrow();
+        AiBrainLogValidator.validateOrThrow();
+        NpcMobileDepotValidator.validateOrThrow();
+        NpcExpeditionValidator.validateOrThrow();
+        NpcExpeditionResilienceValidator.validateOrThrow();
+        NpcSquadCombatValidator.validateOrThrow();
+        NpcRecoveryValidator.validateOrThrow();
+        NpcRuntimeResetValidator.validateOrThrow();
+        NpcCrossSystemOperationsValidator.validateOrThrow();
         validateRuntimeCleanup();
     }
 
@@ -52,6 +70,7 @@ public final class NpcSystemIsolationValidator {
                 false);
 
         world.activateSystem(StarSystems.CORSAIR_SYSTEM_ID);
+        addCombatShip(world, "SCOPE_TEST_PLAYER", 9004);
         tickCurrent(world, 70);
         require(factionAssetCount(world, StarSystems.CORSAIR_SYSTEM_ID, Config.CORSAIRS_ID) > 0,
                 "Corsairs did not spawn in their initial controlled system");
@@ -73,6 +92,50 @@ public final class NpcSystemIsolationValidator {
                 "organized Corsairs cannot expand into neighboring static systems");
         require(!NpcSystemScope.allowsExpansion(SOLO_HOME_ID, Config.CORSAIRS_ID),
                 "organized NPC factions can expand into protected homes");
+    }
+
+    private static void validateStationReplacementOwnership() {
+        PlayerRegistry.reset("WAIT", "NPC Station Ownership Validator", 0x50BEFF);
+        World world = new World("NPC Station Ownership Validator",
+                Set.of(Config.RAIDERS_ID, Config.FREE_MINERS_ID),
+                StarSystems.DEFAULT_SYSTEM_ID,
+                false);
+        world.activateSystem(StarSystems.CORSAIR_SYSTEM_ID);
+        AiDevCommands.spawnCorsairs(world);
+        AiDevCommands.giveCorsairResources(world);
+        world.completeResearch(Config.CORSAIRS_ID, "advanced_industry");
+        NpcFaction faction = AiDevSnapshot.corsairs();
+        require(faction != null, "Corsair faction is not configured");
+
+        int basesBefore = factionBaseCount(world, Config.CORSAIRS_ID);
+        Set<String> unitsBefore = factionUnitKeys(world, Config.CORSAIRS_ID);
+        require(basesBefore == 1, "forced Corsair spawn did not start with exactly one station");
+
+        AiDevLog.clear();
+        for (int i = 0; i < 200; i++) NpcStationReplacementSystem.replaceMissingStations(world);
+        require(factionBaseCount(world, Config.CORSAIRS_ID) == basesBefore,
+                "cleanup-time station replacement changed the Corsair station count");
+        require(factionUnitKeys(world, Config.CORSAIRS_ID).equals(unitsBefore),
+                "cleanup-time station replacement created or consumed a Corsair unit");
+        require(AiDevLog.lines(80).isEmpty(),
+                "cleanup-time station replacement emitted repeated AI decisions");
+
+        tickCurrent(world, 160);
+        int basesAfter = factionBaseCount(world, Config.CORSAIRS_ID);
+        if (basesAfter <= basesBefore) {
+            NpcStrategicState state = NpcStrategicDirector.state(world, faction);
+            NpcStationConstructionSnapshot construction =
+                    NpcStationConstructionSystem.snapshot(world, faction);
+            NpcFactionCapacitySnapshot capacity =
+                    NpcFactionCapacitySystem.snapshot(world, faction);
+            throw new IllegalStateException(
+                    "organized home infrastructure did not grow after 160s"
+                            + " | strategy=" + state
+                            + " | construction=" + construction
+                            + " | capacity=" + capacity
+                            + " | builders=" + builderCount(world, faction.id())
+                            + " | recent=" + String.join(" || ", AiDevLog.lines(30)));
+        }
     }
 
     private static void validateRuntimeCleanup() {
@@ -113,6 +176,28 @@ public final class NpcSystemIsolationValidator {
         for (Base base : world.bases.values()) if (factionId.equals(base.playerId) && base.hp > 0) count++;
         if (previous != null && !previous.isBlank()) world.activateSystem(previous);
         return count;
+    }
+
+    private static int factionBaseCount(World world, String factionId) {
+        int count = 0;
+        for (Base base : world.bases.values()) if (factionId.equals(base.playerId) && base.hp > 0) count++;
+        return count;
+    }
+
+    private static int builderCount(World world, String factionId) {
+        int count = 0;
+        for (Unit unit : world.units.values()) {
+            if (factionId.equals(unit.playerId) && unit.hp > 0 && unit.type().baseBuilder) count++;
+        }
+        return count;
+    }
+
+    private static Set<String> factionUnitKeys(World world, String factionId) {
+        Set<String> keys = new LinkedHashSet<>();
+        for (Unit unit : world.units.values()) {
+            if (factionId.equals(unit.playerId) && unit.hp > 0) keys.add(unit.key());
+        }
+        return keys;
     }
 
     private static void require(boolean condition, String message) {

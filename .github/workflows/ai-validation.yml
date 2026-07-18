@@ -1,0 +1,54 @@
+name: AI Validation
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-validation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-ai:
+    name: Validate organized NPC AI
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Run complete AI validator suite
+        shell: bash
+        run: |
+          if ! gradle -I gradle/ai-validation.gradle validateNpcAiSuite \
+                --no-daemon --stacktrace > ai-validation.log 2>&1; then
+            echo 'AI validator suite failed. Relevant output:'
+            tail -n 160 ai-validation.log
+            exit 1
+          fi
+          echo 'AI validator suite passed.'
+
+      - name: Archive AI validation log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-validation-${{ github.sha }}
+          retention-days: 7
+          if-no-files-found: warn
+          path: ai-validation.log

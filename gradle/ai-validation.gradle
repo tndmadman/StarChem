@@ -1,0 +1,46 @@
+def starchemAiValidators = [
+        validateAiBrainLog                    : 'com.tndmadman.rts.AiBrainLogValidator',
+        validateNpcCrossSystemOperations      : 'com.tndmadman.rts.NpcCrossSystemOperationsValidator',
+        validateNpcExpeditionDefense          : 'com.tndmadman.rts.NpcExpeditionDefenseValidator',
+        validateNpcExpedition                 : 'com.tndmadman.rts.NpcExpeditionValidator',
+        validateNpcExpeditionResilience       : 'com.tndmadman.rts.NpcExpeditionResilienceValidator',
+        validateNpcFactionLifecycle           : 'com.tndmadman.rts.NpcFactionLifecycleValidator',
+        validateNpcMobileDepot                : 'com.tndmadman.rts.NpcMobileDepotValidator',
+        validateNpcRecovery                   : 'com.tndmadman.rts.NpcRecoveryValidator',
+        validateNpcResourceBudget             : 'com.tndmadman.rts.NpcResourceBudgetValidator',
+        validateNpcRuntimeReset               : 'com.tndmadman.rts.NpcRuntimeResetValidator',
+        validateNpcSquadCombat                : 'com.tndmadman.rts.NpcSquadCombatValidator',
+        validateNpcStationConstruction        : 'com.tndmadman.rts.NpcStationConstructionValidator',
+        validateNpcStationDeployerRecovery    : 'com.tndmadman.rts.NpcStationDeployerRecoveryValidator',
+        validateNpcStrategicDirector          : 'com.tndmadman.rts.NpcStrategicDirectorValidator',
+        validateNpcStrategicStability         : 'com.tndmadman.rts.NpcStrategicStabilityValidator',
+        validateNpcWorkerProduction           : 'com.tndmadman.rts.NpcWorkerProductionValidator'
+]
+
+gradle.afterProject { project, state ->
+    if (state.failure != null || project != project.rootProject) return
+
+    starchemAiValidators.each { taskName, validatorClass ->
+        if (project.tasks.findByName(taskName) == null) {
+            project.tasks.register(taskName, JavaExec) {
+                group = 'verification'
+                description = "Run ${validatorClass.substring(validatorClass.lastIndexOf('.') + 1)}."
+                dependsOn project.tasks.named('classes')
+                classpath = project.sourceSets.main.runtimeClasspath
+                mainClass = validatorClass
+                jvmArgs '-Djava.awt.headless=true'
+            }
+        }
+    }
+
+    if (project.tasks.findByName('validateNpcAiSuite') == null) {
+        project.tasks.register('validateNpcAiSuite') {
+            group = 'verification'
+            description = 'Run the complete organized NPC AI validation suite.'
+            dependsOn starchemAiValidators.keySet().collect { project.tasks.named(it) }
+            dependsOn project.tasks.named('validateNpcGalaxyDirector')
+            dependsOn project.tasks.named('validateNpcSystemIsolation')
+            dependsOn project.tasks.named('validateSystemSimulationScheduler')
+        }
+    }
+}

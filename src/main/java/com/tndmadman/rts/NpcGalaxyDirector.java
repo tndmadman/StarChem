@@ -1,55 +1,51 @@
 package com.tndmadman.rts;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
-
+/** Coordinates organized-faction strategy, construction, expeditions, combat, logistics, and recovery. */
 final class NpcGalaxyDirector {
-    private static final double EXPANSION_COOLDOWN_SECONDS = 150.0;
-    private final Map<String, Double> cooldowns = new LinkedHashMap<>();
-
     void update(World world, double dt) {
         if (world == null || dt <= 0) return;
-        cooldowns.replaceAll((key, value) -> Math.max(0, value - dt));
-        GalaxyMapSnapshot snapshot = world.authoritativeGalaxyMapSnapshot();
-        if (snapshot == null || snapshot.empty()) return;
-        GalaxyMapSystem current = system(snapshot, world.activeSystemId());
-        if (current == null || !current.staticSystem() || current.home()) return;
-
         for (NpcFaction faction : NpcRules.factions()) {
             if (!faction.enabled() || faction.behavior() != NpcBehavior.FACTION) continue;
-            if (!faction.id().equals(current.controllerId())) continue;
-            String key = current.id() + "|" + faction.id();
-            if (cooldowns.getOrDefault(key, 0.0) > 0) continue;
-            GalaxyMapSystem target = target(snapshot, current.id(), faction.id());
-            if (target == null) continue;
-            int fleetSize = Math.max(2, faction.raidFleetSize());
-            if (world.launchNpcExpedition(faction.id(), target.id(), fleetSize)) {
-                cooldowns.put(key, EXPANSION_COOLDOWN_SECONDS);
-                world.status = faction.name() + " launched an expedition toward " + target.name() + ".";
-                return;
+
+            NpcStrategicState strategy = NpcStrategicDirector.update(world, faction, dt);
+            NpcExpeditionReadinessSystem.ensureInfrastructureBuilder(world, faction, strategy);
+            NpcStationDeployerRecoverySystem.update(world, faction, strategy);
+            NpcStationConstructionSystem.update(world, faction, dt);
+            if (NpcFactionRuntime.homeSystemIdFor(faction).equals(world.activeSystemId())) {
+                NpcWorkerProductionSystem.update(world, faction);
             }
+            updateExpedition(world, faction, strategy, dt);
+            NpcSquadCombatSystem.update(world, faction, strategy, dt);
+            NpcMobileDepotSystem.update(world, faction);
+
+            boolean hasLocalStation = world.bases.values().stream()
+                    .anyMatch(base -> faction.id().equals(base.playerId) && base.hp > 0);
+            if (hasLocalStation
+                    || !NpcExpeditionSystem.protectsStationlessCurrentSystem(world, faction)) {
+                NpcRecoverySystem.update(world, faction);
+            }
+            NpcRepairEvacuationSystem.update(world, faction, dt);
         }
+        AiBrainLog.observe(world);
     }
 
-    private GalaxyMapSystem target(GalaxyMapSnapshot snapshot, String fromId, String factionId) {
-        GalaxyMapSystem fallback = null;
-        for (GalaxyMapLink link : snapshot.links()) {
-            String candidateId = fromId.equals(link.fromSystemId()) ? link.toSystemId()
-                    : fromId.equals(link.toSystemId()) ? link.fromSystemId() : "";
-            if (candidateId.isBlank()) continue;
-            GalaxyMapSystem candidate = system(snapshot, candidateId);
-            if (candidate == null || !candidate.staticSystem() || candidate.home()) continue;
-            if (factionId.equals(candidate.controllerId())) continue;
-            if (!NpcSystemScope.allowsExpansion(candidate.id(), factionId)) continue;
-            if (candidate.controlStatus() == SystemControlStatus.NEUTRAL) return candidate;
-            if (fallback == null) fallback = candidate;
-        }
-        return fallback;
-    }
+    private void updateExpedition(World world, NpcFaction faction,
+                                  NpcStrategicState strategy, double dt) {
+        double step = dt;
+        for (int pass = 0; pass < 3; pass++) {
+            if (!NpcExpeditionReadinessSystem.allowProgress(
+                    world, faction, strategy, step)) return;
 
-    private GalaxyMapSystem system(GalaxyMapSnapshot snapshot, String id) {
-        if (snapshot == null || snapshot.systems() == null || id == null) return null;
-        for (GalaxyMapSystem system : snapshot.systems()) if (system != null && id.equals(system.id())) return system;
-        return null;
+            NpcExpeditionSnapshot before = NpcExpeditionSystem.snapshot(world, faction);
+            NpcExpeditionSystem.update(world, faction, strategy, step);
+            NpcExpeditionSnapshot after = NpcExpeditionSystem.snapshot(world, faction);
+            step = 0;
+
+            if (!after.active()) return;
+            boolean bootstrapState = after.state() == NpcExpeditionState.PLANNING
+                    || after.state() == NpcExpeditionState.RESERVING;
+            boolean advanced = !before.active() || before.state() != after.state();
+            if (!bootstrapState || !advanced) return;
+        }
     }
 }

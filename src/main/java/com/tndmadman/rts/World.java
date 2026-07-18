@@ -26,6 +26,8 @@ final class World {
     private final GalaxyCoordinator galaxy = new GalaxyCoordinator();
     private final Set<String> disabledNpcFactionIds;
     private final Map<String, NpcSystem> npcSystems = new LinkedHashMap<>();
+    private final Map<String, NpcSystem> organizedNpcSystems = new LinkedHashMap<>();
+    private final Map<String, NpcFactionRuntime> npcFactionRuntimes = new LinkedHashMap<>();
     private final NpcGalaxyDirector npcGalaxyDirector = new NpcGalaxyDirector();
     private GalaxyMapSnapshot remoteGalaxyMapSnapshot;
     boolean devFreeBuild;
@@ -91,8 +93,8 @@ final class World {
         int normalized = Math.max(1, Math.min(2, copies));
         if (GalaxyRuntimeOptions.copiesPerTemplate() == normalized) return;
         GalaxyRuntimeOptions.configureCopies(normalized);
+        clearNpcAiRuntimeState();
         remoteGalaxyMapSnapshot = null;
-        npcSystems.clear();
         celestials = galaxy.rebuild(this, starSystem, systemSeed);
         systemTime = galaxy.activeSystemTime();
     }
@@ -126,6 +128,7 @@ final class World {
         completedResearch.remove(playerId);
         Set<String> deleted = galaxy.removePlayerAndPruneEmptySystems(this, playerId);
         npcSystems.keySet().removeAll(deleted);
+        removeOrganizedNpcSystems(deleted);
         SystemSimulationScheduler.removeSystems(this, deleted);
         celestials = galaxy.activeCelestials();
         systemTime = galaxy.activeSystemTime();
@@ -136,6 +139,7 @@ final class World {
     Set<String> pruneEmptyDynamicSystems() {
         Set<String> deleted = galaxy.pruneAbandonedSystems(this);
         npcSystems.keySet().removeAll(deleted);
+        removeOrganizedNpcSystems(deleted);
         SystemSimulationScheduler.removeSystems(this, deleted);
         celestials = galaxy.activeCelestials();
         systemTime = galaxy.activeSystemTime();
@@ -239,15 +243,64 @@ final class World {
     void syncEnvironment(long seed, double hostTime) { syncEnvironment(systemId(), seed, hostTime); }
     void syncEnvironment(String newSystemId, long seed, double hostTime) { boolean changed = !StarSystems.get(newSystemId).id().equals(systemId()); if (changed) setStarSystem(newSystemId); if (changed || seed != systemSeed) setSystemSeed(seed); double delta = hostTime - systemTime; if (Math.abs(delta) > 0.02) advanceEnvironment(delta); else { systemTime = hostTime; galaxy.setActiveSystemTime(hostTime); } }
     private void setStarSystem(String systemId) { starSystem = StarSystems.get(systemId); }
-    private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); npcSystems.clear(); remoteGalaxyMapSnapshot = null; celestials = galaxy.rebuild(this, starSystem, seed); }
+    private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); clearNpcAiRuntimeState(); remoteGalaxyMapSnapshot = null; celestials = galaxy.rebuild(this, starSystem, seed); }
     private Point2D startShipPoint(Point2D basePoint) { return new Point2D.Double(basePoint.getX() + 180, basePoint.getY() - 80); }
+
+    private void clearNpcAiRuntimeState() {
+        npcSystems.clear();
+        organizedNpcSystems.clear();
+        npcFactionRuntimes.clear();
+        NpcStrategicDirector.clear(this);
+        NpcRecoverySystem.clear(this);
+        NpcRepairEvacuationSystem.clear(this);
+        NpcExpeditionSystem.clear(this);
+        NpcStationConstructionSystem.clear(this);
+        NpcSquadCombatSystem.clear(this);
+    }
+
+    void resetOrganizedNpcFactionState(NpcFaction faction, boolean defeated) {
+        resetOrganizedNpcFactionState(faction,
+                defeated ? NpcFactionResetReason.DEFEATED
+                        : NpcFactionResetReason.SPAWN_PREP);
+    }
+
+    void resetOrganizedNpcFactionState(NpcFaction faction,
+                                       NpcFactionResetReason reason) {
+        if (faction == null || faction.behavior() != NpcBehavior.FACTION) return;
+        NpcFactionResetReason normalized = reason == null
+                ? NpcFactionResetReason.SPAWN_PREP : reason;
+        String suffix = "|" + faction.id();
+        organizedNpcSystems.keySet().removeIf(key -> key.endsWith(suffix));
+        NpcFactionScopedRuntimeReset.clearExpedition(this, faction, normalized);
+        NpcStationConstructionSystem.clearFaction(this, faction, normalized);
+        NpcRecoverySystem.clearFaction(this, faction);
+        NpcFactionScopedRuntimeReset.clearSquads(this, faction);
+        if (normalized == NpcFactionResetReason.DEFEATED) {
+            NpcStrategicDirector.onDefeated(this, faction);
+        }
+    }
 
     void updateEnvironment(double dt) { advanceEnvironment(dt); updateItems(dt); updateExplosions(dt); }
     private void advanceEnvironment(double dt) { galaxy.update(this, dt); systemTime = galaxy.activeSystemTime(); celestials = galaxy.activeCelestials(); ResourceSpawner.update(resources, celestials, dt); ResourceNetDebug.worldTick(this, dt); }
     private void updateItems(double dt) { Iterator<WorldItem> it = items.iterator(); while (it.hasNext()) { WorldItem item = it.next(); item.update(dt, width, height); if (item.empty()) it.remove(); } }
     void update(double dt) { SystemAudio.listenTo(this); updateEnvironment(dt); updateSimulation(dt); updateInactiveSystems(dt); }
     void updateCurrentSystem(double dt) { if (dt <= 0) return; updateEnvironment(dt); double step = SystemSimulationScheduler.step(this, dt); if (step > 0) updateSimulation(step); else saveActiveSystem(); }
-    private void updateSimulation(double dt) { SystemModifierRules.applyEnvironment(this, dt); resourceRespawnSystem.update(this, dt); StationFuelRules.consume(this, dt); logisticsSystem.update(this, dt); itemPickupSystem.update(this); scoutSystem.update(this); npcSystemForActiveSystem().update(this, dt); npcGalaxyDirector.update(this, dt); for (Unit unit : new ArrayList<>(units.values())) updateUnit(unit, dt); transferTouchingShips(); weaponSystem.update(this, dt); cleanupDestroyed(); saveActiveSystem(); }
+    private void updateSimulation(double dt) {
+        SystemModifierRules.applyEnvironment(this, dt);
+        resourceRespawnSystem.update(this, dt);
+        StationFuelRules.consume(this, dt);
+        logisticsSystem.update(this, dt);
+        itemPickupSystem.update(this);
+        scoutSystem.update(this);
+        npcSystemForActiveSystem().update(this, dt);
+        updateOrganizedNpcFactions(dt);
+        npcGalaxyDirector.update(this, dt);
+        for (Unit unit : new ArrayList<>(units.values())) updateUnit(unit, dt);
+        transferTouchingShips();
+        weaponSystem.update(this, dt);
+        cleanupDestroyed();
+        saveActiveSystem();
+    }
 
     private NpcSystem npcSystemForActiveSystem() {
         String activeId = activeSystemId();
@@ -258,9 +311,77 @@ final class World {
     private NpcSystem createNpcSystem(String systemId) {
         Set<String> disabled = new LinkedHashSet<>(disabledNpcFactionIds);
         for (NpcFaction faction : NpcRules.factions()) {
-            if (!NpcSystemScope.allows(systemId, faction.id())) disabled.add(faction.id());
+            if (faction.behavior() == NpcBehavior.FACTION || !NpcSystemScope.allows(systemId, faction.id())) {
+                disabled.add(faction.id());
+            }
         }
         return new NpcSystem(disabled);
+    }
+
+    private void updateOrganizedNpcFactions(double dt) {
+        for (NpcFaction faction : NpcRules.factions()) {
+            if (!faction.enabled() || faction.behavior() != NpcBehavior.FACTION
+                    || disabledNpcFactionIds.contains(faction.id())) continue;
+
+            PlayerRegistry.register(faction.id(), faction.name(), faction.rgb(), false);
+            NpcFactionRuntime runtime = npcFactionRuntimes.computeIfAbsent(
+                    faction.id(), ignored -> new NpcFactionRuntime(faction));
+            boolean galaxyAssets = hasLiveAssets(faction.id());
+            NpcFactionRuntime.State previousState = runtime.state();
+            runtime.observe(galaxyAssets, faction);
+            if (previousState == NpcFactionRuntime.State.ACTIVE
+                    && runtime.state() == NpcFactionRuntime.State.RESPAWNING) {
+                resetOrganizedNpcFactionState(faction, NpcFactionResetReason.DEFEATED);
+            }
+
+            if (hasLocalNpcAssets(faction.id())) {
+                organizedNpcSystemForActiveSystem(faction).update(this, dt);
+                continue;
+            }
+            if (galaxyAssets || !runtime.homeSystemId().equals(activeSystemId())) continue;
+            if (!runtime.advanceSpawn(activeSystemId(), npcSpawnRequirementsMet(faction), dt)) continue;
+
+            if (NpcFactionSpawner.spawn(this, faction)) runtime.markSpawned(faction);
+            else runtime.deferSpawn(Math.max(1.0, faction.orderSeconds()));
+        }
+    }
+
+    private NpcSystem organizedNpcSystemForActiveSystem(NpcFaction faction) {
+        String activeId = activeSystemId();
+        if (activeId == null || activeId.isBlank()) activeId = systemId();
+        String key = activeId + "|" + faction.id();
+        return organizedNpcSystems.computeIfAbsent(key, ignored -> {
+            Set<String> disabled = new LinkedHashSet<>(disabledNpcFactionIds);
+            for (NpcFaction candidate : NpcRules.factions()) {
+                if (!candidate.id().equals(faction.id())) disabled.add(candidate.id());
+            }
+            return new NpcSystem(disabled);
+        });
+    }
+
+    private boolean hasLocalNpcAssets(String factionId) {
+        for (Unit unit : units.values()) if (factionId.equals(unit.playerId) && unit.hp > 0) return true;
+        for (Base base : bases.values()) if (factionId.equals(base.playerId) && base.hp > 0) return true;
+        return false;
+    }
+
+    private boolean npcSpawnRequirementsMet(NpcFaction faction) {
+        if (!faction.requirePlayerCombatShips()) return true;
+        int combatShips = 0;
+        for (Unit unit : units.values()) {
+            if (unit.hp <= 0 || NpcRules.isNpcFaction(unit.playerId)) continue;
+            if (WeaponRules.armed(unit.type())) combatShips++;
+        }
+        return combatShips >= Math.max(1, faction.minPlayerCombatShips());
+    }
+
+    private void removeOrganizedNpcSystems(Set<String> deletedSystemIds) {
+        if (deletedSystemIds == null || deletedSystemIds.isEmpty()) return;
+        organizedNpcSystems.keySet().removeIf(key -> {
+            int separator = key.indexOf('|');
+            String systemId = separator < 0 ? key : key.substring(0, separator);
+            return deletedSystemIds.contains(systemId);
+        });
     }
 
     int npcRuntimeSystemCount() { return npcSystems.size(); }
@@ -283,7 +404,23 @@ final class World {
         }
     }
 
-    private void updateUnit(Unit unit, double dt) { unit.unloadingThisFrame = false; unit.wormholeCooldown = Math.max(0, unit.wormholeCooldown - dt); sendFullHarvestCargoToUnload(unit); autoUnload(unit, dt); haulerSystem.update(this, unit, dt); workSystem.update(this, unit, dt); UnitOrderSystem.update(this, unit, dt); if (unit.task == UnitTask.RETURN_TO_STATION) updateReturn(unit); if (unit.task == UnitTask.IDLE && unit.orderType == UnitOrderType.NONE) idleNearBase(unit, dt); if (unit.task == UnitTask.MOVE && Calc.distance(unit.x, unit.y, unit.targetX, unit.targetY) < 5) unit.task = UnitTask.IDLE; unit.updatePosition(dt * SystemModifierRules.movementSpeed(this), width, height); }
+    private void updateUnit(Unit unit, double dt) {
+        unit.unloadingThisFrame = false;
+        unit.wormholeCooldown = Math.max(0, unit.wormholeCooldown - dt);
+        boolean recoveryOwned = NpcRecoverySystem.ownsUnit(this, unit)
+                || NpcRepairEvacuationSystem.ownsUnit(this, unit);
+        if (!recoveryOwned) {
+            sendFullHarvestCargoToUnload(unit);
+            autoUnload(unit, dt);
+            haulerSystem.update(this, unit, dt);
+            workSystem.update(this, unit, dt);
+        }
+        UnitOrderSystem.update(this, unit, dt);
+        if (!recoveryOwned && unit.task == UnitTask.RETURN_TO_STATION) updateReturn(unit);
+        if (!recoveryOwned && unit.task == UnitTask.IDLE && unit.orderType == UnitOrderType.NONE) idleNearBase(unit, dt);
+        if (unit.task == UnitTask.MOVE && Calc.distance(unit.x, unit.y, unit.targetX, unit.targetY) < 5) unit.task = UnitTask.IDLE;
+        unit.updatePosition(dt * SystemModifierRules.movementSpeed(this), width, height);
+    }
     private void sendFullHarvestCargoToUnload(Unit unit) { if (unit.type().harvestKinds.isEmpty() || unit.task == UnitTask.RETURN_TO_STATION || unit.cargoUsed() <= 0.05 || unit.freeCargo() > 0.05) return; sendToNearestBase(unit); }
     private void updateReturn(Unit unit) { Base base = nearestBase(unit.playerId, unit.x, unit.y); Unit depot = MobileDepot.preferredFor(this, unit, base); if (base == null && depot == null) { unit.task = UnitTask.IDLE; return; } if (unit.cargoUsed() <= 0.05) { ResourceNode resume = findResource(unit.automationResourceId); if (resume != null && resume.active) unit.task = UnitTask.AUTO_HARVEST; else if (!returnToMiningAnchor(unit)) unit.task = UnitTask.IDLE; return; } if (depot != null) moveTowardOrbit(unit, depot.x, depot.y, MobileDepot.range(depot) * 0.55); else moveTowardOrbit(unit, base.x, base.y, base.type().unloadRange * 0.55); }
     private void idleNearBase(Unit unit, double dt) { Base base = nearestBase(unit.playerId, unit.x, unit.y); if (base != null && Calc.distance(unit.x, unit.y, base.x, base.y) < base.type().unloadRange + 170) orbitAround(unit, base.x, base.y, unit.type().idleOrbitRadius, dt, 0.35); }
@@ -312,7 +449,7 @@ final class World {
     void orderSelected(UnitOrderType type, double x1, double y1, double x2, double y2, String targetKey, FleetFormation formation) { List<Unit> selected = selectedUnits(); if (selected.isEmpty()) { status = "No ship selected."; return; } int applied = 0; for (int i = 0; i < selected.size(); i++) { Unit unit = selected.get(i); double ax = x1, ay = y1, bx = x2, by = y2; if (type == UnitOrderType.HOLD) { ax = bx = unit.x; ay = by = unit.y; } else if (type == UnitOrderType.ATTACK_MOVE) { Point2D end = formationTarget(x2, y2, i, selected.size(), formation); ax = unit.x; ay = unit.y; bx = end.getX(); by = end.getY(); } else if (type == UnitOrderType.PATROL) { Point2D start = formationTarget(x1, y1, i, selected.size(), formation); Point2D end = formationTarget(x2, y2, i, selected.size(), formation); ax = start.getX(); ay = start.getY(); bx = end.getX(); by = end.getY(); } else if (type == UnitOrderType.GUARD && (targetKey == null || targetKey.isBlank())) { Point2D anchor = formationTarget(x1, y1, i, selected.size(), formation); ax = bx = anchor.getX(); ay = by = anchor.getY(); } double radius = UnitOrderSystem.defaultRadius(type); if (AUnitOrder.apply(this, new UnitOrderCommand(unit.playerId, unit.unitId, type, ax, ay, bx, by, radius, targetKey, 0))) applied++; } status = applied > 0 ? orderLabel(type) + " order assigned to " + applied + " ship(s)." : "Unable to assign " + orderLabel(type).toLowerCase(Locale.ROOT) + " order."; }
     private String orderLabel(UnitOrderType type) { return switch (type) { case PATROL -> "Patrol"; case GUARD -> "Guard"; case ESCORT -> "Escort"; case HOLD -> "Hold position"; case ATTACK_MOVE -> "Attack-move"; case NONE -> "No"; }; }
     private Point2D formationTarget(double x, double y, int index, int count, FleetFormation formation) { double spacing = 54, ox = 0, oy = 0; switch (formation) { case LINE -> ox = (index - (count - 1) / 2.0) * spacing; case COLUMN -> oy = (index - (count - 1) / 2.0) * spacing; case WEDGE -> { if (index > 0) { int rank = (index + 1) / 2; int side = index % 2 == 1 ? -1 : 1; ox = side * rank * spacing; oy = rank * spacing; } } case GRID -> { int cols = (int)Math.ceil(Math.sqrt(count)); double rows = Math.ceil(count / (double)cols); int col = index % cols; int row = index / cols; ox = (col - (cols - 1) / 2.0) * 42; oy = (row - (rows - 1) / 2.0) * 42; } } return new Point2D.Double(Calc.clamp(x + ox, 0, width), Calc.clamp(y + oy, 0, height)); }
-    void attackSelected(String targetKey) { int started = 0, unarmed = 0; for (Unit unit : selectedUnits()) { if (!WeaponRules.armed(unit.type())) { unarmed++; continue; } if (!CombatTarget.enemy(this, unit, targetKey)) continue; unit.issueAttack(targetKey); started++; } status = started > 0 ? "Attacking target with " + started + " ship(s)." : unarmed > 0 ? "Selected ship has no weapons." : "No valid attack target."; }
+    void attackSelected(String targetKey) { int started = 0, unarmed = 0; for (Unit unit : selectedUnits()) { if (WeaponRules.armed(unit.type())) { if (!CombatTarget.enemy(this, unit, targetKey)) continue; unit.issueAttack(targetKey); started++; } else unarmed++; } status = started > 0 ? "Attacking target with " + started + " ship(s)." : unarmed > 0 ? "Selected ship has no weapons." : "No valid attack target."; }
     void autoHarvestSelected(ResourceNode node) { int started = 0; for (Unit unit : selectedUnits()) { if (!unit.type().harvestKinds.contains(node.kind)) continue; unit.setMiningAnchor(node.x, node.y); unit.startAutoHarvest(node.id); started++; } status = started == 0 ? "Selected ship cannot harvest this node." : "Auto-harvesting " + node.name + "."; }
     void sendToNearestBase(Unit unit) { Base base = nearestBase(unit.playerId, unit.x, unit.y); Unit depot = MobileDepot.preferredFor(this, unit, base); if (base == null && depot == null) return; unit.task = UnitTask.RETURN_TO_STATION; if (depot != null) moveTowardOrbit(unit, depot.x, depot.y, MobileDepot.range(depot) * 0.55); else moveTowardOrbit(unit, base.x, base.y, base.type().unloadRange * 0.55); }
     boolean returnToMiningAnchor(Unit unit) { if (unit == null || !unit.miningAnchorSet || unit.type().harvestKinds.isEmpty()) return false; unit.moveTo(unit.miningAnchorX, unit.miningAnchorY); return true; }

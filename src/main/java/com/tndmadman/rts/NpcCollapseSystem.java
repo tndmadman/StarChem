@@ -2,13 +2,19 @@ package com.tndmadman.rts;
 
 import java.util.Iterator;
 
+/**
+ * Handles local collapse for ordinary NPC factions.
+ *
+ * Organized factions use the galaxy director for worker production, persistent
+ * construction, recovery, evacuation, and defeat handling.
+ */
 final class NpcCollapseSystem {
     private NpcCollapseSystem() { }
 
     static void removeShipsWithoutStations(World world) {
-        NpcHomeSystem.keepCorsairsHome(world);
         for (NpcFaction faction : NpcRules.factions()) {
             if (!faction.enabled()) continue;
+            if (faction.behavior() == NpcBehavior.FACTION) continue;
             if (hasLivingStation(world, faction.id())) continue;
             clearShips(world, faction);
         }
@@ -33,7 +39,8 @@ final class NpcCollapseSystem {
         }
         if (removed > 0) {
             world.status = faction.name() + " lost all stations. Remaining ships were removed.";
-            AiDevLog.add(world, faction, "all stations lost; removed " + removed + " remaining ship(s)");
+            AiDevLog.add(world, faction,
+                    "all stations lost; removed " + removed + " remaining ship(s)");
         }
     }
 }

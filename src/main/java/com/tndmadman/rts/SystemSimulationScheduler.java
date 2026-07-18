@@ -26,7 +26,10 @@ final class SystemSimulationScheduler {
             return 0;
         }
         bySystem.put(systemId, 0.0);
-        return Math.min(next, threshold * 2.0);
+        // Batching may delay a cold or warm system, but it must never delete
+        // elapsed simulation time. The previous threshold*2 cap made a 1s
+        // fast-forward tick advance a warm NPC system by only 0.24s.
+        return next;
     }
 
     static synchronized void removeSystems(World world, Iterable<String> systemIds) {

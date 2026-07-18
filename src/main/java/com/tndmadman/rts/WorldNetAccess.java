@@ -42,7 +42,7 @@ final class WorldNetAccess {
     }
 
     static void applyView(World world, Snapshot snapshot) {
-        apply(world, snapshot, true, false, false, false, true);
+        apply(world, snapshot, true, false, true, false, true);
     }
 
     static void applyFullView(World world, Snapshot snapshot) {

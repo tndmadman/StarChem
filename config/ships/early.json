@@ -51,7 +51,10 @@
       "baseBuilder": true,
       "stationPackageSlots": 1,
       "canCarryStationPackages": [
-        "shipyard"
+        "outpost",
+        "shipyard",
+        "laboratory",
+        "manufacturing"
       ],
       "singleUseAfterStationPlacement": true
     },

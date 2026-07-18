@@ -4,7 +4,7 @@ StarChem is a Java 2D top-down multiplayer RTS prototype.
 
 ## Download
 
-Download the release ZIP and extract it.
+Download the release ZIP and its matching `.sha256` file, verify the checksum, then extract the complete ZIP.
 
 The player package contains the compiled `StarChem.jar`, the required `config`
 folder, Windows and Linux launchers, and the packaged legal and quick-start documents.
@@ -21,7 +21,25 @@ Java 17 or newer is required.
 
 Players do not need Gradle, source files, or a local compile step.
 
-## Dedicated Linux server
+## Dedicated server
+
+### Windows
+
+Start a dedicated server from the extracted release folder with:
+
+```text
+run-starchem-server.bat
+```
+
+The launcher defaults to TCP port `50000` and the server name `StarChem-Server`. Override either value before launching:
+
+```text
+set STARCHEM_PORT=50100
+set STARCHEM_SERVER_NAME=Public Server
+run-starchem-server.bat --galaxy-copies 2
+```
+
+### Linux
 
 Start a headless dedicated server from the extracted release folder with:
 
@@ -29,19 +47,19 @@ Start a headless dedicated server from the extracted release folder with:
 ./run-starchem-server.sh
 ```
 
-The launcher defaults to TCP port `50000` and the server name `StarChem-Server`. Override either value with environment variables and pass additional StarChem options after the script name:
+Override its default port or name with environment variables and pass additional StarChem options after the script name:
 
 ```text
 STARCHEM_PORT=50100 STARCHEM_SERVER_NAME="Public Server" ./run-starchem-server.sh --galaxy-copies 2
 ```
 
-The equivalent direct Java command is:
+The equivalent direct Java command on either platform is:
 
 ```text
 java -Djava.awt.headless=true -jar StarChem.jar --server 50000 --name StarChem-Server
 ```
 
-Open or forward the selected **TCP** port. Stop the server with `Ctrl+C` or a normal `SIGTERM`; the server closes its network transport before the process exits. It prints a status line at startup and every 60 seconds while running.
+Open or forward the selected **TCP** port. Stop the server with `Ctrl+C` or a normal termination signal; the server closes its network transport before the process exits. It prints a status line at startup and every 60 seconds while running.
 
 Run `java -jar StarChem.jar --help` to view all supported startup options. Unknown options and missing option values are rejected instead of being silently ignored.
 
@@ -130,6 +148,9 @@ documented in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ## Release
 
-Create and push a semantic-version tag such as `vX.Y.Z`.
+1. Update `RELEASE_NOTES.md` so its first line is exactly `# StarChem v<version>`.
+2. Create and push that immutable semantic-version tag, for example `v1.1.0-alpha`.
+3. The release workflow rebuilds the JAR twice and requires byte-identical output, runs the complete verification suite, creates the release ZIP twice and requires byte-identical output, verifies its SHA-256 checksum, smoke-tests the extracted Linux client and dedicated server, and validates both Windows launchers.
+4. Only after every validation job passes does the tag-triggered publish job attach the ZIP and `.sha256` file to the GitHub Release.
 
-The release workflow derives the application version from the tag, embeds the commit SHA in `StarChem.jar`, runs the complete Gradle verification suite, smoke-tests the application and Linux headless server, verifies the package layout and legal notices, and publishes `StarChem-vX.Y.Z.zip` to the GitHub Release.
+The workflow never creates, moves, or force-updates a release tag. Pull requests that modify release-critical files run the same build and package validation without publishing anything.

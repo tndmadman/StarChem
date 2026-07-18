@@ -61,8 +61,17 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         timer = new Timer(16, e -> tick());
     }
 
-    void start() { requestFocusInWindow(); ProceduralAudio.prime(); timer.start(); }
-    void stop() { timer.stop(); }
+    void start() {
+        AiBrainLog.setEnabled(devMode && client == null);
+        requestFocusInWindow();
+        ProceduralAudio.prime();
+        timer.start();
+    }
+
+    void stop() {
+        timer.stop();
+        AiBrainLog.setEnabled(false);
+    }
 
     private void tick() {
         long now = System.nanoTime();
