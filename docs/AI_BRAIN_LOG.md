@@ -60,6 +60,10 @@ Every record includes:
 - The writer flushes at least every two seconds and drains for a bounded period on clean shutdown.
 - Logging errors are shown in the AI developer panel and never propagate into the simulation.
 
+## Performance guardrail
+
+The producer path is validated with 800 AI ships, 80 stations, 160 forced delta captures, and 5,000 immediate events. The current implementation recorded a 7.191 ms p99 producer cost in that CI scenario, below the 8 ms developer-mode target. This is a regression guardrail rather than a guarantee for every machine or storage device.
+
 ## Sending a report
 
 Reproduce the problem, close the game normally when possible, then provide every `partNNN.jsonl` file sharing the same session name. For a short reproduction there will normally be only `part001`.
