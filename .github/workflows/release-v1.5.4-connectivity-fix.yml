@@ -1,0 +1,431 @@
+name: Release StarChem v1.5.4 Connectivity Fix
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/release-v1.5.4-connectivity-fix.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-v1.5.4-connectivity-fix
+  cancel-in-progress: false
+
+jobs:
+  patch-test-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      new_sha: ${{ steps.commit.outputs.new_sha }}
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Apply connectivity fixes and v1.5.4 notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"Expected exactly one {label}, found {count}")
+              return text.replace(old, new, 1)
+
+          def regex_once(text: str, pattern: str, replacement: str, label: str) -> str:
+              updated, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+              if count != 1:
+                  raise SystemExit(f"Expected exactly one {label}, found {count}")
+              return updated
+
+          compatibility_path = Path('src/main/java/com/tndmadman/rts/MultiplayerCompatibility.java')
+          compatibility = compatibility_path.read_text(encoding='utf-8')
+          compatibility = regex_once(
+              compatibility,
+              r'\n        if \(!client\.buildCommit\(\)\.equals\(server\.buildCommit\(\)\)\) \{\n'
+              r'            return mismatch\("BUILD_MISMATCH", "build commit", client, server\);\n'
+              r'        \}\n',
+              '\n',
+              'hard build-commit compatibility rejection')
+          compatibility = replace_once(
+              compatibility,
+              '        return new Decision(true, "MATCH", "Compatible multiplayer build.");\n',
+              '        String detail = client.buildCommit().equals(server.buildCommit())\n'
+              '                ? "Compatible multiplayer build."\n'
+              '                : "Compatible multiplayer release; build commits differ but protocol, application version, rules, and configuration match.";\n'
+              '        return new Decision(true, "MATCH", detail);\n',
+              'compatibility success result')
+          compatibility_path.write_text(compatibility, encoding='utf-8')
+
+          transport_path = Path('src/main/java/com/tndmadman/rts/PeerTransport.java')
+          transport = transport_path.read_text(encoding='utf-8')
+          transport = replace_once(
+              transport,
+              'import java.util.concurrent.atomic.AtomicLong;\n',
+              'import java.util.concurrent.atomic.AtomicLong;\n'
+              'import java.util.concurrent.atomic.AtomicReference;\n',
+              'AtomicReference import')
+          transport = replace_once(
+              transport,
+              '    private final AtomicBoolean clientDisconnectPending = new AtomicBoolean();\n'
+              '    private volatile TcpConnection clientConnection;\n',
+              '    private final AtomicBoolean clientDisconnectPending = new AtomicBoolean();\n'
+              '    private final AtomicReference<String> clientConnectFailure = new AtomicReference<>("");\n'
+              '    private volatile TcpConnection clientConnection;\n',
+              'client connection failure field')
+          transport = replace_once(
+              transport,
+              '    boolean consumeClientDisconnect() { return clientDisconnectPending.getAndSet(false); }\n'
+              '    boolean isDisconnectEvent(NetPacket packet) { return packet != null && DISCONNECT_EVENT.equals(packet.message()); }\n',
+              '    boolean consumeClientDisconnect() { return clientDisconnectPending.getAndSet(false); }\n'
+              '    String consumeClientConnectFailure() { return clientConnectFailure.getAndSet(""); }\n'
+              '    boolean isDisconnectEvent(NetPacket packet) { return packet != null && DISCONNECT_EVENT.equals(packet.message()); }\n',
+              'client failure accessor')
+          transport = replace_once(
+              transport,
+              '                compatibilityAccepted = false;\n'
+              '                clientConnection = connection;\n',
+              '                compatibilityAccepted = false;\n'
+              '                clientConnectFailure.set("");\n'
+              '                clientConnection = connection;\n',
+              'successful client connect cleanup')
+          transport = replace_once(
+              transport,
+              '            } catch (IOException ex) {\n'
+              '                sleep(RECONNECT_DELAY_MS);\n'
+              '            }\n',
+              '            } catch (IOException ex) {\n'
+              '                String detail = ex.getMessage();\n'
+              '                clientConnectFailure.set(detail == null || detail.isBlank()\n'
+              '                        ? ex.getClass().getSimpleName()\n'
+              '                        : detail.trim());\n'
+              '                sleep(RECONNECT_DELAY_MS);\n'
+              '            }\n',
+              'client connection loop error handling')
+          transport = replace_once(
+              transport,
+              '        compatibleConnections.clear();\n'
+              '        inbox.clear();\n'
+              '        inboxSize.set(0);\n',
+              '        compatibleConnections.clear();\n'
+              '        clientConnectFailure.set("");\n'
+              '        inbox.clear();\n'
+              '        inboxSize.set(0);\n',
+              'transport shutdown cleanup')
+          transport_path.write_text(transport, encoding='utf-8')
+
+          client_path = Path('src/main/java/com/tndmadman/rts/PeerClientSide.java')
+          client = client_path.read_text(encoding='utf-8')
+          client = replace_once(
+              client,
+              '    private String viewedSystemId = "";\n'
+              '    private String failureMessage = "";\n'
+              '    private String pendingReadyName = "";\n',
+              '    private String viewedSystemId = "";\n'
+              '    private String failureMessage = "";\n'
+              '    private String lastTransportFailure = "";\n'
+              '    private String pendingReadyName = "";\n',
+              'client transport failure field')
+          client = replace_once(
+              client,
+              '                    : new ClientConnectionProgress(ConnectionPhase.CONNECTING, "CONNECTING TO SERVER",\n'
+              '                    "Opening TCP connection to " + config.serverAddress + ".", 1, 4, elapsed);\n',
+              '                    : new ClientConnectionProgress(ConnectionPhase.CONNECTING, "CONNECTING TO SERVER",\n'
+              '                    transportDetail("Opening TCP connection to " + config.serverAddress + "."), 1, 4, elapsed);\n',
+              'joining connection progress')
+          client = replace_once(
+              client,
+              '                    : new ClientConnectionProgress(ConnectionPhase.RECONNECTING, "CONNECTION INTERRUPTED",\n'
+              '                    "Opening a new TCP connection without dropping player state.", 1, 4, elapsed);\n',
+              '                    : new ClientConnectionProgress(ConnectionPhase.RECONNECTING, "CONNECTION INTERRUPTED",\n'
+              '                    transportDetail("Opening a new TCP connection without dropping player state."), 1, 4, elapsed);\n',
+              'reconnecting connection progress')
+          client = replace_once(
+              client,
+              '    void tick(long now) {\n'
+              '        PlayerRegistry.activate(world);\n'
+              '        boolean connectionDropped = transport.consumeClientDisconnect();\n',
+              '    void tick(long now) {\n'
+              '        PlayerRegistry.activate(world);\n'
+              '        String transportFailure = transport.consumeClientConnectFailure();\n'
+              '        if (!transportFailure.isBlank()) {\n'
+              '            lastTransportFailure = transportFailure;\n'
+              '            String lower = transportFailure.toLowerCase(java.util.Locale.ROOT);\n'
+              '            if (lower.contains("tls fingerprint changed") || lower.contains("refusing to send login secrets")) {\n'
+              '                failConnection("Connection failed: " + transportFailure\n'
+              '                        + " Restore the server\'s original TLS key or remove the saved server trust entry before reconnecting.");\n'
+              '                return;\n'
+              '            }\n'
+              '        }\n'
+              '        boolean connectionDropped = transport.consumeClientDisconnect();\n',
+              'transport failure consumption')
+          client = replace_once(
+              client,
+              '                    failConnection("Connection failed: no response from server at " + config.serverAddress + ".");\n',
+              '                    failConnection(transportDetail("Connection failed: no response from server at " + config.serverAddress + "."));\n',
+              'join timeout detail')
+          client = replace_once(
+              client,
+              '                    failConnection("Connection failed: the saved session could not be resumed before it expired.");\n',
+              '                    failConnection(transportDetail("Connection failed: the saved session could not be resumed."));\n',
+              'reconnect timeout detail')
+          client = replace_once(
+              client,
+              '        failureMessage = "";\n'
+              '        transport.clearOutbound();\n',
+              '        failureMessage = "";\n'
+              '        lastTransportFailure = "";\n'
+              '        transport.clearOutbound();\n',
+              'clear failure after welcome')
+          client = replace_once(
+              client,
+              '    private void failConnection(String message) {\n',
+              '    private String transportDetail(String message) {\n'
+              '        if (lastTransportFailure.isBlank()) return message;\n'
+              '        return message + " Last transport error: " + lastTransportFailure;\n'
+              '    }\n\n'
+              '    private void failConnection(String message) {\n',
+              'transport detail helper')
+          client_path.write_text(client, encoding='utf-8')
+
+          validator_path = Path('src/main/java/com/tndmadman/rts/NetworkSecurityValidator.java')
+          validator = validator_path.read_text(encoding='utf-8')
+          validator = replace_once(
+              validator,
+              '            Thread.sleep(1_000);\n'
+              '            require(!secondClient.connected(), "client accepted a changed server TLS fingerprint");\n',
+              '            Thread.sleep(1_000);\n'
+              '            require(!secondClient.connected(), "client accepted a changed server TLS fingerprint");\n'
+              '            String pinFailure = "";\n'
+              '            long failureDeadline = System.currentTimeMillis() + 3_000;\n'
+              '            while (!pinFailure.contains("TLS fingerprint changed")\n'
+              '                    && System.currentTimeMillis() < failureDeadline) {\n'
+              '                String nextFailure = secondClient.consumeClientConnectFailure();\n'
+              '                if (!nextFailure.isBlank()) pinFailure = nextFailure;\n'
+              '                if (!pinFailure.contains("TLS fingerprint changed")) Thread.sleep(10);\n'
+              '            }\n'
+              '            require(pinFailure.contains("TLS fingerprint changed"),\n'
+              '                    "changed TLS fingerprint failure was not exposed to the client");\n',
+              'TLS failure reporting validation')
+          validator = replace_once(
+              validator,
+              '        require("JOIN|Compatibility Client|NODEV|".equals(exact.message()), "accepted handshake was not normalized");\n\n'
+              '        MultiplayerCompatibility.Descriptor protocolMismatch = new MultiplayerCompatibility.Descriptor(\n',
+              '        require("JOIN|Compatibility Client|NODEV|".equals(exact.message()), "accepted handshake was not normalized");\n\n'
+              '        MultiplayerCompatibility.Descriptor commitMismatch = new MultiplayerCompatibility.Descriptor(\n'
+              '                local.protocolVersion(), local.applicationVersion(), local.buildCommit() + "-different",\n'
+              '                local.rulesVersion(), local.configHash());\n'
+              '        MultiplayerCompatibility.WireResult commitResult = MultiplayerCompatibility.inspectClientHandshake(\n'
+              '                joinPacket(commitMismatch));\n'
+              '        require(commitResult.action() == MultiplayerCompatibility.WireAction.ACCEPT,\n'
+              '                "matching release was rejected solely because the build commit differed");\n\n'
+              '        MultiplayerCompatibility.Descriptor applicationMismatch = new MultiplayerCompatibility.Descriptor(\n'
+              '                local.protocolVersion(), local.applicationVersion() + "-different", local.buildCommit(),\n'
+              '                local.rulesVersion(), local.configHash());\n'
+              '        expectCompatibilityReject(joinPacket(applicationMismatch), "APPLICATION_MISMATCH");\n\n'
+              '        MultiplayerCompatibility.Descriptor protocolMismatch = new MultiplayerCompatibility.Descriptor(\n',
+              'build and application compatibility coverage')
+          validator_path.write_text(validator, encoding='utf-8')
+
+          notes_path = Path('RELEASE_NOTES.md')
+          notes = notes_path.read_text(encoding='utf-8')
+          notes = replace_once(notes, '# StarChem v1.5.3\n', '# StarChem v1.5.4\n', 'release heading')
+          notes = replace_once(
+              notes,
+              'StarChem v1.5.3 is a dedicated-server save-state, multiplayer identity, reconnect-security, and encrypted-transport release covering changes introduced after v1.4.0.\n',
+              'StarChem v1.5.4 is a multiplayer connectivity and dedicated-server save-state hotfix covering changes introduced after v1.4.0.\n\n'
+              '## Multiplayer Connectivity Hotfix\n\n'
+              '- Fixed clients being rejected solely because the client and server JARs were compiled from different Git commits while using the same application version, protocol, rules, and packaged configuration.\n'
+              '- Build commit remains visible in version and compatibility diagnostics, but it is no longer a hard connection requirement.\n'
+              '- Application version, network protocol, rules version, and packaged configuration fingerprint remain strict multiplayer compatibility requirements.\n'
+              '- Transport connection failures are now surfaced to the client instead of being silently retried until a generic timeout.\n'
+              '- Changed TLS certificate fingerprints now produce an immediate actionable connection failure while still refusing to send login secrets.\n',
+              'release introduction')
+          notes = notes.replace('v1.5.3 server save archives', 'v1.5.4 server save archives')
+          notes = replace_once(
+              notes,
+              'All multiplayer clients and servers must use the same v1.5.3 release package and matching packaged configuration files. Older builds are rejected by the compatibility handshake. Existing v1.4.0 dedicated servers do not have durable v1.5.4 server save archives; start v1.5.3 with the desired save directory/name and let the server create its first save.\n',
+              'All multiplayer clients and servers must use StarChem v1.5.4 with matching network protocol, rules, and packaged configuration files. The embedded Git commit is diagnostic only and does not block otherwise compatible v1.5.4 builds. Older application versions remain rejected. Existing v1.4.0 dedicated servers do not have durable v1.5.4 server save archives; start v1.5.4 with the desired save directory/name and let the server create its first save.\n',
+              'compatibility release note')
+          notes_path.write_text(notes, encoding='utf-8')
+          PY
+
+          ! grep -n 'BUILD_MISMATCH' src/main/java/com/tndmadman/rts/MultiplayerCompatibility.java
+          grep -n 'consumeClientConnectFailure' src/main/java/com/tndmadman/rts/PeerTransport.java
+          grep -n 'matching release was rejected solely' src/main/java/com/tndmadman/rts/NetworkSecurityValidator.java
+          grep -Fx '# StarChem v1.5.4' RELEASE_NOTES.md
+
+      - name: Run full verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle clean check --no-daemon \
+            -PreleaseVersion=1.5.4 \
+            -PbuildCommit="$(git rev-parse HEAD)"
+
+      - name: Commit connectivity fix directly to main
+        id: commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'StarChem Release Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add RELEASE_NOTES.md \
+                  src/main/java/com/tndmadman/rts/MultiplayerCompatibility.java \
+                  src/main/java/com/tndmadman/rts/PeerTransport.java \
+                  src/main/java/com/tndmadman/rts/PeerClientSide.java \
+                  src/main/java/com/tndmadman/rts/NetworkSecurityValidator.java
+          git diff --cached --check
+          git commit -m 'Fix multiplayer connectivity for v1.5.4'
+          NEW_SHA="$(git rev-parse HEAD)"
+          git push origin HEAD:main
+          echo "new_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Build deterministic v1.5.4 package
+        shell: bash
+        run: |
+          set -euo pipefail
+          NEW_SHA='${{ steps.commit.outputs.new_sha }}'
+          gradle clean check jar --no-daemon \
+            -PreleaseVersion=1.5.4 \
+            -PbuildCommit="$NEW_SHA"
+
+          rm -rf release
+          mkdir -p release/StarChem
+          cp build/libs/StarChem.jar release/StarChem/StarChem.jar
+          cp -R config release/StarChem/config
+          cp packaging/run-starchem.bat release/StarChem/run-starchem.bat
+          cp packaging/run-starchem-server.bat release/StarChem/run-starchem-server.bat
+          cp packaging/run-starchem.sh release/StarChem/run-starchem.sh
+          cp packaging/run-starchem-server.sh release/StarChem/run-starchem-server.sh
+          chmod +x release/StarChem/run-starchem.sh release/StarChem/run-starchem-server.sh
+          cp README.md release/StarChem/README.md
+          cp LICENSE release/StarChem/LICENSE
+          cp THIRD_PARTY_NOTICES.md release/StarChem/THIRD_PARTY_NOTICES.md
+
+          COMMIT_EPOCH="$(git show -s --format=%ct "$NEW_SHA")"
+          find release/StarChem -exec touch -d "@$COMMIT_EPOCH" {} +
+          (
+            cd release
+            mapfile -t ZIP_ENTRIES < <(find StarChem -print | LC_ALL=C sort)
+            printf '%s\n' "${ZIP_ENTRIES[@]}" | zip -X -q StarChem-v1.5.4.zip -@
+          )
+          cp release/StarChem-v1.5.4.zip .
+          sha256sum StarChem-v1.5.4.zip > StarChem-v1.5.4.zip.sha256
+          sha256sum -c StarChem-v1.5.4.zip.sha256
+          java -jar build/libs/StarChem.jar --version | \
+            grep -Fx "StarChem 1.5.4 (${NEW_SHA:0:12})"
+
+      - name: Upload validated release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: StarChem-v1.5.4-connectivity-fix
+          path: |
+            StarChem-v1.5.4.zip
+            StarChem-v1.5.4.zip.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  windows-launcher-smoke:
+    needs: patch-test-package
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Download validated release package
+        uses: actions/download-artifact@v4
+        with:
+          name: StarChem-v1.5.4-connectivity-fix
+          path: release-artifact
+
+      - name: Validate Windows package and launchers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path 'release-artifact' 'StarChem-v1.5.4.zip'
+          $checksum = Join-Path 'release-artifact' 'StarChem-v1.5.4.zip.sha256'
+          $expected = ((Get-Content -LiteralPath $checksum -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+          $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
+          if ($expected -ne $actual) { throw 'Release checksum mismatch.' }
+          $root = Join-Path $env:RUNNER_TEMP 'starchem-v154-connectivity-fix'
+          Remove-Item -Recurse -Force $root -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath $zip -DestinationPath $root
+          Push-Location (Join-Path $root 'StarChem')
+          try {
+            $version = (& cmd /c run-starchem.bat --version | Out-String).Trim()
+            $sha = '${{ needs.patch-test-package.outputs.new_sha }}'
+            $expectedVersion = "StarChem 1.5.4 ($($sha.Substring(0, 12)))"
+            if ($version -ne $expectedVersion) { throw "Unexpected version output: $version" }
+            $help = (& cmd /c run-starchem-server.bat --help | Out-String)
+            if ($LASTEXITCODE -ne 0 -or $help -notmatch '--server \[PORT\]') {
+              throw 'Server launcher smoke test failed.'
+            }
+          } finally {
+            Pop-Location
+          }
+
+  publish-release:
+    needs: [patch-test-package, windows-launcher-smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out fixed main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Download validated package
+        uses: actions/download-artifact@v4
+        with:
+          name: StarChem-v1.5.4-connectivity-fix
+          path: release-artifact
+
+      - name: Publish v1.5.4
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEW_SHA: ${{ needs.patch-test-package.outputs.new_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$NEW_SHA"
+          if gh release view v1.5.4 >/dev/null 2>&1; then
+            echo 'v1.5.4 already exists; refusing to overwrite an existing release.' >&2
+            exit 1
+          fi
+          gh release create v1.5.4 \
+            --target "$NEW_SHA" \
+            --title 'StarChem v1.5.4' \
+            --notes-file RELEASE_NOTES.md \
+            release-artifact/StarChem-v1.5.4.zip \
+            release-artifact/StarChem-v1.5.4.zip.sha256
+          git fetch --tags --force
+          test "$(git rev-parse 'v1.5.4^{}')" = "$NEW_SHA"
+          rm -rf release-check
+          mkdir release-check
+          gh release download v1.5.4 --dir release-check
+          (cd release-check && sha256sum -c StarChem-v1.5.4.zip.sha256)
