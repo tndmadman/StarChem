@@ -127,6 +127,61 @@ final class NpcRepairEvacuationSystem {
         if (world != null) RUNTIMES.remove(world);
     }
 
+    static synchronized Map<String,Object> capture(World world) {
+        Map<String,Object> out = new LinkedHashMap<>();
+        Map<String, RuntimeState> byFaction = RUNTIMES.get(world);
+        if (byFaction == null) return out;
+        List<Object> rows = new ArrayList<>();
+        for (Map.Entry<String, RuntimeState> entry : byFaction.entrySet()) {
+            RuntimeState runtime = entry.getValue();
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("factionId", entry.getKey());
+            row.put("seed", runtime.seed);
+            List<Object> assessments = new ArrayList<>();
+            for (Map.Entry<String, LocalAssessment> assessmentEntry : runtime.assessments.entrySet()) {
+                LocalAssessment assessment = assessmentEntry.getValue();
+                Map<String,Object> savedAssessment = new LinkedHashMap<>();
+                savedAssessment.put("systemId", assessmentEntry.getKey());
+                savedAssessment.put("noPathSeconds", assessment.noPathSeconds);
+                savedAssessment.put("noProgressSeconds", assessment.noProgressSeconds);
+                savedAssessment.put("lastNeedTotal", assessment.lastNeedTotal);
+                savedAssessment.put("lastMaterialProgress", assessment.lastMaterialProgress);
+                assessments.add(savedAssessment);
+            }
+            row.put("assessments", assessments);
+            row.put("plan", capturePlan(runtime.plan));
+            rows.add(row);
+        }
+        out.put("runtimes", rows);
+        return out;
+    }
+
+    static synchronized void restore(World world, Object saved) {
+        if (world == null) return;
+        Map<String,Object> data = ServerSaveStore.object(saved);
+        Map<String, RuntimeState> byFaction = new LinkedHashMap<>();
+        for (Object item : ServerSaveStore.list(data.get("runtimes"))) {
+            Map<String,Object> row = ServerSaveStore.object(item);
+            String factionId = ServerSaveStore.string(row, "factionId", "");
+            if (factionId.isBlank()) continue;
+            RuntimeState runtime = new RuntimeState(ServerSaveStore.longValue(row, "seed", world.systemSeed()));
+            for (Object assessmentItem : ServerSaveStore.list(row.get("assessments"))) {
+                Map<String,Object> savedAssessment = ServerSaveStore.object(assessmentItem);
+                String systemId = ServerSaveStore.string(savedAssessment, "systemId", "");
+                LocalAssessment assessment = new LocalAssessment();
+                assessment.noPathSeconds = Math.max(0, ServerSaveStore.doubleValue(savedAssessment, "noPathSeconds", 0));
+                assessment.noProgressSeconds = Math.max(0, ServerSaveStore.doubleValue(savedAssessment, "noProgressSeconds", 0));
+                assessment.lastNeedTotal = Math.max(0, ServerSaveStore.doubleValue(savedAssessment, "lastNeedTotal", 0));
+                assessment.lastMaterialProgress = Math.max(0, ServerSaveStore.doubleValue(savedAssessment, "lastMaterialProgress", 0));
+                runtime.assessments.put(systemId, assessment);
+            }
+            runtime.plan = restorePlan(row.get("plan"));
+            byFaction.put(factionId, runtime);
+        }
+        if (byFaction.isEmpty()) RUNTIMES.remove(world);
+        else RUNTIMES.put(world, byFaction);
+    }
+
     private static void progressPlan(World world, NpcFaction faction,
                                      RuntimeState runtime) {
         EvacuationPlan plan = runtime.plan;
@@ -186,6 +241,35 @@ final class NpcRepairEvacuationSystem {
         WormholeGate gate = gateTo(world, nextSystemId);
         if (gate == null) return;
         for (Unit unit : local) unit.issueMove(gate.x, gate.y);
+    }
+
+    private static Map<String,Object> capturePlan(EvacuationPlan plan) {
+        Map<String,Object> out = new LinkedHashMap<>();
+        if (plan == null) return out;
+        out.put("sourceSystemId", plan.sourceSystemId);
+        out.put("destinationSystemId", plan.destinationSystemId);
+        out.put("route", List.copyOf(plan.route));
+        out.put("unitKeys", List.copyOf(plan.unitKeys));
+        return out;
+    }
+
+    private static EvacuationPlan restorePlan(Object saved) {
+        Map<String,Object> data = ServerSaveStore.object(saved);
+        if (data.isEmpty()) return null;
+        String sourceSystemId = ServerSaveStore.string(data, "sourceSystemId", "");
+        String destinationSystemId = ServerSaveStore.string(data, "destinationSystemId", "");
+        if (sourceSystemId.isBlank() || destinationSystemId.isBlank()) return null;
+        List<String> route = new ArrayList<>();
+        for (Object item : ServerSaveStore.list(data.get("route"))) {
+            String value = ServerSaveStore.asString(item, "");
+            if (!value.isBlank()) route.add(value);
+        }
+        Set<String> unitKeys = new LinkedHashSet<>();
+        for (Object item : ServerSaveStore.list(data.get("unitKeys"))) {
+            String value = ServerSaveStore.asString(item, "");
+            if (!value.isBlank()) unitKeys.add(value);
+        }
+        return new EvacuationPlan(sourceSystemId, destinationSystemId, route, unitKeys);
     }
 
     private static Destination chooseDestination(World world, NpcFaction faction,

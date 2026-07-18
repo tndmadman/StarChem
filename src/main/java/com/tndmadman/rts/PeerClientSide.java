@@ -26,6 +26,11 @@ final class PeerClientSide {
     private String viewRequestFallbackSystemId = "";
     private String localPlayerId = "SOLO";
     private String sessionToken = "";
+    private String passwordVerifier = "";
+    private String authChallengeSalt = "";
+    private String authChallengeNonce = "";
+    private String sessionChallengeNonce = "";
+    private boolean authRegistrationRequested;
     private String viewedSystemId = "";
     private String failureMessage = "";
     private String pendingReadyName = "";
@@ -39,6 +44,8 @@ final class PeerClientSide {
         attemptStarted = now;
         lastServerPacket = now;
         SessionTokenStore.StoredSession stored = SessionTokenStore.load(config);
+        passwordVerifier = stored.authDigest();
+        if (passwordVerifier.isBlank()) passwordVerifier = SessionTokenStore.authDigest(config);
         if (stored.valid()) {
             localPlayerId = stored.playerId();
             sessionToken = stored.token();
@@ -173,7 +180,9 @@ final class PeerClientSide {
         PlayerRegistry.activate(world);
         lastServerPacket = System.currentTimeMillis();
         if (readGalaxy(message) || readLeaderboard(message) || readDevStatus(message) || readViewDenied(message)) return;
-        if (!readJoinDenied(message) && !readSessionBusy(message) && !readSessionDenied(message) && !readSystemDelete(message)) ClientPackets.handle(this, message);
+        if (!readAuthRequired(message) && !readAuthChallenge(message) && !readSessionChallenge(message)
+                && !readJoinDenied(message) && !readSessionBusy(message) && !readSessionDenied(message)
+                && !readSystemDelete(message)) ClientPackets.handle(this, message);
     }
 
     void handle(String message) {
@@ -249,6 +258,10 @@ final class PeerClientSide {
             throw new SnapshotDecodeException("Malformed WELCOME packet: missing or invalid session token.");
         }
         ConnectionState previousState = state;
+        authChallengeSalt = "";
+        authChallengeNonce = "";
+        sessionChallengeNonce = "";
+        authRegistrationRequested = false;
         localPlayerId = parts[1];
         sessionToken = newSessionToken;
         state = ConnectionState.SYNCING;
@@ -405,7 +418,47 @@ final class PeerClientSide {
     private boolean readJoinDenied(String message) {
         if (message == null || !message.startsWith("JOIN_DENIED|")) return false;
         String reason = message.length() > 12 ? message.substring(12).trim() : "Join refused by server.";
+        if (reason.toLowerCase(java.util.Locale.ROOT).contains("password")) {
+            SessionTokenStore.clear(config);
+            sessionToken = "";
+            passwordVerifier = "";
+            authChallengeSalt = "";
+            authChallengeNonce = "";
+            sessionChallengeNonce = "";
+            authRegistrationRequested = false;
+        }
         failConnection(reason.isBlank() ? "Join refused by server." : reason);
+        return true;
+    }
+
+    private boolean readAuthRequired(String message) {
+        if (message == null || !message.startsWith("AUTH_REQUIRED|")) return false;
+        if (passwordVerifier.isBlank()) {
+            failConnection("Player password is required for server identity.");
+            return true;
+        }
+        authRegistrationRequested = true;
+        authChallengeSalt = "";
+        authChallengeNonce = "";
+        state = ConnectionState.JOINING;
+        lastHandshake = 0;
+        world.status = "Registering server player password for " + config.playerName + ".";
+        return true;
+    }
+
+    private boolean readAuthChallenge(String message) {
+        if (message == null || !message.startsWith("AUTH_CHALLENGE|")) return false;
+        String[] parts = message.split("\\|", -1);
+        if (parts.length < 4 || PasswordAuth.decodeHex(parts[2]).length != 16 || !PasswordAuth.validNonce(parts[3])) {
+            failConnection("Server sent an invalid password challenge.");
+            return true;
+        }
+        authRegistrationRequested = false;
+        authChallengeSalt = parts[2];
+        authChallengeNonce = parts[3];
+        state = ConnectionState.JOINING;
+        lastHandshake = 0;
+        world.status = "Answering server password challenge for " + config.playerName + ".";
         return true;
     }
 
@@ -416,11 +469,26 @@ final class PeerClientSide {
         return true;
     }
 
+    private boolean readSessionChallenge(String message) {
+        if (message == null || !message.startsWith("SESSION_CHALLENGE|")) return false;
+        String[] parts = message.split("\\|", -1);
+        if (parts.length < 3 || !parts[1].equals(localPlayerId) || !PasswordAuth.validNonce(parts[2])) {
+            failConnection("Server sent an invalid resume challenge.");
+            return true;
+        }
+        sessionChallengeNonce = parts[2];
+        state = ConnectionState.RECONNECTING;
+        lastHandshake = 0;
+        world.status = "Answering saved session challenge for " + localPlayerId + ".";
+        return true;
+    }
+
     private boolean readSessionDenied(String message) {
         if (message == null || !message.startsWith("SESSION_DENIED|")) return false;
         String reason = message.length() > 15 ? message.substring(15).trim() : "Saved session was rejected.";
         SessionTokenStore.clear(config);
         sessionToken = "";
+        sessionChallengeNonce = "";
         transport.clearOutbound();
         if (!connectedOnce && state == ConnectionState.RECONNECTING) {
             localPlayerId = "SOLO";
@@ -532,6 +600,7 @@ final class PeerClientSide {
         state = ConnectionState.RECONNECTING;
         syncingResume = true;
         pendingReadyName = "";
+        sessionChallengeNonce = "";
         attemptStarted = now;
         lastHandshake = 0;
         devApproved = false;
@@ -561,13 +630,31 @@ final class PeerClientSide {
     private String joinMessage() {
         String request = config.devMode ? "DEV" : "NODEV";
         String token = config.devMode ? config.devToken : "";
-        return "JOIN|" + cleanPacketPart(config.playerName) + "|" + request + "|" + token;
+        String message = "JOIN|" + cleanPacketPart(config.playerName) + "|" + request + "|" + token;
+        if (!authChallengeNonce.isBlank() && !authChallengeSalt.isBlank() && !passwordVerifier.isBlank()) {
+            byte[] verifier = PasswordAuth.decodeVerifier(passwordVerifier);
+            byte[] salt = PasswordAuth.decodeHex(authChallengeSalt);
+            String proof = PasswordAuth.challengeProof(PasswordAuth.serverDigest(verifier, salt),
+                    config.playerName, authChallengeNonce);
+            return message + "|AUTH_PROOF_NONCE|" + cleanPacketPart(authChallengeNonce)
+                    + "|AUTH_PROOF|" + cleanPacketPart(proof);
+        }
+        if (authRegistrationRequested && !passwordVerifier.isBlank()) {
+            return message + "|AUTH_REGISTER|" + cleanPacketPart(passwordVerifier);
+        }
+        return message;
     }
 
     private String resumeMessage() {
         String request = config.devMode ? "DEV" : "NODEV";
         String devToken = config.devMode ? config.devToken : "";
-        return "RESUME|" + cleanPacketPart(localPlayerId) + "|" + sessionToken + "|" + request + "|" + devToken;
+        String message = "RESUME|" + cleanPacketPart(localPlayerId) + "||" + request + "|" + devToken;
+        if (!sessionChallengeNonce.isBlank() && !sessionToken.isBlank()) {
+            String proof = PasswordAuth.sessionProof(PasswordAuth.tokenDigest(sessionToken), localPlayerId, sessionChallengeNonce);
+            return message + "|SESSION_PROOF_NONCE|" + cleanPacketPart(sessionChallengeNonce)
+                    + "|SESSION_PROOF|" + cleanPacketPart(proof);
+        }
+        return message;
     }
 
     private boolean canIssueCommands() { return state == ConnectionState.CONNECTED; }

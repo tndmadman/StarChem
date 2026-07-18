@@ -11,6 +11,7 @@ public final class SessionRecoveryValidator {
 
     public static void main(String[] args) throws Exception {
         validateServerSessionRecovery();
+        validateServerPersistentSessionReclaim();
         validateClientReconnectStateAndPersistence();
         System.out.println("StarChem TCP session recovery validation passed.");
     }
@@ -33,7 +34,8 @@ public final class SessionRecoveryValidator {
             PeerServerSide server = new PeerServerSide(config, world, transport);
 
             ConnectionId firstEndpoint = transport.connectionId(loopback, firstClient.getLocalPort());
-            server.join(firstEndpoint, loopback, firstClient.getLocalPort(), "Recovery Client", false, "");
+            server.join(firstEndpoint, loopback, firstClient.getLocalPort(), "Recovery Client",
+                    PasswordAuth.verifier("Recovery Client", "validator-password"), false, "");
             String firstWelcome = receivePayload(firstClient, "WELCOME|");
             String firstToken = markerValue(firstWelcome, "SESSION");
             require(validToken(firstToken), "initial join did not issue a session token");
@@ -56,6 +58,12 @@ public final class SessionRecoveryValidator {
             require(!server.owns(firstEndpoint, "P1"), "timed-out TCP connection remained connected");
             require(world.hasLiveAssets("P1"), "timeout deleted P1 assets");
             require(world.hasResearch("P1", "session-recovery-marker"), "timeout deleted P1 research");
+            ConnectionId rawTokenEndpoint = transport.connectionId(loopback, restartedClient.getLocalPort());
+            PacketSideA.handle(server, "RESUME|P1|" + firstToken + "|NODEV|",
+                    new NetPacket("RESUME|P1|" + firstToken + "|NODEV|", rawTokenEndpoint, loopback, restartedClient.getLocalPort()));
+            String rawTokenResponse = receivePayload(restartedClient, "SESSION_CHALLENGE|");
+            require(rawTokenResponse.contains("|P1|"), "raw network resume token was not converted to a proof challenge");
+            require(!server.owns(rawTokenEndpoint, "P1"), "raw network resume token reclaimed the player session");
             require(server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1", firstToken, false, ""),
                     "valid session could not rebind to a new TCP connection");
             String reboundWelcome = receivePayload(reboundClient, "WELCOME|");
@@ -97,6 +105,65 @@ public final class SessionRecoveryValidator {
         }
     }
 
+    private static void validateServerPersistentSessionReclaim() throws Exception {
+        InetAddress loopback = InetAddress.getLoopbackAddress();
+        PeerTransport transport = PeerTransport.server(0, new PerfStats());
+        transport.start();
+        try (Socket firstClient = connect(loopback, transport.localPort());
+             Socket restoredClient = connect(loopback, transport.localPort())) {
+            waitConnection(transport, loopback, firstClient.getLocalPort());
+            waitConnection(transport, loopback, restoredClient.getLocalPort());
+
+            Config config = Config.host("Persistent Session Host", transport.localPort(), false);
+            World firstWorld = new World("Persistent Session Host", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+            PlayerRegistry.activate(firstWorld);
+            PlayerRegistry.reset("SOLO", "Persistent Session Host", 0x50BEFF);
+            PeerServerSide firstServer = new PeerServerSide(config, firstWorld, transport);
+
+            ConnectionId firstEndpoint = transport.connectionId(loopback, firstClient.getLocalPort());
+            firstServer.join(firstEndpoint, loopback, firstClient.getLocalPort(), "Persistent Client",
+                    PasswordAuth.verifier("Persistent Client", "validator-password"), false, "");
+            String firstWelcome = receivePayload(firstClient, "WELCOME|");
+            String firstToken = markerValue(firstWelcome, "SESSION");
+            require(validToken(firstToken), "persistent join did not issue a session token");
+            require(!firstServer.persistentSessions().isEmpty(), "server did not expose a persistent session record");
+
+            World restoredWorld = new World("Persistent Session Host", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+            PlayerRegistry.activate(restoredWorld);
+            PlayerRegistry.reset("SOLO", "Persistent Session Host", 0x50BEFF);
+            PeerServerSide restoredServer = new PeerServerSide(config, restoredWorld, transport, firstServer.persistentSessions());
+            ConnectionId restoredEndpoint = transport.connectionId(loopback, restoredClient.getLocalPort());
+            restoredServer.join(restoredEndpoint, loopback, restoredClient.getLocalPort(), "Persistent Client", false, "");
+            String challenge = receivePayload(restoredClient, "AUTH_CHALLENGE|");
+            String[] challengeParts = challenge.split("\\|", -1);
+            require(challengeParts.length >= 4 && PasswordAuth.decodeHex(challengeParts[2]).length == 16
+                            && PasswordAuth.validNonce(challengeParts[3]),
+                    "restored server did not issue a valid password challenge");
+            String wrongProof = PasswordAuth.challengeProof(
+                    PasswordAuth.serverDigest(PasswordAuth.decodeVerifier(
+                            PasswordAuth.verifier("Persistent Client", "wrong-password")),
+                            PasswordAuth.decodeHex(challengeParts[2])),
+                    "Persistent Client", challengeParts[3]);
+            restoredServer.join(restoredEndpoint, loopback, restoredClient.getLocalPort(), "Persistent Client",
+                    "", challengeParts[3], wrongProof, false, "");
+            String rejected = receivePayload(restoredClient, "JOIN_DENIED|");
+            require(rejected.contains("Password rejected"), "wrong password did not receive a password rejection");
+            require(!restoredServer.owns(restoredEndpoint, "P1"),
+                    "wrong password reclaimed the saved player session");
+
+            require(restoredServer.resume(restoredEndpoint, loopback, restoredClient.getLocalPort(), "P1", firstToken, false, ""),
+                    "saved server session could not be reclaimed after restart");
+            String restoredWelcome = receivePayload(restoredClient, "WELCOME|");
+            String restoredToken = markerValue(restoredWelcome, "SESSION");
+            require(validToken(restoredToken) && !restoredToken.equals(firstToken),
+                    "reclaimed persistent session did not rotate its token");
+            require(restoredServer.owns(restoredEndpoint, "P1"),
+                    "restored server did not bind reclaimed session to the new TCP connection");
+        } finally {
+            transport.shutdown();
+        }
+    }
+
     private static void validateClientReconnectStateAndPersistence() throws Exception {
         Path store = Files.createTempFile("starchem-session-validator-", ".properties");
         Files.deleteIfExists(store);
@@ -106,9 +173,23 @@ public final class SessionRecoveryValidator {
         String rotatedToken = "B".repeat(43);
         try {
             SessionTokenStore.save(config, "P9", firstToken);
+            SessionTokenStore.saveAuthDigest(config, PasswordAuth.verifier(config.playerName, "validator-password"));
             SessionTokenStore.StoredSession stored = SessionTokenStore.load(config);
             require(stored.valid() && "P9".equals(stored.playerId()) && firstToken.equals(stored.token()),
                     "session token store did not round-trip the saved identity");
+            require(PasswordAuth.validVerifier(stored.authDigest()),
+                    "session token store did not round-trip the saved password verifier");
+            Config transientConfig = Config.join("Transient Client", "127.0.0.1", 50001, false);
+            String transientVerifier = PasswordAuth.verifier(transientConfig.playerName, "one-run-password");
+            SessionTokenStore.rememberAuthDigestForProcess(transientConfig, transientVerifier);
+            require(transientVerifier.equals(SessionTokenStore.authDigest(transientConfig)),
+                    "process-only password verifier was not available for the current launch");
+            SessionTokenStore.save(transientConfig, "P8", "C".repeat(43));
+            String savedTransientAuth = SessionTokenStore.load(transientConfig).authDigest();
+            require(transientVerifier.equals(savedTransientAuth),
+                    "process-only password verifier was not available after token save");
+            require(!Files.readString(store).contains(transientVerifier),
+                    "process-only password verifier was persisted to disk");
 
             World firstWorld = new World("Recovery Client", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
             PlayerRegistry.activate(firstWorld);

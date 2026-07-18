@@ -25,7 +25,8 @@ public final class TcpConnectionIdentityValidator {
             PlayerRegistry.activate(world);
             PlayerRegistry.reset("SOLO", config.playerName, 0x50BEFF);
             PeerServerSide server = new PeerServerSide(config, world, transport);
-            server.join(firstId, loopback, first.getLocalPort(), "Identity Client", false, "");
+            server.join(firstId, loopback, first.getLocalPort(), "Identity Client",
+                    PasswordAuth.verifier("Identity Client", "validator-password"), false, "");
             String firstWelcome = receive(first, "WELCOME|");
             String token = marker(firstWelcome, "SESSION");
             TcpIntegrationHarness.require(!token.isBlank(), "initial session token was missing");

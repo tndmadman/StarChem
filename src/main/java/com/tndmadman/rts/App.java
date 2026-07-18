@@ -67,6 +67,11 @@ public final class App {
         System.out.println("  --name NAME             Player or server name");
         System.out.println("  --system SYSTEM_ID      Initial star-system template");
         System.out.println("  --galaxy-copies 1|2     Number of copies per galaxy template");
+        System.out.println("  --save-dir DIR          Dedicated-server save directory (default: saves)");
+        System.out.println("  --save-name NAME        Dedicated-server save name (default: server)");
+        System.out.println("  --autosave-seconds N    Dedicated-server autosave interval; 0 disables autosave");
+        System.out.println("  --backup-count N        Number of timestamped save backups to retain");
+        System.out.println("  --new-world             Ignore existing dedicated-server saves");
         System.out.println("  --dev                   Enable developer mode");
         System.out.println("  --dev-token TOKEN       Authorize requested remote developer access");
         System.out.println("  --enable-timers         Keep production timers enabled in developer mode");
@@ -86,7 +91,6 @@ public final class App {
             HeadlessGameServer activeServer = server;
             shutdownHook = new Thread(() -> {
                 if (running.getAndSet(false)) System.out.println("Server shutdown requested.");
-                activeServer.stop();
             }, "starchem-server-shutdown");
             Runtime.getRuntime().addShutdownHook(shutdownHook);
 

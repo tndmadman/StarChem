@@ -115,6 +115,35 @@ final class World {
     String playerHomeSystemId(String playerId) { return galaxy.playerHomeSystemId(this, playerId, starSystem); }
     void activateSystem(String systemId) { celestials = galaxy.activate(this, systemId); systemTime = galaxy.activeSystemTime(); }
     void saveActiveSystem() { galaxy.saveActive(this); }
+    Map<String,Object> captureServerSaveGalaxy() { return galaxy.captureSave(this); }
+    void restoreServerSaveGalaxy(Map<String,Object> save) { celestials = galaxy.restoreSave(this, save); systemTime = galaxy.activeSystemTime(); selectedResourceId = -1; }
+    Map<String,Object> captureServerSaveRuntime() {
+        Map<String,Object> out = new LinkedHashMap<>();
+        out.put("simulationScheduler", SystemSimulationScheduler.capture(this));
+        out.put("productionPlanner", ProductionPlanner.capture(this));
+        out.put("npcFactions", captureNpcFactionRuntimes());
+        out.put("npcStrategicDirector", NpcStrategicDirector.capture(this));
+        out.put("npcStationConstruction", NpcStationConstructionSystem.capture(this));
+        out.put("npcExpeditions", NpcExpeditionSystem.capture(this));
+        out.put("npcExpeditionReadiness", NpcExpeditionReadinessSystem.capture(this));
+        out.put("npcRecovery", NpcRecoverySystem.capture(this));
+        out.put("npcRepairEvacuation", NpcRepairEvacuationSystem.capture(this));
+        out.put("npcSquadCombat", NpcSquadCombatSystem.capture(this));
+        return out;
+    }
+    void restoreServerSaveRuntime(Map<String,Object> save) {
+        Map<String,Object> data = save == null ? Map.of() : save;
+        SystemSimulationScheduler.restore(this, data.get("simulationScheduler"));
+        ProductionPlanner.restore(this, data.get("productionPlanner"));
+        restoreNpcFactionRuntimes(data.get("npcFactions"));
+        NpcStrategicDirector.restore(this, data.get("npcStrategicDirector"));
+        NpcStationConstructionSystem.restore(this, data.get("npcStationConstruction"));
+        NpcExpeditionSystem.restore(this, data.get("npcExpeditions"));
+        NpcExpeditionReadinessSystem.restore(this, data.get("npcExpeditionReadiness"));
+        NpcRecoverySystem.restore(this, data.get("npcRecovery"));
+        NpcRepairEvacuationSystem.restore(this, data.get("npcRepairEvacuation"));
+        NpcSquadCombatSystem.restore(this, data.get("npcSquadCombat"));
+    }
     List<Material> spawnMaterials() { return starSystem.spawnMaterials(); }
     List<Material> spawnMaterials(String playerId) { return galaxy.spawnMaterials(this, playerId, starSystem); }
     void ensurePlayerHome(String playerId) { galaxy.ensurePlayerHome(this, playerId, starSystem); }
@@ -256,6 +285,42 @@ final class World {
         NpcExpeditionSystem.clear(this);
         NpcStationConstructionSystem.clear(this);
         NpcSquadCombatSystem.clear(this);
+    }
+
+    private List<Object> captureNpcFactionRuntimes() {
+        List<Object> out = new ArrayList<>();
+        for (NpcFactionRuntime runtime : npcFactionRuntimes.values()) {
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("factionId", runtime.factionId());
+            row.put("homeSystemId", runtime.homeSystemId());
+            row.put("state", runtime.state().name());
+            row.put("spawnTimer", runtime.spawnTimer());
+            row.put("spawnCount", runtime.spawnCount());
+            out.add(row);
+        }
+        return out;
+    }
+
+    private void restoreNpcFactionRuntimes(Object saved) {
+        npcFactionRuntimes.clear();
+        for (Object item : ServerSaveStore.list(saved)) {
+            Map<String,Object> row = ServerSaveStore.object(item);
+            String factionId = ServerSaveStore.string(row, "factionId", "");
+            NpcFaction faction = null;
+            for (NpcFaction candidate : NpcRules.factions()) {
+                if (candidate.id().equals(factionId)) {
+                    faction = candidate;
+                    break;
+                }
+            }
+            if (faction == null || faction.behavior() != NpcBehavior.FACTION) continue;
+            NpcFactionRuntime runtime = new NpcFactionRuntime(faction);
+            runtime.restore(
+                    ServerSaveStore.enumValue(NpcFactionRuntime.State.class, row.get("state"), NpcFactionRuntime.State.INITIALIZING),
+                    ServerSaveStore.doubleValue(row, "spawnTimer", runtime.spawnTimer()),
+                    ServerSaveStore.intValue(row, "spawnCount", runtime.spawnCount()));
+            npcFactionRuntimes.put(faction.id(), runtime);
+        }
     }
 
     void resetOrganizedNpcFactionState(NpcFaction faction, boolean defeated) {

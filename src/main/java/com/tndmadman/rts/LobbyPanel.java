@@ -141,8 +141,54 @@ final class LobbyPanel extends JPanel {
     }
 
     private void startClient() {
-        try { owner.launchGame(Config.join(nameField.getText(), addressField.getText().trim(), Config.parsePort(portField.getText()), devBox.isSelected(), disabledNpcFactions(), selectedSystemId(), selectedGalaxyCopies())); }
+        try {
+            Config config = Config.join(nameField.getText(), addressField.getText().trim(), Config.parsePort(portField.getText()), devBox.isSelected(), disabledNpcFactions(), selectedSystemId(), selectedGalaxyCopies());
+            if (!ensurePlayerPassword(config)) return;
+            owner.launchGame(config);
+        }
         catch (RuntimeException ex) { setStatus(ex.getMessage()); }
+    }
+
+    private boolean ensurePlayerPassword(Config config) {
+        if (!SessionTokenStore.authDigest(config).isBlank()) return true;
+        JPasswordField password = new JPasswordField(18);
+        JPasswordField confirm = new JPasswordField(18);
+        JCheckBox remember = new JCheckBox("Remember password on this computer", true);
+        styleField(password);
+        styleField(confirm);
+        styleCheck(remember);
+        JPanel panel = new JPanel(new GridLayout(0, 1, 6, 6));
+        panel.add(new JLabel("Create or enter the password for this commander on this server."));
+        panel.add(new JLabel("Password"));
+        panel.add(password);
+        panel.add(new JLabel("Confirm password"));
+        panel.add(confirm);
+        panel.add(remember);
+        int result = JOptionPane.showConfirmDialog(this, panel, "Server Player Password",
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (result != JOptionPane.OK_OPTION) {
+            setStatus("Join cancelled.");
+            return false;
+        }
+        char[] first = password.getPassword();
+        char[] second = confirm.getPassword();
+        try {
+            if (first.length < 6) {
+                setStatus("Password must be at least 6 characters.");
+                return false;
+            }
+            if (!java.util.Arrays.equals(first, second)) {
+                setStatus("Passwords did not match.");
+                return false;
+            }
+            String verifier = PasswordAuth.verifier(config.playerName, first);
+            if (remember.isSelected()) SessionTokenStore.saveAuthDigest(config, verifier);
+            else SessionTokenStore.rememberAuthDigestForProcess(config, verifier);
+            return true;
+        } finally {
+            java.util.Arrays.fill(first, '\0');
+            java.util.Arrays.fill(second, '\0');
+        }
     }
 
     void setStatus(String status) { statusLabel.setText(status); }

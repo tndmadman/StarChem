@@ -4,6 +4,9 @@ out/
 *.class
 *.log
 logs/ai-brain/
+saves/
+saves-temp/
+*.p12
 .DS_Store
 .idea/
 .vscode/

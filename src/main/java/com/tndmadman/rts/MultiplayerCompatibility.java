@@ -16,7 +16,7 @@ import java.util.Set;
 import java.util.TreeSet;
 
 final class MultiplayerCompatibility {
-    static final int PROTOCOL_VERSION = 4;
+    static final int PROTOCOL_VERSION = 6;
     private static final Path DEFAULT_MANIFEST = Path.of("config/starchem.json");
     private static final String CONFIG_HASH_SCHEMA = "StarChemConfigFingerprint/v1";
     private static final int WIRE_FIELD_COUNT = 10;
@@ -57,11 +57,9 @@ final class MultiplayerCompatibility {
         if (message.startsWith("JOIN_V1|")) {
             command = "JOIN_V1";
             legacyCommand = "JOIN";
-            compatibilityStart = 4;
         } else if (message.startsWith("RESUME_V1|")) {
             command = "RESUME_V1";
             legacyCommand = "RESUME";
-            compatibilityStart = 5;
         } else {
             return WireResult.pass(message);
         }
@@ -69,6 +67,9 @@ final class MultiplayerCompatibility {
         try {
             String[] parts = message.split("\\|", -1);
             if (!command.equals(parts[0])) throw new WireFormatException("MALFORMED_HANDSHAKE", "invalid command");
+            compatibilityStart = parts.length - WIRE_FIELD_COUNT;
+            int minimumPayloadFields = "JOIN_V1".equals(command) ? 4 : 5;
+            if (compatibilityStart < minimumPayloadFields) throw new WireFormatException("MISSING_FIELDS", "missing compatibility fields");
             Descriptor client = Descriptor.parse(parts, compatibilityStart);
             Decision decision = compare(client, local());
             if (!decision.compatible()) return WireResult.reject(denialPayload(decision.code(), decision.message()));

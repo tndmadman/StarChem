@@ -50,6 +50,38 @@ final class GalaxyCoordinator {
     double activeSystemTime() { WorldSystemState state = active(); return state == null ? 0 : state.systemTime; }
     void setActiveSystemTime(double time) { WorldSystemState state = active(); if (state != null) state.systemTime = Math.max(0, time); }
 
+    Map<String,Object> captureSave(World world) {
+        saveActive(world);
+        Map<String,Object> out = new LinkedHashMap<>();
+        out.put("seed", seed);
+        out.put("activeSystemId", activeSystemId);
+        out.put("entrySystemId", entrySystemId);
+        out.put("nextResourceId", nextResourceId);
+        out.put("playerHomes", new LinkedHashMap<>(playerHomes));
+        List<Object> savedSystems = new ArrayList<>();
+        for (WorldSystemState state : systems.values()) savedSystems.add(captureSystem(state));
+        out.put("systems", savedSystems);
+        return out;
+    }
+
+    CelestialSystem restoreSave(World world, Map<String,Object> save) {
+        if (save == null) throw new IllegalArgumentException("Save is missing galaxy data.");
+        systems.clear();
+        playerHomes.clear();
+        clearWorld(world);
+        seed = ServerSaveStore.longValue(save, "seed", System.nanoTime() ^ System.currentTimeMillis());
+        entrySystemId = ServerSaveStore.string(save, "entrySystemId", "");
+        activeSystemId = ServerSaveStore.string(save, "activeSystemId", "");
+        nextResourceId = Math.max(1, ServerSaveStore.intValue(save, "nextResourceId", 1));
+        Map<String,Object> homes = ServerSaveStore.object(save.get("playerHomes"));
+        for (Map.Entry<String,Object> entry : homes.entrySet()) playerHomes.put(entry.getKey(), ServerSaveStore.asString(entry.getValue(), ""));
+        for (Object item : ServerSaveStore.list(save.get("systems"))) restoreSystem(ServerSaveStore.object(item));
+        if (activeSystemId == null || activeSystemId.isBlank() || !systems.containsKey(activeSystemId)) activeSystemId = fallbackActiveSystemId();
+        if (entrySystemId == null || entrySystemId.isBlank()) entrySystemId = activeSystemId;
+        loadActive(world);
+        return activeCelestials();
+    }
+
     void saveActive(World world) {
         WorldSystemState state = active();
         if (state == null) return;
@@ -617,6 +649,288 @@ final class GalaxyCoordinator {
     private WorldSystemState active() { return activeSystemId == null ? null : systems.get(activeSystemId); }
     private GalaxySystem asGalaxySystem(WorldSystemState state) { return new GalaxySystem(state.id, state.definition, state.systemTime, state.celestials); }
     private String playerHomeId(String playerId) { String clean = playerId == null || playerId.isBlank() ? "player" : playerId.replaceAll("[^A-Za-z0-9_-]", "_"); return StarSystems.PLAYER_HOME_SYSTEM_ID + "_" + clean; }
+
+    private Map<String,Object> captureSystem(WorldSystemState state) {
+        Map<String,Object> out = new LinkedHashMap<>();
+        out.put("systemId", state.id);
+        out.put("templateId", state.templateId);
+        out.put("lifetime", state.lifetime.name());
+        out.put("systemTime", state.systemTime);
+        out.put("control", captureControl(state.control));
+        out.put("wormholes", captureWormholes(state.wormholes));
+        out.put("resources", captureResources(state.resources));
+        out.put("units", captureUnits(state.units.values()));
+        out.put("bases", captureBases(state.bases.values()));
+        out.put("projectiles", captureShots(state.shots));
+        out.put("worldItems", captureItems(state.items));
+        return out;
+    }
+
+    private void restoreSystem(Map<String,Object> data) {
+        String id = ServerSaveStore.string(data, "systemId", "");
+        if (id.isBlank()) return;
+        String templateId = SaveContentResolver.systemTemplateId(ServerSaveStore.string(data, "templateId", id));
+        StarSystemDefinition definition = StarSystems.get(templateId);
+        SystemLifetime lifetime = ServerSaveStore.enumValue(SystemLifetime.class, data.get("lifetime"), SystemLifetime.STATIC);
+        WorldSystemState state = new WorldSystemState(id, templateId, definition, lifetime, "", new CelestialSystem(definition, new Random(seed ^ ((long)id.hashCode() << 21) ^ definition.id().hashCode())));
+        state.systemTime = Math.max(0, ServerSaveStore.doubleValue(data, "systemTime", 0));
+        if (state.systemTime > 0) state.celestials.update(state.systemTime);
+        restoreControl(state.control, ServerSaveStore.object(data.get("control")));
+        state.wormholes.addAll(restoreWormholes(ServerSaveStore.list(data.get("wormholes"))));
+        state.resources.addAll(restoreResources(ServerSaveStore.list(data.get("resources"))));
+        state.units.putAll(restoreUnits(ServerSaveStore.list(data.get("units"))));
+        state.bases.putAll(restoreBases(ServerSaveStore.list(data.get("bases"))));
+        state.shots.addAll(restoreShots(ServerSaveStore.list(data.get("projectiles"))));
+        state.items.addAll(restoreItems(ServerSaveStore.list(data.get("worldItems"))));
+        systems.put(id, state);
+    }
+
+    private Map<String,Object> captureControl(SystemControlState control) {
+        Map<String,Object> out = new LinkedHashMap<>();
+        out.put("controllerId", control.controllerId());
+        out.put("claimantId", control.claimantId());
+        out.put("status", control.status().name());
+        out.put("captureProgress", control.captureProgress());
+        out.put("changedAt", control.changedAt());
+        return out;
+    }
+
+    private void restoreControl(SystemControlState control, Map<String,Object> data) {
+        control.restore(
+                ServerSaveStore.string(data, "controllerId", ""),
+                ServerSaveStore.string(data, "claimantId", ""),
+                ServerSaveStore.enumValue(SystemControlStatus.class, data.get("status"), SystemControlStatus.NEUTRAL),
+                ServerSaveStore.doubleValue(data, "captureProgress", 0),
+                ServerSaveStore.doubleValue(data, "changedAt", 0));
+    }
+
+    private List<Object> captureWormholes(List<WormholeGate> gates) {
+        List<Object> out = new ArrayList<>();
+        for (WormholeGate gate : gates) {
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("id", gate.id); row.put("fromSystemId", gate.fromSystemId); row.put("toSystemId", gate.toSystemId);
+            row.put("x", gate.x); row.put("y", gate.y); row.put("exitX", gate.exitX); row.put("exitY", gate.exitY);
+            out.add(row);
+        }
+        return out;
+    }
+
+    private List<WormholeGate> restoreWormholes(List<Object> rows) {
+        List<WormholeGate> out = new ArrayList<>();
+        for (Object item : rows) {
+            Map<String,Object> row = ServerSaveStore.object(item);
+            out.add(new WormholeGate(ServerSaveStore.string(row, "id", ""), ServerSaveStore.string(row, "fromSystemId", ""),
+                    ServerSaveStore.string(row, "toSystemId", ""), ServerSaveStore.doubleValue(row, "x", 0),
+                    ServerSaveStore.doubleValue(row, "y", 0), ServerSaveStore.doubleValue(row, "exitX", 0),
+                    ServerSaveStore.doubleValue(row, "exitY", 0)));
+        }
+        return out;
+    }
+
+    private List<Object> captureResources(List<ResourceNode> resources) {
+        List<Object> out = new ArrayList<>();
+        for (ResourceNode node : resources) {
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("id", node.id); row.put("name", node.name); row.put("kind", node.kind.name()); row.put("material", node.material.name());
+            row.put("x", node.x); row.put("y", node.y); row.put("amount", node.amount); row.put("maxAmount", node.maxAmount);
+            row.put("harvestRate", node.harvestRate); row.put("radius", node.radius); row.put("respawnTimer", node.respawnTimer);
+            row.put("active", node.active); row.put("orbiting", node.orbiting); row.put("orbitCenterX", node.orbitCenterX);
+            row.put("orbitCenterY", node.orbitCenterY); row.put("orbitRadius", node.orbitRadius); row.put("orbitAngle", node.orbitAngle);
+            row.put("orbitSpeed", node.orbitSpeed);
+            out.add(row);
+        }
+        return out;
+    }
+
+    private List<ResourceNode> restoreResources(List<Object> rows) {
+        List<ResourceNode> out = new ArrayList<>();
+        for (Object item : rows) {
+            Map<String,Object> row = ServerSaveStore.object(item);
+            Material material = SaveContentResolver.material(ServerSaveStore.asString(row.get("material"), ""));
+            ResourceNode node = new ResourceNode(ServerSaveStore.intValue(row, "id", 0), ServerSaveStore.string(row, "name", "Resource"),
+                    SaveContentResolver.nodeKind(ServerSaveStore.asString(row.get("kind"), "")),
+                    material == null ? Material.IRON : material,
+                    ServerSaveStore.doubleValue(row, "x", 0), ServerSaveStore.doubleValue(row, "y", 0),
+                    ServerSaveStore.doubleValue(row, "maxAmount", 0), ServerSaveStore.doubleValue(row, "harvestRate", 0),
+                    ServerSaveStore.doubleValue(row, "radius", 20));
+            node.amount = ServerSaveStore.doubleValue(row, "amount", node.maxAmount);
+            node.respawnTimer = ServerSaveStore.doubleValue(row, "respawnTimer", 0);
+            node.active = ServerSaveStore.boolValue(row, "active", true);
+            node.orbiting = ServerSaveStore.boolValue(row, "orbiting", false);
+            node.orbitCenterX = ServerSaveStore.doubleValue(row, "orbitCenterX", 0);
+            node.orbitCenterY = ServerSaveStore.doubleValue(row, "orbitCenterY", 0);
+            node.orbitRadius = ServerSaveStore.doubleValue(row, "orbitRadius", 0);
+            node.orbitAngle = ServerSaveStore.doubleValue(row, "orbitAngle", 0);
+            node.orbitSpeed = ServerSaveStore.doubleValue(row, "orbitSpeed", 0);
+            out.add(node);
+        }
+        return out;
+    }
+
+    private List<Object> captureUnits(Collection<Unit> units) {
+        List<Object> out = new ArrayList<>();
+        for (Unit unit : units) {
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("playerId", unit.playerId); row.put("unitId", unit.unitId); row.put("shipTypeId", unit.shipTypeId);
+            row.put("basePackageType", unit.basePackageType); row.put("attackTarget", unit.attackTarget);
+            row.put("logisticsTargetBaseId", unit.logisticsTargetBaseId); row.put("logisticsRequestId", unit.logisticsRequestId);
+            row.put("orderTarget", unit.orderTarget); row.put("task", unit.task.name()); row.put("orderType", unit.orderType.name());
+            row.put("x", unit.x); row.put("y", unit.y); row.put("targetX", unit.targetX); row.put("targetY", unit.targetY);
+            row.put("heading", unit.heading); row.put("orbitAngle", unit.orbitAngle); row.put("orbitRetarget", unit.orbitRetarget);
+            row.put("weaponCooldown", unit.weaponCooldown); row.put("weaponFlashTimer", unit.weaponFlashTimer); row.put("wormholeCooldown", unit.wormholeCooldown);
+            row.put("hp", unit.hp); row.put("shield", unit.shield); row.put("shieldDelayTimer", unit.shieldDelayTimer);
+            row.put("miningAnchorX", unit.miningAnchorX); row.put("miningAnchorY", unit.miningAnchorY); row.put("automationResourceId", unit.automationResourceId);
+            row.put("orderX1", unit.orderX1); row.put("orderY1", unit.orderY1); row.put("orderX2", unit.orderX2); row.put("orderY2", unit.orderY2);
+            row.put("orderRadius", unit.orderRadius); row.put("orderPhase", unit.orderPhase); row.put("miningAnchorSet", unit.miningAnchorSet);
+            row.put("inventory", ServerSaveStore.materialMap(unit.inventory));
+            out.add(row);
+        }
+        return out;
+    }
+
+    private Map<String,Unit> restoreUnits(List<Object> rows) {
+        Map<String,Unit> out = new LinkedHashMap<>();
+        for (Object item : rows) {
+            Map<String,Object> row = ServerSaveStore.object(item);
+            Unit unit = new Unit(ServerSaveStore.string(row, "playerId", "SOLO"), ServerSaveStore.intValue(row, "unitId", 1),
+                    SaveContentResolver.shipId(ServerSaveStore.string(row, "shipTypeId", Rules.STARTING_SHIP)), ServerSaveStore.doubleValue(row, "x", 0),
+                    ServerSaveStore.doubleValue(row, "y", 0));
+            unit.basePackageType = SaveContentResolver.optionalBaseId(ServerSaveStore.string(row, "basePackageType", ""));
+            unit.attackTarget = ServerSaveStore.string(row, "attackTarget", "");
+            unit.logisticsTargetBaseId = ServerSaveStore.string(row, "logisticsTargetBaseId", "");
+            unit.logisticsRequestId = ServerSaveStore.string(row, "logisticsRequestId", "");
+            unit.orderTarget = ServerSaveStore.string(row, "orderTarget", "");
+            unit.task = ServerSaveStore.enumValue(UnitTask.class, row.get("task"), UnitTask.IDLE);
+            unit.orderType = ServerSaveStore.enumValue(UnitOrderType.class, row.get("orderType"), UnitOrderType.NONE);
+            unit.targetX = ServerSaveStore.doubleValue(row, "targetX", unit.x); unit.targetY = ServerSaveStore.doubleValue(row, "targetY", unit.y);
+            unit.heading = ServerSaveStore.doubleValue(row, "heading", unit.heading); unit.orbitAngle = ServerSaveStore.doubleValue(row, "orbitAngle", unit.orbitAngle);
+            unit.orbitRetarget = ServerSaveStore.doubleValue(row, "orbitRetarget", 0); unit.weaponCooldown = ServerSaveStore.doubleValue(row, "weaponCooldown", 0);
+            unit.weaponFlashTimer = ServerSaveStore.doubleValue(row, "weaponFlashTimer", 0); unit.wormholeCooldown = ServerSaveStore.doubleValue(row, "wormholeCooldown", 0);
+            unit.hp = ServerSaveStore.doubleValue(row, "hp", unit.hp); unit.shield = ServerSaveStore.doubleValue(row, "shield", unit.shield);
+            unit.shieldDelayTimer = ServerSaveStore.doubleValue(row, "shieldDelayTimer", 0); unit.miningAnchorX = ServerSaveStore.doubleValue(row, "miningAnchorX", unit.x);
+            unit.miningAnchorY = ServerSaveStore.doubleValue(row, "miningAnchorY", unit.y); unit.automationResourceId = ServerSaveStore.intValue(row, "automationResourceId", -1);
+            unit.orderX1 = ServerSaveStore.doubleValue(row, "orderX1", 0); unit.orderY1 = ServerSaveStore.doubleValue(row, "orderY1", 0);
+            unit.orderX2 = ServerSaveStore.doubleValue(row, "orderX2", 0); unit.orderY2 = ServerSaveStore.doubleValue(row, "orderY2", 0);
+            unit.orderRadius = ServerSaveStore.doubleValue(row, "orderRadius", 0); unit.orderPhase = ServerSaveStore.intValue(row, "orderPhase", 0);
+            unit.miningAnchorSet = ServerSaveStore.boolValue(row, "miningAnchorSet", false);
+            unit.inventory.putAll(ServerSaveStore.restoreMaterialMap(row.get("inventory")));
+            out.put(unit.key(), unit);
+        }
+        return out;
+    }
+
+    private List<Object> captureBases(Collection<Base> bases) {
+        List<Object> out = new ArrayList<>();
+        for (Base base : bases) {
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("id", base.id); row.put("playerId", base.playerId); row.put("typeId", base.typeId);
+            row.put("x", base.x); row.put("y", base.y); row.put("hp", base.hp); row.put("shield", base.shield);
+            row.put("shieldDelayTimer", base.shieldDelayTimer); row.put("nextProductionJobId", base.nextProductionJobId);
+            row.put("logisticsStatus", base.logisticsStatus); row.put("inventory", ServerSaveStore.materialMap(base.inventory));
+            row.put("productionQueue", captureProduction(base.productionQueue));
+            out.add(row);
+        }
+        return out;
+    }
+
+    private Map<String,Base> restoreBases(List<Object> rows) {
+        Map<String,Base> out = new LinkedHashMap<>();
+        for (Object item : rows) {
+            Map<String,Object> row = ServerSaveStore.object(item);
+            Base base = new Base(ServerSaveStore.string(row, "id", ""), ServerSaveStore.string(row, "playerId", "SOLO"),
+                    SaveContentResolver.baseId(ServerSaveStore.string(row, "typeId", Rules.DEFAULT_BASE)), ServerSaveStore.doubleValue(row, "x", 0),
+                    ServerSaveStore.doubleValue(row, "y", 0));
+            base.hp = ServerSaveStore.doubleValue(row, "hp", base.hp); base.shield = ServerSaveStore.doubleValue(row, "shield", base.shield);
+            base.shieldDelayTimer = ServerSaveStore.doubleValue(row, "shieldDelayTimer", 0);
+            base.nextProductionJobId = Math.max(1, ServerSaveStore.longValue(row, "nextProductionJobId", 1));
+            base.logisticsStatus = ServerSaveStore.string(row, "logisticsStatus", "");
+            base.inventory.putAll(ServerSaveStore.restoreMaterialMap(row.get("inventory")));
+            base.productionQueue.addAll(restoreProduction(ServerSaveStore.list(row.get("productionQueue"))));
+            out.put(base.id, base);
+        }
+        return out;
+    }
+
+    private List<Object> captureProduction(List<ProductionJob> jobs) {
+        List<Object> out = new ArrayList<>();
+        for (ProductionJob job : jobs) {
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("id", job.id); row.put("kind", job.kind.name()); row.put("itemId", job.itemId);
+            row.put("duration", job.duration); row.put("remaining", job.remaining); row.put("resourcesReserved", job.resourcesReserved);
+            row.put("reservedUnitKey", job.reservedUnitKey); row.put("blockedReason", job.blockedReason);
+            out.add(row);
+        }
+        return out;
+    }
+
+    private List<ProductionJob> restoreProduction(List<Object> rows) {
+        List<ProductionJob> out = new ArrayList<>();
+        for (Object item : rows) {
+            Map<String,Object> row = ServerSaveStore.object(item);
+            ProductionJobKind kind = ServerSaveStore.enumValue(ProductionJobKind.class, row.get("kind"), ProductionJobKind.SHIP);
+            String itemId = SaveContentResolver.productionItemId(kind, ServerSaveStore.string(row, "itemId", ""));
+            if (itemId.isBlank()) continue;
+            ProductionJob job = new ProductionJob(ServerSaveStore.string(row, "id", ""),
+                    kind, itemId, ServerSaveStore.doubleValue(row, "duration", 0),
+                    ServerSaveStore.doubleValue(row, "remaining", 0), ServerSaveStore.boolValue(row, "resourcesReserved", false),
+                    ServerSaveStore.string(row, "reservedUnitKey", ""));
+            job.blockedReason = ServerSaveStore.string(row, "blockedReason", "");
+            out.add(job);
+        }
+        return out;
+    }
+
+    private List<Object> captureShots(List<ProjectileShot> shots) {
+        List<Object> out = new ArrayList<>();
+        for (ProjectileShot shot : shots) {
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("id", shot.id); row.put("ownerId", shot.ownerId); row.put("weaponId", shot.weaponId); row.put("targetKey", shot.targetKey);
+            row.put("x", shot.x); row.put("y", shot.y); row.put("lastX", shot.lastX); row.put("lastY", shot.lastY);
+            out.add(row);
+        }
+        return out;
+    }
+
+    private List<ProjectileShot> restoreShots(List<Object> rows) {
+        List<ProjectileShot> out = new ArrayList<>();
+        for (Object item : rows) {
+            Map<String,Object> row = ServerSaveStore.object(item);
+            String weaponId = SaveContentResolver.weaponId(ServerSaveStore.string(row, "weaponId", ""));
+            if (weaponId.isBlank()) continue;
+            ProjectileShot shot = new ProjectileShot(ServerSaveStore.intValue(row, "id", 0), ServerSaveStore.string(row, "ownerId", ""),
+                    weaponId, ServerSaveStore.string(row, "targetKey", ""),
+                    ServerSaveStore.doubleValue(row, "x", 0), ServerSaveStore.doubleValue(row, "y", 0));
+            shot.lastX = ServerSaveStore.doubleValue(row, "lastX", shot.x); shot.lastY = ServerSaveStore.doubleValue(row, "lastY", shot.y);
+            out.add(shot);
+        }
+        return out;
+    }
+
+    private List<Object> captureItems(List<WorldItem> items) {
+        List<Object> out = new ArrayList<>();
+        for (WorldItem item : items) {
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("id", item.id); row.put("material", item.material.name()); row.put("amount", item.amount);
+            row.put("x", item.x); row.put("y", item.y); row.put("vx", item.vx); row.put("vy", item.vy);
+            row.put("angle", item.angle); row.put("spin", item.spin);
+            out.add(row);
+        }
+        return out;
+    }
+
+    private List<WorldItem> restoreItems(List<Object> rows) {
+        List<WorldItem> out = new ArrayList<>();
+        for (Object item : rows) {
+            Map<String,Object> row = ServerSaveStore.object(item);
+            Material material = SaveContentResolver.material(ServerSaveStore.asString(row.get("material"), ""));
+            if (material == null) continue;
+            out.add(new WorldItem(ServerSaveStore.intValue(row, "id", 0), material,
+                    ServerSaveStore.doubleValue(row, "amount", 0), ServerSaveStore.doubleValue(row, "x", 0), ServerSaveStore.doubleValue(row, "y", 0),
+                    ServerSaveStore.doubleValue(row, "vx", 0), ServerSaveStore.doubleValue(row, "vy", 0),
+                    ServerSaveStore.doubleValue(row, "angle", 0), ServerSaveStore.doubleValue(row, "spin", 0)));
+        }
+        return out;
+    }
 
     private Base movedBase(Base base, double dx, double dy, int width, int height) {
         Base moved = new Base(base.id, base.playerId, base.typeId, Calc.clamp(base.x + dx, 0, width), Calc.clamp(base.y + dy, 0, height));

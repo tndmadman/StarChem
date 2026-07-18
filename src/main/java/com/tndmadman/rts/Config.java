@@ -1,6 +1,7 @@
 package com.tndmadman.rts;
 
 import java.net.InetSocketAddress;
+import java.nio.file.Path;
 import java.util.Set;
 
 final class Config {
@@ -21,10 +22,16 @@ final class Config {
     final Set<String> disabledNpcFactionIds;
     final String systemId;
     final int galaxyCopies;
+    final Path saveDir;
+    final String saveName;
+    final int autosaveSeconds;
+    final int backupCount;
+    final boolean newWorld;
 
     private Config(String playerName, boolean showLobby, boolean hostMode, boolean dedicatedServer, boolean devMode,
                    String devToken, boolean disableProductionTimers, int port, InetSocketAddress serverAddress,
-                   Set<String> disabledNpcFactionIds, String systemId, int galaxyCopies) {
+                   Set<String> disabledNpcFactionIds, String systemId, int galaxyCopies, Path saveDir,
+                   String saveName, int autosaveSeconds, int backupCount, boolean newWorld) {
         this.playerName = playerName;
         this.showLobby = showLobby;
         this.hostMode = hostMode;
@@ -37,6 +44,11 @@ final class Config {
         this.disabledNpcFactionIds = disabledNpcFactionIds == null ? Set.of() : Set.copyOf(disabledNpcFactionIds);
         this.systemId = cleanSystem(systemId);
         this.galaxyCopies = clampGalaxyCopies(galaxyCopies);
+        this.saveDir = saveDir == null ? Path.of("saves") : saveDir;
+        this.saveName = cleanSaveName(saveName);
+        this.autosaveSeconds = Math.max(0, autosaveSeconds);
+        this.backupCount = Math.max(1, Math.min(24, backupCount));
+        this.newWorld = newWorld;
     }
 
     static Config parse(String[] suppliedArgs) {
@@ -51,6 +63,11 @@ final class Config {
         boolean disableProductionTimers = false;
         int port = 0;
         int galaxyCopies = 1;
+        Path saveDir = Path.of("saves");
+        String saveName = "server";
+        int autosaveSeconds = 60;
+        int backupCount = 5;
+        boolean newWorld = false;
         InetSocketAddress server = null;
         for (int i = 0; i < args.length; i++) {
             String option = args[i];
@@ -58,6 +75,11 @@ final class Config {
                 case "--name", "--id" -> name = clean(requiredValue(args, ++i, option));
                 case "--system" -> system = cleanSystem(requiredValue(args, ++i, option));
                 case "--galaxy-copies" -> galaxyCopies = parseGalaxyCopies(requiredValue(args, ++i, option));
+                case "--save-dir" -> saveDir = Path.of(requiredValue(args, ++i, option));
+                case "--save-name" -> saveName = requiredValue(args, ++i, option);
+                case "--autosave-seconds" -> autosaveSeconds = parseNonNegativeInt(requiredValue(args, ++i, option), "Autosave seconds");
+                case "--backup-count" -> backupCount = parsePositiveInt(requiredValue(args, ++i, option), "Backup count");
+                case "--new-world" -> newWorld = true;
                 case "--dev" -> { dev = true; disableProductionTimers = true; }
                 case "--dev-token" -> devToken = DevAccessPolicy.requireToken(requiredValue(args, ++i, option));
                 case "--disable-timers" -> disableProductionTimers = true;
@@ -80,7 +102,7 @@ final class Config {
                 default -> throw new IllegalArgumentException("Unknown option: " + option);
             }
         }
-        if (dedicated) return dedicatedServer(name, port == 0 ? 50000 : port, dev, disableProductionTimers, Set.of(), system, devToken, galaxyCopies);
+        if (dedicated) return dedicatedServer(name, port == 0 ? 50000 : port, dev, disableProductionTimers, Set.of(), system, devToken, galaxyCopies, saveDir, saveName, autosaveSeconds, backupCount, newWorld);
         if (host) return host(name, port == 0 ? 50000 : port, dev, disableProductionTimers, Set.of(), system, devToken, galaxyCopies);
         if (server != null) return join(name, server.getHostString(), server.getPort(), dev, disableProductionTimers, Set.of(), system, devToken, galaxyCopies);
         return solo(name, dev, disableProductionTimers, Set.of(), system, devToken, galaxyCopies);
@@ -97,7 +119,7 @@ final class Config {
         return index < args.length && args[index] != null && !args[index].isBlank() && !args[index].startsWith("--");
     }
 
-    static Config lobby() { return new Config(defaultName(), true, false, false, false, "", false, 0, null, Set.of(), StarSystems.DEFAULT_SYSTEM_ID, 1); }
+    static Config lobby() { return new Config(defaultName(), true, false, false, false, "", false, 0, null, Set.of(), StarSystems.DEFAULT_SYSTEM_ID, 1, Path.of("saves"), "server", 60, 5, false); }
     static Config solo(String name) { return solo(name, false); }
     static Config host(String name, int port) { return host(name, port, false); }
     static Config join(String name, String host, int port) { return join(name, host, port, false); }
@@ -123,10 +145,11 @@ final class Config {
     static Config host(String name, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken) { return host(name, port, dev, disableProductionTimers, disabledNpcFactionIds, systemId, devToken, 1); }
     static Config dedicatedServer(String name, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken) { return dedicatedServer(name, port, dev, disableProductionTimers, disabledNpcFactionIds, systemId, devToken, 1); }
     static Config join(String name, String host, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken) { return join(name, host, port, dev, disableProductionTimers, disabledNpcFactionIds, systemId, devToken, 1); }
-    static Config solo(String name, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken, int galaxyCopies) { return new Config(clean(name), false, false, false, dev, devToken, disableProductionTimers, 0, null, disabledNpcFactionIds, systemId, galaxyCopies); }
-    static Config host(String name, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken, int galaxyCopies) { return new Config(clean(name), false, true, false, dev, devToken, disableProductionTimers, port, null, disabledNpcFactionIds, systemId, galaxyCopies); }
-    static Config dedicatedServer(String name, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken, int galaxyCopies) { return new Config(clean(name), false, true, true, dev, devToken, disableProductionTimers, port, null, disabledNpcFactionIds, systemId, galaxyCopies); }
-    static Config join(String name, String host, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken, int galaxyCopies) { return new Config(clean(name), false, false, false, dev, devToken, disableProductionTimers, 0, new InetSocketAddress(parseHost(host), port), disabledNpcFactionIds, systemId, galaxyCopies); }
+    static Config solo(String name, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken, int galaxyCopies) { return new Config(clean(name), false, false, false, dev, devToken, disableProductionTimers, 0, null, disabledNpcFactionIds, systemId, galaxyCopies, Path.of("saves"), "server", 60, 5, false); }
+    static Config host(String name, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken, int galaxyCopies) { return new Config(clean(name), false, true, false, dev, devToken, disableProductionTimers, port, null, disabledNpcFactionIds, systemId, galaxyCopies, Path.of("saves"), "server", 60, 5, false); }
+    static Config dedicatedServer(String name, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken, int galaxyCopies) { return dedicatedServer(name, port, dev, disableProductionTimers, disabledNpcFactionIds, systemId, devToken, galaxyCopies, Path.of("saves"), "server", 60, 5, false); }
+    static Config dedicatedServer(String name, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken, int galaxyCopies, Path saveDir, String saveName, int autosaveSeconds, int backupCount, boolean newWorld) { return new Config(clean(name), false, true, true, dev, devToken, disableProductionTimers, port, null, disabledNpcFactionIds, systemId, galaxyCopies, saveDir, saveName, autosaveSeconds, backupCount, newWorld); }
+    static Config join(String name, String host, int port, boolean dev, boolean disableProductionTimers, Set<String> disabledNpcFactionIds, String systemId, String devToken, int galaxyCopies) { return new Config(clean(name), false, false, false, dev, devToken, disableProductionTimers, 0, new InetSocketAddress(parseHost(host), port), disabledNpcFactionIds, systemId, galaxyCopies, Path.of("saves"), "server", 60, 5, false); }
 
     NetworkRole role() {
         if (hostMode) return NetworkRole.SERVER;
@@ -170,6 +193,26 @@ final class Config {
         catch (NumberFormatException ex) { throw new IllegalArgumentException("Galaxy copies must be 1 or 2."); }
     }
 
+    private static int parseNonNegativeInt(String value, String label) {
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            if (parsed < 0) throw new IllegalArgumentException(label + " must be zero or greater.");
+            return parsed;
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException(label + " must be a number.");
+        }
+    }
+
+    private static int parsePositiveInt(String value, String label) {
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            if (parsed < 1) throw new IllegalArgumentException(label + " must be at least one.");
+            return parsed;
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException(label + " must be a number.");
+        }
+    }
+
     private static int clampGalaxyCopies(int value) {
         if (value < 1 || value > 2) throw new IllegalArgumentException("Galaxy copies must be 1 or 2.");
         return value;
@@ -185,5 +228,11 @@ final class Config {
     static String cleanSystem(String systemId) {
         if (systemId == null || systemId.isBlank()) return StarSystems.DEFAULT_SYSTEM_ID;
         return systemId.replace('|','_').replace(';','_').replace(',','_').trim();
+    }
+
+    static String cleanSaveName(String value) {
+        if (value == null || value.isBlank()) return "server";
+        String clean = value.replaceAll("[^A-Za-z0-9_.-]", "_").trim();
+        return clean.isBlank() ? "server" : clean;
     }
 }

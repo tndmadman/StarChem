@@ -2,6 +2,10 @@ package com.tndmadman.rts;
 
 import java.io.*;
 import java.net.*;
+import javax.net.ServerSocketFactory;
+import javax.net.SocketFactory;
+import javax.net.ssl.SSLServerSocket;
+import javax.net.ssl.SSLSocket;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -23,6 +27,8 @@ final class PeerTransport {
     private final boolean serverMode;
     private final ServerSocket serverSocket;
     private final InetSocketAddress expectedRemote;
+    private final Config config;
+    private final SocketFactory clientSocketFactory;
     private final PerfStats perfStats;
     private final ConcurrentLinkedQueue<NetPacket> inbox = new ConcurrentLinkedQueue<>();
     private final AtomicInteger inboxSize = new AtomicInteger();
@@ -36,10 +42,12 @@ final class PeerTransport {
     private volatile boolean running = true;
 
     private PeerTransport(boolean serverMode, ServerSocket serverSocket, InetSocketAddress expectedRemote,
-                          PerfStats perfStats) {
+                          Config config, SocketFactory clientSocketFactory, PerfStats perfStats) {
         this.serverMode = serverMode;
         this.serverSocket = serverSocket;
         this.expectedRemote = expectedRemote;
+        this.config = config;
+        this.clientSocketFactory = clientSocketFactory;
         this.perfStats = perfStats == null ? new PerfStats() : perfStats;
         this.compatibilityAccepted = serverMode;
     }
@@ -48,7 +56,17 @@ final class PeerTransport {
         ServerSocket socket = new ServerSocket();
         socket.setReuseAddress(true);
         socket.bind(new InetSocketAddress(port));
-        return new PeerTransport(true, socket, null, perfStats);
+        return new PeerTransport(true, socket, null, null, null, perfStats);
+    }
+
+    static PeerTransport server(Config config, PerfStats perfStats) throws IOException {
+        if (config == null) throw new IOException("Server config is required for encrypted transport.");
+        ServerSocketFactory factory = TlsIdentity.serverSocketFactory(config);
+        ServerSocket socket = factory.createServerSocket();
+        socket.setReuseAddress(true);
+        configureServerSocket(socket);
+        socket.bind(new InetSocketAddress(config.port));
+        return new PeerTransport(true, socket, null, config, null, perfStats);
     }
 
     static PeerTransport client(InetSocketAddress remote, PerfStats perfStats) throws IOException {
@@ -56,7 +74,16 @@ final class PeerTransport {
             throw new IOException("TCP server endpoint must be resolved before connecting.");
         }
         return new PeerTransport(false, null,
-                new InetSocketAddress(remote.getAddress(), remote.getPort()), perfStats);
+                new InetSocketAddress(remote.getAddress(), remote.getPort()), null, null, perfStats);
+    }
+
+    static PeerTransport client(Config config, PerfStats perfStats) throws IOException {
+        if (config == null || config.serverAddress == null || config.serverAddress.getAddress() == null) {
+            throw new IOException("TCP server endpoint must be resolved before connecting.");
+        }
+        return new PeerTransport(false, null,
+                new InetSocketAddress(config.serverAddress.getAddress(), config.serverAddress.getPort()),
+                config, TlsIdentity.clientSocketFactory(), perfStats);
     }
 
     void start() {
@@ -284,7 +311,9 @@ final class PeerTransport {
 
     private boolean preHandshakeControl(String message) {
         return message != null && (message.startsWith("JOIN_DENIED|") || message.startsWith("SESSION_BUSY|")
-                || message.startsWith("SESSION_DENIED|") || message.startsWith("COMPAT_DENIED|"));
+                || message.startsWith("SESSION_DENIED|") || message.startsWith("COMPAT_DENIED|")
+                || message.startsWith("AUTH_REQUIRED|") || message.startsWith("AUTH_CHALLENGE|")
+                || message.startsWith("SESSION_CHALLENGE|"));
     }
 
     private boolean isHandshakeAttempt(String message) {
@@ -327,9 +356,10 @@ final class PeerTransport {
                 continue;
             }
             try {
-                Socket socket = new Socket();
+                Socket socket = clientSocketFactory == null ? new Socket() : clientSocketFactory.createSocket();
                 socket.connect(expectedRemote, CONNECT_TIMEOUT_MS);
                 configure(socket);
+                if (clientSocketFactory != null) TlsIdentity.verifyPinnedServer(socket, config);
                 TcpConnection connection = new TcpConnection(new ConnectionId(nextConnectionId.getAndIncrement()), socket);
                 if (!running) {
                     connection.close();
@@ -346,11 +376,32 @@ final class PeerTransport {
     }
 
     private void configure(Socket socket) throws SocketException {
+        if (socket instanceof SSLSocket ssl) configureTlsSocket(ssl);
         socket.setTcpNoDelay(true);
         socket.setKeepAlive(true);
         socket.setSoTimeout(SOCKET_IDLE_TIMEOUT_MS);
         socket.setReceiveBufferSize(256 * 1024);
         socket.setSendBufferSize(256 * 1024);
+    }
+
+    private static void configureServerSocket(ServerSocket socket) {
+        if (socket instanceof SSLServerSocket ssl) {
+            ssl.setEnabledProtocols(supportedTlsProtocols(ssl.getSupportedProtocols()));
+            ssl.setUseClientMode(false);
+            ssl.setNeedClientAuth(false);
+        }
+    }
+
+    private static void configureTlsSocket(SSLSocket socket) {
+        socket.setEnabledProtocols(supportedTlsProtocols(socket.getSupportedProtocols()));
+    }
+
+    private static String[] supportedTlsProtocols(String[] supported) {
+        List<String> protocols = new ArrayList<>();
+        for (String wanted : List.of("TLSv1.3", "TLSv1.2")) {
+            for (String protocol : supported) if (wanted.equals(protocol)) protocols.add(wanted);
+        }
+        return protocols.isEmpty() ? supported : protocols.toArray(new String[0]);
     }
 
     private void receive(TcpConnection connection, TcpFrameCodec.DecodedFrame frame) {
