@@ -1,0 +1,3 @@
+release=v1.4.0
+notes_commit=5757fe2f50fdbacea8ef4e29a89cab130eb06bcf
+status=verified
