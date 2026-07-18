@@ -1,0 +1,25 @@
+name: Dispatch StarChem v1.5.6 Release
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/dispatch-v1.5.6-release.yml']
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch standard release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref v1.5.6 -f version=1.5.6
+          gh pr comment "${{ github.event.pull_request.number }}" --repo "$GITHUB_REPOSITORY" --body 'The standard `release.yml` workflow was explicitly dispatched against immutable tag `v1.5.6`.'
