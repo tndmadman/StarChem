@@ -12,4 +12,11 @@ dependencyResolutionManagement {
     }
 }
 
+gradle.beforeProject { project ->
+    project.tasks.withType(org.gradle.api.tasks.bundling.AbstractArchiveTask).configureEach {
+        preserveFileTimestamps = false
+        reproducibleFileOrder = true
+    }
+}
+
 rootProject.name = 'starchem'
