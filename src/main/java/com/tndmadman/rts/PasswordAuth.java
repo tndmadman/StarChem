@@ -95,12 +95,27 @@ final class PasswordAuth {
     }
 
     static String challengeProof(byte[] key, String playerName, String nonce) {
+        return keyedProof("StarChem auth challenge v1", key, Config.clean(playerName).toLowerCase(java.util.Locale.ROOT), nonce);
+    }
+
+    static String sessionProof(byte[] tokenDigest, String playerId, String nonce) {
+        return keyedProof("StarChem session resume v1", tokenDigest, Config.clean(playerId), nonce);
+    }
+
+    static byte[] tokenDigest(String token) {
+        try {
+            return MessageDigest.getInstance("SHA-256").digest((token == null ? "" : token).getBytes(StandardCharsets.UTF_8));
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 is unavailable.", ex);
+        }
+    }
+
+    private static String keyedProof(String domain, byte[] key, String identity, String nonce) {
         if (key == null || key.length == 0 || !validNonce(nonce)) return "";
-        String cleanName = Config.clean(playerName).toLowerCase(java.util.Locale.ROOT);
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
             mac.init(new SecretKeySpec(key, "HmacSHA256"));
-            return HexFormat.of().formatHex(mac.doFinal(("StarChem auth challenge v1|" + cleanName + "|" + nonce)
+            return HexFormat.of().formatHex(mac.doFinal((domain + "|" + identity + "|" + nonce)
                     .getBytes(StandardCharsets.UTF_8)));
         } catch (Exception ex) {
             throw new IllegalStateException("HmacSHA256 is unavailable.", ex);
@@ -110,6 +125,12 @@ final class PasswordAuth {
     static boolean proofMatches(byte[] key, String playerName, String nonce, String proof) {
         if (!validVerifier(proof)) return false;
         String expected = challengeProof(key, playerName, nonce);
+        return !expected.isBlank() && MessageDigest.isEqual(decodeVerifier(expected), decodeVerifier(proof));
+    }
+
+    static boolean sessionProofMatches(byte[] tokenDigest, String playerId, String nonce, String proof) {
+        if (!validVerifier(proof)) return false;
+        String expected = sessionProof(tokenDigest, playerId, nonce);
         return !expected.isBlank() && MessageDigest.isEqual(decodeVerifier(expected), decodeVerifier(proof));
     }
 }

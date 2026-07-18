@@ -58,6 +58,12 @@ public final class SessionRecoveryValidator {
             require(!server.owns(firstEndpoint, "P1"), "timed-out TCP connection remained connected");
             require(world.hasLiveAssets("P1"), "timeout deleted P1 assets");
             require(world.hasResearch("P1", "session-recovery-marker"), "timeout deleted P1 research");
+            ConnectionId rawTokenEndpoint = transport.connectionId(loopback, restartedClient.getLocalPort());
+            PacketSideA.handle(server, "RESUME|P1|" + firstToken + "|NODEV|",
+                    new NetPacket("RESUME|P1|" + firstToken + "|NODEV|", rawTokenEndpoint, loopback, restartedClient.getLocalPort()));
+            String rawTokenResponse = receivePayload(restartedClient, "SESSION_CHALLENGE|");
+            require(rawTokenResponse.contains("|P1|"), "raw network resume token was not converted to a proof challenge");
+            require(!server.owns(rawTokenEndpoint, "P1"), "raw network resume token reclaimed the player session");
             require(server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1", firstToken, false, ""),
                     "valid session could not rebind to a new TCP connection");
             String reboundWelcome = receivePayload(reboundClient, "WELCOME|");

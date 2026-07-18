@@ -29,6 +29,7 @@ final class PeerClientSide {
     private String passwordVerifier = "";
     private String authChallengeSalt = "";
     private String authChallengeNonce = "";
+    private String sessionChallengeNonce = "";
     private boolean authRegistrationRequested;
     private String viewedSystemId = "";
     private String failureMessage = "";
@@ -179,7 +180,7 @@ final class PeerClientSide {
         PlayerRegistry.activate(world);
         lastServerPacket = System.currentTimeMillis();
         if (readGalaxy(message) || readLeaderboard(message) || readDevStatus(message) || readViewDenied(message)) return;
-        if (!readAuthRequired(message) && !readAuthChallenge(message)
+        if (!readAuthRequired(message) && !readAuthChallenge(message) && !readSessionChallenge(message)
                 && !readJoinDenied(message) && !readSessionBusy(message) && !readSessionDenied(message)
                 && !readSystemDelete(message)) ClientPackets.handle(this, message);
     }
@@ -259,6 +260,7 @@ final class PeerClientSide {
         ConnectionState previousState = state;
         authChallengeSalt = "";
         authChallengeNonce = "";
+        sessionChallengeNonce = "";
         authRegistrationRequested = false;
         localPlayerId = parts[1];
         sessionToken = newSessionToken;
@@ -422,6 +424,7 @@ final class PeerClientSide {
             passwordVerifier = "";
             authChallengeSalt = "";
             authChallengeNonce = "";
+            sessionChallengeNonce = "";
             authRegistrationRequested = false;
         }
         failConnection(reason.isBlank() ? "Join refused by server." : reason);
@@ -466,11 +469,26 @@ final class PeerClientSide {
         return true;
     }
 
+    private boolean readSessionChallenge(String message) {
+        if (message == null || !message.startsWith("SESSION_CHALLENGE|")) return false;
+        String[] parts = message.split("\\|", -1);
+        if (parts.length < 3 || !parts[1].equals(localPlayerId) || !PasswordAuth.validNonce(parts[2])) {
+            failConnection("Server sent an invalid resume challenge.");
+            return true;
+        }
+        sessionChallengeNonce = parts[2];
+        state = ConnectionState.RECONNECTING;
+        lastHandshake = 0;
+        world.status = "Answering saved session challenge for " + localPlayerId + ".";
+        return true;
+    }
+
     private boolean readSessionDenied(String message) {
         if (message == null || !message.startsWith("SESSION_DENIED|")) return false;
         String reason = message.length() > 15 ? message.substring(15).trim() : "Saved session was rejected.";
         SessionTokenStore.clear(config);
         sessionToken = "";
+        sessionChallengeNonce = "";
         transport.clearOutbound();
         if (!connectedOnce && state == ConnectionState.RECONNECTING) {
             localPlayerId = "SOLO";
@@ -582,6 +600,7 @@ final class PeerClientSide {
         state = ConnectionState.RECONNECTING;
         syncingResume = true;
         pendingReadyName = "";
+        sessionChallengeNonce = "";
         attemptStarted = now;
         lastHandshake = 0;
         devApproved = false;
@@ -629,7 +648,13 @@ final class PeerClientSide {
     private String resumeMessage() {
         String request = config.devMode ? "DEV" : "NODEV";
         String devToken = config.devMode ? config.devToken : "";
-        return "RESUME|" + cleanPacketPart(localPlayerId) + "|" + sessionToken + "|" + request + "|" + devToken;
+        String message = "RESUME|" + cleanPacketPart(localPlayerId) + "||" + request + "|" + devToken;
+        if (!sessionChallengeNonce.isBlank() && !sessionToken.isBlank()) {
+            String proof = PasswordAuth.sessionProof(PasswordAuth.tokenDigest(sessionToken), localPlayerId, sessionChallengeNonce);
+            return message + "|SESSION_PROOF_NONCE|" + cleanPacketPart(sessionChallengeNonce)
+                    + "|SESSION_PROOF|" + cleanPacketPart(proof);
+        }
+        return message;
     }
 
     private boolean canIssueCommands() { return state == ConnectionState.CONNECTED; }

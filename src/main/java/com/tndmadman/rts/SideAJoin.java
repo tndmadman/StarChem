@@ -17,6 +17,8 @@ final class SideAJoin {
                 server.resume(connectionId, packet.address(), packet.port(),
                         parts.length > 1 ? parts[1] : "",
                         parts.length > 2 ? parts[2] : "",
+                        markerValue(parts, "SESSION_PROOF_NONCE"),
+                        markerValue(parts, "SESSION_PROOF"),
                         server.requestedResumeDev(parts), server.requestedResumeDevToken(parts));
                 return true;
             }

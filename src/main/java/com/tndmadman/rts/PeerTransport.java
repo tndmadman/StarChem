@@ -285,7 +285,8 @@ final class PeerTransport {
     private boolean preHandshakeControl(String message) {
         return message != null && (message.startsWith("JOIN_DENIED|") || message.startsWith("SESSION_BUSY|")
                 || message.startsWith("SESSION_DENIED|") || message.startsWith("COMPAT_DENIED|")
-                || message.startsWith("AUTH_REQUIRED|") || message.startsWith("AUTH_CHALLENGE|"));
+                || message.startsWith("AUTH_REQUIRED|") || message.startsWith("AUTH_CHALLENGE|")
+                || message.startsWith("SESSION_CHALLENGE|"));
     }
 
     private boolean isHandshakeAttempt(String message) {
