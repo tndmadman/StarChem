@@ -1,0 +1,188 @@
+            lines.add(research.isEmpty() ? "Research: none" : "Research: " + String.join(", ", research));
+            return List.copyOf(lines);
+        }
+        if ("systems".equals(section)) {
+            List<String> lines = new ArrayList<>();
+            lines.add(name + " (" + playerId + ") | home " + home);
+            if (controlled.isEmpty()) lines.add("Controlled systems: none");
+            else for (GalaxyMapSystem system : controlled) lines.add(systemSummary(system));
+            return List.copyOf(lines);
+        }
+        return List.of(
+                name + " (" + playerId + ") | " + (connected ? "connected" : "retained"),
+                "Home: " + home + " | controlled systems " + controlled.size(),
+                "Assets: units " + score.units() + " | bases " + score.bases() + " | score " + score.score(),
+                "Research completed: " + research.size(),
+                "Developer server: " + (config.devMode ? "enabled" : "disabled"));
+    }
+
+    private List<String> sessionLines(String filter) {
+        List<String> lines = new ArrayList<>();
+        for (PersistentPlayerSession session : sortedSessions()) {
+            boolean connected = network.serverSessionConnected(session.playerId());
+            if ("connected".equals(filter) && !connected) continue;
+            if ("retained".equals(filter) && connected) continue;
+            ConnectionId connectionId = network.connectionIdForPlayer(session.playerId());
+            String detail;
+            if (connected) {
+                ConnectionDiagnostics diagnostics = network.connectionDiagnostics(connectionId);
+                detail = "connection " + connectionId + " | queued " + diagnostics.queuedFrames() + " frames / "
+                        + humanBytes(diagnostics.queuedBytes());
+            } else detail = "retained | reconnect eligible";
+            lines.add(session.playerId() + " | " + session.name() + " | " + detail);
+        }
+        return lines.isEmpty() ? List.of("No sessions matched that filter.") : List.copyOf(lines);
+    }
+
+    private List<String> uptimeLines() {
+        long uptimeSeconds = Math.max(0, (System.nanoTime() - startedNanos) / 1_000_000_000L);
+        String autosave = runtimeAutosaveSeconds <= 0
+                ? "disabled"
+                : formatDuration(Math.max(0, (nextAutosaveNanos - System.nanoTime() + 999_999_999L) / 1_000_000_000L));
+        List<String> lines = new ArrayList<>();
+        lines.add("Started: " + UTC_TIME.format(startedAt));
+        lines.add("Uptime: " + formatDuration(uptimeSeconds));
+        lines.add("Saves: manual " + manualSaveCount + " | autosave " + autosaveCount);
+        lines.add("Next autosave: " + autosave);
+        if (lastSuccessfulSaveAt != null) lines.add("Last save: " + UTC_TIME.format(lastSuccessfulSaveAt) + " | " + lastSuccessfulSaveReason);
+        return List.copyOf(lines);
+    }
+
+    private List<String> performanceLines(String scope) {
+        PerfSnapshot perf = network.perfSnapshot();
+        List<String> lines = new ArrayList<>();
+        if (!"network".equals(scope)) {
+            lines.add(String.format(Locale.ROOT, "Simulation: avg %.3f ms | max %.3f ms", perf.serverUpdateAvgMs(), perf.serverUpdateMaxMs()));
+            lines.add(String.format(Locale.ROOT, "Frame/update: %.1f fps | avg %.3f ms | max %.3f ms", perf.fps(), perf.updateAvgMs(), perf.updateMaxMs()));
+        }
+        if (!"simulation".equals(scope)) {
+            lines.add(String.format(Locale.ROOT, "Network: avg %.3f ms | max %.3f ms", perf.networkAvgMs(), perf.networkMaxMs()));
+            lines.add(String.format(Locale.ROOT, "Traffic: sent %s/s | received %s/s | snapshots %.1f/s",
+                    humanBytes(perf.bytesSentPerSecond()), humanBytes(perf.bytesReceivedPerSecond()), perf.snapshotsSentPerSecond()));
+            lines.add("Connections: " + perf.activeConnections() + " | queued " + perf.queuedFrames() + " frames / " + humanBytes(perf.queuedBytes()));
+            lines.add(String.format(Locale.ROOT,
+                    "Network events/s: rejected %.2f | slow-close %.2f | overflow %.2f | malformed %.2f | coalesced %.2f",
+                    perf.rejectedConnectionsPerSecond(), perf.slowConnectionClosesPerSecond(),
+                    perf.inboundOverflowsPerSecond(), perf.malformedPacketsPerSecond(), perf.coalescedSnapshotsPerSecond()));
+        }
+        return List.copyOf(lines);
+    }
+
+    private List<String> systemLines(String filter, String value) {
+        GalaxyMapSnapshot snapshot = world.authoritativeGalaxyMapSnapshot();
+        if (snapshot == null || snapshot.empty()) return List.of("No authoritative galaxy systems are available.");
+        String wanted = value == null ? "" : value.trim();
+        String resolvedPlayerId = "player".equals(filter) ? resolvePlayerId(wanted) : "";
+        List<GalaxyMapSystem> systems = new ArrayList<>(snapshot.systems());
+        systems.sort(Comparator.comparing(GalaxyMapSystem::id));
+        List<String> lines = new ArrayList<>();
+        for (GalaxyMapSystem system : systems) {
+            if (system == null) continue;
+            if ("active".equals(filter) && !system.active()) continue;
+            if ("controlled".equals(filter) && blank(system.controllerId())) continue;
+            if ("player".equals(filter)) {
+                boolean matchesId = !resolvedPlayerId.isBlank() && resolvedPlayerId.equalsIgnoreCase(system.controllerId());
+                boolean matchesName = !wanted.isBlank() && wanted.equalsIgnoreCase(system.controllerName());
+                if (!matchesId && !matchesName) continue;
+            }
+            lines.add(systemSummary(system));
+        }
+        return lines.isEmpty() ? List.of("No galaxy systems matched that filter.") : List.copyOf(lines);
+    }
+
+    private List<String> systemDetailLines(String selector) {
+        GalaxyMapSnapshot snapshot = world.authoritativeGalaxyMapSnapshot();
+        GalaxyMapSystem system = findSystem(snapshot, selector);
+        if (system == null) return List.of("Unknown galaxy system: " + selector);
+        List<String> links = new ArrayList<>();
+        if (snapshot.links() != null) {
+            for (GalaxyMapLink link : snapshot.links()) {
+                if (link == null) continue;
+                if (system.id().equals(link.fromSystemId())) links.add(link.toSystemId());
+                else if (system.id().equals(link.toSystemId())) links.add(link.fromSystemId());
+            }
+        }
+        links.sort(String::compareTo);
+        String controller = blank(system.controllerId()) ? "neutral" : system.controllerName() + " (" + system.controllerId() + ")";
+        return List.of(
+                system.name() + " (" + system.id() + ")",
+                "Template: " + system.templateId() + " | lifetime " + system.lifetime(),
+                "Objects: ships " + system.ships() + " | bases " + system.bases() + " | resources " + system.resources(),
+                "Local: ships " + system.localShips() + " | bases " + system.localBases(),
+                "Control: " + controller + " | " + system.controlStatus() + " | " + percent(system.captureProgress()),
+                "Flags: active " + system.active() + " | home " + system.home() + " | special " + system.special(),
+                "Links: " + (links.isEmpty() ? "none" : String.join(", ", links)));
+    }
+
+    private List<String> connectionLines(String selector) {
+        String playerId = resolvePlayerId(selector);
+        if (playerId.isBlank()) return List.of("Unknown player session: " + selector);
+        PersistentPlayerSession session = sessionById(playerId);
+        boolean connected = network.serverSessionConnected(playerId);
+        ConnectionId connectionId = network.connectionIdForPlayer(playerId);
+        ConnectionDiagnostics diagnostics = network.connectionDiagnostics(connectionId);
+        List<String> lines = new ArrayList<>();
+        lines.add(playerId + " | " + (session == null ? playerId : session.name()) + " | " + (connected ? "connected" : "retained"));
+        lines.add("Connection: " + connectionId + " | open " + diagnostics.open());
+        lines.add("Outbound: " + diagnostics.queuedFrames() + " frames | " + humanBytes(diagnostics.queuedBytes())
+                + " | coalesced snapshots " + diagnostics.coalescedSnapshots());
+        return List.copyOf(lines);
+    }
+
+    private List<String> resyncLines(String selector) {
+        if ("all".equalsIgnoreCase(selector)) {
+            int count = network.resyncAllServerPlayers();
+            return List.of("Resent authoritative state to " + count + " connected client" + (count == 1 ? "" : "s") + ".");
+        }
+        if ("resources".equalsIgnoreCase(selector)) {
+            network.forceServerResourceCorrection();
+            return List.of("A full resource correction will be sent on the next network update.");
+        }
+        String playerId = resolvePlayerId(selector);
+        if (playerId.isBlank()) return List.of("Unknown player session: " + selector);
+        int count = network.resyncServerPlayer(playerId);
+        return count == 0 ? List.of(playerId + " is not connected.") : List.of("Resent authoritative state to " + playerId + ".");
+    }
+
+    private List<String> serverInfoLines(String scope) {
+        List<String> lines = new ArrayList<>();
+        if (!"tls".equals(scope) && !"compatibility".equals(scope)) {
+            lines.add("Server: " + config.playerName + " | TCP " + config.port + " | galaxy copies " + config.galaxyCopies);
+            lines.add("Build: " + BuildInfo.display());
+            lines.add("Save: " + currentSavePath().toAbsolutePath().normalize());
+            lines.add("Admin policy: " + adminStore.path().toAbsolutePath().normalize());
+        }
+        if (!"tls".equals(scope)) {
+            MultiplayerCompatibility.Descriptor descriptor = MultiplayerCompatibility.local();
+            lines.add("Compatibility: protocol " + descriptor.protocolVersion() + " | rules " + descriptor.rulesVersion());
+            lines.add("Application: " + descriptor.applicationVersion() + " | commit " + descriptor.buildCommit());
+            lines.add("Config fingerprint: " + descriptor.configHash());
+        }
+        if (!"compatibility".equals(scope)) {
+            Path tls = (config.saveDir == null ? Path.of("saves") : config.saveDir)
+                    .resolve(Config.cleanSaveName(config.saveName) + "-tls.p12");
+            lines.add("TLS identity: " + tls.toAbsolutePath().normalize() + " | " + fileState(tls));
+            lines.add("TLS certificate SHA-256: " + ServerBackupAdmin.tlsFingerprint(config));
+        }
+        return List.copyOf(lines);
+    }
+
+    private List<String> saveInfoLines() {
+        Path current = currentSavePath();
+        Path previous = previousSavePath();
+        List<String> lines = new ArrayList<>();
+        lines.add("Save: " + current.toAbsolutePath().normalize());
+        lines.add("Current: " + fileState(current));
+        lines.add("Previous fallback: " + fileState(previous));
+        lines.add("Backup retention: " + config.backupCount);
+        lines.add("Format: " + ServerSaveStore.SAVE_FORMAT_VERSION + " | name " + config.saveName);
+        lines.add("Administration: " + adminStore.path().toAbsolutePath().normalize() + " | " + fileState(adminStore.path()));
+        if (lastSuccessfulSaveAt == null) lines.add("Last save this process: none");
+        else lines.add("Last save this process: " + UTC_TIME.format(lastSuccessfulSaveAt) + " | " + lastSuccessfulSaveReason);
+        return List.copyOf(lines);
+    }
+
+    private List<String> autosaveCommand(List<String> args) {
+        if (args == null || args.isEmpty() || "status".equalsIgnoreCase(args.get(0))) {
+            if (args != null && args.size() > 1) return List.of("Usage: autosave <status|set <duration>|on|off|reset>");
+            String next = runtimeAutosaveSeconds <= 0 ? "disabled" : formatDuration(Math.max(0,

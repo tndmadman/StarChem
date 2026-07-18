@@ -1,0 +1,205 @@
+package com.tndmadman.rts;
+
+import java.io.IOException;
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadMXBean;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.FileStore;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Deque;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+
+/** Implements the extended command families without expanding the headless server's anonymous target. */
+final class ServerCommandExtensions {
+    private static final int OUTPUT_LIMIT = 50;
+
+    private ServerCommandExtensions() { }
+
+    static List<String> execute(ServerCommandDispatcher.Target target, String command, List<String> args) {
+        HeadlessGameServer host = host(target);
+        if (host == null || host.network == null) return List.of("Extended server command context is unavailable.");
+        return switch (command) {
+            case "whitelist" -> whitelist(host.network, args);
+            case "kick" -> kick(host.network, args);
+            case "kicks" -> listModeration(host.network, ModerationKind.KICK);
+            case "unkick" -> removeModeration(host.network, args, ModerationKind.KICK, "kick");
+            case "ban" -> ban(host.network, args);
+            case "bans" -> bans(host.network, args);
+            case "unban" -> removeModeration(host.network, args, null, "ban");
+            case "pause" -> pause(host.network, args);
+            case "prune-systems" -> prune(host, target, args);
+            case "health" -> health(host, args);
+            case "activity" -> activity(host, args);
+            case "factions" -> factions(host.world, args, false);
+            case "faction" -> factions(host.world, args, true);
+            case "production" -> production(host.world, args);
+            case "assets" -> assets(host.world, args, false);
+            case "asset" -> assets(host.world, args, true);
+            case "research" -> ServerDevCommands.researchInspect(host, args);
+            case "tell", "notice", "threads", "memory", "gc-status", "dump", "observations" ->
+                    ServerDevCommands.diagnostics(host, command, args);
+            default -> List.of("Unknown extended command: " + command);
+        };
+    }
+
+    static void auditCommand(ServerCommandDispatcher.Target target, String command, List<String> args) {
+        HeadlessGameServer host = host(target);
+        if (host == null || host.network == null) return;
+        String detail;
+        if ("say".equals(command) || "tell".equals(command) || "notice".equals(command) || "motd".equals(command)) detail = "content redacted";
+        else if ("ban".equals(command) || "kick".equals(command)) detail = "moderation arguments redacted";
+        else detail = args == null || args.isEmpty() ? "" : String.join(" ", args);
+        host.network.serverJournal().add("ADMIN", command, detail);
+    }
+
+    private static List<String> whitelist(PeerNetwork network, List<String> args) {
+        ServerModerationState state = network.serverModeration();
+        if (args == null || args.isEmpty() || "status".equalsIgnoreCase(args.get(0))) {
+            return List.of("Whitelist: " + (state.whitelistEnabled() ? "enabled" : "disabled"),
+                    "Entries: " + state.whitelist().size());
+        }
+        String action = args.get(0).toLowerCase(Locale.ROOT);
+        if (("on".equals(action) || "off".equals(action)) && args.size() == 1) {
+            return persist(network, state.withWhitelistEnabled("on".equals(action)),
+                    "Whitelist " + ("on".equals(action) ? "enabled." : "disabled."));
+        }
+        if ("list".equals(action) && args.size() == 1) {
+            if (state.whitelist().isEmpty()) return List.of("Whitelist is empty.");
+            ArrayList<String> lines = new ArrayList<>(state.whitelist());
+            lines.sort(String::compareTo);
+            return List.copyOf(lines);
+        }
+        if ("add-connected".equals(action) && args.size() == 1) {
+            ServerModerationState updated = state;
+            for (PersistentPlayerSession session : network.persistentPlayerSessions()) {
+                if (session != null && network.serverSessionConnected(session.playerId())) {
+                    updated = updated.addWhitelist(session.playerId(), session.name());
+                }
+            }
+            return persist(network, updated, "Added connected players to the whitelist.");
+        }
+        if (("add".equals(action) || "remove".equals(action)) && args.size() == 2) {
+            PersistentPlayerSession session = resolve(network, args.get(1));
+            ServerModerationState updated = "add".equals(action)
+                    ? state.addWhitelist(session == null ? "" : session.playerId(), session == null ? args.get(1) : session.name())
+                    : state.removeWhitelist(session == null ? args.get(1) : session.playerId())
+                        .removeWhitelist(session == null ? args.get(1) : session.name());
+            return persist(network, updated, "Whitelist entry " + ("add".equals(action) ? "added." : "removed."));
+        }
+        return List.of("Usage: whitelist <status|on|off|list|add <player-or-name>|remove <player-or-name>|add-connected>");
+    }
+
+    private static List<String> kick(PeerNetwork network, List<String> args) {
+        if (args == null || args.isEmpty()) return List.of("Usage: kick <player> [duration] [reason]");
+        PersistentPlayerSession session = resolve(network, args.get(0));
+        if (session == null) return List.of("Unknown player session: " + args.get(0));
+        long now = System.currentTimeMillis();
+        long expiry = now + 15 * 60_000L;
+        int reasonStart = 1;
+        if (args.size() >= 2) {
+            try { expiry = ServerModeration.parseModerationExpiry(args.get(1), now); reasonStart = 2; }
+            catch (IllegalArgumentException ignored) { }
+        }
+        if (expiry == ServerModeration.PERMANENT) return List.of("Use ban for permanent removal.");
+        String reason = join(args, reasonStart);
+        ModerationEntry entry = new ModerationEntry("", ModerationKind.KICK, session.playerId(), session.name(),
+                session.playerId(), now, expiry, reason);
+        ServerModerationState updated = network.serverModeration().add(entry);
+        List<String> saved = persist(network, updated, "Kicked " + session.playerId() + " for " + ServerModeration.duration(expiry, now) + ".");
+        if (!saved.get(0).startsWith("Could not")) network.disconnectModeratedPlayer(session.playerId(), "Kicked", reason);
+        return saved;
+    }
+
+    private static List<String> ban(PeerNetwork network, List<String> args) {
+        if (args == null || args.size() < 2) {
+            return List.of("Usage: ban [player|ip|device|mac] <target> <duration|permanent> [reason]");
+        }
+        String type = "player";
+        int index = 0;
+        if (List.of("player", "ip", "device", "mac").contains(args.get(0).toLowerCase(Locale.ROOT))) {
+            type = args.get(0).toLowerCase(Locale.ROOT);
+            index = 1;
+        }
+        if (args.size() <= index + 1) return List.of("Usage: ban [player|ip|device|mac] <target> <duration|permanent> [reason]");
+        String selector = args.get(index);
+        long now = System.currentTimeMillis();
+        long expiry;
+        try { expiry = ServerModeration.parseModerationExpiry(args.get(index + 1), now); }
+        catch (IllegalArgumentException ex) { return List.of(ex.getMessage()); }
+        String reason = join(args, index + 2);
+        PersistentPlayerSession session = resolve(network, selector);
+        ServerPlayerObservationStore.PlayerObservation observation = network.playerObservation(selector);
+        ServerModerationState updated = network.serverModeration();
+        ArrayList<String> scopes = new ArrayList<>();
+        String playerId = session != null ? session.playerId() : observation == null ? "" : observation.playerId();
+        String playerName = session != null ? session.name() : observation != null ? observation.playerName() : ("player".equals(type) ? selector : "");
+
+        if ("player".equals(type)) {
+            updated = updated.add(new ModerationEntry("", ModerationKind.PLAYER_BAN, playerId, playerName,
+                    playerId.isBlank() ? selector : playerId, now, expiry, reason));
+            scopes.add("player");
+            LinkedHashSet<String> capturedIps = new LinkedHashSet<>();
+            LinkedHashSet<String> capturedDevices = new LinkedHashSet<>();
+            if (session != null) {
+                InetAddress address = network.serverPlayerAddress(session.playerId());
+                String ip = address == null ? "" : address.getHostAddress();
+                if (!ip.isBlank()) capturedIps.add(ip);
+                String device = network.serverPlayerDeviceId(session.playerId());
+                if (ServerDeviceIdentity.valid(device)) capturedDevices.add(device);
+            }
+            if (observation != null) {
+                capturedIps.addAll(observation.ips());
+                capturedDevices.addAll(observation.devices());
+            }
+            for (String ip : capturedIps) {
+                String normalized = IpBanMatcher.normalize(ip);
+                if (normalized.isBlank()) continue;
+                updated = updated.add(new ModerationEntry("", ModerationKind.IP_BAN, playerId, playerName, normalized, now, expiry, reason));
+                scopes.add("IP " + normalized);
+            }
+            for (String device : capturedDevices) if (ServerDeviceIdentity.valid(device)) {
+                updated = updated.add(new ModerationEntry("", ModerationKind.DEVICE_BAN, playerId, playerName, device, now, expiry, reason));
+                scopes.add("device " + ServerDeviceIdentity.mask(device));
+            }
+        } else if ("ip".equals(type)) {
+            String raw = session == null ? selector : addressText(network.serverPlayerAddress(session.playerId()));
+            String ip = IpBanMatcher.normalize(raw);
+            if (ip.isBlank()) return List.of("IP target must be a numeric IPv4/IPv6 address, CIDR, or connected player.");
+            updated = updated.add(new ModerationEntry("", ModerationKind.IP_BAN, playerId, playerName, ip, now, expiry, reason));
+            scopes.add("IP " + ip);
+        } else {
+            String device = session == null ? selector : network.serverPlayerDeviceId(session.playerId());
+            if (!ServerDeviceIdentity.valid(device)) return List.of("No valid client device ID is available for that target.");
+            updated = updated.add(new ModerationEntry("", ModerationKind.DEVICE_BAN, playerId, playerName, device, now, expiry, reason));
+            scopes.add("device " + ServerDeviceIdentity.mask(device));
+            if ("mac".equals(type)) scopes.add("MAC unavailable across routed networks; device ID used");
+        }
+
+        List<String> result = persist(network, updated, "Ban added: " + String.join(", ", scopes) + " | "
+                + ServerModeration.duration(expiry, now) + ".");
+        if (session != null && !result.get(0).startsWith("Could not")) network.disconnectModeratedPlayer(session.playerId(), "Banned", reason);
+        return result;
+    }
+
+    private static List<String> bans(PeerNetwork network, List<String> args) {
+        ModerationKind filter = null;
+        if (args != null && !args.isEmpty()) {
+            if (args.size() != 1) return List.of("Usage: bans [player|ip|device]");

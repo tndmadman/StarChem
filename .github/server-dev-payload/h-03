@@ -1,0 +1,243 @@
+        String value = args.get(2).toLowerCase(Locale.ROOT);
+        if ("pause".equals(action)) {
+            Boolean enabled = onOff(value);
+            if (enabled == null) return List.of("Usage: dev ai pause <on|off>");
+            AiDevSettings.pauseAi = enabled;
+            if (!enabled) AiDevSettings.stepAi = false;
+            return List.of("AI pause " + (enabled ? "enabled" : "disabled") + ".");
+        }
+        if ("speed".equals(action) && ("normal".equals(value) || "fast".equals(value))) {
+            AiDevSettings.fastAi = "fast".equals(value);
+            return List.of("AI speed set to " + value + ".");
+        }
+        return List.of("Usage: dev ai <pause on|off|speed normal|fast|step>");
+    }
+
+    private List<String> developerTimers(List<String> args) {
+        if (args.size() != 2) return List.of("Usage: dev timers <on|off>");
+        Boolean enabled = onOff(args.get(1));
+        if (enabled == null) return List.of("Usage: dev timers <on|off>");
+        DevTimerSettings.configure(world, !enabled);
+        return List.of("Production timers " + (enabled ? "enabled" : "disabled") + ".");
+    }
+
+    private List<String> developerTrigger(List<String> args) {
+        if (args.size() != 2) return List.of("Usage: dev trigger <raid|station|research|craft>");
+        String command = switch (args.get(1).toLowerCase(Locale.ROOT)) {
+            case "raid" -> "forceRaid";
+            case "station" -> "forceStation";
+            case "research" -> "forceResearch";
+            case "craft" -> "forceCraft";
+            default -> "";
+        };
+        if (command.isBlank()) return List.of("Usage: dev trigger <raid|station|research|craft>");
+        network.devAiCommand("SOLO", command);
+        return List.of("Developer trigger executed: " + args.get(1).toLowerCase(Locale.ROOT) + ".");
+    }
+
+    private List<String> developerSpawn(List<String> args) {
+        if (args.size() != 2) return List.of("Usage: dev spawn <corsairs|loot|wave>");
+        String command = switch (args.get(1).toLowerCase(Locale.ROOT)) {
+            case "corsairs" -> "spawnCorsairs";
+            case "loot" -> "spawnLootField";
+            case "wave" -> "spawnAttackWave";
+            default -> "";
+        };
+        if (command.isBlank()) return List.of("Usage: dev spawn <corsairs|loot|wave>");
+        network.devAiCommand("SOLO", command);
+        return List.of("Developer spawn executed: " + args.get(1).toLowerCase(Locale.ROOT) + ".");
+    }
+
+    private List<String> developerRemove(List<String> args) {
+        if (args.size() != 2 || !"corsairs".equalsIgnoreCase(args.get(1))) return List.of("Usage: dev remove corsairs");
+        network.devAiCommand("SOLO", "killCorsairs");
+        return List.of("Corsair units removed.");
+    }
+
+    private List<String> developerReset(List<String> args) {
+        if (args.size() != 2 || !"corsairs".equalsIgnoreCase(args.get(1))) return List.of("Usage: dev reset corsairs");
+        network.devAiCommand("SOLO", "resetCorsairs");
+        return List.of("Corsair state reset.");
+    }
+
+    private void processScheduledShutdown() {
+        if (shutdownDeadlineNanos == NO_SHUTDOWN) return;
+        long remaining = shutdownRemainingSeconds();
+        if (remaining <= 0) {
+            network.broadcastServerNotice("Server is shutting down now" + shutdownReasonSuffix());
+            stop();
+            return;
+        }
+        if (remaining < lastShutdownNoticeSeconds && shutdownNotice(remaining)) {
+            lastShutdownNoticeSeconds = remaining;
+            String notice = "Server shutdown in " + formatDuration(remaining) + shutdownReasonSuffix();
+            network.broadcastServerNotice(notice);
+            System.out.println(notice);
+        }
+    }
+
+    private boolean shutdownNotice(long seconds) {
+        for (long threshold : SHUTDOWN_NOTICE_SECONDS) if (seconds == threshold) return true;
+        return false;
+    }
+
+    private long shutdownRemainingSeconds() {
+        if (shutdownDeadlineNanos == NO_SHUTDOWN) return -1;
+        long nanos = shutdownDeadlineNanos - System.nanoTime();
+        return nanos <= 0 ? 0 : (nanos + 999_999_999L) / 1_000_000_000L;
+    }
+
+    private String shutdownReasonSuffix() { return shutdownReason.isBlank() ? "." : ": " + shutdownReason; }
+
+    private void autosaveIfDue() {
+        if (runtimeAutosaveSeconds <= 0 || System.nanoTime() < nextAutosaveNanos) return;
+        saveNow("autosave");
+        scheduleNextAutosave();
+    }
+
+    private void scheduleNextAutosave() {
+        nextAutosaveNanos = runtimeAutosaveSeconds <= 0
+                ? Long.MAX_VALUE
+                : System.nanoTime() + runtimeAutosaveSeconds * 1_000_000_000L;
+    }
+
+    boolean saveForAdmin(String reason) { return saveNow(reason); }
+
+    private boolean saveNow(String reason) {
+        try {
+            saves.save(world, config, reason, network.persistentPlayerSessions());
+            lastSuccessfulSaveAt = Instant.now();
+            lastSuccessfulSaveReason = reason;
+            if ("autosave".equals(reason)) autosaveCount++;
+            else if ("manual-console".equals(reason)) manualSaveCount++;
+            if (!"autosave".equals(reason)) System.out.println("Server save completed (" + reason + ").");
+            return true;
+        } catch (IOException ex) {
+            System.err.println("Server save failed (" + reason + "): " + ex.getMessage());
+            return false;
+        }
+    }
+
+    private List<PersistentPlayerSession> sortedSessions() {
+        List<PersistentPlayerSession> sessions = new ArrayList<>(network.persistentPlayerSessions());
+        sessions.sort(Comparator.comparing(PersistentPlayerSession::playerId));
+        return sessions;
+    }
+
+    private PersistentPlayerSession sessionById(String playerId) {
+        for (PersistentPlayerSession session : network.persistentPlayerSessions()) {
+            if (session != null && session.playerId().equalsIgnoreCase(playerId)) return session;
+        }
+        return null;
+    }
+
+    private String resolvePlayerId(String selector) {
+        if (selector == null || selector.isBlank()) return "";
+        String wanted = selector.trim();
+        for (PersistentPlayerSession session : network.persistentPlayerSessions()) {
+            if (session == null) continue;
+            if (wanted.equalsIgnoreCase(session.playerId()) || wanted.equalsIgnoreCase(session.name())) return session.playerId();
+        }
+        return "";
+    }
+
+    private LeaderboardEntry leaderboardEntry(String playerId) {
+        for (LeaderboardEntry entry : GlobalLeaderboard.aggregate(world, authoritativeSystemIds())) {
+            if (entry != null && entry.playerId().equals(playerId)) return entry;
+        }
+        return new LeaderboardEntry(playerId, 0, 0, 0);
+    }
+
+    private String[] authoritativeSystemIds() {
+        GalaxyMapSnapshot snapshot = world.authoritativeGalaxyMapSnapshot();
+        if (snapshot == null || snapshot.systems() == null) return new String[]{world.activeSystemId()};
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        ids.add(world.activeSystemId());
+        for (GalaxyMapSystem system : snapshot.systems()) if (system != null && !blank(system.id())) ids.add(system.id());
+        return ids.toArray(String[]::new);
+    }
+
+    private List<GalaxyMapSystem> controlledSystems(String playerId) {
+        GalaxyMapSnapshot snapshot = world.authoritativeGalaxyMapSnapshot();
+        if (snapshot == null || snapshot.systems() == null) return List.of();
+        List<GalaxyMapSystem> out = new ArrayList<>();
+        for (GalaxyMapSystem system : snapshot.systems()) {
+            if (system != null && playerId.equalsIgnoreCase(system.controllerId())) out.add(system);
+        }
+        out.sort(Comparator.comparing(GalaxyMapSystem::id));
+        return List.copyOf(out);
+    }
+
+    private GalaxyMapSystem findSystem(GalaxyMapSnapshot snapshot, String selector) {
+        if (snapshot == null || snapshot.empty() || selector == null || selector.isBlank()) return null;
+        for (GalaxyMapSystem system : snapshot.systems()) {
+            if (system != null && (selector.equalsIgnoreCase(system.id()) || selector.equalsIgnoreCase(system.name()))) return system;
+        }
+        return null;
+    }
+
+    private String systemSummary(GalaxyMapSystem system) {
+        String controller = blank(system.controllerId()) ? "neutral" : system.controllerName() + " (" + system.controllerId() + ")";
+        return system.id() + " | " + system.name() + " | ships " + system.ships() + " | bases " + system.bases()
+                + " | resources " + system.resources() + " | " + controller;
+    }
+
+    private Path currentSavePath() {
+        Path dir = config.saveDir == null ? Path.of("saves") : config.saveDir;
+        return dir.resolve(Config.cleanSaveName(config.saveName) + "-current.starchem-save");
+    }
+
+    private Path previousSavePath() {
+        Path dir = config.saveDir == null ? Path.of("saves") : config.saveDir;
+        return dir.resolve(Config.cleanSaveName(config.saveName) + "-previous.starchem-save");
+    }
+
+    private String fileState(Path path) {
+        try {
+            if (!Files.exists(path)) return "missing";
+            return humanBytes(Files.size(path)) + " | modified " + UTC_TIME.format(Files.getLastModifiedTime(path).toInstant());
+        } catch (IOException ex) {
+            return "unavailable: " + ex.getMessage();
+        }
+    }
+
+    private String cleanNotice(String value) {
+        if (value == null) return "";
+        String clean = value.replace('|', ' ').replace('\n', ' ').replace('\r', ' ').trim();
+        return clean.length() <= ServerAccessPolicy.MAX_TEXT ? clean : clean.substring(0, ServerAccessPolicy.MAX_TEXT);
+    }
+
+    private String join(List<String> args, int from) {
+        if (args == null || from >= args.size()) return "";
+        return cleanNotice(String.join(" ", args.subList(Math.max(0, from), args.size())));
+    }
+
+    private Boolean onOff(String value) {
+        if ("on".equalsIgnoreCase(value) || "true".equalsIgnoreCase(value) || "1".equals(value)) return true;
+        if ("off".equalsIgnoreCase(value) || "false".equalsIgnoreCase(value) || "0".equals(value)) return false;
+        return null;
+    }
+
+    private String percent(double value) { return String.format(Locale.ROOT, "%.1f%%", Math.max(0, Math.min(1, value)) * 100.0); }
+
+    private String humanBytes(double bytes) {
+        double safe = Math.max(0, bytes);
+        if (safe < 1024) return String.format(Locale.ROOT, "%.0f B", safe);
+        if (safe < 1024 * 1024) return String.format(Locale.ROOT, "%.1f KB", safe / 1024.0);
+        return String.format(Locale.ROOT, "%.1f MB", safe / (1024.0 * 1024.0));
+    }
+
+    private String formatDuration(long seconds) {
+        long safe = Math.max(0, seconds);
+        long days = safe / 86_400;
+        long hours = safe % 86_400 / 3_600;
+        long minutes = safe % 3_600 / 60;
+        long remainder = safe % 60;
+        if (days > 0) return days + "d " + hours + "h " + minutes + "m " + remainder + "s";
+        if (hours > 0) return hours + "h " + minutes + "m " + remainder + "s";
+        if (minutes > 0) return minutes + "m " + remainder + "s";
+        return remainder + "s";
+    }
+
+    private boolean blank(String value) { return value == null || value.isBlank(); }
+}

@@ -1,0 +1,212 @@
+package com.tndmadman.rts;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+final class HeadlessGameServer {
+    private static final int MAX_CONSOLE_COMMANDS_PER_TICK = 32;
+    private static final long NO_SHUTDOWN = Long.MAX_VALUE;
+    private static final long[] SHUTDOWN_NOTICE_SECONDS = {600, 300, 60, 30, 10, 5, 4, 3, 2, 1};
+    private static final DateTimeFormatter UTC_TIME = DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC);
+
+    final World world;
+    final PeerNetwork network;
+    private final Config config;
+    private final ServerSaveStore saves;
+    private final ServerAdminStore adminStore;
+    private final ServerBackupAdmin backupAdmin;
+    private final AtomicBoolean stopped = new AtomicBoolean();
+    private final Instant startedAt = Instant.now();
+    private final long startedNanos = System.nanoTime();
+    private final int startupAutosaveSeconds;
+    private int runtimeAutosaveSeconds;
+    private ServerAccessPolicy accessPolicy;
+    private long nextAutosaveNanos;
+    private long autosaveCount;
+    private long manualSaveCount;
+    private Instant lastSuccessfulSaveAt;
+    private String lastSuccessfulSaveReason = "none";
+    private long shutdownDeadlineNanos = NO_SHUTDOWN;
+    private long lastShutdownNoticeSeconds = Long.MAX_VALUE;
+    private String shutdownReason = "";
+    private ServerConsole console;
+    private ServerCommandDispatcher consoleCommands;
+
+    private HeadlessGameServer(World world, PeerNetwork network, Config config, ServerSaveStore saves,
+                               ServerAdminStore adminStore, ServerBackupAdmin backupAdmin,
+                               ServerAccessPolicy accessPolicy) {
+        this.world = world;
+        this.network = network;
+        this.config = config;
+        this.saves = saves;
+        this.adminStore = adminStore;
+        this.backupAdmin = backupAdmin;
+        this.accessPolicy = accessPolicy == null ? ServerAccessPolicy.open() : accessPolicy;
+        this.startupAutosaveSeconds = Math.max(0, config.autosaveSeconds);
+        this.runtimeAutosaveSeconds = startupAutosaveSeconds;
+        scheduleNextAutosave();
+    }
+
+    static HeadlessGameServer start(Config config) throws IOException {
+        if (config == null || !config.dedicatedServerMode()) {
+            throw new IllegalArgumentException("HeadlessGameServer requires dedicated server configuration.");
+        }
+        GalaxyRuntimeOptions.configure(config);
+        ServerSaveStore saves = new ServerSaveStore(config.saveDir, config.saveName, config.backupCount);
+        ServerAdminStore adminStore = new ServerAdminStore(config.saveDir, config.saveName);
+        ServerBackupAdmin backupAdmin = new ServerBackupAdmin(config.saveDir, config.saveName, config.backupCount);
+        ServerAccessPolicy accessPolicy = adminStore.load();
+        Optional<World> loaded = config.newWorld ? Optional.empty() : saves.load(config);
+        World world = loaded.orElseGet(() -> new World(config.playerName, config.disabledNpcFactionIds, config.systemId, false));
+        if (loaded.isPresent()) System.out.println("Loaded server save '" + config.saveName + "'.");
+        else System.out.println(config.newWorld ? "Starting a new server world by request." : "No server save found; starting a new world.");
+        DevTimerSettings.configure(world, config.disableProductionTimers);
+        PeerNetwork network = PeerNetwork.start(config, world, saves.loadedPlayerSessions(), accessPolicy);
+        if (network == null) throw new IOException("Dedicated server network did not start.");
+        return new HeadlessGameServer(world, network, config, saves, adminStore, backupAdmin, accessPolicy);
+    }
+
+    void attachConsole(ServerConsole console) {
+        if (console == null) return;
+        if (stopped.get()) {
+            console.close();
+            return;
+        }
+        ServerConsole previous = this.console;
+        if (previous != null) previous.close();
+        this.console = console;
+        this.consoleCommands = new ServerCommandDispatcher(new ServerCommandDispatcher.Target() {
+            @Override public String status() { return consoleStatusLine(); }
+            @Override public List<String> players() { return playerStatusLines(); }
+            @Override public List<String> leaderboard(int limit) { return leaderboardLines(limit); }
+            @Override public List<String> player(String selector, String section) { return playerDetailLines(selector, section); }
+            @Override public List<String> sessions(String filter) { return sessionLines(filter); }
+            @Override public List<String> uptime() { return uptimeLines(); }
+            @Override public List<String> performance(String scope) { return performanceLines(scope); }
+            @Override public List<String> systems(String filter, String value) { return systemLines(filter, value); }
+            @Override public List<String> system(String selector) { return systemDetailLines(selector); }
+            @Override public List<String> connection(String selector) { return connectionLines(selector); }
+            @Override public List<String> resync(String selector) { return resyncLines(selector); }
+            @Override public List<String> serverInfo(String scope) { return serverInfoLines(scope); }
+            @Override public List<String> saveInfo() { return saveInfoLines(); }
+            @Override public List<String> autosave(List<String> args) { return autosaveCommand(args); }
+            @Override public List<String> backups(List<String> args) { return backupCommand(args); }
+            @Override public List<String> maintenance(List<String> args) { return maintenanceCommand(args); }
+            @Override public List<String> slots(List<String> args) { return slotsCommand(args); }
+            @Override public List<String> motd(List<String> args) { return motdCommand(args); }
+            @Override public String announce(String message) { return announceNow(message); }
+            @Override public String scheduleShutdown(long delaySeconds, String reason) { return HeadlessGameServer.this.scheduleShutdown(delaySeconds, reason); }
+            @Override public String cancelShutdown() { return HeadlessGameServer.this.cancelShutdown(); }
+            @Override public String shutdownStatus() { return HeadlessGameServer.this.shutdownStatus(); }
+            @Override public String disconnect(String selector, String reason) { return disconnectPlayer(selector, reason); }
+            @Override public List<String> developer(List<String> args) { return developerCommand(args); }
+            @Override public boolean save() { return saveNow("manual-console"); }
+            @Override public void stop() { HeadlessGameServer.this.stop(); }
+            @Override public boolean running() { return HeadlessGameServer.this.running(); }
+            @Override public Object extensionContext() { return HeadlessGameServer.this; }
+        }, System.out, System.err);
+    }
+
+    void tick(double dt) {
+        drainConsoleCommands();
+        if (stopped.get()) return;
+        processScheduledShutdown();
+        if (stopped.get()) return;
+        network.updateServerWorlds(dt);
+        network.tick();
+        autosaveIfDue();
+    }
+
+    boolean running() { return !stopped.get(); }
+    String statusLine() { return stopped.get() ? "SERVER STOPPED" : network.statusLine(); }
+
+    void stop() {
+        if (!stopped.compareAndSet(false, true)) return;
+        shutdownDeadlineNanos = NO_SHUTDOWN;
+        ServerConsole activeConsole = console;
+        console = null;
+        consoleCommands = null;
+        if (activeConsole != null) activeConsole.close();
+        saveNow("shutdown");
+        network.shutdown();
+        System.out.println("Dedicated server stopped.");
+    }
+
+    private void drainConsoleCommands() {
+        ServerConsole activeConsole = console;
+        ServerCommandDispatcher dispatcher = consoleCommands;
+        if (activeConsole == null || dispatcher == null) return;
+        for (int i = 0; i < MAX_CONSOLE_COMMANDS_PER_TICK; i++) {
+            String command = activeConsole.poll();
+            if (command == null) return;
+            dispatcher.execute(command);
+            if (stopped.get()) return;
+        }
+    }
+
+    private String consoleStatusLine() {
+        String autosave = runtimeAutosaveSeconds <= 0 ? "autosave disabled" : "autosave every " + runtimeAutosaveSeconds + "s";
+        String shutdown = shutdownDeadlineNanos == NO_SHUTDOWN ? "" : " | shutdown " + shutdownRemainingSeconds() + "s";
+        String maintenance = accessPolicy.maintenance() ? " | maintenance" : "";
+        String slots = accessPolicy.maxSlots() <= 0 ? "" : " | slots " + sortedSessions().size() + "/" + accessPolicy.maxSlots();
+        return statusLine() + " | save " + config.saveName + " | " + autosave + maintenance + slots + shutdown;
+    }
+
+    private List<String> playerStatusLines() {
+        List<PersistentPlayerSession> sessions = sortedSessions();
+        List<String> lines = new ArrayList<>();
+        for (PersistentPlayerSession session : sessions) {
+            String state = network.serverSessionConnected(session.playerId()) ? "connected" : "retained";
+            lines.add(session.playerId() + " | " + session.name() + " | " + state);
+        }
+        return List.copyOf(lines);
+    }
+
+    private List<String> leaderboardLines(int limit) {
+        List<LeaderboardEntry> entries = new ArrayList<>(GlobalLeaderboard.aggregate(world, authoritativeSystemIds()));
+        entries.sort(Comparator.comparingInt(LeaderboardEntry::score).reversed().thenComparing(LeaderboardEntry::playerId));
+        if (entries.isEmpty()) return List.of("Leaderboard is empty.");
+        List<String> lines = new ArrayList<>();
+        int rank = 1;
+        for (LeaderboardEntry entry : entries) {
+            if (rank > limit) break;
+            PersistentPlayerSession session = sessionById(entry.playerId());
+            String name = session == null ? PlayerRegistry.name(entry.playerId()) : session.name();
+            lines.add(rank + ". " + name + " (" + entry.playerId() + ") | score " + entry.score()
+                    + " | units " + entry.units() + " | bases " + entry.bases());
+            rank++;
+        }
+        return List.copyOf(lines);
+    }
+
+    private List<String> playerDetailLines(String selector, String section) {
+        String playerId = resolvePlayerId(selector);
+        if (playerId.isBlank()) return List.of("Unknown player session: " + selector);
+        PersistentPlayerSession session = sessionById(playerId);
+        String name = session == null ? PlayerRegistry.name(playerId) : session.name();
+        LeaderboardEntry score = leaderboardEntry(playerId);
+        String home = world.playerHomeSystemId(playerId);
+        List<GalaxyMapSystem> controlled = controlledSystems(playerId);
+        List<String> research = new ArrayList<>(world.completedResearch.getOrDefault(playerId, Set.of()));
+        research.sort(String::compareTo);
+        boolean connected = network.serverSessionConnected(playerId);
+        if ("assets".equals(section)) {
+            return List.of(name + " (" + playerId + ")", "Home: " + home,
+                    "Assets: units " + score.units() + " | bases " + score.bases() + " | live " + world.hasLiveAssets(playerId),
+                    "Score: " + score.score());
+        }
+        if ("research".equals(section)) {
+            List<String> lines = new ArrayList<>();
+            lines.add(name + " (" + playerId + ") | completed research " + research.size());

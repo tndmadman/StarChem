@@ -1,0 +1,177 @@
+    private static List<String> ai(HeadlessGameServer host, List<String> args) {
+        if (args.size() == 2 && "step".equalsIgnoreCase(args.get(1))) {
+            AiDevSettings.stepAi = true;
+            return List.of("AI will advance one step.");
+        }
+        if (args.size() == 2 && "snapshot".equalsIgnoreCase(args.get(1))) {
+            String snapshot = AiDevSnapshot.copySnapshot(host.world);
+            Path path = writeText(host, "ai-snapshot", snapshot);
+            return List.of(path == null ? "Could not write AI snapshot." : "Wrote AI snapshot: " + path.toAbsolutePath().normalize());
+        }
+        if (args.size() == 2 && "reload".equalsIgnoreCase(args.get(1))) {
+            AiDevCommands.hotReload(host.world);
+            return List.of(host.world.status);
+        }
+        if (args.size() >= 2 && "preset".equalsIgnoreCase(args.get(1))) {
+            if (args.size() == 2 || args.size() == 3 && "list".equalsIgnoreCase(args.get(2))) {
+                ArrayList<String> lines = new ArrayList<>();
+                for (NpcDifficultyPreset preset : NpcDifficultyPreset.values()) lines.add(preset.name().toLowerCase(Locale.ROOT) + " | " + preset.label);
+                return List.copyOf(lines);
+            }
+            if (args.size() == 3) {
+                NpcDifficultyPreset wanted = preset(args.get(2));
+                if (wanted == null) return List.of("Unknown preset: " + args.get(2));
+                int guard = NpcDifficultyPreset.values().length + 1;
+                while (NpcDifficultyPreset.current() != wanted && guard-- > 0) NpcDifficultyPreset.next();
+                return List.of("AI preset set to " + NpcDifficultyPreset.current().name().toLowerCase(Locale.ROOT) + ".");
+            }
+        }
+        if (args.size() != 3) return List.of("Usage: dev ai <pause on|off|speed normal|fast|freeze-players on|off|freeze-npc-combat on|off|attacks on|off|economy on|off|preset list|preset <id>|step|snapshot|reload>");
+        String action = args.get(1).toLowerCase(Locale.ROOT);
+        String value = args.get(2).toLowerCase(Locale.ROOT);
+        Boolean enabled = flag(value);
+        switch (action) {
+            case "pause" -> {
+                if (enabled == null) break;
+                AiDevSettings.pauseAi = enabled;
+                if (!enabled) AiDevSettings.stepAi = false;
+                return List.of("AI pause " + state(enabled) + ".");
+            }
+            case "speed" -> {
+                if (!List.of("normal", "fast").contains(value)) break;
+                AiDevSettings.fastAi = "fast".equals(value);
+                return List.of("AI speed set to " + value + ".");
+            }
+            case "freeze-players" -> {
+                if (enabled == null) break;
+                AiDevSettings.freezePlayerUnits = enabled;
+                return List.of("Player-unit freeze " + state(enabled) + ".");
+            }
+            case "freeze-npc-combat" -> {
+                if (enabled == null) break;
+                AiDevSettings.freezeNpcCombat = enabled;
+                return List.of("NPC combat freeze " + state(enabled) + ".");
+            }
+            case "attacks" -> {
+                if (enabled == null) break;
+                AiDevSettings.disableAttacks = !enabled;
+                return List.of("AI attacks " + state(enabled) + ".");
+            }
+            case "economy" -> {
+                if (enabled == null) break;
+                AiDevSettings.disableEconomy = !enabled;
+                return List.of("AI economy " + state(enabled) + ".");
+            }
+            default -> { }
+        }
+        return List.of("Usage: dev ai <pause on|off|speed normal|fast|freeze-players on|off|freeze-npc-combat on|off|attacks on|off|economy on|off|preset list|preset <id>|step|snapshot|reload>");
+    }
+
+    private static List<String> timers(HeadlessGameServer host, List<String> args) {
+        if (args.size() == 2 && "status".equalsIgnoreCase(args.get(1))) return List.of("Production timers: " + (DevTimerSettings.disabled(host.world) ? "disabled" : "enabled"));
+        if (args.size() != 2) return List.of("Usage: dev timers <status|on|off>");
+        Boolean enabled = flag(args.get(1));
+        if (enabled == null) return List.of("Usage: dev timers <status|on|off>");
+        DevTimerSettings.configure(host.world, !enabled);
+        return List.of("Production timers " + state(enabled) + ".");
+    }
+
+    private static List<String> faction(HeadlessGameServer host, List<String> args) {
+        if (args.size() == 1 || args.size() == 2 && "list".equalsIgnoreCase(args.get(1))) {
+            ArrayList<String> lines = new ArrayList<>();
+            for (NpcFaction faction : NpcRules.factions()) lines.add(faction.id() + " | " + faction.name() + " | " + faction.behavior() + " | " + (faction.enabled() ? "enabled" : "disabled"));
+            return List.copyOf(lines);
+        }
+        if (args.size() < 3) return List.of("Usage: dev faction <faction> <status|spawn [system]|remove confirm|reset confirm|give-resources <material|all> <amount>|force <raid|station|research|craft>>");
+        NpcFaction faction = faction(args.get(1));
+        if (faction == null) return List.of("Unknown NPC faction: " + args.get(1));
+        String action = args.get(2).toLowerCase(Locale.ROOT);
+        if ("status".equals(action) && args.size() == 3) return factionStatus(host.world, faction);
+        if ("spawn".equals(action) && (args.size() == 3 || args.size() == 4)) {
+            String previous = host.world.activeSystemId();
+            try {
+                if (args.size() == 4) {
+                    String system = resolveSystem(host.world, args.get(3));
+                    if (system.isBlank()) return List.of("Unknown galaxy system: " + args.get(3));
+                    host.world.activateSystem(system);
+                }
+                boolean spawned = NpcFactionSpawner.spawn(host.world, faction, NpcSpawnReason.FORCED);
+                if (spawned) host.world.saveActiveSystem();
+                changed(host, "FACTION", faction.id(), spawned ? "spawned" : "spawn skipped");
+                return List.of(spawned ? "Spawned " + faction.name() + "." : faction.name() + " already has active assets or could not spawn.");
+            } finally { restore(host.world, previous); }
+        }
+        if ("remove".equals(action) && args.size() == 4 && "confirm".equalsIgnoreCase(args.get(3))) {
+            String backup = backup(host, "pre-faction-remove");
+            if (!backup.startsWith("Created backup")) return List.of(backup, "Nothing was removed.");
+            int removed = removeFaction(host.world, faction);
+            changed(host, "FACTION", faction.id(), "removed " + removed);
+            return List.of(backup, "Removed " + removed + " assets belonging to " + faction.name() + ".");
+        }
+        if ("reset".equals(action) && args.size() == 4 && "confirm".equalsIgnoreCase(args.get(3))) {
+            String backup = backup(host, "pre-faction-reset");
+            if (!backup.startsWith("Created backup")) return List.of(backup, "Nothing was reset.");
+            int removed = removeFaction(host.world, faction);
+            boolean spawned = NpcFactionSpawner.spawn(host.world, faction, NpcSpawnReason.FORCED);
+            changed(host, "FACTION", faction.id(), "reset removed=" + removed + " spawned=" + spawned);
+            return List.of(backup, "Reset " + faction.name() + ": removed " + removed + " assets; spawn " + (spawned ? "completed" : "not created") + ".");
+        }
+        if ("give-resources".equals(action) && args.size() == 5) {
+            Double value = amount(args.get(4));
+            if (value == null) return List.of("Resource amount is invalid.");
+            Material selected = "all".equalsIgnoreCase(args.get(3)) ? null : material(args.get(3));
+            if (selected == null && !"all".equalsIgnoreCase(args.get(3))) return List.of("Unknown material: " + args.get(3));
+            int bases = mutateFactionBases(host.world, faction.id(), base -> {
+                if (selected == null) for (Material material : Material.values()) HangarStore.add(base.inventory, material, value);
+                else HangarStore.add(base.inventory, selected, value);
+            });
+            changed(host, "FACTION", faction.id(), "resources bases=" + bases);
+            return List.of("Added resources to " + bases + " " + faction.name() + " base" + (bases == 1 ? "" : "s") + ".");
+        }
+        if ("force".equals(action) && args.size() == 4) return forceFaction(host, faction, args.get(3));
+        return List.of("Usage: dev faction <faction> <status|spawn [system]|remove confirm|reset confirm|give-resources <material|all> <amount>|force <raid|station|research|craft>>");
+    }
+
+    private static List<String> production(HeadlessGameServer host, List<String> args) {
+        if (args.size() < 2) return List.of("Usage: dev production <finish|fund|cancel|move|clear> ...");
+        String action = args.get(1).toLowerCase(Locale.ROOT);
+        if (List.of("finish", "fund", "cancel").contains(action) && args.size() == 4) {
+            LocatedBase located = findBase(host.world, args.get(2));
+            if (located == null) return List.of("Unknown base: " + args.get(2));
+            ProductionJob job = ProductionSystem.findJob(located.base, args.get(3));
+            if (job == null) return List.of("Unknown production job: " + args.get(3));
+            boolean result;
+            String previous = host.world.activeSystemId();
+            try {
+                host.world.activateSystem(located.systemId);
+                result = switch (action) {
+                    case "finish" -> { job.remaining = 0; ProductionSystem.update(host.world, 0); yield !located.base.productionQueue.contains(job); }
+                    case "fund" -> ProductionSystem.fundWaitingJob(host.world, located.base, job.id);
+                    default -> ProductionSystem.cancel(host.world, located.base.playerId, located.base.id, job.id);
+                };
+                host.world.saveActiveSystem();
+            } finally { restore(host.world, previous); }
+            if (!result) return List.of("Production operation was rejected: " + host.world.status);
+            changed(host, "PRODUCTION", located.base.id, action + " " + job.id);
+            return List.of("Production " + action + " completed for " + located.base.id + "/" + job.id + ".");
+        }
+        if ("move".equals(action) && args.size() == 5) {
+            LocatedBase located = findBase(host.world, args.get(2));
+            if (located == null) return List.of("Unknown base: " + args.get(2));
+            int position;
+            try { position = Integer.parseInt(args.get(4)); } catch (NumberFormatException ex) { return List.of("Queue position is not numeric."); }
+            int current = indexOf(located.base, args.get(3));
+            if (current < 0) return List.of("Unknown production job: " + args.get(3));
+            int target = Math.max(1, Math.min(located.base.productionQueue.size(), position)) - 1;
+            if (current == 0 || target == 0) return List.of("The active job cannot be reordered.");
+            boolean moved = ProductionSystem.move(host.world, located.base.playerId, located.base.id, args.get(3), target - current);
+            if (!moved) return List.of("Production move rejected: " + host.world.status);
+            changed(host, "PRODUCTION", located.base.id, "move " + args.get(3) + " to " + position);
+            return List.of(host.world.status);
+        }
+        if ("clear".equals(action) && args.size() == 4 && "confirm".equalsIgnoreCase(args.get(3))) {
+            LocatedBase located = findBase(host.world, args.get(2));
+            if (located == null) return List.of("Unknown base: " + args.get(2));
+            String backup = backup(host, "pre-production-clear");
+            if (!backup.startsWith("Created backup")) return List.of(backup, "Queue was not changed.");
+            int count = 0;

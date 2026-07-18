@@ -10,6 +10,7 @@ import java.util.Set;
 final class PeerServerAdminBridge {
     private static final Field SESSIONS = field(PeerServerSide.class, "sessions");
     private static final Field PEERS = field(PeerServerSide.class, "peers");
+    private static final Field DEV_REQUESTS = field(PeerServerSide.class, "devRequests");
     private static final Method SEND_DELETED = method(PeerServerSide.class, "sendDeletedSystems", Set.class);
 
     private PeerServerAdminBridge() { }
@@ -35,6 +36,60 @@ final class PeerServerAdminBridge {
             }
         } catch (ReflectiveOperationException ignored) { }
         return null;
+    }
+
+    static void setDevAccess(PeerServerSide server, String playerId, boolean enabled) {
+        if (server == null || playerId == null || playerId.isBlank()) return;
+        try {
+            Object value = PEERS.get(server);
+            if (value instanceof Map<?,?> raw) {
+                @SuppressWarnings("unchecked") Map<ConnectionId,ServerPeer> peers = (Map<ConnectionId,ServerPeer>)raw;
+                for (Map.Entry<ConnectionId,ServerPeer> entry : peers.entrySet()) {
+                    ServerPeer peer = entry.getValue();
+                    if (peer == null || !playerId.equals(peer.playerId())) continue;
+                    entry.setValue(new ServerPeer(peer.playerId(), peer.connectionId(), peer.address(), peer.port(), peer.lastSeen(), enabled));
+                    server.transport.sendOrdered("DEVSTATUS|" + (enabled ? "1" : "0"), peer.connectionId());
+                }
+            }
+            Object requestsValue = DEV_REQUESTS.get(server);
+            if (requestsValue instanceof Set<?> rawRequests) {
+                @SuppressWarnings("unchecked") Set<String> requests = (Set<String>)rawRequests;
+                if (enabled) requests.add(playerId);
+            }
+            Object session = session(server, playerId);
+            setBoolean(session, "devFreeBuild", false);
+            server.world.setDevFreeBuild(playerId, false);
+            server.broadcastNow();
+        } catch (ReflectiveOperationException ex) {
+            System.err.println("Could not change runtime developer access: " + ex.getMessage());
+        }
+    }
+
+    static int revokeAllDev(PeerServerSide server) {
+        if (server == null) return 0;
+        int count = 0;
+        try {
+            Object value = PEERS.get(server);
+            if (value instanceof Map<?,?> raw) {
+                @SuppressWarnings("unchecked") Map<ConnectionId,ServerPeer> peers = (Map<ConnectionId,ServerPeer>)raw;
+                for (Map.Entry<ConnectionId,ServerPeer> entry : peers.entrySet()) {
+                    ServerPeer peer = entry.getValue();
+                    if (peer == null || !peer.devFreeBuild()) continue;
+                    count++;
+                    entry.setValue(new ServerPeer(peer.playerId(), peer.connectionId(), peer.address(), peer.port(), peer.lastSeen(), false));
+                    server.transport.sendOrdered("DEVSTATUS|0", peer.connectionId());
+                    Object session = session(server, peer.playerId());
+                    setBoolean(session, "devFreeBuild", false);
+                    server.world.setDevFreeBuild(peer.playerId(), false);
+                }
+            }
+            Object requestsValue = DEV_REQUESTS.get(server);
+            if (requestsValue instanceof Set<?> requests) requests.clear();
+            server.broadcastNow();
+        } catch (ReflectiveOperationException ex) {
+            System.err.println("Could not revoke runtime developer access: " + ex.getMessage());
+        }
+        return count;
     }
 
     static void sendDeleted(PeerServerSide server, Set<String> systems) {
@@ -66,6 +121,12 @@ final class PeerServerAdminBridge {
     private static void setLong(Object target, String name, long value) {
         if (target == null) return;
         try { Field field = target.getClass().getDeclaredField(name); field.setAccessible(true); field.setLong(target, value); }
+        catch (ReflectiveOperationException ignored) { }
+    }
+
+    private static void setBoolean(Object target, String name, boolean value) {
+        if (target == null) return;
+        try { Field field = target.getClass().getDeclaredField(name); field.setAccessible(true); field.setBoolean(target, value); }
         catch (ReflectiveOperationException ignored) { }
     }
 

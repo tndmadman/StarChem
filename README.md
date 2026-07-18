@@ -87,8 +87,10 @@ system <id-or-name>        Show detailed information for one galaxy system.
 connection <player>        Show sanitized connection diagnostics.
 assets <player|system> <selector> [ships|bases]
 asset <unit-or-base-id>    Inspect authoritative ships and bases.
+research topics|topic <topic>|status|completed|queued|available|blocked <player>
+                           Inspect loaded research rules and player progress.
 production <summary|player <player>|system <system>|base <base-id>|stalled>
-factions [npc]             Show NPC faction totals and runtime-record count.
+factions                   Show NPC faction totals and runtime-record count.
 faction <id-or-name>       Inspect one NPC faction.
 resync <player|all|resources>
                            Resend authoritative state or force resource correction.
@@ -122,10 +124,19 @@ unban <entry-id|player|name|target>
                            Manage persistent identity, IP/CIDR, and client-device bans.
 pause status|on [reason]|off
                            Pause simulation while networking and administration continue.
-activity [last <count>|player <player>|type <type>|clear]
-                           Inspect the bounded in-memory operator event journal.
+activity [last <count>|player <player>|type <type>|clear|export <filename>]
+                           Inspect or export the bounded persistent operator journal.
+observations [player]      Show retained last-seen IP and client-device moderation signals.
 prune-systems preview      Preview abandoned dynamic systems.
 prune-systems run confirm Create a verified backup, then prune eligible systems.
+tell <player> <message>    Send one connected player a private server notice.
+notice all <message>       Send a scoped server notice.
+notice system <system> <message>
+threads                    List live JVM threads and states.
+memory                     Show JVM heap and non-heap usage.
+gc-status                  Show garbage-collector statistics without forcing collection.
+dump player|system <selector> [filename]
+                           Write a sanitized JSON administration dump.
 say <message>              Broadcast a server notice to connected clients.
 shutdown now               Save and stop immediately.
 shutdown <duration> [reason]
@@ -134,20 +145,35 @@ shutdown status            Show the pending shutdown.
 shutdown cancel            Cancel the pending shutdown.
 disconnect <player> [reason]
                            Temporarily disconnect a player while retaining the session.
-dev ...                    Run developer controls when the server started with --dev.
+dev status                 Show runtime developer state.
+dev mode status|on|off [confirm]
+                           Enable or disable developer controls for this process.
+dev access list|requests|grant|revoke|revoke-all ...
+dev freebuild status <player>|<player> on|off
+dev resource ...           Inspect, add, remove, set, fill, or clear base inventory.
+dev research ...           Grant, finish, revoke, cascade, or reset research.
+dev ai ...                 Control AI pause, speed, freezes, rules, preset, snapshot, and reload.
+dev timers status|on|off   Control production timers at runtime.
+dev faction ...            Spawn, inspect, reset, remove, fund, or trigger any NPC faction.
+dev production ...         Fund, finish, cancel, move, or clear production jobs.
+dev asset ...              Heal, move, or safely destroy an asset.
+dev player ...             Heal, relocate, or respawn a player.
+dev spawn ...              Spawn validated ships, bases, loot, or attack waves.
 version                    Print the running build identity.
 stop                       Save and stop immediately.
 ```
 
 Maintenance mode and the slot limit apply only to brand-new player identities. Existing connected players remain online, and retained identities may reconnect or reclaim their session. Lowering the slot limit never disconnects an existing session.
 
-The message of the day, maintenance state, maintenance reason, and slot limit are stored beside the server save in `<save-name>-admin.json`. Whitelist entries, kicks, and bans are stored in `<save-name>-moderation.json`. Runtime autosave and simulation-pause changes last only until the process exits.
+The message of the day, maintenance state, maintenance reason, and slot limit are stored beside the server save in `<save-name>-admin.json`. Whitelist entries, kicks, and bans are stored in `<save-name>-moderation.json`. The bounded operator journal is retained in `<save-name>-activity.log`, and last-seen moderation signals are retained in `<save-name>-observations.json`. Runtime autosave, simulation pause, and runtime developer mode changes last only until the process exits.
 
 A player ban records the player identity and, when available, also records that connection's numeric IP address and client device ID. IP bans accept exact IPv4 or IPv6 addresses and CIDR ranges. A game server cannot obtain a remote computer's Ethernet or Wi-Fi MAC address across the internet because routers do not forward MAC addresses. The `mac` spelling is therefore an explicit alias for StarChem's locally persisted random client device ID, not a hardware MAC address. Client device IDs can be reset or spoofed, IP addresses can change or be hidden by VPNs, and an IP ban may affect multiple players behind the same shared address; use identity, IP/CIDR, and device bans together when stronger enforcement is needed.
 
 Kicks and bans retain the player's session, ships, bases, research, and systems. They prevent JOIN, password reclaim, and RESUME until removed or expired instead of using the normal disconnected-session expiry path. `prune-systems run confirm` is intentionally separate and creates a verified backup before deleting abandoned dynamic systems.
 
-The `say` and scheduled-shutdown commands send notices to connected clients. A temporary `disconnect` keeps the player's resumable session and assets; it is not a ban or permanent kick. Developer controls support explicit access grants, AI pause/speed/step controls, production timers, NPC triggers, spawns, removal, and reset operations. Run `help dev` for the command group and `dev status` for current developer state.
+The `say`, `tell`, `notice`, and scheduled-shutdown commands send notices to connected clients. A temporary `disconnect` keeps the player's resumable session and assets; it is not a ban or permanent kick.
+
+Runtime developer mode can be enabled only from the trusted local server console. It is independent from immutable startup configuration and resets after restart. Disabling it revokes all remote developer grants and free-build permissions, restores normal AI flags and the startup timer setting, and informs affected clients. Remote developer authorization and free-build are separate controls. Destructive developer operations require explicit confirmation and create a verified backup where recovery risk is meaningful. Resource grants, research changes, production changes, spawns, repairs, relocations, and faction operations run on the authoritative server tick and force client resynchronization.
 
 Run `java -jar StarChem.jar --help` to view all supported startup options. Unknown options and missing option values are rejected instead of being silently ignored.
 

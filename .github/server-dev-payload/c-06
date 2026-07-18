@@ -1,0 +1,104 @@
+    private static String[] systemIds(World world) {
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        if (world.activeSystemId() != null) ids.add(world.activeSystemId());
+        GalaxyMapSnapshot snapshot = world.authoritativeGalaxyMapSnapshot();
+        if (snapshot != null && snapshot.systems() != null) for (GalaxyMapSystem system : snapshot.systems()) {
+            if (system != null && system.id() != null && !system.id().isBlank() && !system.id().contains("WAIT")) ids.add(system.id());
+        }
+        return ids.toArray(String[]::new);
+    }
+
+    private static String resolveSystem(World world, String selector) {
+        if (selector == null || selector.isBlank()) return "";
+        GalaxyMapSnapshot snapshot = world.authoritativeGalaxyMapSnapshot();
+        if (snapshot != null) for (GalaxyMapSystem system : snapshot.systems()) if (system != null
+                && (system.id().equalsIgnoreCase(selector) || system.name().equalsIgnoreCase(selector))) return system.id();
+        return "";
+    }
+
+    private static String resolvePlayer(PeerNetwork network, String selector) {
+        PersistentPlayerSession session = session(network, selector);
+        return session == null ? "" : session.playerId();
+    }
+
+    private static PersistentPlayerSession session(PeerNetwork network, String selector) {
+        if (selector == null) return null;
+        for (PersistentPlayerSession session : network.persistentPlayerSessions()) if (session != null
+                && (session.playerId().equalsIgnoreCase(selector) || session.name().equalsIgnoreCase(selector))) return session;
+        return null;
+    }
+
+    private static NpcFaction faction(String selector) {
+        if (selector == null) return null;
+        for (NpcFaction faction : NpcRules.factions()) if (faction.id().equalsIgnoreCase(selector) || faction.name().equalsIgnoreCase(selector)) return faction;
+        return null;
+    }
+
+    private static NpcDifficultyPreset preset(String selector) {
+        if (selector == null) return null;
+        String wanted = selector.trim().replace('-', '_').replace(' ', '_');
+        for (NpcDifficultyPreset preset : NpcDifficultyPreset.values()) if (preset.name().equalsIgnoreCase(wanted) || preset.label.equalsIgnoreCase(selector)) return preset;
+        return null;
+    }
+
+    private static String firstEnemyTarget(World world, String factionId) {
+        for (Base base : world.bases.values()) if (!factionId.equals(base.playerId) && !NpcRules.isNpcFaction(base.playerId)) return CombatTarget.base(base);
+        for (Unit unit : world.units.values()) if (!factionId.equals(unit.playerId) && !NpcRules.isNpcFaction(unit.playerId)) return CombatTarget.unit(unit);
+        return "";
+    }
+
+    private static int nextUnit(World world, String playerId) {
+        int max = 0;
+        for (Unit unit : world.units.values()) if (playerId.equals(unit.playerId)) max = Math.max(max, unit.unitId);
+        return max + 1;
+    }
+
+    private static int nextBase(World world, String playerId) {
+        int max = 0;
+        for (Base base : world.bases.values()) if (playerId.equals(base.playerId)) {
+            String marker = playerId + ":B";
+            if (base.id.startsWith(marker)) try { max = Math.max(max, Integer.parseInt(base.id.substring(marker.length()))); } catch (NumberFormatException ignored) { }
+        }
+        return max + 1;
+    }
+
+    private static int indexOf(Base base, String jobId) {
+        for (int i = 0; i < base.productionQueue.size(); i++) if (base.productionQueue.get(i).id.equals(jobId)) return i;
+        return -1;
+    }
+
+    private static void setInventory(EnumMap<Material,Double> inventory, Material material, double value) {
+        if (value <= 0) inventory.remove(material); else inventory.put(material, value);
+    }
+
+    private static Material material(String value) {
+        if (value == null) return null;
+        String normalized = value.trim().toUpperCase(Locale.ROOT).replace('-', '_').replace(' ', '_');
+        try { return Material.valueOf(normalized); } catch (IllegalArgumentException ex) { return null; }
+    }
+
+    private static Double amount(String value) {
+        double parsed = parseAmountOr(value, Double.NaN);
+        return Double.isFinite(parsed) && parsed >= 0 && parsed <= MAX_RESOURCE_AMOUNT ? parsed : null;
+    }
+
+    private static double parseAmountOr(String value, double fallback) {
+        try { double parsed = Double.parseDouble(value); return Double.isFinite(parsed) ? parsed : fallback; }
+        catch (RuntimeException ex) { return fallback; }
+    }
+
+    private static double coordinate(String value, double fallback) { return parseAmountOr(value, fallback); }
+    private static Boolean flag(String value) { if ("on".equalsIgnoreCase(value) || "true".equalsIgnoreCase(value) || "1".equals(value)) return true; if ("off".equalsIgnoreCase(value) || "false".equalsIgnoreCase(value) || "0".equals(value)) return false; return null; }
+    private static String state(boolean enabled) { return enabled ? "enabled" : "disabled"; }
+    private static String fmt(double value) { return String.format(Locale.ROOT, "%.1f", Math.max(0, value)); }
+    private static String clean(String value) { return ServerModeration.clean(value); }
+    private static String bytes(long value) { if (value < 0) return "unknown"; double safe = value; if (safe < 1024) return String.format(Locale.ROOT, "%.0f B", safe); if (safe < 1024 * 1024) return String.format(Locale.ROOT, "%.1f KB", safe / 1024); if (safe < 1024 * 1024 * 1024) return String.format(Locale.ROOT, "%.1f MB", safe / 1024 / 1024); return String.format(Locale.ROOT, "%.1f GB", safe / 1024 / 1024 / 1024); }
+    private static String safeFilename(String value) { String clean = value == null ? "dump" : value.trim().replaceAll("[^A-Za-z0-9._-]+", "-").replaceAll("^-+|-+$", ""); if (clean.isBlank()) clean = "dump"; return clean.length() <= 80 ? clean : clean.substring(0, 80); }
+    private static List<String> cap(List<String> rows, String label) { if (rows.isEmpty()) return List.of("No matching " + label + "."); if (rows.size() <= 100) return List.copyOf(rows); ArrayList<String> out = new ArrayList<>(rows.subList(0, 100)); out.add("... " + (rows.size() - 100) + " more omitted."); return List.copyOf(out); }
+    private static void restore(World world, String systemId) { if (systemId != null && !systemId.isBlank()) world.activateSystem(systemId); }
+
+    @FunctionalInterface private interface BaseMutation { void apply(Base base); }
+    @FunctionalInterface private interface SystemVisitor { boolean visit(String systemId, World world); }
+    private record LocatedBase(String systemId, Base base) { }
+    private record LocatedAsset(String systemId, Unit unit, Base base) { }
+}
