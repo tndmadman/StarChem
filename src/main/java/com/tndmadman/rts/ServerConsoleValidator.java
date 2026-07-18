@@ -19,6 +19,7 @@ public final class ServerConsoleValidator {
     static void validate() throws Exception {
         validateBoundedQueue();
         validateReaderEof();
+        validateDurationParsing();
         validateDispatch();
     }
 
@@ -49,6 +50,16 @@ public final class ServerConsoleValidator {
         console.close();
     }
 
+    private static void validateDurationParsing() {
+        require(ServerCommandDispatcher.parseDurationSeconds("15") == 15, "plain seconds were not parsed");
+        require(ServerCommandDispatcher.parseDurationSeconds("2m") == 120, "minutes were not parsed");
+        require(ServerCommandDispatcher.parseDurationSeconds("1h") == 3600, "hours were not parsed");
+        boolean rejected = false;
+        try { ServerCommandDispatcher.parseDurationSeconds("0"); }
+        catch (IllegalArgumentException ex) { rejected = true; }
+        require(rejected, "zero shutdown duration was accepted");
+    }
+
     private static void validateDispatch() {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         ByteArrayOutputStream errors = new ByteArrayOutputStream();
@@ -62,15 +73,37 @@ public final class ServerConsoleValidator {
         require(target.statusCalls == 1, "status command was not dispatched");
 
         dispatcher.execute("players");
+        dispatcher.execute("uptime");
+        dispatcher.execute("perf network");
+        dispatcher.execute("systems controlled");
+        dispatcher.execute("system SYS-1");
+        dispatcher.execute("connection P1");
+        dispatcher.execute("save-info");
         dispatcher.execute("save");
+        dispatcher.execute("say Maintenance soon");
+        dispatcher.execute("shutdown 2m Maintenance");
+        dispatcher.execute("shutdown status");
+        dispatcher.execute("shutdown cancel");
+        dispatcher.execute("disconnect P1 Testing");
+        dispatcher.execute("dev ai pause on");
         dispatcher.execute("help \"status\"");
         dispatcher.execute("unknown");
         dispatcher.execute("help \"unterminated");
-        dispatcher.execute("shutdown");
+        dispatcher.execute("stop");
 
         require(target.playerCalls == 1, "players command was not dispatched");
+        require(target.uptimeCalls == 1, "uptime command was not dispatched");
+        require(target.performanceCalls == 1, "perf command was not dispatched");
+        require(target.systemsCalls == 1 && target.systemCalls == 1, "system commands were not dispatched");
+        require(target.connectionCalls == 1, "connection command was not dispatched");
+        require(target.saveInfoCalls == 1, "save-info command was not dispatched");
         require(target.saveCalls == 1, "save command was not dispatched");
-        require(target.stopCalls == 1 && !target.running, "shutdown alias did not stop the target");
+        require(target.announceCalls == 1, "say command was not dispatched");
+        require(target.scheduleCalls == 1 && target.scheduledSeconds == 120, "scheduled shutdown was not dispatched");
+        require(target.shutdownStatusCalls == 1 && target.cancelCalls == 1, "shutdown management was not dispatched");
+        require(target.disconnectCalls == 1, "disconnect command was not dispatched");
+        require(target.developerCalls == 1, "developer command was not dispatched");
+        require(target.stopCalls == 1 && !target.running, "stop command did not stop the target");
         require(ServerCommandDispatcher.tokenize("help 'status'").equals(List.of("help", "status")),
                 "quoted command tokenization failed");
         String outputText = output.toString(StandardCharsets.UTF_8);
@@ -100,32 +133,39 @@ public final class ServerConsoleValidator {
     private static final class FakeTarget implements ServerCommandDispatcher.Target {
         int statusCalls;
         int playerCalls;
+        int uptimeCalls;
+        int performanceCalls;
+        int systemsCalls;
+        int systemCalls;
+        int connectionCalls;
+        int saveInfoCalls;
         int saveCalls;
+        int announceCalls;
+        int scheduleCalls;
+        int cancelCalls;
+        int shutdownStatusCalls;
+        int disconnectCalls;
+        int developerCalls;
         int stopCalls;
+        long scheduledSeconds;
         boolean running = true;
 
-        @Override public String status() {
-            statusCalls++;
-            return "HOST Test";
-        }
-
-        @Override public List<String> players() {
-            playerCalls++;
-            return List.of("P1 | Alpha | connected", "P2 | Beta | retained");
-        }
-
-        @Override public boolean save() {
-            saveCalls++;
-            return true;
-        }
-
-        @Override public void stop() {
-            stopCalls++;
-            running = false;
-        }
-
-        @Override public boolean running() {
-            return running;
-        }
+        @Override public String status() { statusCalls++; return "HOST Test"; }
+        @Override public List<String> players() { playerCalls++; return List.of("P1 | Alpha | connected", "P2 | Beta | retained"); }
+        @Override public List<String> uptime() { uptimeCalls++; return List.of("Uptime: 1m"); }
+        @Override public List<String> performance(String scope) { performanceCalls++; return List.of("Network: " + scope); }
+        @Override public List<String> systems(String filter, String value) { systemsCalls++; return List.of("SYS-1"); }
+        @Override public List<String> system(String selector) { systemCalls++; return List.of(selector); }
+        @Override public List<String> connection(String selector) { connectionCalls++; return List.of(selector + " connected"); }
+        @Override public List<String> saveInfo() { saveInfoCalls++; return List.of("Save: test"); }
+        @Override public String announce(String message) { announceCalls++; return "sent " + message; }
+        @Override public String scheduleShutdown(long delaySeconds, String reason) { scheduleCalls++; scheduledSeconds = delaySeconds; return "scheduled"; }
+        @Override public String cancelShutdown() { cancelCalls++; return "cancelled"; }
+        @Override public String shutdownStatus() { shutdownStatusCalls++; return "scheduled"; }
+        @Override public String disconnect(String selector, String reason) { disconnectCalls++; return "disconnected"; }
+        @Override public List<String> developer(List<String> args) { developerCalls++; return List.of("developer"); }
+        @Override public boolean save() { saveCalls++; return true; }
+        @Override public void stop() { stopCalls++; running = false; }
+        @Override public boolean running() { return running; }
     }
 }
