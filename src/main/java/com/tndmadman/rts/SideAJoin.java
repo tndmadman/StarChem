@@ -7,7 +7,10 @@ final class SideAJoin {
         switch (parts[0]) {
             case "JOIN" -> {
                 server.join(connectionId, packet.address(), packet.port(), parts.length > 1 ? parts[1] : "Player",
-                        markerValue(parts, "AUTH"), server.requestedDev(parts), server.requestedDevToken(parts));
+                        markerValue(parts, "AUTH_REGISTER"),
+                        markerValue(parts, "AUTH_PROOF_NONCE"),
+                        markerValue(parts, "AUTH_PROOF"),
+                        server.requestedDev(parts), server.requestedDevToken(parts));
                 return true;
             }
             case "RESUME" -> {

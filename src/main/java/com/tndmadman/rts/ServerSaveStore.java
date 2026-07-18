@@ -229,7 +229,7 @@ final class ServerSaveStore {
                     playerId,
                     string(row, "name", playerId),
                     intValue(row, "rgb", 0x888888),
-                    PasswordAuth.decodeVerifier(string(row, "passwordSalt", "")),
+                    PasswordAuth.decodeHex(string(row, "passwordSalt", "")),
                     PasswordAuth.decodeVerifier(string(row, "passwordVerifierSha256", "")),
                     tokenDigest,
                     decodeBytes(string(row, "previousTokenDigestSha256", "")),

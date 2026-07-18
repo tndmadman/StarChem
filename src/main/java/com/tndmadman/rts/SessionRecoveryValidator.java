@@ -127,8 +127,19 @@ public final class SessionRecoveryValidator {
             PlayerRegistry.reset("SOLO", "Persistent Session Host", 0x50BEFF);
             PeerServerSide restoredServer = new PeerServerSide(config, restoredWorld, transport, firstServer.persistentSessions());
             ConnectionId restoredEndpoint = transport.connectionId(loopback, restoredClient.getLocalPort());
+            restoredServer.join(restoredEndpoint, loopback, restoredClient.getLocalPort(), "Persistent Client", false, "");
+            String challenge = receivePayload(restoredClient, "AUTH_CHALLENGE|");
+            String[] challengeParts = challenge.split("\\|", -1);
+            require(challengeParts.length >= 4 && PasswordAuth.decodeHex(challengeParts[2]).length == 16
+                            && PasswordAuth.validNonce(challengeParts[3]),
+                    "restored server did not issue a valid password challenge");
+            String wrongProof = PasswordAuth.challengeProof(
+                    PasswordAuth.serverDigest(PasswordAuth.decodeVerifier(
+                            PasswordAuth.verifier("Persistent Client", "wrong-password")),
+                            PasswordAuth.decodeHex(challengeParts[2])),
+                    "Persistent Client", challengeParts[3]);
             restoredServer.join(restoredEndpoint, loopback, restoredClient.getLocalPort(), "Persistent Client",
-                    PasswordAuth.verifier("Persistent Client", "wrong-password"), false, "");
+                    "", challengeParts[3], wrongProof, false, "");
             String rejected = receivePayload(restoredClient, "JOIN_DENIED|");
             require(rejected.contains("Password rejected"), "wrong password did not receive a password rejection");
             require(!restoredServer.owns(restoredEndpoint, "P1"),

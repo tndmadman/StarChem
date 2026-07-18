@@ -14,6 +14,7 @@ final class PeerServerSide {
     private static final long TIMEOUT_MS = 4000;
     private static final long DISCONNECT_GRACE_MS = 60_000;
     private static final long RESUME_REPLAY_MS = 10_000;
+    private static final long AUTH_CHALLENGE_MS = 30_000;
     private static final double MAX_DEV_RESOURCE_AMOUNT = 100_000.0;
     private static final SecureRandom SESSION_RANDOM = new SecureRandom();
     final World world;
@@ -22,6 +23,7 @@ final class PeerServerSide {
     final ClientViewCache views = new ClientViewCache();
     private final Map<ConnectionId, ServerPeer> peers = new LinkedHashMap<>();
     private final Map<String, PlayerSession> sessions = new LinkedHashMap<>();
+    private final Map<ConnectionId, AuthChallenge> authChallenges = new LinkedHashMap<>();
     private final Set<String> devRequests = new LinkedHashSet<>();
     private int nextPlayer = 1;
     private long sequence = 1, lastSnapshot, lastGalaxy, lastResourceCorrection;
@@ -77,6 +79,7 @@ final class PeerServerSide {
 
     void tick(long now) {
         PlayerRegistry.activate(world);
+        removeExpiredAuthChallenges(now);
         removeTimedOut(now);
         removeExpiredSessions(now);
         if (now - lastSnapshot >= SNAPSHOT_MS) {
@@ -198,7 +201,7 @@ final class PeerServerSide {
     }
 
     void join(ConnectionId connectionId, InetAddress address, int port, String name, boolean requestedDev, String suppliedDevToken) {
-        join(connectionId, address, port, name, "", requestedDev, suppliedDevToken);
+        join(connectionId, address, port, name, "", "", "", requestedDev, suppliedDevToken);
     }
 
     void join(ConnectionId connectionId, InetAddress address, int port, String name, String passwordVerifier,
@@ -210,14 +213,40 @@ final class PeerServerSide {
             if (existingSession != null) sendSessionState(existingSession, existingPeer, existingSession.currentToken);
             return;
         }
-        byte[] passwordVerifierBytes = PasswordAuth.decodeVerifier(passwordVerifier);
-        if (passwordVerifierBytes.length == 0) {
-            transport.sendOrdered(joinDenied("Player password is required for server identity."), connectionId);
+        PlayerSession namedSession = sessionByName(cleanName);
+        if (namedSession != null) {
+            byte[] passwordVerifierBytes = PasswordAuth.decodeVerifier(passwordVerifier);
+            if (passwordVerifierBytes.length == 0) {
+                transport.sendOrdered(joinDenied("Player password is required for server identity."), connectionId);
+                return;
+            }
+            reclaimByPassword(connectionId, address, port, namedSession, passwordVerifierBytes, requestedDev, suppliedDevToken);
+            return;
+        }
+        join(connectionId, address, port, name, passwordVerifier, "", "", requestedDev, suppliedDevToken);
+    }
+
+    void join(ConnectionId connectionId, InetAddress address, int port, String name, String passwordVerifier,
+              String proofNonce, String proof, boolean requestedDev, String suppliedDevToken) {
+        String cleanName = Config.clean(name);
+        ServerPeer existingPeer = peers.get(connectionId);
+        if (existingPeer != null) {
+            PlayerSession existingSession = sessions.get(existingPeer.playerId());
+            if (existingSession != null) sendSessionState(existingSession, existingPeer, existingSession.currentToken);
             return;
         }
         PlayerSession namedSession = sessionByName(cleanName);
         if (namedSession != null) {
-            reclaimByPassword(connectionId, address, port, namedSession, passwordVerifierBytes, requestedDev, suppliedDevToken);
+            if (PasswordAuth.validVerifier(proof) && PasswordAuth.validNonce(proofNonce)) {
+                reclaimByProof(connectionId, address, port, namedSession, proofNonce, proof, requestedDev, suppliedDevToken);
+            } else {
+                issueAuthChallenge(connectionId, cleanName, namedSession);
+            }
+            return;
+        }
+        byte[] passwordVerifierBytes = PasswordAuth.decodeVerifier(passwordVerifier);
+        if (passwordVerifierBytes.length == 0) {
+            transport.sendOrdered(authRequired(), connectionId);
             return;
         }
         String id = "P" + nextPlayer++;
@@ -241,9 +270,34 @@ final class PeerServerSide {
         sendSessionState(session, peer, token);
     }
 
+    private void issueAuthChallenge(ConnectionId connectionId, String cleanName, PlayerSession session) {
+        if (connectionId == null || !connectionId.valid() || session == null
+                || session.passwordSalt == null || session.passwordSalt.length == 0
+                || session.passwordDigest == null || session.passwordDigest.length == 0) {
+            transport.sendOrdered(joinDenied("Player password is required for server identity."), connectionId);
+            return;
+        }
+        String nonce = PasswordAuth.newNonce();
+        authChallenges.put(connectionId, new AuthChallenge(cleanName, nonce, System.currentTimeMillis()));
+        transport.sendOrdered("AUTH_CHALLENGE|" + packetPart(cleanName) + "|"
+                + PasswordAuth.encodeVerifier(session.passwordSalt) + "|" + nonce, connectionId);
+    }
+
+    private void reclaimByProof(ConnectionId connectionId, InetAddress address, int port, PlayerSession session,
+                                String proofNonce, String proof, boolean requestedDev, String suppliedDevToken) {
+        AuthChallenge challenge = authChallenges.remove(connectionId);
+        if (challenge == null || !challenge.nonce.equals(proofNonce)
+                || !normalizedName(session.name).equals(normalizedName(challenge.name))
+                || System.currentTimeMillis() - challenge.createdAt > AUTH_CHALLENGE_MS
+                || !PasswordAuth.proofMatches(session.passwordDigest, session.name, proofNonce, proof)) {
+            transport.sendOrdered(joinDenied("Password rejected for " + session.name + "."), connectionId);
+            return;
+        }
+        bindReclaimedSession(connectionId, address, port, session, requestedDev, suppliedDevToken);
+    }
+
     private void reclaimByPassword(ConnectionId connectionId, InetAddress address, int port, PlayerSession session,
                                    byte[] passwordVerifier, boolean requestedDev, String suppliedDevToken) {
-        long now = System.currentTimeMillis();
         if (session.passwordDigest == null || session.passwordDigest.length == 0) {
             session.passwordSalt = PasswordAuth.newSalt();
             session.passwordDigest = PasswordAuth.serverDigest(passwordVerifier, session.passwordSalt);
@@ -254,10 +308,16 @@ final class PeerServerSide {
             }
             session.passwordSalt = PasswordAuth.newSalt();
             session.passwordDigest = PasswordAuth.serverDigest(passwordVerifier, session.passwordSalt);
-        } else if (!PasswordAuth.matchesServerDigest(passwordVerifier, session.passwordSalt, session.passwordDigest)) {
+        } else if (!MessageDigest.isEqual(session.passwordDigest, PasswordAuth.serverDigest(passwordVerifier, session.passwordSalt))) {
             transport.sendOrdered(joinDenied("Password rejected for " + session.name + "."), connectionId);
             return;
         }
+        bindReclaimedSession(connectionId, address, port, session, requestedDev, suppliedDevToken);
+    }
+
+    private void bindReclaimedSession(ConnectionId connectionId, InetAddress address, int port, PlayerSession session,
+                                      boolean requestedDev, String suppliedDevToken) {
+        long now = System.currentTimeMillis();
         if (session.connected && session.connectionId != null && session.connectionId.valid()
                 && !session.connectionId.equals(connectionId)) {
             transport.sendOrdered(sessionBusy("Session is already active on another connection."), connectionId);
@@ -362,6 +422,7 @@ final class PeerServerSide {
     }
 
     private void disconnectPeer(ConnectionId connectionId, long now, String reason) {
+        authChallenges.remove(connectionId);
         ServerPeer peer = peers.remove(connectionId);
         if (peer == null) return;
         transport.closeConnection(peer.connectionId());
@@ -510,6 +571,10 @@ final class PeerServerSide {
         }
     }
 
+    private void removeExpiredAuthChallenges(long now) {
+        authChallenges.entrySet().removeIf(entry -> now - entry.getValue().createdAt > AUTH_CHALLENGE_MS);
+    }
+
     private void removeExpiredSessions(long now) {
         for (String playerId : new ArrayList<>(sessions.keySet())) {
             PlayerSession session = sessions.get(playerId);
@@ -554,6 +619,7 @@ final class PeerServerSide {
         }
     }
 
+    private String authRequired() { return "AUTH_REQUIRED|REGISTER"; }
     private String joinDenied(String message) { return "JOIN_DENIED|" + packetPart(message); }
     private String sessionBusy(String message) { return "SESSION_BUSY|" + packetPart(message); }
     private String sessionDenied(String message) { return "SESSION_DENIED|" + packetPart(message); }
@@ -571,6 +637,8 @@ final class PeerServerSide {
     }
     private int colorFor(int i) { int[] colors = {0x50BEFF,0xFF5F55,0x7DFF7A,0xFFE066,0xC77DFF,0xFF9F1C}; return colors[Math.floorMod(i, colors.length)]; }
     private boolean flag(String value) { return "1".equals(value) || "true".equalsIgnoreCase(value) || "DEV".equalsIgnoreCase(value) || "YES".equalsIgnoreCase(value); }
+
+    private record AuthChallenge(String name, String nonce, long createdAt) { }
 
     private static final class PlayerSession {
         final String playerId;
