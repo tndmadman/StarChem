@@ -303,6 +303,78 @@ final class NpcStationConstructionSystem {
         if (world != null) PLANS.remove(world);
     }
 
+    static synchronized Map<String,Object> capture(World world) {
+        Map<String,Object> out = new LinkedHashMap<>();
+        Map<String, ConstructionPlan> byKey = PLANS.get(world);
+        if (byKey == null) return out;
+        List<Object> rows = new ArrayList<>();
+        for (Map.Entry<String, ConstructionPlan> entry : byKey.entrySet()) {
+            ConstructionPlan plan = entry.getValue();
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("key", entry.getKey());
+            row.put("systemId", plan.systemId);
+            row.put("seed", plan.seed);
+            row.put("factionId", plan.factionId);
+            row.put("sourceBaseId", plan.sourceBaseId);
+            row.put("builderKey", plan.builderKey);
+            row.put("packageType", plan.packageType);
+            row.put("category", plan.category == null ? "" : plan.category.name());
+            row.put("anchorX", plan.anchorX);
+            row.put("anchorY", plan.anchorY);
+            row.put("targetX", plan.targetX);
+            row.put("targetY", plan.targetY);
+            row.put("duration", plan.duration);
+            row.put("remaining", plan.remaining);
+            row.put("waitingForSiteSeconds", plan.waitingForSiteSeconds);
+            row.put("replans", plan.replans);
+            row.put("failedSiteSearches", plan.failedSiteSearches);
+            row.put("waitingForSite", plan.waitingForSite);
+            row.put("phase", plan.phase.name());
+            row.put("funding", plan.funding.name());
+            rows.add(row);
+        }
+        out.put("plans", rows);
+        return out;
+    }
+
+    static synchronized void restore(World world, Object saved) {
+        if (world == null) return;
+        Map<String,Object> data = ServerSaveStore.object(saved);
+        Map<String, ConstructionPlan> byKey = new LinkedHashMap<>();
+        for (Object item : ServerSaveStore.list(data.get("plans"))) {
+            Map<String,Object> row = ServerSaveStore.object(item);
+            String systemId = ServerSaveStore.string(row, "systemId", "");
+            String factionId = ServerSaveStore.string(row, "factionId", "");
+            String builderKey = ServerSaveStore.string(row, "builderKey", "");
+            String packageType = ServerSaveStore.string(row, "packageType", "");
+            if (systemId.isBlank() || factionId.isBlank() || builderKey.isBlank() || packageType.isBlank()) continue;
+            ConstructionPlan plan = new ConstructionPlan(
+                    systemId,
+                    ServerSaveStore.longValue(row, "seed", world.systemSeed()),
+                    factionId,
+                    ServerSaveStore.string(row, "sourceBaseId", ""),
+                    builderKey,
+                    packageType,
+                    ServerSaveStore.enumValue(NpcBudgetCategory.class, row.get("category"), NpcBudgetCategory.STATION_RECOVERY),
+                    ServerSaveStore.doubleValue(row, "anchorX", 0),
+                    ServerSaveStore.doubleValue(row, "anchorY", 0),
+                    ServerSaveStore.doubleValue(row, "targetX", 0),
+                    ServerSaveStore.doubleValue(row, "targetY", 0),
+                    ServerSaveStore.doubleValue(row, "duration", 1),
+                    ServerSaveStore.enumValue(PlanFunding.class, row.get("funding"), PlanFunding.NORMAL_PAID));
+            plan.remaining = Math.max(0, ServerSaveStore.doubleValue(row, "remaining", plan.duration));
+            plan.waitingForSiteSeconds = Math.max(0, ServerSaveStore.doubleValue(row, "waitingForSiteSeconds", 0));
+            plan.replans = Math.max(0, ServerSaveStore.intValue(row, "replans", 0));
+            plan.failedSiteSearches = Math.max(0, ServerSaveStore.intValue(row, "failedSiteSearches", 0));
+            plan.waitingForSite = ServerSaveStore.boolValue(row, "waitingForSite", false);
+            plan.phase = ServerSaveStore.enumValue(NpcConstructionPhase.class, row.get("phase"), NpcConstructionPhase.TRAVELLING);
+            String key = ServerSaveStore.string(row, "key", key(systemId, factionId));
+            byKey.put(key, plan);
+        }
+        if (byKey.isEmpty()) PLANS.remove(world);
+        else PLANS.put(world, byKey);
+    }
+
     private static boolean refundable(ConstructionPlan plan) {
         return plan != null && plan.funding == PlanFunding.NORMAL_PAID
                 && plan.phase == NpcConstructionPhase.TRAVELLING;

@@ -1,6 +1,8 @@
 package com.tndmadman.rts;
 
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 
 public final class RuleIdValidationValidator {
@@ -15,6 +17,7 @@ public final class RuleIdValidationValidator {
         validateSnapshotDecoding();
         validateAtomicSnapshotApplication();
         validateProductionQueueDecoding();
+        validateSaveContentMigration();
         System.out.println("StarChem rule ID validation passed.");
     }
 
@@ -83,6 +86,64 @@ public final class RuleIdValidationValidator {
     private static void validateProductionQueueDecoding() {
         String encoded = "P1^SHIP^" + UNKNOWN_SHIP + "^1^1^0^-^-";
         expectSnapshotReject(() -> StrictProductionQueueCodec.decode(encoded, "validator", "SOLO:B1"), UNKNOWN_SHIP);
+    }
+
+    private static void validateSaveContentMigration() {
+        PlayerRegistry.reset("SOLO", "Rule ID Validator", 0x50BEFF);
+        World source = new World("Rule ID Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        Map<String,Object> galaxy = source.captureServerSaveGalaxy();
+        Map<String,Object> firstSystem = ServerSaveStore.object(ServerSaveStore.list(galaxy.get("systems")).get(0));
+        firstSystem.put("templateId", "removed_system_template");
+
+        Map<String,Object> unit = new LinkedHashMap<>();
+        unit.put("playerId", "SOLO");
+        unit.put("unitId", 99);
+        unit.put("shipTypeId", UNKNOWN_SHIP);
+        unit.put("basePackageType", UNKNOWN_STATION);
+        unit.put("x", 10);
+        unit.put("y", 20);
+        firstSystem.put("units", List.of(unit));
+
+        Map<String,Object> invalidJob = new LinkedHashMap<>();
+        invalidJob.put("id", "bad-job");
+        invalidJob.put("kind", ProductionJobKind.SHIP.name());
+        invalidJob.put("itemId", UNKNOWN_SHIP);
+        invalidJob.put("duration", 1);
+        invalidJob.put("remaining", 1);
+        Map<String,Object> base = new LinkedHashMap<>();
+        base.put("id", "SOLO:B99");
+        base.put("playerId", "SOLO");
+        base.put("typeId", UNKNOWN_STATION);
+        base.put("x", 30);
+        base.put("y", 40);
+        base.put("productionQueue", List.of(invalidJob));
+        firstSystem.put("bases", List.of(base));
+
+        Map<String,Object> shot = new LinkedHashMap<>();
+        shot.put("id", 12);
+        shot.put("ownerId", "SOLO");
+        shot.put("weaponId", "removed_weapon");
+        shot.put("targetKey", "unit:SOLO:99");
+        firstSystem.put("projectiles", List.of(shot));
+
+        Map<String,Object> item = new LinkedHashMap<>();
+        item.put("id", 7);
+        item.put("material", "REMOVED_MATERIAL");
+        item.put("amount", 10);
+        firstSystem.put("worldItems", List.of(item));
+
+        World restored = new World("Rule ID Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        restored.restoreServerSaveGalaxy(galaxy);
+        require(restored.units.values().stream().anyMatch(u -> Rules.STARTING_SHIP.equals(u.shipTypeId)),
+                "save restore did not replace removed ship IDs");
+        require(restored.units.values().stream().allMatch(u -> u.basePackageType.isBlank()),
+                "save restore did not clear removed station packages");
+        require(restored.bases.values().stream().anyMatch(b -> Rules.DEFAULT_BASE.equals(b.typeId)),
+                "save restore did not replace removed station IDs");
+        require(restored.bases.values().stream().allMatch(b -> b.productionQueue.isEmpty()),
+                "save restore did not drop invalid production jobs");
+        require(restored.shots.isEmpty(), "save restore did not drop invalid projectile weapons");
+        require(restored.items.isEmpty(), "save restore did not drop invalid world item materials");
     }
 
     private static void expectUnknownRule(Runnable action, String id) {

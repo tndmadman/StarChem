@@ -27,11 +27,16 @@ final class PeerServerSide {
     private long sequence = 1, lastSnapshot, lastGalaxy, lastResourceCorrection;
 
     PeerServerSide(Config config, World world, PeerTransport transport) {
+        this(config, world, transport, List.of());
+    }
+
+    PeerServerSide(Config config, World world, PeerTransport transport, List<PersistentPlayerSession> restoredSessions) {
         this.config = config;
         this.world = world;
         this.transport = transport;
         PlayerRegistry.activate(world);
         SystemAudio.markNonRendered(world);
+        restorePersistentSessions(restoredSessions);
     }
 
     String statusLine() {
@@ -126,6 +131,17 @@ final class PeerServerSide {
         PlayerSession session = sessions.get(playerId);
         return session != null && session.connected;
     }
+
+    List<PersistentPlayerSession> persistentSessions() {
+        List<PersistentPlayerSession> out = new ArrayList<>();
+        for (PlayerSession session : sessions.values()) {
+            if (session == null || session.playerId == null || session.playerId.isBlank()) continue;
+            out.add(new PersistentPlayerSession(session.playerId, session.name, session.rgb,
+                    session.passwordSalt, session.passwordDigest, session.tokenDigest,
+                    session.previousTokenDigest, session.previousTokenValidUntil));
+        }
+        return List.copyOf(out);
+    }
     void touch(ConnectionId connectionId) {
         ServerPeer peer = peers.get(connectionId);
         if (peer != null) peers.put(connectionId, new ServerPeer(peer.playerId(), peer.connectionId(), peer.address(), peer.port(), System.currentTimeMillis(), peer.devFreeBuild()));
@@ -182,6 +198,11 @@ final class PeerServerSide {
     }
 
     void join(ConnectionId connectionId, InetAddress address, int port, String name, boolean requestedDev, String suppliedDevToken) {
+        join(connectionId, address, port, name, "", requestedDev, suppliedDevToken);
+    }
+
+    void join(ConnectionId connectionId, InetAddress address, int port, String name, String passwordVerifier,
+              boolean requestedDev, String suppliedDevToken) {
         String cleanName = Config.clean(name);
         ServerPeer existingPeer = peers.get(connectionId);
         if (existingPeer != null) {
@@ -189,8 +210,14 @@ final class PeerServerSide {
             if (existingSession != null) sendSessionState(existingSession, existingPeer, existingSession.currentToken);
             return;
         }
-        if (nameInUse(cleanName)) {
-            transport.sendOrdered(joinDenied("Name already in use: " + cleanName), connectionId);
+        byte[] passwordVerifierBytes = PasswordAuth.decodeVerifier(passwordVerifier);
+        if (passwordVerifierBytes.length == 0) {
+            transport.sendOrdered(joinDenied("Player password is required for server identity."), connectionId);
+            return;
+        }
+        PlayerSession namedSession = sessionByName(cleanName);
+        if (namedSession != null) {
+            reclaimByPassword(connectionId, address, port, namedSession, passwordVerifierBytes, requestedDev, suppliedDevToken);
             return;
         }
         String id = "P" + nextPlayer++;
@@ -200,7 +227,10 @@ final class PeerServerSide {
         if (requestedDev) devRequests.add(id);
         auditDevRequest(cleanName, address, port, requestedDev, devAllowed);
         String token = newSessionToken();
-        PlayerSession session = new PlayerSession(id, cleanName, rgb, token, digestToken(token), connectionId, true, 0, devAllowed);
+        byte[] passwordSalt = PasswordAuth.newSalt();
+        PlayerSession session = new PlayerSession(id, cleanName, rgb, passwordSalt,
+                PasswordAuth.serverDigest(passwordVerifierBytes, passwordSalt), token, digestToken(token),
+                connectionId, true, 0, devAllowed);
         sessions.put(id, session);
         ServerPeer peer = new ServerPeer(id, connectionId, address, port, System.currentTimeMillis(), devAllowed);
         peers.put(connectionId, peer);
@@ -209,6 +239,48 @@ final class PeerServerSide {
         WorldNetAccess.addPeerGroup(world, id);
         views.setHome(world, id);
         sendSessionState(session, peer, token);
+    }
+
+    private void reclaimByPassword(ConnectionId connectionId, InetAddress address, int port, PlayerSession session,
+                                   byte[] passwordVerifier, boolean requestedDev, String suppliedDevToken) {
+        long now = System.currentTimeMillis();
+        if (session.passwordDigest == null || session.passwordDigest.length == 0) {
+            session.passwordSalt = PasswordAuth.newSalt();
+            session.passwordDigest = PasswordAuth.serverDigest(passwordVerifier, session.passwordSalt);
+        } else if (session.passwordSalt == null || session.passwordSalt.length == 0) {
+            if (!MessageDigest.isEqual(session.passwordDigest, passwordVerifier)) {
+                transport.sendOrdered(joinDenied("Password rejected for " + session.name + "."), connectionId);
+                return;
+            }
+            session.passwordSalt = PasswordAuth.newSalt();
+            session.passwordDigest = PasswordAuth.serverDigest(passwordVerifier, session.passwordSalt);
+        } else if (!PasswordAuth.matchesServerDigest(passwordVerifier, session.passwordSalt, session.passwordDigest)) {
+            transport.sendOrdered(joinDenied("Password rejected for " + session.name + "."), connectionId);
+            return;
+        }
+        if (session.connected && session.connectionId != null && session.connectionId.valid()
+                && !session.connectionId.equals(connectionId)) {
+            transport.sendOrdered(sessionBusy("Session is already active on another connection."), connectionId);
+            return;
+        }
+        ServerPeer connectionOwner = peers.get(connectionId);
+        if (connectionOwner != null && !session.playerId.equals(connectionOwner.playerId())) disconnectPeer(connectionId, now, "replaced");
+
+        boolean devAllowed = DevAccessPolicy.authorize(config.devMode, config.dedicatedServerMode(), address,
+                requestedDev, config.devToken, suppliedDevToken);
+        if (requestedDev) devRequests.add(session.playerId); else devRequests.remove(session.playerId);
+        auditDevRequest(session.name, address, port, requestedDev, devAllowed);
+        ServerPeer peer = new ServerPeer(session.playerId, connectionId, address, port, now, devAllowed);
+        peers.put(connectionId, peer);
+        session.connectionId = connectionId;
+        session.connected = true;
+        session.disconnectedAt = 0;
+        session.devFreeBuild = devAllowed;
+        PlayerRegistry.register(session.playerId, session.name, session.rgb, false);
+        world.setDevFreeBuild(session.playerId, devAllowed);
+        String rotatedToken = rotateToken(session, now);
+        sendSessionState(session, peer, rotatedToken);
+        world.status = "Reclaimed " + session.name + " as " + session.playerId + ".";
     }
 
     boolean resume(ConnectionId connectionId, InetAddress address, int port, String playerId, String token,
@@ -404,10 +476,31 @@ final class PeerServerSide {
 
     private String normalizedName(String name) { return Config.clean(name).toLowerCase(Locale.ROOT); }
 
-    private boolean nameInUse(String name) {
+    private PlayerSession sessionByName(String name) {
         String wanted = normalizedName(name);
-        for (PlayerSession session : sessions.values()) if (wanted.equals(normalizedName(session.name))) return true;
-        return false;
+        for (PlayerSession session : sessions.values()) if (wanted.equals(normalizedName(session.name))) return session;
+        return null;
+    }
+
+    private void restorePersistentSessions(List<PersistentPlayerSession> restoredSessions) {
+        if (restoredSessions == null || restoredSessions.isEmpty()) return;
+        long now = System.currentTimeMillis();
+        for (PersistentPlayerSession restored : restoredSessions) {
+            if (restored == null || restored.playerId().isBlank() || restored.tokenDigest().length == 0) continue;
+            byte[] previous = restored.previousTokenDigest().length == 0 ? null : restored.previousTokenDigest();
+            PlayerSession session = new PlayerSession(restored.playerId(), restored.name(), restored.rgb(),
+                    restored.passwordSalt(), restored.passwordDigest(), "",
+                    restored.tokenDigest(), ConnectionId.NONE, false, 0, false);
+            session.previousTokenDigest = previous;
+            session.previousTokenValidUntil = Math.max(0, restored.previousTokenValidUntil());
+            sessions.put(session.playerId, session);
+            PlayerRegistry.register(session.playerId, session.name, session.rgb, false);
+            views.setHome(world, session.playerId);
+            try {
+                String suffix = session.playerId.startsWith("P") ? session.playerId.substring(1) : "";
+                if (!suffix.isBlank()) nextPlayer = Math.max(nextPlayer, Integer.parseInt(suffix) + 1);
+            } catch (NumberFormatException ignored) { }
+        }
     }
 
     private void removeTimedOut(long now) {
@@ -483,6 +576,8 @@ final class PeerServerSide {
         final String playerId;
         final String name;
         final int rgb;
+        byte[] passwordSalt;
+        byte[] passwordDigest;
         String currentToken;
         byte[] tokenDigest;
         byte[] previousTokenDigest;
@@ -492,11 +587,14 @@ final class PeerServerSide {
         long disconnectedAt;
         boolean devFreeBuild;
 
-        PlayerSession(String playerId, String name, int rgb, String currentToken, byte[] tokenDigest, ConnectionId connectionId,
+        PlayerSession(String playerId, String name, int rgb, byte[] passwordSalt, byte[] passwordDigest,
+                      String currentToken, byte[] tokenDigest, ConnectionId connectionId,
                       boolean connected, long disconnectedAt, boolean devFreeBuild) {
             this.playerId = playerId;
             this.name = name;
             this.rgb = rgb;
+            this.passwordSalt = passwordSalt == null ? new byte[0] : passwordSalt;
+            this.passwordDigest = passwordDigest == null ? new byte[0] : passwordDigest;
             this.currentToken = currentToken;
             this.tokenDigest = tokenDigest;
             this.connectionId = connectionId;

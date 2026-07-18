@@ -22,6 +22,7 @@ public final class TcpMultiplayerValidator {
             server = PeerNetwork.start(hostConfig, serverWorld);
 
             Config clientConfig = Config.join("TCP Validation Client", "127.0.0.1", port, false);
+            SessionTokenStore.saveAuthDigest(clientConfig, PasswordAuth.verifier(clientConfig.playerName, "validator-password"));
             World clientWorld = new World(clientConfig.playerName, Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
             client = PeerNetwork.start(clientConfig, clientWorld);
             require(!client.clientReady(), "TCP client reported ready before authoritative initial state was applied");

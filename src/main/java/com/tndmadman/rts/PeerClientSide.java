@@ -26,6 +26,7 @@ final class PeerClientSide {
     private String viewRequestFallbackSystemId = "";
     private String localPlayerId = "SOLO";
     private String sessionToken = "";
+    private String passwordVerifier = "";
     private String viewedSystemId = "";
     private String failureMessage = "";
     private String pendingReadyName = "";
@@ -39,6 +40,8 @@ final class PeerClientSide {
         attemptStarted = now;
         lastServerPacket = now;
         SessionTokenStore.StoredSession stored = SessionTokenStore.load(config);
+        passwordVerifier = stored.authDigest();
+        if (passwordVerifier.isBlank()) passwordVerifier = SessionTokenStore.authDigest(config);
         if (stored.valid()) {
             localPlayerId = stored.playerId();
             sessionToken = stored.token();
@@ -405,6 +408,11 @@ final class PeerClientSide {
     private boolean readJoinDenied(String message) {
         if (message == null || !message.startsWith("JOIN_DENIED|")) return false;
         String reason = message.length() > 12 ? message.substring(12).trim() : "Join refused by server.";
+        if (reason.toLowerCase(java.util.Locale.ROOT).contains("password")) {
+            SessionTokenStore.clear(config);
+            sessionToken = "";
+            passwordVerifier = "";
+        }
         failConnection(reason.isBlank() ? "Join refused by server." : reason);
         return true;
     }
@@ -561,7 +569,8 @@ final class PeerClientSide {
     private String joinMessage() {
         String request = config.devMode ? "DEV" : "NODEV";
         String token = config.devMode ? config.devToken : "";
-        return "JOIN|" + cleanPacketPart(config.playerName) + "|" + request + "|" + token;
+        return "JOIN|" + cleanPacketPart(config.playerName) + "|" + request + "|" + token
+                + "|AUTH|" + cleanPacketPart(passwordVerifier);
     }
 
     private String resumeMessage() {

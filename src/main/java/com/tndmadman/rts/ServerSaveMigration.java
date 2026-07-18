@@ -1,0 +1,46 @@
+package com.tndmadman.rts;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+final class ServerSaveMigration {
+    private ServerSaveMigration() { }
+
+    static Result migrate(int sourceVersion, Map<String,Object> manifest, Map<String,Object> players,
+                          Map<String,Object> galaxy, Map<String,Object> runtime) {
+        int version = Math.max(0, sourceVersion);
+        List<String> notes = new ArrayList<>();
+        if (version == 0) {
+            notes.add("save had no format version; treated as version 1");
+            version = 1;
+        }
+        if (version == 1) {
+            ensurePlayers(players);
+            ensureRuntime(runtime);
+            version = 2;
+            notes.add("v1->v2 normalized optional player/session/runtime sections");
+        }
+        manifest.put("saveFormatVersion", ServerSaveStore.SAVE_FORMAT_VERSION);
+        manifest.put("loadedSaveFormatVersion", sourceVersion);
+        manifest.put("contentCompatibilityPolicy", SaveContentResolver.migrationPolicy());
+        if (!notes.isEmpty()) manifest.put("migrationNotes", List.copyOf(notes));
+        return new Result(manifest, players, galaxy, runtime, notes);
+    }
+
+    private static void ensurePlayers(Map<String,Object> players) {
+        players.computeIfAbsent("roster", ignored -> new ArrayList<>());
+        players.computeIfAbsent("completedResearch", ignored -> new LinkedHashMap<>());
+        players.computeIfAbsent("sessions", ignored -> new ArrayList<>());
+    }
+
+    private static void ensureRuntime(Map<String,Object> runtime) {
+        runtime.computeIfAbsent("simulationScheduler", ignored -> new LinkedHashMap<>());
+        runtime.computeIfAbsent("productionPlanner", ignored -> new LinkedHashMap<>());
+        runtime.computeIfAbsent("npcFactions", ignored -> new LinkedHashMap<>());
+    }
+
+    record Result(Map<String,Object> manifest, Map<String,Object> players, Map<String,Object> galaxy,
+                  Map<String,Object> runtime, List<String> notes) { }
+}

@@ -44,6 +44,7 @@ final class TcpIntegrationHarness implements AutoCloseable {
     private TestClient addClient(String name, TcpFaultProxy proxy) throws Exception {
         int port = proxy == null ? serverConfig.port : proxy.listenPort();
         Config config = Config.join(name, "127.0.0.1", port, false);
+        SessionTokenStore.saveAuthDigest(config, PasswordAuth.verifier(config.playerName, "validator-password"));
         World world = new World(config.playerName, Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
         PeerNetwork network = PeerNetwork.start(config, world);
         TestClient client = new TestClient(config, world, network, proxy);

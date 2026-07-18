@@ -184,6 +184,60 @@ final class NpcRecoverySystem {
         if (world != null) RUNTIMES.remove(world);
     }
 
+    static synchronized Map<String,Object> capture(World world) {
+        Map<String,Object> out = new LinkedHashMap<>();
+        Map<String, RecoveryRuntime> runtimes = RUNTIMES.get(world);
+        if (runtimes == null) return out;
+        List<Object> rows = new ArrayList<>();
+        for (Map.Entry<String, RecoveryRuntime> entry : runtimes.entrySet()) {
+            RecoveryRuntime runtime = entry.getValue();
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("key", entry.getKey());
+            row.put("systemId", runtime.systemId);
+            row.put("seed", runtime.seed);
+            row.put("state", runtime.state.name());
+            row.put("lastSystemTime", runtime.lastSystemTime);
+            row.put("strandedSeconds", runtime.strandedSeconds);
+            row.put("repairBlockedSeconds", runtime.repairBlockedSeconds);
+            row.put("recoveryStallSeconds", runtime.recoveryStallSeconds);
+            row.put("lastRecoveryProgress", runtime.lastRecoveryProgress);
+            row.put("managedUnitKeys", List.copyOf(runtime.managedUnitKeys));
+            row.put("repairShipKeys", List.copyOf(runtime.repairShipKeys));
+            row.put("repairEscortTargets", new LinkedHashMap<>(runtime.repairEscortTargets));
+            rows.add(row);
+        }
+        out.put("runtimes", rows);
+        return out;
+    }
+
+    static synchronized void restore(World world, Object saved) {
+        if (world == null) return;
+        Map<String,Object> data = ServerSaveStore.object(saved);
+        Map<String, RecoveryRuntime> runtimes = new LinkedHashMap<>();
+        for (Object item : ServerSaveStore.list(data.get("runtimes"))) {
+            Map<String,Object> row = ServerSaveStore.object(item);
+            String systemId = ServerSaveStore.string(row, "systemId", "");
+            RecoveryRuntime runtime = new RecoveryRuntime(ServerSaveStore.longValue(row, "seed", world.systemSeed()), systemId);
+            runtime.state = ServerSaveStore.enumValue(NpcRecoveryState.class, row.get("state"), NpcRecoveryState.IDLE);
+            runtime.lastSystemTime = ServerSaveStore.doubleValue(row, "lastSystemTime", Double.NaN);
+            runtime.strandedSeconds = Math.max(0, ServerSaveStore.doubleValue(row, "strandedSeconds", 0));
+            runtime.repairBlockedSeconds = Math.max(0, ServerSaveStore.doubleValue(row, "repairBlockedSeconds", 0));
+            runtime.recoveryStallSeconds = Math.max(0, ServerSaveStore.doubleValue(row, "recoveryStallSeconds", 0));
+            runtime.lastRecoveryProgress = Math.max(0, ServerSaveStore.doubleValue(row, "lastRecoveryProgress", 0));
+            restoreStringList(row.get("managedUnitKeys"), runtime.managedUnitKeys);
+            restoreStringList(row.get("repairShipKeys"), runtime.repairShipKeys);
+            for (Map.Entry<String,Object> entry : ServerSaveStore.object(row.get("repairEscortTargets")).entrySet()) {
+                String target = ServerSaveStore.asString(entry.getValue(), "");
+                if (!entry.getKey().isBlank() && !target.isBlank()) runtime.repairEscortTargets.put(entry.getKey(), target);
+            }
+            String key = ServerSaveStore.string(row, "key", "");
+            if (key.isBlank()) key = "|" + systemId;
+            runtimes.put(key, runtime);
+        }
+        if (runtimes.isEmpty()) RUNTIMES.remove(world);
+        else RUNTIMES.put(world, runtimes);
+    }
+
     static synchronized void clearFaction(World world, NpcFaction faction) {
         if (world == null || faction == null) return;
         Map<String, RecoveryRuntime> runtimes = RUNTIMES.get(world);
@@ -191,6 +245,13 @@ final class NpcRecoverySystem {
         String prefix = faction.id() + "|";
         runtimes.keySet().removeIf(key -> key.startsWith(prefix));
         if (runtimes.isEmpty()) RUNTIMES.remove(world);
+    }
+
+    private static void restoreStringList(Object saved, Set<String> target) {
+        for (Object item : ServerSaveStore.list(saved)) {
+            String value = ServerSaveStore.asString(item, "");
+            if (!value.isBlank()) target.add(value);
+        }
     }
 
     private static RepairResult repairDamagedShips(World world, NpcFaction faction,

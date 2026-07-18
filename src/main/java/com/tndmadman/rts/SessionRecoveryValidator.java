@@ -11,6 +11,7 @@ public final class SessionRecoveryValidator {
 
     public static void main(String[] args) throws Exception {
         validateServerSessionRecovery();
+        validateServerPersistentSessionReclaim();
         validateClientReconnectStateAndPersistence();
         System.out.println("StarChem TCP session recovery validation passed.");
     }
@@ -33,7 +34,8 @@ public final class SessionRecoveryValidator {
             PeerServerSide server = new PeerServerSide(config, world, transport);
 
             ConnectionId firstEndpoint = transport.connectionId(loopback, firstClient.getLocalPort());
-            server.join(firstEndpoint, loopback, firstClient.getLocalPort(), "Recovery Client", false, "");
+            server.join(firstEndpoint, loopback, firstClient.getLocalPort(), "Recovery Client",
+                    PasswordAuth.verifier("Recovery Client", "validator-password"), false, "");
             String firstWelcome = receivePayload(firstClient, "WELCOME|");
             String firstToken = markerValue(firstWelcome, "SESSION");
             require(validToken(firstToken), "initial join did not issue a session token");
@@ -97,6 +99,54 @@ public final class SessionRecoveryValidator {
         }
     }
 
+    private static void validateServerPersistentSessionReclaim() throws Exception {
+        InetAddress loopback = InetAddress.getLoopbackAddress();
+        PeerTransport transport = PeerTransport.server(0, new PerfStats());
+        transport.start();
+        try (Socket firstClient = connect(loopback, transport.localPort());
+             Socket restoredClient = connect(loopback, transport.localPort())) {
+            waitConnection(transport, loopback, firstClient.getLocalPort());
+            waitConnection(transport, loopback, restoredClient.getLocalPort());
+
+            Config config = Config.host("Persistent Session Host", transport.localPort(), false);
+            World firstWorld = new World("Persistent Session Host", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+            PlayerRegistry.activate(firstWorld);
+            PlayerRegistry.reset("SOLO", "Persistent Session Host", 0x50BEFF);
+            PeerServerSide firstServer = new PeerServerSide(config, firstWorld, transport);
+
+            ConnectionId firstEndpoint = transport.connectionId(loopback, firstClient.getLocalPort());
+            firstServer.join(firstEndpoint, loopback, firstClient.getLocalPort(), "Persistent Client",
+                    PasswordAuth.verifier("Persistent Client", "validator-password"), false, "");
+            String firstWelcome = receivePayload(firstClient, "WELCOME|");
+            String firstToken = markerValue(firstWelcome, "SESSION");
+            require(validToken(firstToken), "persistent join did not issue a session token");
+            require(!firstServer.persistentSessions().isEmpty(), "server did not expose a persistent session record");
+
+            World restoredWorld = new World("Persistent Session Host", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+            PlayerRegistry.activate(restoredWorld);
+            PlayerRegistry.reset("SOLO", "Persistent Session Host", 0x50BEFF);
+            PeerServerSide restoredServer = new PeerServerSide(config, restoredWorld, transport, firstServer.persistentSessions());
+            ConnectionId restoredEndpoint = transport.connectionId(loopback, restoredClient.getLocalPort());
+            restoredServer.join(restoredEndpoint, loopback, restoredClient.getLocalPort(), "Persistent Client",
+                    PasswordAuth.verifier("Persistent Client", "wrong-password"), false, "");
+            String rejected = receivePayload(restoredClient, "JOIN_DENIED|");
+            require(rejected.contains("Password rejected"), "wrong password did not receive a password rejection");
+            require(!restoredServer.owns(restoredEndpoint, "P1"),
+                    "wrong password reclaimed the saved player session");
+
+            require(restoredServer.resume(restoredEndpoint, loopback, restoredClient.getLocalPort(), "P1", firstToken, false, ""),
+                    "saved server session could not be reclaimed after restart");
+            String restoredWelcome = receivePayload(restoredClient, "WELCOME|");
+            String restoredToken = markerValue(restoredWelcome, "SESSION");
+            require(validToken(restoredToken) && !restoredToken.equals(firstToken),
+                    "reclaimed persistent session did not rotate its token");
+            require(restoredServer.owns(restoredEndpoint, "P1"),
+                    "restored server did not bind reclaimed session to the new TCP connection");
+        } finally {
+            transport.shutdown();
+        }
+    }
+
     private static void validateClientReconnectStateAndPersistence() throws Exception {
         Path store = Files.createTempFile("starchem-session-validator-", ".properties");
         Files.deleteIfExists(store);
@@ -106,9 +156,12 @@ public final class SessionRecoveryValidator {
         String rotatedToken = "B".repeat(43);
         try {
             SessionTokenStore.save(config, "P9", firstToken);
+            SessionTokenStore.saveAuthDigest(config, PasswordAuth.verifier(config.playerName, "validator-password"));
             SessionTokenStore.StoredSession stored = SessionTokenStore.load(config);
             require(stored.valid() && "P9".equals(stored.playerId()) && firstToken.equals(stored.token()),
                     "session token store did not round-trip the saved identity");
+            require(PasswordAuth.validVerifier(stored.authDigest()),
+                    "session token store did not round-trip the saved password verifier");
 
             World firstWorld = new World("Recovery Client", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
             PlayerRegistry.activate(firstWorld);

@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -109,6 +110,48 @@ final class ProductionPlanner {
     static synchronized int planCount(World world) {
         PlannerState state = STATES.get(world);
         return state == null ? 0 : state.plans.size();
+    }
+
+    static synchronized Map<String,Object> capture(World world) {
+        Map<String,Object> out = new LinkedHashMap<>();
+        PlannerState state = STATES.get(world);
+        if (state == null) return out;
+        out.put("nextPlanId", state.nextPlanId);
+        out.put("timer", state.timer);
+        List<Object> plans = new ArrayList<>();
+        for (ProductionPlan plan : state.plans) {
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("id", plan.id);
+            row.put("systemId", plan.systemId);
+            row.put("playerId", plan.playerId);
+            row.put("lastSummary", plan.lastSummary);
+            row.put("root", captureAction(plan.root));
+            plans.add(row);
+        }
+        out.put("plans", plans);
+        return out;
+    }
+
+    static synchronized void restore(World world, Object saved) {
+        if (world == null) return;
+        Map<String,Object> data = ServerSaveStore.object(saved);
+        PlannerState state = new PlannerState();
+        state.nextPlanId = Math.max(1, ServerSaveStore.longValue(data, "nextPlanId", 1));
+        state.timer = Math.max(0, ServerSaveStore.doubleValue(data, "timer", 0));
+        for (Object item : ServerSaveStore.list(data.get("plans"))) {
+            Map<String,Object> row = ServerSaveStore.object(item);
+            PlannedAction root = restoreAction(row.get("root"));
+            if (root == null) continue;
+            ProductionPlan plan = new ProductionPlan(
+                    ServerSaveStore.string(row, "id", ""),
+                    ServerSaveStore.string(row, "systemId", ""),
+                    ServerSaveStore.string(row, "playerId", ""),
+                    root);
+            plan.lastSummary = ServerSaveStore.string(row, "lastSummary", "");
+            state.plans.add(plan);
+        }
+        if (state.plans.isEmpty()) STATES.remove(world);
+        else STATES.put(world, state);
     }
 
     private static boolean queue(World world, Base target, ProductionJobKind kind, String itemId,
@@ -372,6 +415,43 @@ final class ProductionPlanner {
 
     private record PlannedAction(ProductionJobKind kind, String itemId, String displayName,
                                  String targetBaseId, String productionJobId, List<Cost> cost) { }
+
+    private static Map<String,Object> captureAction(PlannedAction action) {
+        Map<String,Object> out = new LinkedHashMap<>();
+        if (action == null) return out;
+        out.put("kind", action.kind().name());
+        out.put("itemId", action.itemId());
+        out.put("displayName", action.displayName());
+        out.put("targetBaseId", action.targetBaseId());
+        out.put("productionJobId", action.productionJobId());
+        List<Object> cost = new ArrayList<>();
+        for (Cost item : action.cost()) {
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("material", item.material().name());
+            row.put("amount", item.amount());
+            cost.add(row);
+        }
+        out.put("cost", cost);
+        return out;
+    }
+
+    private static PlannedAction restoreAction(Object saved) {
+        Map<String,Object> data = ServerSaveStore.object(saved);
+        ProductionJobKind kind = ServerSaveStore.enumValue(ProductionJobKind.class, data.get("kind"), null);
+        String itemId = ServerSaveStore.string(data, "itemId", "");
+        String targetBaseId = ServerSaveStore.string(data, "targetBaseId", "");
+        String productionJobId = ServerSaveStore.string(data, "productionJobId", "");
+        if (kind == null || itemId.isBlank() || targetBaseId.isBlank() || productionJobId.isBlank()) return null;
+        List<Cost> cost = new ArrayList<>();
+        for (Object item : ServerSaveStore.list(data.get("cost"))) {
+            Map<String,Object> row = ServerSaveStore.object(item);
+            Material material = ServerSaveStore.enumValue(Material.class, row.get("material"), null);
+            double amount = ServerSaveStore.doubleValue(row, "amount", 0);
+            if (material != null && amount > EPSILON) cost.add(new Cost(material, amount));
+        }
+        return new PlannedAction(kind, itemId, ServerSaveStore.string(data, "displayName", itemId),
+                targetBaseId, productionJobId, List.copyOf(cost));
+    }
 
     private static final class ProductionPlan {
         final String id;

@@ -21,6 +21,12 @@ final class NpcFactionRuntime {
     double spawnTimer() { return Math.max(0, spawnTimer); }
     int spawnCount() { return spawnCount; }
 
+    void restore(State state, double spawnTimer, int spawnCount) {
+        this.state = state == null ? State.INITIALIZING : state;
+        this.spawnTimer = Math.max(0, spawnTimer);
+        this.spawnCount = Math.max(0, spawnCount);
+    }
+
     void observe(boolean hasGalaxyAssets, NpcFaction faction) {
         if (hasGalaxyAssets) {
             state = State.ACTIVE;

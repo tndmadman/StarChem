@@ -26,6 +26,14 @@ final class SystemControlState {
     double captureProgress() { return captureProgress; }
     double changedAt() { return changedAt; }
 
+    void restore(String controllerId, String claimantId, SystemControlStatus status, double captureProgress, double changedAt) {
+        this.controllerId = clean(controllerId);
+        this.claimantId = clean(claimantId);
+        this.status = status == null ? (this.controllerId.isBlank() ? SystemControlStatus.NEUTRAL : SystemControlStatus.CONTROLLED) : status;
+        this.captureProgress = clamp(captureProgress);
+        this.changedAt = Math.max(0, changedAt);
+    }
+
     void protect(String ownerId) {
         controllerId = clean(ownerId);
         claimantId = "";

@@ -38,6 +38,33 @@ final class SystemSimulationScheduler {
         for (String systemId : systemIds) bySystem.remove(systemId);
     }
 
+    static synchronized Map<String,Object> capture(World world) {
+        Map<String,Object> out = new LinkedHashMap<>();
+        Map<String, Double> bySystem = ACCUMULATED.get(world);
+        if (bySystem != null) {
+            for (Map.Entry<String, Double> entry : bySystem.entrySet()) {
+                if (entry.getKey() != null && !entry.getKey().isBlank() && entry.getValue() != null) {
+                    out.put(entry.getKey(), Math.max(0, entry.getValue()));
+                }
+            }
+        }
+        return out;
+    }
+
+    static synchronized void restore(World world, Object state) {
+        if (world == null) return;
+        Map<String,Object> saved = ServerSaveStore.object(state);
+        Map<String, Double> bySystem = new LinkedHashMap<>();
+        for (Map.Entry<String,Object> entry : saved.entrySet()) {
+            double value = ServerSaveStore.asDouble(entry.getValue(), 0);
+            if (entry.getKey() != null && !entry.getKey().isBlank() && value > 0) {
+                bySystem.put(entry.getKey(), value);
+            }
+        }
+        if (bySystem.isEmpty()) ACCUMULATED.remove(world);
+        else ACCUMULATED.put(world, bySystem);
+    }
+
     private static SimulationTier tier(World world) {
         boolean npcAssets = false;
         for (Unit unit : world.units.values()) {

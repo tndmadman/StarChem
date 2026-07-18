@@ -78,6 +78,91 @@ final class NpcSquadCombatSystem {
         if (world != null) RUNTIMES.remove(world);
     }
 
+    static synchronized Map<String,Object> capture(World world) {
+        Map<String,Object> out = new LinkedHashMap<>();
+        Map<String, RuntimeState> byKey = RUNTIMES.get(world);
+        if (byKey == null) return out;
+        List<Object> rows = new ArrayList<>();
+        for (Map.Entry<String, RuntimeState> entry : byKey.entrySet()) {
+            RuntimeState runtime = entry.getValue();
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("key", entry.getKey());
+            row.put("seed", runtime.seed);
+            row.put("reviewTimer", runtime.reviewTimer);
+            List<Object> squads = new ArrayList<>();
+            for (SquadState squad : runtime.squads) squads.add(captureSquad(squad));
+            row.put("squads", squads);
+            rows.add(row);
+        }
+        out.put("runtimes", rows);
+        return out;
+    }
+
+    static synchronized void restore(World world, Object saved) {
+        if (world == null) return;
+        Map<String,Object> data = ServerSaveStore.object(saved);
+        Map<String, RuntimeState> byKey = new LinkedHashMap<>();
+        for (Object item : ServerSaveStore.list(data.get("runtimes"))) {
+            Map<String,Object> row = ServerSaveStore.object(item);
+            String key = ServerSaveStore.string(row, "key", "");
+            if (key.isBlank()) continue;
+            RuntimeState runtime = new RuntimeState(ServerSaveStore.longValue(row, "seed", world.systemSeed()));
+            runtime.reviewTimer = Math.max(0, ServerSaveStore.doubleValue(row, "reviewTimer", 0));
+            List<SquadState> squads = new ArrayList<>();
+            for (Object squadItem : ServerSaveStore.list(row.get("squads"))) {
+                SquadState squad = restoreSquad(squadItem);
+                if (squad != null) squads.add(squad);
+            }
+            runtime.squads = List.copyOf(squads);
+            byKey.put(key, runtime);
+        }
+        if (byKey.isEmpty()) RUNTIMES.remove(world);
+        else RUNTIMES.put(world, byKey);
+    }
+
+    private static Map<String,Object> captureSquad(SquadState squad) {
+        Map<String,Object> out = new LinkedHashMap<>();
+        out.put("id", squad.id);
+        out.put("memberKeys", List.copyOf(squad.memberKeys));
+        Map<String,Object> roles = new LinkedHashMap<>();
+        for (Map.Entry<String,NpcSquadRole> entry : squad.roles.entrySet()) roles.put(entry.getKey(), entry.getValue().name());
+        out.put("roles", roles);
+        out.put("targets", new LinkedHashMap<>(squad.targets));
+        out.put("mode", squad.mode.name());
+        out.put("protectedKey", squad.protectedKey);
+        out.put("anchorX", squad.anchorX);
+        out.put("anchorY", squad.anchorY);
+        out.put("averageHp", squad.averageHp);
+        out.put("maxSpread", squad.maxSpread);
+        return out;
+    }
+
+    private static SquadState restoreSquad(Object saved) {
+        Map<String,Object> data = ServerSaveStore.object(saved);
+        String id = ServerSaveStore.string(data, "id", "");
+        if (id.isBlank()) return null;
+        SquadState squad = new SquadState(id);
+        for (Object item : ServerSaveStore.list(data.get("memberKeys"))) {
+            String key = ServerSaveStore.asString(item, "");
+            if (!key.isBlank()) squad.memberKeys.add(key);
+        }
+        for (Map.Entry<String,Object> entry : ServerSaveStore.object(data.get("roles")).entrySet()) {
+            NpcSquadRole role = ServerSaveStore.enumValue(NpcSquadRole.class, entry.getValue(), null);
+            if (role != null) squad.roles.put(entry.getKey(), role);
+        }
+        for (Map.Entry<String,Object> entry : ServerSaveStore.object(data.get("targets")).entrySet()) {
+            String target = ServerSaveStore.asString(entry.getValue(), "");
+            if (!target.isBlank()) squad.targets.put(entry.getKey(), target);
+        }
+        squad.mode = ServerSaveStore.enumValue(NpcSquadMode.class, data.get("mode"), NpcSquadMode.HOLDING);
+        squad.protectedKey = ServerSaveStore.string(data, "protectedKey", "");
+        squad.anchorX = ServerSaveStore.doubleValue(data, "anchorX", 0);
+        squad.anchorY = ServerSaveStore.doubleValue(data, "anchorY", 0);
+        squad.averageHp = ServerSaveStore.doubleValue(data, "averageHp", 0);
+        squad.maxSpread = ServerSaveStore.doubleValue(data, "maxSpread", 0);
+        return squad;
+    }
+
     private static List<Unit> localCombatUnits(World world, NpcFaction faction) {
         NpcExpeditionSnapshot expedition = NpcExpeditionSystem.snapshot(world, faction);
         boolean expeditionCombatAllowed = expedition.active()

@@ -108,8 +108,134 @@ final class NpcExpeditionSystem {
                 plan.targetScore, runtime.cooldownSeconds, plan.reason, plan.launched, plan.suppliesDelivered);
     }
 
+    static synchronized Map<String,Object> capture(World world) {
+        Map<String,Object> out = new LinkedHashMap<>();
+        Map<String, RuntimeState> byFaction = RUNTIMES.get(world);
+        if (byFaction == null) return out;
+        List<Object> runtimes = new ArrayList<>();
+        for (Map.Entry<String, RuntimeState> entry : byFaction.entrySet()) {
+            RuntimeState runtime = entry.getValue();
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("factionId", entry.getKey());
+            row.put("seed", runtime.seed);
+            row.put("cooldownSeconds", runtime.cooldownSeconds);
+            row.put("lastState", runtime.lastState.name());
+            row.put("lastTarget", runtime.lastTarget);
+            row.put("lastReason", runtime.lastReason);
+            row.put("plan", capturePlan(runtime.plan));
+            runtimes.add(row);
+        }
+        out.put("runtimes", runtimes);
+        return out;
+    }
+
+    static synchronized void restore(World world, Object saved) {
+        if (world == null) return;
+        Map<String,Object> data = ServerSaveStore.object(saved);
+        Map<String, RuntimeState> byFaction = new LinkedHashMap<>();
+        for (Object item : ServerSaveStore.list(data.get("runtimes"))) {
+            Map<String,Object> row = ServerSaveStore.object(item);
+            String factionId = ServerSaveStore.string(row, "factionId", "");
+            if (factionId.isBlank()) continue;
+            RuntimeState runtime = new RuntimeState(ServerSaveStore.longValue(row, "seed", world.systemSeed()));
+            runtime.cooldownSeconds = Math.max(0, ServerSaveStore.doubleValue(row, "cooldownSeconds", 0));
+            runtime.lastState = ServerSaveStore.enumValue(NpcExpeditionState.class, row.get("lastState"), NpcExpeditionState.FAILED);
+            runtime.lastTarget = ServerSaveStore.string(row, "lastTarget", "");
+            runtime.lastReason = ServerSaveStore.string(row, "lastReason", "");
+            runtime.plan = restorePlan(row.get("plan"));
+            byFaction.put(factionId, runtime);
+        }
+        if (byFaction.isEmpty()) RUNTIMES.remove(world);
+        else RUNTIMES.put(world, byFaction);
+    }
+
     static synchronized void clear(World world) {
         if (world != null) RUNTIMES.remove(world);
+    }
+
+    private static Map<String,Object> capturePlan(ExpeditionPlan plan) {
+        Map<String,Object> out = new LinkedHashMap<>();
+        if (plan == null) return out;
+        out.put("sourceSystemId", plan.sourceSystemId);
+        out.put("targetSystemId", plan.targetSystemId);
+        out.put("targetName", plan.targetName);
+        out.put("route", List.copyOf(plan.route));
+        out.put("targetScore", plan.targetScore);
+        out.put("initialControllerId", plan.initialControllerId);
+        out.put("initialHostileBases", plan.initialHostileBases);
+        out.put("combatKeys", List.copyOf(plan.combatKeys));
+        out.put("supportKeys", List.copyOf(plan.supportKeys));
+        out.put("supplies", ServerSaveStore.materialMap(plan.supplies));
+        out.put("packageCost", ServerSaveStore.materialMap(plan.packageCost));
+        out.put("state", plan.state.name());
+        out.put("sourceBaseId", plan.sourceBaseId);
+        out.put("builderKey", plan.builderKey);
+        out.put("workerKey", plan.workerKey);
+        out.put("packageType", plan.packageType);
+        out.put("footholdBaseId", plan.footholdBaseId);
+        out.put("reason", plan.reason);
+        out.put("routeIndex", plan.routeIndex);
+        out.put("establishRetries", plan.establishRetries);
+        out.put("terminalTicks", plan.terminalTicks);
+        out.put("stateSeconds", plan.stateSeconds);
+        out.put("footholdX", plan.footholdX);
+        out.put("footholdY", plan.footholdY);
+        out.put("suppliesReserved", plan.suppliesReserved);
+        out.put("packageCommitted", plan.packageCommitted);
+        out.put("suppliesDelivered", plan.suppliesDelivered);
+        out.put("launched", plan.launched);
+        out.put("released", plan.released);
+        return out;
+    }
+
+    private static ExpeditionPlan restorePlan(Object saved) {
+        Map<String,Object> data = ServerSaveStore.object(saved);
+        if (data.isEmpty()) return null;
+        String sourceSystemId = ServerSaveStore.string(data, "sourceSystemId", "");
+        String targetSystemId = ServerSaveStore.string(data, "targetSystemId", "");
+        if (sourceSystemId.isBlank() || targetSystemId.isBlank()) return null;
+        List<String> route = new ArrayList<>();
+        for (Object item : ServerSaveStore.list(data.get("route"))) {
+            String value = ServerSaveStore.asString(item, "");
+            if (!value.isBlank()) route.add(value);
+        }
+        ExpeditionPlan plan = new ExpeditionPlan(
+                sourceSystemId,
+                targetSystemId,
+                ServerSaveStore.string(data, "targetName", targetSystemId),
+                route,
+                ServerSaveStore.doubleValue(data, "targetScore", 0),
+                ServerSaveStore.string(data, "initialControllerId", ""),
+                ServerSaveStore.intValue(data, "initialHostileBases", 0));
+        for (Object item : ServerSaveStore.list(data.get("combatKeys"))) {
+            String key = ServerSaveStore.asString(item, "");
+            if (!key.isBlank()) plan.combatKeys.add(key);
+        }
+        for (Object item : ServerSaveStore.list(data.get("supportKeys"))) {
+            String key = ServerSaveStore.asString(item, "");
+            if (!key.isBlank()) plan.supportKeys.add(key);
+        }
+        plan.supplies.putAll(ServerSaveStore.restoreMaterialMap(data.get("supplies")));
+        plan.packageCost.putAll(ServerSaveStore.restoreMaterialMap(data.get("packageCost")));
+        plan.state = ServerSaveStore.enumValue(NpcExpeditionState.class, data.get("state"), NpcExpeditionState.PLANNING);
+        plan.sourceBaseId = ServerSaveStore.string(data, "sourceBaseId", "");
+        plan.builderKey = ServerSaveStore.string(data, "builderKey", "");
+        plan.workerKey = ServerSaveStore.string(data, "workerKey", "");
+        plan.packageType = ServerSaveStore.string(data, "packageType", "");
+        plan.footholdBaseId = ServerSaveStore.string(data, "footholdBaseId", "");
+        plan.reason = ServerSaveStore.string(data, "reason", "");
+        plan.routeIndex = Math.max(0, ServerSaveStore.intValue(data, "routeIndex", 0));
+        plan.establishRetries = Math.max(0, ServerSaveStore.intValue(data, "establishRetries", 0));
+        plan.terminalTicks = Math.max(0, ServerSaveStore.intValue(data, "terminalTicks", 0));
+        plan.stateSeconds = Math.max(0, ServerSaveStore.doubleValue(data, "stateSeconds", 0));
+        plan.footholdX = ServerSaveStore.doubleValue(data, "footholdX", 0);
+        plan.footholdY = ServerSaveStore.doubleValue(data, "footholdY", 0);
+        plan.suppliesReserved = ServerSaveStore.boolValue(data, "suppliesReserved", false);
+        plan.packageCommitted = ServerSaveStore.boolValue(data, "packageCommitted", false);
+        plan.suppliesDelivered = ServerSaveStore.boolValue(data, "suppliesDelivered", false);
+        plan.launched = ServerSaveStore.boolValue(data, "launched", false);
+        plan.released = ServerSaveStore.boolValue(data, "released", false);
+        return plan;
     }
 
     private static void begin(World world, NpcFaction faction, RuntimeState runtime) {

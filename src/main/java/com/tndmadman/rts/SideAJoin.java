@@ -7,7 +7,7 @@ final class SideAJoin {
         switch (parts[0]) {
             case "JOIN" -> {
                 server.join(connectionId, packet.address(), packet.port(), parts.length > 1 ? parts[1] : "Player",
-                        server.requestedDev(parts), server.requestedDevToken(parts));
+                        markerValue(parts, "AUTH"), server.requestedDev(parts), server.requestedDevToken(parts));
                 return true;
             }
             case "RESUME" -> {
@@ -21,5 +21,11 @@ final class SideAJoin {
             case "LEAVE" -> { server.removePeer(connectionId); return true; }
             default -> { return false; }
         }
+    }
+
+    private static String markerValue(String[] parts, String marker) {
+        if (parts == null || marker == null) return "";
+        for (int i = 0; i < parts.length - 1; i++) if (marker.equalsIgnoreCase(parts[i])) return parts[i + 1];
+        return "";
     }
 }

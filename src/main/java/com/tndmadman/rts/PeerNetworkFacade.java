@@ -19,6 +19,10 @@ final class PeerNetwork implements CommandSink {
     }
 
     static PeerNetwork start(Config config, World world) throws IOException {
+        return start(config, world, List.of());
+    }
+
+    static PeerNetwork start(Config config, World world, List<PersistentPlayerSession> restoredSessions) throws IOException {
         if (!config.hostMode && !config.clientMode()) {
             PlayerRegistry.reset("SOLO", config.playerName, 0x50BEFF);
             world.setDevFreeBuild("SOLO", config.devMode);
@@ -45,7 +49,7 @@ final class PeerNetwork implements CommandSink {
             world.setDevFreeBuild("SOLO", config.devMode);
             world.status = "Hosting " + world.systemName() + " TCP " + transport.localPort() + (config.devMode ? " with dev mode enabled" : "");
             ResourceNetDebug.registerServerWorld(world);
-            server = new PeerServerSide(config, world, transport);
+            server = new PeerServerSide(config, world, transport, restoredSessions);
         } else {
             PlayerRegistry.reset("WAIT", config.playerName, 0x50BEFF);
             world.setDevFreeBuild("WAIT", false);
@@ -81,6 +85,7 @@ final class PeerNetwork implements CommandSink {
     ConnectionDiagnostics connectionDiagnostics(ConnectionId id) { return transport.diagnostics(id); }
     int serverPeerCount() { return server == null ? 0 : server.peerCount(); }
     boolean serverSessionConnected(String playerId) { return server != null && server.sessionConnected(playerId); }
+    List<PersistentPlayerSession> persistentPlayerSessions() { return server == null ? List.of() : server.persistentSessions(); }
     void forceServerResourceCorrectionForTest() { if (server != null) server.forceResourceCorrectionForTest(); }
 
     void updateServerWorlds(double dt) {

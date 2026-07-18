@@ -2,6 +2,7 @@ package com.tndmadman.rts;
 
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
 
@@ -113,6 +114,45 @@ final class NpcExpeditionReadinessSystem {
 
     static synchronized void clear(World world) {
         if (world != null) RUNTIMES.remove(world);
+    }
+
+    static synchronized Map<String,Object> capture(World world) {
+        Map<String,Object> out = new LinkedHashMap<>();
+        Map<String, RuntimeState> byFaction = RUNTIMES.get(world);
+        if (byFaction == null) return out;
+        List<Object> rows = new java.util.ArrayList<>();
+        for (Map.Entry<String, RuntimeState> entry : byFaction.entrySet()) {
+            RuntimeState runtime = entry.getValue();
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("factionId", entry.getKey());
+            row.put("seed", runtime.seed);
+            row.put("planKey", runtime.planKey);
+            row.put("status", runtime.status);
+            row.put("transitSeconds", runtime.transitSeconds);
+            row.put("rosterSeconds", runtime.rosterSeconds);
+            rows.add(row);
+        }
+        out.put("runtimes", rows);
+        return out;
+    }
+
+    static synchronized void restore(World world, Object saved) {
+        if (world == null) return;
+        Map<String,Object> data = ServerSaveStore.object(saved);
+        Map<String, RuntimeState> byFaction = new LinkedHashMap<>();
+        for (Object item : ServerSaveStore.list(data.get("runtimes"))) {
+            Map<String,Object> row = ServerSaveStore.object(item);
+            String factionId = ServerSaveStore.string(row, "factionId", "");
+            if (factionId.isBlank()) continue;
+            RuntimeState runtime = new RuntimeState(ServerSaveStore.longValue(row, "seed", world.systemSeed()));
+            runtime.planKey = ServerSaveStore.string(row, "planKey", "");
+            runtime.status = ServerSaveStore.string(row, "status", "");
+            runtime.transitSeconds = Math.max(0, ServerSaveStore.doubleValue(row, "transitSeconds", 0));
+            runtime.rosterSeconds = Math.max(0, ServerSaveStore.doubleValue(row, "rosterSeconds", 0));
+            byFaction.put(factionId, runtime);
+        }
+        if (byFaction.isEmpty()) RUNTIMES.remove(world);
+        else RUNTIMES.put(world, byFaction);
     }
 
     static synchronized void clearFaction(World world, NpcFaction faction) {

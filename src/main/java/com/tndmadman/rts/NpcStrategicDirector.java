@@ -1,6 +1,7 @@
 package com.tndmadman.rts;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
@@ -97,11 +98,102 @@ final class NpcStrategicDirector {
         if (world != null) RUNTIMES.remove(world);
     }
 
+    static synchronized Map<String,Object> capture(World world) {
+        Map<String,Object> out = new LinkedHashMap<>();
+        Map<String, RuntimeState> byFaction = RUNTIMES.get(world);
+        if (byFaction == null) return out;
+        List<Object> rows = new java.util.ArrayList<>();
+        for (Map.Entry<String, RuntimeState> entry : byFaction.entrySet()) {
+            RuntimeState runtime = entry.getValue();
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("factionId", entry.getKey());
+            row.put("homeSystemId", runtime.homeSystemId);
+            row.put("seed", runtime.seed);
+            row.put("state", runtime.state.name());
+            row.put("reviewTimer", runtime.reviewTimer);
+            row.put("stateSeconds", runtime.stateSeconds);
+            row.put("transitionCount", runtime.transitionCount);
+            row.put("initialized", runtime.initialized);
+            row.put("snapshot", captureSnapshot(runtime.snapshot));
+            rows.add(row);
+        }
+        out.put("runtimes", rows);
+        return out;
+    }
+
+    static synchronized void restore(World world, Object saved) {
+        if (world == null) return;
+        Map<String,Object> data = ServerSaveStore.object(saved);
+        Map<String, RuntimeState> byFaction = new LinkedHashMap<>();
+        for (Object item : ServerSaveStore.list(data.get("runtimes"))) {
+            Map<String,Object> row = ServerSaveStore.object(item);
+            String factionId = ServerSaveStore.string(row, "factionId", "");
+            NpcFaction faction = null;
+            for (NpcFaction candidate : NpcRules.factions()) {
+                if (candidate.id().equals(factionId)) {
+                    faction = candidate;
+                    break;
+                }
+            }
+            if (faction == null || faction.behavior() != NpcBehavior.FACTION) continue;
+            RuntimeState runtime = new RuntimeState(faction, ServerSaveStore.longValue(row, "seed", world.systemSeed()));
+            runtime.state = ServerSaveStore.enumValue(NpcStrategicState.class, row.get("state"), NpcStrategicState.DEFEATED);
+            runtime.reviewTimer = Math.max(0, ServerSaveStore.doubleValue(row, "reviewTimer", 0));
+            runtime.stateSeconds = Math.max(0, ServerSaveStore.doubleValue(row, "stateSeconds", 0));
+            runtime.transitionCount = Math.max(0, ServerSaveStore.intValue(row, "transitionCount", 0));
+            runtime.initialized = ServerSaveStore.boolValue(row, "initialized", false);
+            runtime.snapshot = restoreSnapshot(row.get("snapshot"));
+            byFaction.put(faction.id(), runtime);
+        }
+        if (byFaction.isEmpty()) RUNTIMES.remove(world);
+        else RUNTIMES.put(world, byFaction);
+    }
+
     private static RuntimeState runtime(World world, NpcFaction faction) {
         Map<String, RuntimeState> byFaction = RUNTIMES.computeIfAbsent(
                 world, ignored -> new LinkedHashMap<>());
         return byFaction.computeIfAbsent(
                 faction.id(), ignored -> new RuntimeState(faction, world.systemSeed()));
+    }
+
+    private static Map<String,Object> captureSnapshot(NpcStrategicSnapshot snapshot) {
+        NpcStrategicSnapshot s = snapshot == null ? NpcStrategicSnapshot.EMPTY : snapshot;
+        Map<String,Object> out = new LinkedHashMap<>();
+        out.put("stations", s.stations());
+        out.put("workers", s.workers());
+        out.put("combat", s.combat());
+        out.put("damagedCombat", s.damagedCombat());
+        out.put("support", s.support());
+        out.put("industry", s.industry());
+        out.put("systemsWithAssets", s.systemsWithAssets());
+        out.put("controlledSystems", s.controlledSystems());
+        out.put("threats", s.threats());
+        out.put("completedResearch", s.completedResearch());
+        out.put("missingResearch", s.missingResearch());
+        out.put("fuel", s.fuel());
+        out.put("researchCapable", s.researchCapable());
+        out.put("fuelCapable", s.fuelCapable());
+        return out;
+    }
+
+    private static NpcStrategicSnapshot restoreSnapshot(Object saved) {
+        Map<String,Object> data = ServerSaveStore.object(saved);
+        if (data.isEmpty()) return NpcStrategicSnapshot.EMPTY;
+        return new NpcStrategicSnapshot(
+                ServerSaveStore.intValue(data, "stations", 0),
+                ServerSaveStore.intValue(data, "workers", 0),
+                ServerSaveStore.intValue(data, "combat", 0),
+                ServerSaveStore.intValue(data, "damagedCombat", 0),
+                ServerSaveStore.intValue(data, "support", 0),
+                ServerSaveStore.intValue(data, "industry", 0),
+                ServerSaveStore.intValue(data, "systemsWithAssets", 0),
+                ServerSaveStore.intValue(data, "controlledSystems", 0),
+                ServerSaveStore.intValue(data, "threats", 0),
+                ServerSaveStore.intValue(data, "completedResearch", 0),
+                ServerSaveStore.intValue(data, "missingResearch", 0),
+                ServerSaveStore.doubleValue(data, "fuel", 0),
+                ServerSaveStore.boolValue(data, "researchCapable", false),
+                ServerSaveStore.boolValue(data, "fuelCapable", false));
     }
 
     private static NpcStrategicSnapshot inspect(World world, NpcFaction faction) {

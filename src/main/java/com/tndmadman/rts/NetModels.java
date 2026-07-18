@@ -4,6 +4,17 @@ import java.net.InetAddress;
 import java.util.List;
 
 record PlayerInfo(String id, String name, int rgb, boolean local) { }
+record PersistentPlayerSession(String playerId, String name, int rgb, byte[] passwordSalt, byte[] passwordDigest, byte[] tokenDigest,
+                               byte[] previousTokenDigest, long previousTokenValidUntil) {
+    PersistentPlayerSession {
+        playerId = playerId == null ? "" : playerId;
+        name = Config.clean(name);
+        passwordSalt = passwordSalt == null ? new byte[0] : passwordSalt.clone();
+        passwordDigest = passwordDigest == null ? new byte[0] : passwordDigest.clone();
+        tokenDigest = tokenDigest == null ? new byte[0] : tokenDigest.clone();
+        previousTokenDigest = previousTokenDigest == null ? new byte[0] : previousTokenDigest.clone();
+    }
+}
 record UnitState(String playerId, int unitId, String shipTypeId, double x, double y, double targetX, double targetY,
                  double heading, String task, int resourceId, String packageType, String cargo, double hp, double shield,
                  String attackTarget, double weaponFlashTimer, String orderType, double orderX1, double orderY1,
