@@ -1,9 +1,12 @@
-# StarChem v1.5.6
+# StarChem v1.5.7
 
-StarChem v1.5.6 is a multiplayer connectivity and dedicated-server save-state hotfix covering changes introduced after v1.4.0.
+StarChem v1.5.7 is a multiplayer connectivity and dedicated-server save-state hotfix covering changes introduced after v1.4.0.
 
 ## Multiplayer Connectivity Hotfix
 
+- Same-machine servers reached through `127.0.0.1`, `::1`, or another loopback address now replace stale TLS certificate pins automatically without asking the player.
+- Graphical HOST mode and a client joining a dedicated server on the same computer no longer show TRUST NEW CERTIFICATE after an update or local TLS-key regeneration.
+- Certificate changes from non-loopback remote servers remain blocked before login secrets are sent and still require explicit confirmation.
 - Fixed graphical HOST mode failing against its own loopback TLS server after extracting an update.
 - Local-host authentication, resume sessions, and certificate trust are now isolated and process-only; they cannot overwrite dedicated-server credentials.
 - Server certificate trust is now scoped to the server endpoint rather than to each commander name. Existing per-commander pins migrate automatically.
@@ -66,12 +69,12 @@ StarChem v1.5.6 is a multiplayer connectivity and dedicated-server save-state ho
 
 ## Compatibility
 
-All multiplayer clients and servers must use StarChem v1.5.6 with matching network protocol, rules, and packaged configuration files. The embedded Git commit is diagnostic only and does not block otherwise compatible v1.5.6 builds. Older application versions remain rejected. Existing v1.4.0 dedicated servers do not have durable v1.5.6 server save archives; start v1.5.6 with the desired save directory/name and let the server create its first save.
+All multiplayer clients and servers must use StarChem v1.5.7 with matching network protocol, rules, and packaged configuration files. The embedded Git commit is diagnostic only and does not block otherwise compatible v1.5.7 builds. Older application versions remain rejected. Existing v1.4.0 dedicated servers do not have durable v1.5.7 server save archives; start v1.5.7 with the desired save directory/name and let the server create its first save.
 
 ## Security Notes
 
 - StarChem now encrypts multiplayer traffic with self-hosted TLS and pins the first server certificate seen for each saved server/player identity.
-- On a first connection to a new server, players should treat the server fingerprint like any first-contact trust decision. If the fingerprint changes later, StarChem refuses to send login material.
+- Same-machine loopback connections update local certificate trust automatically. Non-loopback remote certificate changes remain blocked before StarChem sends login material.
 - Server owners cannot see raw player passwords from StarChem save files; saves contain salted PBKDF2 digests and token digests.
 
 ## Requirements

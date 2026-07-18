@@ -4,6 +4,7 @@ import javax.net.ssl.*;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigInteger;
+import java.net.InetAddress;
 import java.net.Socket;
 import javax.net.ServerSocketFactory;
 import javax.net.SocketFactory;
@@ -56,6 +57,12 @@ final class TlsIdentity {
                     MessageDigest.getInstance("SHA-256").digest(chain[0].getEncoded()));
             if (config != null && config.localHostClientMode()) return;
             String pinned = SessionTokenStore.serverFingerprint(config);
+            if (automaticallyTrustLoopbackServer(config)) {
+                if (!fingerprint.equalsIgnoreCase(pinned)) {
+                    SessionTokenStore.saveServerFingerprint(config, fingerprint);
+                }
+                return;
+            }
             if (pinned.isBlank()) {
                 SessionTokenStore.saveServerFingerprint(config, fingerprint);
             } else if (!MessageDigest.isEqual(PasswordAuth.decodeVerifier(pinned), PasswordAuth.decodeVerifier(fingerprint))) {
@@ -66,6 +73,12 @@ final class TlsIdentity {
         } catch (Exception ex) {
             throw new IOException("Could not verify server TLS fingerprint: " + ex.getMessage(), ex);
         }
+    }
+
+    static boolean automaticallyTrustLoopbackServer(Config config) {
+        if (config == null || config.serverAddress == null) return false;
+        InetAddress address = config.serverAddress.getAddress();
+        return address != null && address.isLoopbackAddress();
     }
 
     record FingerprintChange(String expected, String presented) {

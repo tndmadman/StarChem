@@ -138,18 +138,22 @@ public final class NetworkSecurityValidator {
   secondClient = PeerTransport.client(clientConfig, new PerfStats());
   secondServer.start();
   secondClient.start();
-  waitFor(secondClient::serverCertificateTrustRequired, 5_000,
-          "changed TLS fingerprint did not require an explicit trust decision");
-  require(!secondClient.connected(), "client accepted a changed server TLS fingerprint before approval");
-  TlsIdentity.FingerprintChange change = secondClient.pendingServerFingerprintChange();
-  require(change != null && change.valid() && firstFingerprint.equals(change.expected()),
-          "pending TLS trust decision did not retain the expected fingerprint");
-  require(secondClient.trustPendingServerCertificate(),
-          "explicit TLS fingerprint replacement was rejected");
   waitFor(secondClient::connected, 5_000,
-          "client did not reconnect after explicitly trusting the replacement certificate");
-  require(change.presented().equals(SessionTokenStore.serverFingerprint(alternateCommander)),
+          "same-machine client did not automatically accept the replacement TLS certificate");
+  require(!secondClient.serverCertificateTrustRequired(),
+          "same-machine certificate replacement incorrectly required user confirmation");
+  String replacementFingerprint = SessionTokenStore.serverFingerprint(clientConfig);
+  require(PasswordAuth.validVerifier(replacementFingerprint)
+                  && !firstFingerprint.equals(replacementFingerprint),
+          "same-machine certificate replacement did not update the stored server trust");
+  require(replacementFingerprint.equals(SessionTokenStore.serverFingerprint(alternateCommander)),
           "replacement TLS trust was not stored for the server endpoint");
+  Config explicitIpv4Loopback = Config.join("IPv4 Loopback Client", "127.0.0.1", port, false);
+  require(TlsIdentity.automaticallyTrustLoopbackServer(explicitIpv4Loopback),
+          "127.0.0.1 was not recognized as a same-machine server");
+  Config remoteServer = Config.join("Remote TLS Client", "203.0.113.10", port, false);
+  require(!TlsIdentity.automaticallyTrustLoopbackServer(remoteServer),
+          "remote server was incorrectly allowed automatic certificate replacement");
   secondClient.shutdown();
   secondClient = null;
   secondServer.shutdown();
