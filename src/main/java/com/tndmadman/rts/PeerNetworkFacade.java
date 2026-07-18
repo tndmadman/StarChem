@@ -40,8 +40,8 @@ final class PeerNetwork implements CommandSink {
         }
         PerfStats perfStats = new PerfStats();
         PeerTransport transport = config.hostMode
-                ? PeerTransport.server(config.port, perfStats)
-                : PeerTransport.client(config.serverAddress, perfStats);
+                ? PeerTransport.server(config, perfStats)
+                : PeerTransport.client(config, perfStats);
         PeerServerSide server = null;
         PeerClientSide client = null;
         if (config.hostMode) {

@@ -10,6 +10,7 @@ public final class NetworkSecurityValidator {
     public static void main(String[] args) throws Exception {
         validateFrameCodec();
         validateTransportRoundTrip();
+        validateEncryptedTransportAndPinning();
         validateCompatibilityHandshake();
         validateSnapshotCoalescingAndBackpressure();
         System.out.println("StarChem TCP network security validation passed.");
@@ -88,6 +89,56 @@ public final class NetworkSecurityValidator {
         } finally {
             client.shutdown();
             server.shutdown();
+        }
+    }
+
+    private static void validateEncryptedTransportAndPinning() throws Exception {
+        java.nio.file.Path store = java.nio.file.Files.createTempFile("starchem-tls-pin-", ".properties");
+        java.nio.file.Files.deleteIfExists(store);
+        java.nio.file.Path firstDir = java.nio.file.Files.createTempDirectory("starchem-tls-first-");
+        java.nio.file.Path secondDir = java.nio.file.Files.createTempDirectory("starchem-tls-second-");
+        System.setProperty("starchem.sessionStore", store.toString());
+        InetAddress loopback = InetAddress.getLoopbackAddress();
+        PeerTransport firstServer = null;
+        PeerTransport firstClient = null;
+        PeerTransport secondServer = null;
+        PeerTransport secondClient = null;
+        try {
+            Config firstServerConfig = Config.dedicatedServer("TLS Server", 0, false, false,
+                    java.util.Set.of(), StarSystems.DEFAULT_SYSTEM_ID, "", 1, firstDir, "server", 60, 5, false);
+            firstServer = PeerTransport.server(firstServerConfig, new PerfStats());
+            int port = firstServer.localPort();
+            Config clientConfig = Config.join("TLS Client", loopback.getHostAddress(), port, false);
+            firstClient = PeerTransport.client(clientConfig, new PerfStats());
+            firstServer.start();
+            firstClient.start();
+            waitFor(firstClient::connected, 5_000, "encrypted TCP client did not connect");
+            require(PasswordAuth.validVerifier(SessionTokenStore.serverFingerprint(clientConfig)),
+                    "client did not pin the server TLS fingerprint");
+            firstClient.send("JOIN|TLS Client|NODEV|", loopback, port);
+            NetPacket encryptedJoin = poll(firstServer, 5_000);
+            require(encryptedJoin != null, "encrypted JOIN did not reach the server");
+            require("JOIN|TLS Client|NODEV|".equals(firstServer.processInbound(encryptedJoin)),
+                    "encrypted JOIN compatibility wrapper was not normalized");
+            firstClient.shutdown();
+            firstServer.shutdown();
+
+            Config secondServerConfig = Config.dedicatedServer("TLS Server", port, false, false,
+                    java.util.Set.of(), StarSystems.DEFAULT_SYSTEM_ID, "", 1, secondDir, "server", 60, 5, false);
+            secondServer = PeerTransport.server(secondServerConfig, new PerfStats());
+            secondClient = PeerTransport.client(clientConfig, new PerfStats());
+            secondServer.start();
+            secondClient.start();
+            Thread.sleep(1_000);
+            require(!secondClient.connected(), "client accepted a changed server TLS fingerprint");
+        } finally {
+            if (firstClient != null) firstClient.shutdown();
+            if (firstServer != null) firstServer.shutdown();
+            if (secondClient != null) secondClient.shutdown();
+            if (secondServer != null) secondServer.shutdown();
+            SessionTokenStore.clear(Config.join("TLS Client", loopback.getHostAddress(), 1, false));
+            System.clearProperty("starchem.sessionStore");
+            java.nio.file.Files.deleteIfExists(store);
         }
     }
 

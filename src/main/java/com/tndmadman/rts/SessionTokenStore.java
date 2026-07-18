@@ -33,6 +33,21 @@ final class SessionTokenStore {
                 : StoredSession.EMPTY;
     }
 
+    static synchronized String serverFingerprint(Config config) {
+        String key = key(config);
+        if (key.isBlank()) return "";
+        String value = readProperties().getProperty(tlsKey(key), "");
+        return PasswordAuth.validVerifier(value) ? value : "";
+    }
+
+    static synchronized void saveServerFingerprint(Config config, String fingerprint) {
+        String key = key(config);
+        if (key.isBlank() || !PasswordAuth.validVerifier(fingerprint)) return;
+        Properties properties = readProperties();
+        properties.setProperty(tlsKey(key), fingerprint.toLowerCase(Locale.ROOT));
+        writeProperties(properties);
+    }
+
     static synchronized void save(Config config, String playerId, String token) {
         String key = key(config);
         if (key.isBlank() || !validPlayerId(playerId) || !validToken(token)) return;
@@ -133,6 +148,10 @@ final class SessionTokenStore {
         String raw = host + ':' + config.serverAddress.getPort() + '|'
                 + Config.clean(config.playerName).toLowerCase(Locale.ROOT);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String tlsKey(String sessionKey) {
+        return "tls." + sessionKey;
     }
 
     private static boolean validPlayerId(String value) {
