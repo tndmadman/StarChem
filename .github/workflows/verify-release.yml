@@ -1,0 +1,176 @@
+name: Verify StarChem Release
+
+on:
+  push:
+    branches:
+      - 'release/**'
+    paths:
+      - '.github/release-verify-request.txt'
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: verify-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify-release:
+    name: Verify or repair published release assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out verification branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve requested release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="$(tr -d '[:space:]' < .github/release-verify-request.txt)"
+          VERSION="${VERSION#v}"
+          TAG="v${VERSION}"
+          RELEASE_ZIP="StarChem-${TAG}.zip"
+          CHECKSUM_FILE="${RELEASE_ZIP}.sha256"
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid verification version: $VERSION" >&2
+            exit 1
+          fi
+
+          git fetch --force --tags origin
+          TAG_SHA="$(git rev-list -n 1 "$TAG")"
+          if [[ -z "$TAG_SHA" ]]; then
+            echo "Missing release tag $TAG" >&2
+            exit 1
+          fi
+
+          echo "STARCHEM_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "STARCHEM_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "STARCHEM_TAG_SHA=$TAG_SHA" >> "$GITHUB_ENV"
+          echo "RELEASE_ZIP=$RELEASE_ZIP" >> "$GITHUB_ENV"
+          echo "CHECKSUM_FILE=$CHECKSUM_FILE" >> "$GITHUB_ENV"
+
+      - name: Repair a missing or incomplete release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RELEASE_READY=0
+          if gh release view "$STARCHEM_TAG" >/dev/null 2>&1; then
+            mapfile -t ASSETS < <(gh release view "$STARCHEM_TAG" --json assets --jq '.assets[].name' | sort)
+            if printf '%s\n' "${ASSETS[@]}" | grep -Fxq "$RELEASE_ZIP" \
+                && printf '%s\n' "${ASSETS[@]}" | grep -Fxq "$CHECKSUM_FILE"; then
+              RELEASE_READY=1
+            fi
+          fi
+
+          if [[ "$RELEASE_READY" -eq 1 ]]; then
+            echo 'Published release and required assets already exist.'
+            exit 0
+          fi
+
+          gh workflow run release.yml --ref "$STARCHEM_TAG" -f version="$STARCHEM_VERSION"
+
+          RUN_ID=""
+          for _ in {1..60}; do
+            RUN_ID="$(gh run list \
+              --workflow release.yml \
+              --event workflow_dispatch \
+              --limit 30 \
+              --json databaseId,headSha \
+              --jq ".[] | select(.headSha == \"$STARCHEM_TAG_SHA\") | .databaseId" \
+              | head -n 1)"
+            if [[ -n "$RUN_ID" ]]; then
+              break
+            fi
+            sleep 2
+          done
+
+          if [[ -z "$RUN_ID" ]]; then
+            echo 'Unable to locate release validation workflow.' >&2
+            exit 1
+          fi
+
+          gh run watch "$RUN_ID" --exit-status
+          rm -rf release-artifact
+          mkdir -p release-artifact
+          gh run download "$RUN_ID" \
+            --name "StarChem-release-$STARCHEM_TAG_SHA" \
+            --dir release-artifact
+
+          test -s "release-artifact/$RELEASE_ZIP"
+          test -s "release-artifact/$CHECKSUM_FILE"
+          (
+            cd release-artifact
+            sha256sum -c "$CHECKSUM_FILE"
+          )
+
+          if gh release view "$STARCHEM_TAG" >/dev/null 2>&1; then
+            gh release upload "$STARCHEM_TAG" \
+              "release-artifact/$RELEASE_ZIP" \
+              "release-artifact/$CHECKSUM_FILE" \
+              --clobber
+          else
+            gh release create "$STARCHEM_TAG" \
+              "release-artifact/$RELEASE_ZIP" \
+              "release-artifact/$CHECKSUM_FILE" \
+              --verify-tag \
+              --target "$STARCHEM_TAG_SHA" \
+              --title "StarChem $STARCHEM_TAG" \
+              --notes-file RELEASE_NOTES.md
+          fi
+
+      - name: Verify published assets and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RELEASE_JSON="$(gh release view "$STARCHEM_TAG" --json tagName,isDraft,isPrerelease,assets)"
+          [[ "$(jq -r '.tagName' <<< "$RELEASE_JSON")" == "$STARCHEM_TAG" ]]
+          [[ "$(jq -r '.isDraft' <<< "$RELEASE_JSON")" == 'false' ]]
+
+          mapfile -t ASSETS < <(jq -r '.assets[].name' <<< "$RELEASE_JSON" | sort)
+          printf '%s\n' "${ASSETS[@]}" | grep -Fxq "$RELEASE_ZIP"
+          printf '%s\n' "${ASSETS[@]}" | grep -Fxq "$CHECKSUM_FILE"
+
+          rm -rf verified-release
+          mkdir -p verified-release
+          gh release download "$STARCHEM_TAG" \
+            --pattern "$RELEASE_ZIP" \
+            --pattern "$CHECKSUM_FILE" \
+            --dir verified-release
+
+          (
+            cd verified-release
+            sha256sum -c "$CHECKSUM_FILE"
+          )
+
+          CHECKSUM="$(awk '{print $1}' "verified-release/$CHECKSUM_FILE")"
+          cat > ".github/release-verified-${STARCHEM_VERSION}.txt" <<EOF
+          VERIFIED
+          tag=$STARCHEM_TAG
+          commit=$STARCHEM_TAG_SHA
+          zip=$RELEASE_ZIP
+          checksum_file=$CHECKSUM_FILE
+          sha256=$CHECKSUM
+          EOF
+
+      - name: Record successful verification
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          MARKER=".github/release-verified-${STARCHEM_VERSION}.txt"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$MARKER"
+          git commit -m "Verify StarChem $STARCHEM_TAG release assets [skip ci]"
+          git push origin "HEAD:$GITHUB_REF_NAME"
