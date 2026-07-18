@@ -15,20 +15,21 @@ jobs:
   report:
     runs-on: ubuntu-latest
     steps:
-      - name: Report workflows for release commit
+      - name: Report standard release workflow
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=ae79a1d281e42aa14f13577bc3bdd1f83fc5340c&per_page=100" > /tmp/runs.json
+          sleep 10
+          gh run list --repo "$GITHUB_REPOSITORY" --workflow release.yml --limit 10 --json databaseId,displayTitle,event,headBranch,headSha,status,conclusion,createdAt > /tmp/runs.json
           python3 - <<'PY' > /tmp/status.md
           import json
-          data=json.load(open('/tmp/runs.json'))
-          print('Workflows currently associated with release commit `ae79a1d281e4`:')
+          runs=json.load(open('/tmp/runs.json'))
+          print('Recent standard release workflow runs:')
           print()
-          for run in data.get('workflow_runs', []):
-              print(f"- {run['name']}: {run['status']} / {run.get('conclusion') or 'pending'} ({run['event']})")
+          for run in runs:
+              print(f"- run {run['databaseId']}: {run['displayTitle']} — {run['status']} / {run.get('conclusion') or 'pending'}; event={run['event']}; ref={run['headBranch']}; sha={run['headSha'][:12]}")
           PY
           cat /tmp/status.md
           gh pr comment "${{ github.event.pull_request.number }}" --repo "$GITHUB_REPOSITORY" --body-file /tmp/status.md
