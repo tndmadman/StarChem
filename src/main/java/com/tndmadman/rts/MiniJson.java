@@ -29,7 +29,13 @@ final class MiniJson {
             out.append("null");
         } else if (value instanceof String text) {
             writeString(out, text);
-        } else if (value instanceof Number || value instanceof Boolean) {
+        } else if (value instanceof Number number) {
+            double numeric = number.doubleValue();
+            if ((number instanceof Double || number instanceof Float) && !Double.isFinite(numeric)) {
+                throw new IllegalArgumentException("JSON numbers must be finite");
+            }
+            out.append(number);
+        } else if (value instanceof Boolean) {
             out.append(value);
         } else if (value instanceof Map<?,?> map) {
             out.append('{');
@@ -185,7 +191,10 @@ final class MiniJson {
             digits();
         }
         String raw = text.substring(start, pos);
-        return fractional ? Double.parseDouble(raw) : Long.parseLong(raw);
+        if (!fractional) return Long.parseLong(raw);
+        double parsed = Double.parseDouble(raw);
+        if (!Double.isFinite(parsed)) throw error("Number must be finite");
+        return parsed;
     }
 
     private void digits() {
