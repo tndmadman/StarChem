@@ -5,6 +5,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.spec.InvalidKeySpecException;
+import java.util.Arrays;
 import java.util.HexFormat;
 import javax.crypto.Mac;
 import javax.crypto.SecretKeyFactory;
@@ -31,6 +32,24 @@ final class PasswordAuth {
                     .digest(material.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException ex) {
             throw new IllegalStateException("SHA-256 is unavailable.", ex);
+        }
+    }
+
+    static String newProcessVerifier(String playerName) {
+        String cleanName = Config.clean(playerName).toLowerCase(java.util.Locale.ROOT);
+        byte[] secret = new byte[32];
+        RANDOM.nextBytes(secret);
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            digest.update("StarChem graphical host credential v1|".getBytes(StandardCharsets.UTF_8));
+            digest.update(cleanName.getBytes(StandardCharsets.UTF_8));
+            digest.update((byte)'|');
+            digest.update(secret);
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 is unavailable.", ex);
+        } finally {
+            Arrays.fill(secret, (byte)0);
         }
     }
 
