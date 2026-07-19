@@ -38,6 +38,15 @@ jobs:
       - name: Verify project
         run: gradle clean check jar --no-daemon
 
+      - name: Validate authenticated numeric commands
+        run: java -cp build/classes/java/main com.tndmadman.rts.NumericCommandValidationValidator authenticated
+
+      - name: Validate authoritative numeric repair
+        run: java -cp build/classes/java/main com.tndmadman.rts.NumericCommandValidationValidator repair
+
+      - name: Validate numeric serialization boundaries
+        run: java -cp build/classes/java/main com.tndmadman.rts.NumericCommandValidationValidator serialization
+
       - name: Smoke-test Linux headless server
         shell: bash
         run: |
