@@ -27,12 +27,12 @@ final class Unit {
         this.playerId = playerId;
         this.unitId = unitId;
         this.shipTypeId = shipTypeId;
-        this.x = x;
-        this.y = y;
-        this.targetX = x;
-        this.targetY = y;
-        this.miningAnchorX = x;
-        this.miningAnchorY = y;
+        this.x = Double.isFinite(x) ? x : 0;
+        this.y = Double.isFinite(y) ? y : 0;
+        this.targetX = this.x;
+        this.targetY = this.y;
+        this.miningAnchorX = this.x;
+        this.miningAnchorY = this.y;
         this.hp = type().maxHp;
         this.shield = type().maxShield;
         this.orbitAngle = unitId;
@@ -44,12 +44,14 @@ final class Unit {
     boolean contains(double wx, double wy) { return Calc.distance(wx, wy, x, y) <= 28 * type().size.scale; }
 
     void issueMove(double tx, double ty) {
+        if (!GameplayCommandNumbers.finite(tx, ty)) return;
         clearOrder();
         if (canAutoMineLocally()) setMiningAnchor(tx, ty);
         moveTo(tx, ty);
     }
 
     void moveTo(double tx, double ty) {
+        if (!GameplayCommandNumbers.finite(tx, ty)) return;
         targetX = tx;
         targetY = ty;
         task = UnitTask.MOVE;
@@ -80,6 +82,9 @@ final class Unit {
             clearOrder();
             return;
         }
+        if (!GameplayCommandNumbers.finite(command.x1(), command.y1(), command.x2(), command.y2(), command.radius())
+                || !GameplayCommandNumbers.orderRadius(command.radius())
+                || command.phase() < 0 || command.phase() > 1) return;
         orderType = command.type();
         orderX1 = command.x1();
         orderY1 = command.y1();
@@ -107,6 +112,7 @@ final class Unit {
     }
 
     void setMiningAnchor(double x, double y) {
+        if (!GameplayCommandNumbers.finite(x, y)) return;
         miningAnchorX = x;
         miningAnchorY = y;
         miningAnchorSet = true;
@@ -119,27 +125,65 @@ final class Unit {
 
     double cargoUsed() {
         double total = 0;
-        for (double value : inventory.values()) total += value;
+        for (double value : inventory.values()) if (Double.isFinite(value) && value > 0) total += value;
         return total;
     }
 
     double freeCargo() { return Math.max(0, type().cargoCapacity - cargoUsed()); }
 
     void addCargo(Material material, double amount) {
-        inventory.put(material, inventory.getOrDefault(material, 0.0) + amount);
+        if (material == null || !Double.isFinite(amount)) return;
+        double updated = inventory.getOrDefault(material, 0.0) + amount;
+        if (Double.isFinite(updated)) inventory.put(material, updated);
     }
 
     void updatePosition(double dt, int mapW, int mapH) {
+        double width = Math.max(0, mapW);
+        double height = Math.max(0, mapH);
+        boolean corruptedPosition = !GameplayCommandNumbers.finite(x, y);
+        boolean corruptedTarget = !GameplayCommandNumbers.finite(targetX, targetY);
+
+        x = GameplayCommandNumbers.repairedCoordinate(x, targetX, width);
+        y = GameplayCommandNumbers.repairedCoordinate(y, targetY, height);
+        targetX = GameplayCommandNumbers.repairedCoordinate(targetX, x, width);
+        targetY = GameplayCommandNumbers.repairedCoordinate(targetY, y, height);
+
+        if (!Double.isFinite(heading)) heading = -Math.PI / 2;
+        if (!GameplayCommandNumbers.finite(miningAnchorX, miningAnchorY)) {
+            miningAnchorX = x;
+            miningAnchorY = y;
+            miningAnchorSet = false;
+        }
+        if (!GameplayCommandNumbers.finite(orderX1, orderY1, orderX2, orderY2, orderRadius)
+                || !GameplayCommandNumbers.orderRadius(orderRadius)
+                || orderPhase < 0 || orderPhase > 1) clearOrder();
+        if (corruptedPosition || corruptedTarget) {
+            targetX = x;
+            targetY = y;
+            task = UnitTask.IDLE;
+            automationResourceId = -1;
+            attackTarget = "";
+            clearOrder();
+        }
+        if (!Double.isFinite(dt) || dt <= 0) return;
+
         double dx = targetX - x;
         double dy = targetY - y;
         double dist = Math.hypot(dx, dy);
+        if (!Double.isFinite(dist)) {
+            targetX = x;
+            targetY = y;
+            task = UnitTask.IDLE;
+            clearOrder();
+            return;
+        }
         if (dist > 2) {
             heading = Math.atan2(dy, dx);
             double step = Math.min(dist, type().speed * dt);
             x += dx / dist * step;
             y += dy / dist * step;
         }
-        x = Calc.clamp(x, 0, mapW);
-        y = Calc.clamp(y, 0, mapH);
+        x = GameplayCommandNumbers.repairedCoordinate(x, targetX, width);
+        y = GameplayCommandNumbers.repairedCoordinate(y, targetY, height);
     }
 }
