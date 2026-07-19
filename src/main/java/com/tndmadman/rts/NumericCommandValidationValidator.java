@@ -10,10 +10,19 @@ public final class NumericCommandValidationValidator {
     private NumericCommandValidationValidator() { }
 
     public static void main(String[] args) throws Exception {
-        validateAuthenticatedCommands();
-        validateAuthoritativeRepair();
-        validateSerializationBoundaries();
-        System.out.println("StarChem numeric command validation passed.");
+        if (args.length == 0) {
+            validateAuthenticatedCommands();
+            validateAuthoritativeRepair();
+            validateSerializationBoundaries();
+        } else {
+            switch (args[0]) {
+                case "authenticated" -> validateAuthenticatedCommands();
+                case "repair" -> validateAuthoritativeRepair();
+                case "serialization" -> validateSerializationBoundaries();
+                default -> throw new IllegalArgumentException("Unknown validation stage: " + args[0]);
+            }
+        }
+        System.out.println("StarChem numeric command validation passed" + (args.length == 0 ? "." : ": " + args[0]));
     }
 
     private static void validateAuthenticatedCommands() throws Exception {
