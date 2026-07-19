@@ -6,6 +6,7 @@ import java.net.Socket;
 import java.util.List;
 import java.util.Set;
 
+/** Focused regression validation for graphical HOST identity bootstrap. */
 public final class LocalHostIdentityValidator {
     private LocalHostIdentityValidator() { }
 
