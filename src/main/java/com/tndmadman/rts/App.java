@@ -99,10 +99,12 @@ public final class App {
 
             System.out.println("Dedicated server ready.");
             System.out.println(activeServer.statusLine());
+            activeServer.attachConsole(ServerConsole.start(System.in, System.err));
+            System.out.println("Type 'help' for dedicated server commands.");
 
             long nextTick = System.nanoTime();
             long nextStatus = nextTick + SERVER_STATUS_NANOS;
-            while (running.get()) {
+            while (running.get() && activeServer.running()) {
                 if (Thread.currentThread().isInterrupted()) {
                     running.set(false);
                     break;
@@ -119,8 +121,13 @@ public final class App {
                     activeServer.tick(SERVER_TICK_SECONDS);
                     nextTick += SERVER_TICK_NANOS;
                     ticks++;
-                } while (running.get() && ticks < MAX_SERVER_CATCH_UP_TICKS && System.nanoTime() >= nextTick);
+                } while (running.get() && activeServer.running() && ticks < MAX_SERVER_CATCH_UP_TICKS
+                        && System.nanoTime() >= nextTick);
 
+                if (!activeServer.running()) {
+                    running.set(false);
+                    break;
+                }
                 now = System.nanoTime();
                 if (now >= nextTick) nextTick = now + SERVER_TICK_NANOS;
                 if (now >= nextStatus) {
