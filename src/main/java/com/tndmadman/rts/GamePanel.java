@@ -16,6 +16,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final GameServer server;
     private final GameClient client;
     private final Timer timer;
+    private final GameMenuOverlay gameMenu = new GameMenuOverlay();
+    private boolean gameMenuVisible = false;
     private final BuildMenu buildMenu = new BuildMenu();
     private final GameCamera camera = new GameCamera();
     private final MinimapHud minimapHud = new MinimapHud();
@@ -116,6 +118,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         if (world.devFreeBuild) shieldDebugOverlay.draw(g2, world, getWidth());
         if (devMode) { devMenu.draw(g2, world, canEditDev()); aiDevPanel.draw(g2, world, canEditDev()); }
         buildMenu.draw(g2);
+        if (gameMenuVisible) { gameMenu.draw((Graphics2D) g, getWidth(), getHeight()); }
         if (galaxyMapOpen) galaxyMapOverlay.draw(g2, world.galaxyMapSnapshot(), getWidth(), getHeight());
         if (devMode && perfOverlayVisible) {
             PerfSnapshot networkStats = network == null ? null : network.perfSnapshot();
@@ -170,6 +173,25 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private boolean isSelectionDrag() { return dragStart != null && dragNow != null && dragStart.distance(dragNow) >= SELECT_DRAG_PX; }
 
     @Override public void mousePressed(MouseEvent e) {
+        if (gameMenuVisible) {
+        switch (gameMenu.click(e.getX(), e.getY())) {
+            case RETURN -> {
+                gameMenuVisible = false;
+                }
+            case OPTIONS -> {
+                System.out.println("Options");
+                }
+            case MAIN_MENU -> {
+                gameMenuVisible = false; owner.showLobby("Returned to main menu.");
+                }
+            case QUIT -> {
+                System.exit(0);
+                }
+            default -> {}
+            }
+            repaint();
+            return;
+        }
         requestFocusInWindow();
         if (galaxyMapOpen) { clickGalaxyMap(e); return; }
         if (buildMenu.click(e.getX(), e.getY())) return;
@@ -413,7 +435,13 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
             camera.zoomAt(e.getPoint(), e.getWheelRotation(), world, getWidth(), getHeight());
         }
     }
-    @Override public void mouseMoved(MouseEvent e) { }
+    @Override public void mouseMoved(MouseEvent e) { 
+    if (gameMenuVisible) {
+    gameMenu.updateHover(e.getX(), e.getY());
+    repaint();
+    return;
+        } 
+    }
     @Override public void mouseClicked(MouseEvent e) { }
     @Override public void mouseEntered(MouseEvent e) { }
     @Override public void mouseExited(MouseEvent e) { }
@@ -423,6 +451,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         if (e.getKeyCode() == KeyEvent.VK_M) { toggleGalaxyMap(); return; }
         if (commandMode != UnitOrderType.NONE && e.getKeyCode() == KeyEvent.VK_ESCAPE) { clearCommandMode(); world.status = "Command mode cancelled."; repaint(); return; }
         if (galaxyMapOpen && e.getKeyCode() == KeyEvent.VK_ESCAPE) { closeGalaxyMap(); return; }
+        if (e.getKeyCode() == KeyEvent.VK_ESCAPE) { gameMenuVisible = !gameMenuVisible; repaint(); return; }
         if (galaxyMapOpen) return;
         if (devMode && e.getKeyCode() == KeyEvent.VK_F3) { AiDevSettings.overlay = !AiDevSettings.overlay; world.status = "AI debug overlay: " + (AiDevSettings.overlay ? "ON" : "OFF") + "."; repaint(); return; }
         if (devMode && e.getKeyCode() == KeyEvent.VK_F4) { perfOverlayVisible = !perfOverlayVisible; world.status = "Performance overlay: " + (perfOverlayVisible ? "ON" : "OFF") + "."; repaint(); return; }
