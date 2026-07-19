@@ -42,6 +42,7 @@ public final class NumericCommandValidationValidator {
             ConnectionId connectionId = transport.connectionId(loopback, socket.getLocalPort());
             String verifier = PasswordAuth.verifier("Numeric Client", "numeric-validation-password");
             server.join(connectionId, loopback, socket.getLocalPort(), "Numeric Client", verifier, false, "");
+            world.activateSystem(world.playerHomeSystemId("P1"));
 
             Unit unit = firstUnit(world, "P1");
             double originalTargetX = unit.targetX;
