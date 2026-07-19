@@ -38,6 +38,9 @@ jobs:
       - name: Verify project
         run: gradle clean check jar --no-daemon
 
+      - name: Validate numeric gameplay commands
+        run: java -cp build/classes/java/main com.tndmadman.rts.NumericCommandValidationValidator
+
       - name: Smoke-test Linux headless server
         shell: bash
         run: |
