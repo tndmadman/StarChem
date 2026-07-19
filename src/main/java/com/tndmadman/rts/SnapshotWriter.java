@@ -6,6 +6,7 @@ final class SnapshotWriter {
     private SnapshotWriter() { }
 
     static String write(Snapshot snapshot) {
+        SnapshotValidator.validate(snapshot);
         StringBuilder players = new StringBuilder();
         for (PlayerInfo player : snapshot.players()) {
             if (!players.isEmpty()) players.append(';');
