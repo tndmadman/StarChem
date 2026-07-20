@@ -54,10 +54,12 @@ public final class LeaderboardAggregationValidator {
 
         GlobalLeaderboard.forceNextAuthoritativeSend(fixture.world);
         List<LeaderboardEntry> forced = aggregate(fixture, 3_100);
-        require(GlobalLeaderboard.authoritativeAggregationCount(fixture.world) == 4,
-                "initial synchronization did not force a fresh authoritative scan");
+        require(GlobalLeaderboard.authoritativeAggregationCount(fixture.world) == 3,
+                "initial synchronization bypassed the leaderboard throttle");
+        require(forced == unchanged,
+                "initial synchronization replaced the cached leaderboard snapshot");
         require(GlobalLeaderboard.encode(forced) != null,
-                "initial synchronization did not force an unchanged payload to be sent");
+                "initial synchronization did not force the cached payload to be sent");
     }
 
     private static void validateAuthoritativeScoreChanges() {
