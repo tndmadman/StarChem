@@ -1,0 +1,391 @@
+name: Apply leaderboard cache fix
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/cache-leaderboard-aggregation'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out fix branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Apply leaderboard cache fix
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path_value: str, old: str, new: str) -> None:
+              path = Path(path_value)
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"Expected one match in {path_value}, found {count}: {old[:80]!r}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          peer_path = "src/main/java/com/tndmadman/rts/PeerServerSide.java"
+          replace_once(
+              peer_path,
+              "    private static final long SNAPSHOT_MS = 100;\n    private static final long GALAXY_MS = 1000;",
+              "    private static final long SNAPSHOT_MS = 100;\n"
+              "    private static final long LEADERBOARD_MS = 1000;\n"
+              "    private static final long GALAXY_MS = 1000;"
+          )
+          replace_once(
+              peer_path,
+              "    final PeerTransport transport;\n    final ClientViewCache views = new ClientViewCache();",
+              "    final PeerTransport transport;\n"
+              "    final ClientViewCache views = new ClientViewCache();\n"
+              "    private final AuthoritativeLeaderboardCache leaderboard =\n"
+              "            new AuthoritativeLeaderboardCache(LEADERBOARD_MS);"
+          )
+          replace_once(
+              peer_path,
+              "        if (now - lastGalaxy >= GALAXY_MS) { broadcastGalaxy(); lastGalaxy = now; }",
+              "        if (leaderboard.due(now)) broadcastLeaderboard(now);\n"
+              "        if (now - lastGalaxy >= GALAXY_MS) { broadcastGalaxy(); lastGalaxy = now; }"
+          )
+          replace_once(
+              peer_path,
+              "    private void broadcastNow(boolean fullResources) {\n"
+              "        sequence = PeerSyncBatch.send(world, views, PeerSyncTargets.array(peers.values()), sequence, fullResources, transport::send);\n"
+              "        broadcastLeaderboard();\n"
+              "    }",
+              "    private void broadcastNow(boolean fullResources) {\n"
+              "        sequence = PeerSyncBatch.send(world, views, PeerSyncTargets.array(peers.values()), sequence, fullResources, transport::send);\n"
+              "    }"
+          )
+          replace_once(
+              peer_path,
+              "    private void broadcastLeaderboard() {\n"
+              "        if (peers.isEmpty()) return;\n"
+              "        List<LeaderboardEntry> entries = GlobalLeaderboard.aggregate(world, allKnownSystems());\n"
+              "        GlobalLeaderboard.set(world, entries);\n"
+              "        String message = GlobalLeaderboard.encode(entries);\n"
+              "        for (ServerPeer peer : peers.values()) transport.send(message, peer.connectionId(), DeliveryClass.LEADERBOARD);\n"
+              "    }\n\n"
+              "    private void sendLeaderboard(ServerPeer peer) {\n"
+              "        if (peer == null) return;\n"
+              "        List<LeaderboardEntry> entries = GlobalLeaderboard.aggregate(world, allKnownSystems());\n"
+              "        GlobalLeaderboard.set(world, entries);\n"
+              "        transport.send(GlobalLeaderboard.encode(entries), peer.connectionId(), DeliveryClass.LEADERBOARD);\n"
+              "    }",
+              "    private void broadcastLeaderboard(long now) {\n"
+              "        if (peers.isEmpty()) return;\n"
+              "        boolean changed = leaderboard.refresh(now,\n"
+              "                () -> GlobalLeaderboard.aggregate(world, allKnownSystems()));\n"
+              "        if (!changed) return;\n"
+              "        GlobalLeaderboard.set(world, leaderboard.entries());\n"
+              "        String message = leaderboard.message();\n"
+              "        for (ServerPeer peer : peers.values()) {\n"
+              "            transport.send(message, peer.connectionId(), DeliveryClass.LEADERBOARD);\n"
+              "        }\n"
+              "    }\n\n"
+              "    private void sendLeaderboard(ServerPeer peer) {\n"
+              "        if (peer == null) return;\n"
+              "        leaderboard.refreshNow(System.currentTimeMillis(),\n"
+              "                () -> GlobalLeaderboard.aggregate(world, allKnownSystems()));\n"
+              "        GlobalLeaderboard.set(world, leaderboard.entries());\n"
+              "        transport.send(leaderboard.message(), peer.connectionId(), DeliveryClass.LEADERBOARD);\n"
+              "    }"
+          )
+
+          Path("src/main/java/com/tndmadman/rts/AuthoritativeLeaderboardCache.java").write_text(r'''package com.tndmadman.rts;
+
+import java.util.List;
+import java.util.function.Supplier;
+
+final class AuthoritativeLeaderboardCache {
+    static final long DEFAULT_REFRESH_MS = 1_000;
+
+    private final long refreshMs;
+    private List<LeaderboardEntry> entries = List.of();
+    private String message = "LEADER|";
+    private long lastRefresh;
+    private long aggregationCount;
+    private boolean initialized;
+
+    AuthoritativeLeaderboardCache() {
+        this(DEFAULT_REFRESH_MS);
+    }
+
+    AuthoritativeLeaderboardCache(long refreshMs) {
+        this.refreshMs = Math.max(1, refreshMs);
+    }
+
+    boolean due(long now) {
+        return !initialized || now < lastRefresh || now - lastRefresh >= refreshMs;
+    }
+
+    boolean refresh(long now, Supplier<List<LeaderboardEntry>> aggregator) {
+        return refresh(now, aggregator, false);
+    }
+
+    boolean refreshNow(long now, Supplier<List<LeaderboardEntry>> aggregator) {
+        return refresh(now, aggregator, true);
+    }
+
+    private boolean refresh(long now, Supplier<List<LeaderboardEntry>> aggregator, boolean force) {
+        if (!force && !due(now)) return false;
+        List<LeaderboardEntry> aggregated = aggregator == null ? List.of() : aggregator.get();
+        aggregationCount++;
+        lastRefresh = now;
+        List<LeaderboardEntry> next = aggregated == null ? List.of() : List.copyOf(aggregated);
+        if (initialized && entries.equals(next)) return false;
+        entries = next;
+        message = GlobalLeaderboard.encode(next);
+        initialized = true;
+        return true;
+    }
+
+    List<LeaderboardEntry> entries() {
+        return entries;
+    }
+
+    String message() {
+        return message;
+    }
+
+    long aggregationCount() {
+        return aggregationCount;
+    }
+}
+''', encoding="utf-8")
+
+          Path("src/main/java/com/tndmadman/rts/LeaderboardAggregationValidator.java").write_text(r'''package com.tndmadman.rts;
+
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+
+public final class LeaderboardAggregationValidator {
+    private LeaderboardAggregationValidator() { }
+
+    public static void main(String[] args) {
+        validateOrThrow();
+        System.out.println("StarChem leaderboard aggregation validation passed.");
+    }
+
+    static void validateOrThrow() {
+        validateCacheThrottleAndChangeSuppression();
+        validateWorldAggregationChangesAndSystemRestoration();
+    }
+
+    private static void validateCacheThrottleAndChangeSuppression() {
+        AuthoritativeLeaderboardCache cache = new AuthoritativeLeaderboardCache(1_000);
+        AtomicInteger calls = new AtomicInteger();
+        List<LeaderboardEntry> first = List.of(new LeaderboardEntry("P1", 1, 1, 2_100));
+        List<LeaderboardEntry> changed = List.of(new LeaderboardEntry("P1", 2, 1, 2_300));
+
+        require(cache.refresh(1_000, () -> supplied(calls, first)),
+                "initial leaderboard refresh was not published");
+        require(calls.get() == 1 && cache.aggregationCount() == 1,
+                "initial leaderboard aggregation count was incorrect");
+        String firstMessage = cache.message();
+
+        require(!cache.refresh(1_500, () -> supplied(calls, changed)),
+                "leaderboard refreshed before the throttle interval elapsed");
+        require(calls.get() == 1,
+                "throttled leaderboard refresh still invoked aggregation");
+
+        require(!cache.refresh(2_000, () -> supplied(calls, first)),
+                "unchanged leaderboard was reported as changed");
+        require(calls.get() == 2 && cache.message() == firstMessage,
+                "unchanged leaderboard was re-encoded");
+
+        require(cache.refresh(3_000, () -> supplied(calls, changed)),
+                "changed leaderboard was not published");
+        require(calls.get() == 3 && !cache.message().equals(firstMessage),
+                "changed leaderboard retained its old payload");
+        String changedMessage = cache.message();
+
+        require(!cache.refreshNow(3_100, () -> supplied(calls, changed)),
+                "forced initial synchronization marked unchanged data as changed");
+        require(calls.get() == 4 && cache.message() == changedMessage,
+                "forced unchanged synchronization re-encoded its payload");
+
+        List<LeaderboardEntry> forcedChange = List.of(new LeaderboardEntry("P2", 1, 0, 500));
+        require(cache.refreshNow(3_200, () -> supplied(calls, forcedChange)),
+                "forced initial synchronization did not refresh changed data");
+        require(calls.get() == 5 && cache.entries().equals(forcedChange),
+                "forced synchronization did not retain the new authoritative entries");
+    }
+
+    private static List<LeaderboardEntry> supplied(AtomicInteger calls, List<LeaderboardEntry> entries) {
+        calls.incrementAndGet();
+        return entries;
+    }
+
+    private static void validateWorldAggregationChangesAndSystemRestoration() {
+        PlayerRegistry.reset("WAIT", "Leaderboard Validator", 0x50BEFF);
+        World world = new World("Leaderboard Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        String firstSystem = world.activeSystemId();
+        String secondSystem = world.authoritativeGalaxyMapSnapshot().systems().stream()
+                .map(GalaxyMapSystem::id)
+                .filter(id -> id != null && !id.isBlank() && !id.equals(firstSystem))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("validator requires at least two galaxy systems"));
+
+        world.activateSystem(firstSystem);
+        Unit p1Unit = new Unit("P1", 1, Rules.STARTING_SHIP, 100, 100);
+        Base p1Base = new Base("P1:B1", "P1", Rules.DEFAULT_BASE, 200, 200);
+        world.units.put(p1Unit.key(), p1Unit);
+        world.bases.put(p1Base.id, p1Base);
+        world.saveActiveSystem();
+
+        world.activateSystem(secondSystem);
+        Unit p2Unit = new Unit("P2", 1, Rules.STARTING_SHIP, 300, 300);
+        world.units.put(p2Unit.key(), p2Unit);
+        world.saveActiveSystem();
+
+        world.activateSystem(firstSystem);
+        List<LeaderboardEntry> entries = aggregate(world, firstSystem, secondSystem);
+        require(firstSystem.equals(world.activeSystemId()),
+                "leaderboard aggregation did not restore the active system");
+        requireEntry(entries, "P1", 1, 1, score(p1Unit.hp, p1Base.hp, 1, 1),
+                "initial P1 aggregation");
+        requireEntry(entries, "P2", 1, 0, score(p2Unit.hp, 0, 1, 0),
+                "initial P2 aggregation");
+
+        world.activateSystem(firstSystem);
+        p1Unit.hp -= 75;
+        p1Base.hp -= 125;
+        world.saveActiveSystem();
+        entries = aggregate(world, firstSystem, secondSystem);
+        requireEntry(entries, "P1", 1, 1, score(p1Unit.hp, p1Base.hp, 1, 1),
+                "damage update");
+
+        p1Unit.hp = p1Unit.type().maxHp;
+        p1Base.hp = p1Base.type().maxHp;
+        world.saveActiveSystem();
+        entries = aggregate(world, firstSystem, secondSystem);
+        requireEntry(entries, "P1", 1, 1, score(p1Unit.hp, p1Base.hp, 1, 1),
+                "healing update");
+
+        p1Unit.hp = 0;
+        p1Base.hp = 0;
+        world.saveActiveSystem();
+        entries = aggregate(world, firstSystem, secondSystem);
+        require(find(entries, "P1") == null,
+                "destroyed P1 assets remained on the leaderboard");
+
+        world.units.remove(p1Unit.key());
+        world.bases.remove(p1Base.id);
+        Unit p3Unit = new Unit("P3", 1, Rules.STARTING_SHIP, 400, 400);
+        Base p3Base = new Base("P3:B1", "P3", Rules.DEFAULT_BASE, 500, 500);
+        world.units.put(p3Unit.key(), p3Unit);
+        world.bases.put(p3Base.id, p3Base);
+        world.saveActiveSystem();
+        entries = aggregate(world, firstSystem, secondSystem);
+        require(find(entries, "P1") == null,
+                "reassigned assets remained attributed to the previous owner");
+        requireEntry(entries, "P3", 1, 1, score(p3Unit.hp, p3Base.hp, 1, 1),
+                "ownership update");
+
+        world.activateSystem(secondSystem);
+        Unit transferred = world.units.remove(p2Unit.key());
+        require(transferred != null, "transfer source unit was missing");
+        world.saveActiveSystem();
+        world.activateSystem(firstSystem);
+        world.units.put(transferred.key(), transferred);
+        world.saveActiveSystem();
+        entries = aggregate(world, firstSystem, secondSystem);
+        requireEntry(entries, "P2", 1, 0, score(transferred.hp, 0, 1, 0),
+                "system transfer update");
+        require(firstSystem.equals(world.activeSystemId()),
+                "aggregation after system transfer did not restore the active system");
+    }
+
+    private static List<LeaderboardEntry> aggregate(World world, String firstSystem, String secondSystem) {
+        return GlobalLeaderboard.aggregate(world, new String[]{firstSystem, secondSystem});
+    }
+
+    private static int score(double unitHp, double baseHp, int units, int bases) {
+        return (int)Math.round(unitHp + baseHp + bases * 1_000.0 + units * 100.0);
+    }
+
+    private static void requireEntry(List<LeaderboardEntry> entries, String playerId, int units, int bases,
+                                     int score, String context) {
+        LeaderboardEntry entry = find(entries, playerId);
+        require(entry != null, context + ": missing player " + playerId);
+        require(entry.units() == units, context + ": incorrect unit count");
+        require(entry.bases() == bases, context + ": incorrect base count");
+        require(entry.score() == score, context + ": incorrect score");
+    }
+
+    private static LeaderboardEntry find(List<LeaderboardEntry> entries, String playerId) {
+        for (LeaderboardEntry entry : entries) {
+            if (entry != null && playerId.equals(entry.playerId())) return entry;
+        }
+        return null;
+    }
+
+    private static void require(boolean condition, String message) {
+        if (!condition) throw new IllegalStateException(message);
+    }
+}
+''', encoding="utf-8")
+
+          build_path = "build.gradle"
+          replace_once(
+              build_path,
+              "tasks.register('validateDevSimulationState', JavaExec) {\n"
+              "    group = 'verification'\n"
+              "    description = 'Validate world-scoped developer simulation state and lifecycle reset behavior.'\n"
+              "    dependsOn tasks.named('classes')\n"
+              "    classpath = sourceSets.main.runtimeClasspath\n"
+              "    mainClass = 'com.tndmadman.rts.DevSimulationStateValidator'\n"
+              "}",
+              "tasks.register('validateDevSimulationState', JavaExec) {\n"
+              "    group = 'verification'\n"
+              "    description = 'Validate world-scoped developer simulation state and lifecycle reset behavior.'\n"
+              "    dependsOn tasks.named('classes')\n"
+              "    classpath = sourceSets.main.runtimeClasspath\n"
+              "    mainClass = 'com.tndmadman.rts.DevSimulationStateValidator'\n"
+              "}\n\n"
+              "tasks.register('validateLeaderboardAggregation', JavaExec) {\n"
+              "    group = 'verification'\n"
+              "    description = 'Validate throttled authoritative leaderboard aggregation and update suppression.'\n"
+              "    dependsOn tasks.named('classes')\n"
+              "    classpath = sourceSets.main.runtimeClasspath\n"
+              "    mainClass = 'com.tndmadman.rts.LeaderboardAggregationValidator'\n"
+              "}"
+          )
+          replace_once(
+              build_path,
+              "    dependsOn tasks.named('validateDevSimulationState')\n    dependsOn tasks.named('validateNpcSystemIsolation')",
+              "    dependsOn tasks.named('validateDevSimulationState')\n"
+              "    dependsOn tasks.named('validateLeaderboardAggregation')\n"
+              "    dependsOn tasks.named('validateNpcSystemIsolation')"
+          )
+
+          workflow = Path(".github/workflows/apply-leaderboard-fix.yml")
+          if workflow.exists():
+              workflow.unlink()
+          PY
+
+      - name: Verify full Gradle check
+        shell: bash
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon check
+
+      - name: Commit verified fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Cache authoritative leaderboard aggregation"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
