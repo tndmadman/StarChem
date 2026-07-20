@@ -15,11 +15,11 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Capture compile and validation output
+      - name: Capture compile output
         shell: bash
         run: |
           set +e
-          gradle clean check --stacktrace > auth-diagnostic.log 2>&1
+          gradle clean compileJava --stacktrace > auth-diagnostic.log 2>&1
           status=$?
           echo "$status" > auth-diagnostic.status
           exit 0
