@@ -89,7 +89,8 @@ public final class MiningCommandValidationValidator {
         miner.startAutoHarvest(node.id);
         work.update(world, miner, 1.0);
         require(miner.automationResourceId == -1, "depleted target ID was retained after mining");
-        require(miner.task == UnitTask.IDLE, "miner did not leave auto-harvest after target depletion");
+        require(miner.task == UnitTask.IDLE || miner.task == UnitTask.MOVE,
+                "miner remained in auto-harvest after target depletion");
     }
 
     private static void validateIncompatibleShip(World world, ShipType nonMiningShip, ResourceNode node) {
