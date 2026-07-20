@@ -11,6 +11,7 @@ public final class DedicatedTcpServerValidator {
     public static void main(String[] args) throws Exception {
         System.setProperty("java.awt.headless", "true");
         ServerConsoleValidator.validate();
+        ServerEventJournalRolloverValidator.validate();
         try (TcpIntegrationHarness harness = TcpIntegrationHarness.dedicated()) {
             TcpIntegrationHarness.require(harness.serverConfig.hostMode, "dedicated config did not enter host mode");
             TcpIntegrationHarness.require(harness.serverConfig.dedicatedServerMode(), "dedicated config lost its dedicated flag");
