@@ -19,7 +19,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          ./gradlew clean check --stacktrace > auth-diagnostic.log 2>&1
+          gradle clean check --stacktrace > auth-diagnostic.log 2>&1
           status=$?
           echo "$status" > auth-diagnostic.status
           exit 0
