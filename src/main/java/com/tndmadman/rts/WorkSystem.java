@@ -7,15 +7,17 @@ final class WorkSystem {
         if (node == null || !node.active) {
             ResourceNetDebug.workState(world, unit, node, node == null ? "target-missing" : "target-inactive");
             if (unit.freeCargo() <= 0.05) {
+                unit.automationResourceId = -1;
                 world.sendToNearestBase(unit);
                 return;
             }
             if (world.scoutRetarget(unit, node)) return;
-            if (!world.returnToMiningAnchor(unit)) unit.task = UnitTask.IDLE;
+            abandonTarget(world, unit);
             return;
         }
         ShipType type = unit.type();
         if (!type.harvestKinds.contains(node.kind)) {
+            unit.automationResourceId = -1;
             unit.task = UnitTask.IDLE;
             return;
         }
@@ -42,15 +44,21 @@ final class WorkSystem {
             ResourceSync.mark(world, node);
             SystemAudio.playResourceDepleted(world, node.material);
             if (unit.freeCargo() <= 0.05) {
+                unit.automationResourceId = -1;
                 world.status = node.name + " depleted. Cargo full, returning to unload.";
                 world.sendToNearestBase(unit);
                 return;
             }
             if (world.scoutRetarget(unit, node)) return;
             world.status = node.name + " depleted. Waiting at assigned mining area for another deposit.";
-            if (!world.returnToMiningAnchor(unit)) unit.task = UnitTask.IDLE;
+            abandonTarget(world, unit);
             return;
         }
         world.orbitAround(unit, node.x, node.y, node.radius + type.orbitRadius, dt, 0.7);
+    }
+
+    private void abandonTarget(World world, Unit unit) {
+        unit.automationResourceId = -1;
+        if (!world.returnToMiningAnchor(unit)) unit.task = UnitTask.IDLE;
     }
 }
