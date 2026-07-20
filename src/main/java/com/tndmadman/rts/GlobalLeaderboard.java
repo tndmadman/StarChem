@@ -1,29 +1,59 @@
 package com.tndmadman.rts;
 
+import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.RandomAccess;
 import java.util.WeakHashMap;
 
 record LeaderboardEntry(String playerId, int units, int bases, int score) { }
 
 final class GlobalLeaderboard {
+    static final long AUTHORITATIVE_REFRESH_MS = 1_000;
+
     private static final Map<World, List<LeaderboardEntry>> BY_WORLD = new WeakHashMap<>();
+    private static final Map<World, AuthoritativeState> AUTHORITATIVE_BY_WORLD = new WeakHashMap<>();
 
     private GlobalLeaderboard() { }
 
     static synchronized void set(World world, List<LeaderboardEntry> entries) {
-        BY_WORLD.put(world, entries == null ? List.of() : List.copyOf(entries));
+        if (world == null) return;
+        List<LeaderboardEntry> safe = entries instanceof AuthoritativeEntries
+                ? entries
+                : entries == null ? List.of() : List.copyOf(entries);
+        BY_WORLD.put(world, safe);
     }
 
     static synchronized List<LeaderboardEntry> get(World world) {
         return BY_WORLD.getOrDefault(world, List.of());
     }
 
+    static synchronized void forceNextAuthoritativeSend(World world) {
+        if (world == null) return;
+        AuthoritativeState state = AUTHORITATIVE_BY_WORLD.computeIfAbsent(world, ignored -> new AuthoritativeState());
+        state.forceRefresh = true;
+        state.forceSend = true;
+    }
+
     static String encode(List<LeaderboardEntry> entries) {
+        if (entries instanceof AuthoritativeEntries authoritative) {
+            synchronized (GlobalLeaderboard.class) {
+                AuthoritativeState state = authoritative.state;
+                if (state.entries != authoritative || !state.forceSend && !state.pendingSend) return null;
+                state.forceSend = false;
+                state.pendingSend = false;
+                return state.message;
+            }
+        }
+        return encodeRaw(entries);
+    }
+
+    private static String encodeRaw(List<LeaderboardEntry> entries) {
         StringBuilder out = new StringBuilder("LEADER|");
         boolean first = true;
+        if (entries == null) return out.toString();
         for (LeaderboardEntry entry : entries) {
             if (entry == null || entry.playerId() == null || entry.playerId().isBlank()) continue;
             if (!first) out.append(';');
@@ -52,23 +82,57 @@ final class GlobalLeaderboard {
     }
 
     static List<LeaderboardEntry> aggregate(World world, String[] systemIds) {
+        return aggregate(world, systemIds, System.currentTimeMillis());
+    }
+
+    static List<LeaderboardEntry> aggregate(World world, String[] systemIds, long now) {
+        if (world == null) return List.of();
+        AuthoritativeState state;
+        synchronized (GlobalLeaderboard.class) {
+            state = AUTHORITATIVE_BY_WORLD.computeIfAbsent(world, ignored -> new AuthoritativeState());
+            if (!state.due(now)) return state.entries;
+        }
+
+        List<LeaderboardEntry> next = scan(world, systemIds);
+        synchronized (GlobalLeaderboard.class) {
+            state.aggregationCount++;
+            state.lastRefresh = now;
+            state.forceRefresh = false;
+            if (!state.initialized || !state.entries.equals(next)) {
+                state.entries = new AuthoritativeEntries(next, state);
+                state.message = encodeRaw(state.entries);
+                state.pendingSend = true;
+            }
+            state.initialized = true;
+            return state.entries;
+        }
+    }
+
+    static synchronized long authoritativeAggregationCount(World world) {
+        AuthoritativeState state = AUTHORITATIVE_BY_WORLD.get(world);
+        return state == null ? 0 : state.aggregationCount;
+    }
+
+    private static List<LeaderboardEntry> scan(World world, String[] systemIds) {
         Map<String, MutableEntry> totals = new LinkedHashMap<>();
         String previous = world.activeSystemId();
         try {
-            for (String systemId : systemIds) {
-                if (systemId == null || systemId.isBlank()) continue;
-                world.activateSystem(systemId);
-                for (Unit unit : world.units.values()) {
-                    if (unit.hp <= 0 || NpcRules.isNpcFaction(unit.playerId)) continue;
-                    MutableEntry entry = totals.computeIfAbsent(unit.playerId, ignored -> new MutableEntry());
-                    entry.units++;
-                    entry.hp += unit.hp;
-                }
-                for (Base base : world.bases.values()) {
-                    if (base.hp <= 0 || NpcRules.isNpcFaction(base.playerId)) continue;
-                    MutableEntry entry = totals.computeIfAbsent(base.playerId, ignored -> new MutableEntry());
-                    entry.bases++;
-                    entry.hp += base.hp;
+            if (systemIds != null) {
+                for (String systemId : systemIds) {
+                    if (systemId == null || systemId.isBlank()) continue;
+                    world.activateSystem(systemId);
+                    for (Unit unit : world.units.values()) {
+                        if (unit.hp <= 0 || NpcRules.isNpcFaction(unit.playerId)) continue;
+                        MutableEntry entry = totals.computeIfAbsent(unit.playerId, ignored -> new MutableEntry());
+                        entry.units++;
+                        entry.hp += unit.hp;
+                    }
+                    for (Base base : world.bases.values()) {
+                        if (base.hp <= 0 || NpcRules.isNpcFaction(base.playerId)) continue;
+                        MutableEntry entry = totals.computeIfAbsent(base.playerId, ignored -> new MutableEntry());
+                        entry.bases++;
+                        entry.hp += base.hp;
+                    }
                 }
             }
         } finally {
@@ -80,10 +144,47 @@ final class GlobalLeaderboard {
             int score = (int)Math.round(entry.hp + entry.bases * 1000.0 + entry.units * 100.0);
             out.add(new LeaderboardEntry(row.getKey(), entry.units, entry.bases, score));
         }
-        return out;
+        return List.copyOf(out);
     }
 
-    private static String clean(String value) { return value.replace("|", "").replace(";", "").replace(",", "").trim(); }
+    private static String clean(String value) {
+        return value.replace("|", "").replace(";", "").replace(",", "").trim();
+    }
+
+    private static final class AuthoritativeState {
+        AuthoritativeEntries entries = new AuthoritativeEntries(List.of(), this);
+        String message = "LEADER|";
+        long lastRefresh;
+        long aggregationCount;
+        boolean initialized;
+        boolean pendingSend;
+        boolean forceRefresh;
+        boolean forceSend;
+
+        boolean due(long now) {
+            return !initialized || forceRefresh || now < lastRefresh || now - lastRefresh >= AUTHORITATIVE_REFRESH_MS;
+        }
+    }
+
+    private static final class AuthoritativeEntries extends AbstractList<LeaderboardEntry> implements RandomAccess {
+        private final List<LeaderboardEntry> values;
+        private final AuthoritativeState state;
+
+        AuthoritativeEntries(List<LeaderboardEntry> values, AuthoritativeState state) {
+            this.values = values == null ? List.of() : List.copyOf(values);
+            this.state = state;
+        }
+
+        @Override
+        public LeaderboardEntry get(int index) {
+            return values.get(index);
+        }
+
+        @Override
+        public int size() {
+            return values.size();
+        }
+    }
 
     private static final class MutableEntry {
         int units;
