@@ -6,15 +6,15 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Deque;
-import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.WeakHashMap;
 
 final class GameNoticeCenter {
     private static final int MAX_PENDING_PER_PLAYER = 64;
     private static final long DUPLICATE_WINDOW_MS = 4_000;
-    private static final Map<World, State> STATES = new IdentityHashMap<>();
+    private static final Map<World, State> STATES = new WeakHashMap<>();
 
     private GameNoticeCenter() { }
 
@@ -25,11 +25,11 @@ final class GameNoticeCenter {
         NoticeCategory safeCategory = category == null ? NoticeCategory.SYSTEM : category;
         State state = STATES.computeIfAbsent(world, ignored -> new State());
         long now = System.currentTimeMillis();
+        pruneDuplicateState(state, now);
         String duplicateKey = playerId + "|" + safeCategory + "|" + cleanText;
         Long last = state.lastPublished.get(duplicateKey);
         if (last != null && now - last < DUPLICATE_WINDOW_MS) return;
         state.lastPublished.put(duplicateKey, now);
-        state.lastPublished.entrySet().removeIf(entry -> now - entry.getValue() > 60_000);
 
         GameNotice notice = new GameNotice(state.nextId++, safeCategory, cleanText, narrate);
         if (PlayerRegistry.isLocal(playerId) && !GraphicsEnvironment.isHeadless()) {
@@ -45,12 +45,30 @@ final class GameNoticeCenter {
     static synchronized List<GameNotice> drain(World world, String playerId) {
         State state = STATES.get(world);
         if (state == null || playerId == null || playerId.isBlank()) return List.of();
+        long now = System.currentTimeMillis();
+        pruneDuplicateState(state, now);
         Deque<GameNotice> queue = state.pending.get(playerId);
-        if (queue == null || queue.isEmpty()) return List.of();
+        if (queue == null || queue.isEmpty()) {
+            removeIfEmpty(world, state);
+            return List.of();
+        }
         List<GameNotice> out = new ArrayList<>(queue);
         queue.clear();
         state.pending.remove(playerId);
+        removeIfEmpty(world, state);
         return List.copyOf(out);
+    }
+
+    static synchronized void clear(World world) {
+        if (world != null) STATES.remove(world);
+    }
+
+    static synchronized boolean containsWorldForTest(World world) {
+        return world != null && STATES.containsKey(world);
+    }
+
+    static synchronized boolean usesWeakKeysForTest() {
+        return STATES instanceof WeakHashMap;
     }
 
     static boolean acceptRemote(World world, String packet) {
@@ -63,6 +81,14 @@ final class GameNoticeCenter {
     private static void deliverLocal(World world, GameNotice notice) {
         AlertCenter.push(world, notice.text());
         if (notice.narrate()) NarrationService.speak(notice.text());
+    }
+
+    private static void pruneDuplicateState(State state, long now) {
+        state.lastPublished.entrySet().removeIf(entry -> now - entry.getValue() >= DUPLICATE_WINDOW_MS);
+    }
+
+    private static void removeIfEmpty(World world, State state) {
+        if (state.pending.isEmpty() && state.lastPublished.isEmpty()) STATES.remove(world);
     }
 
     private static String cleanText(String text) {

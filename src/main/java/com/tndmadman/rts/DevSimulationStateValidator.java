@@ -16,6 +16,7 @@ public final class DevSimulationStateValidator {
     }
 
     static void validateOrThrow() throws Exception {
+        NotificationRegistryValidator.validateOrThrow();
         validateWorldIsolationAndCentralReset();
         validateSoloShutdownPath();
         validateHostAndJoinShutdownPaths();

@@ -181,7 +181,7 @@ final class GameFrame extends JFrame {
     private void stopActiveGame() {
         World stoppingWorld = activeWorld;
         if (gamePanel != null) gamePanel.stop();
-        if (stoppingWorld != null) AudioEventCenter.discard(stoppingWorld);
+        WorldRuntimeCleanup.discard(stoppingWorld);
         if (resourceCatalogOverlay != null) resourceCatalogOverlay.setVisible(false);
         if (codexOverlay != null) codexOverlay.close();
         if (narrationSettingsOverlay != null) narrationSettingsOverlay.close();
