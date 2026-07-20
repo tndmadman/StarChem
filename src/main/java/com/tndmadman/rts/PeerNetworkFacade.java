@@ -533,7 +533,8 @@ final class PeerNetwork implements CommandSink {
     }
 
     private void recordAdmission(String message, ConnectionId connectionId) {
-        if (!admissionMessage(message) || connectionId == null || !connectionId.valid() || !admissionRecorded.add(connectionId)) return;
+        if (!admissionMessage(message) || connectionId == null || !connectionId.valid()
+                || admissionRecorded.contains(connectionId)) return;
         String playerId = server.ownerId(connectionId, "");
         if (playerId.isBlank()) return;
         PersistentPlayerSession session = sessionById(playerId);
@@ -549,6 +550,7 @@ final class PeerNetwork implements CommandSink {
             server.applyDevFreeCrafting(playerId, runtimeFreeBuild.contains(playerId));
         }
         journal.add(joinMessage(message) ? "JOIN" : "RECONNECT", playerId, "accepted");
+        admissionRecorded.add(connectionId);
     }
 
     private void captureDevice(String message, ConnectionId connectionId) {
