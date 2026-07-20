@@ -95,6 +95,7 @@ final class PeerNetwork implements CommandSink {
             client = new PeerClientSide(config, world, transport);
         }
         PeerNetwork network = new PeerNetwork(config, transport, server, client, perfStats, accessPolicy);
+        if (server != null) server.setAdmissionGate(network::joinAdmissionDenial);
         network.refreshModerationRetention();
         transport.start();
         return network;
@@ -476,44 +477,72 @@ final class PeerNetwork implements CommandSink {
         ConnectionId connectionId = packet.connectionId();
         String[] parts = message.split("\\|", -1);
         boolean join = joinMessage(message);
-        String requestedName = join && parts.length > 1 ? Config.clean(parts[1]) : "";
-        String requestedPlayerId = !join && parts.length > 1 ? parts[1].trim() : "";
-        PersistentPlayerSession existing = join ? sessionByName(requestedName) : sessionById(requestedPlayerId);
-        String playerId = existing == null ? requestedPlayerId : existing.playerId();
-        String playerName = existing == null ? requestedName : existing.name();
         String deviceId = deviceByConnection.getOrDefault(connectionId, deviceMarker(parts));
         long now = System.currentTimeMillis();
 
+        if (join) {
+            ModerationEntry sourceBlock = serverModeration().blocked("", "", packet.address(), deviceId, now);
+            if (sourceBlock == null) return false;
+            String reason = moderationReason(sourceBlock, now);
+            rejectIdentity(true, connectionId, reason);
+            String source = packet.address() == null ? "source" : packet.address().getHostAddress();
+            journal.add("ADMISSION_DENIED", source, sourceBlock.kind().name().toLowerCase(Locale.ROOT));
+            return true;
+        }
+
+        String requestedPlayerId = parts.length > 1 ? parts[1].trim() : "";
+        PersistentPlayerSession existing = sessionById(requestedPlayerId);
+        String playerId = existing == null ? requestedPlayerId : existing.playerId();
+        String playerName = existing == null ? "" : existing.name();
         ModerationEntry blocked = serverModeration().blocked(playerId, playerName, packet.address(), deviceId, now);
         if (blocked != null) {
-            String reason = blocked.kind() == ModerationKind.KICK ? "Temporarily kicked" : "Banned";
-            if (!blocked.reason().isBlank()) reason += ": " + blocked.reason();
-            reason += " (" + ServerModeration.duration(blocked.expiresAt(), now) + ")";
-            rejectIdentity(join, connectionId, reason);
+            rejectIdentity(false, connectionId, moderationReason(blocked, now));
             if (!playerId.isBlank()) PeerServerAdminBridge.retain(server, playerId);
-            journal.add("ADMISSION_DENIED", playerId.isBlank() ? playerName : playerId,
+            journal.add("ADMISSION_DENIED", playerId.isBlank() ? requestedPlayerId : playerId,
                     blocked.kind().name().toLowerCase(Locale.ROOT));
             return true;
         }
 
-        ServerModerationState state = serverModeration();
-        if (!state.whitelisted(playerId, playerName)) {
-            rejectIdentity(join, connectionId, "Server whitelist does not include this identity.");
-            journal.add("ADMISSION_DENIED", playerId.isBlank() ? playerName : playerId, "whitelist");
+        if (!serverModeration().whitelisted(playerId, playerName)) {
+            rejectIdentity(false, connectionId, "Server whitelist does not include this identity.");
+            journal.add("ADMISSION_DENIED", playerId.isBlank() ? requestedPlayerId : playerId, "whitelist");
             return true;
         }
+        return false;
+    }
 
-        boolean newIdentity = join && existing == null;
-        ServerAccessPolicy policy = accessPolicy == null ? ServerAccessPolicy.open() : accessPolicy;
-        String reason = "";
-        if (newIdentity && policy.maintenance()) reason = policy.maintenanceMessage();
-        else if (newIdentity && policy.maxSlots() > 0 && server.persistentSessions().size() >= policy.maxSlots()) {
-            reason = "Server player slots are full (" + policy.maxSlots() + ").";
+    private String joinAdmissionDenial(ConnectionId connectionId, String playerId, String playerName,
+                                       InetAddress address, boolean newIdentity, long now) {
+        String deviceId = deviceByConnection.getOrDefault(connectionId, "");
+        ModerationEntry blocked = serverModeration().blocked(playerId, playerName, address, deviceId, now);
+        if (blocked != null) {
+            if (!playerId.isBlank()) PeerServerAdminBridge.retain(server, playerId);
+            journal.add("ADMISSION_DENIED", playerId.isBlank() ? playerName : playerId,
+                    blocked.kind().name().toLowerCase(Locale.ROOT));
+            return moderationReason(blocked, now);
         }
-        if (reason.isBlank()) return false;
-        rejectIdentity(true, connectionId, reason);
-        journal.add("ADMISSION_DENIED", playerName, policy.maintenance() ? "maintenance" : "slots");
-        return true;
+
+        if (!serverModeration().whitelisted(playerId, playerName)) {
+            journal.add("ADMISSION_DENIED", playerId.isBlank() ? playerName : playerId, "whitelist");
+            return "Server whitelist does not include this identity.";
+        }
+
+        ServerAccessPolicy policy = accessPolicy == null ? ServerAccessPolicy.open() : accessPolicy;
+        if (newIdentity && policy.maintenance()) {
+            journal.add("ADMISSION_DENIED", playerName, "maintenance");
+            return policy.maintenanceMessage();
+        }
+        if (newIdentity && policy.maxSlots() > 0 && server.persistentSessions().size() >= policy.maxSlots()) {
+            journal.add("ADMISSION_DENIED", playerName, "slots");
+            return "Server player slots are full (" + policy.maxSlots() + ").";
+        }
+        return "";
+    }
+
+    private String moderationReason(ModerationEntry blocked, long now) {
+        String reason = blocked.kind() == ModerationKind.KICK ? "Temporarily kicked" : "Banned";
+        if (!blocked.reason().isBlank()) reason += ": " + blocked.reason();
+        return reason + " (" + ServerModeration.duration(blocked.expiresAt(), now) + ")";
     }
 
     private void rejectIdentity(boolean join, ConnectionId connectionId, String reason) {
