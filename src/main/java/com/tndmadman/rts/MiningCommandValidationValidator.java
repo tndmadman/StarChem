@@ -70,6 +70,7 @@ public final class MiningCommandValidationValidator {
         require(miner.task == UnitTask.RETURN_TO_STATION,
                 "full miner with a missing target did not return to its station");
 
+        world.resources.removeIf(candidate -> candidate != node);
         reset(miner);
         boolean active = node.active;
         node.active = false;
@@ -79,7 +80,6 @@ public final class MiningCommandValidationValidator {
         node.active = active;
 
         reset(miner);
-        world.resources.removeIf(candidate -> candidate != node);
         node.active = true;
         node.amount = Math.min(0.01, node.maxAmount);
         miner.x = node.x;
