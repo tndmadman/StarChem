@@ -31,10 +31,12 @@ final class LocalHostSession {
         PersistentPlayerSession reservedHost = processHostSession(hostConfig.playerName, processVerifier);
         PeerNetwork serverNetwork = null;
         PeerNetwork clientNetwork = null;
+        World serverWorld = null;
+        World clientWorld = null;
         Config clientConfig = null;
         try {
             GalaxyRuntimeOptions.configure(hostConfig);
-            World serverWorld = new World(hostConfig.playerName, hostConfig.disabledNpcFactionIds, hostConfig.systemId, false);
+            serverWorld = new World(hostConfig.playerName, hostConfig.disabledNpcFactionIds, hostConfig.systemId, false);
             DevTimerSettings.configure(serverWorld, hostConfig.disableProductionTimers);
             PlayerRegistry.activate(serverWorld);
             prepareHostWorld(serverWorld);
@@ -45,7 +47,7 @@ final class LocalHostSession {
             clientConfig = Config.localHostClient(hostConfig);
             SessionTokenStore.rememberAuthDigestForProcess(clientConfig, processVerifier);
             GalaxyRuntimeOptions.configure(clientConfig);
-            World clientWorld = new World(clientConfig.playerName, clientConfig.disabledNpcFactionIds, clientConfig.systemId, false);
+            clientWorld = new World(clientConfig.playerName, clientConfig.disabledNpcFactionIds, clientConfig.systemId, false);
             DevTimerSettings.configure(clientWorld, clientConfig.disableProductionTimers);
             PlayerRegistry.activate(clientWorld);
             clientNetwork = PeerNetwork.start(clientConfig, clientWorld);
@@ -55,6 +57,8 @@ final class LocalHostSession {
         } catch (IOException | RuntimeException ex) {
             if (clientNetwork != null) clientNetwork.shutdown();
             if (serverNetwork != null) serverNetwork.shutdown();
+            WorldRuntimeCleanup.discard(clientWorld);
+            WorldRuntimeCleanup.discard(serverWorld);
             if (clientConfig != null) SessionTokenStore.clear(clientConfig);
             throw ex;
         }
