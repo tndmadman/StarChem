@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.channels.FileChannel;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -28,6 +29,9 @@ import java.util.zip.ZipOutputStream;
 final class ServerSaveStore {
     static final int SAVE_FORMAT_VERSION = 2;
     private static final String EXTENSION = ".starchem-save";
+    private static final DateTimeFormatter BACKUP_TIMESTAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS")
+            .withZone(java.time.ZoneOffset.UTC);
+    private static final int MAX_BACKUPS_PER_MILLISECOND = 1_000_000;
 
     private final Path saveDir;
     private final String saveName;
@@ -239,10 +243,11 @@ final class ServerSaveStore {
     }
 
     private void rotateBackups() throws IOException {
-        if (Files.exists(currentPath())) {
-            String stamp = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(java.time.ZoneOffset.UTC).format(Instant.now());
-            Files.copy(currentPath(), saveDir.resolve(saveName + "-" + stamp + EXTENSION), StandardCopyOption.REPLACE_EXISTING);
-        }
+        rotateBackups(Instant.now());
+    }
+
+    void rotateBackups(Instant backupTime) throws IOException {
+        if (Files.exists(currentPath())) copyCurrentBackup(backupTime == null ? Instant.now() : backupTime);
         List<Path> backups;
         try (var stream = Files.list(saveDir)) {
             backups = stream
@@ -255,6 +260,22 @@ final class ServerSaveStore {
         }
         int excess = backups.size() - backupCount;
         for (int i = 0; i < excess; i++) Files.deleteIfExists(backups.get(i));
+    }
+
+    private void copyCurrentBackup(Instant backupTime) throws IOException {
+        String stamp = BACKUP_TIMESTAMP.format(backupTime);
+        String prefix = saveName + "-" + stamp + "-";
+        for (int sequence = 0; sequence < MAX_BACKUPS_PER_MILLISECOND; sequence++) {
+            String suffix = String.format(java.util.Locale.ROOT, "%06d", sequence);
+            Path target = saveDir.resolve(prefix + suffix + EXTENSION);
+            try {
+                Files.copy(currentPath(), target);
+                return;
+            } catch (FileAlreadyExistsException ignored) {
+                // Another save already claimed this sequence; try the next sortable name.
+            }
+        }
+        throw new IOException("Could not allocate a unique backup filename for " + saveName + " at " + stamp + ".");
     }
 
     private Path currentPath() { return saveDir.resolve(saveName + "-current" + EXTENSION); }
