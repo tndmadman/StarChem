@@ -29,6 +29,7 @@ final class GameFrame extends JFrame {
     private PeerNetwork network;
     private LocalHostSession localHostSession;
     private Timer networkTimer;
+    private World activeWorld;
 
     GameFrame(Config config) {
         super(BuildInfo.display());
@@ -111,6 +112,7 @@ final class GameFrame extends JFrame {
     }
 
     private void showGame(Config config, World world, PeerNetwork activeNetwork, PeerNetwork devAuthorityNetwork) {
+        activeWorld = world;
         gamePanel = new GamePanel(world, this, activeNetwork, config.devMode, devAuthorityNetwork);
         resourceCatalogOverlay = new ResourceCatalogOverlay(gamePanel, world);
         codexOverlay = new CodexOverlay(gamePanel);
@@ -177,7 +179,9 @@ final class GameFrame extends JFrame {
     }
 
     private void stopActiveGame() {
+        World stoppingWorld = activeWorld;
         if (gamePanel != null) gamePanel.stop();
+        if (stoppingWorld != null) AudioEventCenter.discard(stoppingWorld);
         if (resourceCatalogOverlay != null) resourceCatalogOverlay.setVisible(false);
         if (codexOverlay != null) codexOverlay.close();
         if (narrationSettingsOverlay != null) narrationSettingsOverlay.close();
@@ -195,6 +199,7 @@ final class GameFrame extends JFrame {
         network = null;
         localHostSession = null;
         networkTimer = null;
+        activeWorld = null;
     }
 
     private void layoutLayers() {

@@ -88,6 +88,8 @@ final class LocalHostSession {
                 PlayerRegistry.activate(serverWorld);
                 serverNetwork.shutdown();
             } finally {
+                AudioEventCenter.discard(clientWorld);
+                AudioEventCenter.discard(serverWorld);
                 SessionTokenStore.clear(clientConfig);
             }
         }
