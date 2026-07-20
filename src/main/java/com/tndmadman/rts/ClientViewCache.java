@@ -11,6 +11,7 @@ final class ClientViewCache {
 
     void setHome(World world, String playerId) {
         if (!realPlayerId(playerId)) return;
+        world.ensurePlayerHome(playerId, WorldNetAccess.usesPrimaryHome(playerId));
         viewByPlayer.put(playerId, world.playerHomeSystemId(playerId));
     }
 
