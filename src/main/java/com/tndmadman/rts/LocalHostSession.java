@@ -37,6 +37,7 @@ final class LocalHostSession {
             World serverWorld = new World(hostConfig.playerName, hostConfig.disabledNpcFactionIds, hostConfig.systemId, false);
             DevTimerSettings.configure(serverWorld, hostConfig.disableProductionTimers);
             PlayerRegistry.activate(serverWorld);
+            prepareHostWorld(serverWorld);
             serverNetwork = PeerNetwork.start(hostConfig, serverWorld, List.of(reservedHost));
             PlayerRegistry.activate(serverWorld);
             if (!serverWorld.hasLiveAssets(HOST_PLAYER_ID)) WorldNetAccess.addPeerGroup(serverWorld, HOST_PLAYER_ID);
@@ -57,6 +58,11 @@ final class LocalHostSession {
             if (clientConfig != null) SessionTokenStore.clear(clientConfig);
             throw ex;
         }
+    }
+
+    static void prepareHostWorld(World world) {
+        if (world == null) throw new IllegalArgumentException("Graphical host world is required.");
+        world.ensurePlayerHome(HOST_PLAYER_ID, true);
     }
 
     static PersistentPlayerSession processHostSession(String playerName, String verifier) {
