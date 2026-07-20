@@ -295,6 +295,14 @@ tasks.register('validateClientEnvironmentSync', JavaExec) {
     mainClass = 'com.tndmadman.rts.ClientEnvironmentSyncValidator'
 }
 
+tasks.register('validateNarrationProcesses', JavaExec) {
+    group = 'verification'
+    description = 'Validate bounded narration subprocess output and timeout cleanup.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.NarrationProcessValidator'
+}
+
 tasks.register('verifyLegalNotices') {
     group = 'verification'
     description = 'Verify the proprietary license and third-party notice files.'
@@ -415,6 +423,7 @@ tasks.named('check') {
     dependsOn tasks.named('validateNpcGalaxyDirector')
     dependsOn tasks.named('validateSystemSimulationScheduler')
     dependsOn tasks.named('validateClientEnvironmentSync')
+    dependsOn tasks.named('validateNarrationProcesses')
     dependsOn tasks.named('verifyLegalNotices')
     dependsOn tasks.named('verifyBuildMetadata')
 }
