@@ -22,6 +22,7 @@ final class PeerSyncBatch {
         long next = PeerSyncSender.sendOne(world, views, peer, sequence, SyncKind.INITIAL, out);
         sendNotices(world, peer, out);
         sendAudio(world, views, peer, out);
+        GlobalLeaderboard.forceNextAuthoritativeSend(world);
         return next;
     }
 
