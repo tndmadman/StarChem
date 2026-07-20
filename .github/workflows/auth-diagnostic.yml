@@ -1,9 +1,9 @@
 name: Auth Diagnostic
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/fix-auth-enumeration-220
+      - main
 
 jobs:
   diagnose:
