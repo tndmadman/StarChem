@@ -33,7 +33,6 @@ final class GlobalLeaderboard {
     static synchronized void forceNextAuthoritativeSend(World world) {
         if (world == null) return;
         AuthoritativeState state = AUTHORITATIVE_BY_WORLD.computeIfAbsent(world, ignored -> new AuthoritativeState());
-        state.forceRefresh = true;
         state.forceSend = true;
     }
 
@@ -97,7 +96,6 @@ final class GlobalLeaderboard {
         synchronized (GlobalLeaderboard.class) {
             state.aggregationCount++;
             state.lastRefresh = now;
-            state.forceRefresh = false;
             if (!state.initialized || !state.entries.equals(next)) {
                 state.entries = new AuthoritativeEntries(next, state);
                 state.message = encodeRaw(state.entries);
@@ -158,11 +156,10 @@ final class GlobalLeaderboard {
         long aggregationCount;
         boolean initialized;
         boolean pendingSend;
-        boolean forceRefresh;
         boolean forceSend;
 
         boolean due(long now) {
-            return !initialized || forceRefresh || now < lastRefresh || now - lastRefresh >= AUTHORITATIVE_REFRESH_MS;
+            return !initialized || now < lastRefresh || now - lastRefresh >= AUTHORITATIVE_REFRESH_MS;
         }
     }
 
