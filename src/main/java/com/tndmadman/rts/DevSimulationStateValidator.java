@@ -54,8 +54,8 @@ public final class DevSimulationStateValidator {
         PeerNetwork network = PeerNetwork.start(config, world);
         require(network == null, "solo lifecycle unexpectedly created a network");
         mutateEverySetting(world);
-        GameFrame.resetDeveloperSimulationState(world);
-        requireWorldDefaults(world, "solo shutdown did not reset developer state");
+        WorldRuntimeCleanup.discard(world);
+        requireWorldDefaults(world, "discarded solo world did not reset developer state");
     }
 
     private static void validateHostAndJoinShutdownPaths() throws Exception {
