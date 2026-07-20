@@ -184,7 +184,10 @@ final class ServerEventJournal {
         try {
             Path parent = path.toAbsolutePath().getParent();
             if (parent != null) Files.createDirectories(parent);
-            if (Files.isRegularFile(path) && Files.size(path) > MAX_FILE_BYTES) rewrite();
+            if (Files.isRegularFile(path) && Files.size(path) > MAX_FILE_BYTES) {
+                rewrite();
+                return;
+            }
             String row = event.at() + "\t" + encode(event.type()) + "\t" + encode(event.subject()) + "\t" + encode(event.detail()) + "\n";
             Files.writeString(path, row, StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND, StandardOpenOption.WRITE);
