@@ -19,6 +19,7 @@ public final class NotificationRegistryValidator {
         validateExplicitCleanup();
         validateImmutableAlertSnapshots();
         validateConcurrentRegistryAccess();
+        LeaderboardAggregationValidator.validateOrThrow();
     }
 
     private static void validateWeakRegistryConfiguration() {
