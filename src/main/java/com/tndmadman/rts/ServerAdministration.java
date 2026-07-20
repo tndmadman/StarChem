@@ -147,8 +147,7 @@ final class ServerBackupAdmin {
             List<Path> files;
             try (var stream = Files.list(saveDir)) {
                 files = stream.filter(Files::isRegularFile)
-                        .filter(path -> path.getFileName().toString().startsWith(saveName + "-"))
-                        .filter(path -> path.getFileName().toString().endsWith(EXTENSION))
+                        .filter(path -> ServerSaveArchiveNames.belongsTo(saveName, path))
                         .sorted(Comparator.comparing(path -> path.getFileName().toString()))
                         .toList();
             }
@@ -237,10 +236,7 @@ final class ServerBackupAdmin {
     private List<Path> timestampedBackups() throws IOException {
         try (var stream = Files.list(saveDir)) {
             return stream.filter(Files::isRegularFile)
-                    .filter(path -> path.getFileName().toString().startsWith(saveName + "-"))
-                    .filter(path -> path.getFileName().toString().endsWith(EXTENSION))
-                    .filter(path -> !path.equals(currentPath()))
-                    .filter(path -> !path.equals(previousPath()))
+                    .filter(path -> ServerSaveArchiveNames.isTimestampedBackup(saveName, path))
                     .sorted(Comparator.comparing(path -> path.getFileName().toString()))
                     .toList();
         }
@@ -250,8 +246,9 @@ final class ServerBackupAdmin {
         if (selector == null || selector.isBlank() || "current".equalsIgnoreCase(selector)) return currentPath();
         if ("previous".equalsIgnoreCase(selector)) return previousPath();
         Path candidate = saveDir.resolve(Path.of(selector).getFileName().toString()).normalize();
-        if (!candidate.getParent().equals(saveDir.normalize())) return null;
-        return candidate;
+        Path normalizedDir = saveDir.toAbsolutePath().normalize();
+        if (!candidate.toAbsolutePath().getParent().equals(normalizedDir)) return null;
+        return ServerSaveArchiveNames.belongsTo(saveName, candidate) ? candidate : null;
     }
 
     private Path uniquePath(String base) {
