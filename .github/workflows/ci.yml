@@ -47,6 +47,9 @@ jobs:
       - name: Validate numeric serialization boundaries
         run: java -cp build/classes/java/main com.tndmadman.rts.NumericCommandValidationValidator serialization
 
+      - name: Validate authoritative mining commands
+        run: java -cp build/classes/java/main com.tndmadman.rts.MiningCommandValidationValidator
+
       - name: Smoke-test Linux headless server
         shell: bash
         run: |

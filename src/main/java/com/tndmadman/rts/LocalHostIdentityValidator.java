@@ -3,15 +3,17 @@ package com.tndmadman.rts;
 import java.io.DataInputStream;
 import java.net.InetAddress;
 import java.net.Socket;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 
-/** Focused regression validation for graphical HOST identity bootstrap. */
+/** Focused regression validation for graphical HOST identity and world bootstrap. */
 public final class LocalHostIdentityValidator {
     private LocalHostIdentityValidator() { }
 
     public static void main(String[] args) throws Exception {
         validateRandomProcessVerifier();
+        validateHostResourceTopology();
         validateReservedHostAuthentication();
         System.out.println("StarChem graphical host identity validation passed.");
     }
@@ -27,6 +29,48 @@ public final class LocalHostIdentityValidator {
         require(!first.equals(second), "two graphical host launches reused the same verifier");
         require(!first.equals(legacy) && !second.equals(legacy),
                 "graphical host verifier still matched the legacy fixed credential");
+    }
+
+    private static void validateHostResourceTopology() {
+        String name = "Graphical Host Resource Topology";
+        Config hostConfig = Config.host(name, 50000, false);
+        GalaxyRuntimeOptions.configure(hostConfig);
+
+        World serverWorld = new World(name, Set.of(), hostConfig.systemId, false);
+        long sharedSeed = serverWorld.systemSeed();
+        PlayerRegistry.activate(serverWorld);
+        LocalHostSession.prepareHostWorld(serverWorld);
+        String serverHome = serverWorld.playerHomeSystemId("P1");
+        serverWorld.activateSystem(serverHome);
+        List<String> serverResources = resourceFingerprints(serverWorld);
+
+        Config clientConfig = Config.localHostClient(hostConfig);
+        GalaxyRuntimeOptions.configure(clientConfig);
+        World clientWorld = new World(name, Set.of(), clientConfig.systemId, false);
+        clientWorld.useSystemSeed(sharedSeed);
+        PlayerRegistry.activate(clientWorld);
+        clientWorld.ensurePlayerHome("P1", WorldNetAccess.usesPrimaryHome("P1"));
+        String clientHome = clientWorld.playerHomeSystemId("P1");
+        clientWorld.activateSystem(clientHome);
+        List<String> clientResources = resourceFingerprints(clientWorld);
+
+        require(serverHome.equals(clientHome), "graphical host server and client selected different P1 home systems");
+        require(!serverResources.isEmpty(), "graphical host primary home did not contain resources");
+        require(serverResources.equals(clientResources),
+                "graphical host server and client generated different P1 resource topologies");
+    }
+
+    private static List<String> resourceFingerprints(World world) {
+        return world.resources.stream()
+                .sorted(Comparator.comparingInt(node -> node.id))
+                .map(node -> node.id + "|" + node.name + "|" + node.kind + "|" + node.material
+                        + "|" + Double.toHexString(node.x) + "|" + Double.toHexString(node.y)
+                        + "|" + Double.toHexString(node.maxAmount) + "|" + Double.toHexString(node.harvestRate)
+                        + "|" + Double.toHexString(node.radius) + "|" + node.orbiting
+                        + "|" + Double.toHexString(node.orbitCenterX) + "|" + Double.toHexString(node.orbitCenterY)
+                        + "|" + Double.toHexString(node.orbitRadius) + "|" + Double.toHexString(node.orbitAngle)
+                        + "|" + Double.toHexString(node.orbitSpeed))
+                .toList();
     }
 
     private static void validateReservedHostAuthentication() throws Exception {
@@ -50,6 +94,7 @@ public final class LocalHostIdentityValidator {
             World world = new World(name, Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
             PlayerRegistry.activate(world);
             PlayerRegistry.reset("SOLO", name, 0x50BEFF);
+            LocalHostSession.prepareHostWorld(world);
             PeerServerSide server = new PeerServerSide(config, world, transport, List.of(reserved));
             PlayerRegistry.activate(world);
             if (!world.hasLiveAssets("P1")) WorldNetAccess.addPeerGroup(world, "P1");
