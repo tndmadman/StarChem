@@ -124,7 +124,7 @@ final class TcpFaultProxy implements AutoCloseable {
         }
 
         void close() {
-            if (!open.compareAndSet(false, true)) return;
+            if (!open.compareAndSet(true, false)) return;
             closeQuietly(client);
             closeQuietly(upstream);
             synchronized (downstreamGate) { downstreamGate.notifyAll(); }
