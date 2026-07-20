@@ -5,10 +5,12 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Deque;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Bridges authoritative simulation audio to the clients currently viewing the
@@ -19,7 +21,10 @@ final class AudioEventCenter {
     private static final int MAX_EVENTS = 512;
     private static final int MAX_EVENTS_PER_DRAIN = 48;
     private static final int MAX_PENDING_REMOTE = 64;
+    private static final int MAX_DELAYED_EVENTS = 64;
+    private static final int MAX_COOLDOWN_KEYS = 128;
     private static final long MAX_EVENT_AGE_MS = 3_000;
+    private static final long MAX_DELAYED_LATENESS_NANOS = TimeUnit.SECONDS.toNanos(3);
     private static final Map<World, State> STATES = new WeakHashMap<>();
 
     private AudioEventCenter() { }
@@ -66,25 +71,107 @@ final class AudioEventCenter {
                 AudioEventKind.RESOURCE_DEPLETED, material == null ? "" : material.name(), 0);
     }
 
-    static synchronized List<AudioEvent> drain(World world, String playerId, String viewedSystemId) {
-        if (world == null || playerId == null || playerId.isBlank()) return List.of();
+    static boolean claimCooldown(World world, String key, long cooldownNanos) {
+        return claimCooldown(world, key, cooldownNanos, System.nanoTime());
+    }
+
+    static synchronized boolean claimCooldown(World world, String key, long cooldownNanos, long nowNanos) {
+        String normalizedKey = clean(key);
+        if (world == null || normalizedKey.isBlank() || cooldownNanos <= 0) return false;
         State state = STATES.computeIfAbsent(world, ignored -> new State());
-        long now = System.currentTimeMillis();
-        prune(state, now);
-        long latest = state.nextId - 1;
-        Long cursor = state.cursorByPlayer.get(playerId);
-        if (cursor == null) {
+        Long previous = state.cooldownNanos.get(normalizedKey);
+        if (previous != null && nowNanos - previous < cooldownNanos) return false;
+        state.cooldownNanos.put(normalizedKey, nowNanos);
+        while (state.cooldownNanos.size() > MAX_COOLDOWN_KEYS) {
+            Iterator<String> iterator = state.cooldownNanos.keySet().iterator();
+            if (!iterator.hasNext()) break;
+            iterator.next();
+            iterator.remove();
+        }
+        return true;
+    }
+
+    static boolean scheduleDelayed(World world, String systemId, SoundCue cue, long delayMillis,
+                                   String coalesceKey) {
+        long delayNanos = TimeUnit.MILLISECONDS.toNanos(Math.max(0, delayMillis));
+        long now = System.nanoTime();
+        long due = Long.MAX_VALUE - now < delayNanos ? Long.MAX_VALUE : now + delayNanos;
+        return scheduleDelayedAt(world, systemId, cue, due, coalesceKey);
+    }
+
+    static synchronized boolean scheduleDelayedAt(World world, String systemId, SoundCue cue,
+                                                  long dueNanos, String coalesceKey) {
+        String cleanSystemId = clean(systemId);
+        String cleanKey = clean(coalesceKey);
+        if (world == null || cleanSystemId.isBlank() || cue == null) return false;
+        State state = STATES.computeIfAbsent(world, ignored -> new State());
+        if (!cleanKey.isBlank()) {
+            for (DelayedAudio delayed : state.delayed) {
+                if (cleanKey.equals(delayed.coalesceKey())) return false;
+            }
+        }
+        if (state.delayed.size() >= MAX_DELAYED_EVENTS) return false;
+        state.delayed.addLast(new DelayedAudio(cleanSystemId, cue, dueNanos, cleanKey));
+        return true;
+    }
+
+    static void processDelayed(World world) {
+        processDelayed(world, System.nanoTime());
+    }
+
+    static void processDelayed(World world, long nowNanos) {
+        if (world == null) return;
+        List<DelayedAudio> ready = new ArrayList<>();
+        synchronized (AudioEventCenter.class) {
+            State state = STATES.get(world);
+            if (state == null || state.delayed.isEmpty()) return;
+            Iterator<DelayedAudio> iterator = state.delayed.iterator();
+            while (iterator.hasNext()) {
+                DelayedAudio delayed = iterator.next();
+                if (nowNanos < delayed.dueNanos()) continue;
+                iterator.remove();
+                long lateness = nowNanos - delayed.dueNanos();
+                if (lateness <= MAX_DELAYED_LATENESS_NANOS) ready.add(delayed);
+            }
+        }
+        for (DelayedAudio delayed : ready) play(world, delayed.systemId(), delayed.cue());
+    }
+
+    static synchronized void discard(World world) {
+        if (world != null) STATES.remove(world);
+    }
+
+    static synchronized int delayedCountForTest(World world) {
+        State state = world == null ? null : STATES.get(world);
+        return state == null ? 0 : state.delayed.size();
+    }
+
+    static int maxDelayedForTest() {
+        return MAX_DELAYED_EVENTS;
+    }
+
+    static List<AudioEvent> drain(World world, String playerId, String viewedSystemId) {
+        if (world == null || playerId == null || playerId.isBlank()) return List.of();
+        processDelayed(world);
+        synchronized (AudioEventCenter.class) {
+            State state = STATES.computeIfAbsent(world, ignored -> new State());
+            long now = System.currentTimeMillis();
+            prune(state, now);
+            long latest = state.nextId - 1;
+            Long cursor = state.cursorByPlayer.get(playerId);
+            if (cursor == null) {
+                state.cursorByPlayer.put(playerId, latest);
+                return List.of();
+            }
+            List<AudioEvent> out = new ArrayList<>();
+            for (AudioEvent event : state.events) {
+                if (event.id() <= cursor || !event.forPlayer(playerId, viewedSystemId)) continue;
+                out.add(event);
+                if (out.size() >= MAX_EVENTS_PER_DRAIN) break;
+            }
             state.cursorByPlayer.put(playerId, latest);
-            return List.of();
+            return List.copyOf(out);
         }
-        List<AudioEvent> out = new ArrayList<>();
-        for (AudioEvent event : state.events) {
-            if (event.id() <= cursor || !event.forPlayer(playerId, viewedSystemId)) continue;
-            out.add(event);
-            if (out.size() >= MAX_EVENTS_PER_DRAIN) break;
-        }
-        state.cursorByPlayer.put(playerId, latest);
-        return List.copyOf(out);
     }
 
     static boolean acceptRemote(World world, String packet) {
@@ -106,6 +193,7 @@ final class AudioEventCenter {
 
     static void listenerChanged(World world) {
         if (world == null) return;
+        processDelayed(world);
         List<AudioEvent> ready = new ArrayList<>();
         synchronized (AudioEventCenter.class) {
             State state = STATES.get(world);
@@ -203,8 +291,12 @@ final class AudioEventCenter {
         long nextId = 1;
         final Deque<AudioEvent> events = new ArrayDeque<>();
         final Deque<AudioEvent> pendingRemote = new ArrayDeque<>();
+        final Deque<DelayedAudio> delayed = new ArrayDeque<>();
         final Map<String, Long> cursorByPlayer = new LinkedHashMap<>();
+        final Map<String, Long> cooldownNanos = new LinkedHashMap<>();
     }
+
+    private record DelayedAudio(String systemId, SoundCue cue, long dueNanos, String coalesceKey) { }
 }
 
 enum AudioScope {
