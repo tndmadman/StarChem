@@ -198,7 +198,7 @@ final class AiDevCommands {
     }
 
     static void hotReload(World world) {
-        AiDevSettings.hotReloadRequested = true;
+        world.aiDevSettings.hotReloadRequested = true;
         world.status = "AI config hot reload requested. Restart still safest if parser shape changed.";
         AiDevLog.add("DEV", "hot reload requested");
     }

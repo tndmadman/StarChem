@@ -13,13 +13,14 @@ final class WeaponSystem {
             unit.weaponCooldown = Math.max(0, unit.weaponCooldown - dt);
             unit.weaponFlashTimer = Math.max(0, unit.weaponFlashTimer - dt);
         }
-        if (AiDevSettings.disableAttacks) return;
+        AiDevSettings settings = world.aiDevSettings;
+        if (settings.disableAttacks) return;
         for (Unit unit : new ArrayList<>(world.units.values())) {
-            if (AiDevSettings.freezeNpcCombat && NpcRules.isNpcFaction(unit.playerId)) continue;
+            if (settings.freezeNpcCombat && NpcRules.isNpcFaction(unit.playerId)) continue;
             if (!WeaponRules.screenWeapons(unit.type()).isEmpty()) screenShots(world, unit);
         }
         for (Unit unit : new ArrayList<>(world.units.values())) {
-            if (AiDevSettings.freezeNpcCombat && NpcRules.isNpcFaction(unit.playerId)) continue;
+            if (settings.freezeNpcCombat && NpcRules.isNpcFaction(unit.playerId)) continue;
             if (!WeaponRules.armed(unit.type())) {
                 clearIllegalAttack(unit);
                 continue;

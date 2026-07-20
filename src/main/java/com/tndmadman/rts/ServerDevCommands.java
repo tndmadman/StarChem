@@ -134,11 +134,11 @@ final class ServerDevCommands {
                 "Runtime developer mode: " + (network.runtimeDevEnabled() ? "enabled" : "disabled")
                         + " | startup " + (network.serverConfig().devMode ? "enabled" : "disabled"),
                 "Remote developer grants: " + granted + " | free-build players " + freebuild,
-                "AI: " + (AiDevSettings.pauseAi ? "paused" : "running") + " | speed " + (AiDevSettings.fastAi ? "fast" : "normal"),
-                "Combat: players frozen " + AiDevSettings.freezePlayerUnits + " | NPC combat frozen " + AiDevSettings.freezeNpcCombat,
-                "Rules: attacks disabled " + AiDevSettings.disableAttacks + " | economy disabled " + AiDevSettings.disableEconomy,
+                "AI: " + (host.world.aiDevSettings.pauseAi ? "paused" : "running") + " | speed " + (host.world.aiDevSettings.fastAi ? "fast" : "normal"),
+                "Combat: players frozen " + host.world.aiDevSettings.freezePlayerUnits + " | NPC combat frozen " + host.world.aiDevSettings.freezeNpcCombat,
+                "Rules: attacks disabled " + host.world.aiDevSettings.disableAttacks + " | economy disabled " + host.world.aiDevSettings.disableEconomy,
                 "Production timers: " + (DevTimerSettings.disabled(host.world) ? "disabled" : "enabled"),
-                "Difficulty: " + NpcDifficultyPreset.current().name().toLowerCase(Locale.ROOT) + " / " + NpcDifficultyPreset.current().label);
+                "Difficulty: " + host.world.aiDevSettings.difficultyPreset().name().toLowerCase(Locale.ROOT) + " / " + host.world.aiDevSettings.difficultyPreset().label);
     }
 
     private static List<String> mode(HeadlessGameServer host, List<String> args) {
@@ -359,7 +359,7 @@ final class ServerDevCommands {
 
     private static List<String> ai(HeadlessGameServer host, List<String> args) {
         if (args.size() == 2 && "step".equalsIgnoreCase(args.get(1))) {
-            AiDevSettings.stepAi = true;
+            host.world.aiDevSettings.stepAi = true;
             return List.of("AI will advance one step.");
         }
         if (args.size() == 2 && "snapshot".equalsIgnoreCase(args.get(1))) {
@@ -380,9 +380,8 @@ final class ServerDevCommands {
             if (args.size() == 3) {
                 NpcDifficultyPreset wanted = preset(args.get(2));
                 if (wanted == null) return List.of("Unknown preset: " + args.get(2));
-                int guard = NpcDifficultyPreset.values().length + 1;
-                while (NpcDifficultyPreset.current() != wanted && guard-- > 0) NpcDifficultyPreset.next();
-                return List.of("AI preset set to " + NpcDifficultyPreset.current().name().toLowerCase(Locale.ROOT) + ".");
+                host.world.aiDevSettings.setDifficultyPreset(wanted);
+                return List.of("AI preset set to " + host.world.aiDevSettings.difficultyPreset().name().toLowerCase(Locale.ROOT) + ".");
             }
         }
         if (args.size() != 3) return List.of("Usage: dev ai <pause on|off|speed normal|fast|freeze-players on|off|freeze-npc-combat on|off|attacks on|off|economy on|off|preset list|preset <id>|step|snapshot|reload>");
@@ -392,33 +391,33 @@ final class ServerDevCommands {
         switch (action) {
             case "pause" -> {
                 if (enabled == null) break;
-                AiDevSettings.pauseAi = enabled;
-                if (!enabled) AiDevSettings.stepAi = false;
+                host.world.aiDevSettings.pauseAi = enabled;
+                if (!enabled) host.world.aiDevSettings.stepAi = false;
                 return List.of("AI pause " + state(enabled) + ".");
             }
             case "speed" -> {
                 if (!List.of("normal", "fast").contains(value)) break;
-                AiDevSettings.fastAi = "fast".equals(value);
+                host.world.aiDevSettings.fastAi = "fast".equals(value);
                 return List.of("AI speed set to " + value + ".");
             }
             case "freeze-players" -> {
                 if (enabled == null) break;
-                AiDevSettings.freezePlayerUnits = enabled;
+                host.world.aiDevSettings.freezePlayerUnits = enabled;
                 return List.of("Player-unit freeze " + state(enabled) + ".");
             }
             case "freeze-npc-combat" -> {
                 if (enabled == null) break;
-                AiDevSettings.freezeNpcCombat = enabled;
+                host.world.aiDevSettings.freezeNpcCombat = enabled;
                 return List.of("NPC combat freeze " + state(enabled) + ".");
             }
             case "attacks" -> {
                 if (enabled == null) break;
-                AiDevSettings.disableAttacks = !enabled;
+                host.world.aiDevSettings.disableAttacks = !enabled;
                 return List.of("AI attacks " + state(enabled) + ".");
             }
             case "economy" -> {
                 if (enabled == null) break;
-                AiDevSettings.disableEconomy = !enabled;
+                host.world.aiDevSettings.disableEconomy = !enabled;
                 return List.of("AI economy " + state(enabled) + ".");
             }
             default -> { }

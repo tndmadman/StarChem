@@ -22,6 +22,7 @@ final class World {
     final EnumMap<Material, Double> stockpile = new EnumMap<>(Material.class);
     final Map<String, Set<String>> completedResearch = new LinkedHashMap<>();
     final LogisticsSystem logisticsSystem = new LogisticsSystem();
+    final AiDevSettings aiDevSettings = new AiDevSettings();
     private final Set<String> devFreeBuildPlayers = new LinkedHashSet<>();
     private final GalaxyCoordinator galaxy = new GalaxyCoordinator();
     private final Set<String> disabledNpcFactionIds;

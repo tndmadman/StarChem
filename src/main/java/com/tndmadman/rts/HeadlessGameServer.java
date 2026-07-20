@@ -576,11 +576,11 @@ final class HeadlessGameServer {
     private List<String> developerStatusLines() {
         return List.of(
                 "Developer host: enabled",
-                "AI: " + (AiDevSettings.pauseAi ? "paused" : "running") + " | speed " + (AiDevSettings.fastAi ? "fast" : "normal"),
-                "Combat: player units frozen " + AiDevSettings.freezePlayerUnits + " | NPC combat frozen " + AiDevSettings.freezeNpcCombat,
-                "Rules: attacks disabled " + AiDevSettings.disableAttacks + " | economy disabled " + AiDevSettings.disableEconomy,
+                "AI: " + (world.aiDevSettings.pauseAi ? "paused" : "running") + " | speed " + (world.aiDevSettings.fastAi ? "fast" : "normal"),
+                "Combat: player units frozen " + world.aiDevSettings.freezePlayerUnits + " | NPC combat frozen " + world.aiDevSettings.freezeNpcCombat,
+                "Rules: attacks disabled " + world.aiDevSettings.disableAttacks + " | economy disabled " + world.aiDevSettings.disableEconomy,
                 "Production timers: " + (config.disableProductionTimers ? "startup-disabled; runtime state may differ" : "startup-enabled"),
-                "Difficulty: " + NpcDifficultyPreset.current().label);
+                "Difficulty: " + world.aiDevSettings.difficultyPreset().label);
     }
 
     private List<String> developerAccess(List<String> args) {
@@ -597,7 +597,7 @@ final class HeadlessGameServer {
 
     private List<String> developerAi(List<String> args) {
         if (args.size() == 2 && "step".equalsIgnoreCase(args.get(1))) {
-            AiDevSettings.stepAi = true;
+            world.aiDevSettings.stepAi = true;
             return List.of("AI will advance one step.");
         }
         if (args.size() != 3) return List.of("Usage: dev ai <pause on|off|speed normal|fast|step>");
@@ -606,12 +606,12 @@ final class HeadlessGameServer {
         if ("pause".equals(action)) {
             Boolean enabled = onOff(value);
             if (enabled == null) return List.of("Usage: dev ai pause <on|off>");
-            AiDevSettings.pauseAi = enabled;
-            if (!enabled) AiDevSettings.stepAi = false;
+            world.aiDevSettings.pauseAi = enabled;
+            if (!enabled) world.aiDevSettings.stepAi = false;
             return List.of("AI pause " + (enabled ? "enabled" : "disabled") + ".");
         }
         if ("speed".equals(action) && ("normal".equals(value) || "fast".equals(value))) {
-            AiDevSettings.fastAi = "fast".equals(value);
+            world.aiDevSettings.fastAi = "fast".equals(value);
             return List.of("AI speed set to " + value + ".");
         }
         return List.of("Usage: dev ai <pause on|off|speed normal|fast|step>");

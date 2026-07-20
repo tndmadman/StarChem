@@ -197,6 +197,14 @@ tasks.register('validateSessionRecovery', JavaExec) {
     mainClass = 'com.tndmadman.rts.SessionRecoveryValidator'
 }
 
+tasks.register('validateDevSimulationState', JavaExec) {
+    group = 'verification'
+    description = 'Validate world-scoped developer simulation state and lifecycle reset behavior.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.DevSimulationStateValidator'
+}
+
 tasks.register('validateNpcSystemIsolation', JavaExec) {
     group = 'verification'
     description = 'Validate per-system NPC timers, faction scope, and runtime cleanup.'
@@ -411,6 +419,7 @@ tasks.named('check') {
     dependsOn tasks.named('validateTcpSoakSmoke')
     dependsOn tasks.named('validateSnapshotHardening')
     dependsOn tasks.named('validateSessionRecovery')
+    dependsOn tasks.named('validateDevSimulationState')
     dependsOn tasks.named('validateNpcSystemIsolation')
     dependsOn tasks.named('validateMaterialCoverage')
     dependsOn tasks.named('validateResourceCatalog')

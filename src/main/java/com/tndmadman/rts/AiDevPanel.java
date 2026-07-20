@@ -6,25 +6,29 @@ import java.util.List;
 final class AiDevPanel {
     private static final int ROW = 18;
     private static final int ROW_BASELINE_Y = 170;
+    private static final int ROW_COUNT = 23;
     private final HudWindow window = new HudWindow(330, 205, 430);
+    private boolean overlay = true;
+    private boolean pathLines = true;
 
     boolean click(World world, PeerNetwork devAuthorityNetwork, int sx, int sy, boolean canEdit) {
         if (!window.contains(sx, sy, bodyHeight())) return false;
         if (sy <= window.y + 28) return window.press(sx, sy, bodyHeight());
         if (window.collapsed || !canEdit) return true;
+        AiDevSettings settings = settings(world, devAuthorityNetwork);
         int row = clickedRow(sy - window.bodyY());
-        if (row < 0 || row >= rows().length) return true;
+        if (row < 0 || row >= ROW_COUNT) return true;
         switch (row) {
-            case 0 -> AiDevSettings.overlay = !AiDevSettings.overlay;
-            case 1 -> AiDevSettings.pathLines = !AiDevSettings.pathLines;
-            case 2 -> runDevCommand(world, devAuthorityNetwork, "togglePauseAi", () -> AiDevSettings.pauseAi = !AiDevSettings.pauseAi);
-            case 3 -> runDevCommand(world, devAuthorityNetwork, "stepAi", () -> AiDevSettings.stepAi = true);
-            case 4 -> runDevCommand(world, devAuthorityNetwork, "toggleFastAi", () -> AiDevSettings.fastAi = !AiDevSettings.fastAi);
-            case 5 -> runDevCommand(world, devAuthorityNetwork, "toggleFreezePlayerUnits", () -> AiDevSettings.freezePlayerUnits = !AiDevSettings.freezePlayerUnits);
-            case 6 -> runDevCommand(world, devAuthorityNetwork, "toggleFreezeNpcCombat", () -> AiDevSettings.freezeNpcCombat = !AiDevSettings.freezeNpcCombat);
-            case 7 -> runDevCommand(world, devAuthorityNetwork, "toggleDisableAttacks", () -> AiDevSettings.disableAttacks = !AiDevSettings.disableAttacks);
-            case 8 -> runDevCommand(world, devAuthorityNetwork, "toggleDisableEconomy", () -> AiDevSettings.disableEconomy = !AiDevSettings.disableEconomy);
-            case 9 -> runDevCommand(world, devAuthorityNetwork, "togglePreset", AiDevSettings::togglePreset);
+            case 0 -> overlay = !overlay;
+            case 1 -> pathLines = !pathLines;
+            case 2 -> runDevCommand(world, devAuthorityNetwork, "togglePauseAi", () -> settings.pauseAi = !settings.pauseAi);
+            case 3 -> runDevCommand(world, devAuthorityNetwork, "stepAi", () -> settings.stepAi = true);
+            case 4 -> runDevCommand(world, devAuthorityNetwork, "toggleFastAi", () -> settings.fastAi = !settings.fastAi);
+            case 5 -> runDevCommand(world, devAuthorityNetwork, "toggleFreezePlayerUnits", () -> settings.freezePlayerUnits = !settings.freezePlayerUnits);
+            case 6 -> runDevCommand(world, devAuthorityNetwork, "toggleFreezeNpcCombat", () -> settings.freezeNpcCombat = !settings.freezeNpcCombat);
+            case 7 -> runDevCommand(world, devAuthorityNetwork, "toggleDisableAttacks", () -> settings.disableAttacks = !settings.disableAttacks);
+            case 8 -> runDevCommand(world, devAuthorityNetwork, "toggleDisableEconomy", () -> settings.disableEconomy = !settings.disableEconomy);
+            case 9 -> runDevCommand(world, devAuthorityNetwork, "togglePreset", settings::togglePreset);
             case 10 -> runDevCommand(world, devAuthorityNetwork, "spawnCorsairs", () -> AiDevCommands.spawnCorsairs(world));
             case 11 -> runDevCommand(world, devAuthorityNetwork, "killCorsairs", () -> AiDevCommands.killCorsairs(world));
             case 12 -> runDevCommand(world, devAuthorityNetwork, "resetCorsairs", () -> AiDevCommands.resetCorsairs(world));
@@ -37,7 +41,7 @@ final class AiDevPanel {
             case 19 -> runDevCommand(world, devAuthorityNetwork, "forceResearch", () -> AiDevCommands.forceResearch(world));
             case 20 -> runDevCommand(world, devAuthorityNetwork, "forceCraft", () -> AiDevCommands.forceCraft(world));
             case 21 -> AiDevCommands.copySnapshot(world);
-            case 22 -> AiDevCommands.hotReload(world);
+            case 22 -> AiDevCommands.hotReload(settingsWorld(world, devAuthorityNetwork));
             default -> { }
         }
         return true;
@@ -46,7 +50,7 @@ final class AiDevPanel {
     void drag(int sx, int sy, int screenW, int screenH) { window.drag(sx, sy, screenW, screenH); }
     void release() { window.release(); }
 
-    void draw(Graphics2D g2, World world, boolean canEdit) {
+    void draw(Graphics2D g2, World world, PeerNetwork devAuthorityNetwork, boolean canEdit) {
         window.draw(g2, "AI DEVTOOLS", bodyHeight(), new Color(180, 120, 255, 190));
         if (window.collapsed) return;
         int x = window.x + 12;
@@ -54,14 +58,15 @@ final class AiDevPanel {
         g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f));
         if (!canEdit) { g2.setColor(new Color(255, 225, 150)); g2.drawString("Host dev approval required", x, y + 16); return; }
 
+        AiDevSettings settings = settings(world, devAuthorityNetwork);
         NpcFaction f = AiDevSnapshot.corsairs();
         g2.setColor(Color.WHITE);
         int yy = y + 14;
-        for (String line : AiDevSnapshot.summary(world, f)) { g2.drawString(line, x, yy); yy += 15; }
+        for (String line : AiDevSnapshot.summary(world, f, settings)) { g2.drawString(line, x, yy); yy += 15; }
         g2.setColor(new Color(255, 225, 150));
         g2.drawString("Blocked: " + AiDevSnapshot.blockedReason(world, f), x, yy);
 
-        String[] rows = rows();
+        String[] rows = rows(settings);
         for (int i = 0; i < rows.length; i++) drawRow(g2, x, y + ROW_BASELINE_Y + i * ROW, rows[i]);
 
         int logY = y + ROW_BASELINE_Y + rows.length * ROW + 16;
@@ -75,18 +80,22 @@ final class AiDevPanel {
         for (String line : log) { g2.drawString(trim(line, 62), x, logY); logY += 14; }
     }
 
-    private String[] rows() {
+    boolean overlayEnabled() { return overlay; }
+    boolean pathLinesEnabled() { return pathLines; }
+    boolean toggleOverlay() { overlay = !overlay; return overlay; }
+
+    private String[] rows(AiDevSettings settings) {
         return new String[]{
-                check("Overlay", AiDevSettings.overlay),
-                check("Path / target lines", AiDevSettings.pathLines),
-                check("Pause AI only", AiDevSettings.pauseAi),
+                check("Overlay", overlay),
+                check("Path / target lines", pathLines),
+                check("Pause AI only", settings.pauseAi),
                 "[>] Step AI once",
-                check("Speed AI decisions 5x", AiDevSettings.fastAi),
-                check("Freeze player units", AiDevSettings.freezePlayerUnits),
-                check("Freeze NPC combat", AiDevSettings.freezeNpcCombat),
-                check("Disable attacks, keep economy", AiDevSettings.disableAttacks),
-                check("Disable economy, keep combat", AiDevSettings.disableEconomy),
-                "Preset: " + NpcDifficultyPreset.current().label,
+                check("Speed AI decisions 5x", settings.fastAi),
+                check("Freeze player units", settings.freezePlayerUnits),
+                check("Freeze NPC combat", settings.freezeNpcCombat),
+                check("Disable attacks, keep economy", settings.disableAttacks),
+                check("Disable economy, keep combat", settings.disableEconomy),
+                "Preset: " + settings.difficultyPreset().label,
                 "Spawn Corsairs now",
                 "Kill all Corsairs",
                 "Reset Corsair AI state",
@@ -101,6 +110,14 @@ final class AiDevPanel {
                 "Copy AI snapshot",
                 "Reload npc config request"
         };
+    }
+
+    private AiDevSettings settings(World world, PeerNetwork devAuthorityNetwork) {
+        return settingsWorld(world, devAuthorityNetwork).aiDevSettings;
+    }
+
+    private World settingsWorld(World world, PeerNetwork devAuthorityNetwork) {
+        return devAuthorityNetwork == null ? world : devAuthorityNetwork.devSettingsWorld(world);
     }
 
     private void runDevCommand(World world, PeerNetwork devAuthorityNetwork, String command, Runnable localAction) {
@@ -121,5 +138,5 @@ final class AiDevPanel {
 
     private String check(String label, boolean on) { return (on ? "[x] " : "[ ] ") + label; }
     private String trim(String text, int max) { return text.length() <= max ? text : text.substring(0, Math.max(0, max - 3)) + "..."; }
-    private int bodyHeight() { return ROW_BASELINE_Y + rows().length * ROW + 140; }
+    private int bodyHeight() { return ROW_BASELINE_Y + ROW_COUNT * ROW + 140; }
 }

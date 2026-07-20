@@ -1,32 +1,57 @@
 package com.tndmadman.rts;
 
 final class AiDevSettings {
-    static boolean overlay = true;
-    static boolean pathLines = true;
-    static boolean pauseAi;
-    static boolean stepAi;
-    static boolean fastAi;
-    static boolean freezePlayerUnits;
-    static boolean freezeNpcCombat;
-    static boolean disableAttacks;
-    static boolean disableEconomy;
-    static boolean hotReloadRequested;
-    static boolean resetRequested;
-    static boolean forceSpawnRequested;
-    static boolean forceRaidRequested;
-    static boolean forceStationRequested;
-    static boolean forceResearchRequested;
-    static boolean forceCraftRequested;
+    boolean pauseAi;
+    boolean stepAi;
+    boolean fastAi;
+    boolean freezePlayerUnits;
+    boolean freezeNpcCombat;
+    boolean disableAttacks;
+    boolean disableEconomy;
+    boolean hotReloadRequested;
+    boolean resetRequested;
+    boolean forceSpawnRequested;
+    boolean forceRaidRequested;
+    boolean forceStationRequested;
+    boolean forceResearchRequested;
+    boolean forceCraftRequested;
+    private NpcDifficultyPreset difficultyPreset = NpcDifficultyPreset.NORMAL;
 
-    private AiDevSettings() { }
+    double aiDt(double dt) { return fastAi ? dt * 5.0 : dt; }
+    boolean aiPaused() { return pauseAi && !stepAi; }
+    void consumeStep() { if (stepAi) stepAi = false; }
 
-    static double aiDt(double dt) { return fastAi ? dt * 5.0 : dt; }
-    static boolean aiPaused() { return pauseAi && !stepAi; }
-    static void consumeStep() { if (stepAi) stepAi = false; }
+    NpcDifficultyPreset difficultyPreset() { return difficultyPreset; }
 
-    static void togglePreset() {
-        NpcDifficultyPreset.next();
-        AiDevLog.add("DEV", "Difficulty preset: " + NpcDifficultyPreset.current().label);
+    void setDifficultyPreset(NpcDifficultyPreset preset) {
+        difficultyPreset = preset == null ? NpcDifficultyPreset.NORMAL : preset;
+    }
+
+    void togglePreset() {
+        difficultyPreset = difficultyPreset.next();
+        AiDevLog.add("DEV", "Difficulty preset: " + difficultyPreset.label);
+    }
+
+    void resetOneShotRequests() {
+        stepAi = false;
+        hotReloadRequested = false;
+        resetRequested = false;
+        forceSpawnRequested = false;
+        forceRaidRequested = false;
+        forceStationRequested = false;
+        forceResearchRequested = false;
+        forceCraftRequested = false;
+    }
+
+    void resetToDefaults() {
+        pauseAi = false;
+        fastAi = false;
+        freezePlayerUnits = false;
+        freezeNpcCombat = false;
+        disableAttacks = false;
+        disableEconomy = false;
+        difficultyPreset = NpcDifficultyPreset.NORMAL;
+        resetOneShotRequests();
     }
 }
 
@@ -43,7 +68,6 @@ enum NpcDifficultyPreset {
     final double buildScale;
     final double fleetScale;
     final double raidCooldownScale;
-    private static int index;
 
     NpcDifficultyPreset(String label, double buildScale, double fleetScale, double raidCooldownScale) {
         this.label = label;
@@ -52,7 +76,10 @@ enum NpcDifficultyPreset {
         this.raidCooldownScale = raidCooldownScale;
     }
 
-    static NpcDifficultyPreset current() { return values()[index]; }
-    static void next() { index = (index + 1) % values().length; }
-    static boolean harassmentAllowed() { return current() != NO_HARASS && current() != PASSIVE; }
+    NpcDifficultyPreset next() {
+        NpcDifficultyPreset[] presets = values();
+        return presets[(ordinal() + 1) % presets.length];
+    }
+
+    boolean harassmentAllowed() { return this != NO_HARASS && this != PASSIVE; }
 }

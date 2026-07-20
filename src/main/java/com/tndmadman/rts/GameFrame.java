@@ -190,6 +190,7 @@ final class GameFrame extends JFrame {
         if (networkTimer != null) networkTimer.stop();
         if (localHostSession != null) localHostSession.stop();
         else if (network != null) network.shutdown();
+        resetDeveloperSimulationState(stoppingWorld);
         gamePanel = null;
         resourceCatalogOverlay = null;
         codexOverlay = null;
@@ -200,6 +201,13 @@ final class GameFrame extends JFrame {
         localHostSession = null;
         networkTimer = null;
         activeWorld = null;
+    }
+
+
+    static void resetDeveloperSimulationState(World world) {
+        if (world == null) return;
+        world.aiDevSettings.resetToDefaults();
+        DevTimerSettings.configure(world, false);
     }
 
     private void layoutLayers() {

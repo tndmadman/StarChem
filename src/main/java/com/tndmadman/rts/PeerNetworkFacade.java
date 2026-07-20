@@ -285,6 +285,7 @@ final class PeerNetwork implements CommandSink {
         return playerId != null && (runtimeFreeBuild.contains(playerId) || server != null && server.world.devFreeBuildFor(playerId));
     }
     List<DevPeerAccess> devAccessPeers() { return server == null ? List.of() : server.devAccessPeers(); }
+    World devSettingsWorld(World fallback) { return server == null ? fallback : server.world; }
 
     void setRuntimeDevEnabled(boolean enabled) {
         runtimeDevEnabled = enabled;
@@ -292,16 +293,7 @@ final class PeerNetwork implements CommandSink {
         revokeAllRuntimeDevAccess();
         for (String playerId : new ArrayList<>(runtimeFreeBuild)) setServerFreeBuild(playerId, false);
         runtimeFreeBuild.clear();
-        AiDevSettings.pauseAi = false;
-        AiDevSettings.stepAi = false;
-        AiDevSettings.fastAi = false;
-        AiDevSettings.freezePlayerUnits = false;
-        AiDevSettings.freezeNpcCombat = false;
-        AiDevSettings.disableAttacks = false;
-        AiDevSettings.disableEconomy = false;
-        AiDevSettings.hotReloadRequested = false;
-        int guard = NpcDifficultyPreset.values().length + 1;
-        while (NpcDifficultyPreset.current() != NpcDifficultyPreset.NORMAL && guard-- > 0) NpcDifficultyPreset.next();
+        server.world.aiDevSettings.resetToDefaults();
         DevTimerSettings.configure(server.world, config.disableProductionTimers);
     }
 
@@ -413,7 +405,15 @@ final class PeerNetwork implements CommandSink {
     }
 
     void shutdown() {
-        if (client != null) client.shutdown();
+        if (client != null) {
+            client.shutdown();
+            client.world.aiDevSettings.resetToDefaults();
+            DevTimerSettings.configure(client.world, false);
+        }
+        if (server != null) {
+            server.world.aiDevSettings.resetToDefaults();
+            DevTimerSettings.configure(server.world, false);
+        }
         transport.shutdown();
     }
 
