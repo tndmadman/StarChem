@@ -3,8 +3,10 @@ package com.tndmadman.rts;
 import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 public final class GalaxyConnectivityValidator {
     private static final String SOLO_HOME_ID = StarSystems.PLAYER_HOME_SYSTEM_ID + "_SOLO";
@@ -25,6 +27,7 @@ public final class GalaxyConnectivityValidator {
             validateRuntimeWanderingTopology();
             validateSoloBootstrap();
             validateShipRoundTrip();
+            validateWormholeAudioScheduling();
             validateLocalHostBootstrap();
             validateStaticSystemsSurviveCleanup();
         } finally {
@@ -128,6 +131,69 @@ public final class GalaxyConnectivityValidator {
         require(world.transferTouchingShips(world.localPlayerId), "ship did not return through the wormhole");
         world.activateSystem(SOLO_HOME_ID);
         require(world.units.containsKey(ship.key()), "returned ship was missing from protected home");
+    }
+
+    private static void validateWormholeAudioScheduling() {
+        PlayerRegistry.reset("WAIT", "Wormhole Audio Validator", 0x50BEFF);
+        World world = new World("Wormhole Audio Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        PlayerRegistry.activate(world);
+        SystemAudio.markNonRendered(world);
+        String systemId = world.activeSystemId();
+        long now = TimeUnit.SECONDS.toNanos(10);
+        long cooldown = TimeUnit.MILLISECONDS.toNanos(900);
+
+        require(AudioEventCenter.claimCooldown(world, "wormhole:alpha", cooldown, now),
+                "first wormhole alarm was incorrectly suppressed");
+        require(!AudioEventCenter.claimCooldown(world, "wormhole:alpha", cooldown,
+                        now + TimeUnit.MILLISECONDS.toNanos(100)),
+                "wormhole alarm cooldown did not suppress a duplicate");
+
+        World secondWorld = new World("Second Wormhole Audio Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        SystemAudio.markNonRendered(secondWorld);
+        require(AudioEventCenter.claimCooldown(secondWorld, "wormhole:alpha", cooldown,
+                        now + TimeUnit.MILLISECONDS.toNanos(100)),
+                "wormhole alarm cooldown leaked between worlds");
+
+        AudioEventCenter.discard(world);
+        int limit = AudioEventCenter.maxDelayedForTest();
+        for (int i = 0; i < limit * 2; i++) {
+            AudioEventCenter.scheduleDelayedAt(world, systemId, SoundCue.ERROR,
+                    now + TimeUnit.SECONDS.toNanos(1), "burst-" + i);
+        }
+        require(AudioEventCenter.delayedCountForTest(world) == limit,
+                "wormhole delayed-audio queue exceeded or failed to reach its configured bound");
+
+        long threadsBefore = wormholeAudioThreadCount();
+        for (int i = 0; i < 1_000; i++) WormholeTransitNotice.play(world, systemId);
+        require(wormholeAudioThreadCount() == threadsBefore,
+                "wormhole audio created per-event JVM threads");
+        require(AudioEventCenter.delayedCountForTest(world) <= limit,
+                "wormhole transit burst exceeded the delayed-audio queue bound");
+
+        AudioEventCenter.discard(world);
+        AudioEventCenter.drain(world, "AUDIO_VALIDATOR", systemId);
+        require(AudioEventCenter.scheduleDelayedAt(world, systemId, SoundCue.ITEM_PICKUP, now, "due-cue"),
+                "due wormhole cue could not be scheduled");
+        AudioEventCenter.processDelayed(world, now);
+        List<AudioEvent> due = AudioEventCenter.drain(world, "AUDIO_VALIDATOR", systemId);
+        require(due.stream().anyMatch(event -> SoundCue.ITEM_PICKUP.name().equals(event.argument())),
+                "due wormhole cue was not published through the normal audio event path");
+
+        AudioEventCenter.scheduleDelayedAt(world, systemId, SoundCue.ERROR,
+                now + TimeUnit.SECONDS.toNanos(1), "discarded-cue");
+        AudioEventCenter.discard(world);
+        AudioEventCenter.processDelayed(world, Long.MAX_VALUE);
+        require(AudioEventCenter.delayedCountForTest(world) == 0,
+                "discarded world retained delayed wormhole audio");
+        AudioEventCenter.discard(secondWorld);
+    }
+
+    private static long wormholeAudioThreadCount() {
+        return Thread.getAllStackTraces().keySet().stream()
+                .filter(thread -> thread.isAlive()
+                        && (thread.getName().startsWith("StarChem Incoming Wormhole Alarm")
+                        || thread.getName().startsWith("StarChem Wormhole Exit Audio")))
+                .count();
     }
 
     private static void validateLocalHostBootstrap() {
