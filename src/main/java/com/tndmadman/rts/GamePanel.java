@@ -105,7 +105,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         AffineTransform old = g2.getTransform();
         camera.apply(g2);
         world.draw(g2);
-        if (devMode) aiDevOverlay.drawWorld(g2, world);
+        if (devMode) aiDevOverlay.drawWorld(g2, world, aiDevPanel.overlayEnabled(), aiDevPanel.pathLinesEnabled());
         drawSelectionBox(g2);
         g2.setTransform(old);
         WormholeIndicator.draw(g2, world, camera, getWidth(), getHeight());
@@ -114,7 +114,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         hangarHud.draw(g2, world, getWidth());
         if (!galaxyMapOpen) minimapHud.draw(g2, world, camera, getWidth(), getHeight());
         if (world.devFreeBuild) shieldDebugOverlay.draw(g2, world, getWidth());
-        if (devMode) { devMenu.draw(g2, world, canEditDev()); aiDevPanel.draw(g2, world, canEditDev()); }
+        if (devMode) { devMenu.draw(g2, world, canEditDev()); aiDevPanel.draw(g2, world, devAuthorityNetwork, canEditDev()); }
         buildMenu.draw(g2);
         if (galaxyMapOpen) galaxyMapOverlay.draw(g2, world.galaxyMapSnapshot(), getWidth(), getHeight());
         if (devMode && perfOverlayVisible) {
@@ -424,7 +424,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         if (commandMode != UnitOrderType.NONE && e.getKeyCode() == KeyEvent.VK_ESCAPE) { clearCommandMode(); world.status = "Command mode cancelled."; repaint(); return; }
         if (galaxyMapOpen && e.getKeyCode() == KeyEvent.VK_ESCAPE) { closeGalaxyMap(); return; }
         if (galaxyMapOpen) return;
-        if (devMode && e.getKeyCode() == KeyEvent.VK_F3) { AiDevSettings.overlay = !AiDevSettings.overlay; world.status = "AI debug overlay: " + (AiDevSettings.overlay ? "ON" : "OFF") + "."; repaint(); return; }
+        if (devMode && e.getKeyCode() == KeyEvent.VK_F3) { boolean visible = aiDevPanel.toggleOverlay(); world.status = "AI debug overlay: " + (visible ? "ON" : "OFF") + "."; repaint(); return; }
         if (devMode && e.getKeyCode() == KeyEvent.VK_F4) { perfOverlayVisible = !perfOverlayVisible; world.status = "Performance overlay: " + (perfOverlayVisible ? "ON" : "OFF") + "."; repaint(); return; }
         if (e.getKeyCode() == KeyEvent.VK_F) { formation = formation.next(); world.status = "Fleet formation: " + formation.label + "."; ProceduralAudio.play(SoundCue.SELECT); return; }
         if (e.getKeyCode() == KeyEvent.VK_R) { UnitRenderer.toggleMiningRangeOverlay(); world.status = "Miner range overlay: " + (UnitRenderer.miningRangeOverlayVisible() ? "ON" : "OFF") + "."; ProceduralAudio.play(SoundCue.SELECT); repaint(); return; }

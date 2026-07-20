@@ -530,16 +530,16 @@ final class PeerServerSide {
 
     private void applyAiCommand(String command) {
         switch (command) {
-            case "togglePauseAi" -> AiDevSettings.pauseAi = !AiDevSettings.pauseAi;
-            case "stepAi" -> AiDevSettings.stepAi = true;
-            case "toggleFastAi" -> AiDevSettings.fastAi = !AiDevSettings.fastAi;
-            case "toggleFreezePlayerUnits" -> AiDevSettings.freezePlayerUnits = !AiDevSettings.freezePlayerUnits;
-            case "toggleFreezeNpcCombat" -> AiDevSettings.freezeNpcCombat = !AiDevSettings.freezeNpcCombat;
-            case "toggleDisableAttacks" -> AiDevSettings.disableAttacks = !AiDevSettings.disableAttacks;
-            case "toggleDisableEconomy" -> AiDevSettings.disableEconomy = !AiDevSettings.disableEconomy;
+            case "togglePauseAi" -> world.aiDevSettings.pauseAi = !world.aiDevSettings.pauseAi;
+            case "stepAi" -> world.aiDevSettings.stepAi = true;
+            case "toggleFastAi" -> world.aiDevSettings.fastAi = !world.aiDevSettings.fastAi;
+            case "toggleFreezePlayerUnits" -> world.aiDevSettings.freezePlayerUnits = !world.aiDevSettings.freezePlayerUnits;
+            case "toggleFreezeNpcCombat" -> world.aiDevSettings.freezeNpcCombat = !world.aiDevSettings.freezeNpcCombat;
+            case "toggleDisableAttacks" -> world.aiDevSettings.disableAttacks = !world.aiDevSettings.disableAttacks;
+            case "toggleDisableEconomy" -> world.aiDevSettings.disableEconomy = !world.aiDevSettings.disableEconomy;
             case "disableProductionTimers" -> DevTimerSettings.configure(world, true);
             case "enableProductionTimers" -> DevTimerSettings.configure(world, false);
-            case "togglePreset" -> AiDevSettings.togglePreset();
+            case "togglePreset" -> world.aiDevSettings.togglePreset();
             case "spawnCorsairs" -> AiDevCommands.spawnCorsairs(world);
             case "killCorsairs" -> AiDevCommands.killCorsairs(world);
             case "resetCorsairs" -> AiDevCommands.resetCorsairs(world);

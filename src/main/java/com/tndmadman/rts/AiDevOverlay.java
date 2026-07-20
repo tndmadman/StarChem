@@ -4,14 +4,14 @@ import java.awt.*;
 import java.awt.geom.Line2D;
 
 final class AiDevOverlay {
-    void drawWorld(Graphics2D g2, World world) {
-        if (!AiDevSettings.overlay) return;
+    void drawWorld(Graphics2D g2, World world, boolean overlay, boolean pathLines) {
+        if (!overlay) return;
         for (NpcFaction f : NpcRules.factions()) {
             if (!f.enabled()) continue;
             Base first = firstBase(world, f.id());
             if (first != null) AiDevSnapshot.drawLabel(g2, world, f, first.x + 120, first.y - 150);
         }
-        if (AiDevSettings.pathLines) drawLines(g2, world);
+        if (pathLines) drawLines(g2, world);
     }
 
     private void drawLines(Graphics2D g2, World world) {

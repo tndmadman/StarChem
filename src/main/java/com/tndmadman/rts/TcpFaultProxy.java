@@ -145,6 +145,8 @@ final class TcpFaultProxy implements AutoCloseable {
                     if (!running.get() || !open.get()) break;
                     int read = input.read(buffer);
                     if (read < 0) break;
+                    if (downstream) awaitDownstream();
+                    if (!running.get() || !open.get()) break;
                     long started = System.nanoTime();
                     output.write(buffer, 0, read);
                     output.flush();

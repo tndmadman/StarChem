@@ -316,7 +316,7 @@ final class AiBrainLog {
                     mapOf("before", memory.lastResearch, "after", research));
             memory.lastResearch = research;
         }
-        String devSettings = devSettingsSignature();
+        String devSettings = devSettingsSignature(world);
         if (!Objects.equals(memory.lastDevSettings, devSettings)) {
             write(world, "DEV", "dev_settings", "",
                     "AI developer settings changed",
@@ -325,15 +325,16 @@ final class AiBrainLog {
         }
     }
 
-    private static String devSettingsSignature() {
-        return "pauseAi=" + AiDevSettings.pauseAi
-                + ",stepAi=" + AiDevSettings.stepAi
-                + ",fastAi=" + AiDevSettings.fastAi
-                + ",freezePlayerUnits=" + AiDevSettings.freezePlayerUnits
-                + ",freezeNpcCombat=" + AiDevSettings.freezeNpcCombat
-                + ",disableAttacks=" + AiDevSettings.disableAttacks
-                + ",disableEconomy=" + AiDevSettings.disableEconomy
-                + ",difficulty=" + NpcDifficultyPreset.current().name();
+    private static String devSettingsSignature(World world) {
+        AiDevSettings settings = world.aiDevSettings;
+        return "pauseAi=" + settings.pauseAi
+                + ",stepAi=" + settings.stepAi
+                + ",fastAi=" + settings.fastAi
+                + ",freezePlayerUnits=" + settings.freezePlayerUnits
+                + ",freezeNpcCombat=" + settings.freezeNpcCombat
+                + ",disableAttacks=" + settings.disableAttacks
+                + ",disableEconomy=" + settings.disableEconomy
+                + ",difficulty=" + settings.difficultyPreset().name();
     }
 
     private static void checkpoint(World world) {
@@ -355,7 +356,7 @@ final class AiBrainLog {
                         "shots", world.shots.size(),
                         "items", world.items.size(),
                         "wormholes", world.wormholes.size(),
-                        "devSettings", devSettingsSignature(),
+                        "devSettings", devSettingsSignature(world),
                         "status", safe(world.status)));
     }
 

@@ -23,6 +23,10 @@ final class AiDevSnapshot {
     }
 
     static List<String> summary(World world, NpcFaction faction) {
+        return summary(world, faction, world.aiDevSettings);
+    }
+
+    static List<String> summary(World world, NpcFaction faction, AiDevSettings settings) {
         List<String> out = new ArrayList<>();
         if (faction == null) { out.add("No Corsair faction loaded."); return out; }
         NpcStrategicSnapshot strategic = NpcStrategicDirector.snapshot(world, faction);
@@ -31,7 +35,7 @@ final class AiDevSnapshot {
         int combat = strategic.hasAssets() ? strategic.combat() : capacity.combat();
         int support = strategic.hasAssets() ? strategic.support() : capacity.support();
         int stations = strategic.hasAssets() ? strategic.stations() : capacity.livingStations();
-        out.add(faction.name() + " | " + factionState(world, faction) + " | " + NpcDifficultyPreset.current().label);
+        out.add(faction.name() + " | " + factionState(world, faction) + " | " + settings.difficultyPreset().label);
         out.add("Workers " + workers + "/" + faction.maxWorkers()
                 + " | Combat " + combat + "/" + faction.targetFleetSize()
                 + " | Support " + support + "/" + faction.maxSupportUnits()

@@ -117,10 +117,10 @@ public final class TcpRemoteSystemVisibilityValidator {
                                                         TcpIntegrationHarness.TestClient viewer,
                                                         String viewerId,
                                                         String ownerId) throws Exception {
-        boolean previousDisableAttacks = AiDevSettings.disableAttacks;
-        boolean previousFreezeNpcCombat = AiDevSettings.freezeNpcCombat;
-        AiDevSettings.disableAttacks = true;
-        AiDevSettings.freezeNpcCombat = true;
+        boolean previousDisableAttacks = harness.serverWorld.aiDevSettings.disableAttacks;
+        boolean previousFreezeNpcCombat = harness.serverWorld.aiDevSettings.freezeNpcCombat;
+        harness.serverWorld.aiDevSettings.disableAttacks = true;
+        harness.serverWorld.aiDevSettings.freezeNpcCombat = true;
         try {
             String unitKey = seedCorsairUnit(harness.serverWorld, ownerId);
             viewer.network().viewSystem(viewerId, StarSystems.CORSAIR_SYSTEM_ID);
@@ -136,8 +136,8 @@ public final class TcpRemoteSystemVisibilityValidator {
             setUnitPosition(harness.serverWorld, StarSystems.CORSAIR_SYSTEM_ID, unitKey, targetX, targetY);
             awaitCorsairReplication(harness, viewer, unitKey, sequenceBeforeMove, targetX, targetY);
         } finally {
-            AiDevSettings.disableAttacks = previousDisableAttacks;
-            AiDevSettings.freezeNpcCombat = previousFreezeNpcCombat;
+            harness.serverWorld.aiDevSettings.disableAttacks = previousDisableAttacks;
+            harness.serverWorld.aiDevSettings.freezeNpcCombat = previousFreezeNpcCombat;
         }
     }
 
