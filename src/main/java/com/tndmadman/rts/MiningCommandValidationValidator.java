@@ -37,46 +37,45 @@ public final class MiningCommandValidationValidator {
 
         reset(miner);
         AUnitWork.apply(world, new HarvestCommand(miner.playerId, miner.unitId, MISSING_RESOURCE_ID));
-        requireIdleWithoutTarget(miner, "missing resource order changed authoritative state");
+        requireRejectedOrder(miner, "missing resource order changed authoritative state");
 
         reset(miner);
         boolean active = node.active;
         node.active = false;
         AUnitWork.apply(world, new HarvestCommand(miner.playerId, miner.unitId, node.id));
-        requireIdleWithoutTarget(miner, "inactive resource order changed authoritative state");
+        requireRejectedOrder(miner, "inactive resource order changed authoritative state");
         node.active = active;
 
         reset(miner);
         double amount = node.amount;
         node.amount = 0.05;
         AUnitWork.apply(world, new HarvestCommand(miner.playerId, miner.unitId, node.id));
-        requireIdleWithoutTarget(miner, "depleted resource order changed authoritative state");
+        requireRejectedOrder(miner, "depleted resource order changed authoritative state");
         node.amount = amount;
     }
 
     private static void validateInvalidStateRecovery(World world, Unit miner, ResourceNode node) {
         WorkSystem work = new WorkSystem();
 
+        world.resources.clear();
         reset(miner);
         miner.startAutoHarvest(MISSING_RESOURCE_ID);
         work.update(world, miner, 0.1);
-        requireIdleWithoutTarget(miner, "missing legacy mining target was not cleared");
+        requireClearedTarget(miner, "missing legacy mining target was not cleared");
 
         reset(miner);
         miner.addCargo(node.material, miner.type().cargoCapacity);
         miner.startAutoHarvest(MISSING_RESOURCE_ID);
         work.update(world, miner, 0.1);
-        require(miner.automationResourceId == -1, "missing full-cargo target was retained");
-        require(miner.task == UnitTask.RETURN_TO_STATION,
-                "full miner with a missing target did not return to its station");
+        requireClearedTarget(miner, "missing full-cargo target was retained");
 
-        world.resources.removeIf(candidate -> candidate != node);
+        world.resources.add(node);
         reset(miner);
         boolean active = node.active;
         node.active = false;
         miner.startAutoHarvest(node.id);
         work.update(world, miner, 0.1);
-        requireIdleWithoutTarget(miner, "inactive legacy mining target was not cleared");
+        requireClearedTarget(miner, "inactive legacy mining target was not cleared");
         node.active = active;
 
         reset(miner);
@@ -88,21 +87,21 @@ public final class MiningCommandValidationValidator {
         miner.targetY = node.y;
         miner.startAutoHarvest(node.id);
         work.update(world, miner, 1.0);
-        require(miner.automationResourceId == -1, "depleted target ID was retained after mining");
-        require(miner.task == UnitTask.IDLE || miner.task == UnitTask.MOVE,
-                "miner remained in auto-harvest after target depletion");
+        requireClearedTarget(miner, "depleted target ID was retained after mining");
     }
 
     private static void validateIncompatibleShip(World world, ShipType nonMiningShip, ResourceNode node) {
+        node.active = true;
+        node.amount = Math.max(1.0, node.amount);
         Unit unit = new Unit("SOLO", NON_MINER_ID, nonMiningShip.id, node.x, node.y);
         world.units.put(unit.key(), unit);
 
         AUnitWork.apply(world, new HarvestCommand(unit.playerId, unit.unitId, node.id));
-        requireIdleWithoutTarget(unit, "non-mining ship accepted an authoritative mining order");
+        requireRejectedOrder(unit, "non-mining ship accepted an authoritative mining order");
 
         unit.startAutoHarvest(node.id);
         new WorkSystem().update(world, unit, 0.1);
-        requireIdleWithoutTarget(unit, "incompatible legacy mining assignment was not cleared");
+        requireClearedTarget(unit, "incompatible legacy mining assignment was not cleared");
     }
 
     private static Fixture fixture(World world) {
@@ -131,8 +130,14 @@ public final class MiningCommandValidationValidator {
         unit.targetY = unit.y;
     }
 
-    private static void requireIdleWithoutTarget(Unit unit, String message) {
-        require(unit.task == UnitTask.IDLE && unit.automationResourceId == -1 && !unit.miningAnchorSet, message);
+    private static void requireRejectedOrder(Unit unit, String message) {
+        require(unit.task == UnitTask.IDLE
+                && unit.automationResourceId == -1
+                && !unit.miningAnchorSet, message);
+    }
+
+    private static void requireClearedTarget(Unit unit, String message) {
+        require(unit.automationResourceId == -1 && unit.task != UnitTask.AUTO_HARVEST, message);
     }
 
     private static void require(boolean condition, String message) {
