@@ -7,7 +7,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 
-/** Validates collision-safe automatic backup naming and retention ordering. */
+/** Validates collision-safe automatic backup naming, retention ordering, and save-name isolation. */
 public final class ServerSaveStoreBackupCollisionValidator {
     private static final Instant FIXED_TIME = Instant.parse("2026-07-20T12:34:56.789Z");
     private static final String STAMP = "20260720-123456-789";
@@ -24,6 +24,7 @@ public final class ServerSaveStoreBackupCollisionValidator {
         try {
             validateDistinctBackups(dir);
             validateRetentionOrdering(dir);
+            validatePrefixIsolation(dir.resolve("prefix-isolation"));
         } finally {
             try (var stream = Files.walk(dir)) {
                 stream.sorted((a, b) -> b.compareTo(a)).forEach(path -> {
@@ -74,11 +75,68 @@ public final class ServerSaveStoreBackupCollisionValidator {
                 "backup retention kept stale content in the newest archive");
     }
 
+    private static void validatePrefixIsolation(Path dir) throws Exception {
+        Files.createDirectories(dir);
+        String saveName = "foo";
+        List<String> foreignArchives = List.of(
+                "foo-bar-current.starchem-save",
+                "foo-bar-previous.starchem-save",
+                "foo-bar-20260719-010203-manual.starchem-save",
+                "foo.bar-current.starchem-save",
+                "foo.bar-previous.starchem-save",
+                "foo.bar-20260719-010203-manual.starchem-save",
+                "foo_bar-current.starchem-save",
+                "foo_bar-previous.starchem-save",
+                "foo_bar-20260719-010203-manual.starchem-save",
+                "foo-20260720-123456-current.starchem-save",
+                "foo-20260720-123456-previous.starchem-save");
+        for (String filename : foreignArchives) {
+            Files.writeString(dir.resolve(filename), "foreign:" + filename, StandardCharsets.UTF_8);
+        }
+
+        Path current = currentPath(dir, saveName);
+        Files.writeString(current, "foo-current", StandardCharsets.UTF_8);
+        ServerSaveStore store = new ServerSaveStore(dir, saveName, 1);
+        store.rotateBackups(FIXED_TIME);
+
+        require(backups(dir, saveName).size() == 1,
+                "automatic rotation did not retain exactly one owned backup");
+        assertForeignArchivesUntouched(dir, foreignArchives);
+
+        Files.writeString(dir.resolve("foo-20260718-000000-manual.starchem-save"), "owned-old-1", StandardCharsets.UTF_8);
+        Files.writeString(dir.resolve("foo-20260719-000000-manual.starchem-save"), "owned-old-2", StandardCharsets.UTF_8);
+        ServerBackupAdmin admin = new ServerBackupAdmin(dir, saveName, 1);
+        List<String> listed = admin.list();
+        for (String foreign : foreignArchives) {
+            require(listed.stream().noneMatch(line -> line.contains(foreign)),
+                    "backup listing exposed a foreign archive: " + foreign);
+        }
+        require(admin.verifySelector("foo-bar-current.starchem-save").startsWith("Unknown backup selector:"),
+                "backup verification accepted another save's current archive");
+        require(admin.verifySelector("foo.bar-20260719-010203-manual.starchem-save").startsWith("Unknown backup selector:"),
+                "backup verification accepted another save's timestamped archive");
+
+        String pruneResult = admin.prune();
+        require(pruneResult.startsWith("Pruned 2 backups; retained 1."),
+                "administrative pruning did not operate on only the owned backup set: " + pruneResult);
+        require(backups(dir, saveName).size() == 1,
+                "administrative pruning retained the wrong number of owned backups");
+        assertForeignArchivesUntouched(dir, foreignArchives);
+    }
+
+    private static void assertForeignArchivesUntouched(Path dir, List<String> filenames) throws Exception {
+        for (String filename : filenames) {
+            Path path = dir.resolve(filename);
+            require(Files.isRegularFile(path), "foreign archive was deleted: " + filename);
+            require(Files.readString(path, StandardCharsets.UTF_8).equals("foreign:" + filename),
+                    "foreign archive was modified: " + filename);
+        }
+    }
+
     private static List<Path> backups(Path dir, String saveName) throws Exception {
         try (var stream = Files.list(dir)) {
             return stream
-                    .filter(path -> path.getFileName().toString().startsWith(saveName + "-" + STAMP + "-"))
-                    .filter(path -> path.getFileName().toString().endsWith(".starchem-save"))
+                    .filter(path -> ServerSaveArchiveNames.isTimestampedBackup(saveName, path))
                     .sorted()
                     .toList();
         }

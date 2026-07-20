@@ -251,10 +251,8 @@ final class ServerSaveStore {
         List<Path> backups;
         try (var stream = Files.list(saveDir)) {
             backups = stream
-                    .filter(path -> path.getFileName().toString().startsWith(saveName + "-"))
-                    .filter(path -> path.getFileName().toString().endsWith(EXTENSION))
-                    .filter(path -> !path.equals(currentPath()))
-                    .filter(path -> !path.equals(previousPath()))
+                    .filter(Files::isRegularFile)
+                    .filter(path -> ServerSaveArchiveNames.isTimestampedBackup(saveName, path))
                     .sorted()
                     .toList();
         }
