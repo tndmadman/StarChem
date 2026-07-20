@@ -3,13 +3,22 @@ package com.tndmadman.rts;
 final class AUnitWork {
     private AUnitWork() { }
 
-    static void apply(World world, HarvestCommand c) {
-        Unit u = world.units.get(Unit.key(c.playerId(), c.unitId()));
-        ResourceNode node = world.findResource(c.resourceId());
-        ResourceNetDebug.hostWorkOrder(world, c, u, node);
-        if (u != null) {
-            AWorkAnchor.apply(world, u, c.resourceId());
-            u.startAutoHarvest(c.resourceId());
-        }
+    static void apply(World world, HarvestCommand command) {
+        if (world == null || command == null) return;
+        Unit unit = world.units.get(Unit.key(command.playerId(), command.unitId()));
+        ResourceNode node = world.findResource(command.resourceId());
+        ResourceNetDebug.hostWorkOrder(world, command, unit, node);
+        if (!valid(unit, node, command)) return;
+        unit.setMiningAnchor(node.x, node.y);
+        unit.startAutoHarvest(node.id);
+    }
+
+    private static boolean valid(Unit unit, ResourceNode node, HarvestCommand command) {
+        return unit != null
+                && unit.playerId.equals(command.playerId())
+                && node != null
+                && node.active
+                && node.amount > 0.05
+                && unit.type().harvestKinds.contains(node.kind);
     }
 }
