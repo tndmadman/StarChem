@@ -1,5 +1,6 @@
 package com.tndmadman.rts;
 
+import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -10,6 +11,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -22,10 +26,13 @@ final class AudioEventCenter {
     private static final int MAX_EVENTS_PER_DRAIN = 48;
     private static final int MAX_PENDING_REMOTE = 64;
     private static final int MAX_DELAYED_EVENTS = 64;
+    private static final int MAX_DELAYED_EVENTS_GLOBAL = 256;
     private static final int MAX_COOLDOWN_KEYS = 128;
     private static final long MAX_EVENT_AGE_MS = 3_000;
     private static final long MAX_DELAYED_LATENESS_NANOS = TimeUnit.SECONDS.toNanos(3);
     private static final Map<World, State> STATES = new WeakHashMap<>();
+    private static final ScheduledThreadPoolExecutor DELAYED_AUDIO = delayedExecutor();
+    private static int delayedEventsGlobal;
 
     private AudioEventCenter() { }
 
@@ -96,11 +103,18 @@ final class AudioEventCenter {
         long delayNanos = TimeUnit.MILLISECONDS.toNanos(Math.max(0, delayMillis));
         long now = System.nanoTime();
         long due = Long.MAX_VALUE - now < delayNanos ? Long.MAX_VALUE : now + delayNanos;
-        return scheduleDelayedAt(world, systemId, cue, due, coalesceKey);
+        return scheduleDelayedInternal(world, systemId, cue, due, coalesceKey, true);
     }
 
-    static synchronized boolean scheduleDelayedAt(World world, String systemId, SoundCue cue,
-                                                  long dueNanos, String coalesceKey) {
+    /** Deterministic validator hook; callers must invoke processDelayed. */
+    static boolean scheduleDelayedAt(World world, String systemId, SoundCue cue,
+                                     long dueNanos, String coalesceKey) {
+        return scheduleDelayedInternal(world, systemId, cue, dueNanos, coalesceKey, false);
+    }
+
+    private static synchronized boolean scheduleDelayedInternal(World world, String systemId, SoundCue cue,
+                                                                long dueNanos, String coalesceKey,
+                                                                boolean scheduleWakeup) {
         String cleanSystemId = clean(systemId);
         String cleanKey = clean(coalesceKey);
         if (world == null || cleanSystemId.isBlank() || cue == null) return false;
@@ -110,9 +124,25 @@ final class AudioEventCenter {
                 if (cleanKey.equals(delayed.coalesceKey())) return false;
             }
         }
-        if (state.delayed.size() >= MAX_DELAYED_EVENTS) return false;
-        state.delayed.addLast(new DelayedAudio(cleanSystemId, cue, dueNanos, cleanKey));
-        return true;
+        if (state.delayed.size() >= MAX_DELAYED_EVENTS || delayedEventsGlobal >= MAX_DELAYED_EVENTS_GLOBAL) {
+            return false;
+        }
+        DelayedAudio delayed = new DelayedAudio(cleanSystemId, cue, dueNanos, cleanKey);
+        state.delayed.addLast(delayed);
+        delayedEventsGlobal++;
+        if (!scheduleWakeup) return true;
+        try {
+            scheduleWakeupLocked(world, state);
+            return true;
+        } catch (RuntimeException ex) {
+            state.delayed.removeLastOccurrence(delayed);
+            delayedEventsGlobal = Math.max(0, delayedEventsGlobal - 1);
+            if (state.delayed.isEmpty() && state.events.isEmpty() && state.pendingRemote.isEmpty()
+                    && state.cursorByPlayer.isEmpty() && state.cooldownNanos.isEmpty()) {
+                STATES.remove(world);
+            }
+            return false;
+        }
     }
 
     static void processDelayed(World world) {
@@ -130,15 +160,23 @@ final class AudioEventCenter {
                 DelayedAudio delayed = iterator.next();
                 if (nowNanos < delayed.dueNanos()) continue;
                 iterator.remove();
+                delayedEventsGlobal = Math.max(0, delayedEventsGlobal - 1);
                 long lateness = nowNanos - delayed.dueNanos();
                 if (lateness <= MAX_DELAYED_LATENESS_NANOS) ready.add(delayed);
             }
+            if (state.delayed.isEmpty()) cancelWakeupLocked(state);
+            else scheduleWakeupLocked(world, state);
         }
         for (DelayedAudio delayed : ready) play(world, delayed.systemId(), delayed.cue());
     }
 
     static synchronized void discard(World world) {
-        if (world != null) STATES.remove(world);
+        if (world == null) return;
+        State state = STATES.remove(world);
+        if (state == null) return;
+        cancelWakeupLocked(state);
+        delayedEventsGlobal = Math.max(0, delayedEventsGlobal - state.delayed.size());
+        state.delayed.clear();
     }
 
     static synchronized int delayedCountForTest(World world) {
@@ -148,6 +186,10 @@ final class AudioEventCenter {
 
     static int maxDelayedForTest() {
         return MAX_DELAYED_EVENTS;
+    }
+
+    static synchronized int delayedGlobalCountForTest() {
+        return delayedEventsGlobal;
     }
 
     static List<AudioEvent> drain(World world, String playerId, String viewedSystemId) {
@@ -266,6 +308,60 @@ final class AudioEventCenter {
         } catch (RuntimeException ignored) { }
     }
 
+    private static void scheduleWakeupLocked(World world, State state) {
+        long earliest = Long.MAX_VALUE;
+        for (DelayedAudio delayed : state.delayed) earliest = Math.min(earliest, delayed.dueNanos());
+        if (earliest == Long.MAX_VALUE) {
+            cancelWakeupLocked(state);
+            return;
+        }
+        if (state.delayedWakeup != null && !state.delayedWakeup.isDone()
+                && state.delayedWakeupNanos <= earliest) return;
+        cancelWakeupLocked(state);
+        long delayNanos = Math.max(0, earliest - System.nanoTime());
+        WeakReference<World> worldRef = new WeakReference<>(world);
+        state.delayedWakeupNanos = earliest;
+        state.delayedWakeup = DELAYED_AUDIO.schedule(() -> scheduledWakeup(worldRef, state),
+                delayNanos, TimeUnit.NANOSECONDS);
+    }
+
+    private static void scheduledWakeup(WeakReference<World> worldRef, State expectedState) {
+        World world = worldRef.get();
+        synchronized (AudioEventCenter.class) {
+            if (world == null) {
+                cancelWakeupLocked(expectedState);
+                delayedEventsGlobal = Math.max(0, delayedEventsGlobal - expectedState.delayed.size());
+                expectedState.delayed.clear();
+                STATES.size();
+                return;
+            }
+            if (STATES.get(world) != expectedState) return;
+            expectedState.delayedWakeup = null;
+            expectedState.delayedWakeupNanos = Long.MAX_VALUE;
+        }
+        processDelayed(world, System.nanoTime());
+    }
+
+    private static void cancelWakeupLocked(State state) {
+        ScheduledFuture<?> wakeup = state.delayedWakeup;
+        state.delayedWakeup = null;
+        state.delayedWakeupNanos = Long.MAX_VALUE;
+        if (wakeup != null) wakeup.cancel(false);
+    }
+
+    private static ScheduledThreadPoolExecutor delayedExecutor() {
+        ThreadFactory factory = runnable -> {
+            Thread thread = new Thread(runnable, "StarChem Audio Scheduler");
+            thread.setDaemon(true);
+            return thread;
+        };
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, factory);
+        executor.setRemoveOnCancelPolicy(true);
+        executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        executor.setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
+        return executor;
+    }
+
     private static void prune(State state, long now) {
         while (!state.events.isEmpty() && now - state.events.peekFirst().createdAt() > MAX_EVENT_AGE_MS) {
             state.events.removeFirst();
@@ -294,6 +390,8 @@ final class AudioEventCenter {
         final Deque<DelayedAudio> delayed = new ArrayDeque<>();
         final Map<String, Long> cursorByPlayer = new LinkedHashMap<>();
         final Map<String, Long> cooldownNanos = new LinkedHashMap<>();
+        ScheduledFuture<?> delayedWakeup;
+        long delayedWakeupNanos = Long.MAX_VALUE;
     }
 
     private record DelayedAudio(String systemId, SoundCue cue, long dueNanos, String coalesceKey) { }
