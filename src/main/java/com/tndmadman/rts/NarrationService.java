@@ -1,10 +1,7 @@
 package com.tndmadman.rts;
 
 import java.awt.GraphicsEnvironment;
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -167,11 +164,10 @@ final class NarrationService {
     }
 
     private static void runSpeech(ProcessBuilder builder) throws IOException, InterruptedException {
-        builder.redirectErrorStream(true);
-        Process process = builder.start();
-        if (!process.waitFor(30, TimeUnit.SECONDS)) {
-            process.destroyForcibly();
-            process.waitFor(2, TimeUnit.SECONDS);
+        NarrationProcessRunner.ExitResult result = NarrationProcessRunner.runDiscarding(builder, 30);
+        if (result.timedOut()) throw new IOException("Narration process timed out.");
+        if (result.exitCode() != 0) {
+            throw new IOException("Narration process exited with code " + result.exitCode() + ".");
         }
     }
 
@@ -215,18 +211,10 @@ final class NarrationService {
 
     private static List<String> runAndRead(List<String> command, int timeoutSeconds)
             throws IOException, InterruptedException {
-        Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
-        if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
-            process.destroyForcibly();
-            process.waitFor(1, TimeUnit.SECONDS);
-            return List.of();
-        }
-        List<String> lines = new ArrayList<>();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) if (!line.isBlank()) lines.add(line.trim());
-        }
-        return lines;
+        NarrationProcessRunner.CaptureResult result = NarrationProcessRunner.runAndRead(
+                new ProcessBuilder(command), timeoutSeconds);
+        if (result.timedOut() || result.exitCode() != 0) return List.of();
+        return result.lines();
     }
 
     private static void addLines(Set<String> found, List<String> lines) {
@@ -247,9 +235,9 @@ final class NarrationService {
 
     private static boolean commandAvailable(String command) {
         try {
-            Process process = new ProcessBuilder(command, "--version").redirectErrorStream(true).start();
-            if (!process.waitFor(2, TimeUnit.SECONDS)) process.destroyForcibly();
-            return true;
+            NarrationProcessRunner.ExitResult result = NarrationProcessRunner.runDiscarding(
+                    new ProcessBuilder(command, "--version"), 2);
+            return !result.timedOut() && result.exitCode() == 0;
         } catch (Exception ignored) {
             return false;
         }
