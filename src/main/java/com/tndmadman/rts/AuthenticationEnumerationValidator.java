@@ -85,7 +85,7 @@ public final class AuthenticationEnumerationValidator {
                         "wrong-password", existingChallenge);
                 String missingDenial = answerChallenge(server, missing, remote, MISSING_NAME,
                         MISSING_PASSWORD, missingChallenge);
-                require("JOIN_DENIED|Authentication failed.".equals(existingDenial),
+                require("JOIN_DENIED|Password rejected.".equals(existingDenial),
                         "wrong retained password returned a non-generic denial");
                 require(existingDenial.equals(missingDenial),
                         "existing and unknown identity proof failures were distinguishable");

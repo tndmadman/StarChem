@@ -228,7 +228,7 @@ final class PeerServerSide {
             if (!allowAuthAttempt(address, cleanName, connectionId)) return;
             byte[] passwordVerifierBytes = PasswordAuth.decodeVerifier(passwordVerifier);
             if (passwordVerifierBytes.length == 0) {
-                denyAuthentication(connectionId, "Authentication failed.");
+                denyAuthentication(connectionId, "Password rejected.");
                 return;
             }
             reclaimByPassword(connectionId, address, port, namedSession, passwordVerifierBytes, requestedDev, suppliedDevToken);
@@ -341,7 +341,7 @@ final class PeerServerSide {
         boolean sessionMatches = session != null && !playerId.isBlank()
                 && normalizedName(session.name).equals(normalizedName(challengeName));
         if (!contextMatches || !proofMatches || !sessionMatches) {
-            denyAuthentication(connectionId, "Authentication failed.");
+            denyAuthentication(connectionId, "Password rejected.");
             return;
         }
         bindReclaimedSession(connectionId, address, port, session, requestedDev, suppliedDevToken);
@@ -354,13 +354,13 @@ final class PeerServerSide {
             session.passwordDigest = PasswordAuth.serverDigest(passwordVerifier, session.passwordSalt);
         } else if (session.passwordSalt == null || session.passwordSalt.length == 0) {
             if (!MessageDigest.isEqual(session.passwordDigest, passwordVerifier)) {
-                denyAuthentication(connectionId, "Authentication failed.");
+                denyAuthentication(connectionId, "Password rejected.");
                 return;
             }
             session.passwordSalt = PasswordAuth.newSalt();
             session.passwordDigest = PasswordAuth.serverDigest(passwordVerifier, session.passwordSalt);
         } else if (!MessageDigest.isEqual(session.passwordDigest, PasswordAuth.serverDigest(passwordVerifier, session.passwordSalt))) {
-            denyAuthentication(connectionId, "Authentication failed.");
+            denyAuthentication(connectionId, "Password rejected.");
             return;
         }
         bindReclaimedSession(connectionId, address, port, session, requestedDev, suppliedDevToken);
