@@ -236,7 +236,7 @@ final class ServerDeviceIdentity {
     }
 
     static boolean equal(String left, String right) {
-        return valid(left) && valid(right) && left.equalsIgnoreCase(right);
+        return valid(left) && valid(right) && left.equals(right);
     }
 
     static String mask(String value) {
