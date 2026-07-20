@@ -87,11 +87,12 @@ public final class ServerConsoleValidator {
         }
     }
 
-
     private static void validateModerationPersistence() throws Exception {
         Path dir = Files.createTempDirectory("starchem-moderation-validator-");
         try {
             long now = System.currentTimeMillis();
+            String device = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_";
+            String caseVariant = device.toLowerCase(java.util.Locale.ROOT);
             ServerModerationStore store = new ServerModerationStore(dir, "validation");
             ServerModerationState expected = ServerModerationState.open()
                     .addWhitelist("P1", "Alpha")
@@ -99,12 +100,27 @@ public final class ServerConsoleValidator {
                     .add(new ModerationEntry("entry-one", ModerationKind.PLAYER_BAN, "P2", "Beta",
                             "P2", now, now + 60_000, "Testing"))
                     .add(new ModerationEntry("entry-two", ModerationKind.IP_BAN, "", "",
-                            "192.0.2.0/24", now, 0, "CIDR test"));
+                            "192.0.2.0/24", now, 0, "CIDR test"))
+                    .add(new ModerationEntry("entry-three", ModerationKind.DEVICE_BAN, "P3", "Gamma",
+                            device, now, 0, "Device test"))
+                    .add(new ModerationEntry("entry-four", ModerationKind.DEVICE_BAN, "P4", "Delta",
+                            caseVariant, now, 0, "Case variant"));
             store.save(expected);
             ServerModerationState restored = store.load();
             require(restored.whitelistEnabled(), "moderation whitelist state did not round-trip");
             require(restored.whitelisted("P1", "Alpha"), "moderation whitelist identity did not round-trip");
-            require(restored.active(null, now).size() == 2, "moderation entries did not round-trip");
+            require(restored.active(null, now).size() == 4, "moderation entries did not round-trip");
+            require(restored.entries().stream().anyMatch(entry -> device.equals(entry.target())),
+                    "device identifier capitalization changed during persistence");
+            require(restored.entries().stream().anyMatch(entry -> caseVariant.equals(entry.target())),
+                    "case-variant device identifier was lost during persistence");
+            ServerModerationState removedVariant = restored.removeMatching(caseVariant, ModerationKind.DEVICE_BAN);
+            require(removedVariant.entries().stream().anyMatch(entry -> device.equals(entry.target())),
+                    "removing a case-variant device ban removed the exact-case entry");
+            require(removedVariant.entries().stream().noneMatch(entry -> caseVariant.equals(entry.target())),
+                    "exact device-ban target removal did not remove its selected entry");
+            require(restored.removeMatching("ENTRY-THREE", null).entries().size() == 3,
+                    "entry ID removal stopped being case-insensitive");
             require(Files.isRegularFile(store.path()), "moderation file was not created");
         } finally {
             try (var stream = Files.walk(dir)) {
@@ -124,14 +140,16 @@ public final class ServerConsoleValidator {
             require(restored.lines(10, "ADMIN", "dev-mode").get(0).contains("enabled"),
                     "persistent server activity journal did not reload");
 
+            String device = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_";
+            String caseVariant = device.toLowerCase(java.util.Locale.ROOT);
             ServerPlayerObservationStore observations = new ServerPlayerObservationStore(dir, "validation");
-            observations.record("P9", "Observer", java.net.InetAddress.getByName("192.0.2.44"),
-                    "device-observation-validator-1234");
+            observations.record("P9", "Observer", java.net.InetAddress.getByName("192.0.2.44"), device);
+            observations.record("P9", "Observer", java.net.InetAddress.getByName("192.0.2.44"), caseVariant);
             ServerPlayerObservationStore restoredObservations = new ServerPlayerObservationStore(dir, "validation");
             ServerPlayerObservationStore.PlayerObservation observation = restoredObservations.find("P9");
             require(observation != null && observation.ips().contains("192.0.2.44")
-                            && observation.devices().contains("device-observation-validator-1234"),
-                    "player moderation observations did not round-trip");
+                            && observation.devices().contains(device) && observation.devices().contains(caseVariant),
+                    "case-distinct player moderation observations did not round-trip");
         } finally {
             try (var stream = Files.walk(dir)) {
                 stream.sorted((a, b) -> b.compareTo(a)).forEach(path -> {
@@ -149,10 +167,15 @@ public final class ServerConsoleValidator {
                 "IPv4 CIDR matched an address outside the range");
         require(IpBanMatcher.matches("2001:db8::/32", java.net.InetAddress.getByName("2001:db8::1234")),
                 "IPv6 CIDR did not match an address in range");
-        String device = "device-validator-0123456789";
+        String device = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_";
+        String caseVariant = device.toLowerCase(java.util.Locale.ROOT);
         require(ServerDeviceIdentity.valid(device), "valid client device ID was rejected");
-        require(ServerDeviceIdentity.equal(device, device.toUpperCase(java.util.Locale.ROOT)),
-                "device IDs were not compared consistently");
+        require(ServerDeviceIdentity.valid(caseVariant), "case-variant client device ID was rejected");
+        require(ServerDeviceIdentity.equal(device, device), "identical device IDs did not match");
+        require(!ServerDeviceIdentity.equal(device, caseVariant), "case-distinct device IDs matched");
+        require(!ServerDeviceIdentity.valid("invalid|device"), "invalid client device ID was accepted");
+        require(!ServerDeviceIdentity.equal("invalid|device", "invalid|device"),
+                "invalid client device IDs were treated as matching");
         long now = System.currentTimeMillis();
         ServerModerationState state = ServerModerationState.open()
                 .add(new ModerationEntry("player", ModerationKind.PLAYER_BAN, "P7", "Pilot", "P7", now, 0, ""))
@@ -163,7 +186,29 @@ public final class ServerConsoleValidator {
         require(state.blocked("P8", "Other", java.net.InetAddress.getByName("192.0.2.10"), "other-device-123456", now).kind() == ModerationKind.IP_BAN,
                 "IP ban did not block a matching address");
         require(state.blocked("P8", "Other", java.net.InetAddress.getByName("198.51.100.1"), device, now).kind() == ModerationKind.DEVICE_BAN,
-                "device ban did not block a matching device ID");
+                "device ban did not block an exact device ID");
+        require(state.blocked("P8", "Other", java.net.InetAddress.getByName("198.51.100.1"), caseVariant, now) == null,
+                "device ban blocked a case-distinct device ID");
+
+        ServerModerationState removalState = ServerModerationState.open()
+                .add(new ModerationEntry("device-one", ModerationKind.DEVICE_BAN, "", "", device, now, 0, ""))
+                .add(new ModerationEntry("device-two", ModerationKind.DEVICE_BAN, "", "", caseVariant, now, 0, ""));
+        ServerModerationState removedVariant = removalState.removeMatching(caseVariant, ModerationKind.DEVICE_BAN);
+        require(removedVariant.entries().size() == 1 && device.equals(removedVariant.entries().get(0).target()),
+                "device target removal was not case-sensitive");
+
+        ServerModerationState legacyInvalid = ServerModerationState.open()
+                .add(new ModerationEntry("legacy-device", ModerationKind.DEVICE_BAN, "", "", "invalid|device", now, 0, ""));
+        require(legacyInvalid.removeMatching("invalid|device", ModerationKind.DEVICE_BAN).entries().isEmpty(),
+                "an exact invalid legacy device target could not be removed");
+
+        ServerModerationState selectorState = ServerModerationState.open()
+                .add(new ModerationEntry("player-selector", ModerationKind.PLAYER_BAN, "P9", "MixedCasePilot", "P9", now, 0, ""))
+                .add(new ModerationEntry("ip-selector", ModerationKind.IP_BAN, "", "", "2001:db8::1", now, 0, ""));
+        require(selectorState.removeMatching("mixedcasepilot", null).entries().size() == 1,
+                "player-name removal stopped being case-insensitive");
+        require(selectorState.removeMatching("2001:DB8::1", null).entries().size() == 1,
+                "IP target removal stopped being case-insensitive");
     }
 
     private static void validateDeviceHandshake() throws Exception {
