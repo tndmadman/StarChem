@@ -153,10 +153,13 @@ record ServerModerationState(boolean whitelistEnabled, Set<String> whitelist, Li
         ArrayList<ModerationEntry> next = new ArrayList<>();
         for (ModerationEntry entry : entries) {
             boolean kindMatches = onlyKind == null || entry.kind() == onlyKind;
+            boolean targetMatches = entry.kind() == ModerationKind.DEVICE_BAN
+                    ? entry.target().equals(wanted)
+                    : entry.target().equalsIgnoreCase(wanted);
             boolean matches = entry.id().equalsIgnoreCase(wanted)
                     || entry.playerId().equalsIgnoreCase(wanted)
                     || entry.playerName().equalsIgnoreCase(wanted)
-                    || entry.target().equalsIgnoreCase(wanted)
+                    || targetMatches
                     || ServerModeration.normalizeName(entry.playerName()).equals(ServerModeration.normalizeName(wanted));
             if (!(kindMatches && matches)) next.add(entry);
         }
