@@ -277,33 +277,31 @@ final class ServerEventJournal {
                 if (read <= 0) break;
             }
             int end = buffer.position();
-            int cursor = 0;
+            int firstCompleteStart = 0;
             boolean discardedPrefix = start > 0;
             if (!startsOnLineBoundary) {
                 int newline = indexOfNewline(tail, 0, end);
                 if (newline < 0) {
                     return new JournalLoadResult(List.of(), originalBytes, true, 1);
                 }
-                cursor = newline + 1;
+                firstCompleteStart = newline + 1;
             }
 
             ArrayDeque<ServerEvent> loaded = new ArrayDeque<>();
             int malformedLines = 0;
-            while (cursor < end) {
-                int newline = indexOfNewline(tail, cursor, end);
-                int lineEnd = newline < 0 ? end : newline;
-                if (lineEnd > cursor && tail[lineEnd - 1] == '\r') lineEnd--;
-                int lineLength = lineEnd - cursor;
+            int cursor = end;
+            if (cursor > firstCompleteStart && tail[cursor - 1] == '\n') cursor--;
+            while (cursor > firstCompleteStart && loaded.size() < MAX_EVENTS) {
+                int newline = lastIndexOfNewline(tail, firstCompleteStart, cursor);
+                int lineStart = newline < 0 ? firstCompleteStart : newline + 1;
+                int lineEnd = cursor;
+                if (lineEnd > lineStart && tail[lineEnd - 1] == '\r') lineEnd--;
+                int lineLength = lineEnd - lineStart;
                 ServerEvent event = lineLength <= 0 || lineLength > MAX_LINE_BYTES
-                        ? null : parseEvent(tail, cursor, lineLength);
-                if (event == null) {
-                    malformedLines++;
-                } else {
-                    loaded.addLast(event);
-                    while (loaded.size() > MAX_EVENTS) loaded.removeFirst();
-                }
-                if (newline < 0) break;
-                cursor = newline + 1;
+                        ? null : parseEvent(tail, lineStart, lineLength);
+                if (event == null) malformedLines++;
+                else loaded.addFirst(event);
+                cursor = newline < 0 ? firstCompleteStart : newline;
             }
             return new JournalLoadResult(List.copyOf(loaded), originalBytes, discardedPrefix, malformedLines);
         }
@@ -344,6 +342,11 @@ final class ServerEventJournal {
 
     private static int indexOfNewline(byte[] bytes, int start, int end) {
         for (int i = start; i < end; i++) if (bytes[i] == '\n') return i;
+        return -1;
+    }
+
+    private static int lastIndexOfNewline(byte[] bytes, int start, int end) {
+        for (int i = end - 1; i >= start; i--) if (bytes[i] == '\n') return i;
         return -1;
     }
 
