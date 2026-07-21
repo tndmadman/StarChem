@@ -10,7 +10,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -29,54 +28,102 @@ import java.util.UUID;
 
 final class ServerModerationStore {
     private final Path path;
+    private final Path previousPath;
+    private CompanionLoadStatus loadStatus = CompanionLoadStatus.current("not loaded");
 
     ServerModerationStore(Path saveDir, String saveName) {
         Path dir = saveDir == null ? Path.of("saves") : saveDir;
-        path = dir.resolve(Config.cleanSaveName(saveName) + "-moderation.json");
+        String cleanName = Config.cleanSaveName(saveName);
+        path = dir.resolve(cleanName + "-moderation.json");
+        previousPath = dir.resolve(cleanName + "-moderation-previous.json");
+        CompanionRecoveryRegistry.configure(dir, cleanName);
     }
 
     Path path() { return path; }
+    Path previousPath() { return previousPath; }
+    CompanionLoadStatus loadStatus() { return loadStatus; }
 
     ServerModerationState load() {
-        if (!Files.isRegularFile(path)) return ServerModerationState.open();
+        CompanionLoad<ServerModerationState> loaded = CompanionStateFiles.load(path, previousPath,
+                "Moderation", ServerModerationStore::parseState, detail -> ServerModerationState.open());
+        ServerModerationState state = loaded.value();
+        loadStatus = loaded.status();
+        boolean ready = !loadStatus.restricted();
+
         try {
-            Object parsed = MiniJson.parse(Files.readString(path, StandardCharsets.UTF_8));
-            if (!(parsed instanceof Map<?,?> raw)) throw new IOException("moderation file root is not an object");
-            Map<String,Object> map = map(raw);
-            boolean whitelistEnabled = bool(map.get("whitelistEnabled"));
-            LinkedHashSet<String> whitelist = new LinkedHashSet<>();
-            for (Object value : list(map.get("whitelist"))) {
-                String item = String.valueOf(value).trim().toLowerCase(Locale.ROOT);
-                if ((item.startsWith("p:") || item.startsWith("n:")) && item.length() > 2) whitelist.add(item);
+            CompanionStateFiles.repairCurrent(path, state, ServerModerationStore::parseState,
+                    ServerModerationStore::serializeState);
+            if (loadStatus.restricted()) ready = true;
+        } catch (IOException ex) {
+            if (loadStatus.recoveredPrevious()) {
+                loadStatus = CompanionLoadStatus.previous(loadStatus.detail()
+                        + "; current repair failed: " + ex.getMessage());
+            } else if (loadStatus.restricted()) {
+                System.err.println("Could not seed restricted server moderation settings: " + ex.getMessage());
+            } else {
+                System.err.println("Could not persist normalized server moderation settings: " + ex.getMessage());
             }
-            ArrayList<ModerationEntry> entries = new ArrayList<>();
-            for (Object value : list(map.get("entries"))) {
-                if (!(value instanceof Map<?,?> entryRaw)) continue;
-                Map<String,Object> entry = map(entryRaw);
-                ModerationKind kind;
-                try { kind = ModerationKind.valueOf(text(entry.get("kind")).toUpperCase(Locale.ROOT)); }
-                catch (RuntimeException ex) { continue; }
-                entries.add(new ModerationEntry(text(entry.get("id")), kind, text(entry.get("playerId")),
-                        text(entry.get("playerName")), text(entry.get("target")), number(entry.get("createdAt")),
-                        number(entry.get("expiresAt")), text(entry.get("reason"))));
-            }
-            ServerModerationState loaded = new ServerModerationState(whitelistEnabled, whitelist, entries)
-                    .activeOnly(System.currentTimeMillis());
-            if (!loaded.entries().equals(entries)) {
-                try { save(loaded); }
-                catch (IOException migrationError) {
-                    System.err.println("Could not persist normalized server moderation IDs: " + migrationError.getMessage());
-                }
-            }
-            return loaded;
-        } catch (Exception ex) {
-            System.err.println("Could not load server moderation settings: " + ex.getMessage());
-            return ServerModerationState.open();
         }
+
+        CompanionRecoveryRegistry.recordModeration(loadStatus, ready);
+        if (loadStatus.recoveredPrevious() || loadStatus.restricted()) {
+            System.err.println(loadStatus.summary("Server moderation"));
+        }
+        return state;
     }
 
     synchronized void save(ServerModerationState state) throws IOException {
-        ServerModerationState safe = state == null ? ServerModerationState.open() : state.activeOnly(System.currentTimeMillis());
+        ServerModerationState safe = state == null ? ServerModerationState.open()
+                : state.activeOnly(System.currentTimeMillis());
+        CompanionStateFiles.save(path, previousPath, safe, ServerModerationStore::parseState,
+                ServerModerationStore::serializeState);
+        loadStatus = CompanionLoadStatus.current("verified save");
+        CompanionRecoveryRegistry.recordModeration(loadStatus, true);
+    }
+
+    private static ServerModerationState parseState(String text) throws IOException {
+        Object parsed;
+        try { parsed = MiniJson.parse(text); }
+        catch (RuntimeException ex) { throw new IOException("could not parse moderation JSON: " + ex.getMessage(), ex); }
+        if (!(parsed instanceof Map<?,?> raw)) throw new IOException("moderation file root is not an object");
+        Map<String,Object> map = map(raw);
+        Object version = map.get("version");
+        if (version != null && !(version instanceof Number)) throw new IOException("moderation version is not numeric");
+        boolean whitelistEnabled = requiredBoolean(map, "whitelistEnabled");
+        Object whitelistValue = map.get("whitelist");
+        if (!(whitelistValue instanceof List<?> whitelistList)) throw new IOException("moderation whitelist is not a list");
+        LinkedHashSet<String> whitelist = new LinkedHashSet<>();
+        for (Object value : whitelistList) {
+            if (!(value instanceof String item)) throw new IOException("moderation whitelist entry is not text");
+            String normalized = item.trim().toLowerCase(Locale.ROOT);
+            if (!(normalized.startsWith("p:") || normalized.startsWith("n:")) || normalized.length() <= 2) {
+                throw new IOException("moderation whitelist entry is invalid");
+            }
+            whitelist.add(normalized);
+        }
+
+        Object entriesValue = map.get("entries");
+        if (!(entriesValue instanceof List<?> entryList)) throw new IOException("moderation entries is not a list");
+        ArrayList<ModerationEntry> entries = new ArrayList<>();
+        for (Object value : entryList) {
+            if (!(value instanceof Map<?,?> entryRaw)) throw new IOException("moderation entry is not an object");
+            Map<String,Object> entry = map(entryRaw);
+            String kindText = requiredString(entry, "kind");
+            ModerationKind kind;
+            try { kind = ModerationKind.valueOf(kindText.toUpperCase(Locale.ROOT)); }
+            catch (RuntimeException ex) { throw new IOException("moderation entry kind is invalid", ex); }
+            entries.add(new ModerationEntry(requiredString(entry, "id"), kind,
+                    requiredString(entry, "playerId"), requiredString(entry, "playerName"),
+                    requiredString(entry, "target"), requiredLong(entry, "createdAt"),
+                    requiredLong(entry, "expiresAt"), requiredString(entry, "reason")));
+        }
+        return new ServerModerationState(whitelistEnabled, whitelist, entries)
+                .activeOnly(System.currentTimeMillis());
+    }
+
+    private static String serializeState(ServerModerationState state) {
+        ServerModerationState safe = state == null ? ServerModerationState.open()
+                : state.activeOnly(System.currentTimeMillis());
         LinkedHashMap<String,Object> root = new LinkedHashMap<>();
         root.put("version", 1);
         root.put("whitelistEnabled", safe.whitelistEnabled());
@@ -96,13 +143,7 @@ final class ServerModerationStore {
         }
         root.put("entries", entries);
         root.put("updatedAt", Instant.now().toString());
-        Path parent = path.toAbsolutePath().getParent();
-        if (parent != null) Files.createDirectories(parent);
-        Path temp = path.resolveSibling(path.getFileName() + ".tmp");
-        Files.writeString(temp, MiniJson.stringify(root) + "\n", StandardCharsets.UTF_8,
-                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
-        try { Files.move(temp, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
-        catch (IOException ex) { Files.move(temp, path, StandardCopyOption.REPLACE_EXISTING); }
+        return MiniJson.stringify(root);
     }
 
     private static Map<String,Object> map(Map<?,?> source) {
@@ -110,12 +151,25 @@ final class ServerModerationStore {
         for (Map.Entry<?,?> entry : source.entrySet()) out.put(String.valueOf(entry.getKey()), entry.getValue());
         return out;
     }
-    private static List<?> list(Object value) { return value instanceof List<?> values ? values : List.of(); }
-    private static String text(Object value) { return value == null ? "" : String.valueOf(value); }
-    private static boolean bool(Object value) { return value instanceof Boolean b ? b : Boolean.parseBoolean(text(value)); }
-    private static long number(Object value) {
-        if (value instanceof Number n) return n.longValue();
-        try { return Long.parseLong(text(value)); } catch (NumberFormatException ex) { return 0; }
+
+    private static boolean requiredBoolean(Map<String,Object> map, String key) throws IOException {
+        Object value = map.get(key);
+        if (!(value instanceof Boolean bool)) throw new IOException("moderation " + key + " is not boolean");
+        return bool;
+    }
+
+    private static long requiredLong(Map<String,Object> map, String key) throws IOException {
+        Object value = map.get(key);
+        if (!(value instanceof Number number)) throw new IOException("moderation " + key + " is not numeric");
+        long raw = number.longValue();
+        if (raw != number.doubleValue()) throw new IOException("moderation " + key + " is not an integer");
+        return raw;
+    }
+
+    private static String requiredString(Map<String,Object> map, String key) throws IOException {
+        Object value = map.get(key);
+        if (!(value instanceof String text)) throw new IOException("moderation " + key + " is not text");
+        return text;
     }
 }
 
