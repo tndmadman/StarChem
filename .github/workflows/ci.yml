@@ -1,4 +1,4 @@
-name: CI
+name: Clean validated auth branch
 
 on:
   pull_request:
@@ -9,159 +9,49 @@ permissions:
   contents: write
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: clean-auth-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  verify:
-    name: Compile, validate, and package
+  squash:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Check out source
+      - name: Check out validated branch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: agent/server-scoped-password-verifiers
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Gradle 8.10.2
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.10.2'
-
-      - name: Apply asserted authentication patch
-        run: |
-          python3 tools/repair_auth_patcher.py
-          python3 tools/apply_server_scoped_auth_fix.py
-          python3 tools/apply_auth_test_compat_fix.py
-          python3 tools/apply_session_recovery_auth_fix.py
-          python3 tools/apply_connection_identity_auth_fix.py
-          python3 tools/apply_tcp_multiplayer_auth_fix.py
-          python3 tools/apply_admission_auth_fix.py
-          python3 tools/apply_numeric_auth_fix.py
-
-      - name: Verify project
-        run: gradle clean check jar --no-daemon
-
-      - name: Validate authentication enumeration and server scoping
-        run: java -cp build/classes/java/main com.tndmadman.rts.AuthenticationEnumerationValidator
-
-      - name: Validate admission recording
-        run: java -cp build/classes/java/main com.tndmadman.rts.AdmissionRecordingValidator
-
-      - name: Validate graphical local-host identity
-        run: java -cp build/classes/java/main com.tndmadman.rts.LocalHostIdentityValidator
-
-      - name: Validate authenticated numeric commands
-        run: java -cp build/classes/java/main com.tndmadman.rts.NumericCommandValidationValidator authenticated
-
-      - name: Validate authoritative numeric repair
-        run: java -cp build/classes/java/main com.tndmadman.rts.NumericCommandValidationValidator repair
-
-      - name: Validate numeric serialization boundaries
-        run: java -cp build/classes/java/main com.tndmadman.rts.NumericCommandValidationValidator serialization
-
-      - name: Validate authoritative mining commands
-        run: java -cp build/classes/java/main com.tndmadman.rts.MiningCommandValidationValidator
-
-      - name: Smoke-test Linux headless server
+      - name: Restore normal repository files and squash
         shell: bash
         run: |
           set -euo pipefail
-          PORT="$(python3 - <<'PY'
-          import socket
-          with socket.socket() as sock:
-              sock.bind(('127.0.0.1', 0))
-              print(sock.getsockname()[1])
-          PY
-          )"
-          LOG=build/headless-server.log
+          git fetch origin main
 
-          java -Djava.awt.headless=true -jar build/libs/StarChem.jar \
-            --server "$PORT" \
-            --name CI-Server >"$LOG" 2>&1 &
-          SERVER_PID=$!
+          rm -f \
+            .github/workflows/apply-server-scoped-auth.yml \
+            tools/apply_server_scoped_auth_fix.py \
+            tools/repair_auth_patcher.py \
+            tools/apply_auth_test_compat_fix.py \
+            tools/apply_session_recovery_auth_fix.py \
+            tools/apply_connection_identity_auth_fix.py \
+            tools/apply_tcp_multiplayer_auth_fix.py \
+            tools/apply_admission_auth_fix.py \
+            tools/apply_numeric_auth_fix.py \
+            auth-patch.txt \
+            compile-errors.txt \
+            check-errors.txt \
+            auth-usage-scan.txt
 
-          cleanup() {
-            kill -TERM "$SERVER_PID" 2>/dev/null || true
-            wait "$SERVER_PID" 2>/dev/null || true
-          }
-          trap cleanup EXIT
+          git show origin/main:.github/workflows/ci.yml > .github/workflows/ci.yml
 
-          READY=0
-          for _ in {1..100}; do
-            if grep -Fq 'Dedicated server ready.' "$LOG"; then
-              READY=1
-              break
-            fi
-            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-              cat "$LOG"
-              echo 'Headless server exited before becoming ready.' >&2
-              exit 1
-            fi
-            sleep 0.1
-          done
-
-          if [[ "$READY" -ne 1 ]]; then
-            cat "$LOG"
-            echo 'Headless server did not become ready.' >&2
-            exit 1
-          fi
-          grep -Fq "TCP $PORT" "$LOG"
-
-          kill -TERM "$SERVER_PID"
-          (
-            sleep 10
-            kill -KILL "$SERVER_PID" 2>/dev/null || true
-          ) &
-          WATCHDOG_PID=$!
-
-          set +e
-          wait "$SERVER_PID"
-          SERVER_STATUS=$?
-          set -e
-          kill "$WATCHDOG_PID" 2>/dev/null || true
-          wait "$WATCHDOG_PID" 2>/dev/null || true
-          trap - EXIT
-
-          cat "$LOG"
-          if [[ "$SERVER_STATUS" -ne 0 && "$SERVER_STATUS" -ne 143 ]]; then
-            echo "Unexpected headless server exit status: $SERVER_STATUS" >&2
-            exit 1
-          fi
-          grep -Fq 'Dedicated server stopped.' "$LOG"
-
-      - name: Verify overridden release identity
-        shell: bash
-        run: |
-          SAMPLE_VERSION="9.8.7-ci"
-          SAMPLE_COMMIT="0123456789abcdef0123456789abcdef01234567"
-
-          gradle clean verifyBuildMetadata --no-daemon \
-            -PreleaseVersion="$SAMPLE_VERSION" \
-            -PbuildCommit="$SAMPLE_COMMIT"
-
-          test -f build/libs/StarChem.jar
-          VERSION_OUTPUT="$(java -jar build/libs/StarChem.jar --version)"
-          echo "$VERSION_OUTPUT"
-          [[ "$VERSION_OUTPUT" == "StarChem ${SAMPLE_VERSION} (${SAMPLE_COMMIT:0:12})" ]]
-
-      - name: Commit validated source changes
-        shell: bash
-        run: |
-          set -euo pipefail
           git config user.name "StarChem Security Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add README.md src/main/java/com/tndmadman/rts
-          if git diff --cached --quiet; then
-            echo 'No source changes were produced.' >&2
-            exit 1
-          fi
+          git reset --soft origin/main
+          git add -A
+
+          test -z "$(git diff --cached --name-only | grep -E '^(tools/apply_|tools/repair_auth_|auth-patch|compile-errors|check-errors|auth-usage-scan|\.github/workflows/apply-server-scoped-auth)' || true)"
+          git diff --cached --quiet && { echo 'No source changes remain.' >&2; exit 1; }
+
           git commit -m "Scope player password verifiers to server identity"
-          git push origin HEAD:agent/server-scoped-password-verifiers
+          git push --force origin HEAD:agent/server-scoped-password-verifiers
