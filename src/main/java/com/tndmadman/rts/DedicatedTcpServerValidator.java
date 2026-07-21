@@ -11,6 +11,7 @@ public final class DedicatedTcpServerValidator {
     public static void main(String[] args) throws Exception {
         System.setProperty("java.awt.headless", "true");
         ServerConsoleValidator.validate();
+        ModerationIdentifierValidator.validate();
         ServerEventJournalRolloverValidator.validate();
         ServerSaveStoreBackupCollisionValidator.validate();
         AdmissionRecordingValidator.validate();
@@ -40,7 +41,7 @@ public final class DedicatedTcpServerValidator {
                     5_000, "dedicated clients did not receive the stable convergence probes");
 
             Unit firstProbe = harness.unit(harness.serverWorld, first.playerId(), firstUnitId);
-            Unit secondProbe = harness.unit(harness.serverWorld, second.playerId(), secondUnitId);
+            Unit secondProbe = harness.unit(harness.serverWorld, second.playerId(), second.playerId() == null ? -1 : secondUnitId);
             TcpIntegrationHarness.require(firstProbe != null && secondProbe != null,
                     "dedicated-server convergence probes disappeared");
             double firstStartX = firstProbe.x;
