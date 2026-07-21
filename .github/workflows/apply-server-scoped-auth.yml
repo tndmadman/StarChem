@@ -1,0 +1,35 @@
+name: Apply server-scoped authentication fix
+
+on:
+  push:
+    branches:
+      - agent/server-scoped-password-verifiers
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Apply asserted source patch
+        run: python3 tools/apply_server_scoped_auth_fix.py
+      - name: Validate
+        run: |
+          chmod +x gradlew
+          ./gradlew check --no-daemon
+      - name: Commit validated source changes
+        run: |
+          git config user.name "StarChem Security Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add README.md src/main/java/com/tndmadman/rts
+          git diff --cached --exit-code && { echo "No source changes were produced"; exit 1; } || true
+          git commit -m "Scope player password verifiers to server identity"
+          git push origin HEAD:agent/server-scoped-password-verifiers
