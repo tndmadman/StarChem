@@ -708,9 +708,14 @@ final class PeerClientSide {
             String scopedProof = scopedPasswordVerifier.isBlank() ? ""
                     : PasswordAuth.challengeProof(PasswordAuth.serverDigest(
                     PasswordAuth.decodeVerifier(scopedPasswordVerifier), salt), config.playerName, authChallengeNonce);
-            String legacyProof = passwordVerifier.isBlank() ? ""
-                    : PasswordAuth.challengeProof(PasswordAuth.serverDigest(
-                    PasswordAuth.decodeVerifier(passwordVerifier), salt), config.playerName, authChallengeNonce);
+            String legacyProof = "";
+            if (!passwordVerifier.isBlank()) {
+                byte[] legacyKey = PasswordAuth.serverDigest(PasswordAuth.decodeVerifier(passwordVerifier), salt);
+                legacyProof = !scopedPasswordVerifier.isBlank() && PasswordAuth.validVerifier(authServerFingerprint)
+                        ? PasswordAuth.upgradeProof(legacyKey, config.playerName, authChallengeNonce,
+                        authServerFingerprint, scopedPasswordVerifier)
+                        : PasswordAuth.challengeProof(legacyKey, config.playerName, authChallengeNonce);
+            }
             String proof = scopedProof.isBlank() ? legacyProof : scopedProof;
             String registration = scopedPasswordVerifier;
             if (!legacyProof.isBlank() && !registration.isBlank()) registration += ":" + legacyProof;
