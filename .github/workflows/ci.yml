@@ -32,6 +32,7 @@ jobs:
           python3 tools/repair_auth_patcher.py
           python3 tools/apply_server_scoped_auth_fix.py
           python3 tools/apply_auth_test_compat_fix.py
+          python3 tools/apply_session_recovery_auth_fix.py
       - name: Run project verification
         id: verify
         shell: bash
