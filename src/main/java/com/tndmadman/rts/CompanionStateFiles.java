@@ -186,7 +186,7 @@ interface CompanionMove {
     void move(Path source, Path target, CopyOption... options) throws IOException;
 }
 
-/** Process-wide recovery state. Dedicated servers run one save identity per JVM. */
+/** Process-wide recovery state for a dedicated server's save identity. */
 final class CompanionRecoveryRegistry {
     private static Path markerPath;
     private static String markerReason = "";
@@ -195,6 +195,7 @@ final class CompanionRecoveryRegistry {
     private static boolean administrationReady;
     private static boolean moderationReady;
     private static boolean operatorResetPending;
+    private static boolean restrictedAdmissionEnabled;
 
     private CompanionRecoveryRegistry() { }
 
@@ -209,6 +210,7 @@ final class CompanionRecoveryRegistry {
         administrationReady = false;
         moderationReady = false;
         operatorResetPending = false;
+        restrictedAdmissionEnabled = false;
         markerReason = "";
         if (Files.isRegularFile(markerPath)) {
             try { markerReason = Files.readString(markerPath, StandardCharsets.UTF_8).trim(); }
@@ -216,29 +218,40 @@ final class CompanionRecoveryRegistry {
         }
     }
 
+    static synchronized void enableRestrictedAdmission() {
+        restrictedAdmissionEnabled = true;
+        if (administration.restricted()) restrict("Administration state could not be recovered.");
+        if (moderation.restricted()) restrict("Moderation state could not be recovered.");
+    }
+
     static synchronized void recordAdministration(CompanionLoadStatus status, boolean ready) {
         administration = status;
         administrationReady = ready;
-        if (status != null && status.restricted()) restrict("Administration state could not be recovered.");
+        if (restrictedAdmissionEnabled && status != null && status.restricted()) {
+            restrict("Administration state could not be recovered.");
+        }
     }
 
     static synchronized void recordModeration(CompanionLoadStatus status, boolean ready) {
         moderation = status;
         moderationReady = ready;
-        if (status != null && status.restricted()) restrict("Moderation state could not be recovered.");
+        if (restrictedAdmissionEnabled && status != null && status.restricted()) {
+            restrict("Moderation state could not be recovered.");
+        }
     }
 
     static synchronized boolean restricted() {
-        return !markerReason.isBlank() || administration.restricted() || moderation.restricted();
+        return restrictedAdmissionEnabled
+                && (!markerReason.isBlank() || administration.restricted() || moderation.restricted());
     }
 
     static synchronized String statusReason() {
         List<String> details = new ArrayList<>();
         if (administration.recoveredPrevious()) details.add("Administration recovered from its previous file");
         if (moderation.recoveredPrevious()) details.add("Moderation recovered from its previous file");
-        if (administration.restricted()) details.add("administration recovery failed");
-        if (moderation.restricted()) details.add("moderation recovery failed");
-        if (!markerReason.isBlank()) details.add("recovery lock: " + markerReason);
+        if (restrictedAdmissionEnabled && administration.restricted()) details.add("administration recovery failed");
+        if (restrictedAdmissionEnabled && moderation.restricted()) details.add("moderation recovery failed");
+        if (restrictedAdmissionEnabled && !markerReason.isBlank()) details.add("recovery lock: " + markerReason);
         if (restricted()) {
             details.add("new identities are blocked; connected and retained identities may continue or reconnect");
             details.add("run 'maintenance off' from the trusted local console after reviewing the recovered files to reset admission");
@@ -251,7 +264,8 @@ final class CompanionRecoveryRegistry {
     }
 
     static synchronized void completeAdministrationSave(boolean storedMaintenance) {
-        if (!operatorResetPending || storedMaintenance || !administrationReady || !moderationReady) return;
+        if (!restrictedAdmissionEnabled || !operatorResetPending || storedMaintenance
+                || !administrationReady || !moderationReady) return;
         try {
             if (markerPath != null) Files.deleteIfExists(markerPath);
             markerReason = "";
@@ -272,9 +286,11 @@ final class CompanionRecoveryRegistry {
         administrationReady = false;
         moderationReady = false;
         operatorResetPending = false;
+        restrictedAdmissionEnabled = false;
     }
 
     private static void restrict(String reason) {
+        if (!restrictedAdmissionEnabled) return;
         String safe = reason == null ? "Companion state recovery failed." : reason.trim();
         if (markerReason.isBlank()) markerReason = safe;
         else if (!markerReason.toLowerCase(Locale.ROOT).contains(safe.toLowerCase(Locale.ROOT))) markerReason += " " + safe;
@@ -282,7 +298,7 @@ final class CompanionRecoveryRegistry {
     }
 
     private static void persistMarker() {
-        if (markerPath == null) return;
+        if (!restrictedAdmissionEnabled || markerPath == null) return;
         try {
             Path parent = markerPath.getParent();
             if (parent != null) Files.createDirectories(parent);
