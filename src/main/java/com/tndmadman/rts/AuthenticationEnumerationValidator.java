@@ -29,7 +29,7 @@ public final class AuthenticationEnumerationValidator {
         validateAttemptLimiter();
         validateServerScopedVerifier();
         Path saveDir = Files.createTempDirectory("starchem-auth-enumeration-");
-        PeerTransport transport = PeerTransport.server(0, new PerfStats());
+        PeerTransport transport = PeerTransport.server(0, new PerfStats(), TEST_SERVER_FINGERPRINT);
         transport.start();
         try {
             Config config = Config.dedicatedServer("Authentication Enumeration Host", transport.localPort(),
@@ -144,6 +144,20 @@ public final class AuthenticationEnumerationValidator {
         require(PasswordAuth.validVerifier(first) && PasswordAuth.validVerifier(second),
                 "server-scoped verifier derivation failed");
         require(!first.equals(second), "two TLS server identities produced interchangeable password verifiers");
+        byte[] legacyKey = PasswordAuth.serverDigest(
+                PasswordAuth.decodeVerifier(PasswordAuth.verifier("Scoped Player", "same-password")), salt);
+        String nonce = PasswordAuth.newNonce();
+        String firstProof = PasswordAuth.upgradeProof(legacyKey, "Scoped Player", nonce,
+                TEST_SERVER_FINGERPRINT, first);
+        require(PasswordAuth.upgradeProofMatches(legacyKey, "Scoped Player", nonce,
+                        TEST_SERVER_FINGERPRINT, first, firstProof),
+                "server A did not accept its TLS-bound migration proof");
+        require(!PasswordAuth.upgradeProofMatches(legacyKey, "Scoped Player", nonce,
+                        OTHER_SERVER_FINGERPRINT, first, firstProof),
+                "server A migration proof replayed against server B");
+        require(!PasswordAuth.upgradeProofMatches(legacyKey, "Scoped Player", nonce,
+                        TEST_SERVER_FINGERPRINT, second, firstProof),
+                "migration proof accepted a different server-scoped verifier");
         byte[] upgraded = PasswordAuth.upgradeSalt(salt);
         require(upgraded.length == 16 && !java.security.MessageDigest.isEqual(salt, upgraded),
                 "password upgrade salt was not domain separated");
@@ -191,8 +205,9 @@ public final class AuthenticationEnumerationValidator {
         byte[] scopedSalt = PasswordAuth.decodeHex(challenge.scopedSalt);
         String legacyVerifier = PasswordAuth.verifier(name, password);
         String scopedVerifier = PasswordAuth.scopedVerifier(name, password, TEST_SERVER_FINGERPRINT, scopedSalt);
-        String legacyProof = PasswordAuth.challengeProof(PasswordAuth.serverDigest(
-                PasswordAuth.decodeVerifier(legacyVerifier), currentSalt), name, challenge.nonce);
+        String legacyProof = PasswordAuth.upgradeProof(PasswordAuth.serverDigest(
+                PasswordAuth.decodeVerifier(legacyVerifier), currentSalt), name, challenge.nonce,
+                TEST_SERVER_FINGERPRINT, scopedVerifier);
         String scopedProof = PasswordAuth.challengeProof(PasswordAuth.serverDigest(
                 PasswordAuth.decodeVerifier(scopedVerifier), currentSalt), name, challenge.nonce);
         return new AuthResponse(scopedVerifier + ":" + legacyProof, scopedProof);
