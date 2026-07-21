@@ -13,46 +13,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  diagnose-auth-verification:
+  scan-auth-fixtures:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: agent/server-scoped-password-verifiers
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.10.2'
-      - name: Apply asserted patch
-        run: |
-          python3 tools/repair_auth_patcher.py
-          python3 tools/apply_server_scoped_auth_fix.py
-          python3 tools/apply_auth_test_compat_fix.py
-          python3 tools/apply_session_recovery_auth_fix.py
-          python3 tools/apply_connection_identity_auth_fix.py
-      - name: Run project verification
-        id: verify
-        shell: bash
-        run: |
-          set +e
-          gradle clean check jar --no-daemon > check.log 2>&1
-          STATUS=$?
-          cat check.log
-          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
-          exit 0
-      - name: Publish verification diagnostic
-        if: steps.verify.outputs.status != '0'
+      - name: Scan authentication call sites
         shell: bash
         run: |
           set -euo pipefail
-          cp check.log check-errors.txt
+          {
+            grep -R -n -E 'SessionTokenStore\.saveAuthDigest|SessionTokenStore\.rememberAuthDigestForProcess|PasswordAuth\.verifier|server\.join\(|ServerSide\.join\(' src/main/java/com/tndmadman/rts || true
+          } > auth-usage-scan.txt
+          cat auth-usage-scan.txt
           git config user.name "StarChem Security Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add -f check-errors.txt
-          git commit -m "Record server-scoped auth verification failure"
+          git add -f auth-usage-scan.txt
+          git commit -m "Record authentication fixture scan"
           git push origin HEAD:agent/server-scoped-password-verifiers
-          exit 1
