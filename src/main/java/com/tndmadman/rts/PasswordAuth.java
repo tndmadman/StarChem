@@ -229,6 +229,24 @@ final class PasswordAuth {
         return keyedProof("StarChem auth challenge v1", key, Config.clean(playerName).toLowerCase(java.util.Locale.ROOT), nonce);
     }
 
+    static String upgradeProof(byte[] legacyKey, String playerName, String nonce,
+                               String serverFingerprint, String scopedVerifier) {
+        if (legacyKey == null || legacyKey.length == 0 || !validNonce(nonce)
+                || !validVerifier(serverFingerprint) || !validVerifier(scopedVerifier)) return "";
+        String material = "StarChem auth upgrade v2|"
+                + Config.clean(playerName).toLowerCase(java.util.Locale.ROOT) + "|" + nonce + "|"
+                + serverFingerprint.toLowerCase(java.util.Locale.ROOT) + "|"
+                + scopedVerifier.toLowerCase(java.util.Locale.ROOT);
+        return keyedProofMaterial(legacyKey, material);
+    }
+
+    static boolean upgradeProofMatches(byte[] legacyKey, String playerName, String nonce,
+                                       String serverFingerprint, String scopedVerifier, String proof) {
+        if (!validVerifier(proof)) return false;
+        String expected = upgradeProof(legacyKey, playerName, nonce, serverFingerprint, scopedVerifier);
+        return !expected.isBlank() && MessageDigest.isEqual(decodeVerifier(expected), decodeVerifier(proof));
+    }
+
     static String sessionProof(byte[] tokenDigest, String playerId, String nonce) {
         return keyedProof("StarChem session resume v1", tokenDigest, Config.clean(playerId), nonce);
     }
@@ -243,11 +261,15 @@ final class PasswordAuth {
 
     private static String keyedProof(String domain, byte[] key, String identity, String nonce) {
         if (key == null || key.length == 0 || !validNonce(nonce)) return "";
+        return keyedProofMaterial(key, domain + "|" + identity + "|" + nonce);
+    }
+
+    private static String keyedProofMaterial(byte[] key, String material) {
+        if (key == null || key.length == 0 || material == null || material.isBlank()) return "";
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
             mac.init(new SecretKeySpec(key, "HmacSHA256"));
-            return HexFormat.of().formatHex(mac.doFinal((domain + "|" + identity + "|" + nonce)
-                    .getBytes(StandardCharsets.UTF_8)));
+            return HexFormat.of().formatHex(mac.doFinal(material.getBytes(StandardCharsets.UTF_8)));
         } catch (Exception ex) {
             throw new IllegalStateException("HmacSHA256 is unavailable.", ex);
         }
