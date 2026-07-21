@@ -10,5 +10,10 @@ new = '''    ''' + "'''" + '''    static synchronized void saveAuthDigest(Config
 '''
 if text.count(old) != 1:
     raise RuntimeError(f"Expected one patcher fragment, found {text.count(old)}")
-path.write_text(text.replace(old, new, 1), encoding="utf-8")
-print("Narrowed SessionTokenStore saveAuthDigest patch target.")
+text = text.replace(old, new, 1)
+malformed_newline = '",\\n                    "'
+if text.count(malformed_newline) != 3:
+    raise RuntimeError(f"Expected three malformed newline tokens, found {text.count(malformed_newline)}")
+text = text.replace(malformed_newline, '",\n                    "')
+path.write_text(text, encoding="utf-8")
+print("Repaired auth patch assertion target and newline syntax.")
