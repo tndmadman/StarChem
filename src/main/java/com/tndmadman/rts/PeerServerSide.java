@@ -26,6 +26,7 @@ final class PeerServerSide {
     private final Set<String> devRequests = new LinkedHashSet<>();
     private final AuthAttemptLimiter authAttemptLimiter = new AuthAttemptLimiter();
     private final AuthDecoySaltStore authDecoySalts;
+    private final String authenticationServerFingerprint;
     private ServerAdmissionGate admissionGate = ServerAdmissionGate.open();
     private int nextPlayer = 1;
     private long sequence = 1, lastSnapshot, lastGalaxy, lastResourceCorrection;
@@ -39,6 +40,7 @@ final class PeerServerSide {
         this.world = world;
         this.transport = transport;
         this.authDecoySalts = new AuthDecoySaltStore(config);
+        this.authenticationServerFingerprint = transport == null ? "" : transport.serverFingerprint();
         PlayerRegistry.activate(world);
         SystemAudio.markNonRendered(world);
         restorePersistentSessions(restoredSessions);
@@ -367,7 +369,14 @@ final class PeerServerSide {
         if (legacyProof.isBlank() && !config.dedicatedServerMode() && address != null && address.isLoopbackAddress()) {
             legacyProof = proof;
         }
-        boolean legacyProofMatches = PasswordAuth.proofMatches(proofKey, challengeName, proofNonce, legacyProof);
+        boolean boundUpgradeProof = challenge != null && challenge.authVersion < PasswordAuth.AUTH_VERSION_V2
+                && PasswordAuth.validVerifier(authenticationServerFingerprint)
+                && PasswordAuth.validVerifier(credential.scopedVerifier);
+        boolean localLegacyProof = !config.dedicatedServerMode() && address != null && address.isLoopbackAddress();
+        boolean legacyProofMatches = boundUpgradeProof
+                ? PasswordAuth.upgradeProofMatches(proofKey, challengeName, proofNonce,
+                authenticationServerFingerprint, credential.scopedVerifier, legacyProof)
+                : localLegacyProof && PasswordAuth.proofMatches(proofKey, challengeName, proofNonce, legacyProof);
         String playerId = challenge == null ? "" : challenge.playerId;
         PlayerSession session = sessions.get(playerId);
         boolean sessionMatches = session != null && !playerId.isBlank()
@@ -378,7 +387,7 @@ final class PeerServerSide {
             denyAuthentication(connectionId, "Password rejected.");
             return;
         }
-        if (challenge.authVersion < PasswordAuth.AUTH_VERSION_V2 && config.dedicatedServerMode()) {
+        if (challenge.authVersion < PasswordAuth.AUTH_VERSION_V2 && boundUpgradeProof) {
             byte[] scopedVerifier = PasswordAuth.decodeVerifier(credential.scopedVerifier);
             if (scopedVerifier.length == 0 || challenge.scopedSalt.length != 16) {
                 denyAuthentication(connectionId, "Password upgrade required.");
@@ -386,6 +395,9 @@ final class PeerServerSide {
             }
             session.passwordSalt = PasswordAuth.versionedPasswordSalt(challenge.scopedSalt);
             session.passwordDigest = PasswordAuth.serverDigest(scopedVerifier, challenge.scopedSalt);
+        } else if (challenge.authVersion < PasswordAuth.AUTH_VERSION_V2 && config.dedicatedServerMode()) {
+            denyAuthentication(connectionId, "Password upgrade required.");
+            return;
         }
         bindReclaimedSession(connectionId, address, port, session, requestedDev, suppliedDevToken);
     }
