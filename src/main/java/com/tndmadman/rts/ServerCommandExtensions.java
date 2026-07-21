@@ -30,6 +30,8 @@ import java.util.UUID;
 /** Implements the extended command families without expanding the headless server's anonymous target. */
 final class ServerCommandExtensions {
     private static final int OUTPUT_LIMIT = 50;
+    private static final Set<ModerationKind> BAN_KINDS = Set.of(
+            ModerationKind.PLAYER_BAN, ModerationKind.IP_BAN, ModerationKind.DEVICE_BAN);
 
     private ServerCommandExtensions() { }
 
@@ -237,12 +239,30 @@ final class ServerCommandExtensions {
 
     private static List<String> removeModeration(PeerNetwork network, List<String> args, ModerationKind kind, String label) {
         if (args == null || args.size() != 1) return List.of("Usage: un" + label + " <entry-id|player|name|target>");
-        ServerModerationState before = network.serverModeration();
-        ServerModerationState updated = before.removeMatching(args.get(0), kind);
-        if (updated.entries().size() == before.entries().size()) return List.of("No matching " + label + " entry.");
-        List<String> result = persist(network, updated, "Removed matching " + label + " entries.");
+        String selector = args.get(0);
+        Set<ModerationKind> allowedKinds = kind == null ? BAN_KINDS : Set.of(kind);
+        ModerationRemoval removal = resolveModerationRemoval(network.serverModeration(), selector, allowedKinds);
+        if (removal.removedCount() == 0) return List.of("No matching " + label + " entry.");
+        List<String> result = persist(network, removal.state(), moderationRemovalMessage(removal, label, selector));
         if (!result.get(0).startsWith("Could not")) network.refreshModerationRetention();
         return result;
+    }
+
+    static ModerationRemoval resolveModerationRemoval(ServerModerationState state, String selector,
+                                                       Set<ModerationKind> allowedKinds) {
+        ServerModerationState safe = state == null ? ServerModerationState.open() : state;
+        ModerationRemoval exact = safe.removeById(selector, allowedKinds);
+        return exact.removedCount() > 0 ? exact : safe.removeBySelector(selector, allowedKinds);
+    }
+
+    static String moderationRemovalMessage(ModerationRemoval removal, String label, String selector) {
+        int count = removal == null ? 0 : removal.removedCount();
+        String safeLabel = label == null || label.isBlank() ? "moderation" : ServerModeration.clean(label);
+        if (removal != null && removal.exactId()) {
+            return "Removed " + safeLabel + " entry " + ServerModeration.clean(selector) + ".";
+        }
+        return "Removed " + count + " " + safeLabel + (count == 1 ? " entry" : " entries")
+                + " by selector; selector removal may affect multiple records.";
     }
 
     private static List<String> pause(PeerNetwork network, List<String> args) {

@@ -11,6 +11,7 @@ public final class DedicatedTcpServerValidator {
     public static void main(String[] args) throws Exception {
         System.setProperty("java.awt.headless", "true");
         ServerConsoleValidator.validate();
+        ModerationIdentifierValidator.validate();
         ServerEventJournalRolloverValidator.validate();
         ServerSaveStoreBackupCollisionValidator.validate();
         AdmissionRecordingValidator.validate();
