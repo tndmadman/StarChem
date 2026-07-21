@@ -12,6 +12,7 @@ final class TcpIntegrationHarness implements AutoCloseable {
     final HeadlessGameServer headlessServer;
     final List<TestClient> clients = new ArrayList<>();
     private final Path sessionStore;
+    private final Path serverSaveDir;
 
     private TcpIntegrationHarness(boolean dedicated) throws Exception {
         sessionStore = Files.createTempFile("starchem-tcp-harness-", ".properties");
@@ -19,12 +20,15 @@ final class TcpIntegrationHarness implements AutoCloseable {
         System.setProperty("starchem.sessionStore", sessionStore.toString());
         int port = freePort();
         if (dedicated) {
-            serverConfig = Config.dedicatedServer("TCP Dedicated Validator", port, false,
-                    Set.of(), StarSystems.DEFAULT_SYSTEM_ID);
+            serverSaveDir = Files.createTempDirectory("starchem-tcp-dedicated-saves-");
+            serverConfig = Config.dedicatedServer("TCP Dedicated Validator", port, false, false,
+                    Set.of(), StarSystems.DEFAULT_SYSTEM_ID, "", 1, serverSaveDir,
+                    "validation", 0, 3, false);
             headlessServer = HeadlessGameServer.start(serverConfig);
             serverWorld = headlessServer.world;
             serverNetwork = headlessServer.network;
         } else {
+            serverSaveDir = null;
             serverConfig = Config.host("TCP Harness Host", port, false);
             serverWorld = new World(serverConfig.playerName, Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
             serverNetwork = PeerNetwork.start(serverConfig, serverWorld);
@@ -160,6 +164,7 @@ final class TcpIntegrationHarness implements AutoCloseable {
         } catch (Exception ignored) { }
         System.clearProperty("starchem.sessionStore");
         try { Files.deleteIfExists(sessionStore); } catch (Exception ignored) { }
+        deleteTree(serverSaveDir);
     }
 
     private Unit findAcrossSystems(World world, String playerId, int unitId) {
@@ -203,6 +208,15 @@ final class TcpIntegrationHarness implements AutoCloseable {
 
     private static boolean validSystem(String value) {
         return value != null && !value.isBlank() && !value.contains("WAIT");
+    }
+
+    private static void deleteTree(Path root) {
+        if (root == null || !Files.exists(root)) return;
+        try (var stream = Files.walk(root)) {
+            stream.sorted((left, right) -> right.compareTo(left)).forEach(path -> {
+                try { Files.deleteIfExists(path); } catch (Exception ignored) { }
+            });
+        } catch (Exception ignored) { }
     }
 
     static int freePort() throws Exception {

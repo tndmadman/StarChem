@@ -56,10 +56,15 @@ jobs:
           set -euo pipefail
           PORT=50080
           LOG=build/headless-server.log
+          SAVE_DIR=build/headless-smoke-saves
+          rm -rf "$SAVE_DIR"
 
           java -Djava.awt.headless=true -jar build/libs/StarChem.jar \
             --server "$PORT" \
-            --name CI-Server >"$LOG" 2>&1 &
+            --name CI-Server \
+            --save-dir "$SAVE_DIR" \
+            --save-name smoke \
+            --new-world >"$LOG" 2>&1 &
           SERVER_PID=$!
 
           cleanup() {

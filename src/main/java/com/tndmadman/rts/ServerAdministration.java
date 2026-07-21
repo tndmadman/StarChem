@@ -6,7 +6,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
 import java.security.KeyStore;
 import java.security.MessageDigest;
 import java.security.cert.Certificate;
@@ -35,7 +34,28 @@ record ServerAccessPolicy(boolean maintenance, String maintenanceReason, int max
 
     static ServerAccessPolicy open() { return new ServerAccessPolicy(false, "", 0, ""); }
 
+    static ServerAccessPolicy restricted(String detail) {
+        String reason = "Companion administration state requires operator recovery";
+        if (detail != null && !detail.isBlank()) reason += ": " + detail;
+        return new ServerAccessPolicy(true, reason, 0, "");
+    }
+
+    @Override public boolean maintenance() {
+        return maintenance || CompanionRecoveryRegistry.restricted();
+    }
+
+    @Override public String maintenanceReason() {
+        String recovery = CompanionRecoveryRegistry.statusReason();
+        if (recovery.isBlank()) return maintenanceReason;
+        if (maintenanceReason.isBlank()) return recovery;
+        return maintenanceReason + "; " + recovery;
+    }
+
+    boolean storedMaintenance() { return maintenance; }
+    String storedMaintenanceReason() { return maintenanceReason; }
+
     ServerAccessPolicy withMaintenance(boolean enabled, String reason) {
+        if (!enabled) CompanionRecoveryRegistry.requestOperatorReset();
         return new ServerAccessPolicy(enabled, enabled ? reason : "", maxSlots, motd);
     }
 
@@ -48,7 +68,8 @@ record ServerAccessPolicy(boolean maintenance, String maintenanceReason, int max
     }
 
     String maintenanceMessage() {
-        return maintenanceReason.isBlank() ? "Server is temporarily in maintenance mode." : maintenanceReason;
+        String reason = maintenanceReason();
+        return reason.isBlank() ? "Server is temporarily in maintenance mode." : reason;
     }
 
     private static String clean(String value) {
@@ -60,50 +81,91 @@ record ServerAccessPolicy(boolean maintenance, String maintenanceReason, int max
 
 final class ServerAdminStore {
     private final Path path;
+    private final Path previousPath;
+    private CompanionLoadStatus loadStatus = CompanionLoadStatus.current("not loaded");
 
     ServerAdminStore(Path saveDir, String saveName) {
         Path dir = saveDir == null ? Path.of("saves") : saveDir;
-        this.path = dir.resolve(Config.cleanSaveName(saveName) + "-admin.json");
+        String cleanName = Config.cleanSaveName(saveName);
+        this.path = dir.resolve(cleanName + "-admin.json");
+        this.previousPath = dir.resolve(cleanName + "-admin-previous.json");
+        CompanionRecoveryRegistry.configure(dir, cleanName);
+        CompanionRecoveryRegistry.enableRestrictedAdmission();
     }
 
     Path path() { return path; }
+    Path previousPath() { return previousPath; }
+    CompanionLoadStatus loadStatus() { return loadStatus; }
 
     ServerAccessPolicy load() {
-        if (!Files.isRegularFile(path)) return ServerAccessPolicy.open();
-        try {
-            Object parsed = MiniJson.parse(Files.readString(path, StandardCharsets.UTF_8));
-            if (!(parsed instanceof Map<?,?> raw)) throw new IOException("admin file root is not an object");
-            Map<String,Object> map = stringMap(raw);
-            boolean maintenance = booleanValue(map.get("maintenance"));
-            String reason = stringValue(map.get("maintenanceReason"));
-            int maxSlots = integerValue(map.get("maxSlots"));
-            String motd = stringValue(map.get("motd"));
-            return new ServerAccessPolicy(maintenance, reason, maxSlots, motd);
-        } catch (Exception ex) {
-            System.err.println("Could not load server administration settings: " + ex.getMessage());
-            return ServerAccessPolicy.open();
+        CompanionLoad<ServerAccessPolicy> loaded = CompanionStateFiles.load(path, previousPath,
+                "Administration", ServerAdminStore::parsePolicy, ServerAccessPolicy::restricted);
+        ServerAccessPolicy policy = loaded.value();
+        loadStatus = loaded.status();
+        boolean ready = !loadStatus.restricted();
+
+        if (loadStatus.recoveredPrevious()) {
+            try {
+                CompanionStateFiles.repairCurrent(path, policy, ServerAdminStore::parsePolicy,
+                        ServerAdminStore::serializePolicy);
+            } catch (IOException ex) {
+                loadStatus = CompanionLoadStatus.previous(loadStatus.detail()
+                        + "; current repair failed: " + ex.getMessage());
+            }
+        } else if (loadStatus.restricted()) {
+            try {
+                CompanionStateFiles.repairCurrent(path, policy, ServerAdminStore::parsePolicy,
+                        ServerAdminStore::serializePolicy);
+                ready = true;
+            } catch (IOException ex) {
+                System.err.println("Could not seed restricted server administration settings: " + ex.getMessage());
+            }
         }
+
+        CompanionRecoveryRegistry.recordAdministration(loadStatus, ready);
+        if (loadStatus.recoveredPrevious() || loadStatus.restricted()) {
+            System.err.println(loadStatus.summary("Server administration"));
+        }
+        return policy;
     }
 
-    void save(ServerAccessPolicy policy) throws IOException {
+    synchronized void save(ServerAccessPolicy policy) throws IOException {
+        ServerAccessPolicy safe = policy == null ? ServerAccessPolicy.open() : policy;
+        CompanionStateFiles.save(path, previousPath, safe, ServerAdminStore::parsePolicy,
+                ServerAdminStore::serializePolicy);
+        loadStatus = CompanionLoadStatus.current("verified save");
+        CompanionRecoveryRegistry.recordAdministration(loadStatus, true);
+        CompanionRecoveryRegistry.completeAdministrationSave(safe.storedMaintenance());
+    }
+
+    private static ServerAccessPolicy parsePolicy(String text) throws IOException {
+        Object parsed;
+        try { parsed = MiniJson.parse(text); }
+        catch (RuntimeException ex) { throw new IOException("could not parse admin JSON: " + ex.getMessage(), ex); }
+        if (!(parsed instanceof Map<?,?> raw)) throw new IOException("admin file root is not an object");
+        Map<String,Object> map = stringMap(raw);
+        Object version = map.get("version");
+        if (version != null && !(version instanceof Number)) throw new IOException("admin version is not numeric");
+        boolean maintenance = requiredBoolean(map, "maintenance");
+        String reason = requiredString(map, "maintenanceReason");
+        int maxSlots = requiredInteger(map, "maxSlots");
+        if (maxSlots < 0 || maxSlots > ServerAccessPolicy.MAX_SLOTS) {
+            throw new IOException("admin maxSlots is outside the supported range");
+        }
+        String motd = requiredString(map, "motd");
+        return new ServerAccessPolicy(maintenance, reason, maxSlots, motd);
+    }
+
+    private static String serializePolicy(ServerAccessPolicy policy) {
         ServerAccessPolicy safe = policy == null ? ServerAccessPolicy.open() : policy;
         Map<String,Object> map = new LinkedHashMap<>();
         map.put("version", 1);
-        map.put("maintenance", safe.maintenance());
-        map.put("maintenanceReason", safe.maintenanceReason());
+        map.put("maintenance", safe.storedMaintenance());
+        map.put("maintenanceReason", safe.storedMaintenanceReason());
         map.put("maxSlots", safe.maxSlots());
         map.put("motd", safe.motd());
         map.put("updatedAt", Instant.now().toString());
-        Path parent = path.toAbsolutePath().getParent();
-        if (parent != null) Files.createDirectories(parent);
-        Path temp = path.resolveSibling(path.getFileName() + ".tmp");
-        Files.writeString(temp, MiniJson.stringify(map) + "\n", StandardCharsets.UTF_8,
-                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
-        try {
-            Files.move(temp, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (IOException ex) {
-            Files.move(temp, path, StandardCopyOption.REPLACE_EXISTING);
-        }
+        return MiniJson.stringify(map);
     }
 
     private static Map<String,Object> stringMap(Map<?,?> raw) {
@@ -112,18 +174,27 @@ final class ServerAdminStore {
         return out;
     }
 
-    private static boolean booleanValue(Object value) {
-        if (value instanceof Boolean bool) return bool;
-        return value != null && Boolean.parseBoolean(String.valueOf(value));
+    private static boolean requiredBoolean(Map<String,Object> map, String key) throws IOException {
+        Object value = map.get(key);
+        if (!(value instanceof Boolean bool)) throw new IOException("admin " + key + " is not boolean");
+        return bool;
     }
 
-    private static int integerValue(Object value) {
-        if (value instanceof Number number) return number.intValue();
-        try { return value == null ? 0 : Integer.parseInt(String.valueOf(value)); }
-        catch (NumberFormatException ex) { return 0; }
+    private static int requiredInteger(Map<String,Object> map, String key) throws IOException {
+        Object value = map.get(key);
+        if (!(value instanceof Number number)) throw new IOException("admin " + key + " is not numeric");
+        long raw = number.longValue();
+        if (raw != number.doubleValue() || raw < Integer.MIN_VALUE || raw > Integer.MAX_VALUE) {
+            throw new IOException("admin " + key + " is not an integer");
+        }
+        return (int)raw;
     }
 
-    private static String stringValue(Object value) { return value == null ? "" : String.valueOf(value); }
+    private static String requiredString(Map<String,Object> map, String key) throws IOException {
+        Object value = map.get(key);
+        if (!(value instanceof String text)) throw new IOException("admin " + key + " is not text");
+        return text;
+    }
 }
 
 final class ServerBackupAdmin {
