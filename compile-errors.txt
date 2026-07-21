@@ -1,0 +1,47 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.10.2/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :clean UP-TO-DATE
+
+> Task :compileJava FAILED
+/home/runner/work/StarChem/StarChem/src/main/java/com/tndmadman/rts/AuthenticationEnumerationValidator.java:63: error: illegal character: '\'
+                require(existingChallenge.currentSalt.length() == 32 && existingChallenge.scopedSalt.length() == 32\n                        && missingChallenge.currentSalt.length() == 32 && missingChallenge.scopedSalt.length() == 32,
+                                                                                                                   ^
+/home/runner/work/StarChem/StarChem/src/main/java/com/tndmadman/rts/AuthenticationEnumerationValidator.java:63: error: not a statement
+                require(existingChallenge.currentSalt.length() == 32 && existingChallenge.scopedSalt.length() == 32\n                        && missingChallenge.currentSalt.length() == 32 && missingChallenge.scopedSalt.length() == 32,
+                                                                                                                                                                                            ^
+/home/runner/work/StarChem/StarChem/src/main/java/com/tndmadman/rts/AuthenticationEnumerationValidator.java:63: error: ';' expected
+                require(existingChallenge.currentSalt.length() == 32 && existingChallenge.scopedSalt.length() == 32\n                        && missingChallenge.currentSalt.length() == 32 && missingChallenge.scopedSalt.length() == 32,
+                                                                                                                                                                                                                                         ^
+/home/runner/work/StarChem/StarChem/src/main/java/com/tndmadman/rts/AuthenticationEnumerationValidator.java:67: error: illegal character: '\'
+                require(missingChallenge.currentSalt.equals(repeatedMissing.currentSalt)\n                        && missingChallenge.scopedSalt.equals(repeatedMissing.scopedSalt),
+                                                                                        ^
+/home/runner/work/StarChem/StarChem/src/main/java/com/tndmadman/rts/AuthenticationEnumerationValidator.java:67: error: not a statement
+                require(missingChallenge.currentSalt.equals(repeatedMissing.currentSalt)\n                        && missingChallenge.scopedSalt.equals(repeatedMissing.scopedSalt),
+                                                                                                                  ^
+/home/runner/work/StarChem/StarChem/src/main/java/com/tndmadman/rts/AuthenticationEnumerationValidator.java:67: error: ';' expected
+                require(missingChallenge.currentSalt.equals(repeatedMissing.currentSalt)\n                        && missingChallenge.scopedSalt.equals(repeatedMissing.scopedSalt),
+                                                                                                                                                                                   ^
+/home/runner/work/StarChem/StarChem/src/main/java/com/tndmadman/rts/AuthenticationEnumerationValidator.java:73: error: illegal character: '\'
+                require(existingChallenge.currentSalt.equals(repeatedExisting.currentSalt)\n                        && existingChallenge.scopedSalt.equals(repeatedExisting.scopedSalt),
+                                                                                          ^
+/home/runner/work/StarChem/StarChem/src/main/java/com/tndmadman/rts/AuthenticationEnumerationValidator.java:73: error: not a statement
+                require(existingChallenge.currentSalt.equals(repeatedExisting.currentSalt)\n                        && existingChallenge.scopedSalt.equals(repeatedExisting.scopedSalt),
+                                                                                                                    ^
+/home/runner/work/StarChem/StarChem/src/main/java/com/tndmadman/rts/AuthenticationEnumerationValidator.java:73: error: ';' expected
+                require(existingChallenge.currentSalt.equals(repeatedExisting.currentSalt)\n                        && existingChallenge.scopedSalt.equals(repeatedExisting.scopedSalt),
+                                                                                                                                                                                       ^
+9 errors
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/compile-1784594645408.json
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileJava'.
+> Compilation failed; see the compiler error output for details.
+
+* Try:
+> Run with --info option to get more log output.
+> Run with --scan to get full insights.
+
+BUILD FAILED in 13s
+2 actionable tasks: 1 executed, 1 up-to-date
