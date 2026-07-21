@@ -13,6 +13,7 @@ public final class AdmissionRecordingValidator {
     }
 
     static void validate() throws Exception {
+        AuthenticationEnumerationValidator.validate();
         try (TcpIntegrationHarness harness = TcpIntegrationHarness.host()) {
             harness.serverNetwork.serverJournal().clear();
 
