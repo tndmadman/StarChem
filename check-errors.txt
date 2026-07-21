@@ -43,8 +43,8 @@ Runtime developer mode disabled. Remote grants and free-build were revoked; AI a
 Server save completed (shutdown).
 Dedicated server stopped.
 Loaded server save 'server'.
-MOVE OK P2:1
 MOVE OK P3:1
+MOVE OK P2:1
 StarChem dedicated TCP server validation passed.
 Server save completed (shutdown).
 Dedicated server stopped.
@@ -114,24 +114,28 @@ StarChem system modifier validation passed.
 > Task :validateSystemSimulationScheduler
 StarChem system simulation scheduler validation passed.
 
-> Task :validateTcpConnectionIdentity FAILED
-Exception in thread "main" java.net.SocketTimeoutException: Read timed out
-	at java.base/sun.nio.ch.NioSocketImpl.timedRead(NioSocketImpl.java:288)
-	at java.base/sun.nio.ch.NioSocketImpl.implRead(NioSocketImpl.java:314)
-	at java.base/sun.nio.ch.NioSocketImpl.read(NioSocketImpl.java:355)
-	at java.base/sun.nio.ch.NioSocketImpl$1.read(NioSocketImpl.java:808)
-	at java.base/java.net.Socket$SocketInputStream.read(Socket.java:966)
-	at java.base/java.net.Socket$SocketInputStream.read(Socket.java:961)
-	at java.base/java.io.FilterInputStream.read(FilterInputStream.java:82)
-	at com.tndmadman.rts.TcpFrameCodec.read(TcpFrameCodec.java:32)
-	at com.tndmadman.rts.TcpConnectionIdentityValidator.receive(TcpConnectionIdentityValidator.java:72)
-	at com.tndmadman.rts.TcpConnectionIdentityValidator.main(TcpConnectionIdentityValidator.java:30)
-gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/verify-1784595354603.json
+> Task :validateTcpConnectionIdentity
+StarChem TCP connection identity validation passed.
+
+> Task :validateTcpMultiClient
+MOVE OK P1:1
+MOVE OK P3:1
+MOVE OK P2:1
+MOVE OK P4:1
+MOVE OK P2:1
+StarChem TCP multi-client validation passed.
+
+> Task :validateTcpMultiplayer FAILED
+Exception in thread "main" java.lang.IllegalStateException: TCP client did not join and receive authoritative initial state
+	at com.tndmadman.rts.TcpMultiplayerValidator.require(TcpMultiplayerValidator.java:213)
+	at com.tndmadman.rts.TcpMultiplayerValidator.runUntil(TcpMultiplayerValidator.java:100)
+	at com.tndmadman.rts.TcpMultiplayerValidator.main(TcpMultiplayerValidator.java:32)
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/verify-1784595525599.json
 
 FAILURE: Build failed with an exception.
 
 * What went wrong:
-Execution failed for task ':validateTcpConnectionIdentity'.
+Execution failed for task ':validateTcpMultiplayer'.
 > Process 'command '/usr/lib/jvm/temurin-17-jdk-amd64/bin/java'' finished with non-zero exit value 1
 
 * Try:
@@ -140,5 +144,5 @@ Execution failed for task ':validateTcpConnectionIdentity'.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 56s
-29 actionable tasks: 28 executed, 1 up-to-date
+BUILD FAILED in 1m 9s
+31 actionable tasks: 30 executed, 1 up-to-date
