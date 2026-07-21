@@ -31,6 +31,7 @@ final class PeerTransport {
     private final Config config;
     private final SocketFactory clientSocketFactory;
     private final PerfStats perfStats;
+    private final String serverFingerprint;
     private final ConcurrentLinkedQueue<NetPacket> inbox = new ConcurrentLinkedQueue<>();
     private final AtomicInteger inboxSize = new AtomicInteger();
     private final AtomicLong nextConnectionId = new AtomicLong(1);
@@ -45,31 +46,39 @@ final class PeerTransport {
     private volatile boolean running = true;
 
     private PeerTransport(boolean serverMode, ServerSocket serverSocket, InetSocketAddress expectedRemote,
-                          Config config, SocketFactory clientSocketFactory, PerfStats perfStats) {
+                          Config config, SocketFactory clientSocketFactory, PerfStats perfStats,
+                          String serverFingerprint) {
         this.serverMode = serverMode;
         this.serverSocket = serverSocket;
         this.expectedRemote = expectedRemote;
         this.config = config;
         this.clientSocketFactory = clientSocketFactory;
         this.perfStats = perfStats == null ? new PerfStats() : perfStats;
+        this.serverFingerprint = PasswordAuth.validVerifier(serverFingerprint)
+                ? serverFingerprint.toLowerCase(Locale.ROOT) : "";
         this.compatibilityAccepted = serverMode;
     }
 
     static PeerTransport server(int port, PerfStats perfStats) throws IOException {
+        return server(port, perfStats, "");
+    }
+
+    static PeerTransport server(int port, PerfStats perfStats, String serverFingerprint) throws IOException {
         ServerSocket socket = new ServerSocket();
         socket.setReuseAddress(true);
         socket.bind(new InetSocketAddress(port));
-        return new PeerTransport(true, socket, null, null, null, perfStats);
+        return new PeerTransport(true, socket, null, null, null, perfStats, serverFingerprint);
     }
 
     static PeerTransport server(Config config, PerfStats perfStats) throws IOException {
         if (config == null) throw new IOException("Server config is required for encrypted transport.");
+        String serverFingerprint = TlsIdentity.serverFingerprint(config);
         ServerSocketFactory factory = TlsIdentity.serverSocketFactory(config);
         ServerSocket socket = factory.createServerSocket();
         socket.setReuseAddress(true);
         configureServerSocket(socket);
         socket.bind(new InetSocketAddress(config.port));
-        return new PeerTransport(true, socket, null, config, null, perfStats);
+        return new PeerTransport(true, socket, null, config, null, perfStats, serverFingerprint);
     }
 
     static PeerTransport client(InetSocketAddress remote, PerfStats perfStats) throws IOException {
@@ -77,7 +86,7 @@ final class PeerTransport {
             throw new IOException("TCP server endpoint must be resolved before connecting.");
         }
         return new PeerTransport(false, null,
-                new InetSocketAddress(remote.getAddress(), remote.getPort()), null, null, perfStats);
+                new InetSocketAddress(remote.getAddress(), remote.getPort()), null, null, perfStats, "");
     }
 
     static PeerTransport client(Config config, PerfStats perfStats) throws IOException {
@@ -86,7 +95,7 @@ final class PeerTransport {
         }
         return new PeerTransport(false, null,
                 new InetSocketAddress(config.serverAddress.getAddress(), config.serverAddress.getPort()),
-                config, TlsIdentity.clientSocketFactory(), perfStats);
+                config, TlsIdentity.clientSocketFactory(), perfStats, "");
     }
 
     void start() {
@@ -118,6 +127,8 @@ final class PeerTransport {
         TcpConnection connection = clientConnection;
         return connection == null ? 0 : connection.localPort();
     }
+
+    String serverFingerprint() { return serverFingerprint; }
 
     boolean connected() {
         if (serverMode) return running && serverSocket != null && !serverSocket.isClosed();
