@@ -1,18 +1,22 @@
 package com.tndmadman.rts;
 
 import java.net.InetAddress;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.UUID;
 
 /** Persistent moderation policy shared by console commands and network admission. */
 final class ServerModeration {
     static final long PERMANENT = 0L;
     static final int MAX_REASON = 512;
+    private static final int ENTRY_ID_BYTES = 16;
+    private static final SecureRandom ENTRY_ID_RANDOM = new SecureRandom();
 
     private ServerModeration() { }
 
@@ -28,6 +32,12 @@ final class ServerModeration {
 
     static String normalizePlayerId(String value) {
         return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    static String newEntryId() {
+        byte[] random = new byte[ENTRY_ID_BYTES];
+        ENTRY_ID_RANDOM.nextBytes(random);
+        return HexFormat.of().formatHex(random);
     }
 
     static long parseModerationExpiry(String value, long now) {
@@ -82,7 +92,7 @@ enum ModerationKind {
 record ModerationEntry(String id, ModerationKind kind, String playerId, String playerName, String target,
                        long createdAt, long expiresAt, String reason) {
     ModerationEntry {
-        id = id == null || id.isBlank() ? UUID.randomUUID().toString().substring(0, 8) : id.trim();
+        id = id == null || id.isBlank() ? ServerModeration.newEntryId() : id.trim();
         kind = kind == null ? ModerationKind.PLAYER_BAN : kind;
         playerId = playerId == null ? "" : playerId.trim();
         playerName = Config.clean(playerName);
@@ -90,6 +100,10 @@ record ModerationEntry(String id, ModerationKind kind, String playerId, String p
         createdAt = Math.max(0, createdAt);
         expiresAt = Math.max(0, expiresAt);
         reason = ServerModeration.clean(reason);
+    }
+
+    ModerationEntry withId(String replacementId) {
+        return new ModerationEntry(replacementId, kind, playerId, playerName, target, createdAt, expiresAt, reason);
     }
 
     boolean active(long now) { return expiresAt == ServerModeration.PERMANENT || expiresAt > now; }
@@ -105,10 +119,20 @@ record ModerationEntry(String id, ModerationKind kind, String playerId, String p
     }
 }
 
+record ModerationRemoval(ServerModerationState state, int removedCount, boolean exactId) {
+    ModerationRemoval {
+        state = state == null ? ServerModerationState.open() : state;
+        removedCount = Math.max(0, removedCount);
+    }
+}
+
 record ServerModerationState(boolean whitelistEnabled, Set<String> whitelist, List<ModerationEntry> entries) {
+    private static final Set<ModerationKind> BAN_KINDS = Set.of(
+            ModerationKind.PLAYER_BAN, ModerationKind.IP_BAN, ModerationKind.DEVICE_BAN);
+
     ServerModerationState {
         whitelist = whitelist == null ? Set.of() : Set.copyOf(whitelist);
-        entries = entries == null ? List.of() : List.copyOf(entries);
+        entries = uniqueEntries(entries);
     }
 
     static ServerModerationState open() { return new ServerModerationState(false, Set.of(), List.of()); }
@@ -148,22 +172,49 @@ record ServerModerationState(boolean whitelistEnabled, Set<String> whitelist, Li
         return new ServerModerationState(whitelistEnabled, whitelist, next);
     }
 
-    ServerModerationState removeMatching(String selector, ModerationKind onlyKind) {
+    ModerationRemoval removeById(String selector, Set<ModerationKind> allowedKinds) {
         String wanted = selector == null ? "" : selector.trim();
-        ArrayList<ModerationEntry> next = new ArrayList<>();
+        if (wanted.isBlank()) return new ModerationRemoval(this, 0, true);
+        ArrayList<ModerationEntry> next = new ArrayList<>(entries.size());
+        boolean removed = false;
         for (ModerationEntry entry : entries) {
-            boolean kindMatches = onlyKind == null || entry.kind() == onlyKind;
+            if (!removed && kindAllowed(entry, allowedKinds) && entry.id().equalsIgnoreCase(wanted)) {
+                removed = true;
+                continue;
+            }
+            next.add(entry);
+        }
+        return removed
+                ? new ModerationRemoval(new ServerModerationState(whitelistEnabled, whitelist, next), 1, true)
+                : new ModerationRemoval(this, 0, true);
+    }
+
+    ModerationRemoval removeBySelector(String selector, Set<ModerationKind> allowedKinds) {
+        String wanted = selector == null ? "" : selector.trim();
+        if (wanted.isBlank()) return new ModerationRemoval(this, 0, false);
+        ArrayList<ModerationEntry> next = new ArrayList<>(entries.size());
+        int removed = 0;
+        for (ModerationEntry entry : entries) {
             boolean targetMatches = entry.kind() == ModerationKind.DEVICE_BAN
                     ? entry.target().equals(wanted)
                     : entry.target().equalsIgnoreCase(wanted);
-            boolean matches = entry.id().equalsIgnoreCase(wanted)
-                    || entry.playerId().equalsIgnoreCase(wanted)
+            boolean matches = entry.playerId().equalsIgnoreCase(wanted)
                     || entry.playerName().equalsIgnoreCase(wanted)
                     || targetMatches
                     || ServerModeration.normalizeName(entry.playerName()).equals(ServerModeration.normalizeName(wanted));
-            if (!(kindMatches && matches)) next.add(entry);
+            if (kindAllowed(entry, allowedKinds) && matches) removed++;
+            else next.add(entry);
         }
-        return new ServerModerationState(whitelistEnabled, whitelist, next);
+        return removed > 0
+                ? new ModerationRemoval(new ServerModerationState(whitelistEnabled, whitelist, next), removed, false)
+                : new ModerationRemoval(this, 0, false);
+    }
+
+    ServerModerationState removeMatching(String selector, ModerationKind onlyKind) {
+        Set<ModerationKind> allowedKinds = onlyKind == null ? BAN_KINDS : Set.of(onlyKind);
+        ModerationRemoval exact = removeById(selector, allowedKinds);
+        if (exact.removedCount() > 0) return exact.state();
+        return removeBySelector(selector, allowedKinds).state();
     }
 
     ServerModerationState activeOnly(long now) {
@@ -194,5 +245,24 @@ record ServerModerationState(boolean whitelistEnabled, Set<String> whitelist, Li
             if (match) return entry;
         }
         return null;
+    }
+
+    private static List<ModerationEntry> uniqueEntries(List<ModerationEntry> source) {
+        if (source == null || source.isEmpty()) return List.of();
+        ArrayList<ModerationEntry> unique = new ArrayList<>(source.size());
+        HashSet<String> ids = new HashSet<>();
+        for (ModerationEntry entry : source) {
+            if (entry == null) continue;
+            ModerationEntry candidate = entry;
+            while (!ids.add(candidate.id().toLowerCase(Locale.ROOT))) {
+                candidate = candidate.withId(ServerModeration.newEntryId());
+            }
+            unique.add(candidate);
+        }
+        return List.copyOf(unique);
+    }
+
+    private static boolean kindAllowed(ModerationEntry entry, Set<ModerationKind> allowedKinds) {
+        return allowedKinds == null || allowedKinds.contains(entry.kind());
     }
 }
