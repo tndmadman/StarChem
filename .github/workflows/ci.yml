@@ -74,7 +74,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          PORT=50080
+          PORT="$(python3 - <<'PY'
+          import socket
+          with socket.socket() as sock:
+              sock.bind(('127.0.0.1', 0))
+              print(sock.getsockname()[1])
+          PY
+          )"
           LOG=build/headless-server.log
 
           java -Djava.awt.headless=true -jar build/libs/StarChem.jar \
