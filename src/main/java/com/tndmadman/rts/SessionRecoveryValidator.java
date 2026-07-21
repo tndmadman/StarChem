@@ -7,6 +7,8 @@ import java.nio.file.Path;
 import java.util.Set;
 
 public final class SessionRecoveryValidator {
+    private static final String TEST_SERVER_FINGERPRINT = "33".repeat(32);
+
     private SessionRecoveryValidator() { }
 
     public static void main(String[] args) throws Exception {
@@ -36,9 +38,8 @@ public final class SessionRecoveryValidator {
             PeerServerSide server = new PeerServerSide(config, world, transport);
 
             ConnectionId firstEndpoint = transport.connectionId(loopback, firstClient.getLocalPort());
-            server.join(firstEndpoint, loopback, firstClient.getLocalPort(), "Recovery Client",
-                    PasswordAuth.verifier("Recovery Client", "validator-password"), false, "");
-            String firstWelcome = receivePayload(firstClient, "WELCOME|");
+            String firstWelcome = register(server, firstEndpoint, loopback, firstClient.getLocalPort(),
+                    "Recovery Client", "validator-password", firstClient);
             String firstToken = markerValue(firstWelcome, "SESSION");
             require(validToken(firstToken), "initial join did not issue a session token");
             require(server.owns(firstEndpoint, "P1"), "initial TCP connection did not own P1");
@@ -110,10 +111,8 @@ public final class SessionRecoveryValidator {
 
     ConnectionId longOfflineEndpoint = transport.connectionId(
             loopback, longOfflineClient.getLocalPort());
-    server.join(longOfflineEndpoint, loopback, longOfflineClient.getLocalPort(),
-            "Recovery Client",
-            PasswordAuth.verifier("Recovery Client", "validator-password"), false, "");
-    String longOfflineWelcome = receivePayload(longOfflineClient, "WELCOME|");
+    String longOfflineWelcome = reclaim(server, longOfflineEndpoint, loopback,
+            longOfflineClient.getLocalPort(), "Recovery Client", "validator-password", longOfflineClient);
     require(longOfflineWelcome.startsWith("WELCOME|P1|"),
             "same name and password received a new player slot after a long offline period");
     require(server.owns(longOfflineEndpoint, "P1"),
@@ -143,9 +142,8 @@ public final class SessionRecoveryValidator {
             PeerServerSide firstServer = new PeerServerSide(config, firstWorld, transport);
 
             ConnectionId firstEndpoint = transport.connectionId(loopback, firstClient.getLocalPort());
-            firstServer.join(firstEndpoint, loopback, firstClient.getLocalPort(), "Persistent Client",
-                    PasswordAuth.verifier("Persistent Client", "validator-password"), false, "");
-            String firstWelcome = receivePayload(firstClient, "WELCOME|");
+            String firstWelcome = register(firstServer, firstEndpoint, loopback, firstClient.getLocalPort(),
+                    "Persistent Client", "validator-password", firstClient);
             String firstToken = markerValue(firstWelcome, "SESSION");
             require(validToken(firstToken), "persistent join did not issue a session token");
             require(!firstServer.persistentSessions().isEmpty(), "server did not expose a persistent session record");
@@ -158,13 +156,16 @@ public final class SessionRecoveryValidator {
             restoredServer.join(restoredEndpoint, loopback, restoredClient.getLocalPort(), "Persistent Client", false, "");
             String challenge = receivePayload(restoredClient, "AUTH_CHALLENGE|");
             String[] challengeParts = challenge.split("\\|", -1);
-            require(challengeParts.length >= 4 && PasswordAuth.decodeHex(challengeParts[2]).length == 16
-                            && PasswordAuth.validNonce(challengeParts[3]),
+            PasswordAuth.ChallengeSalts challengeSalts = challengeParts.length < 4
+                    ? PasswordAuth.ChallengeSalts.EMPTY
+                    : PasswordAuth.decodeChallengeSalts(challengeParts[2]);
+            require(challengeSalts.valid() && PasswordAuth.validNonce(challengeParts[3]),
                     "restored server did not issue a valid password challenge");
+            String wrongVerifier = PasswordAuth.scopedVerifier("Persistent Client", "wrong-password",
+                    TEST_SERVER_FINGERPRINT, challengeSalts.scopedSalt());
             String wrongProof = PasswordAuth.challengeProof(
-                    PasswordAuth.serverDigest(PasswordAuth.decodeVerifier(
-                            PasswordAuth.verifier("Persistent Client", "wrong-password")),
-                            PasswordAuth.decodeHex(challengeParts[2])),
+                    PasswordAuth.serverDigest(PasswordAuth.decodeVerifier(wrongVerifier),
+                            challengeSalts.currentSalt()),
                     "Persistent Client", challengeParts[3]);
             restoredServer.join(restoredEndpoint, loopback, restoredClient.getLocalPort(), "Persistent Client",
                     "", challengeParts[3], wrongProof, false, "");
@@ -269,6 +270,36 @@ public final class SessionRecoveryValidator {
             System.clearProperty("starchem.sessionStore");
             Files.deleteIfExists(store);
         }
+    }
+
+    private static String register(PeerServerSide server, ConnectionId connectionId, InetAddress address,
+                                   int port, String name, String password, Socket socket) throws Exception {
+        server.join(connectionId, address, port, name, false, "");
+        String required = receivePayload(socket, "AUTH_REQUIRED|");
+        String[] parts = required.split("\\|", -1);
+        require(parts.length == 3 && PasswordAuth.decodeHex(parts[2]).length == 16,
+                "server did not issue a scoped registration salt");
+        String verifier = PasswordAuth.scopedVerifier(name, password, TEST_SERVER_FINGERPRINT,
+                PasswordAuth.decodeHex(parts[2]));
+        server.join(connectionId, address, port, name, verifier, false, "");
+        return receivePayload(socket, "WELCOME|");
+    }
+
+    private static String reclaim(PeerServerSide server, ConnectionId connectionId, InetAddress address,
+                                  int port, String name, String password, Socket socket) throws Exception {
+        server.join(connectionId, address, port, name, false, "");
+        String challenge = receivePayload(socket, "AUTH_CHALLENGE|");
+        String[] parts = challenge.split("\\|", -1);
+        PasswordAuth.ChallengeSalts salts = parts.length < 4
+                ? PasswordAuth.ChallengeSalts.EMPTY : PasswordAuth.decodeChallengeSalts(parts[2]);
+        require(salts.valid() && PasswordAuth.validNonce(parts[3]),
+                "server did not issue a scoped authentication challenge");
+        String verifier = PasswordAuth.scopedVerifier(name, password, TEST_SERVER_FINGERPRINT,
+                salts.scopedSalt());
+        String proof = PasswordAuth.challengeProof(PasswordAuth.serverDigest(
+                PasswordAuth.decodeVerifier(verifier), salts.currentSalt()), name, parts[3]);
+        server.join(connectionId, address, port, name, "", parts[3], proof, false, "");
+        return receivePayload(socket, "WELCOME|");
     }
 
     private static void applyInitialSync(PeerClientSide client, World world, String playerId, long sequence) {
