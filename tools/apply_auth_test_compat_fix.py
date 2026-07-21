@@ -1,0 +1,10 @@
+from pathlib import Path
+
+path = Path(__file__).resolve().parents[1] / "src/main/java/com/tndmadman/rts/TcpIntegrationHarness.java"
+text = path.read_text(encoding="utf-8")
+old = '        SessionTokenStore.saveAuthDigest(config, PasswordAuth.verifier(config.playerName, "validator-password"));'
+new = '        PendingPlayerPassword.remember(config, "validator-password".toCharArray(), false);'
+if text.count(old) != 1:
+    raise RuntimeError(f"Expected one TCP harness credential setup, found {text.count(old)}")
+path.write_text(text.replace(old, new, 1), encoding="utf-8")
+print("Adapted TCP integration harness to derive credentials after TLS verification.")
