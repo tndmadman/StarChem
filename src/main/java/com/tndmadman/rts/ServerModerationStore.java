@@ -60,7 +60,15 @@ final class ServerModerationStore {
                         text(entry.get("playerName")), text(entry.get("target")), number(entry.get("createdAt")),
                         number(entry.get("expiresAt")), text(entry.get("reason"))));
             }
-            return new ServerModerationState(whitelistEnabled, whitelist, entries).activeOnly(System.currentTimeMillis());
+            ServerModerationState loaded = new ServerModerationState(whitelistEnabled, whitelist, entries)
+                    .activeOnly(System.currentTimeMillis());
+            if (!loaded.entries().equals(entries)) {
+                try { save(loaded); }
+                catch (IOException migrationError) {
+                    System.err.println("Could not persist normalized server moderation IDs: " + migrationError.getMessage());
+                }
+            }
+            return loaded;
         } catch (Exception ex) {
             System.err.println("Could not load server moderation settings: " + ex.getMessage());
             return ServerModerationState.open();
