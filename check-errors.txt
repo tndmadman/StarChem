@@ -10,19 +10,114 @@ Daemon will be stopped at the end of the build
 > Task :testClasses UP-TO-DATE
 > Task :test NO-SOURCE
 
-> Task :validateCelestialContinuity FAILED
-Exception in thread "main" java.lang.IllegalStateException: TCP Celestial Cont did not join through the full TCP path
-	at com.tndmadman.rts.TcpIntegrationHarness.require(TcpIntegrationHarness.java:217)
-	at com.tndmadman.rts.TcpIntegrationHarness.await(TcpIntegrationHarness.java:76)
-	at com.tndmadman.rts.TcpIntegrationHarness.awaitJoined(TcpIntegrationHarness.java:80)
-	at com.tndmadman.rts.CelestialContinuityValidator.validateTcpCorrection(CelestialContinuityValidator.java:71)
-	at com.tndmadman.rts.CelestialContinuityValidator.main(CelestialContinuityValidator.java:15)
-gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/verify-1784594920633.json
+> Task :validateCelestialContinuity
+StarChem celestial continuity validation passed.
+
+> Task :validateClientEnvironmentSync
+StarChem client environment synchronization validation passed.
+
+> Task :validateClientLaunch
+Client launch validation passed.
+
+> Task :validateCodexCatalog
+StarChem codex validation passed.
+
+> Task :validateDedicatedTcpServer
+No server save found; starting a new world.
+Runtime developer mode enabled for this process. It will reset to the startup setting after restart.
+Developer access granted to P1. Free-build is managed separately.
+Free-build enabled for P1.
+Updated Fuel on 1 base.
+Set every material to 1000.0 on 1 base.
+Production fund completed for P1:B1/P1.
+Production finish completed for P1:B1/P1.
+Granted 1 research topic to P1: advanced_industry
+Granted 1 research topic to P1: combat_doctrine
+Spawned 2 Frigate ships for P1 in empty_frontier_P1.
+Healed 4 ships and 1 bases for P1.
+Notice sent to P1.
+Procedural audio unavailable: No line matching interface SourceDataLine supporting format PCM_SIGNED 44100.0 Hz, 16 bit, stereo, 4 bytes/frame, little-endian is supported.
+SERVER: Developer command validation
+Revoked research from P1: combat_doctrine, advanced_industry
+Runtime developer mode disabled. Remote grants and free-build were revoked; AI and timer state were reset.
+Server save completed (shutdown).
+Dedicated server stopped.
+Loaded server save 'server'.
+MOVE OK P2:1
+MOVE OK P3:1
+StarChem dedicated TCP server validation passed.
+Server save completed (shutdown).
+Dedicated server stopped.
+
+> Task :validateDevAccess
+Dev access policy validation passed.
+
+> Task :validateDevSimulationState
+Starting a new server world by request.
+Server save completed (shutdown).
+Dedicated server stopped.
+StarChem developer simulation state validation passed.
+
+> Task :validateGalaxyConnectivity
+Procedural audio unavailable: No line matching interface SourceDataLine supporting format PCM_SIGNED 44100.0 Hz, 16 bit, stereo, 4 bytes/frame, little-endian is supported.
+StarChem galaxy connectivity validation passed.
+
+> Task :validateGalaxyMapWire
+StarChem galaxy map wire validation passed.
+
+> Task :validateIntermediateCrafting
+StarChem intermediate crafting validation passed.
+
+> Task :validateMaterialCoverage
+StarChem material coverage validation passed.
+
+> Task :validateMinimapHud
+StarChem tactical minimap validation passed.
+
+> Task :validateNarrationProcesses
+StarChem narration process validation passed.
+
+> Task :validateNetworkSecurity
+StarChem TCP network security validation passed.
+
+> Task :validateNpcGalaxyDirector
+StarChem NPC galaxy director validation passed.
+
+> Task :validateNpcSystemIsolation
+Procedural audio unavailable: No line matching interface SourceDataLine supporting format PCM_SIGNED 44100.0 Hz, 16 bit, stereo, 4 bytes/frame, little-endian is supported.
+StarChem NPC system isolation validation passed.
+
+> Task :validateProductionQueues
+StarChem production queue validation passed.
+
+> Task :validateResourceCatalog
+StarChem resource catalog validation passed.
+
+> Task :validateRuleIds
+StarChem rule ID validation passed.
+
+> Task :validateRules
+StarChem rules/config validation passed: config/starchem.json
+
+> Task :validateSessionRecovery FAILED
+Exception in thread "main" java.net.SocketTimeoutException: Read timed out
+	at java.base/sun.nio.ch.NioSocketImpl.timedRead(NioSocketImpl.java:288)
+	at java.base/sun.nio.ch.NioSocketImpl.implRead(NioSocketImpl.java:314)
+	at java.base/sun.nio.ch.NioSocketImpl.read(NioSocketImpl.java:355)
+	at java.base/sun.nio.ch.NioSocketImpl$1.read(NioSocketImpl.java:808)
+	at java.base/java.net.Socket$SocketInputStream.read(Socket.java:966)
+	at java.base/java.net.Socket$SocketInputStream.read(Socket.java:961)
+	at java.base/java.io.FilterInputStream.read(FilterInputStream.java:82)
+	at com.tndmadman.rts.TcpFrameCodec.read(TcpFrameCodec.java:32)
+	at com.tndmadman.rts.SessionRecoveryValidator.receivePayload(SessionRecoveryValidator.java:306)
+	at com.tndmadman.rts.SessionRecoveryValidator.validateServerSessionRecovery(SessionRecoveryValidator.java:41)
+	at com.tndmadman.rts.SessionRecoveryValidator.main(SessionRecoveryValidator.java:13)
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/verify-1784595062453.json
 
 FAILURE: Build failed with an exception.
 
 * What went wrong:
-Execution failed for task ':validateCelestialContinuity'.
+Execution failed for task ':validateSessionRecovery'.
 > Process 'command '/usr/lib/jvm/temurin-17-jdk-amd64/bin/java'' finished with non-zero exit value 1
 
 * Try:
@@ -31,5 +126,5 @@ Execution failed for task ':validateCelestialContinuity'.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 38s
-4 actionable tasks: 3 executed, 1 up-to-date
+BUILD FAILED in 52s
+24 actionable tasks: 23 executed, 1 up-to-date
