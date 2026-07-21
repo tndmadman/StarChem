@@ -150,7 +150,7 @@ final class LobbyPanel extends JPanel {
     }
 
     private boolean ensurePlayerPassword(Config config) {
-        if (!SessionTokenStore.authDigest(config).isBlank()) return true;
+        if (SessionTokenStore.scopedCredential(config).valid()) return true;
         JPasswordField password = new JPasswordField(18);
         JPasswordField confirm = new JPasswordField(18);
         JCheckBox remember = new JCheckBox("Remember password on this computer", true);
@@ -181,9 +181,7 @@ final class LobbyPanel extends JPanel {
                 setStatus("Passwords did not match.");
                 return false;
             }
-            String verifier = PasswordAuth.verifier(config.playerName, first);
-            if (remember.isSelected()) SessionTokenStore.saveAuthDigest(config, verifier);
-            else SessionTokenStore.rememberAuthDigestForProcess(config, verifier);
+            PendingPlayerPassword.remember(config, first, remember.isSelected());
             return true;
         } finally {
             java.util.Arrays.fill(first, '\0');

@@ -27,10 +27,15 @@ final class PeerClientSide {
     private String localPlayerId = "SOLO";
     private String sessionToken = "";
     private String passwordVerifier = "";
+    private String scopedPasswordVerifier = "";
     private String authChallengeSalt = "";
+    private String authScopedSalt = "";
+    private String authServerFingerprint = "";
     private String authChallengeNonce = "";
     private String sessionChallengeNonce = "";
     private boolean authRegistrationRequested;
+    private boolean derivedScopedCredential;
+    private boolean rememberScopedCredential;
     private String viewedSystemId = "";
     private String failureMessage = "";
     private String lastTransportFailure = "";
@@ -47,6 +52,12 @@ final class PeerClientSide {
         SessionTokenStore.StoredSession stored = SessionTokenStore.load(config);
         passwordVerifier = stored.authDigest();
         if (passwordVerifier.isBlank()) passwordVerifier = SessionTokenStore.authDigest(config);
+        SessionTokenStore.ScopedCredential scoped = SessionTokenStore.scopedCredential(config);
+        if (scoped.valid()) {
+            scopedPasswordVerifier = scoped.verifier();
+            authScopedSalt = scoped.scopedSalt();
+            authServerFingerprint = scoped.serverFingerprint();
+        }
         if (stored.valid()) {
             localPlayerId = stored.playerId();
             sessionToken = stored.token();
@@ -292,6 +303,15 @@ final class PeerClientSide {
             throw new SnapshotDecodeException("Malformed WELCOME packet: missing or invalid session token.");
         }
         ConnectionState previousState = state;
+        if (derivedScopedCredential && PasswordAuth.validVerifier(authServerFingerprint)
+                && PasswordAuth.decodeHex(authScopedSalt).length == 16
+                && PasswordAuth.validVerifier(scopedPasswordVerifier)) {
+            if (rememberScopedCredential) {
+                SessionTokenStore.saveScopedCredential(config, authServerFingerprint, authScopedSalt, scopedPasswordVerifier);
+            } else {
+                SessionTokenStore.clearLegacyAuthDigest(config);
+            }
+        }
         authChallengeSalt = "";
         authChallengeNonce = "";
         sessionChallengeNonce = "";
@@ -457,10 +477,15 @@ final class PeerClientSide {
             SessionTokenStore.clear(config);
             sessionToken = "";
             passwordVerifier = "";
+            scopedPasswordVerifier = "";
             authChallengeSalt = "";
+            authScopedSalt = "";
+            authServerFingerprint = "";
             authChallengeNonce = "";
             sessionChallengeNonce = "";
             authRegistrationRequested = false;
+            derivedScopedCredential = false;
+            rememberScopedCredential = false;
         }
         failConnection(reason.isBlank() ? "Join refused by server." : reason);
         return true;
@@ -468,8 +493,10 @@ final class PeerClientSide {
 
     private boolean readAuthRequired(String message) {
         if (message == null || !message.startsWith("AUTH_REQUIRED|")) return false;
-        if (passwordVerifier.isBlank()) {
-            failConnection("Player password is required for server identity.");
+        String[] parts = message.split("\\|", -1);
+        if (parts.length < 3 || PasswordAuth.decodeHex(parts[2]).length != 16
+                || !preparePasswordMaterial(parts[2])) {
+            if (state != ConnectionState.FAILED) failConnection("Server sent an invalid registration challenge.");
             return true;
         }
         authRegistrationRequested = true;
@@ -477,23 +504,28 @@ final class PeerClientSide {
         authChallengeNonce = "";
         state = ConnectionState.JOINING;
         lastHandshake = 0;
-        world.status = "Registering server player password for " + config.playerName + ".";
+        world.status = "Registering a server-scoped player credential for " + config.playerName + ".";
         return true;
     }
 
     private boolean readAuthChallenge(String message) {
         if (message == null || !message.startsWith("AUTH_CHALLENGE|")) return false;
         String[] parts = message.split("\\|", -1);
-        if (parts.length < 4 || PasswordAuth.decodeHex(parts[2]).length != 16 || !PasswordAuth.validNonce(parts[3])) {
+        PasswordAuth.ChallengeSalts salts = parts.length < 4
+                ? PasswordAuth.ChallengeSalts.EMPTY : PasswordAuth.decodeChallengeSalts(parts[2]);
+        if (!salts.valid() || !PasswordAuth.validNonce(parts[3])) {
             failConnection("Server sent an invalid password challenge.");
             return true;
         }
+        String scopedSalt = PasswordAuth.encodeVerifier(salts.scopedSalt());
+        if (!preparePasswordMaterial(scopedSalt)) return true;
         authRegistrationRequested = false;
-        authChallengeSalt = parts[2];
+        authChallengeSalt = PasswordAuth.encodeVerifier(salts.currentSalt());
+        authScopedSalt = scopedSalt;
         authChallengeNonce = parts[3];
         state = ConnectionState.JOINING;
         lastHandshake = 0;
-        world.status = "Answering server password challenge for " + config.playerName + ".";
+        world.status = "Answering server-scoped password challenge for " + config.playerName + ".";
         return true;
     }
 
@@ -671,18 +703,67 @@ final class PeerClientSide {
         String request = config.devMode ? "DEV" : "NODEV";
         String token = config.devMode ? config.devToken : "";
         String message = "JOIN|" + cleanPacketPart(config.playerName) + "|" + request + "|" + token;
-        if (!authChallengeNonce.isBlank() && !authChallengeSalt.isBlank() && !passwordVerifier.isBlank()) {
-            byte[] verifier = PasswordAuth.decodeVerifier(passwordVerifier);
+        if (!authChallengeNonce.isBlank() && !authChallengeSalt.isBlank()) {
             byte[] salt = PasswordAuth.decodeHex(authChallengeSalt);
-            String proof = PasswordAuth.challengeProof(PasswordAuth.serverDigest(verifier, salt),
-                    config.playerName, authChallengeNonce);
-            return message + "|AUTH_PROOF_NONCE|" + cleanPacketPart(authChallengeNonce)
+            String scopedProof = scopedPasswordVerifier.isBlank() ? ""
+                    : PasswordAuth.challengeProof(PasswordAuth.serverDigest(
+                    PasswordAuth.decodeVerifier(scopedPasswordVerifier), salt), config.playerName, authChallengeNonce);
+            String legacyProof = passwordVerifier.isBlank() ? ""
+                    : PasswordAuth.challengeProof(PasswordAuth.serverDigest(
+                    PasswordAuth.decodeVerifier(passwordVerifier), salt), config.playerName, authChallengeNonce);
+            String proof = scopedProof.isBlank() ? legacyProof : scopedProof;
+            String registration = scopedPasswordVerifier;
+            if (!legacyProof.isBlank() && !registration.isBlank()) registration += ":" + legacyProof;
+            return message + (registration.isBlank() ? "" : "|AUTH_REGISTER|" + cleanPacketPart(registration))
+                    + "|AUTH_PROOF_NONCE|" + cleanPacketPart(authChallengeNonce)
                     + "|AUTH_PROOF|" + cleanPacketPart(proof);
         }
-        if (authRegistrationRequested && !passwordVerifier.isBlank()) {
-            return message + "|AUTH_REGISTER|" + cleanPacketPart(passwordVerifier);
+        if (authRegistrationRequested && !scopedPasswordVerifier.isBlank()) {
+            return message + "|AUTH_REGISTER|" + cleanPacketPart(scopedPasswordVerifier);
         }
         return message;
+    }
+
+    private boolean preparePasswordMaterial(String scopedSalt) {
+        if (config.localHostClientMode()) return !passwordVerifier.isBlank();
+        String fingerprint = SessionTokenStore.serverFingerprint(config);
+        if (!PasswordAuth.validVerifier(fingerprint) || PasswordAuth.decodeHex(scopedSalt).length != 16) {
+            failConnection("The verified TLS server identity is unavailable; refusing to derive a login credential.");
+            return false;
+        }
+        SessionTokenStore.ScopedCredential stored = SessionTokenStore.scopedCredential(config);
+        if (stored.matches(fingerprint, scopedSalt)) {
+            scopedPasswordVerifier = stored.verifier();
+            authServerFingerprint = fingerprint.toLowerCase(java.util.Locale.ROOT);
+            authScopedSalt = scopedSalt.toLowerCase(java.util.Locale.ROOT);
+            derivedScopedCredential = false;
+            rememberScopedCredential = false;
+            return true;
+        }
+        if (stored.valid()) SessionTokenStore.clearScopedCredential(config);
+        PendingPlayerPassword.Entry pending = PendingPlayerPassword.take(config);
+        if (pending == null) {
+            failConnection("Re-enter the player password for this verified server identity.");
+            return false;
+        }
+        char[] password = pending.password();
+        try {
+            passwordVerifier = PasswordAuth.verifier(config.playerName, password);
+            scopedPasswordVerifier = PasswordAuth.scopedVerifier(config.playerName, password, fingerprint,
+                    PasswordAuth.decodeHex(scopedSalt));
+            authServerFingerprint = fingerprint.toLowerCase(java.util.Locale.ROOT);
+            authScopedSalt = scopedSalt.toLowerCase(java.util.Locale.ROOT);
+            derivedScopedCredential = PasswordAuth.validVerifier(scopedPasswordVerifier);
+            rememberScopedCredential = pending.rememberCredential();
+            if (!derivedScopedCredential) {
+                failConnection("Could not derive the server-scoped player credential.");
+                return false;
+            }
+            return true;
+        } finally {
+            java.util.Arrays.fill(password, '\0');
+            pending.close();
+        }
     }
 
     private String resumeMessage() {

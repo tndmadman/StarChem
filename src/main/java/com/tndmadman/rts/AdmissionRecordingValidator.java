@@ -29,8 +29,6 @@ public final class AdmissionRecordingValidator {
 
             disconnect(harness, registered, playerId);
             SessionTokenStore.clear(registered.config());
-            SessionTokenStore.saveAuthDigest(registered.config(),
-                    PasswordAuth.verifier(PLAYER_NAME, PASSWORD));
             Thread.sleep(10);
 
             TcpIntegrationHarness.TestClient reclaimed = harness.addClient(PLAYER_NAME);

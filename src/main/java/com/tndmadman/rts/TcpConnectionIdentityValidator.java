@@ -25,8 +25,15 @@ public final class TcpConnectionIdentityValidator {
             PlayerRegistry.activate(world);
             PlayerRegistry.reset("SOLO", config.playerName, 0x50BEFF);
             PeerServerSide server = new PeerServerSide(config, world, transport);
-            server.join(firstId, loopback, first.getLocalPort(), "Identity Client",
-                    PasswordAuth.verifier("Identity Client", "validator-password"), false, "");
+            server.join(firstId, loopback, first.getLocalPort(), "Identity Client", false, "");
+            String registration = receive(first, "AUTH_REQUIRED|");
+            String[] registrationParts = registration.split("\\|", -1);
+            TcpIntegrationHarness.require(registrationParts.length == 3
+                            && PasswordAuth.decodeHex(registrationParts[2]).length == 16,
+                    "server did not issue a scoped registration salt");
+            String verifier = PasswordAuth.scopedVerifier("Identity Client", "validator-password",
+                    "44".repeat(32), PasswordAuth.decodeHex(registrationParts[2]));
+            server.join(firstId, loopback, first.getLocalPort(), "Identity Client", verifier, false, "");
             String firstWelcome = receive(first, "WELCOME|");
             String token = marker(firstWelcome, "SESSION");
             TcpIntegrationHarness.require(!token.isBlank(), "initial session token was missing");
