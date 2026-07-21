@@ -58,7 +58,7 @@ final class ServerCommandExtensions {
             case "research" -> ServerDevCommands.researchInspect(host, args);
             case "tell", "notice", "threads", "memory", "gc-status", "dump", "observations" ->
                     ServerDevCommands.diagnostics(host, command, args);
-            default -> List.of("Unknown extended server command: " + command);
+            default -> List.of("Unknown extended command: " + command);
         };
     }
 
