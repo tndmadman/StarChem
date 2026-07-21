@@ -1,0 +1,36 @@
+src/main/java/com/tndmadman/rts/SideAJoin.java:9:                server.join(connectionId, packet.address(), packet.port(), parts.length > 1 ? parts[1] : "Player",
+src/main/java/com/tndmadman/rts/LocalHostSession.java:48:            SessionTokenStore.rememberAuthDigestForProcess(clientConfig, processVerifier);
+src/main/java/com/tndmadman/rts/LobbyPanel.java:184:            String verifier = PasswordAuth.verifier(config.playerName, first);
+src/main/java/com/tndmadman/rts/LobbyPanel.java:185:            if (remember.isSelected()) SessionTokenStore.saveAuthDigest(config, verifier);
+src/main/java/com/tndmadman/rts/LobbyPanel.java:186:            else SessionTokenStore.rememberAuthDigestForProcess(config, verifier);
+src/main/java/com/tndmadman/rts/TcpMultiplayerValidator.java:25:            SessionTokenStore.saveAuthDigest(clientConfig, PasswordAuth.verifier(clientConfig.playerName, "validator-password"));
+src/main/java/com/tndmadman/rts/AdmissionRecordingValidator.java:32:            SessionTokenStore.saveAuthDigest(registered.config(),
+src/main/java/com/tndmadman/rts/AdmissionRecordingValidator.java:33:                    PasswordAuth.verifier(PLAYER_NAME, PASSWORD));
+src/main/java/com/tndmadman/rts/TcpConnectionIdentityValidator.java:28:            server.join(firstId, loopback, first.getLocalPort(), "Identity Client",
+src/main/java/com/tndmadman/rts/TcpConnectionIdentityValidator.java:29:                    PasswordAuth.verifier("Identity Client", "validator-password"), false, "");
+src/main/java/com/tndmadman/rts/LocalHostIdentityValidator.java:25:        String legacy = PasswordAuth.verifier(name, "local-host");
+src/main/java/com/tndmadman/rts/LocalHostIdentityValidator.java:103:            server.join(legacyConnection, loopback, legacyClient.getLocalPort(), name,
+src/main/java/com/tndmadman/rts/LocalHostIdentityValidator.java:104:                    PasswordAuth.verifier(name, "local-host"), false, "");
+src/main/java/com/tndmadman/rts/LocalHostIdentityValidator.java:110:            server.join(processConnection, loopback, processClient.getLocalPort(), name,
+src/main/java/com/tndmadman/rts/SessionRecoveryValidator.java:39:            server.join(firstEndpoint, loopback, firstClient.getLocalPort(), "Recovery Client",
+src/main/java/com/tndmadman/rts/SessionRecoveryValidator.java:40:                    PasswordAuth.verifier("Recovery Client", "validator-password"), false, "");
+src/main/java/com/tndmadman/rts/SessionRecoveryValidator.java:113:    server.join(longOfflineEndpoint, loopback, longOfflineClient.getLocalPort(),
+src/main/java/com/tndmadman/rts/SessionRecoveryValidator.java:115:            PasswordAuth.verifier("Recovery Client", "validator-password"), false, "");
+src/main/java/com/tndmadman/rts/SessionRecoveryValidator.java:147:                    PasswordAuth.verifier("Persistent Client", "validator-password"), false, "");
+src/main/java/com/tndmadman/rts/SessionRecoveryValidator.java:166:                            PasswordAuth.verifier("Persistent Client", "wrong-password")),
+src/main/java/com/tndmadman/rts/SessionRecoveryValidator.java:198:            SessionTokenStore.saveAuthDigest(config, PasswordAuth.verifier(config.playerName, "validator-password"));
+src/main/java/com/tndmadman/rts/SessionRecoveryValidator.java:205:            String transientVerifier = PasswordAuth.verifier(transientConfig.playerName, "one-run-password");
+src/main/java/com/tndmadman/rts/SessionRecoveryValidator.java:206:            SessionTokenStore.rememberAuthDigestForProcess(transientConfig, transientVerifier);
+src/main/java/com/tndmadman/rts/TcpIntegrationHarness.java:47:        SessionTokenStore.saveAuthDigest(config, PasswordAuth.verifier(config.playerName, "validator-password"));
+src/main/java/com/tndmadman/rts/NumericCommandValidationValidator.java:43:            String verifier = PasswordAuth.verifier("Numeric Client", "numeric-validation-password");
+src/main/java/com/tndmadman/rts/NumericCommandValidationValidator.java:44:            server.join(connectionId, loopback, socket.getLocalPort(), "Numeric Client", verifier, false, "");
+src/main/java/com/tndmadman/rts/AuthenticationEnumerationValidator.java:38:            String existingVerifier = PasswordAuth.verifier(EXISTING_NAME, EXISTING_PASSWORD);
+src/main/java/com/tndmadman/rts/AuthenticationEnumerationValidator.java:75:                String remoteRegisterVerifier = PasswordAuth.verifier(MISSING_NAME, MISSING_PASSWORD);
+src/main/java/com/tndmadman/rts/AuthenticationEnumerationValidator.java:76:                server.join(missingRepeat.connectionId, remote, missingRepeat.socket.getLocalPort(), MISSING_NAME,
+src/main/java/com/tndmadman/rts/AuthenticationEnumerationValidator.java:96:                server.join(existingRepeat.connectionId, remote, existingRepeat.socket.getLocalPort(), EXISTING_NAME,
+src/main/java/com/tndmadman/rts/AuthenticationEnumerationValidator.java:105:                server.join(localRegistration.connectionId, loopback, localRegistration.socket.getLocalPort(),
+src/main/java/com/tndmadman/rts/AuthenticationEnumerationValidator.java:109:                server.join(localRegistration.connectionId, loopback, localRegistration.socket.getLocalPort(),
+src/main/java/com/tndmadman/rts/AuthenticationEnumerationValidator.java:110:                        localName, PasswordAuth.verifier(localName, "local-password"), false, "");
+src/main/java/com/tndmadman/rts/AuthenticationEnumerationValidator.java:146:        server.join(connection.connectionId, reportedAddress, connection.socket.getLocalPort(), name, false, "");
+src/main/java/com/tndmadman/rts/AuthenticationEnumerationValidator.java:160:        server.join(connection.connectionId, reportedAddress, connection.socket.getLocalPort(), name,
+src/main/java/com/tndmadman/rts/AuthenticationEnumerationValidator.java:166:        byte[] verifier = PasswordAuth.decodeVerifier(PasswordAuth.verifier(name, password));
