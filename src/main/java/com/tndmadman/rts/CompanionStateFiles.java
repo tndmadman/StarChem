@@ -1,0 +1,298 @@
+package com.tndmadman.rts;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.CopyOption;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.function.Function;
+
+/** Shared verified current/previous storage for security-sensitive companion files. */
+final class CompanionStateFiles {
+    private CompanionStateFiles() { }
+
+    static <T> CompanionLoad<T> load(Path current, Path previous, String label,
+                                     CompanionParser<T> parser, Function<String,T> restrictedFallback) {
+        ArrayList<String> failures = new ArrayList<>();
+        if (Files.isRegularFile(current)) {
+            try {
+                T value = parser.parse(Files.readString(current, StandardCharsets.UTF_8));
+                return new CompanionLoad<>(value, CompanionLoadStatus.current("current file loaded"));
+            } catch (Exception ex) {
+                failures.add("current: " + detail(ex));
+            }
+        } else failures.add("current: file is missing");
+
+        if (Files.isRegularFile(previous)) {
+            try {
+                T value = parser.parse(Files.readString(previous, StandardCharsets.UTF_8));
+                String recovery = "recovered from previous file after " + String.join("; ", failures);
+                try {
+                    repairCurrent(current, value, parser, Object::toString);
+                } catch (Exception ignored) {
+                    // Stores perform a typed repair so this generic fallback is never relied upon.
+                }
+                return new CompanionLoad<>(value, CompanionLoadStatus.previous(recovery));
+            } catch (Exception ex) {
+                failures.add("previous: " + detail(ex));
+            }
+        } else failures.add("previous: file is missing");
+
+        String failure = label + " current and previous files were unavailable (" + String.join("; ", failures) + ")";
+        return new CompanionLoad<>(restrictedFallback.apply(failure), CompanionLoadStatus.restricted(failure));
+    }
+
+    static <T> void save(Path current, Path previous, T value,
+                         CompanionParser<T> parser, CompanionSerializer<T> serializer) throws IOException {
+        save(current, previous, value, parser, serializer,
+                (source, target, options) -> Files.move(source, target, options));
+    }
+
+    static <T> void save(Path current, Path previous, T value,
+                         CompanionParser<T> parser, CompanionSerializer<T> serializer,
+                         CompanionMove move) throws IOException {
+        Path parent = current.toAbsolutePath().getParent();
+        if (parent != null) Files.createDirectories(parent);
+        Path currentTemp = current.resolveSibling(current.getFileName() + ".tmp");
+        Path previousTemp = previous.resolveSibling(previous.getFileName() + ".tmp");
+        try {
+            writeVerified(currentTemp, value, parser, serializer);
+            if (Files.isRegularFile(current)) {
+                try {
+                    String existing = Files.readString(current, StandardCharsets.UTF_8);
+                    parser.parse(existing);
+                    Files.writeString(previousTemp, existing, StandardCharsets.UTF_8,
+                            StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+                    parser.parse(Files.readString(previousTemp, StandardCharsets.UTF_8));
+                    moveReplacing(previousTemp, previous, move);
+                    parser.parse(Files.readString(previous, StandardCharsets.UTF_8));
+                } catch (Exception invalidCurrent) {
+                    Files.deleteIfExists(previousTemp);
+                    // Never replace a verified previous copy with a broken current copy.
+                }
+            }
+            moveReplacing(currentTemp, current, move);
+            parser.parse(Files.readString(current, StandardCharsets.UTF_8));
+        } catch (IOException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new IOException("companion file verification failed: " + detail(ex), ex);
+        } finally {
+            Files.deleteIfExists(currentTemp);
+            Files.deleteIfExists(previousTemp);
+        }
+    }
+
+    static <T> void repairCurrent(Path current, T value,
+                                  CompanionParser<T> parser, CompanionSerializer<T> serializer) throws IOException {
+        Path parent = current.toAbsolutePath().getParent();
+        if (parent != null) Files.createDirectories(parent);
+        Path temp = current.resolveSibling(current.getFileName() + ".recovery.tmp");
+        try {
+            writeVerified(temp, value, parser, serializer);
+            moveReplacing(temp, current, (source, target, options) -> Files.move(source, target, options));
+            parser.parse(Files.readString(current, StandardCharsets.UTF_8));
+        } catch (IOException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new IOException("recovered companion file verification failed: " + detail(ex), ex);
+        } finally {
+            Files.deleteIfExists(temp);
+        }
+    }
+
+    static void moveReplacing(Path source, Path target, CompanionMove move) throws IOException {
+        try {
+            move.move(source, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException ex) {
+            move.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException atomicFailure) {
+            try {
+                move.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException fallbackFailure) {
+                fallbackFailure.addSuppressed(atomicFailure);
+                throw fallbackFailure;
+            }
+        }
+    }
+
+    private static <T> void writeVerified(Path path, T value,
+                                          CompanionParser<T> parser, CompanionSerializer<T> serializer) throws Exception {
+        String text = serializer.serialize(value);
+        Files.writeString(path, text.endsWith("\n") ? text : text + "\n", StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+        parser.parse(Files.readString(path, StandardCharsets.UTF_8));
+    }
+
+    private static String detail(Exception ex) {
+        String message = ex == null ? "unknown failure" : ex.getMessage();
+        return message == null || message.isBlank() ? ex.getClass().getSimpleName() : message;
+    }
+}
+
+enum CompanionLoadSource { CURRENT, PREVIOUS, RESTRICTED }
+
+record CompanionLoadStatus(CompanionLoadSource source, String detail) {
+    CompanionLoadStatus {
+        source = source == null ? CompanionLoadSource.RESTRICTED : source;
+        detail = detail == null ? "" : detail.trim();
+    }
+
+    static CompanionLoadStatus current(String detail) {
+        return new CompanionLoadStatus(CompanionLoadSource.CURRENT, detail);
+    }
+
+    static CompanionLoadStatus previous(String detail) {
+        return new CompanionLoadStatus(CompanionLoadSource.PREVIOUS, detail);
+    }
+
+    static CompanionLoadStatus restricted(String detail) {
+        return new CompanionLoadStatus(CompanionLoadSource.RESTRICTED, detail);
+    }
+
+    boolean recoveredPrevious() { return source == CompanionLoadSource.PREVIOUS; }
+    boolean restricted() { return source == CompanionLoadSource.RESTRICTED; }
+
+    String summary(String label) {
+        String safe = label == null || label.isBlank() ? "Companion state" : label;
+        return switch (source) {
+            case CURRENT -> safe + ": current file loaded.";
+            case PREVIOUS -> safe + ": recovered from previous file. " + detail;
+            case RESTRICTED -> safe + ": recovery failed; restricted admission is active. " + detail;
+        };
+    }
+}
+
+record CompanionLoad<T>(T value, CompanionLoadStatus status) { }
+
+@FunctionalInterface
+interface CompanionParser<T> {
+    T parse(String text) throws Exception;
+}
+
+@FunctionalInterface
+interface CompanionSerializer<T> {
+    String serialize(T value) throws Exception;
+}
+
+@FunctionalInterface
+interface CompanionMove {
+    void move(Path source, Path target, CopyOption... options) throws IOException;
+}
+
+/** Process-wide recovery state. Dedicated servers run one save identity per JVM. */
+final class CompanionRecoveryRegistry {
+    private static Path markerPath;
+    private static String markerReason = "";
+    private static CompanionLoadStatus administration = CompanionLoadStatus.current("not loaded");
+    private static CompanionLoadStatus moderation = CompanionLoadStatus.current("not loaded");
+    private static boolean administrationReady;
+    private static boolean moderationReady;
+    private static boolean operatorResetPending;
+
+    private CompanionRecoveryRegistry() { }
+
+    static synchronized void configure(Path saveDir, String saveName) {
+        Path dir = saveDir == null ? Path.of("saves") : saveDir;
+        Path next = dir.resolve(Config.cleanSaveName(saveName) + "-companion-recovery.lock")
+                .toAbsolutePath().normalize();
+        if (next.equals(markerPath)) return;
+        markerPath = next;
+        administration = CompanionLoadStatus.current("not loaded");
+        moderation = CompanionLoadStatus.current("not loaded");
+        administrationReady = false;
+        moderationReady = false;
+        operatorResetPending = false;
+        markerReason = "";
+        if (Files.isRegularFile(markerPath)) {
+            try { markerReason = Files.readString(markerPath, StandardCharsets.UTF_8).trim(); }
+            catch (IOException ex) { markerReason = "A prior recovery lock exists but could not be read."; }
+        }
+    }
+
+    static synchronized void recordAdministration(CompanionLoadStatus status, boolean ready) {
+        administration = status;
+        administrationReady = ready;
+        if (status != null && status.restricted()) restrict("Administration state could not be recovered.");
+    }
+
+    static synchronized void recordModeration(CompanionLoadStatus status, boolean ready) {
+        moderation = status;
+        moderationReady = ready;
+        if (status != null && status.restricted()) restrict("Moderation state could not be recovered.");
+    }
+
+    static synchronized boolean restricted() {
+        return !markerReason.isBlank() || administration.restricted() || moderation.restricted();
+    }
+
+    static synchronized String statusReason() {
+        List<String> details = new ArrayList<>();
+        if (administration.recoveredPrevious()) details.add("Administration recovered from its previous file");
+        if (moderation.recoveredPrevious()) details.add("Moderation recovered from its previous file");
+        if (administration.restricted()) details.add("administration recovery failed");
+        if (moderation.restricted()) details.add("moderation recovery failed");
+        if (!markerReason.isBlank()) details.add("recovery lock: " + markerReason);
+        if (restricted()) {
+            details.add("new identities are blocked; connected and retained identities may continue or reconnect");
+            details.add("run 'maintenance off' from the trusted local console after reviewing the recovered files to reset admission");
+        }
+        return String.join("; ", details);
+    }
+
+    static synchronized void requestOperatorReset() {
+        operatorResetPending = true;
+    }
+
+    static synchronized void completeAdministrationSave(boolean storedMaintenance) {
+        if (!operatorResetPending || storedMaintenance || !administrationReady || !moderationReady) return;
+        try {
+            if (markerPath != null) Files.deleteIfExists(markerPath);
+            markerReason = "";
+            administration = CompanionLoadStatus.current("operator reset");
+            moderation = CompanionLoadStatus.current("operator reset");
+            operatorResetPending = false;
+        } catch (IOException ex) {
+            markerReason = "Could not remove recovery lock: " + ex.getMessage();
+            persistMarker();
+        }
+    }
+
+    static synchronized void resetForTests() {
+        markerPath = null;
+        markerReason = "";
+        administration = CompanionLoadStatus.current("not loaded");
+        moderation = CompanionLoadStatus.current("not loaded");
+        administrationReady = false;
+        moderationReady = false;
+        operatorResetPending = false;
+    }
+
+    private static void restrict(String reason) {
+        String safe = reason == null ? "Companion state recovery failed." : reason.trim();
+        if (markerReason.isBlank()) markerReason = safe;
+        else if (!markerReason.toLowerCase(Locale.ROOT).contains(safe.toLowerCase(Locale.ROOT))) markerReason += " " + safe;
+        persistMarker();
+    }
+
+    private static void persistMarker() {
+        if (markerPath == null) return;
+        try {
+            Path parent = markerPath.getParent();
+            if (parent != null) Files.createDirectories(parent);
+            Path temp = markerPath.resolveSibling(markerPath.getFileName() + ".tmp");
+            Files.writeString(temp, markerReason + "\n", StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+            CompanionStateFiles.moveReplacing(temp, markerPath,
+                    (source, target, options) -> Files.move(source, target, options));
+        } catch (IOException ex) {
+            System.err.println("Could not persist companion recovery lock: " + ex.getMessage());
+        }
+    }
+}
