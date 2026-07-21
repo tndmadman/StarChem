@@ -27,30 +27,29 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
-      - name: Repair known assertion target
-        run: python3 tools/repair_auth_patcher.py
-      - name: Run asserted patch
-        id: patch
+      - name: Apply asserted patch
+        run: |
+          python3 tools/repair_auth_patcher.py
+          python3 tools/apply_server_scoped_auth_fix.py
+      - name: Compile patched source
+        id: compile
         shell: bash
         run: |
           set +e
-          python3 tools/apply_server_scoped_auth_fix.py > auth-patch.log 2>&1
+          gradle clean compileJava --no-daemon > compile.log 2>&1
           STATUS=$?
-          cat auth-patch.log
+          cat compile.log
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
           exit 0
-      - name: Publish diagnostic
-        if: steps.patch.outputs.status != '0'
+      - name: Publish compile diagnostic
+        if: steps.compile.outputs.status != '0'
         shell: bash
         run: |
           set -euo pipefail
-          cp auth-patch.log auth-patch.txt
+          cp compile.log compile-errors.txt
           git config user.name "StarChem Security Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add -f auth-patch.txt
-          git commit -m "Record server-scoped auth patch failure"
+          git add -f compile-errors.txt
+          git commit -m "Record server-scoped auth compile failure"
           git push origin HEAD:agent/server-scoped-password-verifiers
           exit 1
-      - name: Compile patched source
-        if: steps.patch.outputs.status == '0'
-        run: gradle clean compileJava --no-daemon
