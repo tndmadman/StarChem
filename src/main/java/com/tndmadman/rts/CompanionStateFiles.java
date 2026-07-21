@@ -33,11 +33,6 @@ final class CompanionStateFiles {
             try {
                 T value = parser.parse(Files.readString(previous, StandardCharsets.UTF_8));
                 String recovery = "recovered from previous file after " + String.join("; ", failures);
-                try {
-                    repairCurrent(current, value, parser, Object::toString);
-                } catch (Exception ignored) {
-                    // Stores perform a typed repair so this generic fallback is never relied upon.
-                }
                 return new CompanionLoad<>(value, CompanionLoadStatus.previous(recovery));
             } catch (Exception ex) {
                 failures.add("previous: " + detail(ex));
@@ -63,19 +58,13 @@ final class CompanionStateFiles {
         Path previousTemp = previous.resolveSibling(previous.getFileName() + ".tmp");
         try {
             writeVerified(currentTemp, value, parser, serializer);
-            if (Files.isRegularFile(current)) {
-                try {
-                    String existing = Files.readString(current, StandardCharsets.UTF_8);
-                    parser.parse(existing);
-                    Files.writeString(previousTemp, existing, StandardCharsets.UTF_8,
-                            StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
-                    parser.parse(Files.readString(previousTemp, StandardCharsets.UTF_8));
-                    moveReplacing(previousTemp, previous, move);
-                    parser.parse(Files.readString(previous, StandardCharsets.UTF_8));
-                } catch (Exception invalidCurrent) {
-                    Files.deleteIfExists(previousTemp);
-                    // Never replace a verified previous copy with a broken current copy.
-                }
+            String verifiedCurrent = verifiedText(current, parser);
+            if (verifiedCurrent != null) {
+                Files.writeString(previousTemp, verifiedCurrent, StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+                parser.parse(Files.readString(previousTemp, StandardCharsets.UTF_8));
+                moveReplacing(previousTemp, previous, move);
+                parser.parse(Files.readString(previous, StandardCharsets.UTF_8));
             }
             moveReplacing(currentTemp, current, move);
             parser.parse(Files.readString(current, StandardCharsets.UTF_8));
@@ -119,6 +108,17 @@ final class CompanionStateFiles {
                 fallbackFailure.addSuppressed(atomicFailure);
                 throw fallbackFailure;
             }
+        }
+    }
+
+    private static <T> String verifiedText(Path path, CompanionParser<T> parser) {
+        if (!Files.isRegularFile(path)) return null;
+        try {
+            String text = Files.readString(path, StandardCharsets.UTF_8);
+            parser.parse(text);
+            return text;
+        } catch (Exception invalidCurrent) {
+            return null;
         }
     }
 
