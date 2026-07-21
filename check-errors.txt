@@ -1,0 +1,35 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.10.2/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :clean UP-TO-DATE
+> Task :compileJava
+> Task :processResources NO-SOURCE
+> Task :classes
+> Task :jar
+> Task :compileTestJava NO-SOURCE
+> Task :processTestResources NO-SOURCE
+> Task :testClasses UP-TO-DATE
+> Task :test NO-SOURCE
+
+> Task :validateCelestialContinuity FAILED
+Exception in thread "main" java.lang.IllegalStateException: TCP Celestial Cont did not join through the full TCP path
+	at com.tndmadman.rts.TcpIntegrationHarness.require(TcpIntegrationHarness.java:217)
+	at com.tndmadman.rts.TcpIntegrationHarness.await(TcpIntegrationHarness.java:76)
+	at com.tndmadman.rts.TcpIntegrationHarness.awaitJoined(TcpIntegrationHarness.java:80)
+	at com.tndmadman.rts.CelestialContinuityValidator.validateTcpCorrection(CelestialContinuityValidator.java:71)
+	at com.tndmadman.rts.CelestialContinuityValidator.main(CelestialContinuityValidator.java:15)
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/verify-1784594920633.json
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':validateCelestialContinuity'.
+> Process 'command '/usr/lib/jvm/temurin-17-jdk-amd64/bin/java'' finished with non-zero exit value 1
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 38s
+4 actionable tasks: 3 executed, 1 up-to-date
