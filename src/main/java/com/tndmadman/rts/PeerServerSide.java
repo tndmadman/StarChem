@@ -512,13 +512,24 @@ final class PeerServerSide {
                                   String proofNonce, String proof, boolean requestedDev, String suppliedDevToken) {
         long now = System.currentTimeMillis();
         SessionChallenge challenge = sessionChallenges.remove(connectionId);
-        if (challenge == null || !session.playerId.equals(challenge.playerId)
-                || !challenge.nonce.equals(proofNonce) || now - challenge.createdAt > AUTH_CHALLENGE_MS
-                || !PasswordAuth.sessionProofMatches(session.tokenDigest, session.playerId, proofNonce, proof)) {
+        boolean challengeMatches = challenge != null && session.playerId.equals(challenge.playerId)
+                && challenge.nonce.equals(proofNonce) && now - challenge.createdAt <= AUTH_CHALLENGE_MS;
+        if (!challengeMatches || !sessionProofMatches(session, proofNonce, proof, now)) {
             transport.sendOrdered(sessionDenied("Session token was rejected."), connectionId);
             return false;
         }
         return bindResumedSession(connectionId, address, port, session, requestedDev, suppliedDevToken, now);
+    }
+
+    private boolean sessionProofMatches(PlayerSession session, String proofNonce, String proof, long now) {
+        boolean currentMatches = PasswordAuth.sessionProofMatches(
+                session.tokenDigest, session.playerId, proofNonce, proof);
+        boolean previousMatches = !session.connected && session.previousTokenDigest != null
+                && now <= session.previousTokenValidUntil
+                && PasswordAuth.sessionProofMatches(
+                session.previousTokenDigest, session.playerId, proofNonce, proof);
+        // A successful previous-token recovery reaches rotateToken(), which consumes the older token.
+        return currentMatches || previousMatches;
     }
 
     private boolean bindResumedSession(ConnectionId connectionId, InetAddress address, int port, PlayerSession session,
