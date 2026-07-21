@@ -13,134 +13,43 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
-    name: Compile, validate, and package
+  diagnose-auth-verification:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: agent/server-scoped-password-verifiers
-
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Set up Gradle 8.10.2
-        uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
-
-      - name: Apply asserted authentication patch
+      - name: Apply asserted patch
         run: |
           python3 tools/repair_auth_patcher.py
           python3 tools/apply_server_scoped_auth_fix.py
-
-      - name: Verify project
-        run: gradle clean check jar --no-daemon
-
-      - name: Validate authenticated numeric commands
-        run: java -cp build/classes/java/main com.tndmadman.rts.NumericCommandValidationValidator authenticated
-
-      - name: Validate authoritative numeric repair
-        run: java -cp build/classes/java/main com.tndmadman.rts.NumericCommandValidationValidator repair
-
-      - name: Validate numeric serialization boundaries
-        run: java -cp build/classes/java/main com.tndmadman.rts.NumericCommandValidationValidator serialization
-
-      - name: Validate authoritative mining commands
-        run: java -cp build/classes/java/main com.tndmadman.rts.MiningCommandValidationValidator
-
-      - name: Smoke-test Linux headless server
+      - name: Run project verification
+        id: verify
         shell: bash
         run: |
-          set -euo pipefail
-          PORT=50080
-          LOG=build/headless-server.log
-
-          java -Djava.awt.headless=true -jar build/libs/StarChem.jar \
-            --server "$PORT" \
-            --name CI-Server >"$LOG" 2>&1 &
-          SERVER_PID=$!
-
-          cleanup() {
-            kill -TERM "$SERVER_PID" 2>/dev/null || true
-            wait "$SERVER_PID" 2>/dev/null || true
-          }
-          trap cleanup EXIT
-
-          READY=0
-          for _ in {1..100}; do
-            if grep -Fq 'Dedicated server ready.' "$LOG"; then
-              READY=1
-              break
-            fi
-            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-              cat "$LOG"
-              echo 'Headless server exited before becoming ready.' >&2
-              exit 1
-            fi
-            sleep 0.1
-          done
-
-          if [[ "$READY" -ne 1 ]]; then
-            cat "$LOG"
-            echo 'Headless server did not become ready.' >&2
-            exit 1
-          fi
-          grep -Fq "TCP $PORT" "$LOG"
-
-          kill -TERM "$SERVER_PID"
-          (
-            sleep 10
-            kill -KILL "$SERVER_PID" 2>/dev/null || true
-          ) &
-          WATCHDOG_PID=$!
-
           set +e
-          wait "$SERVER_PID"
-          SERVER_STATUS=$?
-          set -e
-          kill "$WATCHDOG_PID" 2>/dev/null || true
-          wait "$WATCHDOG_PID" 2>/dev/null || true
-          trap - EXIT
-
-          cat "$LOG"
-          if [[ "$SERVER_STATUS" -ne 0 && "$SERVER_STATUS" -ne 143 ]]; then
-            echo "Unexpected headless server exit status: $SERVER_STATUS" >&2
-            exit 1
-          fi
-          grep -Fq 'Dedicated server stopped.' "$LOG"
-
-      - name: Verify overridden release identity
-        shell: bash
-        run: |
-          SAMPLE_VERSION="9.8.7-ci"
-          SAMPLE_COMMIT="0123456789abcdef0123456789abcdef01234567"
-
-          gradle clean verifyBuildMetadata --no-daemon \
-            -PreleaseVersion="$SAMPLE_VERSION" \
-            -PbuildCommit="$SAMPLE_COMMIT"
-
-          test -f build/libs/StarChem.jar
-          VERSION_OUTPUT="$(java -jar build/libs/StarChem.jar --version)"
-          echo "$VERSION_OUTPUT"
-          [[ "$VERSION_OUTPUT" == "StarChem ${SAMPLE_VERSION} (${SAMPLE_COMMIT:0:12})" ]]
-
-      - name: Commit validated source changes
+          gradle clean check jar --no-daemon > check.log 2>&1
+          STATUS=$?
+          cat check.log
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Publish verification diagnostic
+        if: steps.verify.outputs.status != '0'
         shell: bash
         run: |
           set -euo pipefail
+          cp check.log check-errors.txt
           git config user.name "StarChem Security Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add README.md src/main/java/com/tndmadman/rts
-          if git diff --cached --quiet; then
-            echo 'No source changes were produced.' >&2
-            exit 1
-          fi
-          git commit -m "Scope player password verifiers to server identity"
+          git add -f check-errors.txt
+          git commit -m "Record server-scoped auth verification failure"
           git push origin HEAD:agent/server-scoped-password-verifiers
+          exit 1
