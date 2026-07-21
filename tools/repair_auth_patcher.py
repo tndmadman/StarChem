@@ -15,5 +15,9 @@ malformed_newline = '",\\n                    "'
 if text.count(malformed_newline) != 3:
     raise RuntimeError(f"Expected three malformed newline tokens, found {text.count(malformed_newline)}")
 text = text.replace(malformed_newline, '",\n                    "')
+escaped_java_newline = r'\\n                        &&'
+if text.count(escaped_java_newline) != 3:
+    raise RuntimeError(f"Expected three escaped Java newlines, found {text.count(escaped_java_newline)}")
+text = text.replace(escaped_java_newline, r'\n                        &&')
 path.write_text(text, encoding="utf-8")
-print("Repaired auth patch assertion target and newline syntax.")
+print("Repaired auth patch assertion and generated newline syntax.")
