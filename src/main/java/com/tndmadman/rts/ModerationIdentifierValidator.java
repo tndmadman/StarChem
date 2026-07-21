@@ -80,6 +80,19 @@ public final class ModerationIdentifierValidator {
         require(bulk.state().entries().size() == 1 && bulk.state().entries().get(0).kind() == ModerationKind.KICK,
                 "ban selector removal affected a non-ban entry");
 
+        ModerationRemoval commandExact = ServerCommandExtensions.resolveModerationRemoval(state, "BAN00001", BAN_KINDS);
+        String exactMessage = ServerCommandExtensions.moderationRemovalMessage(commandExact, "ban", "BAN00001");
+        require(commandExact.exactId() && commandExact.removedCount() == 1
+                        && "Removed ban entry BAN00001.".equals(exactMessage),
+                "command removal did not clearly report exact-ID behavior");
+
+        ModerationRemoval commandBulk = ServerCommandExtensions.resolveModerationRemoval(state, "pilot", BAN_KINDS);
+        String bulkMessage = ServerCommandExtensions.moderationRemovalMessage(commandBulk, "ban", "pilot");
+        require(!commandBulk.exactId() && commandBulk.removedCount() == 2
+                        && bulkMessage.contains("Removed 2 ban entries by selector")
+                        && bulkMessage.contains("may affect multiple records"),
+                "command removal did not clearly report selector-based bulk behavior");
+
         require(state.removeMatching("kick0001", null).entries().size() == state.entries().size(),
                 "unban-compatible removal removed a kick by ID");
         require(state.removeMatching("P7", ModerationKind.KICK).entries().size() == 2,
@@ -114,12 +127,11 @@ public final class ModerationIdentifierValidator {
             require(normalized.entries().stream().anyMatch(entry -> "deadbeef".equals(entry.id())),
                     "the first persisted legacy ID was not preserved");
 
-            store.save(normalized);
-            ServerModerationState roundTrip = store.load();
-            require(roundTrip.entries().stream()
+            ServerModerationState restarted = new ServerModerationStore(dir, "validation").load();
+            require(restarted.entries().stream()
                             .map(entry -> entry.id().toLowerCase(Locale.ROOT))
                             .collect(java.util.stream.Collectors.toSet()).equals(ids),
-                    "normalized moderation IDs changed on the next persistence round trip");
+                    "normalized moderation IDs were not persisted across restart");
         } finally {
             try (var stream = Files.walk(dir)) {
                 stream.sorted((a, b) -> b.compareTo(a)).forEach(path -> {
