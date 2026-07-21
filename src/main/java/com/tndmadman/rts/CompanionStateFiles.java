@@ -20,6 +20,18 @@ final class CompanionStateFiles {
     static <T> CompanionLoad<T> load(Path current, Path previous, String label,
                                      CompanionParser<T> parser, Function<String,T> restrictedFallback) {
         ArrayList<String> failures = new ArrayList<>();
+        if (!Files.exists(current) && !Files.exists(previous)
+                && CompanionRecoveryRegistry.initializeMissingDefaults()) {
+            try {
+                String initial = initialState(label);
+                if (initial.isBlank()) throw new IOException("no initial companion state is defined for " + label);
+                T value = seedInitial(current, initial, parser);
+                return new CompanionLoad<>(value, CompanionLoadStatus.current("initialized verified defaults"));
+            } catch (Exception ex) {
+                failures.add("initialization: " + detail(ex));
+            }
+        }
+
         if (Files.isRegularFile(current)) {
             try {
                 T value = parser.parse(Files.readString(current, StandardCharsets.UTF_8));
@@ -111,6 +123,31 @@ final class CompanionStateFiles {
         }
     }
 
+    private static <T> T seedInitial(Path current, String initial, CompanionParser<T> parser) throws Exception {
+        Path parent = current.toAbsolutePath().getParent();
+        if (parent != null) Files.createDirectories(parent);
+        Path temp = current.resolveSibling(current.getFileName() + ".initial.tmp");
+        try {
+            Files.writeString(temp, initial.endsWith("\n") ? initial : initial + "\n", StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+            parser.parse(Files.readString(temp, StandardCharsets.UTF_8));
+            moveReplacing(temp, current, (source, target, options) -> Files.move(source, target, options));
+            return parser.parse(Files.readString(current, StandardCharsets.UTF_8));
+        } finally {
+            Files.deleteIfExists(temp);
+        }
+    }
+
+    private static String initialState(String label) {
+        if ("Administration".equals(label)) {
+            return "{\"version\":1,\"maintenance\":false,\"maintenanceReason\":\"\",\"maxSlots\":0,\"motd\":\"\"}";
+        }
+        if ("Moderation".equals(label)) {
+            return "{\"version\":1,\"whitelistEnabled\":false,\"whitelist\":[],\"entries\":[]}";
+        }
+        return "";
+    }
+
     private static <T> String verifiedText(Path path, CompanionParser<T> parser) {
         if (!Files.isRegularFile(path)) return null;
         try {
@@ -196,13 +233,14 @@ final class CompanionRecoveryRegistry {
     private static boolean moderationReady;
     private static boolean operatorResetPending;
     private static boolean restrictedAdmissionEnabled;
+    private static boolean initializeMissingDefaults;
 
     private CompanionRecoveryRegistry() { }
 
     static synchronized void configure(Path saveDir, String saveName) {
         Path dir = saveDir == null ? Path.of("saves") : saveDir;
-        Path next = dir.resolve(Config.cleanSaveName(saveName) + "-companion-recovery.lock")
-                .toAbsolutePath().normalize();
+        String cleanName = Config.cleanSaveName(saveName);
+        Path next = dir.resolve(cleanName + "-companion-recovery.lock").toAbsolutePath().normalize();
         if (next.equals(markerPath)) return;
         markerPath = next;
         administration = CompanionLoadStatus.current("not loaded");
@@ -212,10 +250,15 @@ final class CompanionRecoveryRegistry {
         operatorResetPending = false;
         restrictedAdmissionEnabled = false;
         markerReason = "";
+        initializeMissingDefaults = freshServer(dir, cleanName, markerPath);
         if (Files.isRegularFile(markerPath)) {
             try { markerReason = Files.readString(markerPath, StandardCharsets.UTF_8).trim(); }
             catch (IOException ex) { markerReason = "A prior recovery lock exists but could not be read."; }
         }
+    }
+
+    static synchronized boolean initializeMissingDefaults() {
+        return initializeMissingDefaults;
     }
 
     static synchronized void enableRestrictedAdmission() {
@@ -230,6 +273,7 @@ final class CompanionRecoveryRegistry {
         if (restrictedAdmissionEnabled && status != null && status.restricted()) {
             restrict("Administration state could not be recovered.");
         }
+        completeFreshInitialization();
     }
 
     static synchronized void recordModeration(CompanionLoadStatus status, boolean ready) {
@@ -238,6 +282,7 @@ final class CompanionRecoveryRegistry {
         if (restrictedAdmissionEnabled && status != null && status.restricted()) {
             restrict("Moderation state could not be recovered.");
         }
+        completeFreshInitialization();
     }
 
     static synchronized boolean restricted() {
@@ -287,6 +332,27 @@ final class CompanionRecoveryRegistry {
         moderationReady = false;
         operatorResetPending = false;
         restrictedAdmissionEnabled = false;
+        initializeMissingDefaults = false;
+    }
+
+    private static void completeFreshInitialization() {
+        if (initializeMissingDefaults && administrationReady && moderationReady) initializeMissingDefaults = false;
+    }
+
+    private static boolean freshServer(Path dir, String saveName, Path recoveryMarker) {
+        if (Files.exists(recoveryMarker)) return false;
+        if (Files.exists(dir.resolve(saveName + "-admin.json"))
+                || Files.exists(dir.resolve(saveName + "-admin-previous.json"))
+                || Files.exists(dir.resolve(saveName + "-moderation.json"))
+                || Files.exists(dir.resolve(saveName + "-moderation-previous.json"))) return false;
+        if (!Files.isDirectory(dir)) return true;
+        try (var stream = Files.list(dir)) {
+            return stream.filter(Files::isRegularFile)
+                    .noneMatch(path -> ServerSaveArchiveNames.belongsTo(saveName, path));
+        } catch (IOException ex) {
+            System.err.println("Could not inspect server save history for companion initialization: " + ex.getMessage());
+            return false;
+        }
     }
 
     private static void restrict(String reason) {
