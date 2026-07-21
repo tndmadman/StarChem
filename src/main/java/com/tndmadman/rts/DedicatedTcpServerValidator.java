@@ -14,6 +14,7 @@ public final class DedicatedTcpServerValidator {
         ModerationIdentifierValidator.validate();
         CompanionStateRecoveryValidator.validate();
         ServerEventJournalRolloverValidator.validate();
+        ServerEventJournalLoadValidator.validate();
         ServerSaveStoreBackupCollisionValidator.validate();
         AdmissionRecordingValidator.validate();
         PreviousTokenProofRecoveryValidator.validate();

@@ -6,10 +6,16 @@ import java.lang.management.ThreadMXBean;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.InetAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -176,6 +182,10 @@ final class ServerModerationStore {
 final class ServerEventJournal {
     private static final int MAX_EVENTS = 500;
     private static final long MAX_FILE_BYTES = 2L * 1024 * 1024;
+    private static final int MAX_TYPE_CHARS = 32;
+    private static final int MAX_SUBJECT_CHARS = 128;
+    private static final int MAX_DETAIL_CHARS = 512;
+    private static final int MAX_LINE_BYTES = 4096;
     private static final DateTimeFormatter TIME = DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC);
     private final Deque<ServerEvent> events = new ArrayDeque<>();
     private final Path path;
@@ -189,7 +199,8 @@ final class ServerEventJournal {
     }
 
     synchronized void add(String type, String subject, String detail) {
-        ServerEvent event = new ServerEvent(System.currentTimeMillis(), safe(type, 32), safe(subject, 128), safe(detail, 512));
+        ServerEvent event = new ServerEvent(System.currentTimeMillis(), safe(type, MAX_TYPE_CHARS),
+                safe(subject, MAX_SUBJECT_CHARS), safe(detail, MAX_DETAIL_CHARS));
         events.addLast(event);
         while (events.size() > MAX_EVENTS) events.removeFirst();
         append(event);
@@ -227,18 +238,116 @@ final class ServerEventJournal {
     private void load() {
         if (path == null || !Files.isRegularFile(path)) return;
         try {
-            List<String> rows = Files.readAllLines(path, StandardCharsets.UTF_8);
-            int start = Math.max(0, rows.size() - MAX_EVENTS);
-            for (int i = start; i < rows.size(); i++) {
-                String[] parts = rows.get(i).split("\\t", 4);
-                if (parts.length != 4) continue;
-                long at;
-                try { at = Long.parseLong(parts[0]); } catch (NumberFormatException ex) { continue; }
-                events.addLast(new ServerEvent(at, decode(parts[1]), decode(parts[2]), decode(parts[3])));
+            JournalLoadResult result = readTail();
+            events.addAll(result.events());
+            if (result.repairRequired()) {
+                try {
+                    rewrite();
+                    System.err.println("Repaired server activity journal " + path.getFileName()
+                            + " (" + result.originalBytes() + " byte(s)): retained " + events.size()
+                            + " recent event(s), rejected " + result.malformedLines() + " malformed line(s)"
+                            + (result.discardedPrefix() ? ", discarded an oversized older prefix" : "") + ".");
+                } catch (IOException ex) {
+                    System.err.println("Loaded bounded server activity journal tail but could not compact "
+                            + path.getFileName() + ": " + ex.getMessage());
+                }
             }
         } catch (IOException ex) {
             System.err.println("Could not load server activity journal: " + ex.getMessage());
         }
+    }
+
+    private JournalLoadResult readTail() throws IOException {
+        try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
+            long originalBytes = channel.size();
+            long start = Math.max(0, originalBytes - MAX_FILE_BYTES);
+            int tailBytes = (int) Math.min(originalBytes, MAX_FILE_BYTES);
+            boolean startsOnLineBoundary = start == 0;
+            if (start > 0) {
+                ByteBuffer previous = ByteBuffer.allocate(1);
+                channel.position(start - 1);
+                startsOnLineBoundary = channel.read(previous) == 1 && previous.array()[0] == '\n';
+            }
+
+            byte[] tail = new byte[tailBytes];
+            ByteBuffer buffer = ByteBuffer.wrap(tail);
+            channel.position(start);
+            while (buffer.hasRemaining()) {
+                int read = channel.read(buffer);
+                if (read <= 0) break;
+            }
+            int end = buffer.position();
+            int firstCompleteStart = 0;
+            boolean discardedPrefix = start > 0;
+            if (!startsOnLineBoundary) {
+                int newline = indexOfNewline(tail, 0, end);
+                if (newline < 0) {
+                    return new JournalLoadResult(List.of(), originalBytes, true, 1);
+                }
+                firstCompleteStart = newline + 1;
+            }
+
+            ArrayDeque<ServerEvent> loaded = new ArrayDeque<>();
+            int malformedLines = 0;
+            int cursor = end;
+            if (cursor > firstCompleteStart && tail[cursor - 1] == '\n') cursor--;
+            while (cursor > firstCompleteStart && loaded.size() < MAX_EVENTS) {
+                int newline = lastIndexOfNewline(tail, firstCompleteStart, cursor);
+                int lineStart = newline < 0 ? firstCompleteStart : newline + 1;
+                int lineEnd = cursor;
+                if (lineEnd > lineStart && tail[lineEnd - 1] == '\r') lineEnd--;
+                int lineLength = lineEnd - lineStart;
+                ServerEvent event = lineLength <= 0 || lineLength > MAX_LINE_BYTES
+                        ? null : parseEvent(tail, lineStart, lineLength);
+                if (event == null) malformedLines++;
+                else loaded.addFirst(event);
+                cursor = newline < 0 ? firstCompleteStart : newline;
+            }
+            return new JournalLoadResult(List.copyOf(loaded), originalBytes, discardedPrefix, malformedLines);
+        }
+    }
+
+    private static ServerEvent parseEvent(byte[] bytes, int offset, int length) {
+        try {
+            String row = StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes, offset, length)).toString();
+            String[] parts = row.split("\\t", -1);
+            if (parts.length != 4 || parts[0].length() > 32) return null;
+            long at = Long.parseLong(parts[0]);
+            return new ServerEvent(at, decode(parts[1], MAX_TYPE_CHARS),
+                    decode(parts[2], MAX_SUBJECT_CHARS), decode(parts[3], MAX_DETAIL_CHARS));
+        } catch (CharacterCodingException | IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    private static String decode(String value, int maxChars) throws CharacterCodingException {
+        if (value.length() > maxEncodedLength(maxChars)) throw new IllegalArgumentException("encoded field is too long");
+        byte[] decoded = java.util.Base64.getUrlDecoder().decode(value);
+        if (decoded.length > maxChars * 4) throw new IllegalArgumentException("decoded field is too long");
+        String text = StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(decoded)).toString();
+        if (text.length() > maxChars) throw new IllegalArgumentException("decoded field exceeds character limit");
+        return text;
+    }
+
+    private static int maxEncodedLength(int maxChars) {
+        int maxBytes = maxChars * 4;
+        return (maxBytes * 4 + 2) / 3;
+    }
+
+    private static int indexOfNewline(byte[] bytes, int start, int end) {
+        for (int i = start; i < end; i++) if (bytes[i] == '\n') return i;
+        return -1;
+    }
+
+    private static int lastIndexOfNewline(byte[] bytes, int start, int end) {
+        for (int i = end - 1; i >= start; i--) if (bytes[i] == '\n') return i;
+        return -1;
     }
 
     private void append(ServerEvent event) {
@@ -259,10 +368,27 @@ final class ServerEventJournal {
     }
 
     private void rewrite() throws IOException {
-        ArrayList<String> rows = new ArrayList<>();
-        for (ServerEvent event : events) rows.add(event.at() + "\t" + encode(event.type()) + "\t" + encode(event.subject()) + "\t" + encode(event.detail()));
-        Files.write(path, rows, StandardCharsets.UTF_8,
-                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+        Path target = path.toAbsolutePath();
+        Path parent = target.getParent();
+        if (parent != null) Files.createDirectories(parent);
+        Path temp = Files.createTempFile(parent, target.getFileName().toString() + ".", ".tmp");
+        boolean replaced = false;
+        try {
+            ArrayList<String> rows = new ArrayList<>();
+            for (ServerEvent event : events) {
+                rows.add(event.at() + "\t" + encode(event.type()) + "\t" + encode(event.subject()) + "\t" + encode(event.detail()));
+            }
+            Files.write(temp, rows, StandardCharsets.UTF_8,
+                    StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+            try {
+                Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException ex) {
+                Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+            replaced = true;
+        } finally {
+            if (!replaced) Files.deleteIfExists(temp);
+        }
     }
 
     private static String format(ServerEvent event) {
@@ -275,14 +401,14 @@ final class ServerEventJournal {
         return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(value.getBytes(StandardCharsets.UTF_8));
     }
 
-    private static String decode(String value) {
-        try { return new String(java.util.Base64.getUrlDecoder().decode(value), StandardCharsets.UTF_8); }
-        catch (IllegalArgumentException ex) { return ""; }
-    }
-
     private static String safe(String value, int max) {
         String clean = ServerModeration.clean(value);
         return clean.length() <= max ? clean : clean.substring(0, max);
+    }
+
+    private record JournalLoadResult(List<ServerEvent> events, long originalBytes,
+                                     boolean discardedPrefix, int malformedLines) {
+        boolean repairRequired() { return discardedPrefix || malformedLines > 0; }
     }
 
     private record ServerEvent(long at, String type, String subject, String detail) { }
