@@ -3,7 +3,6 @@ package com.tndmadman.rts;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.CopyOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -28,6 +27,7 @@ public final class CompanionStateRecoveryValidator {
             validateAdministrationPreviousRecovery(root.resolve("admin-previous"));
             validateModerationPreviousRecovery(root.resolve("moderation-previous"));
             validateInvalidTypesRestrictAdmission(root.resolve("invalid-types"));
+            validateUnmanagedHostDoesNotLockAdmission(root.resolve("unmanaged-host"));
             validateTotalLossAndExplicitReset(root.resolve("total-loss"));
             validateUnreadableCurrentRecovery(root.resolve("unreadable"));
             validateAtomicMoveFallback(root.resolve("atomic-fallback"));
@@ -110,6 +110,8 @@ public final class CompanionStateRecoveryValidator {
         require(policy.maintenance(), "invalid administration types failed open");
 
         CompanionRecoveryRegistry.resetForTests();
+        ServerAdminStore moderationAdmin = new ServerAdminStore(dir, "invalid-moderation");
+        moderationAdmin.save(ServerAccessPolicy.open());
         ServerModerationStore moderation = new ServerModerationStore(dir, "invalid-moderation");
         Files.writeString(moderation.path(),
                 "{\"version\":1,\"whitelistEnabled\":\"false\",\"whitelist\":[],\"entries\":[]}",
@@ -117,6 +119,18 @@ public final class CompanionStateRecoveryValidator {
         moderation.load();
         require(moderation.loadStatus().restricted(), "invalid moderation types did not trigger restricted recovery");
         require(CompanionRecoveryRegistry.restricted(), "invalid moderation types failed to restrict admission");
+    }
+
+    private static void validateUnmanagedHostDoesNotLockAdmission(Path dir) throws Exception {
+        Files.createDirectories(dir);
+        CompanionRecoveryRegistry.resetForTests();
+        ServerModerationStore moderation = new ServerModerationStore(dir, "unmanaged");
+        moderation.load();
+        require(moderation.loadStatus().restricted(), "unmanaged host did not detect missing moderation state");
+        require(!CompanionRecoveryRegistry.restricted(),
+                "moderation recovery lock affected a host without managed administration state");
+        require(!ServerAccessPolicy.open().maintenance(),
+                "ordinary host admission was forced into dedicated-server recovery mode");
     }
 
     private static void validateTotalLossAndExplicitReset(Path dir) throws Exception {
