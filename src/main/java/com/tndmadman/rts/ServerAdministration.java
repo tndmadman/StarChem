@@ -90,6 +90,7 @@ final class ServerAdminStore {
         this.path = dir.resolve(cleanName + "-admin.json");
         this.previousPath = dir.resolve(cleanName + "-admin-previous.json");
         CompanionRecoveryRegistry.configure(dir, cleanName);
+        CompanionRecoveryRegistry.enableRestrictedAdmission();
     }
 
     Path path() { return path; }
