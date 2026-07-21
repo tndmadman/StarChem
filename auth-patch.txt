@@ -1,0 +1,4 @@
+  File "/home/runner/work/StarChem/StarChem/tools/apply_server_scoped_auth_fix.py", line 248
+    text = text.replace("existingChallenge.salt.length() == 32 && missingChallenge.salt.length() == 32",\n                    "existingChallenge.currentSalt.length() == 32 && existingChallenge.scopedSalt.length() == 32\\n                        && missingChallenge.currentSalt.length() == 32 && missingChallenge.scopedSalt.length() == 32")
+                                                                                                         ^
+SyntaxError: unexpected character after line continuation character
