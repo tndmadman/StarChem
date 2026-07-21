@@ -27,6 +27,7 @@ public final class CompanionStateRecoveryValidator {
             validateAdministrationPreviousRecovery(root.resolve("admin-previous"));
             validateModerationPreviousRecovery(root.resolve("moderation-previous"));
             validateInvalidTypesRestrictAdmission(root.resolve("invalid-types"));
+            validateFreshServerInitialization(root.resolve("fresh-server"));
             validateUnmanagedHostDoesNotLockAdmission(root.resolve("unmanaged-host"));
             validateTotalLossAndExplicitReset(root.resolve("total-loss"));
             validateUnreadableCurrentRecovery(root.resolve("unreadable"));
@@ -121,27 +122,57 @@ public final class CompanionStateRecoveryValidator {
         require(CompanionRecoveryRegistry.restricted(), "invalid moderation types failed to restrict admission");
     }
 
+    private static void validateFreshServerInitialization(Path dir) throws Exception {
+        Files.createDirectories(dir);
+        CompanionRecoveryRegistry.resetForTests();
+        ServerAdminStore admin = new ServerAdminStore(dir, "fresh");
+        ServerAccessPolicy policy = admin.load();
+        ServerModerationStore moderation = new ServerModerationStore(dir, "fresh");
+        ServerModerationState state = moderation.load();
+        require(!policy.maintenance() && !CompanionRecoveryRegistry.restricted(),
+                "fresh server initialization entered restricted recovery mode");
+        require(!admin.loadStatus().restricted() && !moderation.loadStatus().restricted(),
+                "fresh server defaults were reported as recovery failures");
+        require(state.entries().isEmpty() && !state.whitelistEnabled(),
+                "fresh server moderation defaults were not open");
+        require(Files.isRegularFile(admin.path()) && Files.isRegularFile(moderation.path()),
+                "fresh server did not seed verified companion files");
+
+        CompanionRecoveryRegistry.resetForTests();
+        ServerAdminStore restartedAdmin = new ServerAdminStore(dir, "fresh");
+        ServerAccessPolicy restartedPolicy = restartedAdmin.load();
+        ServerModerationStore restartedModeration = new ServerModerationStore(dir, "fresh");
+        restartedModeration.load();
+        require(!restartedPolicy.maintenance() && !CompanionRecoveryRegistry.restricted(),
+                "seeded fresh companion files did not remain open across restart");
+    }
+
     private static void validateUnmanagedHostDoesNotLockAdmission(Path dir) throws Exception {
         Files.createDirectories(dir);
         CompanionRecoveryRegistry.resetForTests();
         ServerModerationStore moderation = new ServerModerationStore(dir, "unmanaged");
-        moderation.load();
-        require(moderation.loadStatus().restricted(), "unmanaged host did not detect missing moderation state");
+        ServerModerationState state = moderation.load();
+        require(!moderation.loadStatus().restricted() && state.entries().isEmpty(),
+                "unmanaged host did not initialize open moderation defaults");
+        require(Files.isRegularFile(moderation.path()),
+                "unmanaged host did not persist initialized moderation defaults");
         require(!CompanionRecoveryRegistry.restricted(),
-                "moderation recovery lock affected a host without managed administration state");
+                "moderation initialization affected a host without managed administration state");
         require(!ServerAccessPolicy.open().maintenance(),
                 "ordinary host admission was forced into dedicated-server recovery mode");
     }
 
     private static void validateTotalLossAndExplicitReset(Path dir) throws Exception {
         Files.createDirectories(dir);
+        Files.writeString(dir.resolve("lost-current.starchem-save"), "established server evidence",
+                StandardCharsets.UTF_8);
         CompanionRecoveryRegistry.resetForTests();
         ServerAdminStore admin = new ServerAdminStore(dir, "lost");
         ServerAccessPolicy restricted = admin.load();
         ServerModerationStore moderation = new ServerModerationStore(dir, "lost");
         ServerModerationState empty = moderation.load();
         require(admin.loadStatus().restricted() && moderation.loadStatus().restricted(),
-                "total companion-file loss was not detected");
+                "total companion-file loss was not detected for an established server");
         require(restricted.maintenance(), "total companion-file loss started with open admission");
         require(empty.entries().isEmpty(), "total moderation loss invented moderation records");
         require(CompanionRecoveryRegistry.statusReason().contains("new identities are blocked")
