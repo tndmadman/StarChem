@@ -175,7 +175,7 @@ final class TcpIntegrationHarness implements AutoCloseable {
                 world.activateSystem(systemId);
                 if (unitId >= 0) {
                     Unit exact = world.units.get(Unit.key(playerId, unitId));
-                    if (unit != null) return unit;
+                    if (exact != null) return exact;
                 } else {
                     for (Unit candidate : world.units.values()) if (playerId.equals(candidate.playerId)) return candidate;
                 }
