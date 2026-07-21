@@ -16,6 +16,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 final class SessionTokenStore {
     private static final String STORE_OVERRIDE = "starchem.sessionStore";
+    private static final String SCOPED_AUTH_PREFIX = "auth-v2.";
     private static final Map<String, String> transientAuthDigests = new ConcurrentHashMap<>();
 
     private SessionTokenStore() { }
@@ -123,6 +124,7 @@ final class SessionTokenStore {
         transientAuthDigests.put(key, authDigest);
         if (config != null && config.localHostClientMode()) return;
         Properties properties = readProperties();
+        properties.remove(scopedAuthKey(key));
         String value = properties.getProperty(key, "");
         int first = value.indexOf('|');
         int second = first < 0 ? -1 : value.indexOf('|', first + 1);
@@ -142,14 +144,73 @@ final class SessionTokenStore {
         transientAuthDigests.put(key, authDigest);
     }
 
-    static synchronized void clear(Config config) {
+    static synchronized ScopedCredential scopedCredential(Config config) {
+        if (config == null || config.localHostClientMode()) return ScopedCredential.EMPTY;
+        String key = key(config);
+        if (key.isBlank()) return ScopedCredential.EMPTY;
+        String value = readProperties().getProperty(scopedAuthKey(key), "");
+        String[] parts = value.split("\\|", -1);
+        if (parts.length != 3 || !PasswordAuth.validVerifier(parts[0])
+                || PasswordAuth.decodeHex(parts[1]).length != 16 || !PasswordAuth.validVerifier(parts[2])) {
+            return ScopedCredential.EMPTY;
+        }
+        return new ScopedCredential(parts[0].toLowerCase(Locale.ROOT), parts[1].toLowerCase(Locale.ROOT),
+                parts[2].toLowerCase(Locale.ROOT));
+    }
+
+    static synchronized void saveScopedCredential(Config config, String serverFingerprint,
+                                                  String scopedSalt, String verifier) {
+        if (config == null || config.localHostClientMode() || !PasswordAuth.validVerifier(serverFingerprint)
+                || PasswordAuth.decodeHex(scopedSalt).length != 16 || !PasswordAuth.validVerifier(verifier)) return;
+        String key = key(config);
+        if (key.isBlank()) return;
+        transientAuthDigests.remove(key);
+        Properties properties = readProperties();
+        properties.setProperty(scopedAuthKey(key), serverFingerprint.toLowerCase(Locale.ROOT) + "|"
+                + scopedSalt.toLowerCase(Locale.ROOT) + "|" + verifier.toLowerCase(Locale.ROOT));
+        clearLegacyAuth(properties, key);
+        writeProperties(properties);
+    }
+
+    static synchronized void clearLegacyAuthDigest(Config config) {
         String key = key(config);
         if (key.isBlank()) return;
         transientAuthDigests.remove(key);
         if (config != null && config.localHostClientMode()) return;
         Properties properties = readProperties();
-        if (properties.remove(key) == null) return;
-        persistOrDelete(properties);
+        if (clearLegacyAuth(properties, key)) writeProperties(properties);
+    }
+
+    static synchronized void clearScopedCredential(Config config) {
+        if (config == null || config.localHostClientMode()) return;
+        String key = key(config);
+        if (key.isBlank()) return;
+        Properties properties = readProperties();
+        if (properties.remove(scopedAuthKey(key)) != null) persistOrDelete(properties);
+    }
+
+    private static boolean clearLegacyAuth(Properties properties, String key) {
+        String value = properties.getProperty(key, "");
+        int first = value.indexOf('|');
+        if (first <= 0) return false;
+        int second = value.indexOf('|', first + 1);
+        if (second < 0) return false;
+        String replacement = value.substring(0, second + 1);
+        if (replacement.equals(value)) return false;
+        properties.setProperty(key, replacement);
+        return true;
+    }
+
+    static synchronized void clear(Config config) {
+        String key = key(config);
+        if (key.isBlank()) return;
+        transientAuthDigests.remove(key);
+        PendingPlayerPassword.clear(config);
+        if (config != null && config.localHostClientMode()) return;
+        Properties properties = readProperties();
+        boolean changed = properties.remove(key) != null;
+        changed |= properties.remove(scopedAuthKey(key)) != null;
+        if (changed) persistOrDelete(properties);
     }
 
     private static Properties readProperties() {
@@ -228,6 +289,7 @@ final class SessionTokenStore {
 
     private static String serverTlsKey(String trustKey) { return "tls-server." + trustKey; }
     private static String legacyTlsKey(Config config) { return "tls." + key(config); }
+    private static String scopedAuthKey(String key) { return SCOPED_AUTH_PREFIX + key; }
 
     private static boolean validPlayerId(String value) {
         return value != null && !value.isBlank() && value.length() <= 64 && value.indexOf('|') < 0;
@@ -245,5 +307,17 @@ final class SessionTokenStore {
     record StoredSession(String playerId, String token, String authDigest) {
         static final StoredSession EMPTY = new StoredSession("", "", "");
         boolean valid() { return validPlayerId(playerId) && validToken(token); }
+    }
+
+    record ScopedCredential(String serverFingerprint, String scopedSalt, String verifier) {
+        static final ScopedCredential EMPTY = new ScopedCredential("", "", "");
+        boolean valid() {
+            return PasswordAuth.validVerifier(serverFingerprint)
+                    && PasswordAuth.decodeHex(scopedSalt).length == 16
+                    && PasswordAuth.validVerifier(verifier);
+        }
+        boolean matches(String fingerprint, String salt) {
+            return valid() && serverFingerprint.equalsIgnoreCase(fingerprint) && scopedSalt.equalsIgnoreCase(salt);
+        }
     }
 }

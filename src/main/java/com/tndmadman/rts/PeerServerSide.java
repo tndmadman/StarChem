@@ -21,10 +21,12 @@ final class PeerServerSide {
     private final Map<ConnectionId, ServerPeer> peers = new LinkedHashMap<>();
     private final Map<String, PlayerSession> sessions = new LinkedHashMap<>();
     private final Map<ConnectionId, AuthChallenge> authChallenges = new LinkedHashMap<>();
+    private final Map<ConnectionId, RegistrationChallenge> registrationChallenges = new LinkedHashMap<>();
     private final Map<ConnectionId, SessionChallenge> sessionChallenges = new LinkedHashMap<>();
     private final Set<String> devRequests = new LinkedHashSet<>();
     private final AuthAttemptLimiter authAttemptLimiter = new AuthAttemptLimiter();
     private final AuthDecoySaltStore authDecoySalts;
+    private final String authenticationServerFingerprint;
     private ServerAdmissionGate admissionGate = ServerAdmissionGate.open();
     private int nextPlayer = 1;
     private long sequence = 1, lastSnapshot, lastGalaxy, lastResourceCorrection;
@@ -38,6 +40,7 @@ final class PeerServerSide {
         this.world = world;
         this.transport = transport;
         this.authDecoySalts = new AuthDecoySaltStore(config);
+        this.authenticationServerFingerprint = transport == null ? "" : transport.serverFingerprint();
         PlayerRegistry.activate(world);
         SystemAudio.markNonRendered(world);
         restorePersistentSessions(restoredSessions);
@@ -248,7 +251,7 @@ final class PeerServerSide {
         }
         if (PasswordAuth.validVerifier(proof) && PasswordAuth.validNonce(proofNonce)
                 && authChallenges.containsKey(connectionId)) {
-            reclaimByProof(connectionId, address, port, cleanName, proofNonce, proof, requestedDev, suppliedDevToken);
+            reclaimByProof(connectionId, address, port, cleanName, passwordVerifier, proofNonce, proof, requestedDev, suppliedDevToken);
             return;
         }
         if (!allowAuthAttempt(address, cleanName, connectionId)) return;
@@ -261,9 +264,16 @@ final class PeerServerSide {
             issueAuthChallenge(connectionId, cleanName, null);
             return;
         }
-        byte[] passwordVerifierBytes = PasswordAuth.decodeVerifier(passwordVerifier);
-        if (passwordVerifierBytes.length == 0) {
-            transport.sendOrdered(authRequired(), connectionId);
+        CredentialResponse credential = CredentialResponse.parse(passwordVerifier);
+        byte[] passwordVerifierBytes = PasswordAuth.decodeVerifier(credential.scopedVerifier);
+        RegistrationChallenge registration = registrationChallenges.get(connectionId);
+        long registrationNow = System.currentTimeMillis();
+        boolean validRegistration = registration != null
+                && normalizedName(cleanName).equals(normalizedName(registration.name))
+                && registrationNow - registration.createdAt <= AUTH_CHALLENGE_MS
+                && registration.scopedSalt.length == 16;
+        if (passwordVerifierBytes.length == 0 || !validRegistration) {
+            issueRegistrationChallenge(connectionId, cleanName);
             return;
         }
         long now = System.currentTimeMillis();
@@ -273,6 +283,7 @@ final class PeerServerSide {
             return;
         }
         authChallenges.remove(connectionId);
+        registrationChallenges.remove(connectionId);
         String id = "P" + nextPlayer++;
         int rgb = colorFor(sessions.size() + 1);
         boolean devAllowed = DevAccessPolicy.authorize(config.devMode, config.dedicatedServerMode(), address,
@@ -280,9 +291,9 @@ final class PeerServerSide {
         if (requestedDev) devRequests.add(id);
         auditDevRequest(cleanName, address, port, requestedDev, devAllowed);
         String token = newSessionToken();
-        byte[] passwordSalt = PasswordAuth.newSalt();
+        byte[] passwordSalt = PasswordAuth.versionedPasswordSalt(registration.scopedSalt);
         PlayerSession session = new PlayerSession(id, cleanName, rgb, passwordSalt,
-                PasswordAuth.serverDigest(passwordVerifierBytes, passwordSalt), token, digestToken(token),
+                PasswordAuth.serverDigest(passwordVerifierBytes, registration.scopedSalt), token, digestToken(token),
                 connectionId, true, 0, devAllowed);
         sessions.put(id, session);
         ServerPeer peer = new ServerPeer(id, connectionId, address, port, now, devAllowed);
@@ -304,6 +315,19 @@ final class PeerServerSide {
         return address != null && address.isLoopbackAddress();
     }
 
+    private void issueRegistrationChallenge(ConnectionId connectionId, String cleanName) {
+        if (connectionId == null || !connectionId.valid()) return;
+        long now = System.currentTimeMillis();
+        RegistrationChallenge existing = registrationChallenges.get(connectionId);
+        if (existing == null || !normalizedName(cleanName).equals(normalizedName(existing.name))
+                || now - existing.createdAt > AUTH_CHALLENGE_MS) {
+            existing = new RegistrationChallenge(cleanName, PasswordAuth.digestSalt(
+                    PasswordAuth.newVersionedPasswordSalt()), now);
+            registrationChallenges.put(connectionId, existing);
+        }
+        transport.sendOrdered(authRequired(existing.scopedSalt), connectionId);
+    }
+
     private void issueAuthChallenge(ConnectionId connectionId, String cleanName, PlayerSession session) {
         if (connectionId == null || !connectionId.valid()) return;
         byte[] decoySalt = authDecoySalts.saltFor(cleanName);
@@ -311,7 +335,10 @@ final class PeerServerSide {
         boolean retained = session != null
                 && session.passwordSalt != null && session.passwordSalt.length > 0
                 && session.passwordDigest != null && session.passwordDigest.length > 0;
-        byte[] salt = retained ? session.passwordSalt.clone() : decoySalt;
+        int authVersion = retained ? PasswordAuth.passwordVersion(session.passwordSalt) : PasswordAuth.AUTH_VERSION_V2;
+        byte[] currentSalt = retained ? PasswordAuth.digestSalt(session.passwordSalt) : decoySalt;
+        byte[] scopedSalt = authVersion >= PasswordAuth.AUTH_VERSION_V2
+                ? currentSalt.clone() : PasswordAuth.upgradeSalt(currentSalt);
         byte[] proofKey = retained ? session.passwordDigest.clone() : randomProofKey;
         String playerId = retained ? session.playerId : "";
         if (retained) {
@@ -319,29 +346,57 @@ final class PeerServerSide {
             Arrays.fill(randomProofKey, (byte)0);
         }
         String nonce = PasswordAuth.newNonce();
-        authChallenges.put(connectionId, new AuthChallenge(cleanName, nonce, proofKey, playerId,
-                System.currentTimeMillis()));
+        authChallenges.put(connectionId, new AuthChallenge(cleanName, nonce, proofKey, playerId, authVersion,
+                scopedSalt, System.currentTimeMillis()));
         transport.sendOrdered("AUTH_CHALLENGE|" + packetPart(cleanName) + "|"
-                + PasswordAuth.encodeVerifier(salt) + "|" + nonce, connectionId);
+                + PasswordAuth.encodeChallengeSalts(currentSalt, scopedSalt) + "|" + nonce, connectionId);
     }
 
     private void reclaimByProof(ConnectionId connectionId, InetAddress address, int port, String cleanName,
-                                String proofNonce, String proof, boolean requestedDev, String suppliedDevToken) {
+                                String registrationMaterial, String proofNonce, String proof,
+                                boolean requestedDev, String suppliedDevToken) {
         long now = System.currentTimeMillis();
         AuthChallenge challenge = authChallenges.remove(connectionId);
         String challengeName = challenge == null ? cleanName : challenge.name;
         byte[] proofKey = challenge == null ? randomProofKey() : challenge.proofKey;
+        CredentialResponse credential = CredentialResponse.parse(registrationMaterial);
         boolean contextMatches = challenge != null
                 && challenge.nonce.equals(proofNonce)
                 && normalizedName(cleanName).equals(normalizedName(challenge.name))
                 && now - challenge.createdAt <= AUTH_CHALLENGE_MS;
-        boolean proofMatches = PasswordAuth.proofMatches(proofKey, challengeName, proofNonce, proof);
+        boolean scopedProofMatches = PasswordAuth.proofMatches(proofKey, challengeName, proofNonce, proof);
+        String legacyProof = credential.legacyProof;
+        if (legacyProof.isBlank() && !config.dedicatedServerMode() && address != null && address.isLoopbackAddress()) {
+            legacyProof = proof;
+        }
+        boolean boundUpgradeProof = challenge != null && challenge.authVersion < PasswordAuth.AUTH_VERSION_V2
+                && PasswordAuth.validVerifier(authenticationServerFingerprint)
+                && PasswordAuth.validVerifier(credential.scopedVerifier);
+        boolean localLegacyProof = !config.dedicatedServerMode() && address != null && address.isLoopbackAddress();
+        boolean legacyProofMatches = boundUpgradeProof
+                ? PasswordAuth.upgradeProofMatches(proofKey, challengeName, proofNonce,
+                authenticationServerFingerprint, credential.scopedVerifier, legacyProof)
+                : localLegacyProof && PasswordAuth.proofMatches(proofKey, challengeName, proofNonce, legacyProof);
         String playerId = challenge == null ? "" : challenge.playerId;
         PlayerSession session = sessions.get(playerId);
         boolean sessionMatches = session != null && !playerId.isBlank()
                 && normalizedName(session.name).equals(normalizedName(challengeName));
-        if (!contextMatches || !proofMatches || !sessionMatches) {
+        boolean credentialMatches = challenge != null && challenge.authVersion >= PasswordAuth.AUTH_VERSION_V2
+                ? scopedProofMatches : legacyProofMatches;
+        if (!contextMatches || !credentialMatches || !sessionMatches) {
             denyAuthentication(connectionId, "Password rejected.");
+            return;
+        }
+        if (challenge.authVersion < PasswordAuth.AUTH_VERSION_V2 && boundUpgradeProof) {
+            byte[] scopedVerifier = PasswordAuth.decodeVerifier(credential.scopedVerifier);
+            if (scopedVerifier.length == 0 || challenge.scopedSalt.length != 16) {
+                denyAuthentication(connectionId, "Password upgrade required.");
+                return;
+            }
+            session.passwordSalt = PasswordAuth.versionedPasswordSalt(challenge.scopedSalt);
+            session.passwordDigest = PasswordAuth.serverDigest(scopedVerifier, challenge.scopedSalt);
+        } else if (challenge.authVersion < PasswordAuth.AUTH_VERSION_V2 && config.dedicatedServerMode()) {
+            denyAuthentication(connectionId, "Password upgrade required.");
             return;
         }
         bindReclaimedSession(connectionId, address, port, session, requestedDev, suppliedDevToken);
@@ -359,7 +414,8 @@ final class PeerServerSide {
             }
             session.passwordSalt = PasswordAuth.newSalt();
             session.passwordDigest = PasswordAuth.serverDigest(passwordVerifier, session.passwordSalt);
-        } else if (!MessageDigest.isEqual(session.passwordDigest, PasswordAuth.serverDigest(passwordVerifier, session.passwordSalt))) {
+        } else if (!MessageDigest.isEqual(session.passwordDigest, PasswordAuth.serverDigest(
+                passwordVerifier, PasswordAuth.digestSalt(session.passwordSalt)))) {
             denyAuthentication(connectionId, "Password rejected.");
             return;
         }
@@ -538,6 +594,7 @@ final class PeerServerSide {
 
     private void disconnectPeer(ConnectionId connectionId, long now, String reason) {
         authChallenges.remove(connectionId);
+        registrationChallenges.remove(connectionId);
         sessionChallenges.remove(connectionId);
         ServerPeer peer = peers.remove(connectionId);
         if (peer == null) return;
@@ -672,6 +729,7 @@ final class PeerServerSide {
 
     private void removeExpiredAuthChallenges(long now) {
         authChallenges.entrySet().removeIf(entry -> now - entry.getValue().createdAt > AUTH_CHALLENGE_MS);
+        registrationChallenges.entrySet().removeIf(entry -> now - entry.getValue().createdAt > AUTH_CHALLENGE_MS);
         sessionChallenges.entrySet().removeIf(entry -> now - entry.getValue().createdAt > AUTH_CHALLENGE_MS);
     }
 
@@ -714,7 +772,9 @@ final class PeerServerSide {
         return PasswordAuth.tokenDigest(token);
     }
 
-    private String authRequired() { return "AUTH_REQUIRED|REGISTER"; }
+    private String authRequired(byte[] scopedSalt) {
+        return "AUTH_REQUIRED|REGISTER|" + PasswordAuth.encodeVerifier(scopedSalt);
+    }
     private String joinDenied(String message) { return "JOIN_DENIED|" + packetPart(message); }
     private String sessionBusy(String message) { return "SESSION_BUSY|" + packetPart(message); }
     private String sessionDenied(String message) { return "SESSION_DENIED|" + packetPart(message); }
@@ -732,8 +792,21 @@ final class PeerServerSide {
     private int colorFor(int i) { int[] colors = {0x50BEFF,0xFF5F55,0x7DFF7A,0xFFE066,0xC77DFF,0xFF9F1C}; return colors[Math.floorMod(i, colors.length)]; }
     private boolean flag(String value) { return "1".equals(value) || "true".equalsIgnoreCase(value) || "DEV".equalsIgnoreCase(value) || "YES".equalsIgnoreCase(value); }
 
-    private record AuthChallenge(String name, String nonce, byte[] proofKey, String playerId, long createdAt) { }
+    private record AuthChallenge(String name, String nonce, byte[] proofKey, String playerId, int authVersion,
+                                 byte[] scopedSalt, long createdAt) { }
+    private record RegistrationChallenge(String name, byte[] scopedSalt, long createdAt) { }
     private record SessionChallenge(String playerId, String nonce, long createdAt) { }
+
+    private record CredentialResponse(String scopedVerifier, String legacyProof) {
+        static CredentialResponse parse(String value) {
+            String raw = value == null ? "" : value.trim();
+            int separator = raw.indexOf(':');
+            String scoped = separator < 0 ? raw : raw.substring(0, separator);
+            String legacy = separator < 0 ? "" : raw.substring(separator + 1);
+            return new CredentialResponse(PasswordAuth.validVerifier(scoped) ? scoped.toLowerCase(Locale.ROOT) : "",
+                    PasswordAuth.validVerifier(legacy) ? legacy.toLowerCase(Locale.ROOT) : "");
+        }
+    }
 
     private static final class PlayerSession {
         final String playerId;

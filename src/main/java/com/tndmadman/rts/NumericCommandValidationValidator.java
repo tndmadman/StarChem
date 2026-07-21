@@ -1,5 +1,6 @@
 package com.tndmadman.rts;
 
+import java.io.DataInputStream;
 import java.net.InetAddress;
 import java.net.Socket;
 import java.util.Map;
@@ -40,8 +41,16 @@ public final class NumericCommandValidationValidator {
             PlayerRegistry.reset("SOLO", config.playerName, 0x50BEFF);
             PeerServerSide server = new PeerServerSide(config, world, transport);
             ConnectionId connectionId = transport.connectionId(loopback, socket.getLocalPort());
-            String verifier = PasswordAuth.verifier("Numeric Client", "numeric-validation-password");
+            server.join(connectionId, loopback, socket.getLocalPort(), "Numeric Client", false, "");
+            String registration = receive(socket, "AUTH_REQUIRED|");
+            String[] registrationParts = registration.split("\\|", -1);
+            require(registrationParts.length == 3
+                            && PasswordAuth.decodeHex(registrationParts[2]).length == 16,
+                    "server did not issue a scoped numeric-validator registration salt");
+            String verifier = PasswordAuth.scopedVerifier("Numeric Client", "numeric-validation-password",
+                    "55".repeat(32), PasswordAuth.decodeHex(registrationParts[2]));
             server.join(connectionId, loopback, socket.getLocalPort(), "Numeric Client", verifier, false, "");
+            receive(socket, "WELCOME|");
             world.activateSystem(world.playerHomeSystemId("P1"));
 
             Unit unit = firstUnit(world, "P1");
@@ -167,6 +176,16 @@ public final class NumericCommandValidationValidator {
     private static Unit firstUnit(World world, String playerId) {
         for (Unit unit : world.units.values()) if (playerId.equals(unit.playerId)) return unit;
         throw new IllegalStateException("Player unit was not created");
+    }
+
+    private static String receive(Socket socket, String prefix) throws Exception {
+        DataInputStream input = new DataInputStream(socket.getInputStream());
+        for (int attempt = 0; attempt < 200; attempt++) {
+            TcpFrameCodec.DecodedFrame frame = TcpFrameCodec.read(input);
+            if (frame == null) break;
+            if (frame.message().startsWith(prefix)) return frame.message();
+        }
+        throw new IllegalStateException("Did not receive TCP frame starting with " + prefix);
     }
 
     private static void waitConnection(PeerTransport transport, InetAddress address, int port) throws Exception {

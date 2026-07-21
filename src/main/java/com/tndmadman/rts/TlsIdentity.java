@@ -37,6 +37,18 @@ final class TlsIdentity {
         }
     }
 
+    static String serverFingerprint(Config config) throws IOException {
+        try {
+            KeyStore keys = loadOrCreateServerKeys(config);
+            Certificate certificate = keys.getCertificate(KEY_ALIAS);
+            if (certificate == null) throw new IOException("Server TLS certificate is missing.");
+            return PasswordAuth.encodeVerifier(MessageDigest.getInstance("SHA-256")
+                    .digest(certificate.getEncoded()));
+        } catch (GeneralSecurityException ex) {
+            throw new IOException("Could not read server TLS identity: " + ex.getMessage(), ex);
+        }
+    }
+
     static SocketFactory clientSocketFactory() throws IOException {
         try {
             SSLContext context = SSLContext.getInstance("TLS");

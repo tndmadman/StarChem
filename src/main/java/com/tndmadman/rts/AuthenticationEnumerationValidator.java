@@ -15,6 +15,8 @@ public final class AuthenticationEnumerationValidator {
     private static final String EXISTING_PASSWORD = "retained-password";
     private static final String MISSING_NAME = "Unknown Authentication";
     private static final String MISSING_PASSWORD = "unknown-password";
+    private static final String TEST_SERVER_FINGERPRINT = "11".repeat(32);
+    private static final String OTHER_SERVER_FINGERPRINT = "22".repeat(32);
 
     private AuthenticationEnumerationValidator() { }
 
@@ -25,8 +27,9 @@ public final class AuthenticationEnumerationValidator {
 
     static void validate() throws Exception {
         validateAttemptLimiter();
+        validateServerScopedVerifier();
         Path saveDir = Files.createTempDirectory("starchem-auth-enumeration-");
-        PeerTransport transport = PeerTransport.server(0, new PerfStats());
+        PeerTransport transport = PeerTransport.server(0, new PerfStats(), TEST_SERVER_FINGERPRINT);
         transport.start();
         try {
             Config config = Config.dedicatedServer("Authentication Enumeration Host", transport.localPort(),
@@ -57,17 +60,20 @@ public final class AuthenticationEnumerationValidator {
                 Challenge missingChallenge = challenge(server, missing, remote, MISSING_NAME);
                 require(existingChallenge.payloadParts == missingChallenge.payloadParts,
                         "existing and unknown identities received different challenge shapes");
-                require(existingChallenge.salt.length() == 32 && missingChallenge.salt.length() == 32,
+                require(existingChallenge.currentSalt.length() == 32 && existingChallenge.scopedSalt.length() == 32
+                        && missingChallenge.currentSalt.length() == 32 && missingChallenge.scopedSalt.length() == 32,
                         "authentication challenge salt shape was invalid");
 
                 Challenge repeatedMissing = challenge(server, missingRepeat, remote, MISSING_NAME);
-                require(missingChallenge.salt.equals(repeatedMissing.salt),
+                require(missingChallenge.currentSalt.equals(repeatedMissing.currentSalt)
+                        && missingChallenge.scopedSalt.equals(repeatedMissing.scopedSalt),
                         "unknown identity did not receive a stable server-secret decoy salt");
                 require(!missingChallenge.nonce.equals(repeatedMissing.nonce),
                         "unknown identity reused a challenge nonce");
 
                 Challenge repeatedExisting = challenge(server, existingRepeat, remote, EXISTING_NAME);
-                require(existingChallenge.salt.equals(repeatedExisting.salt),
+                require(existingChallenge.currentSalt.equals(repeatedExisting.currentSalt)
+                        && existingChallenge.scopedSalt.equals(repeatedExisting.scopedSalt),
                         "retained identity challenge salt unexpectedly changed");
                 require(!existingChallenge.nonce.equals(repeatedExisting.nonce),
                         "retained identity reused a challenge nonce");
@@ -92,9 +98,9 @@ public final class AuthenticationEnumerationValidator {
                 require(server.persistentSessions().size() == 1,
                         "fake authentication challenge created a player session");
 
-                String correctProof = proof(EXISTING_NAME, EXISTING_PASSWORD, repeatedExisting);
+                AuthResponse correct = response(EXISTING_NAME, EXISTING_PASSWORD, repeatedExisting);
                 server.join(existingRepeat.connectionId, remote, existingRepeat.socket.getLocalPort(), EXISTING_NAME,
-                        "", repeatedExisting.nonce, correctProof, false, "");
+                        correct.registrationMaterial, repeatedExisting.nonce, correct.proof, false, "");
                 String welcome = receivePayload(existingRepeat, "WELCOME|");
                 require(welcome.startsWith("WELCOME|P1|"),
                         "retained identity did not authenticate through the real challenge");
@@ -104,10 +110,14 @@ public final class AuthenticationEnumerationValidator {
                 String localName = "Local Provisioning";
                 server.join(localRegistration.connectionId, loopback, localRegistration.socket.getLocalPort(),
                         localName, false, "");
-                require("AUTH_REQUIRED|REGISTER".equals(receivePayload(localRegistration, "AUTH_REQUIRED|")),
-                        "loopback provisioning did not expose the explicit registration step");
+                String registrationChallenge = receivePayload(localRegistration, "AUTH_REQUIRED|");
+                String[] registrationParts = registrationChallenge.split("\\|", -1);
+                require(registrationParts.length == 3 && PasswordAuth.decodeHex(registrationParts[2]).length == 16,
+                        "loopback provisioning did not expose a scoped registration salt");
+                String registrationVerifier = PasswordAuth.scopedVerifier(localName, "local-password",
+                        TEST_SERVER_FINGERPRINT, PasswordAuth.decodeHex(registrationParts[2]));
                 server.join(localRegistration.connectionId, loopback, localRegistration.socket.getLocalPort(),
-                        localName, PasswordAuth.verifier(localName, "local-password"), false, "");
+                        localName, registrationVerifier, false, "");
                 String localWelcome = receivePayload(localRegistration, "WELCOME|");
                 require(localWelcome.startsWith("WELCOME|P2|"),
                         "trusted loopback provisioning did not create the next player identity");
@@ -125,6 +135,32 @@ public final class AuthenticationEnumerationValidator {
                 "persisted decoy secret did not reproduce the same unknown-name salt");
         require(!java.security.MessageDigest.isEqual(first.saltFor(MISSING_NAME), first.saltFor("Another Missing Name")),
                 "decoy salt did not remain scoped to the requested identity");
+    }
+
+    private static void validateServerScopedVerifier() {
+        byte[] salt = PasswordAuth.newSalt();
+        String first = PasswordAuth.scopedVerifier("Scoped Player", "same-password", TEST_SERVER_FINGERPRINT, salt);
+        String second = PasswordAuth.scopedVerifier("Scoped Player", "same-password", OTHER_SERVER_FINGERPRINT, salt);
+        require(PasswordAuth.validVerifier(first) && PasswordAuth.validVerifier(second),
+                "server-scoped verifier derivation failed");
+        require(!first.equals(second), "two TLS server identities produced interchangeable password verifiers");
+        byte[] legacyKey = PasswordAuth.serverDigest(
+                PasswordAuth.decodeVerifier(PasswordAuth.verifier("Scoped Player", "same-password")), salt);
+        String nonce = PasswordAuth.newNonce();
+        String firstProof = PasswordAuth.upgradeProof(legacyKey, "Scoped Player", nonce,
+                TEST_SERVER_FINGERPRINT, first);
+        require(PasswordAuth.upgradeProofMatches(legacyKey, "Scoped Player", nonce,
+                        TEST_SERVER_FINGERPRINT, first, firstProof),
+                "server A did not accept its TLS-bound migration proof");
+        require(!PasswordAuth.upgradeProofMatches(legacyKey, "Scoped Player", nonce,
+                        OTHER_SERVER_FINGERPRINT, first, firstProof),
+                "server A migration proof replayed against server B");
+        require(!PasswordAuth.upgradeProofMatches(legacyKey, "Scoped Player", nonce,
+                        TEST_SERVER_FINGERPRINT, second, firstProof),
+                "migration proof accepted a different server-scoped verifier");
+        byte[] upgraded = PasswordAuth.upgradeSalt(salt);
+        require(upgraded.length == 16 && !java.security.MessageDigest.isEqual(salt, upgraded),
+                "password upgrade salt was not domain separated");
     }
 
     private static void validateAttemptLimiter() throws Exception {
@@ -148,24 +184,33 @@ public final class AuthenticationEnumerationValidator {
         String[] parts = message.split("\\|", -1);
         require(parts.length == 4, "authentication challenge field count was invalid");
         require(Config.clean(name).equals(parts[1]), "authentication challenge changed the requested name");
-        require(PasswordAuth.decodeHex(parts[2]).length == 16, "authentication challenge salt was invalid");
+        PasswordAuth.ChallengeSalts salts = PasswordAuth.decodeChallengeSalts(parts[2]);
+        require(salts.valid(), "authentication challenge salts were invalid");
         require(PasswordAuth.validNonce(parts[3]), "authentication challenge nonce was invalid");
-        return new Challenge(parts[2], parts[3], parts.length);
+        return new Challenge(PasswordAuth.encodeVerifier(salts.currentSalt()),
+                PasswordAuth.encodeVerifier(salts.scopedSalt()), parts[3], parts.length);
     }
 
     private static String answerChallenge(PeerServerSide server, TestConnection connection,
                                           InetAddress reportedAddress, String name, String password,
                                           Challenge challenge) throws Exception {
-        String proof = proof(name, password, challenge);
+        AuthResponse response = response(name, password, challenge);
         server.join(connection.connectionId, reportedAddress, connection.socket.getLocalPort(), name,
-                "", challenge.nonce, proof, false, "");
+                response.registrationMaterial, challenge.nonce, response.proof, false, "");
         return receivePayload(connection, "JOIN_DENIED|");
     }
 
-    private static String proof(String name, String password, Challenge challenge) {
-        byte[] verifier = PasswordAuth.decodeVerifier(PasswordAuth.verifier(name, password));
-        byte[] salt = PasswordAuth.decodeHex(challenge.salt);
-        return PasswordAuth.challengeProof(PasswordAuth.serverDigest(verifier, salt), name, challenge.nonce);
+    private static AuthResponse response(String name, String password, Challenge challenge) {
+        byte[] currentSalt = PasswordAuth.decodeHex(challenge.currentSalt);
+        byte[] scopedSalt = PasswordAuth.decodeHex(challenge.scopedSalt);
+        String legacyVerifier = PasswordAuth.verifier(name, password);
+        String scopedVerifier = PasswordAuth.scopedVerifier(name, password, TEST_SERVER_FINGERPRINT, scopedSalt);
+        String legacyProof = PasswordAuth.upgradeProof(PasswordAuth.serverDigest(
+                PasswordAuth.decodeVerifier(legacyVerifier), currentSalt), name, challenge.nonce,
+                TEST_SERVER_FINGERPRINT, scopedVerifier);
+        String scopedProof = PasswordAuth.challengeProof(PasswordAuth.serverDigest(
+                PasswordAuth.decodeVerifier(scopedVerifier), currentSalt), name, challenge.nonce);
+        return new AuthResponse(scopedVerifier + ":" + legacyProof, scopedProof);
     }
 
     private static TestConnection connect(PeerTransport transport, InetAddress loopback) throws Exception {
@@ -204,7 +249,8 @@ public final class AuthenticationEnumerationValidator {
         if (!condition) throw new IllegalStateException(message);
     }
 
-    private record Challenge(String salt, String nonce, int payloadParts) { }
+    private record Challenge(String currentSalt, String scopedSalt, String nonce, int payloadParts) { }
+    private record AuthResponse(String registrationMaterial, String proof) { }
 
     private static final class TestConnection implements AutoCloseable {
         final Socket socket;
