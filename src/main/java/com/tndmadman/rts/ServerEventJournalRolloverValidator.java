@@ -39,12 +39,13 @@ public final class ServerEventJournalRolloverValidator {
 
         setLength(path, ROLLOVER_BYTES + 1);
         journal.add("ADMIN", "rollover", "trigger-one");
-        assertDetails(path, dir, "repeated", List.of("trigger-one", "before"));
+        assertDetails(path, dir, "repeated", journal, List.of("trigger-one", "before"));
 
         ServerEventJournal restored = new ServerEventJournal(dir, "repeated");
         setLength(path, ROLLOVER_BYTES + 1);
         restored.add("ADMIN", "rollover", "trigger-two");
-        assertDetails(path, dir, "repeated", List.of("trigger-two", "trigger-one", "before"));
+        assertDetails(path, dir, "repeated", restored,
+                List.of("trigger-two", "trigger-one", "before"));
     }
 
     private static void validateExactBoundary(Path dir) throws Exception {
@@ -58,7 +59,8 @@ public final class ServerEventJournalRolloverValidator {
                 "an activity journal at the exact rollover boundary was rewritten early");
 
         journal.add("ADMIN", "boundary", "after-boundary");
-        assertDetails(path, dir, "boundary", List.of("after-boundary", "at-boundary", "before"));
+        assertDetails(path, dir, "boundary", journal,
+                List.of("after-boundary", "at-boundary", "before"));
     }
 
     private static void validateDurableClear(Path dir) throws Exception {
@@ -124,15 +126,20 @@ public final class ServerEventJournalRolloverValidator {
                 source + " retained the wrong clear marker: " + lines);
     }
 
-    private static void assertDetails(Path path, Path dir, String saveName, List<String> expected) throws Exception {
+    private static void assertDetails(Path path, Path dir, String saveName,
+                                      ServerEventJournal live, List<String> expected) throws Exception {
         require(Files.size(path) < ROLLOVER_BYTES,
                 "activity journal rollover did not replace the oversized file");
-        List<String> lines = new ServerEventJournal(dir, saveName).lines(10, "ADMIN", "");
-        require(lines.size() == expected.size(),
-                "activity journal rollover duplicated or omitted an event: " + lines);
+        List<String> inMemory = live.lines(10, "ADMIN", "");
+        List<String> persisted = new ServerEventJournal(dir, saveName).lines(10, "ADMIN", "");
+        require(inMemory.equals(persisted),
+                "activity journal rollover left memory and disk out of sync: memory="
+                        + inMemory + ", disk=" + persisted);
+        require(persisted.size() == expected.size(),
+                "activity journal rollover duplicated or omitted an event: " + persisted);
         for (int i = 0; i < expected.size(); i++) {
-            require(lines.get(i).endsWith(" | " + expected.get(i)),
-                    "activity journal rollover changed event order: " + lines);
+            require(persisted.get(i).endsWith(" | " + expected.get(i)),
+                    "activity journal rollover changed event order: " + persisted);
         }
     }
 
