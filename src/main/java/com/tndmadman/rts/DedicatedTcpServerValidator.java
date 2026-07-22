@@ -16,6 +16,7 @@ public final class DedicatedTcpServerValidator {
         ServerEventJournalRolloverValidator.validate();
         ServerEventJournalLoadValidator.validate();
         ServerSaveStoreBackupCollisionValidator.validate();
+        ServerShutdownValidator.validate();
         AdmissionRecordingValidator.validate();
         PreviousTokenProofRecoveryValidator.validate();
         try (TcpIntegrationHarness harness = TcpIntegrationHarness.dedicated()) {

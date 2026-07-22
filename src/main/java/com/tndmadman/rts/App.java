@@ -86,13 +86,14 @@ public final class App {
         AtomicBoolean running = new AtomicBoolean(true);
         HeadlessGameServer server = null;
         Thread shutdownHook = null;
+        int exitCode = 0;
         try {
             server = HeadlessGameServer.start(config);
             HeadlessGameServer activeServer = server;
             shutdownHook = new Thread(() -> {
                 if (running.getAndSet(false)) {
                     System.out.println("Server shutdown requested.");
-                    activeServer.stop();
+                    printServerShutdownResult(activeServer.forceStop());
                 }
             }, "starchem-server-shutdown");
             Runtime.getRuntime().addShutdownHook(shutdownHook);
@@ -135,15 +136,32 @@ public final class App {
                     nextStatus = now + SERVER_STATUS_NANOS;
                 }
             }
-            return 0;
+            exitCode = activeServer.shutdownExitCode();
         } catch (Exception ex) {
             System.err.println("Server failed:");
             ex.printStackTrace(System.err);
-            return 1;
+            exitCode = 1;
         } finally {
             running.set(false);
-            if (server != null) server.stop();
+            if (server != null && server.running()) {
+                ServerShutdownResult result = server.forceStop();
+                printServerShutdownResult(result);
+                if (!result.clean()) exitCode = 3;
+            } else if (server != null && exitCode == 0) {
+                exitCode = server.shutdownExitCode();
+            }
             removeShutdownHook(shutdownHook);
+        }
+        return exitCode;
+    }
+
+    private static void printServerShutdownResult(ServerShutdownResult result) {
+        if (result == null) {
+            System.err.println("UNCLEAN SHUTDOWN: no shutdown result was available.");
+        } else if (result.clean()) {
+            System.out.println(result.message());
+        } else {
+            System.err.println(result.message());
         }
     }
 

@@ -28,6 +28,7 @@ final class HeadlessGameServer {
     private final ServerAdminStore adminStore;
     private final ServerBackupAdmin backupAdmin;
     private final AtomicBoolean stopped = new AtomicBoolean();
+    private final AtomicBoolean stopping = new AtomicBoolean();
     private final Instant startedAt = Instant.now();
     private final long startedNanos = System.nanoTime();
     private final int startupAutosaveSeconds;
@@ -43,6 +44,8 @@ final class HeadlessGameServer {
     private String shutdownReason = "";
     private ServerConsole console;
     private ServerCommandDispatcher consoleCommands;
+    private volatile ServerShutdownResult lastShutdownResult;
+    private volatile String lastSaveFailure = "";
 
     private HeadlessGameServer(World world, PeerNetwork network, Config config, ServerSaveStore saves,
                                ServerAdminStore adminStore, ServerBackupAdmin backupAdmin,
@@ -114,34 +117,86 @@ final class HeadlessGameServer {
             @Override public List<String> developer(List<String> args) { return developerCommand(args); }
             @Override public boolean save() { return saveNow("manual-console"); }
             @Override public void stop() { HeadlessGameServer.this.stop(); }
+            @Override public ServerShutdownResult stopResult() { return HeadlessGameServer.this.stop(); }
             @Override public boolean running() { return HeadlessGameServer.this.running(); }
             @Override public Object extensionContext() { return HeadlessGameServer.this; }
         }, System.out, System.err);
     }
 
     void tick(double dt) {
+        if (stopped.get() || stopping.get()) return;
         drainConsoleCommands();
-        if (stopped.get()) return;
+        if (stopped.get() || stopping.get()) return;
         processScheduledShutdown();
-        if (stopped.get()) return;
+        if (stopped.get() || stopping.get()) return;
         network.updateServerWorlds(dt);
         network.tick();
         autosaveIfDue();
     }
 
     boolean running() { return !stopped.get(); }
-    String statusLine() { return stopped.get() ? "SERVER STOPPED" : network.statusLine(); }
+    String statusLine() {
+        if (stopped.get()) return "SERVER STOPPED";
+        if (stopping.get()) return "SERVER STOPPING";
+        return network.statusLine();
+    }
+    int shutdownExitCode() {
+        ServerShutdownResult result = lastShutdownResult;
+        return stopped.get() && result != null && !result.clean() ? 3 : 0;
+    }
 
-    void stop() {
-        if (!stopped.compareAndSet(false, true)) return;
+    ServerShutdownResult stop() { return stop(false); }
+    ServerShutdownResult forceStop() { return stop(true); }
+
+    private synchronized ServerShutdownResult stop(boolean forced) {
+        if (stopped.get()) {
+            ServerShutdownResult result = lastShutdownResult;
+            return result == null ? ServerShutdownResult.cleanStop() : result;
+        }
+        if (!stopping.compareAndSet(false, true)) return ServerShutdownResult.inProgress();
         shutdownDeadlineNanos = NO_SHUTDOWN;
+        boolean saved = saveNow("shutdown");
+        if (!saved && !forced) {
+            ServerShutdownResult result = ServerShutdownResult.aborted(lastSaveFailure);
+            lastShutdownResult = result;
+            stopping.set(false);
+            return result;
+        }
+
+        stopped.set(true);
         ServerConsole activeConsole = console;
         console = null;
         consoleCommands = null;
-        if (activeConsole != null) activeConsole.close();
-        saveNow("shutdown");
-        network.shutdown();
-        System.out.println("Dedicated server stopped.");
+        RuntimeException shutdownFailure = null;
+        try {
+            if (activeConsole != null) activeConsole.close();
+        } catch (RuntimeException ex) {
+            shutdownFailure = ex;
+        }
+        try {
+            network.shutdown();
+        } catch (RuntimeException ex) {
+            if (shutdownFailure == null) shutdownFailure = ex;
+            else shutdownFailure.addSuppressed(ex);
+        }
+
+        ServerShutdownResult result;
+        if (saved && shutdownFailure == null) {
+            result = ServerShutdownResult.cleanStop();
+        } else {
+            String detail = saved ? "" : lastSaveFailure;
+            if (shutdownFailure != null) {
+                String shutdownDetail = shutdownFailure.getClass().getSimpleName()
+                        + (shutdownFailure.getMessage() == null || shutdownFailure.getMessage().isBlank()
+                        ? "" : ": " + shutdownFailure.getMessage());
+                detail = detail.isBlank() ? shutdownDetail : detail + "; " + shutdownDetail;
+                System.err.println("Server shutdown cleanup failed: " + shutdownDetail);
+            }
+            result = ServerShutdownResult.forcedFailure(detail);
+        }
+        lastShutdownResult = result;
+        stopping.set(false);
+        return result;
     }
 
     private void drainConsoleCommands() {
@@ -669,7 +724,15 @@ final class HeadlessGameServer {
         long remaining = shutdownRemainingSeconds();
         if (remaining <= 0) {
             network.broadcastServerNotice("Server is shutting down now" + shutdownReasonSuffix());
-            stop();
+            ServerShutdownResult result = stop();
+            if (result.clean()) {
+                System.out.println(result.message());
+            } else {
+                if (!result.stopped()) {
+                    network.broadcastServerNotice("Server shutdown was aborted because the final save failed.");
+                }
+                System.err.println(result.message());
+            }
             return;
         }
         if (remaining < lastShutdownNoticeSeconds && shutdownNotice(remaining)) {
@@ -710,14 +773,17 @@ final class HeadlessGameServer {
     private boolean saveNow(String reason) {
         try {
             saves.save(world, config, reason, network.persistentPlayerSessions());
+            lastSaveFailure = "";
             lastSuccessfulSaveAt = Instant.now();
             lastSuccessfulSaveReason = reason;
             if ("autosave".equals(reason)) autosaveCount++;
             else if ("manual-console".equals(reason)) manualSaveCount++;
             if (!"autosave".equals(reason)) System.out.println("Server save completed (" + reason + ").");
             return true;
-        } catch (IOException ex) {
-            System.err.println("Server save failed (" + reason + "): " + ex.getMessage());
+        } catch (IOException | RuntimeException ex) {
+            lastSaveFailure = ex.getClass().getSimpleName()
+                    + (ex.getMessage() == null || ex.getMessage().isBlank() ? "" : ": " + ex.getMessage());
+            System.err.println("Server save failed (" + reason + "): " + lastSaveFailure);
             return false;
         }
     }
@@ -844,4 +910,30 @@ final class HeadlessGameServer {
     }
 
     private boolean blank(String value) { return value == null || value.isBlank(); }
+}
+
+record ServerShutdownResult(boolean stopped, boolean clean, String message) {
+    static ServerShutdownResult cleanStop() {
+        return new ServerShutdownResult(true, true, "Dedicated server stopped. Clean shutdown confirmed.");
+    }
+
+    static ServerShutdownResult aborted(String detail) {
+        return new ServerShutdownResult(false, false,
+                "Shutdown aborted: final server save failed. The server remains running; correct the save problem and retry"
+                        + suffix(detail) + ".");
+    }
+
+    static ServerShutdownResult forcedFailure(String detail) {
+        return new ServerShutdownResult(true, false,
+                "UNCLEAN SHUTDOWN: final server save or shutdown cleanup failed; server resources were stopped"
+                        + suffix(detail) + ".");
+    }
+
+    static ServerShutdownResult inProgress() {
+        return new ServerShutdownResult(false, false, "Shutdown is already in progress.");
+    }
+
+    private static String suffix(String detail) {
+        return detail == null || detail.isBlank() ? "" : " (" + detail + ")";
+    }
 }
