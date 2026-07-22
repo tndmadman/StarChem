@@ -23,8 +23,7 @@ jobs:
           python3 .github/scripts/apply_activity_clear.py
           export JAVA_HOME="${JAVA_HOME_17_X64}"
           export PATH="${JAVA_HOME}/bin:${PATH}"
-          chmod +x gradlew
-          ./gradlew --console=plain classes
+          gradle --console=plain classes
           java -cp build/classes/java/main com.tndmadman.rts.ServerEventJournalRolloverValidator
           git config user.name "StarChem Fix Bot"
           git config user.email "actions@users.noreply.github.com"
