@@ -453,3 +453,16 @@ distributions {
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
+
+
+tasks.register('validatePrunePersistence', JavaExec) {
+    group = 'verification'
+    description = 'Validate durable system-prune persistence, recovery, and publication ordering.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.ServerPruneTransactionValidator'
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('validatePrunePersistence')
+}

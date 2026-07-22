@@ -46,6 +46,7 @@ final class HeadlessGameServer {
     private ServerCommandDispatcher consoleCommands;
     private volatile ServerShutdownResult lastShutdownResult;
     private volatile String lastSaveFailure = "";
+    private volatile String recoveryRequiredReason = "";
 
     private HeadlessGameServer(World world, PeerNetwork network, Config config, ServerSaveStore saves,
                                ServerAdminStore adminStore, ServerBackupAdmin backupAdmin,
@@ -155,7 +156,11 @@ final class HeadlessGameServer {
         }
         if (!stopping.compareAndSet(false, true)) return ServerShutdownResult.inProgress();
         shutdownDeadlineNanos = NO_SHUTDOWN;
-        boolean saved = saveNow("shutdown");
+        boolean recoveryStop = !recoveryRequiredReason.isBlank();
+        boolean saved = recoveryStop || saveNow("shutdown");
+        if (recoveryStop) {
+            System.err.println("Skipping final save because recovery-required state must remain on disk; restarting will load the restored save.");
+        }
         if (!saved && !forced) {
             ServerShutdownResult result = ServerShutdownResult.aborted(lastSaveFailure);
             lastShutdownResult = result;
@@ -216,7 +221,8 @@ final class HeadlessGameServer {
         String shutdown = shutdownDeadlineNanos == NO_SHUTDOWN ? "" : " | shutdown " + shutdownRemainingSeconds() + "s";
         String maintenance = accessPolicy.maintenance() ? " | maintenance" : "";
         String slots = accessPolicy.maxSlots() <= 0 ? "" : " | slots " + sortedSessions().size() + "/" + accessPolicy.maxSlots();
-        return statusLine() + " | save " + config.saveName + " | " + autosave + maintenance + slots + shutdown;
+        String recovery = recoveryRequiredReason.isBlank() ? "" : " | RECOVERY REQUIRED";
+        return statusLine() + " | save " + config.saveName + " | " + autosave + maintenance + slots + shutdown + recovery;
     }
 
     private List<String> playerStatusLines() {
@@ -770,7 +776,24 @@ final class HeadlessGameServer {
 
     boolean saveForAdmin(String reason) { return saveNow(reason); }
 
+    void enterRecoveryRequired(String reason) {
+        String clean = cleanNotice(reason);
+        recoveryRequiredReason = clean.isBlank() ? "Prune recovery requires a server restart." : clean;
+        runtimeAutosaveSeconds = 0;
+        nextAutosaveNanos = Long.MAX_VALUE;
+        network.setSimulationPaused(true, recoveryRequiredReason);
+        network.broadcastServerNotice("Server entered recovery-required mode. Restart the server before continuing.");
+        System.err.println("Server recovery required: " + recoveryRequiredReason);
+    }
+
+    String recoveryRequiredReason() { return recoveryRequiredReason; }
+
     private boolean saveNow(String reason) {
+        if (!recoveryRequiredReason.isBlank()) {
+            lastSaveFailure = "Recovery required; restart without saving: " + recoveryRequiredReason;
+            if (!"autosave".equals(reason)) System.err.println("Server save blocked (" + reason + "): " + lastSaveFailure);
+            return false;
+        }
         try {
             saves.save(world, config, reason, network.persistentPlayerSessions());
             lastSaveFailure = "";
