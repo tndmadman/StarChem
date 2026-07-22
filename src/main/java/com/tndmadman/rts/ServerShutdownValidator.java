@@ -15,6 +15,8 @@ public final class ServerShutdownValidator {
     }
 
     static void validate() throws Exception {
+        require(ServerShutdownResult.cleanStop().message().contains("Dedicated server stopped."),
+                "clean shutdown output no longer satisfies headless smoke checks");
         validateGracefulFailureAndRetry();
         validateForcedFailureStatus();
         validateConcurrentForcedStop();

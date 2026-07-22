@@ -914,7 +914,7 @@ final class HeadlessGameServer {
 
 record ServerShutdownResult(boolean stopped, boolean clean, String message) {
     static ServerShutdownResult cleanStop() {
-        return new ServerShutdownResult(true, true, "Dedicated server stopped cleanly.");
+        return new ServerShutdownResult(true, true, "Dedicated server stopped. Clean shutdown confirmed.");
     }
 
     static ServerShutdownResult aborted(String detail) {
