@@ -24,19 +24,34 @@ jobs:
       - name: Apply production fix
         run: python3 .github/scripts/apply_activity_clear.py
       - name: Verify focused server path
+        id: verify
+        continue-on-error: true
         run: |
           chmod +x gradlew
-          ./gradlew --console=plain validateDedicatedTcpServer
+          ./gradlew --console=plain validateDedicatedTcpServer > activity-clear-verification.log 2>&1
+      - name: Publish failure details
+        if: steps.verify.outcome == 'failure'
+        run: |
+          tail -n 120 activity-clear-verification.log > .github/activity-clear-verification.log
+          git config user.name "StarChem Fix Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/activity-clear-verification.log
+          git commit -m "Capture activity journal validation failure"
+          git push origin HEAD:agent/fix-activity-journal-clear
+          exit 1
       - name: Commit verified changes
+        if: steps.verify.outcome == 'success'
         run: |
           rm .github/workflows/agent-fix-activity-clear.yml
           rm .github/scripts/apply_activity_clear.py
+          rm -f .github/activity-clear-verification.log
           git config user.name "StarChem Fix Bot"
           git config user.email "actions@users.noreply.github.com"
           git add src/main/java/com/tndmadman/rts/ServerModerationStore.java \
                   src/main/java/com/tndmadman/rts/ServerEventJournalRolloverValidator.java \
                   .github/workflows/agent-fix-activity-clear.yml \
-                  .github/scripts/apply_activity_clear.py
+                  .github/scripts/apply_activity_clear.py \
+                  .github/activity-clear-verification.log
           git diff --cached --check
           git commit -m "Make activity journal clearing durable"
           git push origin HEAD:agent/fix-activity-journal-clear
