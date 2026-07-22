@@ -87,9 +87,22 @@ jobs:
           path.write_text(text[:rewrite_start] + rewrite_method + text[rewrite_end:], encoding='utf-8')
           PY
       - name: Verify focused server path
+        id: verify
+        continue-on-error: true
         run: |
           chmod +x gradlew
-          ./gradlew validateDedicatedTcpServer
+          ./gradlew validateDedicatedTcpServer > activity-clear-verification.log 2>&1
+      - name: Upload verification output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: activity-clear-verification
+          path: activity-clear-verification.log
+      - name: Stop on verification failure
+        if: steps.verify.outcome == 'failure'
+        run: |
+          cat activity-clear-verification.log
+          exit 1
       - name: Commit verified changes
         run: |
           rm .github/workflows/agent-fix-activity-clear.yml
