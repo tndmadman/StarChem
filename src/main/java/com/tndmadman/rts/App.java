@@ -73,7 +73,8 @@ public final class App {
         System.out.println("  --backup-count N        Number of timestamped save backups to retain");
         System.out.println("  --new-world             Ignore existing dedicated-server saves");
         System.out.println("  --dev                   Enable developer mode");
-        System.out.println("  --dev-token TOKEN       Authorize requested remote developer access");
+        System.out.println("  --dev-token-file FILE   Load the developer token from a protected file");
+        System.out.println("  --dev-token TOKEN       Legacy unsafe token argument; prefer --dev-token-file");
         System.out.println("  --enable-timers         Keep production timers enabled in developer mode");
         System.out.println("  --disable-timers        Disable production timers in developer mode");
         System.out.println("  --version, -V           Print build identity");
