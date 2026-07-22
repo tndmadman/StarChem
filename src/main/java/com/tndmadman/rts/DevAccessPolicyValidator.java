@@ -1,6 +1,8 @@
 package com.tndmadman.rts;
 
 import java.net.InetAddress;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 public final class DevAccessPolicyValidator {
     private static final String TOKEN = "dev-token-0123456789abcdef";
@@ -34,7 +36,23 @@ public final class DevAccessPolicyValidator {
         expectEquals("client token", TOKEN, client.devToken);
         expectMissingTokenValueRejected();
 
-        System.out.println("Dev access policy validation passed.");
+        expectTrue("unauthorized client request is pending", DevAccessRequestState.pending(true, false));
+        expectFalse("authorized client request is not pending", DevAccessRequestState.pending(true, true));
+        expectFalse("operator grant does not fabricate a request", DevAccessRequestState.pending(false, true));
+
+        Set<String> requests = new LinkedHashSet<>();
+        requests.add("P1");
+        requests.add("P2");
+        DevAccessRequestState.resolve(requests, "P1");
+        expectFalse("resolved request removed", requests.contains("P1"));
+        expectTrue("unrelated pending request retained", requests.contains("P2"));
+
+        DevPeerAccess pending = new DevPeerAccess("P1", "Pending", true, false, false);
+        DevPeerAccess granted = new DevPeerAccess("P2", "Granted", true, true, false);
+        expectTrue("pending peer reported as requested", pending.requested());
+        expectFalse("granted peer not reported as pending", granted.requested());
+
+        System.out.println("Dev access policy and request-state validation passed.");
     }
 
     private static void expectAllowed(String name, boolean hostDevMode, boolean dedicatedServer, InetAddress address,
@@ -71,6 +89,10 @@ public final class DevAccessPolicyValidator {
 
     private static void expectTrue(String name, boolean value) {
         if (!value) throw new IllegalStateException("Expected true: " + name);
+    }
+
+    private static void expectFalse(String name, boolean value) {
+        if (value) throw new IllegalStateException("Expected false: " + name);
     }
 
     private static void expectEquals(String name, String expected, String actual) {

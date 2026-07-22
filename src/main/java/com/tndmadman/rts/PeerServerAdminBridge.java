@@ -54,7 +54,7 @@ final class PeerServerAdminBridge {
             Object requestsValue = DEV_REQUESTS.get(server);
             if (requestsValue instanceof Set<?> rawRequests) {
                 @SuppressWarnings("unchecked") Set<String> requests = (Set<String>)rawRequests;
-                if (enabled) requests.add(playerId);
+                DevAccessRequestState.resolve(requests, playerId);
             }
             Object session = session(server, playerId);
             setBoolean(session, "devFreeBuild", false);
@@ -83,8 +83,6 @@ final class PeerServerAdminBridge {
                     server.world.setDevFreeBuild(peer.playerId(), false);
                 }
             }
-            Object requestsValue = DEV_REQUESTS.get(server);
-            if (requestsValue instanceof Set<?> requests) requests.clear();
             server.broadcastNow();
         } catch (ReflectiveOperationException ex) {
             System.err.println("Could not revoke runtime developer access: " + ex.getMessage());
