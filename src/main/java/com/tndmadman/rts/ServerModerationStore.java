@@ -230,22 +230,22 @@ final class ServerEventJournal {
                 StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
     }
 
-synchronized void clear() {
-    ServerEvent cleared = new ServerEvent(System.currentTimeMillis(), "ADMIN", "activity",
-            "previous activity history cleared");
-    if (path == null) {
+    synchronized void clear() {
+        ServerEvent cleared = new ServerEvent(System.currentTimeMillis(), "ADMIN", "activity",
+                "previous activity history cleared");
+        if (path == null) {
+            events.clear();
+            events.addLast(cleared);
+            return;
+        }
+        try {
+            replace(List.of(cleared));
+        } catch (IOException ex) {
+            throw new IllegalStateException("Could not clear server activity journal: " + ex.getMessage(), ex);
+        }
         events.clear();
         events.addLast(cleared);
-        return;
     }
-    try {
-        replace(List.of(cleared));
-    } catch (IOException ex) {
-        throw new IllegalStateException("Could not clear server activity journal: " + ex.getMessage(), ex);
-    }
-    events.clear();
-    events.addLast(cleared);
-}
 
     private void load() {
         if (path == null || !Files.isRegularFile(path)) return;
@@ -379,33 +379,33 @@ synchronized void clear() {
         }
     }
 
-private void rewrite() throws IOException {
-    replace(events);
-}
-
-private void replace(Iterable<ServerEvent> replacement) throws IOException {
-    Path target = path.toAbsolutePath();
-    Path parent = target.getParent();
-    if (parent != null) Files.createDirectories(parent);
-    Path temp = Files.createTempFile(parent, target.getFileName().toString() + ".", ".tmp");
-    boolean replaced = false;
-    try {
-        ArrayList<String> rows = new ArrayList<>();
-        for (ServerEvent event : replacement) {
-            rows.add(event.at() + "\t" + encode(event.type()) + "\t" + encode(event.subject()) + "\t" + encode(event.detail()));
-        }
-        Files.write(temp, rows, StandardCharsets.UTF_8,
-                StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
-        try {
-            Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        } catch (AtomicMoveNotSupportedException ex) {
-            Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
-        }
-        replaced = true;
-    } finally {
-        if (!replaced) Files.deleteIfExists(temp);
+    private void rewrite() throws IOException {
+        replace(events);
     }
-}
+
+    private void replace(Iterable<ServerEvent> replacement) throws IOException {
+        Path target = path.toAbsolutePath();
+        Path parent = target.getParent();
+        if (parent != null) Files.createDirectories(parent);
+        Path temp = Files.createTempFile(parent, target.getFileName().toString() + ".", ".tmp");
+        boolean replaced = false;
+        try {
+            ArrayList<String> rows = new ArrayList<>();
+            for (ServerEvent event : replacement) {
+                rows.add(event.at() + "\t" + encode(event.type()) + "\t" + encode(event.subject()) + "\t" + encode(event.detail()));
+            }
+            Files.write(temp, rows, StandardCharsets.UTF_8,
+                    StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+            try {
+                Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException ex) {
+                Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+            replaced = true;
+        } finally {
+            if (!replaced) Files.deleteIfExists(temp);
+        }
+    }
 
     private static String format(ServerEvent event) {
         return TIME.format(Instant.ofEpochMilli(event.at())) + " | " + event.type() + " | "
