@@ -235,8 +235,14 @@ final class ServerBackupAdmin {
     }
 
     String create(String label) {
+        return createVerified(label).message();
+    }
+
+    BackupCreation createVerified(String label) {
         Path current = currentPath();
-        if (!Files.isRegularFile(current)) return "Current save does not exist.";
+        if (!Files.isRegularFile(current)) {
+            return new BackupCreation(false, null, "Current save does not exist.");
+        }
         String suffix = cleanLabel(label);
         String base = saveName + "-" + STAMP.format(Instant.now()) + (suffix.isBlank() ? "" : "-" + suffix);
         try {
@@ -246,11 +252,11 @@ final class ServerBackupAdmin {
             Verification verification = verify(target);
             if (!verification.valid()) {
                 Files.deleteIfExists(target);
-                return "Backup verification failed: " + verification.detail();
+                return new BackupCreation(false, null, "Backup verification failed: " + verification.detail());
             }
-            return "Created backup " + target.getFileName() + ".";
+            return new BackupCreation(true, target, "Created backup " + target.getFileName() + ".");
         } catch (IOException ex) {
-            return "Could not create backup: " + ex.getMessage();
+            return new BackupCreation(false, null, "Could not create backup: " + ex.getMessage());
         }
     }
 
@@ -259,6 +265,32 @@ final class ServerBackupAdmin {
         if (target == null) return "Unknown backup selector: " + selector;
         Verification result = verify(target);
         return (result.valid() ? "Valid: " : "Invalid: ") + target.getFileName() + " | " + result.detail();
+    }
+
+    Verification verifyCurrent() {
+        return verify(currentPath());
+    }
+
+    String restoreCurrent(Path backup) {
+        Verification source = verify(backup);
+        if (!source.valid()) return "Could not restore current save: recovery backup is invalid: " + source.detail();
+        Path temp = null;
+        try {
+            Files.createDirectories(saveDir);
+            temp = Files.createTempFile(saveDir, saveName + "-restore-", ".tmp");
+            Files.copy(backup, temp, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
+            Verification staged = verify(temp);
+            if (!staged.valid()) return "Could not restore current save: staged backup is invalid: " + staged.detail();
+            moveReplace(temp, currentPath());
+            temp = null;
+            Verification restored = verify(currentPath());
+            if (!restored.valid()) return "Could not restore current save: restored archive is invalid: " + restored.detail();
+            return "Restored current save from " + backup.getFileName() + ".";
+        } catch (IOException ex) {
+            return "Could not restore current save: " + ex.getMessage();
+        } finally {
+            if (temp != null) try { Files.deleteIfExists(temp); } catch (IOException ignored) { }
+        }
     }
 
     String prune() {
@@ -289,7 +321,7 @@ final class ServerBackupAdmin {
         }
     }
 
-    private Verification verify(Path path) {
+    Verification verify(Path path) {
         if (path == null || !Files.isRegularFile(path)) return new Verification(false, "file is missing");
         try {
             Map<String,byte[]> entries = readEntries(path);
@@ -332,6 +364,14 @@ final class ServerBackupAdmin {
     private Path currentPath() { return saveDir.resolve(saveName + "-current" + EXTENSION); }
     private Path previousPath() { return saveDir.resolve(saveName + "-previous" + EXTENSION); }
 
+    private static void moveReplace(Path from, Path to) throws IOException {
+        try {
+            Files.move(from, to, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException ex) {
+            Files.move(from, to, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
     private static String cleanLabel(String value) {
         if (value == null) return "";
         String clean = value.trim().replaceAll("[^A-Za-z0-9._-]+", "-").replaceAll("^-+|-+$", "");
@@ -370,5 +410,6 @@ final class ServerBackupAdmin {
         if (!expected.equalsIgnoreCase(actual)) throw new IOException(entryName + " checksum mismatch");
     }
 
-    private record Verification(boolean valid, String detail) { }
+    record BackupCreation(boolean success, Path path, String message) { }
+    record Verification(boolean valid, String detail) { }
 }

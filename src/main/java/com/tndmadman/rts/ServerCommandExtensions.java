@@ -298,16 +298,41 @@ final class ServerCommandExtensions {
             return List.of("Usage: prune-systems <preview|run confirm>");
         }
         if (candidates.isEmpty()) return List.of("No abandoned dynamic systems are eligible.");
-        if (!target.save()) return List.of("Pre-prune save failed; nothing was deleted.");
+
         Config config = host.network.serverConfig();
-        String backup = new ServerBackupAdmin(config.saveDir, config.saveName, config.backupCount).create("pre-prune");
-        if (!backup.startsWith("Created backup")) return List.of(backup, "Nothing was deleted.");
-        Set<String> deleted = host.world.pruneEmptyDynamicSystems();
-        host.network.notifyDeletedSystems(deleted);
-        host.network.resyncAllServerPlayers();
-        host.network.serverJournal().add("PRUNE", "systems", "deleted " + deleted.size());
-        return List.of(backup, "Pruned " + deleted.size() + " abandoned dynamic system" + (deleted.size() == 1 ? "" : "s") + ".",
-                deleted.isEmpty() ? "Deleted: none" : "Deleted: " + String.join(", ", deleted));
+        ServerBackupAdmin backupAdmin = new ServerBackupAdmin(config.saveDir, config.saveName, config.backupCount);
+        ServerPruneTransaction.Result result = ServerPruneTransaction.run(new ServerPruneTransaction.Operations() {
+            @Override public boolean save(String reason) {
+                return host.saveForAdmin(reason);
+            }
+
+            @Override public ServerBackupAdmin.BackupCreation createBackup(String label) {
+                return backupAdmin.createVerified(label);
+            }
+
+            @Override public Set<String> prune() {
+                return host.world.pruneEmptyDynamicSystems();
+            }
+
+            @Override public ServerBackupAdmin.Verification verifyCurrent() {
+                return backupAdmin.verifyCurrent();
+            }
+
+            @Override public String restoreCurrent(Path backup) {
+                return backupAdmin.restoreCurrent(backup);
+            }
+
+            @Override public void enterRecovery(String reason) {
+                host.enterRecoveryRequired(reason);
+            }
+
+            @Override public void publish(Set<String> deleted) {
+                host.network.notifyDeletedSystems(deleted);
+                host.network.resyncAllServerPlayers();
+                host.network.serverJournal().add("PRUNE", "systems", "deleted " + deleted.size());
+            }
+        });
+        return result.lines();
     }
 
     private static List<GalaxyMapSystem> pruneCandidates(World world) {
