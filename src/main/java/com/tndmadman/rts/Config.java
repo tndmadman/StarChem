@@ -62,6 +62,8 @@ final class Config {
         boolean dedicated = false;
         boolean dev = false;
         String devToken = "";
+        Path devTokenFile = null;
+        boolean inlineDevToken = false;
         boolean disableProductionTimers = false;
         int port = 0;
         int galaxyCopies = 1;
@@ -83,7 +85,16 @@ final class Config {
                 case "--backup-count" -> backupCount = parsePositiveInt(requiredValue(args, ++i, option), "Backup count");
                 case "--new-world" -> newWorld = true;
                 case "--dev" -> { dev = true; disableProductionTimers = true; }
-                case "--dev-token" -> devToken = DevAccessPolicy.requireToken(requiredValue(args, ++i, option));
+                case "--dev-token" -> {
+                    if (inlineDevToken || devTokenFile != null) throw conflictingDevTokenSources();
+                    devToken = DevAccessPolicy.requireToken(requiredValue(args, ++i, option));
+                    inlineDevToken = true;
+                    System.err.println("WARNING: --dev-token exposes a reusable secret in process arguments; use --dev-token-file instead.");
+                }
+                case "--dev-token-file" -> {
+                    if (inlineDevToken || devTokenFile != null) throw conflictingDevTokenSources();
+                    devTokenFile = Path.of(requiredValue(args, ++i, option));
+                }
                 case "--disable-timers" -> disableProductionTimers = true;
                 case "--enable-timers" -> disableProductionTimers = false;
                 case "--server" -> {
@@ -104,10 +115,15 @@ final class Config {
                 default -> throw new IllegalArgumentException("Unknown option: " + option);
             }
         }
+        if (devTokenFile != null) devToken = DevTokenSource.load(devTokenFile);
         if (dedicated) return dedicatedServer(name, port == 0 ? 50000 : port, dev, disableProductionTimers, Set.of(), system, devToken, galaxyCopies, saveDir, saveName, autosaveSeconds, backupCount, newWorld);
         if (host) return host(name, port == 0 ? 50000 : port, dev, disableProductionTimers, Set.of(), system, devToken, galaxyCopies);
         if (server != null) return join(name, server.getHostString(), server.getPort(), dev, disableProductionTimers, Set.of(), system, devToken, galaxyCopies);
         return solo(name, dev, disableProductionTimers, Set.of(), system, devToken, galaxyCopies);
+    }
+
+    private static IllegalArgumentException conflictingDevTokenSources() {
+        return new IllegalArgumentException("Specify exactly one developer token source: --dev-token-file or legacy --dev-token.");
     }
 
     private static String requiredValue(String[] args, int index, String option) {
