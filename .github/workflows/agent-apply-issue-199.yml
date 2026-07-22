@@ -1,0 +1,33 @@
+name: Apply issue 199 fix
+
+on:
+  push:
+    branches:
+      - agent/persist-pruned-state-199
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Apply source changes
+        run: python3 .github/agent/apply_issue_199.py
+      - name: Verify fix
+        run: ./gradlew check
+      - name: Commit verified changes
+        run: |
+          git config user.name "starchem-ai-fix-bot"
+          git config user.email "starchem-ai-fix-bot@users.noreply.github.com"
+          git add build.gradle src/main/java/com/tndmadman/rts/ServerAdministration.java src/main/java/com/tndmadman/rts/ServerCommandExtensions.java src/main/java/com/tndmadman/rts/HeadlessGameServer.java src/main/java/com/tndmadman/rts/ServerPruneTransaction.java src/main/java/com/tndmadman/rts/ServerPruneTransactionValidator.java
+          git commit -m "Persist pruned galaxy state before success"
+          git push
