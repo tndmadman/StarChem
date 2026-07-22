@@ -39,6 +39,12 @@ final class ServerCommandDispatcher {
         List<String> developer(List<String> args);
         boolean save();
         void stop();
+        default ServerShutdownResult stopResult() {
+            stop();
+            return running()
+                    ? ServerShutdownResult.aborted("shutdown target is still running")
+                    : ServerShutdownResult.cleanStop();
+        }
         boolean running();
         default Object extensionContext() { return null; }
     }
@@ -398,10 +404,7 @@ final class ServerCommandDispatcher {
     private void shutdown(List<String> args) {
         if (args.isEmpty() || "now".equalsIgnoreCase(args.get(0))) {
             if (!target.running()) output.println("Server is already stopped.");
-            else {
-                output.println("Stopping dedicated server.");
-                target.stop();
-            }
+            else printShutdownResult(target.stopResult());
             return;
         }
         String action = args.get(0).toLowerCase(Locale.ROOT);
@@ -441,9 +444,16 @@ final class ServerCommandDispatcher {
     private void stop(List<String> args) {
         if (!requireNoArgs("stop", args)) return;
         if (!target.running()) output.println("Server is already stopped.");
-        else {
-            output.println("Stopping dedicated server.");
-            target.stop();
+        else printShutdownResult(target.stopResult());
+    }
+
+    private void printShutdownResult(ServerShutdownResult result) {
+        if (result == null) {
+            errors.println("Shutdown failed without a result.");
+        } else if (result.clean()) {
+            output.println(result.message());
+        } else {
+            errors.println(result.message());
         }
     }
 

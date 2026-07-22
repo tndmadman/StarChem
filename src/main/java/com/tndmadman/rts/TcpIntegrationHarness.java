@@ -12,7 +12,7 @@ final class TcpIntegrationHarness implements AutoCloseable {
     final HeadlessGameServer headlessServer;
     final List<TestClient> clients = new ArrayList<>();
     private final Path sessionStore;
-    private final Path serverSaveDir;
+    final Path serverSaveDir;
 
     private TcpIntegrationHarness(boolean dedicated) throws Exception {
         sessionStore = Files.createTempFile("starchem-tcp-harness-", ".properties");
@@ -159,7 +159,7 @@ final class TcpIntegrationHarness implements AutoCloseable {
         }
         clients.clear();
         try {
-            if (headlessServer != null) headlessServer.stop();
+            if (headlessServer != null) headlessServer.forceStop();
             else serverNetwork.shutdown();
         } catch (Exception ignored) { }
         System.clearProperty("starchem.sessionStore");
