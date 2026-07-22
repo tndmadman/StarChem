@@ -15,13 +15,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           ref: ${{ github.head_ref || github.ref_name }}
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - name: Apply production fix
+          show-progress: false
+      - name: Apply and verify
         shell: bash
         run: |
           python3 - <<'PY'
@@ -30,7 +26,6 @@ jobs:
 
           path = Path('src/main/java/com/tndmadman/rts/ServerModerationStore.java')
           text = path.read_text(encoding='utf-8')
-
           clear_start = text.index('    synchronized void clear() {')
           clear_end = text.index('\n    private void load()', clear_start)
           clear_method = dedent('''\
@@ -52,7 +47,6 @@ jobs:
               }
           ''')
           text = text[:clear_start] + clear_method + text[clear_end:]
-
           rewrite_start = text.index('    private void rewrite() throws IOException {')
           rewrite_end = text.index('\n    private static String format', rewrite_start)
           rewrite_method = dedent('''\
@@ -86,23 +80,13 @@ jobs:
           ''')
           path.write_text(text[:rewrite_start] + rewrite_method + text[rewrite_end:], encoding='utf-8')
           PY
-      - name: Verify focused server path
-        id: verify
-        continue-on-error: true
-        run: |
+          java -version
           chmod +x gradlew
-          ./gradlew validateDedicatedTcpServer > activity-clear-verification.log 2>&1
-      - name: Upload verification output
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: activity-clear-verification
-          path: activity-clear-verification.log
-      - name: Stop on verification failure
-        if: steps.verify.outcome == 'failure'
-        run: |
-          cat activity-clear-verification.log
-          exit 1
+          set +e
+          ./gradlew --console=plain validateDedicatedTcpServer > activity-clear-verification.log 2>&1
+          status=$?
+          tail -n 45 activity-clear-verification.log
+          exit $status
       - name: Commit verified changes
         run: |
           rm .github/workflows/agent-fix-activity-clear.yml
