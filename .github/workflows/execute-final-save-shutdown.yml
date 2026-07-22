@@ -46,7 +46,7 @@ jobs:
                   "def replace_once(path_name, old, new):\n    print(f'patching {path_name}', flush=True)\n",
                   1)
               exec(compile(script, 'apply-final-save-shutdown', 'exec'))
-          except Exception:
+          except BaseException:
               diagnostic = traceback.format_exc()
               Path('.github/patch-error.txt').write_text(diagnostic)
               with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
