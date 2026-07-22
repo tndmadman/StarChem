@@ -148,7 +148,7 @@ final class HeadlessGameServer {
     ServerShutdownResult stop() { return stop(false); }
     ServerShutdownResult forceStop() { return stop(true); }
 
-    private ServerShutdownResult stop(boolean forced) {
+    private synchronized ServerShutdownResult stop(boolean forced) {
         if (stopped.get()) {
             ServerShutdownResult result = lastShutdownResult;
             return result == null ? ServerShutdownResult.cleanStop() : result;
