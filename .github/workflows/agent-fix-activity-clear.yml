@@ -13,24 +13,19 @@ jobs:
   apply-and-verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref_name }}
-          show-progress: false
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - name: Apply production fix
-        run: python3 .github/scripts/apply_activity_clear.py
-      - name: Compile project
+      - name: Apply, compile, verify, and commit
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          git clone -q --depth 1 --branch agent/fix-activity-journal-clear \
+            "https://x-access-token:${GH_TOKEN}@github.com/tndmadman/StarChem.git" repo
+          cd repo
+          python3 .github/scripts/apply_activity_clear.py
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export PATH="${JAVA_HOME}/bin:${PATH}"
           chmod +x gradlew
           ./gradlew --console=plain classes
-      - name: Verify journal behavior
-        run: java -cp build/classes/java/main com.tndmadman.rts.ServerEventJournalRolloverValidator
-      - name: Commit verified production fix
-        run: |
+          java -cp build/classes/java/main com.tndmadman.rts.ServerEventJournalRolloverValidator
           git config user.name "StarChem Fix Bot"
           git config user.email "actions@users.noreply.github.com"
           git add src/main/java/com/tndmadman/rts/ServerModerationStore.java
