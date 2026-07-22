@@ -39,6 +39,13 @@ set STARCHEM_SERVER_NAME=Public Server
 run-starchem-server.bat --galaxy-copies 2
 ```
 
+For protected remote developer authorization, store the token in an owner-only file and set its path without placing the reusable token in the Java command line:
+
+```text
+set STARCHEM_DEV_TOKEN_FILE=C:\secure\starchem-dev-token.txt
+run-starchem-server.bat --dev
+```
+
 ### Linux
 
 Start a headless dedicated server from the extracted release folder with:
@@ -52,6 +59,16 @@ Override its default port or name with environment variables and pass additional
 ```text
 STARCHEM_PORT=50100 STARCHEM_SERVER_NAME="Public Server" ./run-starchem-server.sh --galaxy-copies 2
 ```
+
+Create an owner-only token file and pass only its path through the launcher:
+
+```text
+umask 077
+printf '%s\n' 'replace-with-a-random-token' > /secure/starchem-dev-token
+STARCHEM_DEV_TOKEN_FILE=/secure/starchem-dev-token ./run-starchem-server.sh --dev
+```
+
+The token file is read once during startup. Replacing it does not rotate the active token until the server is restarted.
 
 The equivalent direct Java command on either platform is:
 
@@ -235,14 +252,18 @@ Local builds use an identifiable `-dev` application version. Release builds rece
 
 Remote clients never receive developer authority solely because they launch with `--dev`.
 
-To deliberately authorize remote developer tools, start the host and client with the same strong token:
+Create separate protected token files containing the same strong random token on the host and client machines, then pass only the file paths:
 
 ```text
-java -jar StarChem.jar --host 50000 --dev --dev-token dev-token-0123456789abcdef
-java -jar StarChem.jar --join HOST 50000 --dev --dev-token dev-token-0123456789abcdef
+java -jar StarChem.jar --host 50000 --dev --dev-token-file /secure/host-dev-token
+java -jar StarChem.jar --join HOST 50000 --dev --dev-token-file /secure/client-dev-token
 ```
 
-Tokens must contain 16-128 letters, numbers, `.`, `_`, `~`, or `-`. Use a random token and do not publish it. A graphical host's loopback client remains authorized automatically; dedicated servers require the token even for loopback clients.
+Tokens must contain 16-128 letters, numbers, `.`, `_`, `~`, or `-`. Token files must be regular, non-symbolic-link files owned by the current user. On POSIX filesystems they must not grant group or other permissions. Broad Windows ACL access is also rejected. One trailing newline is accepted. The file is loaded only at startup, so token rotation requires restarting the process.
+
+The legacy `--dev-token TOKEN` form remains available for migration but prints a warning because command-line secrets can be exposed through shell history, process listings, service definitions, crash reports, and diagnostics. Do not use the legacy form for normal deployment.
+
+A graphical host's loopback client remains authorized automatically; dedicated servers require the token even for loopback clients.
 
 A graphical host can also grant or revoke a connected client's requested developer access from the **Remote dev access** section of the in-game dev crafting panel. Revocation takes effect immediately on the client and server.
 
