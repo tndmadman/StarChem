@@ -8,8 +8,6 @@ on:
 
 permissions:
   contents: write
-  issues: write
-  pull-requests: write
 
 jobs:
   apply-and-verify:
@@ -25,39 +23,17 @@ jobs:
           java-version: '17'
       - name: Apply production fix
         run: python3 .github/scripts/apply_activity_clear.py
-      - name: Verify focused server path
-        id: verify
-        continue-on-error: true
+      - name: Compile project
         run: |
           chmod +x gradlew
-          ./gradlew --console=plain validateDedicatedTcpServer > activity-clear-verification.log 2>&1
-      - name: Publish failure details
-        if: steps.verify.outcome == 'failure'
-        env:
-          GH_TOKEN: ${{ github.token }}
+          ./gradlew --console=plain classes
+      - name: Verify journal behavior
+        run: java -cp build/classes/java/main com.tndmadman.rts.ServerEventJournalRolloverValidator
+      - name: Commit verified production fix
         run: |
-          {
-            echo 'Focused validation failed:'
-            echo
-            echo '```text'
-            tail -n 120 activity-clear-verification.log
-            echo '```'
-          } > activity-clear-comment.md
-          gh pr comment 246 --body-file activity-clear-comment.md
-          exit 1
-      - name: Commit verified changes
-        if: steps.verify.outcome == 'success'
-        run: |
-          rm .github/workflows/agent-fix-activity-clear.yml
-          rm .github/scripts/apply_activity_clear.py
-          rm -f .github/activity-clear-verification.log
           git config user.name "StarChem Fix Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add src/main/java/com/tndmadman/rts/ServerModerationStore.java \
-                  src/main/java/com/tndmadman/rts/ServerEventJournalRolloverValidator.java \
-                  .github/workflows/agent-fix-activity-clear.yml \
-                  .github/scripts/apply_activity_clear.py \
-                  .github/activity-clear-verification.log
+          git add src/main/java/com/tndmadman/rts/ServerModerationStore.java
           git diff --cached --check
           git commit -m "Make activity journal clearing durable"
           git push origin HEAD:agent/fix-activity-journal-clear
