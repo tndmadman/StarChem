@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: write
+  issues: write
+  pull-requests: write
 
 jobs:
   apply-and-verify:
@@ -31,13 +33,17 @@ jobs:
           ./gradlew --console=plain validateDedicatedTcpServer > activity-clear-verification.log 2>&1
       - name: Publish failure details
         if: steps.verify.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          tail -n 120 activity-clear-verification.log > .github/activity-clear-verification.log
-          git config user.name "StarChem Fix Bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add .github/activity-clear-verification.log
-          git commit -m "Capture activity journal validation failure"
-          git push origin HEAD:agent/fix-activity-journal-clear
+          {
+            echo 'Focused validation failed:'
+            echo
+            echo '```text'
+            tail -n 120 activity-clear-verification.log
+            echo '```'
+          } > activity-clear-comment.md
+          gh pr comment 246 --body-file activity-clear-comment.md
           exit 1
       - name: Commit verified changes
         if: steps.verify.outcome == 'success'
