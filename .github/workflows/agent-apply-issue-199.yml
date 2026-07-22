@@ -28,11 +28,23 @@ jobs:
       - name: Apply source changes
         run: python3 .github/agent/apply_issue_199.py
       - name: Verify fix
-        run: ./gradlew check
+        id: verify
+        continue-on-error: true
+        run: ./gradlew check 2>&1 | tee issue-199-check.log
+      - name: Upload verification log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-199-check
+          path: issue-199-check.log
       - name: Commit verified changes
+        if: steps.verify.outcome == 'success'
         run: |
           git config user.name "starchem-ai-fix-bot"
           git config user.email "starchem-ai-fix-bot@users.noreply.github.com"
           git add build.gradle src/main/java/com/tndmadman/rts/ServerAdministration.java src/main/java/com/tndmadman/rts/ServerCommandExtensions.java src/main/java/com/tndmadman/rts/HeadlessGameServer.java src/main/java/com/tndmadman/rts/ServerPruneTransaction.java src/main/java/com/tndmadman/rts/ServerPruneTransactionValidator.java
           git commit -m "Persist pruned galaxy state before success"
           git push
+      - name: Fail unverified patch
+        if: steps.verify.outcome != 'success'
+        run: exit 1
