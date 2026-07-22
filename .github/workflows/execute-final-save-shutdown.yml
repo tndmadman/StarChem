@@ -30,14 +30,33 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import os
+          import subprocess
+          import traceback
 
-          workflow = Path('.github/workflows/apply-final-save-shutdown.yml').read_text()
-          marker = "          python3 - <<'PY'\n"
-          start = workflow.index(marker) + len(marker)
-          end = workflow.index("\n          PY\n", start)
-          lines = workflow[start:end].splitlines()
-          script = "\n".join(line[10:] if line.startswith("          ") else line for line in lines)
-          exec(compile(script, 'apply-final-save-shutdown', 'exec'))
+          try:
+              workflow = Path('.github/workflows/apply-final-save-shutdown.yml').read_text()
+              marker = "          python3 - <<'PY'\n"
+              start = workflow.index(marker) + len(marker)
+              end = workflow.index("\n          PY\n", start)
+              lines = workflow[start:end].splitlines()
+              script = "\n".join(line[10:] if line.startswith("          ") else line for line in lines)
+              script = script.replace(
+                  "def replace_once(path_name, old, new):\n",
+                  "def replace_once(path_name, old, new):\n    print(f'patching {path_name}', flush=True)\n",
+                  1)
+              exec(compile(script, 'apply-final-save-shutdown', 'exec'))
+          except Exception:
+              diagnostic = traceback.format_exc()
+              Path('.github/patch-error.txt').write_text(diagnostic)
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+                  summary.write('```text\n' + diagnostic + '\n```\n')
+              subprocess.run(['git', 'config', 'user.name', 'github-actions[bot]'], check=True)
+              subprocess.run(['git', 'config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com'], check=True)
+              subprocess.run(['git', 'add', '.github/patch-error.txt'], check=True)
+              subprocess.run(['git', 'commit', '-m', 'Record shutdown patch failure'], check=True)
+              subprocess.run(['git', 'push', 'origin', 'HEAD:agent/fix-final-save-shutdown'], check=True)
+              raise
           PY
 
       - name: Compile
@@ -54,9 +73,10 @@ jobs:
         run: |
           rm .github/workflows/apply-final-save-shutdown.yml
           rm .github/workflows/execute-final-save-shutdown.yml
+          rm -f .github/patch-error.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/main/java/com/tndmadman/rts .github/workflows
+          git add src/main/java/com/tndmadman/rts .github/workflows .github/patch-error.txt
           git diff --cached --check
           git commit -m "Fix final-save shutdown handling"
           git push origin HEAD:agent/fix-final-save-shutdown
