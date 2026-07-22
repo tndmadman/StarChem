@@ -5,7 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
-/** Validates activity-journal rollover ordering and duplicate prevention. */
+/** Validates activity-journal rollover, durable clearing, and failure consistency. */
 public final class ServerEventJournalRolloverValidator {
     private static final long ROLLOVER_BYTES = 2L * 1024 * 1024;
 
@@ -13,7 +13,7 @@ public final class ServerEventJournalRolloverValidator {
 
     public static void main(String[] args) throws Exception {
         validate();
-        System.out.println("StarChem activity journal rollover validation passed.");
+        System.out.println("StarChem activity journal rollover and clear validation passed.");
     }
 
     static void validate() throws Exception {
@@ -21,6 +21,8 @@ public final class ServerEventJournalRolloverValidator {
         try {
             validateRepeatedRollover(dir);
             validateExactBoundary(dir);
+            validateDurableClear(dir.resolve("clear-success"));
+            validateFailedClearPreservesState(dir.resolve("clear-failure"));
         } finally {
             try (var stream = Files.walk(dir)) {
                 stream.sorted((a, b) -> b.compareTo(a)).forEach(path -> {
@@ -57,6 +59,69 @@ public final class ServerEventJournalRolloverValidator {
 
         journal.add("ADMIN", "boundary", "after-boundary");
         assertDetails(path, dir, "boundary", List.of("after-boundary", "at-boundary", "before"));
+    }
+
+    private static void validateDurableClear(Path dir) throws Exception {
+        Files.createDirectories(dir);
+        Path path = dir.resolve("clear-success-activity.log");
+        ServerEventJournal journal = new ServerEventJournal(dir, "clear-success");
+        journal.add("ADMIN", "before", "first");
+        journal.add("MODERATION", "before", "second");
+
+        journal.clear();
+        assertClearMarker(journal.lines(10, "", ""), "in-memory journal");
+        require(Files.isRegularFile(path), "successful activity clear removed the journal file");
+
+        ServerEventJournal restored = new ServerEventJournal(dir, "clear-success");
+        assertClearMarker(restored.lines(10, "", ""), "restarted journal");
+    }
+
+    private static void validateFailedClearPreservesState(Path dir) throws Exception {
+        Files.createDirectories(dir);
+        Path path = dir.resolve("clear-failure-activity.log");
+        Path saved = dir.resolve("clear-failure-original.log");
+        ServerEventJournal journal = new ServerEventJournal(dir, "clear-failure");
+        journal.add("ADMIN", "before", "must-survive");
+        List<String> before = journal.lines(10, "", "");
+
+        Files.move(path, saved);
+        Files.createDirectory(path);
+        Files.writeString(path.resolve("blocker"), "prevent replacement");
+        boolean failed = false;
+        try {
+            journal.clear();
+        } catch (IllegalStateException expected) {
+            failed = expected.getMessage() != null
+                    && expected.getMessage().contains("Could not clear server activity journal");
+        } finally {
+            if (Files.isDirectory(path)) {
+                Files.deleteIfExists(path.resolve("blocker"));
+                Files.deleteIfExists(path);
+            } else {
+                Files.deleteIfExists(path);
+            }
+            Files.move(saved, path);
+        }
+
+        require(failed, "activity clear did not report a persistent replacement failure");
+        require(before.equals(journal.lines(10, "", "")),
+                "failed activity clear changed in-memory history");
+        try (var stream = Files.list(dir)) {
+            require(stream.noneMatch(candidate -> candidate.getFileName().toString().startsWith(
+                            path.getFileName().toString() + ".")
+                            && candidate.getFileName().toString().endsWith(".tmp")),
+                    "failed activity clear left a temporary journal file");
+        }
+
+        ServerEventJournal restored = new ServerEventJournal(dir, "clear-failure");
+        require(before.equals(restored.lines(10, "", "")),
+                "failed activity clear changed persisted history");
+    }
+
+    private static void assertClearMarker(List<String> lines, String source) {
+        require(lines.size() == 1, source + " did not retain exactly one clear marker: " + lines);
+        require(lines.get(0).contains(" | ADMIN | activity | previous activity history cleared"),
+                source + " retained the wrong clear marker: " + lines);
     }
 
     private static void assertDetails(Path path, Path dir, String saveName, List<String> expected) throws Exception {

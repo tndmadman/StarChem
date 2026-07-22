@@ -231,8 +231,20 @@ final class ServerEventJournal {
     }
 
     synchronized void clear() {
+        ServerEvent cleared = new ServerEvent(System.currentTimeMillis(), "ADMIN", "activity",
+                "previous activity history cleared");
+        if (path == null) {
+            events.clear();
+            events.addLast(cleared);
+            return;
+        }
+        try {
+            replace(List.of(cleared));
+        } catch (IOException ex) {
+            throw new IllegalStateException("Could not clear server activity journal: " + ex.getMessage(), ex);
+        }
         events.clear();
-        if (path != null) try { Files.deleteIfExists(path); } catch (IOException ignored) { }
+        events.addLast(cleared);
     }
 
     private void load() {
@@ -368,6 +380,10 @@ final class ServerEventJournal {
     }
 
     private void rewrite() throws IOException {
+        replace(events);
+    }
+
+    private void replace(Iterable<ServerEvent> replacement) throws IOException {
         Path target = path.toAbsolutePath();
         Path parent = target.getParent();
         if (parent != null) Files.createDirectories(parent);
@@ -375,7 +391,7 @@ final class ServerEventJournal {
         boolean replaced = false;
         try {
             ArrayList<String> rows = new ArrayList<>();
-            for (ServerEvent event : events) {
+            for (ServerEvent event : replacement) {
                 rows.add(event.at() + "\t" + encode(event.type()) + "\t" + encode(event.subject()) + "\t" + encode(event.detail()));
             }
             Files.write(temp, rows, StandardCharsets.UTF_8,
