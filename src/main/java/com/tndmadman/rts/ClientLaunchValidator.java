@@ -3,7 +3,7 @@ package com.tndmadman.rts;
 public final class ClientLaunchValidator {
     private ClientLaunchValidator() { }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         expectEquals("blank host default", "127.0.0.1", Config.parseHost("   "));
         expectEquals("DNS host", "server.example", Config.parseHost(" server.example "));
         expectEquals("raw IPv6", "::1", Config.parseHost("::1"));
@@ -52,7 +52,8 @@ public final class ClientLaunchValidator {
                 GameFrame.connectionNotice("Connection interrupted. Reconnecting to server."));
         expectEquals("null connection status", "", GameFrame.connectionNotice(null));
 
-        System.out.println("Client launch validation passed.");
+        ClientSessionPropertiesStoreValidator.validate();
+        System.out.println("Client launch and coordinated session-store validation passed.");
     }
 
     private static void expectInvalidHost(String name, String host) {
