@@ -43,7 +43,11 @@ jobs:
               script = "\n".join(line[10:] if line.startswith("          ") else line for line in lines)
               script = script.replace(
                   "def replace_once(path_name, old, new):\n",
-                  "def replace_once(path_name, old, new):\n    print(f'patching {path_name}', flush=True)\n",
+                  "def replace_once(path_name, old, new):\n    print(f'patching {path_name}: {old.splitlines()[0] if old.splitlines() else \'<empty>\'}', flush=True)\n",
+                  1)
+              script = script.replace(
+                  'raise SystemExit(f"expected source block was not found in {path_name}")',
+                  'raise SystemExit(f"expected source block was not found in {path_name}: {old.splitlines()[0] if old.splitlines() else \'<empty>\'!r}")',
                   1)
               exec(compile(script, 'apply-final-save-shutdown', 'exec'))
           except BaseException:
