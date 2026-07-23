@@ -27,13 +27,16 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
+      - name: Set up Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
       - name: Compile StarChem
         id: compile
         shell: bash
         run: |
           set +e
-          ./gradlew classes > compile.log 2>&1
+          gradle classes --no-daemon > compile.log 2>&1
           status=$?
           cat compile.log
           if [ "$status" -ne 0 ]; then
