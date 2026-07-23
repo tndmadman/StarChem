@@ -38,6 +38,9 @@ jobs:
       - name: Verify project
         run: gradle clean check jar --no-daemon
 
+      - name: Validate canonical endpoint identity
+        run: java -cp build/classes/java/main com.tndmadman.rts.SessionEndpointIdentityValidator
+
       - name: Validate authenticated numeric commands
         run: java -cp build/classes/java/main com.tndmadman.rts.NumericCommandValidationValidator authenticated
 
