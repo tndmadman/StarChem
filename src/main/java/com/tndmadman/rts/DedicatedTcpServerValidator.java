@@ -13,6 +13,7 @@ public final class DedicatedTcpServerValidator {
         ServerConsoleValidator.validate();
         ModerationIdentifierValidator.validate();
         ImmutableWhitelistValidator.validate();
+        TextSafetyValidator.validate();
         CompanionStateRecoveryValidator.validate();
         ServerEventJournalRolloverValidator.validate();
         ServerEventJournalLoadValidator.validate();
