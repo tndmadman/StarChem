@@ -37,6 +37,22 @@ jobs:
           Path('/tmp/apply_observations.py').write_text(code, encoding='utf-8')
           PY
           python3 /tmp/apply_observations.py
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('src/main/java/com/tndmadman/rts/ServerPlayerObservationStore.java')
+          text = path.read_text(encoding='utf-8')
+          old = '''            if (!(parsed instanceof Map<?,?> raw)) return;\n            Object players = raw.get("players");'''
+          new = '''            if (!(parsed instanceof Map<?,?> raw)) return;\n            boolean needsMigration = number(raw.get("version")) < 2;\n            Object players = raw.get("players");'''
+          if old not in text:
+              raise SystemExit('Could not add observation migration version check.')
+          text = text.replace(old, new, 1)
+          old = '''            if (pruned.changed()) {\n                try { save(); }'''
+          new = '''            if (needsMigration || pruned.changed()) {\n                try { save(); }'''
+          if old not in text:
+              raise SystemExit('Could not update observation migration persistence condition.')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
       - name: Verify complete project
         shell: bash
         run: |
