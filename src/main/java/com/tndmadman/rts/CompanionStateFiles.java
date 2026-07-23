@@ -140,7 +140,7 @@ final class CompanionStateFiles {
 
     private static String initialState(String label) {
         if ("Administration".equals(label)) {
-            return "{\"version\":1,\"maintenance\":false,\"maintenanceReason\":\"\",\"maxSlots\":0,\"motd\":\"\"}";
+            return "{\"version\":1,\"maintenance\":false,\"maintenanceReason\":\"\",\"maxSlots\":128,\"motd\":\"\"}";
         }
         if ("Moderation".equals(label)) {
             return "{\"version\":1,\"whitelistEnabled\":false,\"whitelist\":[],\"entries\":[]}";

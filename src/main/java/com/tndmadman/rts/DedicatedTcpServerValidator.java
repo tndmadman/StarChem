@@ -22,6 +22,7 @@ public final class DedicatedTcpServerValidator {
         ServerShutdownValidator.validate();
         AdmissionRecordingValidator.validate();
         PreviousTokenProofRecoveryValidator.validate();
+        IdentityLifecycleValidator.validate();
         try (TcpIntegrationHarness harness = TcpIntegrationHarness.dedicated()) {
             TcpIntegrationHarness.require(harness.serverConfig.hostMode, "dedicated config did not enter host mode");
             TcpIntegrationHarness.require(harness.serverConfig.dedicatedServerMode(), "dedicated config lost its dedicated flag");

@@ -57,6 +57,7 @@ final class ServerCommandExtensions {
             case "asset" -> assets(host.world, args, true);
             case "research" -> ServerDevCommands.researchInspect(host, args);
             case "observations" -> observations(host.network, args);
+            case "identity" -> ServerIdentityAdministration.execute(host, args);
             case "tell", "notice", "threads", "memory", "gc-status", "dump" ->
                     ServerDevCommands.diagnostics(host, command, args);
             default -> List.of("Unknown extended command: " + command);

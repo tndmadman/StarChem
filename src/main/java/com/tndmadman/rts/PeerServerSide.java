@@ -135,6 +135,7 @@ final class PeerServerSide {
         return ConnectionId.NONE;
     }
     int peerCount() { return peers.size(); }
+    void reserveNextPlayer(int candidate) { nextPlayer = Math.max(nextPlayer, Math.max(1, candidate)); }
     boolean sessionConnected(String playerId) {
         PlayerSession session = sessions.get(playerId);
         return session != null && session.connected;
