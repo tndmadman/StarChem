@@ -26,14 +26,15 @@ jobs:
         run: |
           python3 <<'PY'
           from pathlib import Path
-          import textwrap
 
           source = Path('.github/workflows/apply-observation-retention.yml').read_text(encoding='utf-8')
           start_marker = "          python3 <<'PY'\n"
           end_marker = "\n          PY\n"
           start = source.index(start_marker) + len(start_marker)
           end = source.index(end_marker, start)
-          Path('/tmp/apply_observations.py').write_text(textwrap.dedent(source[start:end]) + '\n', encoding='utf-8')
+          raw_lines = source[start:end].splitlines()
+          code = '\n'.join(line[10:] if line.startswith('          ') else line for line in raw_lines) + '\n'
+          Path('/tmp/apply_observations.py').write_text(code, encoding='utf-8')
           PY
           python3 /tmp/apply_observations.py
       - name: Remove bootstrap workflows
