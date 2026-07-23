@@ -131,7 +131,7 @@ record ServerModerationState(boolean whitelistEnabled, Set<String> whitelist, Li
             ModerationKind.PLAYER_BAN, ModerationKind.IP_BAN, ModerationKind.DEVICE_BAN);
 
     ServerModerationState {
-        whitelist = whitelist == null ? Set.of() : Set.copyOf(whitelist);
+        whitelist = immutableWhitelist(whitelist);
         entries = uniqueEntries(entries);
     }
 
@@ -142,28 +142,28 @@ record ServerModerationState(boolean whitelistEnabled, Set<String> whitelist, Li
     }
 
     ServerModerationState addWhitelist(String playerId, String name) {
-        LinkedHashSet<String> next = new LinkedHashSet<>(whitelist);
         String id = ServerModeration.normalizePlayerId(playerId);
-        String normalizedName = ServerModeration.normalizeName(name);
-        if (!id.isBlank()) next.add("p:" + id);
-        if (!normalizedName.isBlank()) next.add("n:" + normalizedName);
+        if (id.isBlank()) {
+            throw new IllegalArgumentException("Whitelist additions require an existing retained player identity. "
+                    + "Provision the player locally first, then add the retained player ID or name.");
+        }
+        LinkedHashSet<String> next = new LinkedHashSet<>(whitelist);
+        next.add("p:" + id);
         return new ServerModerationState(whitelistEnabled, next, entries);
     }
 
     ServerModerationState removeWhitelist(String selector) {
         String normalized = selector == null ? "" : selector.trim().toLowerCase(Locale.ROOT);
+        String id = normalized.startsWith("p:") ? normalized.substring(2) : normalized;
         LinkedHashSet<String> next = new LinkedHashSet<>(whitelist);
-        next.remove(normalized.startsWith("p:") || normalized.startsWith("n:") ? normalized : "p:" + normalized);
-        next.remove(normalized.startsWith("p:") || normalized.startsWith("n:") ? normalized : "n:" + ServerModeration.normalizeName(selector));
+        if (!id.isBlank()) next.remove("p:" + ServerModeration.normalizePlayerId(id));
         return new ServerModerationState(whitelistEnabled, next, entries);
     }
 
     boolean whitelisted(String playerId, String name) {
         if (!whitelistEnabled) return true;
         String id = ServerModeration.normalizePlayerId(playerId);
-        String normalizedName = ServerModeration.normalizeName(name);
-        return (!id.isBlank() && whitelist.contains("p:" + id))
-                || (!normalizedName.isBlank() && whitelist.contains("n:" + normalizedName));
+        return !id.isBlank() && whitelist.contains("p:" + id);
     }
 
     ServerModerationState add(ModerationEntry entry) {
@@ -245,6 +245,19 @@ record ServerModerationState(boolean whitelistEnabled, Set<String> whitelist, Li
             if (match) return entry;
         }
         return null;
+    }
+
+    private static Set<String> immutableWhitelist(Set<String> source) {
+        if (source == null || source.isEmpty()) return Set.of();
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (String entry : source) {
+            if (entry == null) continue;
+            String value = entry.trim().toLowerCase(Locale.ROOT);
+            if (!value.startsWith("p:")) continue;
+            String id = ServerModeration.normalizePlayerId(value.substring(2));
+            if (!id.isBlank()) normalized.add("p:" + id);
+        }
+        return Set.copyOf(normalized);
     }
 
     private static List<ModerationEntry> uniqueEntries(List<ModerationEntry> source) {
