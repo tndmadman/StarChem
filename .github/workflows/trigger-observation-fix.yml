@@ -41,7 +41,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          ./gradlew check > /tmp/validation-error.log 2>&1
+          gradle check > /tmp/validation-error.log 2>&1
           status=$?
           cat /tmp/validation-error.log
           exit $status
