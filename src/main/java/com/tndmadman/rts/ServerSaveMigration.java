@@ -10,17 +10,15 @@ final class ServerSaveMigration {
 
     static Result migrate(int sourceVersion, Map<String,Object> manifest, Map<String,Object> players,
                           Map<String,Object> galaxy, Map<String,Object> runtime) {
-        int version = Math.max(0, sourceVersion);
+        int version = sourceVersion;
         List<String> notes = new ArrayList<>();
-        if (version == 0) {
-            notes.add("save had no format version; treated as version 1");
-            version = 1;
-        }
         if (version == 1) {
             ensurePlayers(players);
             ensureRuntime(runtime);
             version = 2;
             notes.add("v1->v2 normalized optional player/session/runtime sections");
+        } else if (version != ServerSaveStore.SAVE_FORMAT_VERSION) {
+            throw new IllegalArgumentException("Unsupported save format " + sourceVersion + ".");
         }
         manifest.put("saveFormatVersion", ServerSaveStore.SAVE_FORMAT_VERSION);
         manifest.put("loadedSaveFormatVersion", sourceVersion);
