@@ -44,15 +44,15 @@ jobs:
 
           path = Path('src/main/java/com/tndmadman/rts/ServerPlayerObservationStore.java')
           text = path.read_text(encoding='utf-8')
-          anchor = '            if (!(parsed instanceof Map<?,?> raw)) return;'
-          if anchor not in text:
-              raise SystemExit('Could not locate observation schema parse statement.')
-          text = text.replace(anchor, anchor + '\n            boolean needsMigration = number(raw.get("version")) < 2;', 1)
-          anchor = '            PruneCounts pruned = pruneExpiredInternal(now());\n            if (pruned.changed()) {'
-          if anchor not in text:
-              raise SystemExit('Could not locate observation load pruning statement.')
-          text = text.replace(anchor,
-                  '            PruneCounts pruned = pruneExpiredInternal(now());\n            if (needsMigration || pruned.changed()) {', 1)
+          players_anchor = 'Object players = raw.get("players");'
+          if players_anchor not in text:
+              raise SystemExit('Could not locate observation players statement.')
+          text = text.replace(players_anchor,
+                  'boolean needsMigration = number(raw.get("version")) < 2;\n            ' + players_anchor, 1)
+          prune_anchor = 'if (pruned.changed()) {'
+          if prune_anchor not in text:
+              raise SystemExit('Could not locate observation migration persistence condition.')
+          text = text.replace(prune_anchor, 'if (needsMigration || pruned.changed()) {', 1)
           path.write_text(text, encoding='utf-8')
           PY
           } > /tmp/apply-error.log 2>&1
