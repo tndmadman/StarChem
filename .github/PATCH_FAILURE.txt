@@ -1,1 +1,0 @@
-Expected exactly one fresh-server retained identity limit in src/main/java/com/tndmadman/rts/CompanionStateFiles.java, found 0
