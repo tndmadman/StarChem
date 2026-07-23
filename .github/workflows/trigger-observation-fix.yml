@@ -24,6 +24,8 @@ jobs:
       - name: Extract and apply focused change
         shell: bash
         run: |
+          set +e
+          {
           python3 <<'PY'
           from pathlib import Path
 
@@ -53,6 +55,10 @@ jobs:
               raise SystemExit('Could not update observation migration persistence condition.')
           path.write_text(text.replace(old, new, 1), encoding='utf-8')
           PY
+          } > /tmp/apply-error.log 2>&1
+          status=$?
+          cat /tmp/apply-error.log
+          exit $status
       - name: Verify complete project
         shell: bash
         run: |
@@ -61,12 +67,12 @@ jobs:
           status=$?
           cat /tmp/validation-error.log
           exit $status
-      - name: Upload validation diagnostics
+      - name: Upload diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: observation-validation-error
-          path: /tmp/validation-error.log
+          name: observation-fix-diagnostics
+          path: /tmp/*-error.log
       - name: Remove bootstrap workflows
         if: success()
         run: rm .github/workflows/apply-observation-retention.yml .github/workflows/trigger-observation-fix.yml
