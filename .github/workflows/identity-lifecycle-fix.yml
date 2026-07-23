@@ -60,18 +60,34 @@ jobs:
           gradle-version: '8.10.2'
 
       - name: Run full verification
+        id: verify
         if: steps.patch.outcome == 'success'
-        run: gradle clean check jar --no-daemon
+        continue-on-error: true
+        shell: bash
+        run: gradle clean check jar --no-daemon > verify.log 2>&1
+
+      - name: Publish verification diagnostics
+        if: steps.patch.outcome == 'success' && steps.verify.outcome == 'failure'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp verify.log .github/VERIFY_FAILURE.txt
+          git config user.name 'StarChem Automation'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .github/VERIFY_FAILURE.txt
+          git commit -m 'Record identity verification failure' || true
+          git push origin HEAD:agent/retained-identity-lifecycle
+          exit 1
 
       - name: Commit verified implementation
-        if: steps.patch.outcome == 'success'
+        if: steps.patch.outcome == 'success' && steps.verify.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'StarChem Automation'
           git config user.email 'actions@users.noreply.github.com'
           git rm .github/workflows/identity-lifecycle-fix.yml .github/identity_lifecycle_patch.py .github/fix_identity_patch.py
-          git rm -f .github/PATCH_FAILURE.txt || true
+          git rm -f .github/PATCH_FAILURE.txt .github/VERIFY_FAILURE.txt || true
           git add README.md \
                   src/main/java/com/tndmadman/rts/CompanionStateFiles.java \
                   src/main/java/com/tndmadman/rts/PeerServerSide.java \
