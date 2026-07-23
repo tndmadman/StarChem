@@ -247,11 +247,7 @@ final class Config {
     }
 
     private static String defaultName() { return clean(System.getProperty("user.name", "Player")); }
-    static String clean(String name) {
-        if (name == null || name.isBlank()) return "Player";
-        String cleaned = name.replace('|',' ').replace(';',' ').replace(',',' ').replaceAll("\\s+", " ").trim();
-        return cleaned.length() > 18 ? cleaned.substring(0, 18).trim() : cleaned;
-    }
+    static String clean(String name) { return TextSafety.playerName(name); }
 
     static String cleanSystem(String systemId) {
         if (systemId == null || systemId.isBlank()) return StarSystems.DEFAULT_SYSTEM_ID;
