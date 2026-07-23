@@ -298,7 +298,8 @@ final class TlsIdentity {
         certificateChain(store, alias);
     }
 
-    private static Certificate[] certificateChain(KeyStore store, String alias) throws IOException {
+    private static Certificate[] certificateChain(KeyStore store, String alias)
+            throws IOException, GeneralSecurityException {
         Certificate[] chain = store.getCertificateChain(alias);
         if (chain == null || chain.length == 0) {
             Certificate certificate = store.getCertificate(alias);
