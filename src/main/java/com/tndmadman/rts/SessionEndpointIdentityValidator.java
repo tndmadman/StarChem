@@ -46,7 +46,7 @@ public final class SessionEndpointIdentityValidator {
         SessionTokenStore.saveScopedCredential(upper, fingerprint, salt, verifier);
 
         Properties saved = read(store);
-        String canonicalSession = encode("localhost:" + port + "|endpoint commander");
+        String canonicalSession = encode("localhost:" + port + '|' + playerKey(upper));
         String canonicalTrust = encode("localhost:" + port);
         require(saved.containsKey(canonicalSession), "session was not stored under the canonical hostname");
         require(saved.containsKey("auth-v2." + canonicalSession),
@@ -74,7 +74,7 @@ public final class SessionEndpointIdentityValidator {
         require(config.serverAddress.getAddress() != null, "localhost did not resolve for migration validation");
         String resolved = config.serverAddress.getAddress().getHostAddress().toLowerCase(java.util.Locale.ROOT);
         String legacyEndpoint = resolved + ':' + port;
-        String legacySession = encode(legacyEndpoint + "|current address commander");
+        String legacySession = encode(legacyEndpoint + '|' + playerKey(config));
         String legacyTrust = encode(legacyEndpoint);
         String token = "B".repeat(43);
         String fingerprint = "44".repeat(32);
@@ -94,7 +94,7 @@ public final class SessionEndpointIdentityValidator {
         require(SessionTokenStore.scopedCredential(config).valid(),
                 "current resolved-IP scoped credentials were not migrated");
 
-        String canonicalSession = encode("localhost:" + port + "|current address commander");
+        String canonicalSession = encode("localhost:" + port + '|' + playerKey(config));
         String canonicalTrust = encode("localhost:" + port);
         Properties migrated = read(store);
         require(migrated.containsKey(canonicalSession), "canonical session was not persisted after migration");
@@ -113,7 +113,7 @@ public final class SessionEndpointIdentityValidator {
         int port = 51236;
         Config config = Config.join("Historical Commander", "localhost", port, false);
         String oldEndpoint = "192.0.2.44:" + port;
-        String oldSession = encode(oldEndpoint + "|historical commander");
+        String oldSession = encode(oldEndpoint + '|' + playerKey(config));
         String oldTrust = encode(oldEndpoint);
         String token = "C".repeat(43);
         String fingerprint = "77".repeat(32);
@@ -146,10 +146,11 @@ public final class SessionEndpointIdentityValidator {
         clearStore(store);
         int port = 51237;
         Config config = Config.join("Ambiguous Commander", "localhost", port, false);
+        String player = playerKey(config);
         Properties history = new Properties();
-        history.setProperty(encode("192.0.2.10:" + port + "|ambiguous commander"),
+        history.setProperty(encode("192.0.2.10:" + port + '|' + player),
                 "P10|" + "D".repeat(43) + "|");
-        history.setProperty(encode("192.0.2.11:" + port + "|ambiguous commander"),
+        history.setProperty(encode("192.0.2.11:" + port + '|' + player),
                 "P11|" + "E".repeat(43) + "|");
         write(store, history);
         require(!SessionTokenStore.load(config).valid(),
@@ -175,6 +176,10 @@ public final class SessionEndpointIdentityValidator {
     private static void clearStore(Path store) throws Exception {
         Files.deleteIfExists(store);
         Files.deleteIfExists(store.resolveSibling(store.getFileName() + ".previous"));
+    }
+
+    private static String playerKey(Config config) {
+        return Config.clean(config.playerName).toLowerCase(java.util.Locale.ROOT);
     }
 
     private static String encode(String raw) {
