@@ -14,6 +14,7 @@ import java.security.KeyStore;
 import java.security.cert.Certificate;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.Set;
 
 public final class TlsIdentityValidator {
@@ -26,8 +27,10 @@ public final class TlsIdentityValidator {
         Path root = Files.createTempDirectory("starchem-tls-identity-validator-");
         try {
             validateManagedGeneration(root.resolve("managed"));
+            validateInterruptedGenerationRecovery(root.resolve("recovery"));
             validateLegacyMigration(root.resolve("migration"));
             validateExternalIdentity(root.resolve("external"));
+            validatePermissionFailures(root.resolve("permissions"));
             validateCorruptIdentityFailsClosed(root.resolve("corrupt"));
             System.out.println("StarChem TLS identity validation passed.");
         } finally {
@@ -60,6 +63,26 @@ public final class TlsIdentityValidator {
         } finally {
             Arrays.fill(password, '\0');
         }
+        assertNoTemporaryFiles(directory);
+    }
+
+    private static void validateInterruptedGenerationRecovery(Path directory) throws Exception {
+        Files.createDirectories(directory);
+        Path passwordFile = directory.resolve("recovery-tls.password");
+        Files.writeString(passwordFile,
+                "recovery-password-0123456789abcdefghijklmnopqrstuvwxyz\n",
+                StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+        PrivateFileSecurity.secureFile(passwordFile);
+
+        Config config = serverConfig(directory, "recovery");
+        String firstFingerprint = TlsIdentity.serverFingerprint(config);
+        String secondFingerprint = TlsIdentity.serverFingerprint(config);
+        require(firstFingerprint.equals(secondFingerprint),
+                "password-only recovery did not create a stable TLS identity");
+        require(Files.isRegularFile(directory.resolve("recovery-tls.p12")),
+                "password-only recovery did not create the missing keystore");
+        assertOwnerOnly(passwordFile);
+        assertOwnerOnly(directory.resolve("recovery-tls.p12"));
         assertNoTemporaryFiles(directory);
     }
 
@@ -128,6 +151,37 @@ public final class TlsIdentityValidator {
         } finally {
             clearConfiguration();
         }
+    }
+
+    private static void validatePermissionFailures(Path directory) throws Exception {
+        Config config = serverConfig(directory, "permission");
+        String expectedFingerprint = TlsIdentity.serverFingerprint(config);
+        Path keyFile = directory.resolve("permission-tls.p12");
+        Path passwordFile = directory.resolve("permission-tls.password");
+        PosixFileAttributeView keyView = Files.getFileAttributeView(keyFile, PosixFileAttributeView.class,
+                LinkOption.NOFOLLOW_LINKS);
+        PosixFileAttributeView passwordView = Files.getFileAttributeView(passwordFile, PosixFileAttributeView.class,
+                LinkOption.NOFOLLOW_LINKS);
+        if (keyView == null || passwordView == null) return;
+
+        Set<PosixFilePermission> privatePermissions = EnumSet.of(
+                PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE);
+        Files.setPosixFilePermissions(keyFile, EnumSet.of(
+                PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE,
+                PosixFilePermission.GROUP_READ));
+        expectIOException(() -> TlsIdentity.serverFingerprint(config),
+                "group-readable TLS keystore was accepted");
+        Files.setPosixFilePermissions(keyFile, privatePermissions);
+
+        Files.setPosixFilePermissions(passwordFile, EnumSet.of(
+                PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE,
+                PosixFilePermission.OTHERS_READ));
+        expectIOException(() -> TlsIdentity.serverFingerprint(config),
+                "world-readable TLS password file was accepted");
+        Files.setPosixFilePermissions(passwordFile, privatePermissions);
+
+        require(expectedFingerprint.equals(TlsIdentity.serverFingerprint(config)),
+                "TLS identity did not recover after permissions were corrected");
     }
 
     private static void validateCorruptIdentityFailsClosed(Path directory) throws Exception {
