@@ -26,29 +26,50 @@ jobs:
           show-progress: false
 
       - name: Apply retained identity lifecycle fix
-        run: python3 .github/identity_lifecycle_patch.py
+        id: patch
+        continue-on-error: true
+        shell: bash
+        run: python3 .github/identity_lifecycle_patch.py > patch.log 2>&1
+
+      - name: Publish patch diagnostics
+        if: steps.patch.outcome == 'failure'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp patch.log .github/PATCH_FAILURE.txt
+          git config user.name 'StarChem Automation'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .github/PATCH_FAILURE.txt
+          git commit -m 'Record identity patch failure'
+          git push origin HEAD:agent/retained-identity-lifecycle
+          exit 1
 
       - name: Set up Java 17
+        if: steps.patch.outcome == 'success'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Gradle 8.10.2
+        if: steps.patch.outcome == 'success'
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
 
       - name: Run full verification
+        if: steps.patch.outcome == 'success'
         run: gradle clean check jar --no-daemon
 
       - name: Commit verified implementation
+        if: steps.patch.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'StarChem Automation'
           git config user.email 'actions@users.noreply.github.com'
           git rm .github/workflows/identity-lifecycle-fix.yml .github/identity_lifecycle_patch.py
+          git rm -f .github/PATCH_FAILURE.txt || true
           git add README.md \
                   src/main/java/com/tndmadman/rts/CompanionStateFiles.java \
                   src/main/java/com/tndmadman/rts/PeerServerSide.java \
