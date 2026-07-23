@@ -106,6 +106,10 @@ final class IdentityLifecycleValidator {
             }
             require(backupsAfter > backupsBefore, "identity deletion did not create a recovery backup");
 
+            Config replacementConfig = Config.join("Lifecycle Player", "127.0.0.1",
+                    harness.serverConfig.port, false);
+            SessionTokenStore.clear(replacementConfig);
+            SessionTokenStore.clearScopedCredential(replacementConfig);
             TcpIntegrationHarness.TestClient replacement = harness.addClient("Lifecycle Player");
             harness.awaitJoined(replacement);
             require(!originalId.equals(replacement.playerId()), "deleted player ID was recycled or stale credentials reclaimed it");
