@@ -13,6 +13,8 @@ on:
 
 permissions:
   contents: read
+  issues: write
+  pull-requests: write
 
 jobs:
   validate:
@@ -27,6 +29,52 @@ jobs:
           java-version: '17'
           cache: gradle
       - name: Compile StarChem
-        run: ./gradlew classes
+        id: compile
+        shell: bash
+        run: |
+          set +e
+          ./gradlew classes > compile.log 2>&1
+          status=$?
+          cat compile.log
+          if [ "$status" -ne 0 ]; then
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Report compiler errors
+        if: steps.compile.outputs.failed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- tls-identity-compile -->';
+            const log = fs.readFileSync('compile.log', 'utf8').slice(-60000);
+            const body = `${marker}\nTLS identity validation compile failed:\n\n\`\`\`text\n${log}\n\`\`\``;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100
+            });
+            const existing = comments.find(comment => comment.body && comment.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body
+              });
+            }
+      - name: Fail on compile error
+        if: steps.compile.outputs.failed == 'true'
+        run: exit 1
       - name: Validate protected TLS identity storage
+        if: steps.compile.outputs.failed != 'true'
         run: java -cp build/classes/java/main com.tndmadman.rts.TlsIdentityValidator
