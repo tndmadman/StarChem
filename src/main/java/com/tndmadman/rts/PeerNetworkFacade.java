@@ -357,6 +357,24 @@ final class PeerNetwork implements CommandSink {
 
     List<String> playerObservationLines(String selector) { return observationStore.lines(selector); }
     ServerPlayerObservationStore.PlayerObservation playerObservation(String selector) { return observationStore.find(selector); }
+    ServerPlayerObservationStore.ModerationSignals playerObservationSignals(String selector, boolean includeStale) {
+        return observationStore.moderationSignals(selector, includeStale);
+    }
+    ServerPlayerObservationStore.MutationResult deletePlayerObservations(String selector) {
+        ServerPlayerObservationStore.MutationResult result = observationStore.delete(selector);
+        if (result.success() && result.changed()) journal.add("OBSERVATIONS_DELETE", selector, "player observations deleted");
+        return result;
+    }
+    ServerPlayerObservationStore.MutationResult clearPlayerObservations() {
+        ServerPlayerObservationStore.MutationResult result = observationStore.clearAll();
+        if (result.success() && result.changed()) journal.add("OBSERVATIONS_CLEAR", "all", "all player observations cleared");
+        return result;
+    }
+    ServerPlayerObservationStore.MutationResult prunePlayerObservations() {
+        ServerPlayerObservationStore.MutationResult result = observationStore.pruneExpired();
+        if (result.success() && result.changed()) journal.add("OBSERVATIONS_PRUNE", "expired", result.message());
+        return result;
+    }
 
     void tick() {
         long started = System.nanoTime();

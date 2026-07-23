@@ -84,7 +84,7 @@ final class ServerCommandDispatcher {
         register("kick", "kick <player> [duration] [reason]", "Temporarily block a player while retaining all assets.", args -> extended("kick", args));
         register("kicks", "kicks", "List active temporary kicks.", args -> extended("kicks", args));
         register("unkick", "unkick <entry-id|player|name>", "Remove matching temporary kicks.", args -> extended("unkick", args));
-        register("ban", "ban [player|ip|device|mac] <target> <duration|permanent> [reason]", "Persistently block an identity, IP/CIDR, or client device ID.", args -> extended("ban", args));
+        register("ban", "ban [player|ip|device|mac] <target> <duration|permanent> [--include-stale] [reason]", "Persistently block an identity, IP/CIDR, or client device ID.", args -> extended("ban", args));
         register("bans", "bans [all|player|ip|device]", "List active bans.", args -> extended("bans", args));
         register("unban", "unban <entry-id|player|name|target>", "Remove matching bans.", args -> extended("unban", args));
         register("pause", "pause <status|on [reason]|off>", "Pause authoritative simulation while administration remains active.", args -> extended("pause", args));
@@ -103,7 +103,7 @@ final class ServerCommandDispatcher {
         register("memory", "memory", "Show JVM heap and non-heap usage.", args -> extended("memory", args));
         register("gc-status", "gc-status", "Show garbage collector statistics without forcing collection.", args -> extended("gc-status", args));
         register("dump", "dump <player|system> <selector> [filename]", "Write a sanitized administration dump.", args -> extended("dump", args));
-        register("observations", "observations [player]", "Show retained last-seen IP and client-device moderation signals.", args -> extended("observations", args));
+        register("observations", "observations [player]|delete <player>|prune|clear confirm", "Inspect or delete age-limited IP and client-device moderation signals.", args -> extended("observations", args));
         register("say", "say <message>", "Broadcast a server notice to connected clients.", this::say);
         register("shutdown", "shutdown [now|status|cancel|<duration>] [reason]", "Schedule, inspect, cancel, or perform shutdown.", this::shutdown);
         register("disconnect", "disconnect <player-id-or-name> [reason]", "Temporarily disconnect a player while retaining the session.", this::disconnect);

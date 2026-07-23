@@ -56,7 +56,8 @@ final class ServerCommandExtensions {
             case "assets" -> assets(host.world, args, false);
             case "asset" -> assets(host.world, args, true);
             case "research" -> ServerDevCommands.researchInspect(host, args);
-            case "tell", "notice", "threads", "memory", "gc-status", "dump", "observations" ->
+            case "observations" -> observations(host.network, args);
+            case "tell", "notice", "threads", "memory", "gc-status", "dump" ->
                     ServerDevCommands.diagnostics(host, command, args);
             default -> List.of("Unknown extended command: " + command);
         };
@@ -132,7 +133,7 @@ final class ServerCommandExtensions {
 
     private static List<String> ban(PeerNetwork network, List<String> args) {
         if (args == null || args.size() < 2) {
-            return List.of("Usage: ban [player|ip|device|mac] <target> <duration|permanent> [reason]");
+            return List.of("Usage: ban [player|ip|device|mac] <target> <duration|permanent> [--include-stale] [reason]");
         }
         String type = "player";
         int index = 0;
@@ -140,15 +141,21 @@ final class ServerCommandExtensions {
             type = args.get(0).toLowerCase(Locale.ROOT);
             index = 1;
         }
-        if (args.size() <= index + 1) return List.of("Usage: ban [player|ip|device|mac] <target> <duration|permanent> [reason]");
+        if (args.size() <= index + 1) return List.of("Usage: ban [player|ip|device|mac] <target> <duration|permanent> [--include-stale] [reason]");
         String selector = args.get(index);
         long now = System.currentTimeMillis();
         long expiry;
         try { expiry = ServerModeration.parseModerationExpiry(args.get(index + 1), now); }
         catch (IllegalArgumentException ex) { return List.of(ex.getMessage()); }
-        String reason = join(args, index + 2);
+        int reasonStart = index + 2;
+        boolean includeStale = "player".equals(type) && args.size() > reasonStart
+                && "--include-stale".equalsIgnoreCase(args.get(reasonStart));
+        if (includeStale) reasonStart++;
+        String reason = join(args, reasonStart);
         PersistentPlayerSession session = resolve(network, selector);
         ServerPlayerObservationStore.PlayerObservation observation = network.playerObservation(selector);
+        ServerPlayerObservationStore.ModerationSignals observationSignals =
+                network.playerObservationSignals(selector, includeStale);
         ServerModerationState updated = network.serverModeration();
         ArrayList<String> scopes = new ArrayList<>();
         String playerId = session != null ? session.playerId() : observation == null ? "" : observation.playerId();
@@ -167,10 +174,8 @@ final class ServerCommandExtensions {
                 String device = network.serverPlayerDeviceId(session.playerId());
                 if (ServerDeviceIdentity.valid(device)) capturedDevices.add(device);
             }
-            if (observation != null) {
-                capturedIps.addAll(observation.ips());
-                capturedDevices.addAll(observation.devices());
-            }
+            capturedIps.addAll(observationSignals.ips());
+            capturedDevices.addAll(observationSignals.devices());
             for (String ip : capturedIps) {
                 String normalized = IpBanMatcher.normalize(ip);
                 if (normalized.isBlank()) continue;
@@ -195,10 +200,35 @@ final class ServerCommandExtensions {
             if ("mac".equals(type)) scopes.add("MAC unavailable across routed networks; device ID used");
         }
 
-        List<String> result = persist(network, updated, "Ban added: " + String.join(", ", scopes) + " | "
-                + ServerModeration.duration(expiry, now) + ".");
+        String resultMessage = "Ban added: " + String.join(", ", scopes) + " | "
+                + ServerModeration.duration(expiry, now) + ".";
+        if ("player".equals(type) && !includeStale && observationSignals.staleCount() > 0) {
+            resultMessage += " Excluded " + observationSignals.staleCount() + " stale retained signal"
+                    + (observationSignals.staleCount() == 1 ? "." : "s; use --include-stale to include them.");
+        }
+        List<String> result = persist(network, updated, resultMessage);
         if (session != null && !result.get(0).startsWith("Could not")) network.disconnectModeratedPlayer(session.playerId(), "Banned", reason);
         return result;
+    }
+
+    private static List<String> observations(PeerNetwork network, List<String> args) {
+        if (args == null || args.isEmpty()) return network.playerObservationLines("");
+        if (args.size() == 1) {
+            String action = args.get(0).toLowerCase(Locale.ROOT);
+            if ("prune".equals(action)) return List.of(network.prunePlayerObservations().message());
+            return network.playerObservationLines(args.get(0));
+        }
+        String action = args.get(0).toLowerCase(Locale.ROOT);
+        if ("delete".equals(action) && args.size() == 2) {
+            return List.of(network.deletePlayerObservations(args.get(1)).message());
+        }
+        if ("clear".equals(action) && args.size() == 2 && "confirm".equalsIgnoreCase(args.get(1))) {
+            return List.of(network.clearPlayerObservations().message());
+        }
+        if ("clear".equals(action)) {
+            return List.of("Clearing all observations is destructive. Use: observations clear confirm");
+        }
+        return List.of("Usage: observations [player]|delete <player>|prune|clear confirm");
     }
 
     private static List<String> bans(PeerNetwork network, List<String> args) {
