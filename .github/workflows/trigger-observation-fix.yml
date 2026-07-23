@@ -16,18 +16,12 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
-      - name: Stop after captured failure
-        if: ${{ hashFiles('validation-error.log') != '' }}
-        run: echo "Validation failure already captured for inspection."
       - uses: actions/setup-java@v4
-        if: ${{ hashFiles('validation-error.log') == '' }}
         with:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-        if: ${{ hashFiles('validation-error.log') == '' }}
       - name: Extract and apply focused change
-        if: ${{ hashFiles('validation-error.log') == '' }}
         shell: bash
         run: |
           python3 <<'PY'
@@ -44,29 +38,24 @@ jobs:
           PY
           python3 /tmp/apply_observations.py
       - name: Verify complete project
-        if: ${{ hashFiles('validation-error.log') == '' }}
-        id: verify
         shell: bash
         run: |
           set +e
           ./gradlew check > /tmp/validation-error.log 2>&1
           status=$?
           cat /tmp/validation-error.log
-          if [ $status -ne 0 ]; then
-            git reset --hard HEAD
-            cp /tmp/validation-error.log validation-error.log
-            git config user.name "StarChem Fix Bot"
-            git config user.email "actions@users.noreply.github.com"
-            git add validation-error.log
-            git commit -m "Capture observation validation failure"
-            git push origin HEAD:${{ github.head_ref }}
-            exit $status
-          fi
+          exit $status
+      - name: Upload validation diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: observation-validation-error
+          path: /tmp/validation-error.log
       - name: Remove bootstrap workflows
-        if: ${{ hashFiles('validation-error.log') == '' }}
+        if: success()
         run: rm .github/workflows/apply-observation-retention.yml .github/workflows/trigger-observation-fix.yml
       - name: Commit verified fix
-        if: ${{ hashFiles('validation-error.log') == '' }}
+        if: success()
         shell: bash
         run: |
           git config user.name "StarChem Fix Bot"
