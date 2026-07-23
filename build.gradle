@@ -466,3 +466,16 @@ tasks.register('validatePrunePersistence', JavaExec) {
 tasks.named('check') {
     dependsOn tasks.named('validatePrunePersistence')
 }
+
+
+tasks.register('validateObservationRetention', JavaExec) {
+    group = 'verification'
+    description = 'Validate player observation expiry, deletion, moderation age filtering, and protected persistence.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.ServerObservationStoreValidator'
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('validateObservationRetention')
+}

@@ -135,7 +135,7 @@ whitelist add-connected    Manage persistent identity admission.
 kick <player> [duration] [reason]
 kicks                      List active temporary kicks.
 unkick <entry-id|player|name>
-ban [player|ip|device|mac] <target> <duration|permanent> [reason]
+ban [player|ip|device|mac] <target> <duration|permanent> [--include-stale] [reason]
 bans [all|player|ip|device]
 unban <entry-id|player|name|target>
                            Manage persistent identity, IP/CIDR, and client-device bans.
@@ -143,7 +143,10 @@ pause status|on [reason]|off
                            Pause simulation while networking and administration continue.
 activity [last <count>|player <player>|type <type>|clear|export <filename>]
                            Inspect or export the bounded persistent operator journal.
-observations [player]      Show retained last-seen IP and client-device moderation signals.
+observations [player]      Show retained IP and client-device signals with per-signal ages.
+observations delete <player>
+observations prune
+observations clear confirm  Delete retained observation data.
 prune-systems preview      Preview abandoned dynamic systems.
 prune-systems run confirm Create a verified backup, then prune eligible systems.
 tell <player> <message>    Send one connected player a private server notice.
@@ -182,7 +185,9 @@ stop                       Save and stop immediately.
 
 Maintenance mode and the slot limit apply only to brand-new player identities. Existing connected players remain online, and retained identities may reconnect or reclaim their session. Lowering the slot limit never disconnects an existing session.
 
-The message of the day, maintenance state, maintenance reason, and slot limit are stored beside the server save in `<save-name>-admin.json`. Whitelist entries, kicks, and bans are stored in `<save-name>-moderation.json`. The bounded operator journal is retained in `<save-name>-activity.log`, and last-seen moderation signals are retained in `<save-name>-observations.json`. Runtime autosave, simulation pause, and runtime developer mode changes last only until the process exits.
+The message of the day, maintenance state, maintenance reason, and slot limit are stored beside the server save in `<save-name>-admin.json`. Whitelist entries, kicks, and bans are stored in `<save-name>-moderation.json`. The bounded operator journal is retained in `<save-name>-activity.log`, and age-limited last-seen moderation signals are retained in the owner-only `<save-name>-observations.json` companion file. Runtime autosave, simulation pause, and runtime developer mode changes last only until the process exits.
+
+Observation records exist only to support server moderation. Each retained IP address and random client-device identifier has its own last-seen timestamp. Signals expire automatically after 90 days by default. Automatic `ban player` expansion uses only signals seen within the last 30 days; use `--include-stale` only after reviewing the displayed ages. Configure these periods with JVM properties `-Dstarchem.observations.retentionDays=N` and `-Dstarchem.observations.banMaxAgeDays=N`, or environment variables `STARCHEM_OBSERVATION_RETENTION_DAYS` and `STARCHEM_OBSERVATION_BAN_MAX_AGE_DAYS`. Use `observations delete <player>` or `observations clear confirm` to remove retained data.
 
 A player ban records the player identity and, when available, also records that connection's numeric IP address and client device ID. IP bans accept exact IPv4 or IPv6 addresses and CIDR ranges. A game server cannot obtain a remote computer's Ethernet or Wi-Fi MAC address across the internet because routers do not forward MAC addresses. The `mac` spelling is therefore an explicit alias for StarChem's locally persisted random client device ID, not a hardware MAC address. Client device IDs can be reset or spoofed, IP addresses can change or be hidden by VPNs, and an IP ban may affect multiple players behind the same shared address; use identity, IP/CIDR, and device bans together when stronger enforcement is needed.
 
