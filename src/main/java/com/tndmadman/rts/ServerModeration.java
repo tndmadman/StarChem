@@ -22,12 +22,12 @@ final class ServerModeration {
 
     static String clean(String value) {
         if (value == null) return "";
-        String clean = value.replace('|', ' ').replace('\n', ' ').replace('\r', ' ').trim();
+        String clean = TextSafety.terminal(value.replace('|', ' ')).trim();
         return clean.length() <= MAX_REASON ? clean : clean.substring(0, MAX_REASON);
     }
 
     static String normalizeName(String value) {
-        return Config.clean(value).toLowerCase(Locale.ROOT);
+        return TextSafety.playerKey(value);
     }
 
     static String normalizePlayerId(String value) {
