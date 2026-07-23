@@ -84,6 +84,8 @@ public final class App {
     }
 
     private static int runServer(Config config) {
+        System.setOut(TextSafety.terminalPrintStream(System.out));
+        System.setErr(TextSafety.terminalPrintStream(System.err));
         AtomicBoolean running = new AtomicBoolean(true);
         HeadlessGameServer server = null;
         Thread shutdownHook = null;
