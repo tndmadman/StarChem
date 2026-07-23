@@ -14,16 +14,17 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.EnumMap;
+import java.util.Enumeration;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Base64;
 import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
+import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 
 final class ServerSaveStore {
@@ -98,27 +99,25 @@ final class ServerSaveStore {
         try (FileChannel channel = FileChannel.open(temp, StandardOpenOption.READ)) {
             channel.force(true);
         }
-        readManifest(temp);
+        promoteVerified(temp);
+    }
+
+    void promoteVerified(Path temp) throws IOException {
+        validateArchive(temp);
         rotateBackups();
         if (Files.exists(currentPath())) Files.move(currentPath(), previousPath(), StandardCopyOption.REPLACE_EXISTING);
         movePromote(temp, currentPath());
     }
 
     private World readWorld(Path path, Config config) throws IOException {
-        Map<String,byte[]> entries = readEntries(path);
-        Map<String,Object> manifest = parseObject(entries.get("manifest.json"), "manifest.json");
-        int version = intValue(manifest, "saveFormatVersion", 0);
-        if (version > SAVE_FORMAT_VERSION) throw new IOException("Save format " + version + " is newer than this server supports.");
-        verifyChecksum(entries, manifest, "players.json", "playersSha256");
-        verifyChecksum(entries, manifest, "galaxy.json", "galaxySha256");
-        verifyChecksum(entries, manifest, "runtime.json", "runtimeSha256");
+        ValidatedArchive archive = validateArchive(path);
+        int version = archive.version();
+        Map<String,Object> manifest = archive.manifest();
+        Map<String,Object> players = archive.players();
+        Map<String,Object> galaxy = archive.galaxy();
+        Map<String,Object> runtime = archive.runtime();
         saveId = string(manifest, "saveId", "");
         createdAt = parseInstant(string(manifest, "createdAt", ""));
-        Map<String,Object> players = parseObject(entries.get("players.json"), "players.json");
-        Map<String,Object> galaxy = parseObject(entries.get("galaxy.json"), "galaxy.json");
-        Map<String,Object> runtime = entries.containsKey("runtime.json")
-                ? parseObject(entries.get("runtime.json"), "runtime.json")
-                : new LinkedHashMap<>();
         ServerSaveMigration.Result migrated = ServerSaveMigration.migrate(version, manifest, players, galaxy, runtime);
         manifest = migrated.manifest();
         players = migrated.players();
@@ -294,9 +293,65 @@ final class ServerSaveStore {
         }
     }
 
-    private static void verifyChecksum(Map<String,byte[]> entries, Map<String,Object> manifest, String entryName, String field) throws IOException {
-        String expected = string(manifest, field, "");
+    static ValidatedArchive validateArchive(Path path) throws IOException {
+        Map<String,byte[]> entries = readEntries(path);
+        Map<String,Object> manifest = parseObject(entries.get("manifest.json"), "manifest.json");
+        int version = saveFormatVersion(manifest);
+        if (version > SAVE_FORMAT_VERSION) throw new IOException("Save format " + version + " is newer than this server supports.");
+        if (version < 1) throw new IOException("Save format " + version + " is not supported.");
+
+        Map<String,Object> players = parseObject(entries.get("players.json"), "players.json");
+        Map<String,Object> galaxy = parseObject(entries.get("galaxy.json"), "galaxy.json");
+        Map<String,Object> runtime;
+        if (version == SAVE_FORMAT_VERSION) {
+            runtime = parseObject(entries.get("runtime.json"), "runtime.json");
+            verifyRequiredChecksum(entries, manifest, "players.json", "playersSha256");
+            verifyRequiredChecksum(entries, manifest, "galaxy.json", "galaxySha256");
+            verifyRequiredChecksum(entries, manifest, "runtime.json", "runtimeSha256");
+        } else if (version == 1) {
+            runtime = entries.containsKey("runtime.json")
+                    ? parseObject(entries.get("runtime.json"), "runtime.json")
+                    : new LinkedHashMap<>();
+            verifyLegacyChecksum(entries, manifest, "players.json", "playersSha256");
+            verifyLegacyChecksum(entries, manifest, "galaxy.json", "galaxySha256");
+            verifyLegacyChecksum(entries, manifest, "runtime.json", "runtimeSha256");
+        } else {
+            throw new IOException("Save format " + version + " is not supported.");
+        }
+        return new ValidatedArchive(version, manifest, players, galaxy, runtime);
+    }
+
+    private static int saveFormatVersion(Map<String,Object> manifest) throws IOException {
+        Object value = manifest.get("saveFormatVersion");
+        if (!(value instanceof Number number)) throw new IOException("Save manifest is missing a numeric saveFormatVersion.");
+        double decimal = number.doubleValue();
+        long integer = number.longValue();
+        if (!Double.isFinite(decimal) || decimal != integer || integer < 1 || integer > Integer.MAX_VALUE) {
+            throw new IOException("Save manifest has an invalid saveFormatVersion.");
+        }
+        return (int)integer;
+    }
+
+    private static void verifyRequiredChecksum(Map<String,byte[]> entries, Map<String,Object> manifest,
+                                               String entryName, String field) throws IOException {
+        Object value = manifest.get(field);
+        if (!(value instanceof String expected) || !expected.matches("(?i)[0-9a-f]{64}")) {
+            throw new IOException("Save manifest has an invalid " + field + ".");
+        }
+        verifyChecksum(entries, entryName, expected);
+    }
+
+    private static void verifyLegacyChecksum(Map<String,byte[]> entries, Map<String,Object> manifest,
+                                             String entryName, String field) throws IOException {
+        Object value = manifest.get(field);
+        if (value == null) return;
+        if (!(value instanceof String expected)) throw new IOException("Save manifest has an invalid " + field + ".");
         if (expected.isBlank()) return;
+        if (!expected.matches("(?i)[0-9a-f]{64}")) throw new IOException("Save manifest has an invalid " + field + ".");
+        verifyChecksum(entries, entryName, expected);
+    }
+
+    private static void verifyChecksum(Map<String,byte[]> entries, String entryName, String expected) throws IOException {
         byte[] bytes = entries.get(entryName);
         if (bytes == null) throw new IOException("Save archive is missing " + entryName + ".");
         String actual = sha256(bytes);
@@ -312,25 +367,37 @@ final class ServerSaveStore {
     }
 
     private static Map<String,byte[]> readEntries(Path path) throws IOException {
+        if (path == null || !Files.isRegularFile(path)) throw new IOException("Save archive is missing.");
         Map<String,byte[]> out = new LinkedHashMap<>();
-        try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(path), StandardCharsets.UTF_8)) {
-            ZipEntry entry;
-            while ((entry = zip.getNextEntry()) != null) out.put(entry.getName(), zip.readAllBytes());
+        try (ZipFile zip = new ZipFile(path.toFile(), StandardCharsets.UTF_8)) {
+            Enumeration<? extends ZipEntry> entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                ZipEntry entry = entries.nextElement();
+                if (entry.isDirectory()) continue;
+                String name = entry.getName();
+                if (out.containsKey(name)) throw new IOException("Save archive contains duplicate entry " + name + ".");
+                try (InputStream input = zip.getInputStream(entry)) {
+                    out.put(name, input.readAllBytes());
+                }
+            }
+        } catch (IOException ex) {
+            throw new IOException("Could not read save archive: " + ex.getMessage(), ex);
         }
         return out;
     }
 
-    private static Map<String,Object> readManifest(Path path) throws IOException {
-        return parseObject(readEntries(path).get("manifest.json"), "manifest.json");
-    }
-
     private static Map<String,Object> parseObject(byte[] bytes, String name) throws IOException {
         if (bytes == null) throw new IOException("Save archive is missing " + name + ".");
+        Object parsed;
         try {
-            return object(MiniJson.parse(new String(bytes, StandardCharsets.UTF_8)));
+            parsed = MiniJson.parse(new String(bytes, StandardCharsets.UTF_8));
         } catch (RuntimeException ex) {
             throw new IOException("Could not parse " + name + ": " + ex.getMessage(), ex);
         }
+        if (!(parsed instanceof Map<?,?> raw)) throw new IOException(name + " is not an object.");
+        Map<String,Object> out = new LinkedHashMap<>();
+        for (Map.Entry<?,?> entry : raw.entrySet()) out.put(String.valueOf(entry.getKey()), entry.getValue());
+        return out;
     }
 
     private static byte[] jsonBytes(Map<String,Object> data) {
@@ -394,4 +461,7 @@ final class ServerSaveStore {
         try { return Enum.valueOf(type, value.toString()); }
         catch (RuntimeException ex) { return fallback; }
     }
+
+    record ValidatedArchive(int version, Map<String,Object> manifest, Map<String,Object> players,
+                            Map<String,Object> galaxy, Map<String,Object> runtime) { }
 }
