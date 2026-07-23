@@ -6,6 +6,9 @@ on:
       - agent/retained-identity-lifecycle
     paths:
       - '.github/workflows/identity-lifecycle-fix.yml'
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
