@@ -408,9 +408,9 @@ final class ServerEventJournal {
     }
 
     private static String format(ServerEvent event) {
-        return TIME.format(Instant.ofEpochMilli(event.at())) + " | " + event.type() + " | "
+        return TextSafety.terminal(TIME.format(Instant.ofEpochMilli(event.at())) + " | " + event.type() + " | "
                 + (event.subject().isBlank() ? "server" : event.subject())
-                + (event.detail().isBlank() ? "" : " | " + event.detail());
+                + (event.detail().isBlank() ? "" : " | " + event.detail()));
     }
 
     private static String encode(String value) {
