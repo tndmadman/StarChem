@@ -2,7 +2,6 @@ package com.tndmadman.rts;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -19,8 +18,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
 
 record ServerAccessPolicy(boolean maintenance, String maintenanceReason, int maxSlots, String motd) {
     static final int MAX_SLOTS = 10_000;
@@ -324,13 +321,8 @@ final class ServerBackupAdmin {
     Verification verify(Path path) {
         if (path == null || !Files.isRegularFile(path)) return new Verification(false, "file is missing");
         try {
-            Map<String,byte[]> entries = readEntries(path);
-            Map<String,Object> manifest = parseObject(entries.get("manifest.json"), "manifest.json");
-            verifyChecksum(entries, manifest, "players.json", "playersSha256");
-            verifyChecksum(entries, manifest, "galaxy.json", "galaxySha256");
-            verifyChecksum(entries, manifest, "runtime.json", "runtimeSha256");
-            Object version = manifest.get("saveFormatVersion");
-            return new Verification(true, "format " + (version == null ? "unknown" : version) + " | checksums passed");
+            ServerSaveStore.ValidatedArchive archive = ServerSaveStore.validateArchive(path);
+            return new Verification(true, "format " + archive.version() + " | schema and checksums passed");
         } catch (Exception ex) {
             return new Verification(false, ex.getMessage());
         }
@@ -376,38 +368,6 @@ final class ServerBackupAdmin {
         if (value == null) return "";
         String clean = value.trim().replaceAll("[^A-Za-z0-9._-]+", "-").replaceAll("^-+|-+$", "");
         return clean.length() <= 48 ? clean : clean.substring(0, 48);
-    }
-
-    private static Map<String,byte[]> readEntries(Path path) throws IOException {
-        Map<String,byte[]> out = new LinkedHashMap<>();
-        try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(path), StandardCharsets.UTF_8)) {
-            ZipEntry entry;
-            while ((entry = zip.getNextEntry()) != null) {
-                if (!entry.isDirectory()) out.put(entry.getName(), zip.readAllBytes());
-            }
-        }
-        return out;
-    }
-
-    private static Map<String,Object> parseObject(byte[] bytes, String name) throws IOException {
-        if (bytes == null) throw new IOException("archive is missing " + name);
-        Object parsed;
-        try { parsed = MiniJson.parse(new String(bytes, StandardCharsets.UTF_8)); }
-        catch (RuntimeException ex) { throw new IOException("could not parse " + name + ": " + ex.getMessage(), ex); }
-        if (!(parsed instanceof Map<?,?> raw)) throw new IOException(name + " is not an object");
-        Map<String,Object> out = new LinkedHashMap<>();
-        for (Map.Entry<?,?> entry : raw.entrySet()) out.put(String.valueOf(entry.getKey()), entry.getValue());
-        return out;
-    }
-
-    private static void verifyChecksum(Map<String,byte[]> entries, Map<String,Object> manifest,
-                                       String entryName, String field) throws Exception {
-        String expected = manifest.get(field) == null ? "" : String.valueOf(manifest.get(field));
-        if (expected.isBlank()) return;
-        byte[] bytes = entries.get(entryName);
-        if (bytes == null) throw new IOException("archive is missing " + entryName);
-        String actual = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
-        if (!expected.equalsIgnoreCase(actual)) throw new IOException(entryName + " checksum mismatch");
     }
 
     record BackupCreation(boolean success, Path path, String message) { }
