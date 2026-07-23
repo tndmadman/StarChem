@@ -147,6 +147,12 @@ observations [player]      Show retained IP and client-device signals with per-s
 observations delete <player>
 observations prune
 observations clear confirm  Delete retained observation data.
+identity list [active|archived]
+identity dormant <age>     Inspect retained identities by lifecycle and inactivity.
+identity archive <player> confirm
+identity restore <player>
+identity delete <player> confirm
+                           Archive or permanently delete retained identities.
 prune-systems preview      Preview abandoned dynamic systems.
 prune-systems run confirm Create a verified backup, then prune eligible systems.
 tell <player> <message>    Send one connected player a private server notice.
@@ -183,7 +189,9 @@ version                    Print the running build identity.
 stop                       Save and stop immediately.
 ```
 
-Maintenance mode and the slot limit apply only to brand-new player identities. Existing connected players remain online, and retained identities may reconnect or reclaim their session. Lowering the slot limit never disconnects an existing session.
+Maintenance mode and the slot limit apply only to brand-new player identities. Existing connected players remain online, and retained identities may reconnect or reclaim their session. Lowering the slot limit never disconnects an existing session. Fresh dedicated servers default to a finite limit of 128 retained identities; operators may change it with `slots set` or explicitly choose `slots unlimited`.
+
+Identity creation and last-seen timestamps, archive state, and the monotonic player-ID high-water mark are stored in `<save-name>-identities.json`. Archived identities keep their names and world state but cannot authenticate until restored. Permanent deletion requires a disconnected player, an explicit `confirm`, a fresh verified backup, and a verified post-deletion save. Deletion removes the session, ships, bases, research, home state, and system ownership; the deleted name becomes reusable while player IDs are never recycled. Identity-scoped whitelist, kick, and player-ban entries are removed, while IP and device bans remain as independent security records.
 
 The message of the day, maintenance state, maintenance reason, and slot limit are stored beside the server save in `<save-name>-admin.json`. Whitelist entries, kicks, and bans are stored in `<save-name>-moderation.json`. The bounded operator journal is retained in `<save-name>-activity.log`, and age-limited last-seen moderation signals are retained in the owner-only `<save-name>-observations.json` companion file. Runtime autosave, simulation pause, and runtime developer mode changes last only until the process exits.
 

@@ -23,6 +23,7 @@ final class PeerNetwork implements CommandSink {
     private final Set<String> retainedModerationPlayers = new LinkedHashSet<>();
     private final ServerModerationStore moderationStore;
     private final ServerPlayerObservationStore observationStore;
+    private final ServerIdentityStore identityStore;
     private final ServerEventJournal journal;
     private final Set<String> runtimeDevAccess = new LinkedHashSet<>();
     private final Set<String> runtimeFreeBuild = new LinkedHashSet<>();
@@ -44,9 +45,18 @@ final class PeerNetwork implements CommandSink {
                 config == null ? "server" : config.saveName);
         this.observationStore = new ServerPlayerObservationStore(config == null ? null : config.saveDir,
                 config == null ? "server" : config.saveName);
+        this.identityStore = server == null ? null : new ServerIdentityStore(config == null ? null : config.saveDir,
+                config == null ? "server" : config.saveName);
         this.journal = new ServerEventJournal(config == null ? null : config.saveDir,
                 config == null ? "server" : config.saveName);
         this.moderation = server == null ? ServerModerationState.open() : moderationStore.load();
+        if (server != null && identityStore != null) {
+            ServerIdentityStore.MutationResult synchronizedState = identityStore.synchronize(server.persistentSessions());
+            if (!synchronizedState.success()) {
+                System.err.println("Could not synchronize retained identity lifecycle state: " + synchronizedState.message());
+            }
+            server.reserveNextPlayer(identityStore.nextPlayerNumber());
+        }
         this.runtimeDevEnabled = config != null && config.devMode;
     }
 
@@ -133,6 +143,7 @@ final class PeerNetwork implements CommandSink {
 
     Config serverConfig() { return config; }
     ServerEventJournal serverJournal() { return journal; }
+    ServerIdentityStore serverIdentityStore() { return identityStore; }
     ServerModerationState serverModeration() { return moderation == null ? ServerModerationState.open() : moderation; }
     boolean simulationPaused() { return simulationPaused; }
     String simulationPauseReason() { return simulationPauseReason; }
@@ -233,6 +244,19 @@ final class PeerNetwork implements CommandSink {
         journal.add("DISCONNECT", playerId, "temporary operator disconnect");
         server.removePeer(connectionId);
         return true;
+    }
+
+    PeerServerAdminBridge.DeleteResult deleteRetainedIdentity(String playerId) {
+        if (server == null || playerId == null || playerId.isBlank()) {
+            return new PeerServerAdminBridge.DeleteResult(false, Set.of(), "Player identity is required.");
+        }
+        PeerServerAdminBridge.DeleteResult result = PeerServerAdminBridge.delete(server, playerId);
+        if (!result.success()) return result;
+        retainedModerationPlayers.remove(playerId);
+        runtimeDevAccess.remove(playerId);
+        runtimeFreeBuild.remove(playerId);
+        deviceByPlayer.remove(playerId);
+        return result;
     }
 
     int resyncServerPlayer(String playerId) {
@@ -389,7 +413,11 @@ final class PeerNetwork implements CommandSink {
                     admissionRecorded.remove(packet.connectionId());
                     deviceByConnection.remove(packet.connectionId());
                     if (server != null) server.connectionClosed(packet);
-                    if (!playerId.isBlank()) journal.add("LEAVE", playerId, "connection closed");
+                    if (!playerId.isBlank()) {
+                        PersistentPlayerSession session = sessionById(playerId);
+                        if (identityStore != null) identityStore.recordSeen(playerId, session == null ? playerId : session.name());
+                        journal.add("LEAVE", playerId, "connection closed");
+                    }
                     continue;
                 }
                 try {
@@ -512,6 +540,12 @@ final class PeerNetwork implements CommandSink {
         PersistentPlayerSession existing = sessionById(requestedPlayerId);
         String playerId = existing == null ? requestedPlayerId : existing.playerId();
         String playerName = existing == null ? "" : existing.name();
+        String lifecycleReason = identityStore == null ? "" : identityStore.denialReason(playerId);
+        if (!lifecycleReason.isBlank()) {
+            rejectIdentity(false, connectionId, lifecycleReason);
+            journal.add("ADMISSION_DENIED", playerId.isBlank() ? requestedPlayerId : playerId, "identity-lifecycle");
+            return true;
+        }
         ModerationEntry blocked = serverModeration().blocked(playerId, playerName, packet.address(), deviceId, now);
         if (blocked != null) {
             rejectIdentity(false, connectionId, moderationReason(blocked, now));
@@ -531,6 +565,11 @@ final class PeerNetwork implements CommandSink {
 
     private String joinAdmissionDenial(ConnectionId connectionId, String playerId, String playerName,
                                        InetAddress address, boolean newIdentity, long now) {
+        String lifecycleReason = identityStore == null ? "" : identityStore.denialReason(playerId);
+        if (!lifecycleReason.isBlank()) {
+            journal.add("ADMISSION_DENIED", playerId.isBlank() ? playerName : playerId, "identity-lifecycle");
+            return lifecycleReason;
+        }
         String deviceId = deviceByConnection.getOrDefault(connectionId, "");
         ModerationEntry blocked = serverModeration().blocked(playerId, playerName, address, deviceId, now);
         if (blocked != null) {
@@ -586,7 +625,13 @@ final class PeerNetwork implements CommandSink {
         if (playerId.isBlank()) return;
         PersistentPlayerSession session = sessionById(playerId);
         String device = deviceByConnection.getOrDefault(connectionId, deviceByPlayer.getOrDefault(playerId, ""));
-        observationStore.record(playerId, session == null ? playerId : session.name(), serverPlayerAddress(playerId), device);
+        String playerName = session == null ? playerId : session.name();
+        observationStore.record(playerId, playerName, serverPlayerAddress(playerId), device);
+        if (identityStore != null) {
+            ServerIdentityStore.MutationResult lifecycle = identityStore.recordSeen(playerId, playerName);
+            if (!lifecycle.success()) journal.add("IDENTITY_STATE_ERROR", playerId, lifecycle.message());
+            server.reserveNextPlayer(identityStore.nextPlayerNumber());
+        }
         for (DevPeerAccess peer : server.devAccessPeers()) if (playerId.equals(peer.playerId()) && peer.authorized()) {
             runtimeDevAccess.add(playerId);
             if (server.world.devFreeBuildFor(playerId)) runtimeFreeBuild.add(playerId);

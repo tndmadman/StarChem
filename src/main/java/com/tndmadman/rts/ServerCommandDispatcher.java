@@ -104,6 +104,7 @@ final class ServerCommandDispatcher {
         register("gc-status", "gc-status", "Show garbage collector statistics without forcing collection.", args -> extended("gc-status", args));
         register("dump", "dump <player|system> <selector> [filename]", "Write a sanitized administration dump.", args -> extended("dump", args));
         register("observations", "observations [player]|delete <player>|prune|clear confirm", "Inspect or delete age-limited IP and client-device moderation signals.", args -> extended("observations", args));
+        register("identity", "identity <list [active|archived]|dormant <age>|archive <player> confirm|restore <player>|delete <player> confirm>", "Inspect, archive, restore, or permanently delete retained player identities.", args -> extended("identity", args));
         register("say", "say <message>", "Broadcast a server notice to connected clients.", this::say);
         register("shutdown", "shutdown [now|status|cancel|<duration>] [reason]", "Schedule, inspect, cancel, or perform shutdown.", this::shutdown);
         register("disconnect", "disconnect <player-id-or-name> [reason]", "Temporarily disconnect a player while retaining the session.", this::disconnect);

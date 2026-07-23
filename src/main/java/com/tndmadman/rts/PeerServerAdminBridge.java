@@ -96,6 +96,47 @@ final class PeerServerAdminBridge {
         catch (ReflectiveOperationException ex) { System.err.println("Could not send deleted-system notice: " + ex.getMessage()); }
     }
 
+    static DeleteResult delete(PeerServerSide server, String playerId) {
+        if (server == null || playerId == null || playerId.isBlank()) {
+            return new DeleteResult(false, Set.of(), "Player identity is required.");
+        }
+        try {
+            Object session = session(server, playerId);
+            if (session == null) return new DeleteResult(false, Set.of(), "Unknown player identity: " + playerId);
+            if (getBoolean(session, "connected")) {
+                return new DeleteResult(false, Set.of(), playerId + " is connected; disconnect it before deletion.");
+            }
+            Object sessionsValue = SESSIONS.get(server);
+            if (!(sessionsValue instanceof Map<?,?> rawSessions)) {
+                return new DeleteResult(false, Set.of(), "Server session state is unavailable.");
+            }
+            @SuppressWarnings("unchecked") Map<String,Object> sessions = (Map<String,Object>)rawSessions;
+            sessions.remove(playerId);
+            Object requestsValue = DEV_REQUESTS.get(server);
+            if (requestsValue instanceof Set<?> rawRequests) {
+                @SuppressWarnings("unchecked") Set<String> requests = (Set<String>)rawRequests;
+                requests.remove(playerId);
+            }
+            PlayerRegistry.activate(server.world);
+            PlayerRegistry.remove(playerId);
+            server.world.setDevFreeBuild(playerId, false);
+            server.views.remove(playerId);
+            Set<String> deletedSystems = server.world.removePlayerAndPruneEmptySystems(playerId);
+            server.views.removeSystems(deletedSystems);
+            server.broadcastNow();
+            return new DeleteResult(true, Set.copyOf(deletedSystems), "Deleted retained identity " + playerId + ".");
+        } catch (ReflectiveOperationException | RuntimeException ex) {
+            return new DeleteResult(false, Set.of(), "Could not delete retained identity: " + ex.getMessage());
+        }
+    }
+
+    record DeleteResult(boolean success, Set<String> deletedSystems, String message) {
+        DeleteResult {
+            deletedSystems = deletedSystems == null ? Set.of() : Set.copyOf(deletedSystems);
+            message = message == null ? "" : message;
+        }
+    }
+
     private static Object session(PeerServerSide server, String playerId) {
         if (server == null || playerId == null || playerId.isBlank()) return null;
         try {
