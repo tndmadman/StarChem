@@ -39,7 +39,7 @@ final class PeerTransport {
     private final InboundCommandScheduler inbound;
     private final PreAuthConnectionGate preAuthGate;
     private final ThreadPoolExecutor handshakeExecutor;
-    private final Set<Socket> pendingServerSockets = ConcurrentHashMap.newKeySet();
+    private final Map<ConnectionId, Socket> pendingServerSockets = new ConcurrentHashMap<>();
     private final AtomicLong nextConnectionId = new AtomicLong(1);
     private final Map<ConnectionId, TcpConnection> connections = new ConcurrentHashMap<>();
     private final Map<String, ConnectionId> endpointIndex = new ConcurrentHashMap<>();
@@ -119,6 +119,12 @@ final class PeerTransport {
                 serverMode ? "starchem-tcp-accept" : "starchem-tcp-connect");
         thread.setDaemon(true);
         thread.start();
+        if (serverMode) {
+            Thread deadlines = new Thread(this::authenticationDeadlineLoop,
+                    "starchem-tcp-auth-deadlines");
+            deadlines.setDaemon(true);
+            deadlines.start();
+        }
     }
 
     NetPacket poll() { return inbound.poll(); }
@@ -282,7 +288,7 @@ final class PeerTransport {
         running = false;
         closeQuietly(serverSocket);
         if (serverMode) {
-            for (Socket socket : List.copyOf(pendingServerSockets)) closeQuietly(socket);
+            for (Socket socket : List.copyOf(pendingServerSockets.values())) closeQuietly(socket);
             pendingServerSockets.clear();
             if (handshakeExecutor != null) handshakeExecutor.shutdownNow();
             for (TcpConnection connection : List.copyOf(connections.values())) connection.close();
@@ -392,11 +398,11 @@ final class PeerTransport {
                     perfStats.recordConnectionRejected();
                     continue;
                 }
-                pendingServerSockets.add(socket);
+                pendingServerSockets.put(connectionId, socket);
                 try {
                     handshakeExecutor.execute(() -> initializeAcceptedSocket(connectionId, socket));
                 } catch (RejectedExecutionException ex) {
-                    pendingServerSockets.remove(socket);
+                    pendingServerSockets.remove(connectionId, socket);
                     preAuthGate.release(connectionId);
                     closeQuietly(socket);
                     perfStats.recordConnectionRejected();
@@ -428,11 +434,27 @@ final class PeerTransport {
         } catch (IOException ex) {
             if (running) perfStats.recordConnectionRejected();
         } finally {
-            pendingServerSockets.remove(socket);
+            pendingServerSockets.remove(connectionId, socket);
             if (!handedOff) {
                 preAuthGate.release(connectionId);
                 closeQuietly(socket);
             }
+        }
+    }
+
+    private void authenticationDeadlineLoop() {
+        while (running) {
+            long now = System.currentTimeMillis();
+            for (Map.Entry<ConnectionId, Socket> entry : pendingServerSockets.entrySet()) {
+                if (preAuthGate.expired(entry.getKey(), now)) closeQuietly(entry.getValue());
+            }
+            for (TcpConnection connection : List.copyOf(connections.values())) {
+                if (!connection.authenticated() && preAuthGate.expired(connection.id, now)) {
+                    perfStats.recordConnectionRejected();
+                    connection.close();
+                }
+            }
+            sleep(100);
         }
     }
 

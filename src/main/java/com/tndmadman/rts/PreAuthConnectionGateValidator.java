@@ -1,6 +1,8 @@
 package com.tndmadman.rts;
 
+import java.io.OutputStream;
 import java.net.InetAddress;
+import java.net.Socket;
 
 /** Deterministic validation for unauthenticated connection limits and deadlines. */
 final class PreAuthConnectionGateValidator {
@@ -10,6 +12,7 @@ final class PreAuthConnectionGateValidator {
         validateConcurrentLimitsAndRelease();
         validateAttemptRateLimits();
         validateIpv6SubnetLimit();
+        validateAbsoluteTransportDeadline();
     }
 
     private static void validateConcurrentLimitsAndRelease() throws Exception {
@@ -83,6 +86,44 @@ final class PreAuthConnectionGateValidator {
                         == PreAuthConnectionGate.Rejection.SUBNET_LIMIT,
                 "IPv6 /64 concurrent subnet limit was not enforced");
     }
+
+    private static void validateAbsoluteTransportDeadline() throws Exception {
+        String previous = System.getProperty("starchem.net.authenticationTimeoutMs");
+        System.setProperty("starchem.net.authenticationTimeoutMs", "1000");
+        InetAddress loopback = InetAddress.getLoopbackAddress();
+        PeerTransport server = PeerTransport.server(0, new PerfStats());
+        server.start();
+        try (Socket socket = new Socket(loopback, server.localPort())) {
+            waitFor(() -> server.hasConnection(loopback, socket.getLocalPort()), 3_000,
+                    "server did not register the deadline test connection");
+            OutputStream output = socket.getOutputStream();
+            output.write(0);
+            output.flush();
+            Thread.sleep(400);
+            output.write(0);
+            output.flush();
+            Thread.sleep(400);
+            output.write(0);
+            output.flush();
+            waitFor(() -> !server.hasConnection(loopback, socket.getLocalPort()), 3_000,
+                    "partial-frame traffic extended the absolute authentication deadline");
+        } finally {
+            server.shutdown();
+            if (previous == null) System.clearProperty("starchem.net.authenticationTimeoutMs");
+            else System.setProperty("starchem.net.authenticationTimeoutMs", previous);
+        }
+    }
+
+    private static void waitFor(Check check, long timeoutMs, String message) throws Exception {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            if (check.ok()) return;
+            Thread.sleep(20);
+        }
+        throw new IllegalStateException(message);
+    }
+
+    private interface Check { boolean ok() throws Exception; }
 
     private static void require(boolean condition, String message) {
         if (!condition) throw new IllegalStateException(message);
