@@ -19,6 +19,8 @@ public final class NpcResourceBudgetValidator {
         validateStationRecoveryProtection();
         validateResearchProtectionAndRelease();
         validateRecursiveFleetInputs();
+        validateOverlappingIntermediatePriorities();
+        validatePlanReuseAndMutationRefresh();
         validateExpansionWaitsForRecovery();
         validateExpansionUsesRichestSupplyBase();
     }
@@ -164,6 +166,109 @@ public final class NpcResourceBudgetValidator {
                 "fleet production could not consume its reserved recursive input");
     }
 
+    private static void validateOverlappingIntermediatePriorities() {
+        Fixture fixture = fixture("Overlapping Intermediate Budget");
+        ensureWorkers(fixture);
+        removeOneWorker(fixture);
+        ensureAllStations(fixture);
+        completeResearch(fixture);
+        ensureCombat(fixture);
+        removeCombatToOne(fixture);
+        clearMaterials(fixture);
+        powerFuelConsumers(fixture);
+
+        String workerType = firstWorkerType(fixture.faction);
+        String fleetType = fixture.faction.fleetUnitTypes().get(0);
+        List<Cost> workerCost = Rules.ship(workerType).buildCost;
+        List<Cost> fleetCost = Rules.ship(fleetType).buildCost;
+        Material shared = null;
+        CraftableItem recipe = null;
+        for (Cost workerEntry : workerCost) {
+            Material candidate = workerEntry.material();
+            if (candidate.raw || candidate == Material.FUEL
+                    || directAmount(fleetCost, candidate) <= EPSILON) continue;
+            CraftableItem candidateRecipe = usableRecipe(fixture, candidate);
+            if (candidateRecipe == null) continue;
+            shared = candidate;
+            recipe = candidateRecipe;
+            break;
+        }
+        require(shared != null && recipe != null,
+                "worker and fleet fixtures had no shared craftable intermediate");
+
+        NpcBudgetPlan empty = NpcResourceBudget.plan(
+                fixture.world, fixture.faction, NpcStrategicState.BUILD_FLEET);
+        fundDesired(fixture.home, empty, NpcBudgetCategory.WORKER_RECOVERY);
+        double workerDemand = directAmount(workerCost, shared);
+        double fleetDemand = directAmount(fleetCost, shared);
+        double currentlyHeld = fixture.home.inventory.getOrDefault(shared, 0.0);
+        double targetHeld = Math.max(workerDemand, fleetDemand);
+        if (currentlyHeld + EPSILON < targetHeld) {
+            HangarStore.add(fixture.home, shared, targetHeld - currentlyHeld);
+        }
+
+        NpcBudgetPlan plan = NpcResourceBudget.plan(
+                fixture.world, fixture.faction, NpcStrategicState.BUILD_FLEET);
+        double sharedLeftAfterWorker = Math.max(0.0, targetHeld - workerDemand);
+        double fleetMissing = Math.max(0.0, fleetDemand - sharedLeftAfterWorker);
+        int batches = Math.max(1, (int)Math.ceil(fleetMissing / Math.max(EPSILON, recipe.outputAmount)));
+        boolean protectedInput = false;
+        for (Cost input : recipe.requiredResources) {
+            double expected = directAmount(fleetCost, input.material()) + input.amount() * batches;
+            if (plan.desired(NpcBudgetCategory.FLEET, input.material()) + EPSILON < expected) continue;
+            if (plan.reserved(NpcBudgetCategory.FLEET, input.material()) <= EPSILON) continue;
+            protectedInput = true;
+            break;
+        }
+        require(protectedInput,
+                "lower-priority fleet reservation did not claim recipe inputs after worker recovery consumed the shared intermediate");
+    }
+
+    private static void validatePlanReuseAndMutationRefresh() {
+        Fixture fixture = fixture("Budget Plan Reuse");
+        ensureWorkers(fixture);
+        ensureAllStations(fixture);
+        completeResearch(fixture);
+        clearMaterials(fixture);
+        powerFuelConsumers(fixture);
+        fixture.home.inventory.put(Material.FUEL,
+                Math.max(100.0, fixture.faction.fuelReserve()));
+
+        NpcResourceBudget.invalidate(fixture.world, fixture.faction);
+        long before = NpcResourceBudget.scanCountForTesting(fixture.world, fixture.faction);
+        NpcBudgetPlan first = NpcResourceBudget.plan(
+                fixture.world, fixture.faction, NpcStrategicState.STABILIZE_ECONOMY);
+        NpcBudgetPlan repeated = NpcResourceBudget.plan(
+                fixture.world, fixture.faction, NpcStrategicState.STABILIZE_ECONOMY);
+        require(first == repeated,
+                "unchanged same-tick budget request did not reuse its immutable plan");
+        require(NpcResourceBudget.scanCountForTesting(fixture.world, fixture.faction) == before + 1,
+                "unchanged same-tick budget request rescanned the galaxy");
+
+        HangarStore.add(fixture.home, Material.IRON, 1.0);
+        NpcBudgetPlan refreshed = NpcResourceBudget.plan(
+                fixture.world, fixture.faction, NpcStrategicState.STABILIZE_ECONOMY);
+        require(refreshed != repeated,
+                "local inventory mutation did not invalidate the cached plan");
+        require(NpcResourceBudget.scanCountForTesting(fixture.world, fixture.faction) == before + 2,
+                "local inventory mutation did not trigger exactly one refreshed scan");
+
+        NpcResourceBudget.invalidate(fixture.world, fixture.faction);
+        long spendBefore = NpcResourceBudget.scanCountForTesting(fixture.world, fixture.faction);
+        List<Cost> oneFuel = List.of(new Cost(Material.FUEL, 1.0));
+        require(NpcResourceBudget.canAfford(fixture.world, fixture.faction,
+                        NpcBudgetCategory.EMERGENCY_FUEL, oneFuel),
+                "cached-plan spend fixture could not afford fuel");
+        require(NpcResourceBudget.spend(fixture.world, fixture.faction,
+                        NpcBudgetCategory.EMERGENCY_FUEL, oneFuel),
+                "cached-plan spend failed");
+        NpcBudgetPlan afterSpend = NpcResourceBudget.plan(fixture.world, fixture.faction);
+        require(NpcResourceBudget.scanCountForTesting(fixture.world, fixture.faction) == spendBefore + 1,
+                "affordability, spend, and post-spend reuse performed more than one galaxy scan");
+        require(afterSpend.total(Material.FUEL) + EPSILON < first.total(Material.FUEL),
+                "post-spend cached plan did not reflect consumed inventory");
+    }
+
     private static void validateExpansionWaitsForRecovery() {
         Fixture fixture = fixture("Expansion Budget");
         ensureWorkers(fixture);
@@ -231,6 +336,28 @@ public final class NpcResourceBudgetValidator {
                 "expansion did not select the richest deterministic supply station");
         require(NpcResourceBudget.canLaunchExpansion(fixture.world, fixture.faction, plan),
                 "an empty first station blocked a fully funded later supply station");
+    }
+
+    private static CraftableItem usableRecipe(Fixture fixture, Material material) {
+        for (CraftableItem item : CraftingRules.recipesForOutput(material)) {
+            if (!fixture.faction.craftableItemIds().contains(item.id)
+                    || !item.unlockedFor(fixture.world, fixture.faction.id())) continue;
+            for (Base base : fixture.world.bases.values()) {
+                if (fixture.faction.id().equals(base.playerId) && base.hp > 0
+                        && item.canCraftAt(base.typeId) && StationFuelRules.isOperational(base)) {
+                    return item;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static double directAmount(List<Cost> cost, Material material) {
+        double total = 0.0;
+        for (Cost entry : cost) {
+            if (entry != null && entry.material() == material) total += entry.amount();
+        }
+        return total;
     }
 
     private static void fundDesired(Base base, NpcBudgetPlan plan, NpcBudgetCategory through) {
