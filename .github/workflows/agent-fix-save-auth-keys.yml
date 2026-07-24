@@ -34,7 +34,7 @@ jobs:
       - name: Verify focused replay protection
         run: |
           set +e
-          ./gradlew validateSavedCredentialReplay validateDevAccess validateSessionRecovery validateDedicatedTcpServer --no-daemon > agent-validation.log 2>&1
+          gradle validateSavedCredentialReplay validateDevAccess validateSessionRecovery validateDedicatedTcpServer --no-daemon > agent-validation.log 2>&1
           status=$?
           tail -n 180 agent-validation.log
           exit $status
@@ -53,7 +53,7 @@ jobs:
           git push origin HEAD:agent/fix-save-auth-keys
 
       - name: Verify full project
-        run: ./gradlew clean check jar --no-daemon
+        run: gradle clean check jar --no-daemon
 
       - name: Commit validated repair
         run: |
