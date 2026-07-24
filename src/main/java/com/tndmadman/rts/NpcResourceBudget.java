@@ -37,18 +37,15 @@ final class NpcResourceBudget {
             return NpcBudgetPlan.empty(normalizedStrategy);
         }
 
-        String systemId = world.activeSystemId();
-        long seed = world.systemSeed();
-        long timeBits = Double.doubleToLongBits(world.systemTime());
         long fingerprint = localFingerprint(world, faction);
+        long frameRevision = NpcBudgetFrameTracker.observe(world, faction, fingerprint);
         CachedPlan cached = cachedPlan(world, faction);
-        if (cached != null && cached.matches(seed, systemId, timeBits, fingerprint, normalizedStrategy)) {
+        if (cached != null && cached.matches(frameRevision, normalizedStrategy)) {
             return cached.plan;
         }
 
         NpcBudgetPlan built = buildPlan(world, faction, normalizedStrategy);
-        cachePlan(world, faction, new CachedPlan(seed, systemId, timeBits,
-                localFingerprint(world, faction), normalizedStrategy, built));
+        cachePlan(world, faction, new CachedPlan(frameRevision, normalizedStrategy, built));
         PLAN_SCAN_COUNTS.computeIfAbsent(world, ignored -> new LinkedHashMap<>())
                 .merge(faction.id(), 1L, Long::sum);
         return built;
@@ -139,10 +136,10 @@ final class NpcResourceBudget {
         }
         if (faction.behavior() == NpcBehavior.FACTION) {
             NpcBudgetPlan adjusted = current.afterSpend(normalizedCategory, cost);
+            long frameRevision = NpcBudgetFrameTracker.acceptMutation(
+                    world, faction, localFingerprint(world, faction));
             cachePlan(world, faction, new CachedPlan(
-                    world.systemSeed(), world.activeSystemId(),
-                    Double.doubleToLongBits(world.systemTime()),
-                    localFingerprint(world, faction), adjusted.strategy(), adjusted));
+                    frameRevision, adjusted.strategy(), adjusted));
         }
         return true;
     }
@@ -178,6 +175,7 @@ final class NpcResourceBudget {
 
     static synchronized void invalidate(World world, NpcFaction faction) {
         if (world == null) return;
+        NpcBudgetFrameTracker.invalidate(world, faction);
         if (faction == null) {
             PLAN_CACHE.remove(world);
             return;
@@ -533,30 +531,18 @@ final class NpcResourceBudget {
     }
 
     private static final class CachedPlan {
-        final long seed;
-        final String systemId;
-        final long timeBits;
-        final long fingerprint;
+        final long frameRevision;
         final NpcStrategicState strategy;
         final NpcBudgetPlan plan;
 
-        CachedPlan(long seed, String systemId, long timeBits, long fingerprint,
-                   NpcStrategicState strategy, NpcBudgetPlan plan) {
-            this.seed = seed;
-            this.systemId = systemId == null ? "" : systemId;
-            this.timeBits = timeBits;
-            this.fingerprint = fingerprint;
+        CachedPlan(long frameRevision, NpcStrategicState strategy, NpcBudgetPlan plan) {
+            this.frameRevision = frameRevision;
             this.strategy = strategy;
             this.plan = plan;
         }
 
-        boolean matches(long expectedSeed, String expectedSystemId, long expectedTimeBits,
-                        long expectedFingerprint, NpcStrategicState expectedStrategy) {
-            return seed == expectedSeed
-                    && systemId.equals(expectedSystemId == null ? "" : expectedSystemId)
-                    && timeBits == expectedTimeBits
-                    && fingerprint == expectedFingerprint
-                    && strategy == expectedStrategy;
+        boolean matches(long expectedFrameRevision, NpcStrategicState expectedStrategy) {
+            return frameRevision == expectedFrameRevision && strategy == expectedStrategy;
         }
     }
 
