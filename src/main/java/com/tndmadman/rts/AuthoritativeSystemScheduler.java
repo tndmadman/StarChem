@@ -13,10 +13,12 @@ import java.util.Set;
 import java.util.function.Supplier;
 
 final class AuthoritativeSystemScheduler {
+    static final int MAX_INACTIVE_UPDATES_PER_TICK = 4;
     private static final double DISCOVERY_INTERVAL_SECONDS = 1.0;
     private static final double EPSILON = 0.000001;
 
     private final Map<String, Slot> slots = new LinkedHashMap<>();
+    private final Set<String> hotSystems = new LinkedHashSet<>();
     private final PriorityQueue<Due> due = new PriorityQueue<>(Comparator
             .comparingDouble(Due::at)
             .thenComparing(Due::systemId)
@@ -36,28 +38,9 @@ final class AuthoritativeSystemScheduler {
 
         String previousSystem = world.activeSystemId();
         List<String> updated = new ArrayList<>();
-        int guard = Math.max(16, slots.size() * 4);
         try {
-            while (guard-- > 0) {
-                Due candidate = due.peek();
-                if (candidate == null || candidate.at() > clock + EPSILON) break;
-                due.poll();
-                Slot slot = slots.get(candidate.systemId());
-                if (slot == null || slot.generation != candidate.generation()) continue;
-
-                double elapsed = Math.max(dt, clock - slot.lastRun);
-                world.activateSystem(slot.systemId);
-                if (!slot.systemId.equals(world.activeSystemId())) {
-                    slots.remove(slot.systemId);
-                    continue;
-                }
-                world.updateCurrentSystem(elapsed);
-                slot.lastRun = clock;
-                slot.tier = SystemSimulationScheduler.tier(world);
-                slot.nextDue = clock + Math.max(dt, SystemSimulationScheduler.intervalSeconds(slot.tier));
-                schedule(slot);
-                updated.add(slot.systemId);
-            }
+            updateHotSystems(world, dt, updated);
+            updateDueInactiveSystems(world, dt, updated);
         } finally {
             if (previousSystem != null && !previousSystem.isBlank()) world.activateSystem(previousSystem);
         }
@@ -76,6 +59,7 @@ final class AuthoritativeSystemScheduler {
             nextDiscovery = 0;
             return;
         }
+        if (slot.tier == SystemSimulationScheduler.SimulationTier.HOT) return;
         slot.nextDue = clock;
         schedule(slot);
     }
@@ -93,6 +77,63 @@ final class AuthoritativeSystemScheduler {
                 + " backlog " + stats.backlog()
                 + " tiers " + stats.hotSystems() + "/" + stats.warmSystems()
                 + "/" + stats.coldSystems() + "/" + stats.dormantSystems();
+    }
+
+    private void updateHotSystems(World world, double dt, List<String> updated) {
+        for (String systemId : new ArrayList<>(hotSystems)) {
+            Slot slot = slots.get(systemId);
+            if (slot == null) {
+                hotSystems.remove(systemId);
+                continue;
+            }
+            if (!activate(world, slot)) continue;
+
+            run(world, slot, dt);
+            if (slot.tier != SystemSimulationScheduler.SimulationTier.HOT) {
+                hotSystems.remove(systemId);
+                slot.nextDue = clock + SystemSimulationScheduler.intervalSeconds(slot.tier);
+                schedule(slot);
+            }
+            updated.add(systemId);
+        }
+    }
+
+    private void updateDueInactiveSystems(World world, double dt, List<String> updated) {
+        int processed = 0;
+        while (processed < MAX_INACTIVE_UPDATES_PER_TICK) {
+            Due candidate = due.peek();
+            if (candidate == null || candidate.at() > clock + EPSILON) break;
+            due.poll();
+            Slot slot = slots.get(candidate.systemId());
+            if (slot == null || slot.generation != candidate.generation()
+                    || slot.tier == SystemSimulationScheduler.SimulationTier.HOT) continue;
+            if (!activate(world, slot)) continue;
+
+            run(world, slot, dt);
+            if (slot.tier == SystemSimulationScheduler.SimulationTier.HOT) {
+                markHot(slot);
+            } else {
+                slot.nextDue = clock + SystemSimulationScheduler.intervalSeconds(slot.tier);
+                schedule(slot);
+            }
+            updated.add(slot.systemId);
+            processed++;
+        }
+    }
+
+    private boolean activate(World world, Slot slot) {
+        world.activateSystem(slot.systemId);
+        if (slot.systemId.equals(world.activeSystemId())) return true;
+        slots.remove(slot.systemId);
+        hotSystems.remove(slot.systemId);
+        return false;
+    }
+
+    private void run(World world, Slot slot, double dt) {
+        double elapsed = Math.max(dt, clock - slot.lastRun);
+        world.updateCurrentSystem(elapsed);
+        slot.lastRun = clock;
+        slot.tier = SystemSimulationScheduler.tier(world);
     }
 
     private void refresh(Supplier<GalaxyMapSnapshot> discovery, String activeSystemId) {
@@ -115,7 +156,10 @@ final class AuthoritativeSystemScheduler {
 
         Iterator<Map.Entry<String, Slot>> iterator = slots.entrySet().iterator();
         while (iterator.hasNext()) {
-            if (!discovered.contains(iterator.next().getKey())) iterator.remove();
+            Map.Entry<String, Slot> entry = iterator.next();
+            if (discovered.contains(entry.getKey())) continue;
+            hotSystems.remove(entry.getKey());
+            iterator.remove();
         }
     }
 
@@ -128,8 +172,10 @@ final class AuthoritativeSystemScheduler {
             schedule(slot);
         } else if (slot.signature != signature) {
             slot.signature = signature;
-            slot.nextDue = clock;
-            schedule(slot);
+            if (slot.tier != SystemSimulationScheduler.SimulationTier.HOT) {
+                slot.nextDue = clock;
+                schedule(slot);
+            }
         }
     }
 
@@ -138,7 +184,13 @@ final class AuthoritativeSystemScheduler {
                 system.controllerId(), system.controlStatus(), Math.round(system.captureProgress() * 1000.0));
     }
 
+    private void markHot(Slot slot) {
+        slot.generation = nextGeneration++;
+        hotSystems.add(slot.systemId);
+    }
+
     private void schedule(Slot slot) {
+        hotSystems.remove(slot.systemId);
         slot.generation = nextGeneration++;
         due.add(new Due(slot.systemId, slot.nextDue, slot.generation));
     }
@@ -150,7 +202,8 @@ final class AuthoritativeSystemScheduler {
         int cold = 0;
         int dormant = 0;
         for (Slot slot : slots.values()) {
-            if (slot.nextDue <= clock + EPSILON) backlog++;
+            if (slot.tier != SystemSimulationScheduler.SimulationTier.HOT
+                    && slot.nextDue <= clock + EPSILON) backlog++;
             switch (slot.tier) {
                 case HOT -> hot++;
                 case WARM -> warm++;
