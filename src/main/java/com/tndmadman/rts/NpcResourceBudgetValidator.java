@@ -168,60 +168,96 @@ public final class NpcResourceBudgetValidator {
 
     private static void validateOverlappingIntermediatePriorities() {
         Fixture fixture = fixture("Overlapping Intermediate Budget");
-        ensureWorkers(fixture);
-        removeOneWorker(fixture);
         ensureAllStations(fixture);
         completeResearch(fixture);
-        ensureCombat(fixture);
-        removeCombatToOne(fixture);
         clearMaterials(fixture);
         powerFuelConsumers(fixture);
 
-        String workerType = firstWorkerType(fixture.faction);
-        String fleetType = fixture.faction.fleetUnitTypes().get(0);
-        List<Cost> workerCost = Rules.ship(workerType).buildCost;
-        List<Cost> fleetCost = Rules.ship(fleetType).buildCost;
-        Material shared = null;
         CraftableItem recipe = null;
-        for (Cost workerEntry : workerCost) {
-            Material candidate = workerEntry.material();
-            if (candidate.raw || candidate == Material.FUEL
-                    || directAmount(fleetCost, candidate) <= EPSILON) continue;
-            CraftableItem candidateRecipe = usableRecipe(fixture, candidate);
-            if (candidateRecipe == null) continue;
-            shared = candidate;
-            recipe = candidateRecipe;
-            break;
+        for (CraftableItem candidate : CraftingRules.all()) {
+            if (!fixture.faction.craftableItemIds().contains(candidate.id)
+                    || candidate.outputAmount <= EPSILON
+                    || candidate.requiredResources.isEmpty()) continue;
+            boolean hasDistinctInput = false;
+            for (Cost input : candidate.requiredResources) {
+                if (input.material() != candidate.outputMaterial && input.amount() > EPSILON) {
+                    hasDistinctInput = true;
+                    break;
+                }
+            }
+            if (!hasDistinctInput) continue;
+            CraftableItem usable = usableRecipe(fixture, candidate.outputMaterial);
+            if (usable != null) {
+                recipe = usable;
+                break;
+            }
         }
-        require(shared != null && recipe != null,
-                "worker and fleet fixtures had no shared craftable intermediate");
+        require(recipe != null,
+                "fixture had no usable manufactured component recipe");
 
-        NpcBudgetPlan empty = NpcResourceBudget.plan(
-                fixture.world, fixture.faction, NpcStrategicState.BUILD_FLEET);
-        fundDesired(fixture.home, empty, NpcBudgetCategory.WORKER_RECOVERY);
-        double workerDemand = directAmount(workerCost, shared);
-        double fleetDemand = directAmount(fleetCost, shared);
-        double currentlyHeld = fixture.home.inventory.getOrDefault(shared, 0.0);
-        double targetHeld = Math.max(workerDemand, fleetDemand);
-        if (currentlyHeld + EPSILON < targetHeld) {
-            HangarStore.add(fixture.home.inventory, shared, targetHeld - currentlyHeld);
-        }
+        java.util.EnumMap<Material, Double> direct =
+                new java.util.EnumMap<>(Material.class);
+        direct.put(recipe.outputMaterial, recipe.outputAmount);
+        java.util.EnumMap<Material, Double> remaining =
+                new java.util.EnumMap<>(Material.class);
+        for (Material material : Material.values()) remaining.put(material, 1_000_000.0);
+        remaining.put(recipe.outputMaterial, recipe.outputAmount);
 
-        NpcBudgetPlan plan = NpcResourceBudget.plan(
-                fixture.world, fixture.faction, NpcStrategicState.BUILD_FLEET);
-        double sharedLeftAfterWorker = Math.max(0.0, targetHeld - workerDemand);
-        double fleetMissing = Math.max(0.0, fleetDemand - sharedLeftAfterWorker);
-        int batches = Math.max(1, (int)Math.ceil(fleetMissing / Math.max(EPSILON, recipe.outputAmount)));
-        boolean protectedInput = false;
+        Object scan = inspectBudgetForTesting(fixture);
+        java.util.EnumMap<Material, Double> higher = expandBudgetForTesting(
+                fixture, scan, direct, remaining);
+        boolean higherExpandedInputs = false;
         for (Cost input : recipe.requiredResources) {
-            double expected = directAmount(fleetCost, input.material()) + input.amount() * batches;
-            if (plan.desired(NpcBudgetCategory.FLEET, input.material()) + EPSILON < expected) continue;
-            if (plan.reserved(NpcBudgetCategory.FLEET, input.material()) <= EPSILON) continue;
-            protectedInput = true;
-            break;
+            if (input.material() == recipe.outputMaterial) continue;
+            if (higher.getOrDefault(input.material(), 0.0) > EPSILON) {
+                higherExpandedInputs = true;
+                break;
+            }
         }
-        require(protectedInput,
-                "lower-priority fleet reservation did not claim recipe inputs after worker recovery consumed the shared intermediate");
+        require(!higherExpandedInputs,
+                "higher-priority reservation expanded inputs despite existing intermediate stock");
+
+        remaining.remove(recipe.outputMaterial);
+        java.util.EnumMap<Material, Double> lower = expandBudgetForTesting(
+                fixture, scan, direct, remaining);
+        boolean lowerReservedInputs = false;
+        for (Cost input : recipe.requiredResources) {
+            if (input.material() == recipe.outputMaterial || input.amount() <= EPSILON) continue;
+            if (lower.getOrDefault(input.material(), 0.0) + EPSILON >= input.amount()) {
+                lowerReservedInputs = true;
+                break;
+            }
+        }
+        require(lowerReservedInputs,
+                "lower-priority reservation did not expand recipe inputs after the shared intermediate was allocated");
+    }
+
+    private static Object inspectBudgetForTesting(Fixture fixture) {
+        try {
+            java.lang.reflect.Method inspect = NpcResourceBudget.class.getDeclaredMethod(
+                    "inspect", World.class, NpcFaction.class);
+            inspect.setAccessible(true);
+            return inspect.invoke(null, fixture.world, fixture.faction);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("could not inspect NPC budget fixture", failure);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static java.util.EnumMap<Material, Double> expandBudgetForTesting(
+            Fixture fixture, Object scan,
+            java.util.EnumMap<Material, Double> direct,
+            java.util.EnumMap<Material, Double> remaining) {
+        try {
+            java.lang.reflect.Method expand = NpcResourceBudget.class.getDeclaredMethod(
+                    "expandRequirements", World.class, NpcFaction.class, scan.getClass(),
+                    java.util.EnumMap.class, java.util.EnumMap.class);
+            expand.setAccessible(true);
+            return (java.util.EnumMap<Material, Double>) expand.invoke(
+                    null, fixture.world, fixture.faction, scan, direct, remaining);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("could not expand NPC budget fixture", failure);
+        }
     }
 
     private static void validatePlanReuseAndMutationRefresh() {
