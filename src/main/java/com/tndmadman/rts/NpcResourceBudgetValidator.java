@@ -19,6 +19,8 @@ public final class NpcResourceBudgetValidator {
         validateStationRecoveryProtection();
         validateResearchProtectionAndRelease();
         validateRecursiveFleetInputs();
+        validateOverlappingIntermediatePriorities();
+        validatePlanReuseAndMutationRefresh();
         validateExpansionWaitsForRecovery();
         validateExpansionUsesRichestSupplyBase();
     }
@@ -164,6 +166,145 @@ public final class NpcResourceBudgetValidator {
                 "fleet production could not consume its reserved recursive input");
     }
 
+    private static void validateOverlappingIntermediatePriorities() {
+        Fixture fixture = fixture("Overlapping Intermediate Budget");
+        ensureAllStations(fixture);
+        completeResearch(fixture);
+        clearMaterials(fixture);
+        powerFuelConsumers(fixture);
+
+        CraftableItem recipe = null;
+        for (CraftableItem candidate : CraftingRules.all()) {
+            if (!fixture.faction.craftableItemIds().contains(candidate.id)
+                    || candidate.outputAmount <= EPSILON
+                    || candidate.requiredResources.isEmpty()) continue;
+            boolean hasDistinctInput = false;
+            for (Cost input : candidate.requiredResources) {
+                if (input.material() != candidate.outputMaterial && input.amount() > EPSILON) {
+                    hasDistinctInput = true;
+                    break;
+                }
+            }
+            if (!hasDistinctInput) continue;
+            CraftableItem usable = usableRecipe(fixture, candidate.outputMaterial);
+            if (usable != null) {
+                recipe = usable;
+                break;
+            }
+        }
+        require(recipe != null,
+                "fixture had no usable manufactured component recipe");
+
+        java.util.EnumMap<Material, Double> direct =
+                new java.util.EnumMap<>(Material.class);
+        direct.put(recipe.outputMaterial, recipe.outputAmount);
+        java.util.EnumMap<Material, Double> remaining =
+                new java.util.EnumMap<>(Material.class);
+        for (Material material : Material.values()) remaining.put(material, 1_000_000.0);
+        remaining.put(recipe.outputMaterial, recipe.outputAmount);
+
+        Object scan = inspectBudgetForTesting(fixture);
+        java.util.EnumMap<Material, Double> higher = expandBudgetForTesting(
+                fixture, scan, direct, remaining);
+        boolean higherExpandedInputs = false;
+        for (Cost input : recipe.requiredResources) {
+            if (input.material() == recipe.outputMaterial) continue;
+            if (higher.getOrDefault(input.material(), 0.0) > EPSILON) {
+                higherExpandedInputs = true;
+                break;
+            }
+        }
+        require(!higherExpandedInputs,
+                "higher-priority reservation expanded inputs despite existing intermediate stock");
+
+        remaining.remove(recipe.outputMaterial);
+        java.util.EnumMap<Material, Double> lower = expandBudgetForTesting(
+                fixture, scan, direct, remaining);
+        boolean lowerReservedInputs = false;
+        for (Cost input : recipe.requiredResources) {
+            if (input.material() == recipe.outputMaterial || input.amount() <= EPSILON) continue;
+            if (lower.getOrDefault(input.material(), 0.0) + EPSILON >= input.amount()) {
+                lowerReservedInputs = true;
+                break;
+            }
+        }
+        require(lowerReservedInputs,
+                "lower-priority reservation did not expand recipe inputs after the shared intermediate was allocated");
+    }
+
+    private static Object inspectBudgetForTesting(Fixture fixture) {
+        try {
+            java.lang.reflect.Method inspect = NpcResourceBudget.class.getDeclaredMethod(
+                    "inspect", World.class, NpcFaction.class);
+            inspect.setAccessible(true);
+            return inspect.invoke(null, fixture.world, fixture.faction);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("could not inspect NPC budget fixture", failure);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static java.util.EnumMap<Material, Double> expandBudgetForTesting(
+            Fixture fixture, Object scan,
+            java.util.EnumMap<Material, Double> direct,
+            java.util.EnumMap<Material, Double> remaining) {
+        try {
+            java.lang.reflect.Method expand = NpcResourceBudget.class.getDeclaredMethod(
+                    "expandRequirements", World.class, NpcFaction.class, scan.getClass(),
+                    java.util.EnumMap.class, java.util.EnumMap.class);
+            expand.setAccessible(true);
+            return (java.util.EnumMap<Material, Double>) expand.invoke(
+                    null, fixture.world, fixture.faction, scan, direct, remaining);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("could not expand NPC budget fixture", failure);
+        }
+    }
+
+    private static void validatePlanReuseAndMutationRefresh() {
+        Fixture fixture = fixture("Budget Plan Reuse");
+        ensureWorkers(fixture);
+        ensureAllStations(fixture);
+        completeResearch(fixture);
+        clearMaterials(fixture);
+        powerFuelConsumers(fixture);
+        fixture.home.inventory.put(Material.FUEL,
+                Math.max(100.0, fixture.faction.fuelReserve()));
+
+        NpcResourceBudget.invalidate(fixture.world, fixture.faction);
+        long before = NpcResourceBudget.scanCountForTesting(fixture.world, fixture.faction);
+        NpcBudgetPlan first = NpcResourceBudget.plan(
+                fixture.world, fixture.faction, NpcStrategicState.STABILIZE_ECONOMY);
+        NpcBudgetPlan repeated = NpcResourceBudget.plan(
+                fixture.world, fixture.faction, NpcStrategicState.STABILIZE_ECONOMY);
+        require(first == repeated,
+                "unchanged same-tick budget request did not reuse its immutable plan");
+        require(NpcResourceBudget.scanCountForTesting(fixture.world, fixture.faction) == before + 1,
+                "unchanged same-tick budget request rescanned the galaxy");
+
+        HangarStore.add(fixture.home.inventory, Material.IRON, 1.0);
+        NpcBudgetPlan refreshed = NpcResourceBudget.plan(
+                fixture.world, fixture.faction, NpcStrategicState.STABILIZE_ECONOMY);
+        require(refreshed != repeated,
+                "local inventory mutation did not invalidate the cached plan");
+        require(NpcResourceBudget.scanCountForTesting(fixture.world, fixture.faction) == before + 2,
+                "local inventory mutation did not trigger exactly one refreshed scan");
+
+        NpcResourceBudget.invalidate(fixture.world, fixture.faction);
+        long spendBefore = NpcResourceBudget.scanCountForTesting(fixture.world, fixture.faction);
+        List<Cost> oneFuel = List.of(new Cost(Material.FUEL, 1.0));
+        require(NpcResourceBudget.canAfford(fixture.world, fixture.faction,
+                        NpcBudgetCategory.EMERGENCY_FUEL, oneFuel),
+                "cached-plan spend fixture could not afford fuel");
+        require(NpcResourceBudget.spend(fixture.world, fixture.faction,
+                        NpcBudgetCategory.EMERGENCY_FUEL, oneFuel),
+                "cached-plan spend failed");
+        NpcBudgetPlan afterSpend = NpcResourceBudget.plan(fixture.world, fixture.faction);
+        require(NpcResourceBudget.scanCountForTesting(fixture.world, fixture.faction) == spendBefore + 1,
+                "affordability, spend, and post-spend reuse performed more than one galaxy scan");
+        require(afterSpend.total(Material.FUEL) + EPSILON < first.total(Material.FUEL),
+                "post-spend cached plan did not reflect consumed inventory");
+    }
+
     private static void validateExpansionWaitsForRecovery() {
         Fixture fixture = fixture("Expansion Budget");
         ensureWorkers(fixture);
@@ -231,6 +372,28 @@ public final class NpcResourceBudgetValidator {
                 "expansion did not select the richest deterministic supply station");
         require(NpcResourceBudget.canLaunchExpansion(fixture.world, fixture.faction, plan),
                 "an empty first station blocked a fully funded later supply station");
+    }
+
+    private static CraftableItem usableRecipe(Fixture fixture, Material material) {
+        for (CraftableItem item : CraftingRules.recipesForOutput(material)) {
+            if (!fixture.faction.craftableItemIds().contains(item.id)
+                    || !item.unlockedFor(fixture.world, fixture.faction.id())) continue;
+            for (Base base : fixture.world.bases.values()) {
+                if (fixture.faction.id().equals(base.playerId) && base.hp > 0
+                        && item.canCraftAt(base.typeId) && StationFuelRules.isOperational(base)) {
+                    return item;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static double directAmount(List<Cost> cost, Material material) {
+        double total = 0.0;
+        for (Cost entry : cost) {
+            if (entry != null && entry.material() == material) total += entry.amount();
+        }
+        return total;
     }
 
     private static void fundDesired(Base base, NpcBudgetPlan plan, NpcBudgetCategory through) {
