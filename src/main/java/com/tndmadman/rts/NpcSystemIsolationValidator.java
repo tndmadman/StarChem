@@ -23,6 +23,7 @@ public final class NpcSystemIsolationValidator {
         NpcStrategicDirectorValidator.validateOrThrow();
         NpcStrategicStabilityValidator.validateOrThrow();
         NpcResourceBudgetValidator.validateOrThrow();
+        NpcResourceBudgetFrameValidator.validateOrThrow();
         NpcResourceBudgetCapabilityValidator.validateOrThrow();
         NpcWorkerProductionValidator.validateOrThrow();
         NpcStationConstructionValidator.validateOrThrow();
