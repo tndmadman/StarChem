@@ -1,1 +1,52 @@
-/home/runner/work/_temp/d32d3337-66f8-4f4c-96aa-010e49fb6a6c.sh: line 2: ./gradlew: No such file or directory
+
+Welcome to Gradle 9.6.1!
+
+Here are the highlights of this release:
+ - Improved Configuration Cache hit rates
+ - Additional CLI rendering options
+ - Important project hierarchy lookup deprecations
+
+For more details see https://docs.gradle.org/9.6.1/release-notes.html
+
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.6.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :compileJava
+> Task :processResources NO-SOURCE
+> Task :classes
+
+> Task :validateSavedCredentialReplay
+StarChem saved credential replay validation passed.
+
+> Task :validateDevAccess
+Dev access policy, protected token source, and request-state validation passed.
+
+> Task :validateSessionRecovery
+Exception in thread "main" java.net.SocketTimeoutException: Read timed out
+	at java.base/sun.nio.ch.NioSocketImpl.timedRead(NioSocketImpl.java:288)
+	at java.base/sun.nio.ch.NioSocketImpl.implRead(NioSocketImpl.java:314)
+	at java.base/sun.nio.ch.NioSocketImpl.read(NioSocketImpl.java:355)
+	at java.base/sun.nio.ch.NioSocketImpl$1.read(NioSocketImpl.java:808)
+	at java.base/java.net.Socket$SocketInputStream.read(Socket.java:966)
+	at java.base/java.net.Socket$SocketInputStream.read(Socket.java:961)
+	at java.base/java.io.FilterInputStream.read(FilterInputStream.java:82)
+	at com.tndmadman.rts.TcpFrameCodec.read(TcpFrameCodec.java:32)
+	at com.tndmadman.rts.SessionRecoveryValidator.receivePayload(SessionRecoveryValidator.java:337)
+	at com.tndmadman.rts.SessionRecoveryValidator.validateServerSessionRecovery(SessionRecoveryValidator.java:67)
+	at com.tndmadman.rts.SessionRecoveryValidator.main(SessionRecoveryValidator.java:15)
+
+> Task :validateSessionRecovery FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':validateSessionRecovery' (registered in build file 'build.gradle').
+> Process 'command '/usr/lib/jvm/temurin-17-jdk-amd64/bin/java'' finished with non-zero exit value 1
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 38s
+4 actionable tasks: 4 executed
