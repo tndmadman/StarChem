@@ -65,13 +65,41 @@ public final class SystemSimulationSchedulerValidator {
         require(initial != null && initial.systems().size() > 1, "scheduler test galaxy is too small");
 
         AuthoritativeSystemScheduler scheduler = new AuthoritativeSystemScheduler();
-        scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
-        require(scheduler.stats().updatedSystems() == initial.systems().size(),
-                "initial scheduler pass did not classify every known system");
+        int classified = 0;
+        int classificationTicks = (initial.systems().size()
+                + AuthoritativeSystemScheduler.MAX_INACTIVE_UPDATES_PER_TICK - 1)
+                / AuthoritativeSystemScheduler.MAX_INACTIVE_UPDATES_PER_TICK + 1;
+        for (int i = 0; i < classificationTicks; i++) {
+            scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
+            int updated = scheduler.stats().updatedSystems();
+            require(updated <= AuthoritativeSystemScheduler.MAX_INACTIVE_UPDATES_PER_TICK,
+                    "initial inactive-system classification exceeded the per-tick budget");
+            classified += updated;
+        }
+        require(classified == initial.systems().size(),
+                "initial scheduler passes did not classify every known system exactly once");
 
         scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
-        require(scheduler.stats().updatedSystems() < initial.systems().size(),
-                "authoritative scheduler still activated every system every server tick");
+        require(scheduler.stats().updatedSystems() == 0,
+                "inactive systems continued updating before their deadlines");
+
+        int maxUpdated = 0;
+        int soakUpdates = 0;
+        for (int i = 0; i < 360; i++) {
+            scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
+            int updated = scheduler.stats().updatedSystems();
+            maxUpdated = Math.max(maxUpdated, updated);
+            soakUpdates += updated;
+        }
+        require(maxUpdated <= AuthoritativeSystemScheduler.MAX_INACTIVE_UPDATES_PER_TICK,
+                "inactive-system due work exceeded the per-tick budget during soak");
+        require(soakUpdates <= initial.systems().size() + AuthoritativeSystemScheduler.MAX_INACTIVE_UPDATES_PER_TICK,
+                "dormant systems ran too frequently during the scheduler soak");
+
+        for (int i = 0; i < initial.systems().size() && scheduler.stats().backlog() > 0; i++) {
+            scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
+        }
+        require(scheduler.stats().backlog() == 0, "inactive scheduler backlog did not drain");
 
         String promoted = initial.systems().get(0).id();
         world.activateSystem(promoted);
@@ -82,6 +110,10 @@ public final class SystemSimulationSchedulerValidator {
         require(List.of(scheduler.lastUpdatedSystems()).contains(promoted),
                 "promoted system did not run promptly");
         require(scheduler.stats().hotSystems() >= 1, "promoted system was not classified hot");
+
+        scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
+        require(List.of(scheduler.lastUpdatedSystems()).contains(promoted),
+                "hot system did not continue running every authoritative tick");
 
         GalaxyMapSnapshot reduced = new GalaxyMapSnapshot(initial.activeSystemId(),
                 initial.systems().subList(0, initial.systems().size() - 1), initial.links());
