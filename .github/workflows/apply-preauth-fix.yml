@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/preauth-connection-limits
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
