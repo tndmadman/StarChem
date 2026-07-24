@@ -204,7 +204,7 @@ public final class NpcResourceBudgetValidator {
         double currentlyHeld = fixture.home.inventory.getOrDefault(shared, 0.0);
         double targetHeld = Math.max(workerDemand, fleetDemand);
         if (currentlyHeld + EPSILON < targetHeld) {
-            HangarStore.add(fixture.home, shared, targetHeld - currentlyHeld);
+            HangarStore.add(fixture.home.inventory, shared, targetHeld - currentlyHeld);
         }
 
         NpcBudgetPlan plan = NpcResourceBudget.plan(
@@ -245,7 +245,7 @@ public final class NpcResourceBudgetValidator {
         require(NpcResourceBudget.scanCountForTesting(fixture.world, fixture.faction) == before + 1,
                 "unchanged same-tick budget request rescanned the galaxy");
 
-        HangarStore.add(fixture.home, Material.IRON, 1.0);
+        HangarStore.add(fixture.home.inventory, Material.IRON, 1.0);
         NpcBudgetPlan refreshed = NpcResourceBudget.plan(
                 fixture.world, fixture.faction, NpcStrategicState.STABILIZE_ECONOMY);
         require(refreshed != repeated,
