@@ -2,7 +2,6 @@ package com.tndmadman.rts;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -298,7 +297,7 @@ final class InboundCommandScheduler {
         }
     }
 
-    private static final class Lane {
+    private final class Lane {
         private final Deque<QueuedFrame> frames = new ArrayDeque<>();
         private final Map<String, QueuedFrame> replaceable = new LinkedHashMap<>();
         private double tokens;
@@ -320,7 +319,6 @@ final class InboundCommandScheduler {
         }
 
         private boolean admit(String message, long now) {
-            Limits limits = InboundCommandScheduler.this.limits;
             long elapsed = Math.max(0, now - lastRefillNanos);
             if (elapsed > 0 && limits.tokensPerSecond() > 0) {
                 tokens = Math.min(limits.burstTokens(),
