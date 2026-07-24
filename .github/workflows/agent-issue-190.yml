@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/schedule-inactive-systems
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -15,6 +18,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: agent/schedule-inactive-systems
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
