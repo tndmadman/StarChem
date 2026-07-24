@@ -34,6 +34,21 @@ final class ServerSaveStore {
             .withZone(java.time.ZoneOffset.UTC);
     private static final int MAX_BACKUPS_PER_MILLISECOND = 1_000_000;
 
+    static final long MAX_ARCHIVE_BYTES = 256L * 1024 * 1024;
+    static final long MAX_TOTAL_UNCOMPRESSED_BYTES = 512L * 1024 * 1024;
+    static final int MAX_ARCHIVE_ENTRIES = 4;
+    static final int MAX_MANIFEST_BYTES = 1024 * 1024;
+    static final int MAX_PLAYERS_BYTES = 64 * 1024 * 1024;
+    static final int MAX_GALAXY_BYTES = 384 * 1024 * 1024;
+    static final int MAX_RUNTIME_BYTES = 64 * 1024 * 1024;
+    private static final long COMPRESSION_RATIO_MIN_BYTES = 1024L * 1024;
+    private static final long MAX_COMPRESSION_RATIO = 200;
+    private static final Map<String,Integer> ENTRY_LIMITS = Map.of(
+            "manifest.json", MAX_MANIFEST_BYTES,
+            "players.json", MAX_PLAYERS_BYTES,
+            "galaxy.json", MAX_GALAXY_BYTES,
+            "runtime.json", MAX_RUNTIME_BYTES);
+
     private final Path saveDir;
     private final String saveName;
     private final int backupCount;
@@ -368,29 +383,68 @@ final class ServerSaveStore {
 
     private static Map<String,byte[]> readEntries(Path path) throws IOException {
         if (path == null || !Files.isRegularFile(path)) throw new IOException("Save archive is missing.");
-        Map<String,byte[]> out = new LinkedHashMap<>();
+        long archiveSize = Files.size(path);
+        if (archiveSize > MAX_ARCHIVE_BYTES) {
+            throw new IOException("Save archive exceeds " + MAX_ARCHIVE_BYTES + " compressed bytes.");
+        }
+        Map<String,ZipEntry> metadata = new LinkedHashMap<>();
         try (ZipFile zip = new ZipFile(path.toFile(), StandardCharsets.UTF_8)) {
             Enumeration<? extends ZipEntry> entries = zip.entries();
+            int entryCount = 0;
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
-                if (entry.isDirectory()) continue;
-                String name = entry.getName();
-                if (out.containsKey(name)) throw new IOException("Save archive contains duplicate entry " + name + ".");
-                try (InputStream input = zip.getInputStream(entry)) {
-                    out.put(name, input.readAllBytes());
+                entryCount++;
+                if (entryCount > MAX_ARCHIVE_ENTRIES) {
+                    throw new IOException("Save archive contains more than " + MAX_ARCHIVE_ENTRIES + " entries.");
                 }
+                if (entry.isDirectory()) throw new IOException("Save archive contains unsupported directory entry " + entry.getName() + ".");
+                String name = entry.getName();
+                Integer limit = ENTRY_LIMITS.get(name);
+                if (limit == null) throw new IOException("Save archive contains unexpected entry " + name + ".");
+                if (metadata.putIfAbsent(name, entry) != null) {
+                    throw new IOException("Save archive contains duplicate entry " + name + ".");
+                }
+                long declaredSize = entry.getSize();
+                if (declaredSize > limit) throw new IOException(name + " exceeds " + limit + " bytes.");
+                enforceCompressionRatio(name, declaredSize, entry.getCompressedSize());
             }
+
+            Map<String,byte[]> out = new LinkedHashMap<>();
+            long total = 0;
+            for (Map.Entry<String,ZipEntry> item : metadata.entrySet()) {
+                String name = item.getKey();
+                ZipEntry entry = item.getValue();
+                int limit = ENTRY_LIMITS.get(name);
+                byte[] bytes;
+                try (InputStream input = zip.getInputStream(entry)) {
+                    bytes = BoundedText.readBytes(input, limit, name);
+                }
+                total += bytes.length;
+                if (total > MAX_TOTAL_UNCOMPRESSED_BYTES) {
+                    throw new IOException("Save archive exceeds " + MAX_TOTAL_UNCOMPRESSED_BYTES + " total uncompressed bytes.");
+                }
+                enforceCompressionRatio(name, bytes.length, entry.getCompressedSize());
+                out.put(name, bytes);
+            }
+            return out;
         } catch (IOException ex) {
             throw new IOException("Could not read save archive: " + ex.getMessage(), ex);
         }
-        return out;
+    }
+
+    private static void enforceCompressionRatio(String name, long uncompressed, long compressed) throws IOException {
+        if (uncompressed < COMPRESSION_RATIO_MIN_BYTES || compressed <= 0) return;
+        if (uncompressed / compressed > MAX_COMPRESSION_RATIO) {
+            throw new IOException(name + " exceeds the supported compression ratio.");
+        }
     }
 
     private static Map<String,Object> parseObject(byte[] bytes, String name) throws IOException {
         if (bytes == null) throw new IOException("Save archive is missing " + name + ".");
         Object parsed;
         try {
-            parsed = MiniJson.parse(new String(bytes, StandardCharsets.UTF_8));
+            MiniJson.Limits limits = jsonLimits(name);
+            parsed = MiniJson.parse(BoundedText.decodeUtf8(bytes, limits.maxDocumentChars(), name), limits);
         } catch (RuntimeException ex) {
             throw new IOException("Could not parse " + name + ": " + ex.getMessage(), ex);
         }
@@ -398,6 +452,12 @@ final class ServerSaveStore {
         Map<String,Object> out = new LinkedHashMap<>();
         for (Map.Entry<?,?> entry : raw.entrySet()) out.put(String.valueOf(entry.getKey()), entry.getValue());
         return out;
+    }
+
+    private static MiniJson.Limits jsonLimits(String name) {
+        int documentChars = ENTRY_LIMITS.getOrDefault(name, MAX_MANIFEST_BYTES);
+        return new MiniJson.Limits(documentChars, 128, 20_000_000L, 4 * 1024 * 1024,
+                2_000_000, 128, true);
     }
 
     private static byte[] jsonBytes(Map<String,Object> data) {

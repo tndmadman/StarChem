@@ -15,6 +15,10 @@ import java.util.function.Function;
 
 /** Shared verified current/previous storage for security-sensitive companion files. */
 final class CompanionStateFiles {
+    static final int MAX_COMPANION_BYTES = 1024 * 1024;
+    private static final MiniJson.Limits TEXT_LIMITS = new MiniJson.Limits(
+            MAX_COMPANION_BYTES, 64, 200_000, 128 * 1024, 50_000, 128, true);
+
     private CompanionStateFiles() { }
 
     static <T> CompanionLoad<T> load(Path current, Path previous, String label,
@@ -34,7 +38,7 @@ final class CompanionStateFiles {
 
         if (Files.isRegularFile(current)) {
             try {
-                T value = parser.parse(Files.readString(current, StandardCharsets.UTF_8));
+                T value = parser.parse(readText(current));
                 return new CompanionLoad<>(value, CompanionLoadStatus.current("current file loaded"));
             } catch (Exception ex) {
                 failures.add("current: " + detail(ex));
@@ -43,7 +47,7 @@ final class CompanionStateFiles {
 
         if (Files.isRegularFile(previous)) {
             try {
-                T value = parser.parse(Files.readString(previous, StandardCharsets.UTF_8));
+                T value = parser.parse(readText(previous));
                 String recovery = "recovered from previous file after " + String.join("; ", failures);
                 return new CompanionLoad<>(value, CompanionLoadStatus.previous(recovery));
             } catch (Exception ex) {
@@ -74,12 +78,12 @@ final class CompanionStateFiles {
             if (verifiedCurrent != null) {
                 Files.writeString(previousTemp, verifiedCurrent, StandardCharsets.UTF_8,
                         StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
-                parser.parse(Files.readString(previousTemp, StandardCharsets.UTF_8));
+                parser.parse(readText(previousTemp));
                 moveReplacing(previousTemp, previous, move);
-                parser.parse(Files.readString(previous, StandardCharsets.UTF_8));
+                parser.parse(readText(previous));
             }
             moveReplacing(currentTemp, current, move);
-            parser.parse(Files.readString(current, StandardCharsets.UTF_8));
+            parser.parse(readText(current));
         } catch (IOException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -98,7 +102,7 @@ final class CompanionStateFiles {
         try {
             writeVerified(temp, value, parser, serializer);
             moveReplacing(temp, current, (source, target, options) -> Files.move(source, target, options));
-            parser.parse(Files.readString(current, StandardCharsets.UTF_8));
+            parser.parse(readText(current));
         } catch (IOException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -130,9 +134,9 @@ final class CompanionStateFiles {
         try {
             Files.writeString(temp, initial.endsWith("\n") ? initial : initial + "\n", StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
-            parser.parse(Files.readString(temp, StandardCharsets.UTF_8));
+            parser.parse(readText(temp));
             moveReplacing(temp, current, (source, target, options) -> Files.move(source, target, options));
-            return parser.parse(Files.readString(current, StandardCharsets.UTF_8));
+            return parser.parse(readText(current));
         } finally {
             Files.deleteIfExists(temp);
         }
@@ -151,7 +155,7 @@ final class CompanionStateFiles {
     private static <T> String verifiedText(Path path, CompanionParser<T> parser) {
         if (!Files.isRegularFile(path)) return null;
         try {
-            String text = Files.readString(path, StandardCharsets.UTF_8);
+            String text = readText(path);
             parser.parse(text);
             return text;
         } catch (Exception invalidCurrent) {
@@ -164,7 +168,12 @@ final class CompanionStateFiles {
         String text = serializer.serialize(value);
         Files.writeString(path, text.endsWith("\n") ? text : text + "\n", StandardCharsets.UTF_8,
                 StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
-        parser.parse(Files.readString(path, StandardCharsets.UTF_8));
+        parser.parse(readText(path));
+    }
+
+    static String readText(Path path) throws IOException {
+        String label = path == null || path.getFileName() == null ? "Companion state" : path.getFileName().toString();
+        return BoundedText.readUtf8(path, MAX_COMPANION_BYTES, TEXT_LIMITS, label);
     }
 
     private static String detail(Exception ex) {
@@ -252,7 +261,7 @@ final class CompanionRecoveryRegistry {
         markerReason = "";
         initializeMissingDefaults = freshServer(dir, cleanName, markerPath);
         if (Files.isRegularFile(markerPath)) {
-            try { markerReason = Files.readString(markerPath, StandardCharsets.UTF_8).trim(); }
+            try { markerReason = CompanionStateFiles.readText(markerPath).trim(); }
             catch (IOException ex) { markerReason = "A prior recovery lock exists but could not be read."; }
         }
     }
