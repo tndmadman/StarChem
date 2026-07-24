@@ -1,0 +1,30 @@
+name: Export branch source
+
+on:
+  push:
+    branches:
+      - agent/fix-production-recipe-selection
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  export-source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+
+      - name: Archive source
+        run: tar -czf starchem-source.tgz --exclude=.git .
+
+      - name: Upload source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: starchem-source
+          path: starchem-source.tgz
+          if-no-files-found: error
+          retention-days: 1
