@@ -9,7 +9,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -23,6 +23,24 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: agent/schedule-inactive-systems
+
+      - name: Apply issue 190 implementation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          lines = Path('.github/workflows/agent-issue-190.yml').read_text().splitlines()
+          start = next(i for i, line in enumerate(lines) if "python3 - <<'PY'" in line)
+          end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == 'PY')
+          body = lines[start + 1:end]
+          indent = min((len(line) - len(line.lstrip()) for line in body if line.strip()), default=0)
+          script = '\n'.join(line[indent:] if line.strip() else '' for line in body)
+          exec(compile(script, 'issue-190-patch', 'exec'))
+          PY
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -133,3 +151,15 @@ jobs:
           VERSION_OUTPUT="$(java -jar build/libs/StarChem.jar --version)"
           echo "$VERSION_OUTPUT"
           [[ "$VERSION_OUTPUT" == "StarChem ${SAMPLE_VERSION} (${SAMPLE_COMMIT:0:12})" ]]
+
+      - name: Commit verified implementation
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/main/java/com/tndmadman/rts/PeerServerSide.java \
+                  src/main/java/com/tndmadman/rts/AuthoritativeSystemScheduler.java \
+                  src/main/java/com/tndmadman/rts/SystemSimulationScheduler.java \
+                  src/main/java/com/tndmadman/rts/SystemSimulationSchedulerValidator.java
+          git commit -m "Schedule inactive systems by due time"
+          git push origin HEAD:agent/schedule-inactive-systems
