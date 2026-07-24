@@ -19,12 +19,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Archive source
-        run: tar -czf starchem-source.tgz --exclude=.git .
+        run: tar -czf /tmp/starchem-source.tgz --exclude=.git .
 
       - name: Upload source archive
         uses: actions/upload-artifact@v4
         with:
           name: starchem-source
-          path: starchem-source.tgz
+          path: /tmp/starchem-source.tgz
           if-no-files-found: error
           retention-days: 1
