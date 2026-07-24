@@ -18,9 +18,9 @@ final class AuthoritativeSystemScheduler {
 
     private final Map<String, Slot> slots = new LinkedHashMap<>();
     private final PriorityQueue<Due> due = new PriorityQueue<>(Comparator
-  .comparingDouble(Due::at)
-  .thenComparing(Due::systemId)
-  .thenComparingLong(Due::generation));
+            .comparingDouble(Due::at)
+            .thenComparing(Due::systemId)
+            .thenComparingLong(Due::generation));
     private double clock;
     private double nextDiscovery;
     private long nextGeneration = 1;
@@ -30,34 +30,36 @@ final class AuthoritativeSystemScheduler {
     void update(World world, double dt, Supplier<GalaxyMapSnapshot> discovery) {
         if (world == null || discovery == null || !Double.isFinite(dt) || dt <= 0) return;
         clock += dt;
-        if (slots.isEmpty() || clock + EPSILON >= nextDiscovery) refresh(discovery);
+        if (slots.isEmpty() || clock + EPSILON >= nextDiscovery) {
+            refresh(discovery, world.activeSystemId());
+        }
 
         String previousSystem = world.activeSystemId();
         List<String> updated = new ArrayList<>();
         int guard = Math.max(16, slots.size() * 4);
         try {
-  while (guard-- > 0) {
-      Due candidate = due.peek();
-      if (candidate == null || candidate.at() > clock + EPSILON) break;
-      due.poll();
-      Slot slot = slots.get(candidate.systemId());
-      if (slot == null || slot.generation != candidate.generation()) continue;
+            while (guard-- > 0) {
+                Due candidate = due.peek();
+                if (candidate == null || candidate.at() > clock + EPSILON) break;
+                due.poll();
+                Slot slot = slots.get(candidate.systemId());
+                if (slot == null || slot.generation != candidate.generation()) continue;
 
-      double elapsed = Math.max(dt, clock - slot.lastRun);
-      world.activateSystem(slot.systemId);
-      if (!slot.systemId.equals(world.activeSystemId())) {
-          slots.remove(slot.systemId);
-          continue;
-      }
-      world.updateCurrentSystem(elapsed);
-      slot.lastRun = clock;
-      slot.tier = SystemSimulationScheduler.tier(world);
-      slot.nextDue = clock + Math.max(dt, SystemSimulationScheduler.intervalSeconds(slot.tier));
-      schedule(slot);
-      updated.add(slot.systemId);
-  }
+                double elapsed = Math.max(dt, clock - slot.lastRun);
+                world.activateSystem(slot.systemId);
+                if (!slot.systemId.equals(world.activeSystemId())) {
+                    slots.remove(slot.systemId);
+                    continue;
+                }
+                world.updateCurrentSystem(elapsed);
+                slot.lastRun = clock;
+                slot.tier = SystemSimulationScheduler.tier(world);
+                slot.nextDue = clock + Math.max(dt, SystemSimulationScheduler.intervalSeconds(slot.tier));
+                schedule(slot);
+                updated.add(slot.systemId);
+            }
         } finally {
-  if (previousSystem != null && !previousSystem.isBlank()) world.activateSystem(previousSystem);
+            if (previousSystem != null && !previousSystem.isBlank()) world.activateSystem(previousSystem);
         }
 
         lastUpdatedSystems = List.copyOf(updated);
@@ -71,8 +73,8 @@ final class AuthoritativeSystemScheduler {
     void wake(String systemId) {
         Slot slot = slots.get(systemId);
         if (slot == null) {
-  nextDiscovery = 0;
-  return;
+            nextDiscovery = 0;
+            return;
         }
         slot.nextDue = clock;
         schedule(slot);
@@ -87,44 +89,53 @@ final class AuthoritativeSystemScheduler {
     }
 
     String statusLine() {
-        return "sim " + stats.updatedSystems + "/" + stats.trackedSystems
-      + " backlog " + stats.backlog
-      + " tiers " + stats.hotSystems + "/" + stats.warmSystems
-      + "/" + stats.coldSystems + "/" + stats.dormantSystems;
+        return "sim " + stats.updatedSystems() + "/" + stats.trackedSystems()
+                + " backlog " + stats.backlog()
+                + " tiers " + stats.hotSystems() + "/" + stats.warmSystems()
+                + "/" + stats.coldSystems() + "/" + stats.dormantSystems();
     }
 
-    private void refresh(Supplier<GalaxyMapSnapshot> discovery) {
+    private void refresh(Supplier<GalaxyMapSnapshot> discovery, String activeSystemId) {
         nextDiscovery = clock + DISCOVERY_INTERVAL_SECONDS;
         GalaxyMapSnapshot snapshot = discovery.get();
         Set<String> discovered = new LinkedHashSet<>();
         if (snapshot != null && !snapshot.empty()) {
-  for (GalaxyMapSystem system : snapshot.systems()) {
-      if (system == null || system.id() == null || system.id().isBlank() || system.id().contains("WAIT")) continue;
-      discovered.add(system.id());
-      int signature = signature(system);
-      Slot slot = slots.get(system.id());
-      if (slot == null) {
-          slot = new Slot(system.id(), clock, signature);
-          slots.put(system.id(), slot);
-          slot.nextDue = clock;
-          schedule(slot);
-      } else if (slot.signature != signature) {
-          slot.signature = signature;
-          slot.nextDue = clock;
-          schedule(slot);
-      }
-  }
+            for (GalaxyMapSystem system : snapshot.systems()) {
+                if (system == null || system.id() == null || system.id().isBlank()
+                        || system.id().contains("WAIT")) continue;
+                discovered.add(system.id());
+                upsert(system.id(), signature(system));
+            }
+        }
+        if (discovered.isEmpty() && activeSystemId != null && !activeSystemId.isBlank()
+                && !activeSystemId.contains("WAIT")) {
+            discovered.add(activeSystemId);
+            upsert(activeSystemId, 0);
         }
 
         Iterator<Map.Entry<String, Slot>> iterator = slots.entrySet().iterator();
         while (iterator.hasNext()) {
-  if (!discovered.contains(iterator.next().getKey())) iterator.remove();
+            if (!discovered.contains(iterator.next().getKey())) iterator.remove();
+        }
+    }
+
+    private void upsert(String systemId, int signature) {
+        Slot slot = slots.get(systemId);
+        if (slot == null) {
+            slot = new Slot(systemId, clock, signature);
+            slots.put(systemId, slot);
+            slot.nextDue = clock;
+            schedule(slot);
+        } else if (slot.signature != signature) {
+            slot.signature = signature;
+            slot.nextDue = clock;
+            schedule(slot);
         }
     }
 
     private int signature(GalaxyMapSystem system) {
         return Objects.hash(system.ships(), system.bases(), system.localShips(), system.localBases(),
-      system.controllerId(), system.controlStatus(), Math.round(system.captureProgress() * 1000.0));
+                system.controllerId(), system.controlStatus(), Math.round(system.captureProgress() * 1000.0));
     }
 
     private void schedule(Slot slot) {
@@ -139,21 +150,21 @@ final class AuthoritativeSystemScheduler {
         int cold = 0;
         int dormant = 0;
         for (Slot slot : slots.values()) {
-  if (slot.nextDue <= clock + EPSILON) backlog++;
-  switch (slot.tier) {
-      case HOT -> hot++;
-      case WARM -> warm++;
-      case COLD -> cold++;
-      case DORMANT -> dormant++;
-  }
+            if (slot.nextDue <= clock + EPSILON) backlog++;
+            switch (slot.tier) {
+                case HOT -> hot++;
+                case WARM -> warm++;
+                case COLD -> cold++;
+                case DORMANT -> dormant++;
+            }
         }
         return new Stats(slots.size(), updatedSystems, backlog, hot, warm, cold, dormant);
     }
 
     record Stats(int trackedSystems, int updatedSystems, int backlog, int hotSystems,
-       int warmSystems, int coldSystems, int dormantSystems) {
+                 int warmSystems, int coldSystems, int dormantSystems) {
         static Stats empty() {
-  return new Stats(0, 0, 0, 0, 0, 0, 0);
+            return new Stats(0, 0, 0, 0, 0, 0, 0);
         }
     }
 
@@ -166,9 +177,9 @@ final class AuthoritativeSystemScheduler {
         SystemSimulationScheduler.SimulationTier tier = SystemSimulationScheduler.SimulationTier.DORMANT;
 
         Slot(String systemId, double lastRun, int signature) {
-  this.systemId = systemId;
-  this.lastRun = lastRun;
-  this.signature = signature;
+            this.systemId = systemId;
+            this.lastRun = lastRun;
+            this.signature = signature;
         }
     }
 
