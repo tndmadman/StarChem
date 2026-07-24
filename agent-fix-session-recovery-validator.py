@@ -21,12 +21,31 @@ replace_once(
 '''            PacketSideA.handle(server, "RESUME|P1|" + firstToken + "|NODEV|",
                     new NetPacket("RESUME|P1|" + firstToken + "|NODEV|", rawTokenEndpoint, loopback, restartedClient.getLocalPort()));
             String rawTokenWelcome = receivePayload(restartedClient, "WELCOME|");
-            require(validToken(markerValue(rawTokenWelcome, "SESSION")),
+            String rawNetworkToken = markerValue(rawTokenWelcome, "SESSION");
+            require(validToken(rawNetworkToken),
                     "raw network resume token did not receive a rotated token");
             require(server.owns(rawTokenEndpoint, "P1"), "raw network resume token did not reclaim the player session");
             server.removePeer(rawTokenEndpoint);
 ''',
 'raw network resume validation')
+
+replace_once(
+'''            require(server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1", firstToken, false, ""),
+                    "valid session could not rebind to a new TCP connection");
+''',
+'''            require(server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1", rawNetworkToken, false, ""),
+                    "valid session could not rebind to a new TCP connection");
+''',
+'rebound with latest raw-network token')
+
+replace_once(
+'''            require(server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1", firstToken, false, ""),
+                    "duplicate resume retry was not idempotent");
+''',
+'''            require(server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1", rawNetworkToken, false, ""),
+                    "duplicate resume retry was not idempotent");
+''',
+'idempotent retry with previous token')
 
 replace_once(
 '''            String wrongVerifier = PasswordAuth.scopedVerifier("Persistent Client", "wrong-password",
