@@ -35,10 +35,30 @@ jobs:
         run: git diff --check
 
       - name: Run full verification
-        run: ./gradlew clean check jar --no-daemon
+        id: verify
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew clean check jar --no-daemon 2>&1 | tee .github/preauth-validation.log
+
+      - name: Commit verification failure log
+        if: steps.verify.outcome == 'failure'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/preauth-validation.log
+          git commit -m "Record pre-authentication validation failure"
+          git push origin HEAD:agent/preauth-connection-limits
+
+      - name: Stop after failed verification
+        if: steps.verify.outcome == 'failure'
+        run: exit 1
 
       - name: Commit verified source edits
+        if: steps.verify.outcome == 'success'
         run: |
+          rm -f .github/preauth-validation.log
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/main/java/com/tndmadman/rts/PeerTransport.java src/main/java/com/tndmadman/rts/NetworkSecurityValidator.java
