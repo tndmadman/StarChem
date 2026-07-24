@@ -227,7 +227,8 @@ final class ProductionPlanner {
         if (missingAmount <= EPSILON) return EnsureResult.READY;
         if (!visiting.add(material)) return EnsureResult.BLOCKED;
         try {
-            RecipeChoice choice = chooseRecipe(world, plan, material);
+            RecipeChoice choice = chooseRecipe(world, plan, material, missingAmount,
+                    ledger.copyAmounts(), visiting);
             if (choice == null) return EnsureResult.BLOCKED;
             CraftableItem recipe = choice.item;
 
@@ -258,16 +259,56 @@ final class ProductionPlanner {
         return world.logisticsSystem.queueCraftable(world, station, item);
     }
 
-    private static RecipeChoice chooseRecipe(World world, ProductionPlan plan, Material material) {
+    private static RecipeChoice chooseRecipe(World world, ProductionPlan plan, Material material,
+                                             double amount, EnumMap<Material, Double> ledger,
+                                             Set<Material> visiting) {
         List<CraftableItem> recipes = CraftingRules.recipesForOutput(material);
         if (recipes.isEmpty()) return null;
         Base destination = world.bases.get(plan.root.targetBaseId);
-        for (CraftableItem item : recipes) {
+        RecipeEvaluation best = null;
+        for (int order = 0; order < recipes.size(); order++) {
+            CraftableItem item = recipes.get(order);
             if (!item.unlockedFor(world, plan.playerId)) continue;
             Base station = selectStation(world, plan.playerId, item, destination);
-            if (station != null) return new RecipeChoice(item, station);
+            if (station == null) continue;
+
+            int batches = Math.max(1, (int)Math.ceil(amount / Math.max(EPSILON, item.outputAmount)));
+            EnumMap<Material, Double> candidateLedger = new EnumMap<>(ledger);
+            Analysis candidateAnalysis = new Analysis();
+            Set<Material> candidateVisiting = new HashSet<>(visiting);
+            for (Cost input : item.requiredResources) {
+                resolveRequirement(world, plan, input.material(), input.amount() * batches,
+                        candidateLedger, candidateAnalysis, candidateVisiting);
+            }
+            RecipeEvaluation candidate = new RecipeEvaluation(
+                    new RecipeChoice(item, station),
+                    ledgerCanCover(ledger, item.requiredResources),
+                    candidateAnalysis.blocker.isBlank(),
+                    candidateAnalysis.shortages.size(),
+                    shortageAmount(candidateAnalysis),
+                    item.timeSeconds * batches,
+                    order);
+            if (best == null || candidate.compareTo(best) < 0) best = candidate;
         }
-        return null;
+        return best == null ? null : best.choice;
+    }
+
+    private static boolean ledgerCanCover(EnumMap<Material, Double> ledger, List<Cost> cost) {
+        EnumMap<Material, Double> remaining = new EnumMap<>(ledger);
+        for (Cost need : cost) {
+            double available = remaining.getOrDefault(need.material(), 0.0);
+            if (available + EPSILON < need.amount()) return false;
+            double next = available - need.amount();
+            if (next <= EPSILON) remaining.remove(need.material());
+            else remaining.put(need.material(), next);
+        }
+        return true;
+    }
+
+    private static double shortageAmount(Analysis analysis) {
+        double total = 0;
+        for (double amount : analysis.shortages.values()) total += amount;
+        return total;
     }
 
     private static Base selectStation(World world, String playerId, CraftableItem item, Base destination) {
@@ -359,7 +400,7 @@ final class ProductionPlanner {
                 analysis.shortages.merge(material, amount, Double::sum);
                 return;
             }
-            RecipeChoice choice = chooseRecipe(world, plan, material);
+            RecipeChoice choice = chooseRecipe(world, plan, material, amount, ledger, visiting);
             if (choice == null) {
                 analysis.blocker = recipeBlocker(world, plan, material, recipes);
                 return;
@@ -412,6 +453,30 @@ final class ProductionPlanner {
     private enum EnsureResult { READY, WAITING, QUEUED, BLOCKED }
 
     private record RecipeChoice(CraftableItem item, Base station) { }
+
+    private record RecipeEvaluation(RecipeChoice choice, boolean immediatelyFundable,
+                                    boolean unblocked, int shortageKinds, double shortageAmount,
+                                    double productionSeconds, int order)
+            implements Comparable<RecipeEvaluation> {
+        @Override
+        public int compareTo(RecipeEvaluation other) {
+            int result = Boolean.compare(other.immediatelyFundable, immediatelyFundable);
+            if (result != 0) return result;
+            result = Boolean.compare(other.unblocked, unblocked);
+            if (result != 0) return result;
+            result = Integer.compare(shortageKinds, other.shortageKinds);
+            if (result != 0) return result;
+            result = Double.compare(shortageAmount, other.shortageAmount);
+            if (result != 0) return result;
+            result = Double.compare(productionSeconds, other.productionSeconds);
+            if (result != 0) return result;
+            result = Integer.compare(order, other.order);
+            if (result != 0) return result;
+            result = choice.item.id.compareTo(other.choice.item.id);
+            if (result != 0) return result;
+            return choice.station.id.compareTo(other.choice.station.id);
+        }
+    }
 
     private record PlannedAction(ProductionJobKind kind, String itemId, String displayName,
                                  String targetBaseId, String productionJobId, List<Cost> cost) { }
