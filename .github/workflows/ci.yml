@@ -50,7 +50,7 @@ jobs:
           gradle validateSystemSimulationScheduler --stacktrace --no-daemon > /tmp/focused.log 2>&1
           result=$?
           if [[ "$result" -ne 0 ]]; then
-            grep -E '(^|Caused by: |Exception|error:|failed:|FAILED|What went wrong|Execution failed)' /tmp/focused.log | tail -n 40 || true
+            grep -E 'SystemSimulationSchedulerValidator|AuthoritativeSystemScheduler|IllegalStateException|Compilation failed|error:|Caused by:' /tmp/focused.log | head -n 80 || true
           else
             tail -n 20 /tmp/focused.log
           fi
