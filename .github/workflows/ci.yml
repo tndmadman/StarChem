@@ -34,11 +34,24 @@ jobs:
           lines = Path('.github/workflows/agent-issue-190.yml').read_text().splitlines()
           start = next(i for i, line in enumerate(lines) if "python3 - <<'PY'" in line)
           end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == 'PY')
-          body = lines[start + 1:end]
           prefix = '          '
-          script = '\n'.join(line[len(prefix):] if line.startswith(prefix) else line for line in body)
-          Path('/tmp/issue-190-patch.py').write_text(script)
-          print('Extracted patch lines:', len(body))
+          extracted = [line[len(prefix):] if line.startswith(prefix) else line for line in lines[start + 1:end]]
+
+          adjusted = []
+          status_block = False
+          for line in extracted:
+              if line.startswith("old_status = '''") or line.startswith("new_status = '''"):
+                  status_block = True
+                  adjusted.append(line)
+                  continue
+              if status_block and line == "'''":
+                  status_block = False
+                  adjusted.append(line)
+                  continue
+              adjusted.append(('    ' + line) if status_block and line else line)
+
+          Path('/tmp/issue-190-patch.py').write_text('\n'.join(adjusted))
+          print('Extracted patch lines:', len(adjusted))
           PY
           python3 /tmp/issue-190-patch.py
 
