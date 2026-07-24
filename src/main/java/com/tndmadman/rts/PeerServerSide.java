@@ -18,6 +18,7 @@ final class PeerServerSide {
     final Config config;
     final PeerTransport transport;
     final ClientViewCache views = new ClientViewCache();
+    private final AuthoritativeSystemScheduler systemScheduler = new AuthoritativeSystemScheduler();
     private final Map<ConnectionId, ServerPeer> peers = new LinkedHashMap<>();
     private final Map<String, PlayerSession> sessions = new LinkedHashMap<>();
     private final Map<ConnectionId, AuthChallenge> authChallenges = new LinkedHashMap<>();
@@ -49,23 +50,15 @@ final class PeerServerSide {
     String statusLine() {
         int retained = Math.max(0, sessions.size() - peers.size());
         String result = "HOST " + world.systemName() + " TCP " + transport.localPort()
-                + " | clients " + peers.size() + " | retained " + retained + " | queued " + transport.queuedCount();
+                + " | clients " + peers.size() + " | retained " + retained + " | queued " + transport.queuedCount()
+                + " | " + systemScheduler.statusLine();
         return result + (config.devMode ? " | dev host" : "");
     }
 
     void updateWorlds(double dt) {
         PlayerRegistry.activate(world);
-        String old = world.activeSystemId();
-        String[] systems = allKnownSystems();
-        ResourceNetDebug.serverUpdateSystems(world, systems, dt);
-        try {
-            for (String systemId : systems) {
-                world.activateSystem(systemId);
-                world.updateCurrentSystem(dt);
-            }
-        } finally {
-            world.activateSystem(old);
-        }
+        systemScheduler.update(world, dt, world::galaxyMapSnapshot);
+        ResourceNetDebug.serverUpdateSystems(world, systemScheduler.lastUpdatedSystems(), dt);
     }
 
     private String[] allKnownSystems() {
@@ -303,6 +296,7 @@ final class PeerServerSide {
         PlayerRegistry.register(id, cleanName, rgb, false);
         world.setDevFreeBuild(id, devAllowed);
         WorldNetAccess.addPeerGroup(world, id);
+        systemScheduler.refreshNow();
         views.setHome(world, id);
         sendSessionState(session, peer, token);
     }
