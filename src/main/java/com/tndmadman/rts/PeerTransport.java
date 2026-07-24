@@ -8,9 +8,7 @@ import javax.net.ssl.SSLServerSocket;
 import javax.net.ssl.SSLSocket;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -18,7 +16,6 @@ import java.util.concurrent.atomic.AtomicReference;
 final class PeerTransport {
     static final String DISCONNECT_EVENT = "\u0000TCP_DISCONNECT";
     private static final int MAX_CONNECTIONS = 128;
-    private static final int MAX_INBOUND_FRAMES = 256;
     private static final int MAX_CONTROL_FRAMES = 256;
     private static final int MAX_OUTBOUND_BYTES = 8 * 1024 * 1024;
     private static final int CONNECT_TIMEOUT_MS = 1_500;
@@ -32,8 +29,7 @@ final class PeerTransport {
     private final SocketFactory clientSocketFactory;
     private final PerfStats perfStats;
     private final String serverFingerprint;
-    private final ConcurrentLinkedQueue<NetPacket> inbox = new ConcurrentLinkedQueue<>();
-    private final AtomicInteger inboxSize = new AtomicInteger();
+    private final InboundCommandScheduler inbound;
     private final AtomicLong nextConnectionId = new AtomicLong(1);
     private final Map<ConnectionId, TcpConnection> connections = new ConcurrentHashMap<>();
     private final Map<String, ConnectionId> endpointIndex = new ConcurrentHashMap<>();
@@ -57,6 +53,7 @@ final class PeerTransport {
         this.serverFingerprint = PasswordAuth.validVerifier(serverFingerprint)
                 ? serverFingerprint.toLowerCase(Locale.ROOT) : "";
         this.compatibilityAccepted = serverMode;
+        this.inbound = new InboundCommandScheduler(serverMode);
     }
 
     static PeerTransport server(int port, PerfStats perfStats) throws IOException {
@@ -105,11 +102,10 @@ final class PeerTransport {
         thread.start();
     }
 
-    NetPacket poll() {
-        NetPacket packet = inbox.poll();
-        if (packet != null) inboxSize.updateAndGet(value -> Math.max(0, value - 1));
-        return packet;
-    }
+    NetPacket poll() { return inbound.poll(); }
+    int inboundQueuedCount() { return inbound.queuedCount(); }
+    InboundCommandScheduler.ConnectionDiagnostics inboundDiagnostics(ConnectionId id) { return inbound.diagnostics(id); }
+    InboundCommandScheduler.Snapshot inboundSnapshot() { return inbound.snapshot(); }
 
     int queuedCount() {
         int pending = 0;
@@ -275,8 +271,7 @@ final class PeerTransport {
         compatibleConnections.clear();
         clientConnectFailure.set("");
         pendingServerFingerprintChange.set(null);
-        inbox.clear();
-        inboxSize.set(0);
+        inbound.clear();
     }
 
     private void enqueuePrepared(String message, TcpConnection connection, DeliveryClass deliveryClass) {
@@ -452,21 +447,22 @@ final class PeerTransport {
 
     private void receive(TcpConnection connection, TcpFrameCodec.DecodedFrame frame) {
         if (frame == null || frame.message() == null) return;
-        int next = inboxSize.incrementAndGet();
-        if (next > MAX_INBOUND_FRAMES) {
-            inboxSize.decrementAndGet();
-            perfStats.recordInboundOverflow();
-            connection.close();
-            return;
-        }
         perfStats.recordPacketReceived(frame.wireBytes());
         if (isSnapshot(frame.message())) perfStats.recordSnapshotReceived(frame.wireBytes());
-        inbox.add(new NetPacket(frame.message(), connection.id, connection.address, connection.remotePort));
+        NetPacket packet = new NetPacket(frame.message(), connection.id, connection.address, connection.remotePort);
+        InboundCommandScheduler.OfferResult result = inbound.offer(packet);
+        if (result == InboundCommandScheduler.OfferResult.GLOBAL_FULL
+                || result == InboundCommandScheduler.OfferResult.CONNECTION_OVERFLOW
+                || result == InboundCommandScheduler.OfferResult.ABUSIVE) {
+            perfStats.recordInboundOverflow();
+        }
+        if (result.closeConnection()) connection.close();
     }
 
     private void connectionClosed(TcpConnection connection) {
         perfStats.recordConnectionClosed();
         compatibleConnections.remove(connection.id);
+        inbound.discard(connection.id);
         if (serverMode) {
             connections.remove(connection.id, connection);
             endpointIndex.remove(connection.endpoint, connection.id);
@@ -478,13 +474,7 @@ final class PeerTransport {
     }
 
     private void publishDisconnect(TcpConnection connection) {
-        int next = inboxSize.incrementAndGet();
-        if (next > MAX_INBOUND_FRAMES) {
-            inboxSize.decrementAndGet();
-            perfStats.recordInboundOverflow();
-            return;
-        }
-        inbox.add(new NetPacket(DISCONNECT_EVENT, connection.id, connection.address, connection.remotePort));
+        inbound.offerDisconnect(new NetPacket(DISCONNECT_EVENT, connection.id, connection.address, connection.remotePort));
     }
 
     private String endpointKey(InetAddress address, int port) {

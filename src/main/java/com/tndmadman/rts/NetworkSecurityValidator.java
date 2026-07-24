@@ -3,6 +3,7 @@ package com.tndmadman.rts;
 import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class NetworkSecurityValidator {
     private NetworkSecurityValidator() { }
@@ -12,6 +13,7 @@ public final class NetworkSecurityValidator {
         validateTransportRoundTrip();
         validateEncryptedTransportAndPinning();
         validateCompatibilityHandshake();
+        validateInboundScheduling();
         validateSnapshotCoalescingAndBackpressure();
         System.out.println("StarChem TCP network security validation passed.");
     }
@@ -236,6 +238,77 @@ public final class NetworkSecurityValidator {
         }
     }
 
+    private static void validateInboundScheduling() throws Exception {
+        InetAddress loopback = InetAddress.getLoopbackAddress();
+        ConnectionId first = new ConnectionId(101);
+        ConnectionId second = new ConnectionId(202);
+        AtomicLong clock = new AtomicLong(1_000);
+        InboundCommandScheduler.Limits fairLimits = new InboundCommandScheduler.Limits(
+                16, 8, 2, 1_000_000, 10_000, 10_000, 8, 10_000_000_000L);
+        InboundCommandScheduler fair = new InboundCommandScheduler(fairLimits, true, clock::get);
+        require(fair.offer(packet("ATTACK|P1|1|target-a", first, loopback, 50001)).accepted(),
+                "first client command was rejected");
+        require(fair.offer(packet("ATTACK|P1|2|target-b", first, loopback, 50001)).accepted(),
+                "second client command was rejected");
+        require(fair.offer(packet("ATTACK|P2|1|target-c", second, loopback, 50002)).accepted(),
+                "other client command was rejected");
+        require(fair.poll().connectionId().equals(first), "round-robin did not begin with the first client");
+        require(fair.poll().connectionId().equals(second), "busy client starved another active client");
+        require(fair.poll() == null, "packet-count budget did not end the inbound drain");
+        require(fair.snapshot().budgetExhaustions() == 1, "packet-count budget exhaustion was not recorded");
+        require(fair.poll().connectionId().equals(first), "deferred command did not resume on the next drain");
+        fair.poll();
+        require(fair.diagnostics(first).processedFrames() == 2,
+                "per-client processed command diagnostics were not recorded");
+
+        InboundCommandScheduler coalescing = new InboundCommandScheduler(
+                new InboundCommandScheduler.Limits(16, 8, 16, 1_000_000, 10_000, 10_000, 8, 10_000_000_000L),
+                true, clock::get);
+        require(coalescing.offer(packet("MOVE|P1|7|10|20", first, loopback, 50001)).accepted(),
+                "initial movement command was rejected");
+        require(coalescing.offer(packet("MOVE|P1|7|30|40", first, loopback, 50001))
+                        == InboundCommandScheduler.OfferResult.COALESCED,
+                "replaceable movement command was not coalesced");
+        require(coalescing.queuedFor(first) == 1, "coalesced movement occupied multiple queue slots");
+        require("MOVE|P1|7|30|40".equals(coalescing.poll().message()),
+                "movement coalescing did not retain the newest destination");
+        coalescing.poll();
+        require(coalescing.diagnostics(first).coalescedFrames() == 1,
+                "movement coalescing diagnostics were not recorded");
+
+        AtomicLong timedClock = new AtomicLong(5_000);
+        InboundCommandScheduler timed = new InboundCommandScheduler(
+                new InboundCommandScheduler.Limits(16, 8, 16, 1_000, 10_000, 10_000, 8, 10_000_000_000L),
+                true, timedClock::get);
+        timed.offer(packet("ATTACK|P1|1|target", first, loopback, 50001));
+        timed.offer(packet("ATTACK|P2|1|target", second, loopback, 50002));
+        require(timed.poll() != null, "timed scheduler did not return the first command");
+        timedClock.addAndGet(2_000);
+        require(timed.poll() == null, "elapsed-time budget did not end the inbound drain");
+        require(timed.poll() != null, "time-deferred command did not resume on the next drain");
+
+        InboundCommandScheduler bounded = new InboundCommandScheduler(
+                new InboundCommandScheduler.Limits(4, 2, 4, 1_000_000, 10_000, 10_000, 8, 10_000_000_000L),
+                false, clock::get);
+        bounded.offer(packet("ONE", first, loopback, 50001));
+        bounded.offer(packet("TWO", first, loopback, 50001));
+        require(bounded.offer(packet("THREE", first, loopback, 50001))
+                        == InboundCommandScheduler.OfferResult.CONNECTION_OVERFLOW,
+                "per-connection inbound queue limit was not enforced");
+
+        InboundCommandScheduler throttled = new InboundCommandScheduler(
+                new InboundCommandScheduler.Limits(8, 8, 8, 1_000_000, 0, 1, 2, 10_000_000_000L),
+                true, clock::get);
+        require(throttled.offer(packet("MOVE|P1|1|1|1", first, loopback, 50001)).accepted(),
+                "token bucket rejected its initial burst allowance");
+        require(throttled.offer(packet("MOVE|P1|2|2|2", first, loopback, 50001))
+                        == InboundCommandScheduler.OfferResult.THROTTLED,
+                "sustained command limit did not throttle excess traffic");
+        require(throttled.offer(packet("MOVE|P1|3|3|3", first, loopback, 50001))
+                        == InboundCommandScheduler.OfferResult.ABUSIVE,
+                "repeated throttling did not escalate to connection abuse");
+    }
+
     private static void validateSnapshotCoalescingAndBackpressure() throws Exception {
         InetAddress loopback = InetAddress.getLoopbackAddress();
         PeerTransport server = PeerTransport.server(0, new PerfStats());
@@ -261,6 +334,10 @@ public final class NetworkSecurityValidator {
         } finally {
             server.shutdown();
         }
+    }
+
+    private static NetPacket packet(String message, ConnectionId connectionId, InetAddress address, int port) {
+        return new NetPacket(message, connectionId, address, port);
     }
 
     private static byte[] intFrame(int length) throws IOException {

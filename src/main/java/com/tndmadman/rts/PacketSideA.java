@@ -11,7 +11,7 @@ final class PacketSideA {
             if (SideADev.handle(s, p, connectionId)) return;
             SideAOrders.handle(s, p, connectionId);
         } catch (Exception ex) {
-            System.err.println(PacketDiagnostics.rejectedInbound(message, packet, ex));
+            s.transport.recordMalformedPacket();
         }
     }
 }
