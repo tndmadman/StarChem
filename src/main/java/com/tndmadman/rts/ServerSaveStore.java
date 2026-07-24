@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Enumeration;
 import java.util.HexFormat;
@@ -52,6 +53,7 @@ final class ServerSaveStore {
     private final Path saveDir;
     private final String saveName;
     private final int backupCount;
+    private final ServerPersistenceCoordinator persistence;
     private String saveId = "";
     private Instant createdAt = Instant.now();
     private List<PersistentPlayerSession> loadedPlayerSessions = List.of();
@@ -60,6 +62,7 @@ final class ServerSaveStore {
         this.saveDir = saveDir == null ? Path.of("saves") : saveDir;
         this.saveName = Config.cleanSaveName(saveName);
         this.backupCount = Math.max(1, backupCount);
+        this.persistence = ServerPersistenceCoordinator.forSave(this.saveDir, this.saveName);
     }
 
     Optional<World> load(Config config) throws IOException {
@@ -93,12 +96,32 @@ final class ServerSaveStore {
 
     void save(World world, Config config, String reason, List<PersistentPlayerSession> sessions) throws IOException {
         if (world == null) return;
-        Files.createDirectories(saveDir);
+        String safeReason = reason == null || reason.isBlank() ? "manual" : reason;
+        SaveSnapshot snapshot = captureSnapshot(world, config, safeReason, sessions);
+        boolean coalesce = "autosave".equals(safeReason);
+        boolean asynchronous = coalesce || "backup-source".equals(safeReason);
+        ServerPersistenceCoordinator.Submission submission = persistence.submit(
+                "save-" + safeReason, coalesce, () -> persist(snapshot));
+        if (!submission.accepted()) throw new IOException("Persistence queue is full; save was not queued.");
+        if (!asynchronous) persistence.await(submission);
+    }
+
+    private SaveSnapshot captureSnapshot(World world, Config config, String reason,
+                                         List<PersistentPlayerSession> sessions) {
         Map<String,Object> save = capture(world, config, reason, sessions);
-        byte[] players = jsonBytes(object(save.get("players")));
-        byte[] galaxy = jsonBytes(object(save.get("galaxy")));
-        byte[] runtime = jsonBytes(object(save.get("runtime")));
-        Map<String,Object> manifestMap = object(save.get("manifest"));
+        return new SaveSnapshot(
+                freezeMap(object(save.get("manifest"))),
+                freezeMap(object(save.get("players"))),
+                freezeMap(object(save.get("galaxy"))),
+                freezeMap(object(save.get("runtime"))));
+    }
+
+    private void persist(SaveSnapshot snapshot) throws IOException {
+        Files.createDirectories(saveDir);
+        byte[] players = jsonBytes(snapshot.players());
+        byte[] galaxy = jsonBytes(snapshot.galaxy());
+        byte[] runtime = jsonBytes(snapshot.runtime());
+        Map<String,Object> manifestMap = new LinkedHashMap<>(snapshot.manifest());
         manifestMap.put("playersSha256", sha256(players));
         manifestMap.put("galaxySha256", sha256(galaxy));
         manifestMap.put("runtimeSha256", sha256(runtime));
@@ -115,6 +138,29 @@ final class ServerSaveStore {
             channel.force(true);
         }
         promoteVerified(temp);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Object freeze(Object value) {
+        if (value instanceof Map<?,?> raw) {
+            Map<String,Object> copy = new LinkedHashMap<>();
+            for (Map.Entry<?,?> entry : raw.entrySet()) {
+                copy.put(String.valueOf(entry.getKey()), freeze(entry.getValue()));
+            }
+            return Collections.unmodifiableMap(copy);
+        }
+        if (value instanceof List<?> raw) {
+            List<Object> copy = new ArrayList<>(raw.size());
+            for (Object item : raw) copy.add(freeze(item));
+            return Collections.unmodifiableList(copy);
+        }
+        if (value instanceof byte[] bytes) return bytes.clone();
+        return value;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String,Object> freezeMap(Map<String,Object> value) {
+        return (Map<String,Object>)freeze(value == null ? Map.of() : value);
     }
 
     void promoteVerified(Path temp) throws IOException {
@@ -521,6 +567,9 @@ final class ServerSaveStore {
         try { return Enum.valueOf(type, value.toString()); }
         catch (RuntimeException ex) { return fallback; }
     }
+
+    private record SaveSnapshot(Map<String,Object> manifest, Map<String,Object> players,
+                                Map<String,Object> galaxy, Map<String,Object> runtime) { }
 
     record ValidatedArchive(int version, Map<String,Object> manifest, Map<String,Object> players,
                             Map<String,Object> galaxy, Map<String,Object> runtime) { }

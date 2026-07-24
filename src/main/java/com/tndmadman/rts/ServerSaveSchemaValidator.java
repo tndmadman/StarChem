@@ -31,6 +31,7 @@ public final class ServerSaveSchemaValidator {
             validateAcceptedSchemas(dir.resolve("accepted"));
             validateRejectedSchemas(dir.resolve("rejected"));
             ServerSaveResourceLimitsValidator.validate(dir.resolve("resource-limits"));
+            ServerPersistenceCoordinatorValidator.validate();
             validateBackupConsistency(dir.resolve("backup"));
             validatePromotionOrdering(dir.resolve("promotion"));
         } finally {

@@ -232,7 +232,16 @@ final class ServerBackupAdmin {
     }
 
     String create(String label) {
-        return createVerified(label).message();
+        String safeLabel = cleanLabel(label);
+        ServerPersistenceCoordinator coordinator = ServerPersistenceCoordinator.forSave(saveDir, saveName);
+        ServerPersistenceCoordinator.Submission submission = coordinator.submit(
+                "backup-" + (safeLabel.isBlank() ? "manual" : safeLabel), false, () -> {
+                    BackupCreation result = createVerified(safeLabel);
+                    if (!result.success()) throw new IOException(result.message());
+                    System.out.println(result.message());
+                });
+        if (!submission.accepted()) return "Could not queue backup: persistence queue is full.";
+        return "Backup creation queued as persistence job " + submission.id() + ".";
     }
 
     BackupCreation createVerified(String label) {
