@@ -17,12 +17,13 @@ jobs:
     name: Compile, validate, and package
     runs-on: ubuntu-latest
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-        with:
-          ref: agent/schedule-inactive-systems
-          fetch-depth: 1
-          show-progress: false
+      - name: Clone source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git clone --quiet --depth 1 --branch agent/schedule-inactive-systems \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
 
       - name: Apply issue 190 implementation
         shell: bash
