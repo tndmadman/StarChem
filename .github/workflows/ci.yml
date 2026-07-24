@@ -35,10 +35,10 @@ jobs:
           start = next(i for i, line in enumerate(lines) if "python3 - <<'PY'" in line)
           end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == 'PY')
           body = lines[start + 1:end]
-          indent = min((len(line) - len(line.lstrip()) for line in body if line.strip()), default=0)
-          script = '\n'.join(line[indent:] if line.strip() else '' for line in body)
+          prefix = '          '
+          script = '\n'.join(line[len(prefix):] if line.startswith(prefix) else line for line in body)
           Path('/tmp/issue-190-patch.py').write_text(script)
-          print('Extracted patch lines:', len(body), 'indent:', indent)
+          print('Extracted patch lines:', len(body))
           PY
           python3 /tmp/issue-190-patch.py
 
