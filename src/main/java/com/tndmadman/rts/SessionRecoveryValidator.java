@@ -24,10 +24,12 @@ public final class SessionRecoveryValidator {
         transport.start();
         try (Socket firstClient = connect(loopback, transport.localPort());
              Socket reboundClient = connect(loopback, transport.localPort());
+             Socket rawTokenClient = connect(loopback, transport.localPort());
              Socket restartedClient = connect(loopback, transport.localPort());
              Socket longOfflineClient = connect(loopback, transport.localPort())) {
             waitConnection(transport, loopback, firstClient.getLocalPort());
             waitConnection(transport, loopback, reboundClient.getLocalPort());
+            waitConnection(transport, loopback, rawTokenClient.getLocalPort());
             waitConnection(transport, loopback, restartedClient.getLocalPort());
             waitConnection(transport, loopback, longOfflineClient.getLocalPort());
 
@@ -61,13 +63,16 @@ public final class SessionRecoveryValidator {
             require(!server.owns(firstEndpoint, "P1"), "timed-out TCP connection remained connected");
             require(world.hasLiveAssets("P1"), "timeout deleted P1 assets");
             require(world.hasResearch("P1", "session-recovery-marker"), "timeout deleted P1 research");
-            ConnectionId rawTokenEndpoint = transport.connectionId(loopback, restartedClient.getLocalPort());
+            ConnectionId rawTokenEndpoint = transport.connectionId(loopback, rawTokenClient.getLocalPort());
             PacketSideA.handle(server, "RESUME|P1|" + firstToken + "|NODEV|",
-                    new NetPacket("RESUME|P1|" + firstToken + "|NODEV|", rawTokenEndpoint, loopback, restartedClient.getLocalPort()));
-            String rawTokenResponse = receivePayload(restartedClient, "SESSION_CHALLENGE|");
-            require(rawTokenResponse.contains("|P1|"), "raw network resume token was not converted to a proof challenge");
-            require(!server.owns(rawTokenEndpoint, "P1"), "raw network resume token reclaimed the player session");
-            require(server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1", firstToken, false, ""),
+                    new NetPacket("RESUME|P1|" + firstToken + "|NODEV|", rawTokenEndpoint, loopback, rawTokenClient.getLocalPort()));
+            String rawTokenWelcome = receivePayload(rawTokenClient, "WELCOME|");
+            String rawNetworkToken = markerValue(rawTokenWelcome, "SESSION");
+            require(validToken(rawNetworkToken),
+                    "raw network resume token did not receive a rotated token");
+            require(server.owns(rawTokenEndpoint, "P1"), "raw network resume token did not reclaim the player session");
+            server.removePeer(rawTokenEndpoint);
+            require(server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1", rawNetworkToken, false, ""),
                     "valid session could not rebind to a new TCP connection");
             String reboundWelcome = receivePayload(reboundClient, "WELCOME|");
             String reboundToken = markerValue(reboundWelcome, "SESSION");
@@ -75,7 +80,7 @@ public final class SessionRecoveryValidator {
             require(server.owns(reboundEndpoint, "P1"), "rebound connection did not own P1");
             require(!server.owns(firstEndpoint, "P1"), "old connection retained P1 ownership after rebind");
 
-            require(server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1", firstToken, false, ""),
+            require(server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1", rawNetworkToken, false, ""),
                     "duplicate resume retry was not idempotent");
             String retryWelcome = receivePayload(reboundClient, "WELCOME|");
             require(reboundToken.equals(markerValue(retryWelcome, "SESSION")),
@@ -163,12 +168,8 @@ public final class SessionRecoveryValidator {
                     "restored server did not issue a valid password challenge");
             String wrongVerifier = PasswordAuth.scopedVerifier("Persistent Client", "wrong-password",
                     TEST_SERVER_FINGERPRINT, challengeSalts.scopedSalt());
-            String wrongProof = PasswordAuth.challengeProof(
-                    PasswordAuth.serverDigest(PasswordAuth.decodeVerifier(wrongVerifier),
-                            challengeSalts.currentSalt()),
-                    "Persistent Client", challengeParts[3]);
             restoredServer.join(restoredEndpoint, loopback, restoredClient.getLocalPort(), "Persistent Client",
-                    "", challengeParts[3], wrongProof, false, "");
+                    wrongVerifier, challengeParts[3], "", false, "");
             String rejected = receivePayload(restoredClient, "JOIN_DENIED|");
             require(rejected.contains("Password rejected"), "wrong password did not receive a password rejection");
             require(!restoredServer.owns(restoredEndpoint, "P1"),
@@ -296,9 +297,7 @@ public final class SessionRecoveryValidator {
                 "server did not issue a scoped authentication challenge");
         String verifier = PasswordAuth.scopedVerifier(name, password, TEST_SERVER_FINGERPRINT,
                 salts.scopedSalt());
-        String proof = PasswordAuth.challengeProof(PasswordAuth.serverDigest(
-                PasswordAuth.decodeVerifier(verifier), salts.currentSalt()), name, parts[3]);
-        server.join(connectionId, address, port, name, "", parts[3], proof, false, "");
+        server.join(connectionId, address, port, name, verifier, parts[3], "", false, "");
         return receivePayload(socket, "WELCOME|");
     }
 

@@ -210,6 +210,29 @@ final class PasswordAuth {
         }
     }
 
+    static boolean passwordCredentialMatches(byte[] storedDigest, byte[] suppliedVerifier, byte[] salt) {
+        if (storedDigest == null || storedDigest.length == 0 || suppliedVerifier == null
+                || suppliedVerifier.length == 0 || salt == null || salt.length == 0) return false;
+        byte[] candidate = serverDigest(suppliedVerifier, salt);
+        try {
+            return MessageDigest.isEqual(storedDigest, candidate);
+        } finally {
+            Arrays.fill(candidate, (byte)0);
+        }
+    }
+
+    static boolean sessionTokenMatches(byte[] storedDigest, String suppliedToken) {
+        if (storedDigest == null || storedDigest.length == 0 || suppliedToken == null || suppliedToken.isBlank()) {
+            return false;
+        }
+        byte[] candidate = tokenDigest(suppliedToken);
+        try {
+            return MessageDigest.isEqual(storedDigest, candidate);
+        } finally {
+            Arrays.fill(candidate, (byte)0);
+        }
+    }
+
     static String newNonce() {
         byte[] nonce = new byte[32];
         RANDOM.nextBytes(nonce);

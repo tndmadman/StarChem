@@ -479,3 +479,16 @@ tasks.register('validateObservationRetention', JavaExec) {
 tasks.named('check') {
     dependsOn tasks.named('validateObservationRetention')
 }
+
+tasks.register('validateSavedCredentialReplay', JavaExec) {
+    group = 'verification'
+    description = 'Validate that authentication fields copied from a server save cannot authenticate.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.SavedCredentialReplayValidator'
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('validateSavedCredentialReplay')
+}
+
