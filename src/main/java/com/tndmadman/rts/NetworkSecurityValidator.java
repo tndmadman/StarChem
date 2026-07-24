@@ -10,6 +10,7 @@ public final class NetworkSecurityValidator {
 
     public static void main(String[] args) throws Exception {
         validateFrameCodec();
+        PreAuthConnectionGateValidator.validate();
         validateTransportRoundTrip();
         validateEncryptedTransportAndPinning();
         validateCompatibilityHandshake();

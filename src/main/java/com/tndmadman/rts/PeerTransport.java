@@ -7,7 +7,11 @@ import javax.net.SocketFactory;
 import javax.net.ssl.SSLServerSocket;
 import javax.net.ssl.SSLSocket;
 import java.util.*;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -21,6 +25,9 @@ final class PeerTransport {
     private static final int CONNECT_TIMEOUT_MS = 1_500;
     private static final int SOCKET_IDLE_TIMEOUT_MS = 15_000;
     private static final long RECONNECT_DELAY_MS = 250;
+    private static final int HANDSHAKE_THREADS = 4;
+    private static final int HANDSHAKE_QUEUE = 32;
+    private static final AtomicLong HANDSHAKE_THREAD_IDS = new AtomicLong();
 
     private final boolean serverMode;
     private final ServerSocket serverSocket;
@@ -30,6 +37,9 @@ final class PeerTransport {
     private final PerfStats perfStats;
     private final String serverFingerprint;
     private final InboundCommandScheduler inbound;
+    private final PreAuthConnectionGate preAuthGate;
+    private final ThreadPoolExecutor handshakeExecutor;
+    private final Map<ConnectionId, Socket> pendingServerSockets = new ConcurrentHashMap<>();
     private final AtomicLong nextConnectionId = new AtomicLong(1);
     private final Map<ConnectionId, TcpConnection> connections = new ConcurrentHashMap<>();
     private final Map<String, ConnectionId> endpointIndex = new ConcurrentHashMap<>();
@@ -54,6 +64,15 @@ final class PeerTransport {
                 ? serverFingerprint.toLowerCase(Locale.ROOT) : "";
         this.compatibilityAccepted = serverMode;
         this.inbound = new InboundCommandScheduler(serverMode);
+        this.preAuthGate = serverMode ? new PreAuthConnectionGate(PreAuthConnectionGate.Limits.defaults()) : null;
+        this.handshakeExecutor = serverMode ? new ThreadPoolExecutor(
+                HANDSHAKE_THREADS, HANDSHAKE_THREADS, 0L, TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(HANDSHAKE_QUEUE), task -> {
+                    Thread thread = new Thread(task, "starchem-tcp-handshake-"
+                            + HANDSHAKE_THREAD_IDS.incrementAndGet());
+                    thread.setDaemon(true);
+                    return thread;
+                }, new ThreadPoolExecutor.AbortPolicy()) : null;
     }
 
     static PeerTransport server(int port, PerfStats perfStats) throws IOException {
@@ -100,12 +119,21 @@ final class PeerTransport {
                 serverMode ? "starchem-tcp-accept" : "starchem-tcp-connect");
         thread.setDaemon(true);
         thread.start();
+        if (serverMode) {
+            Thread deadlines = new Thread(this::authenticationDeadlineLoop,
+                    "starchem-tcp-auth-deadlines");
+            deadlines.setDaemon(true);
+            deadlines.start();
+        }
     }
 
     NetPacket poll() { return inbound.poll(); }
     int inboundQueuedCount() { return inbound.queuedCount(); }
     InboundCommandScheduler.ConnectionDiagnostics inboundDiagnostics(ConnectionId id) { return inbound.diagnostics(id); }
     InboundCommandScheduler.Snapshot inboundSnapshot() { return inbound.snapshot(); }
+    PreAuthConnectionGate.Snapshot preAuthSnapshot() {
+        return preAuthGate == null ? null : preAuthGate.snapshot();
+    }
 
     int queuedCount() {
         int pending = 0;
@@ -260,6 +288,9 @@ final class PeerTransport {
         running = false;
         closeQuietly(serverSocket);
         if (serverMode) {
+            for (Socket socket : List.copyOf(pendingServerSockets.values())) closeQuietly(socket);
+            pendingServerSockets.clear();
+            if (handshakeExecutor != null) handshakeExecutor.shutdownNow();
             for (TcpConnection connection : List.copyOf(connections.values())) connection.close();
             connections.clear();
             endpointIndex.clear();
@@ -301,6 +332,7 @@ final class PeerTransport {
     private String prepareServerControl(String message, TcpConnection connection) {
         if (message == null) return null;
         if (serverMode && message.startsWith("WELCOME|") && connection != null) {
+            connection.markAuthenticated();
             compatibleConnections.add(connection.id);
             return MultiplayerCompatibility.versionServerWelcome(message);
         }
@@ -353,22 +385,76 @@ final class PeerTransport {
         while (running) {
             try {
                 Socket socket = serverSocket.accept();
-                if (connections.size() >= MAX_CONNECTIONS) {
+                if (connections.size() + pendingServerSockets.size() >= MAX_CONNECTIONS) {
                     closeQuietly(socket);
                     perfStats.recordConnectionRejected();
                     continue;
                 }
-                configure(socket);
-                TcpConnection connection = new TcpConnection(new ConnectionId(nextConnectionId.getAndIncrement()), socket);
-                connections.put(connection.id, connection);
-                endpointIndex.put(connection.endpoint, connection.id);
-                perfStats.recordConnectionOpened();
-                connection.start();
+                ConnectionId connectionId = new ConnectionId(nextConnectionId.getAndIncrement());
+                PreAuthConnectionGate.Decision decision = preAuthGate.tryAcquire(
+                        connectionId, socket.getInetAddress(), System.currentTimeMillis());
+                if (!decision.allowed()) {
+                    closeQuietly(socket);
+                    perfStats.recordConnectionRejected();
+                    continue;
+                }
+                pendingServerSockets.put(connectionId, socket);
+                try {
+                    handshakeExecutor.execute(() -> initializeAcceptedSocket(connectionId, socket));
+                } catch (RejectedExecutionException ex) {
+                    pendingServerSockets.remove(connectionId, socket);
+                    preAuthGate.release(connectionId);
+                    closeQuietly(socket);
+                    perfStats.recordConnectionRejected();
+                }
             } catch (SocketException ex) {
                 if (running) System.err.println("TCP accept failed: " + ex.getMessage());
             } catch (IOException ex) {
                 if (running) System.err.println("TCP accept failed: " + ex.getMessage());
             }
+        }
+    }
+
+    private void initializeAcceptedSocket(ConnectionId connectionId, Socket socket) {
+        boolean handedOff = false;
+        try {
+            if (!running) return;
+            configure(socket, preAuthGate.authenticationTimeoutMs());
+            if (socket instanceof SSLSocket ssl) ssl.startHandshake();
+            if (!running || preAuthGate.expired(connectionId, System.currentTimeMillis())) {
+                perfStats.recordConnectionRejected();
+                return;
+            }
+            TcpConnection connection = new TcpConnection(connectionId, socket);
+            connections.put(connection.id, connection);
+            endpointIndex.put(connection.endpoint, connection.id);
+            handedOff = true;
+            perfStats.recordConnectionOpened();
+            connection.start();
+        } catch (IOException ex) {
+            if (running) perfStats.recordConnectionRejected();
+        } finally {
+            pendingServerSockets.remove(connectionId, socket);
+            if (!handedOff) {
+                preAuthGate.release(connectionId);
+                closeQuietly(socket);
+            }
+        }
+    }
+
+    private void authenticationDeadlineLoop() {
+        while (running) {
+            long now = System.currentTimeMillis();
+            for (Map.Entry<ConnectionId, Socket> entry : pendingServerSockets.entrySet()) {
+                if (preAuthGate.expired(entry.getKey(), now)) closeQuietly(entry.getValue());
+            }
+            for (TcpConnection connection : List.copyOf(connections.values())) {
+                if (!connection.authenticated() && preAuthGate.expired(connection.id, now)) {
+                    perfStats.recordConnectionRejected();
+                    connection.close();
+                }
+            }
+            sleep(100);
         }
     }
 
@@ -417,10 +503,14 @@ final class PeerTransport {
     }
 
     private void configure(Socket socket) throws SocketException {
+        configure(socket, SOCKET_IDLE_TIMEOUT_MS);
+    }
+
+    private void configure(Socket socket, int timeoutMs) throws SocketException {
         if (socket instanceof SSLSocket ssl) configureTlsSocket(ssl);
         socket.setTcpNoDelay(true);
         socket.setKeepAlive(true);
-        socket.setSoTimeout(SOCKET_IDLE_TIMEOUT_MS);
+        socket.setSoTimeout(Math.max(1, timeoutMs));
         socket.setReceiveBufferSize(256 * 1024);
         socket.setSendBufferSize(256 * 1024);
     }
@@ -447,6 +537,12 @@ final class PeerTransport {
 
     private void receive(TcpConnection connection, TcpFrameCodec.DecodedFrame frame) {
         if (frame == null || frame.message() == null) return;
+        if (serverMode && !connection.authenticated()
+                && preAuthGate.expired(connection.id, System.currentTimeMillis())) {
+            perfStats.recordConnectionRejected();
+            connection.close();
+            return;
+        }
         perfStats.recordPacketReceived(frame.wireBytes());
         if (isSnapshot(frame.message())) perfStats.recordSnapshotReceived(frame.wireBytes());
         NetPacket packet = new NetPacket(frame.message(), connection.id, connection.address, connection.remotePort);
@@ -464,6 +560,7 @@ final class PeerTransport {
         compatibleConnections.remove(connection.id);
         inbound.discard(connection.id);
         if (serverMode) {
+            preAuthGate.release(connection.id);
             connections.remove(connection.id, connection);
             endpointIndex.remove(connection.endpoint, connection.id);
             if (running) publishDisconnect(connection);
@@ -529,6 +626,7 @@ final class PeerTransport {
         private final Deque<OutboundFrame> outboundFrames = new ArrayDeque<>();
         private final Map<String, OutboundFrame> replaceableFrames = new LinkedHashMap<>();
         private final AtomicBoolean open = new AtomicBoolean(true);
+        private final AtomicBoolean authenticated = new AtomicBoolean(!serverMode);
         private int controlFrameCount;
         private long queuedBytes;
         private long coalescedSnapshots;
@@ -618,7 +716,15 @@ final class PeerTransport {
         synchronized int pendingFrames() { return outboundFrames.size() + (writeInFlight ? 1 : 0); }
         synchronized long pendingBytes() { return queuedBytes; }
         boolean open() { return open.get(); }
+        boolean authenticated() { return authenticated.get(); }
         int localPort() { return socket.getLocalPort(); }
+
+        void markAuthenticated() {
+            if (!authenticated.compareAndSet(false, true)) return;
+            if (preAuthGate != null) preAuthGate.authenticate(id);
+            try { socket.setSoTimeout(SOCKET_IDLE_TIMEOUT_MS); }
+            catch (SocketException ex) { close(); }
+        }
 
         synchronized ConnectionDiagnostics diagnostics() {
             return new ConnectionDiagnostics(id, open.get(), pendingFrames(), queuedBytes, coalescedSnapshots);
@@ -651,6 +757,7 @@ final class PeerTransport {
                     receive(this, frame);
                 }
             } catch (SocketTimeoutException ignored) {
+                if (serverMode && !authenticated()) perfStats.recordConnectionRejected();
                 // Application heartbeats and snapshots normally keep healthy connections active.
             } catch (IOException ex) {
                 if (open.get()) perfStats.recordMalformedPacket();
