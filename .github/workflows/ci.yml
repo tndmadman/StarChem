@@ -1,12 +1,15 @@
 name: CI
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -16,69 +19,117 @@ jobs:
   verify:
     name: Compile, validate, and package
     runs-on: ubuntu-latest
+
     steps:
-      - name: Clone, apply, verify, and publish
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Verify project
+        run: gradle clean check jar --no-daemon
+
+      - name: Validate canonical endpoint identity
+        run: java -cp build/classes/java/main com.tndmadman.rts.SessionEndpointIdentityValidator
+
+      - name: Validate authenticated numeric commands
+        run: java -cp build/classes/java/main com.tndmadman.rts.NumericCommandValidationValidator authenticated
+
+      - name: Validate authoritative numeric repair
+        run: java -cp build/classes/java/main com.tndmadman.rts.NumericCommandValidationValidator repair
+
+      - name: Validate numeric serialization boundaries
+        run: java -cp build/classes/java/main com.tndmadman.rts.NumericCommandValidationValidator serialization
+
+      - name: Validate authoritative mining commands
+        run: java -cp build/classes/java/main com.tndmadman.rts.MiningCommandValidationValidator
+
+      - name: Smoke-test Linux headless server
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          git clone --quiet --depth 1 --branch agent/schedule-inactive-systems \
-            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
-          python3 - <<'PY'
-          from pathlib import Path
-          lines = Path('.github/workflows/agent-issue-190.yml').read_text().splitlines()
-          start = next(i for i, line in enumerate(lines) if "python3 - <<'PY'" in line)
-          end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == 'PY')
-          prefix = '          '
-          extracted = [line[len(prefix):] if line.startswith(prefix) else line for line in lines[start + 1:end]]
-          adjusted = []
-          status_block = False
-          for line in extracted:
-              if line.startswith("old_status = '''") or line.startswith("new_status = '''"):
-                  status_block = True
-                  adjusted.append(line)
-                  continue
-              if status_block and line == "'''":
-                  status_block = False
-                  adjusted.append(line)
-                  continue
-              adjusted.append(('    ' + line) if status_block and line else line)
-          Path('/tmp/issue-190-patch.py').write_text('\n'.join(adjusted))
-          PY
-          python3 /tmp/issue-190-patch.py
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('src/main/java/com/tndmadman/rts/SystemSimulationSchedulerValidator.java')
-          text = path.read_text()
-          old = 'require(SystemSimulationScheduler.step(dormant, 0.1) >= 5.0,'
-          new = 'require(SystemSimulationScheduler.step(dormant, 0.1) >= 4.99,'
-          if old not in text:
-              raise SystemExit('dormant tolerance assertion not found')
-          path.write_text(text.replace(old, new))
-          PY
+          set -euo pipefail
+          PORT=50080
+          LOG=build/headless-server.log
+          SAVE_DIR=build/headless-smoke-saves
+          rm -rf "$SAVE_DIR"
+
+          java -Djava.awt.headless=true -jar build/libs/StarChem.jar \
+            --server "$PORT" \
+            --name CI-Server \
+            --save-dir "$SAVE_DIR" \
+            --save-name smoke \
+            --new-world >"$LOG" 2>&1 &
+          SERVER_PID=$!
+
+          cleanup() {
+            kill -TERM "$SERVER_PID" 2>/dev/null || true
+            wait "$SERVER_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          READY=0
+          for _ in {1..100}; do
+            if grep -Fq 'Dedicated server ready.' "$LOG"; then
+              READY=1
+              break
+            fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              cat "$LOG"
+              echo 'Headless server exited before becoming ready.' >&2
+              exit 1
+            fi
+            sleep 0.1
+          done
+
+          if [[ "$READY" -ne 1 ]]; then
+            cat "$LOG"
+            echo 'Headless server did not become ready.' >&2
+            exit 1
+          fi
+          grep -Fq "TCP $PORT" "$LOG"
+
+          kill -TERM "$SERVER_PID"
+          (
+            sleep 10
+            kill -KILL "$SERVER_PID" 2>/dev/null || true
+          ) &
+          WATCHDOG_PID=$!
 
           set +e
-          gradle validateSystemSimulationScheduler --stacktrace --no-daemon > /tmp/focused.log 2>&1
-          focused=$?
-          if [[ "$focused" -ne 0 ]]; then
-            grep -E 'SystemSimulationSchedulerValidator|AuthoritativeSystemScheduler|IllegalStateException|Compilation failed|error:|Caused by:' /tmp/focused.log | head -n 80 || true
-            exit "$focused"
-          fi
-
-          gradle clean check jar --stacktrace --no-daemon > /tmp/full.log 2>&1
-          full=$?
-          if [[ "$full" -ne 0 ]]; then
-            grep -E 'Validator|IllegalStateException|Compilation failed|error:|Caused by:|FAILED' /tmp/full.log | head -n 120 || true
-            exit "$full"
-          fi
+          wait "$SERVER_PID"
+          SERVER_STATUS=$?
           set -e
+          kill "$WATCHDOG_PID" 2>/dev/null || true
+          wait "$WATCHDOG_PID" 2>/dev/null || true
+          trap - EXIT
 
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/main/java/com/tndmadman/rts/PeerServerSide.java \
-                  src/main/java/com/tndmadman/rts/AuthoritativeSystemScheduler.java \
-                  src/main/java/com/tndmadman/rts/SystemSimulationScheduler.java \
-                  src/main/java/com/tndmadman/rts/SystemSimulationSchedulerValidator.java
-          git commit -m "Schedule inactive systems by due time"
-          git push origin HEAD:agent/schedule-inactive-systems
-          echo "Focused scheduler validator and full Gradle check passed."
+          cat "$LOG"
+          if [[ "$SERVER_STATUS" -ne 0 && "$SERVER_STATUS" -ne 143 ]]; then
+            echo "Unexpected headless server exit status: $SERVER_STATUS" >&2
+            exit 1
+          fi
+          grep -Fq 'Dedicated server stopped.' "$LOG"
+
+      - name: Verify overridden release identity
+        shell: bash
+        run: |
+          SAMPLE_VERSION="9.8.7-ci"
+          SAMPLE_COMMIT="0123456789abcdef0123456789abcdef01234567"
+
+          gradle clean verifyBuildMetadata --no-daemon \
+            -PreleaseVersion="$SAMPLE_VERSION" \
+            -PbuildCommit="$SAMPLE_COMMIT"
+
+          test -f build/libs/StarChem.jar
+          VERSION_OUTPUT="$(java -jar build/libs/StarChem.jar --version)"
+          echo "$VERSION_OUTPUT"
+          [[ "$VERSION_OUTPUT" == "StarChem ${SAMPLE_VERSION} (${SAMPLE_COMMIT:0:12})" ]]
