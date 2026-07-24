@@ -21,9 +21,9 @@ StarChem saved credential replay validation passed.
 Dev access policy, protected token source, and request-state validation passed.
 
 > Task :validateSessionRecovery FAILED
-Exception in thread "main" java.lang.IllegalStateException: duplicate resume retry was not idempotent
-	at com.tndmadman.rts.SessionRecoveryValidator.require(SessionRecoveryValidator.java:352)
-	at com.tndmadman.rts.SessionRecoveryValidator.validateServerSessionRecovery(SessionRecoveryValidator.java:80)
+Exception in thread "main" java.lang.IllegalStateException: Did not receive TCP frame starting with WELCOME|
+	at com.tndmadman.rts.SessionRecoveryValidator.receivePayload(SessionRecoveryValidator.java:338)
+	at com.tndmadman.rts.SessionRecoveryValidator.validateServerSessionRecovery(SessionRecoveryValidator.java:99)
 	at com.tndmadman.rts.SessionRecoveryValidator.main(SessionRecoveryValidator.java:15)
 
 FAILURE: Build failed with an exception.
@@ -38,5 +38,5 @@ Execution failed for task ':validateSessionRecovery' (registered in build file '
 > Run with --scan to get full insights from a Build Scan (powered by Develocity).
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 33s
+BUILD FAILED in 32s
 4 actionable tasks: 4 executed
