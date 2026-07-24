@@ -1,9 +1,10 @@
 name: Apply saved authentication key repair
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/fix-save-auth-keys
+      - main
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
