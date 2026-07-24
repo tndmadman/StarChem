@@ -2,20 +2,24 @@ package com.tndmadman.rts;
 
 import java.util.EnumMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.WeakHashMap;
 
 /**
- * Builds a fresh galaxy-wide material reservation plan whenever organized NPC
- * production attempts to spend resources. Materials stay in their normal base
- * inventories; the plan only limits which priority is allowed to consume them.
+ * Builds and reuses galaxy-wide material reservation plans for organized NPC
+ * factions. Materials stay in their normal base inventories; the plan only
+ * limits which priority is allowed to consume them.
  */
 final class NpcResourceBudget {
     private static final double EPSILON = 0.001;
     private static final double EXPANSION_FRACTION = 0.20;
     private static final double EXPANSION_CAP_PER_MATERIAL = 250.0;
+    private static final Map<World, Map<String, CachedPlan>> PLAN_CACHE = new WeakHashMap<>();
+    private static final Map<World, Map<String, Long>> PLAN_SCAN_COUNTS = new WeakHashMap<>();
 
     private NpcResourceBudget() { }
 
@@ -26,11 +30,32 @@ final class NpcResourceBudget {
         return plan(world, faction, strategy);
     }
 
-    static NpcBudgetPlan plan(World world, NpcFaction faction, NpcStrategicState strategy) {
+    static synchronized NpcBudgetPlan plan(World world, NpcFaction faction, NpcStrategicState strategy) {
+        NpcStrategicState normalizedStrategy = strategy == null
+                ? NpcStrategicState.DEFEATED : strategy;
         if (world == null || faction == null || faction.behavior() != NpcBehavior.FACTION) {
-            return NpcBudgetPlan.empty(strategy);
+            return NpcBudgetPlan.empty(normalizedStrategy);
         }
 
+        String systemId = world.activeSystemId();
+        long seed = world.systemSeed();
+        long timeBits = Double.doubleToLongBits(world.systemTime());
+        long fingerprint = localFingerprint(world, faction);
+        CachedPlan cached = cachedPlan(world, faction);
+        if (cached != null && cached.matches(seed, systemId, timeBits, fingerprint, normalizedStrategy)) {
+            return cached.plan;
+        }
+
+        NpcBudgetPlan built = buildPlan(world, faction, normalizedStrategy);
+        cachePlan(world, faction, new CachedPlan(seed, systemId, timeBits,
+                localFingerprint(world, faction), normalizedStrategy, built));
+        PLAN_SCAN_COUNTS.computeIfAbsent(world, ignored -> new LinkedHashMap<>())
+                .merge(faction.id(), 1L, Long::sum);
+        return built;
+    }
+
+    private static NpcBudgetPlan buildPlan(World world, NpcFaction faction,
+                                           NpcStrategicState strategy) {
         Scan scan = inspect(world, faction);
         EnumMap<NpcBudgetCategory, EnumMap<Material, Double>> direct = emptyBuckets();
 
@@ -38,7 +63,7 @@ final class NpcResourceBudget {
             reserveEmergencyFuel(direct.get(NpcBudgetCategory.EMERGENCY_FUEL), faction);
             reserveWorkerRecovery(direct.get(NpcBudgetCategory.WORKER_RECOVERY), world, faction, scan);
 
-            if (strategy != null && strategy.buildsStations() && scan.stations < faction.maxStations()) {
+            if (strategy.buildsStations() && scan.stations < faction.maxStations()) {
                 NpcBudgetCategory category = strategy == NpcStrategicState.EXPAND
                         ? NpcBudgetCategory.EXPANSION
                         : NpcBudgetCategory.STATION_RECOVERY;
@@ -49,7 +74,7 @@ final class NpcResourceBudget {
                 reserveResearch(direct.get(NpcBudgetCategory.RESEARCH), world, faction, scan);
             }
 
-            if (strategy != null && strategy.prioritizesFleet()
+            if (strategy.prioritizesFleet()
                     && scan.combat < Math.max(1, faction.targetFleetSize())) {
                 reserveFleet(direct.get(NpcBudgetCategory.FLEET), world, faction, scan);
             }
@@ -60,23 +85,19 @@ final class NpcResourceBudget {
         }
 
         EnumMap<NpcBudgetCategory, EnumMap<Material, Double>> desired = emptyBuckets();
-        for (NpcBudgetCategory category : NpcBudgetCategory.values()) {
-            desired.put(category, expandRequirements(world, faction, scan,
-                    direct.get(category), scan.materials));
-        }
-
         EnumMap<NpcBudgetCategory, EnumMap<Material, Double>> funded = emptyBuckets();
         EnumMap<Material, Double> remaining = copyMaterials(scan.materials);
         for (NpcBudgetCategory category : NpcBudgetCategory.values()) {
-            EnumMap<Material, Double> categoryDesired = desired.get(category);
+            EnumMap<Material, Double> categoryDesired = expandRequirements(
+                    world, faction, scan, direct.get(category), remaining);
+            desired.put(category, categoryDesired);
             EnumMap<Material, Double> categoryFunded = funded.get(category);
             for (Material material : Material.values()) {
                 double need = categoryDesired.getOrDefault(material, 0.0);
                 if (need <= EPSILON) continue;
                 double amount = Math.min(need, remaining.getOrDefault(material, 0.0));
                 if (amount > EPSILON) categoryFunded.put(material, amount);
-                double left = remaining.getOrDefault(material, 0.0) - amount;
-                if (left <= EPSILON) remaining.remove(material); else remaining.put(material, left);
+                subtract(remaining, material, amount);
             }
         }
 
@@ -105,12 +126,23 @@ final class NpcResourceBudget {
         return true;
     }
 
-    static boolean spend(World world, NpcFaction faction, NpcBudgetCategory category, List<Cost> cost) {
-        NpcBudgetPlan plan = plan(world, faction);
-        if (!canAfford(world, faction, category, cost, plan)) return false;
+    static synchronized boolean spend(World world, NpcFaction faction,
+                                      NpcBudgetCategory category, List<Cost> cost) {
+        if (world == null || faction == null || cost == null || cost.isEmpty()) return true;
+        NpcBudgetCategory normalizedCategory = category == null
+                ? NpcBudgetCategory.GENERAL : category;
+        NpcBudgetPlan current = plan(world, faction);
+        if (!canAfford(world, faction, normalizedCategory, cost, current)) return false;
         for (Cost entry : cost) {
             if (entry == null || entry.amount() <= EPSILON) continue;
             spendLocalMaterial(world, faction.id(), entry.material(), entry.amount());
+        }
+        if (faction.behavior() == NpcBehavior.FACTION) {
+            NpcBudgetPlan adjusted = current.afterSpend(normalizedCategory, cost);
+            cachePlan(world, faction, new CachedPlan(
+                    world.systemSeed(), world.activeSystemId(),
+                    Double.doubleToLongBits(world.systemTime()),
+                    localFingerprint(world, faction), adjusted.strategy(), adjusted));
         }
         return true;
     }
@@ -142,6 +174,71 @@ final class NpcResourceBudget {
             }
         }
         return transferred > 1.0;
+    }
+
+    static synchronized void invalidate(World world, NpcFaction faction) {
+        if (world == null) return;
+        if (faction == null) {
+            PLAN_CACHE.remove(world);
+            return;
+        }
+        Map<String, CachedPlan> byFaction = PLAN_CACHE.get(world);
+        if (byFaction == null) return;
+        byFaction.remove(faction.id());
+        if (byFaction.isEmpty()) PLAN_CACHE.remove(world);
+    }
+
+    static synchronized long scanCountForTesting(World world, NpcFaction faction) {
+        if (world == null || faction == null) return 0;
+        return PLAN_SCAN_COUNTS.getOrDefault(world, Map.of()).getOrDefault(faction.id(), 0L);
+    }
+
+    private static CachedPlan cachedPlan(World world, NpcFaction faction) {
+        Map<String, CachedPlan> byFaction = PLAN_CACHE.get(world);
+        return byFaction == null ? null : byFaction.get(faction.id());
+    }
+
+    private static void cachePlan(World world, NpcFaction faction, CachedPlan cached) {
+        PLAN_CACHE.computeIfAbsent(world, ignored -> new LinkedHashMap<>())
+                .put(faction.id(), cached);
+    }
+
+    private static long localFingerprint(World world, NpcFaction faction) {
+        long hash = 0xcbf29ce484222325L;
+        hash = mix(hash, faction.id().hashCode());
+        Set<String> research = world.completedResearch.getOrDefault(faction.id(), Set.of());
+        for (String topic : research) hash = mix(hash, topic.hashCode());
+        for (Base base : world.bases.values()) {
+            if (!faction.id().equals(base.playerId)) continue;
+            hash = mix(hash, base.id.hashCode());
+            hash = mix(hash, base.typeId.hashCode());
+            hash = mix(hash, Double.doubleToLongBits(base.hp));
+            for (Material material : Material.values()) {
+                hash = mix(hash, Double.doubleToLongBits(
+                        base.inventory.getOrDefault(material, 0.0)));
+            }
+            hash = mix(hash, base.productionQueue.size());
+            for (ProductionJob job : base.productionQueue) {
+                hash = mix(hash, job.id.hashCode());
+                hash = mix(hash, job.kind.ordinal());
+                hash = mix(hash, job.itemId.hashCode());
+                hash = mix(hash, Double.doubleToLongBits(job.remaining));
+                hash = mix(hash, job.resourcesReserved ? 1 : 0);
+            }
+        }
+        for (Unit unit : world.units.values()) {
+            if (!faction.id().equals(unit.playerId)) continue;
+            hash = mix(hash, unit.key().hashCode());
+            hash = mix(hash, unit.shipTypeId.hashCode());
+            hash = mix(hash, Double.doubleToLongBits(unit.hp));
+            hash = mix(hash, unit.basePackageType.hashCode());
+        }
+        return hash;
+    }
+
+    private static long mix(long hash, long value) {
+        hash ^= value;
+        return hash * 0x100000001b3L;
     }
 
     private static void reserveEmergencyFuel(EnumMap<Material, Double> bucket, NpcFaction faction) {
@@ -236,6 +333,12 @@ final class NpcResourceBudget {
     private static void add(EnumMap<Material, Double> bucket, Material material, double amount) {
         if (bucket == null || material == null || !Double.isFinite(amount) || amount <= EPSILON) return;
         bucket.merge(material, amount, Double::sum);
+    }
+
+    private static void subtract(EnumMap<Material, Double> bucket, Material material, double amount) {
+        if (bucket == null || material == null || amount <= EPSILON) return;
+        double left = bucket.getOrDefault(material, 0.0) - amount;
+        if (left <= EPSILON) bucket.remove(material); else bucket.put(material, left);
     }
 
     private static EnumMap<Material, Double> expandRequirements(World world, NpcFaction faction,
@@ -429,6 +532,34 @@ final class NpcResourceBudget {
         return out;
     }
 
+    private static final class CachedPlan {
+        final long seed;
+        final String systemId;
+        final long timeBits;
+        final long fingerprint;
+        final NpcStrategicState strategy;
+        final NpcBudgetPlan plan;
+
+        CachedPlan(long seed, String systemId, long timeBits, long fingerprint,
+                   NpcStrategicState strategy, NpcBudgetPlan plan) {
+            this.seed = seed;
+            this.systemId = systemId == null ? "" : systemId;
+            this.timeBits = timeBits;
+            this.fingerprint = fingerprint;
+            this.strategy = strategy;
+            this.plan = plan;
+        }
+
+        boolean matches(long expectedSeed, String expectedSystemId, long expectedTimeBits,
+                        long expectedFingerprint, NpcStrategicState expectedStrategy) {
+            return seed == expectedSeed
+                    && systemId.equals(expectedSystemId == null ? "" : expectedSystemId)
+                    && timeBits == expectedTimeBits
+                    && fingerprint == expectedFingerprint
+                    && strategy == expectedStrategy;
+        }
+    }
+
     private static final class Scan {
         final EnumMap<Material, Double> materials = new EnumMap<>(Material.class);
         final EnumMap<Material, Double> homeMaterials = new EnumMap<>(Material.class);
@@ -522,6 +653,30 @@ final class NpcBudgetPlan {
         return total;
     }
 
+    NpcBudgetPlan afterSpend(NpcBudgetCategory category, List<Cost> cost) {
+        NpcBudgetCategory normalized = category == null ? NpcBudgetCategory.GENERAL : category;
+        EnumMap<Material, Double> nextTotals = copy(totals);
+        EnumMap<NpcBudgetCategory, EnumMap<Material, Double>> nextFunded = copyBuckets(funded);
+        if (cost != null) {
+            for (Cost entry : cost) {
+                if (entry == null || entry.amount() <= EPSILON) continue;
+                Material material = entry.material();
+                double amount = entry.amount();
+                subtract(nextTotals, material, amount);
+                double remaining = amount;
+                for (NpcBudgetCategory candidate : NpcBudgetCategory.values()) {
+                    if (candidate.ordinal() < normalized.ordinal() || remaining <= EPSILON) continue;
+                    EnumMap<Material, Double> bucket = nextFunded.get(candidate);
+                    double reserved = bucket.getOrDefault(material, 0.0);
+                    double used = Math.min(reserved, remaining);
+                    subtract(bucket, material, used);
+                    remaining -= used;
+                }
+            }
+        }
+        return new NpcBudgetPlan(strategy, nextTotals, desired, nextFunded);
+    }
+
     String summary() {
         StringBuilder out = new StringBuilder();
         for (NpcBudgetCategory category : NpcBudgetCategory.values()) {
@@ -531,6 +686,12 @@ final class NpcBudgetPlan {
             out.append(category.name()).append(' ').append((int)Math.round(amount));
         }
         return out.length() == 0 ? "unreserved" : out.toString();
+    }
+
+    private static void subtract(EnumMap<Material, Double> bucket, Material material, double amount) {
+        if (bucket == null || material == null || amount <= EPSILON) return;
+        double left = bucket.getOrDefault(material, 0.0) - amount;
+        if (left <= EPSILON) bucket.remove(material); else bucket.put(material, left);
     }
 
     private static EnumMap<Material, Double> copy(Map<Material, Double> source) {
