@@ -47,7 +47,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/preauth-validation.log
+          git add -f .github/preauth-validation.log
           git commit -m "Record pre-authentication validation failure"
           git push origin HEAD:agent/preauth-connection-limits
 
