@@ -1,9 +1,6 @@
 name: Apply pre-authentication transport fix
 
 on:
-  push:
-    branches:
-      - agent/preauth-connection-limits
   pull_request:
     branches:
       - main
@@ -28,6 +25,11 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Set up Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
       - name: Apply focused source edits
         run: python3 tools/apply_pre_auth_transport_fix.py
 
@@ -40,7 +42,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          ./gradlew clean check jar --no-daemon 2>&1 | tee .github/preauth-validation.log
+          gradle clean check jar --no-daemon 2>&1 | tee .github/preauth-validation.log
 
       - name: Commit verification failure log
         if: steps.verify.outcome == 'failure'
