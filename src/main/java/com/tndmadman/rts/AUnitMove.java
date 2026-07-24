@@ -6,16 +6,9 @@ final class AUnitMove {
     static boolean apply(World world, MoveCommand c) {
         if (world == null || c == null) return false;
         Unit u = world.units.get(Unit.key(c.playerId(), c.unitId()));
-        if (u == null) {
-            System.out.println("MOVE MISS " + c.playerId() + ":" + c.unitId());
-            return false;
-        }
-        if (!GameplayCommandNumbers.worldCoordinate(world, c.x(), c.y())) {
-            System.out.println("MOVE REJECT " + c.playerId() + ":" + c.unitId());
-            return false;
-        }
+        if (u == null) return false;
+        if (!GameplayCommandNumbers.worldCoordinate(world, c.x(), c.y())) return false;
         u.issueMove(c.x(), c.y());
-        System.out.println("MOVE OK " + c.playerId() + ":" + c.unitId());
         return true;
     }
 }
@@ -45,7 +38,7 @@ final class SideAOrders {
         s.touch(connectionId);
         if (!s.owns(connectionId, playerId)) return;
         if (p.length < 5) {
-            reject(s, "MOVE");
+            reject(s);
             return;
         }
         try {
@@ -55,14 +48,14 @@ final class SideAOrders {
                     GameplayCommandNumbers.parseFinite(p[3]),
                     GameplayCommandNumbers.parseFinite(p[4]));
             if (!GameplayCommandNumbers.worldCoordinate(s.world, command.x(), command.y())) {
-                reject(s, "MOVE");
+                reject(s);
                 return;
             }
             s.change(playerId, () -> {
-                if (!AUnitMove.apply(s.world, command)) reject(s, "MOVE");
+                if (!AUnitMove.apply(s.world, command)) reject(s);
             });
         } catch (RuntimeException ignored) {
-            reject(s, "MOVE");
+            reject(s);
         }
     }
 
@@ -70,7 +63,7 @@ final class SideAOrders {
         s.touch(connectionId);
         if (!s.owns(connectionId, playerId)) return;
         if (p.length < 11) {
-            reject(s, "ORDER");
+            reject(s);
             return;
         }
         try {
@@ -89,20 +82,19 @@ final class SideAOrders {
                     || !GameplayCommandNumbers.worldCoordinate(s.world, command.x2(), command.y2())
                     || !GameplayCommandNumbers.orderRadius(command.radius())
                     || command.phase() < 0 || command.phase() > 1) {
-                reject(s, "ORDER");
+                reject(s);
                 return;
             }
             s.change(playerId, () -> {
-                if (!AUnitOrder.apply(s.world, command)) reject(s, "ORDER");
+                if (!AUnitOrder.apply(s.world, command)) reject(s);
             });
         } catch (RuntimeException ignored) {
-            reject(s, "ORDER");
+            reject(s);
         }
     }
 
-    private static void reject(PeerServerSide s, String command) {
+    private static void reject(PeerServerSide s) {
         s.transport.recordMalformedPacket();
-        System.out.println(command + " BAD PACKET");
     }
 
     private static long viewRevision(String[] p) {
@@ -126,20 +118,14 @@ final class SideAOrders {
             try {
                 Unit unit = world.units.get(Unit.key(playerId, unitId));
                 WormholeGate gate = WormholeTouchRequest.gateById(world, gateId);
-                if (unit == null || !playerId.equals(unit.playerId) || unit.wormholeCooldown > 0 || gate == null || !gate.contains(unit.x, unit.y)) {
-                    System.out.println("WORMHOLE TOUCH MISS player=" + playerId + " unit=" + unitId + " from=" + fromSystemId + " gate=" + gateId + " worldSys=" + world.activeSystemId());
-                    return;
-                }
-                if (!fromSystemId.equals(gate.fromSystemId) || !WormholeTouchRequest.validSystemId(gate.toSystemId)) {
-                    System.out.println("WORMHOLE TOUCH REJECT player=" + playerId + " unit=" + unitId + " from=" + fromSystemId + " gate=" + gateId + " gateFrom=" + gate.fromSystemId + " gateTo=" + gate.toSystemId);
-                    return;
-                }
+                if (unit == null || !playerId.equals(unit.playerId) || unit.wormholeCooldown > 0 || gate == null || !gate.contains(unit.x, unit.y)) return;
+                if (!fromSystemId.equals(gate.fromSystemId) || !WormholeTouchRequest.validSystemId(gate.toSystemId)) return;
                 world.transferTouchingShips(playerId);
             } finally {
                 world.activateSystem(old);
             }
         } catch (RuntimeException ignored) {
-            System.out.println("WORMHOLE TOUCH BAD PACKET");
+            // The transport records malformed command rates without echoing attacker-controlled packet data.
         }
     }
 }
