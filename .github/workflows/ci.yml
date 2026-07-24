@@ -17,20 +17,15 @@ jobs:
     name: Compile, validate, and package
     runs-on: ubuntu-latest
     steps:
-      - name: Clone source
+      - name: Clone and diagnose
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           git clone --quiet --depth 1 --branch agent/schedule-inactive-systems \
             "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
-
-      - name: Apply issue 190 implementation
-        shell: bash
-        run: |
           python3 - <<'PY'
           from pathlib import Path
-
           lines = Path('.github/workflows/agent-issue-190.yml').read_text().splitlines()
           start = next(i for i, line in enumerate(lines) if "python3 - <<'PY'" in line)
           end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == 'PY')
@@ -51,23 +46,12 @@ jobs:
           Path('/tmp/issue-190-patch.py').write_text('\n'.join(adjusted))
           PY
           python3 /tmp/issue-190-patch.py
-
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Gradle 8.10.2
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.10.2'
-
-      - name: Diagnose focused scheduler behavior
-        shell: bash
-        run: |
           set +e
-          gradle validateSystemSimulationScheduler --stacktrace --no-daemon > /tmp/focused.log 2>&1
+          ./gradlew validateSystemSimulationScheduler --stacktrace --no-daemon > /tmp/focused.log 2>&1
           result=$?
-          tail -n 120 /tmp/focused.log
+          if [[ "$result" -ne 0 ]]; then
+            grep -E '(^|Caused by: |Exception|error:|failed:|FAILED|What went wrong|Execution failed)' /tmp/focused.log | tail -n 40 || true
+          else
+            tail -n 20 /tmp/focused.log
+          fi
           exit "$result"
