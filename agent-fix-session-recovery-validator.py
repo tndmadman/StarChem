@@ -12,6 +12,28 @@ def replace_once(old, new, label):
     text = text.replace(old, new, 1)
 
 replace_once(
+'''        try (Socket firstClient = connect(loopback, transport.localPort());
+             Socket reboundClient = connect(loopback, transport.localPort());
+             Socket restartedClient = connect(loopback, transport.localPort());
+''',
+'''        try (Socket firstClient = connect(loopback, transport.localPort());
+             Socket reboundClient = connect(loopback, transport.localPort());
+             Socket rawTokenClient = connect(loopback, transport.localPort());
+             Socket restartedClient = connect(loopback, transport.localPort());
+''',
+'raw token socket resource')
+
+replace_once(
+'''            waitConnection(transport, loopback, reboundClient.getLocalPort());
+            waitConnection(transport, loopback, restartedClient.getLocalPort());
+''',
+'''            waitConnection(transport, loopback, reboundClient.getLocalPort());
+            waitConnection(transport, loopback, rawTokenClient.getLocalPort());
+            waitConnection(transport, loopback, restartedClient.getLocalPort());
+''',
+'raw token socket registration')
+
+replace_once(
 '''            PacketSideA.handle(server, "RESUME|P1|" + firstToken + "|NODEV|",
                     new NetPacket("RESUME|P1|" + firstToken + "|NODEV|", rawTokenEndpoint, loopback, restartedClient.getLocalPort()));
             String rawTokenResponse = receivePayload(restartedClient, "SESSION_CHALLENGE|");
@@ -19,8 +41,8 @@ replace_once(
             require(!server.owns(rawTokenEndpoint, "P1"), "raw network resume token reclaimed the player session");
 ''',
 '''            PacketSideA.handle(server, "RESUME|P1|" + firstToken + "|NODEV|",
-                    new NetPacket("RESUME|P1|" + firstToken + "|NODEV|", rawTokenEndpoint, loopback, restartedClient.getLocalPort()));
-            String rawTokenWelcome = receivePayload(restartedClient, "WELCOME|");
+                    new NetPacket("RESUME|P1|" + firstToken + "|NODEV|", rawTokenEndpoint, loopback, rawTokenClient.getLocalPort()));
+            String rawTokenWelcome = receivePayload(rawTokenClient, "WELCOME|");
             String rawNetworkToken = markerValue(rawTokenWelcome, "SESSION");
             require(validToken(rawNetworkToken),
                     "raw network resume token did not receive a rotated token");
@@ -28,6 +50,13 @@ replace_once(
             server.removePeer(rawTokenEndpoint);
 ''',
 'raw network resume validation')
+
+replace_once(
+'''            ConnectionId rawTokenEndpoint = transport.connectionId(loopback, restartedClient.getLocalPort());
+''',
+'''            ConnectionId rawTokenEndpoint = transport.connectionId(loopback, rawTokenClient.getLocalPort());
+''',
+'raw token connection id')
 
 replace_once(
 '''            require(server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1", firstToken, false, ""),
