@@ -48,7 +48,7 @@ jobs:
           cp /tmp/agent-validation.log agent-validation.log
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add agent-validation.log
+          git add -f agent-validation.log
           git commit -m "Record authentication repair validation failure"
           git push origin HEAD:agent/fix-save-auth-keys
 
