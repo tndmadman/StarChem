@@ -36,6 +36,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private Point2D patrolStart;
     private Point dragStart;
     private Point dragNow;
+    private long lastPaintNanos = System.nanoTime();
+    private int currentFps = 0;
     private long lastNanos = System.nanoTime();
     private boolean cameraLeft, cameraRight, cameraUp, cameraDown;
     private boolean galaxyMapOpen;
@@ -74,6 +76,58 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         timer.stop();
         AiBrainLog.setEnabled(false);
     }
+    
+    private void setCameraKeyFromBindings(KeyEvent e, boolean down) {
+    if (gameMenu.matchesAction("camera_left_wasd", e) || gameMenu.matchesAction("camera_left_arrow", e)) cameraLeft = down;
+    if (gameMenu.matchesAction("camera_right_wasd", e) || gameMenu.matchesAction("camera_right_arrow", e)) cameraRight = down;
+    if (gameMenu.matchesAction("camera_up_wasd", e) || gameMenu.matchesAction("camera_up_arrow", e)) cameraUp = down;
+    if (gameMenu.matchesAction("camera_down_wasd", e) || gameMenu.matchesAction("camera_down_arrow", e)) cameraDown = down;
+}
+
+private void drawFpsOverlay(Graphics2D g2) {
+    if (!gameMenu.isShowFpsEnabled()) {
+        return;
+    }
+
+    String text = "FPS: " + currentFps;
+    Font font = new Font("SansSerif", Font.BOLD, 14);
+    g2.setFont(font);
+    FontMetrics fm = g2.getFontMetrics();
+
+    int padX = 10;
+    int padY = 6;
+    int w = fm.stringWidth(text) + padX * 2;
+    int h = fm.getHeight() + padY * 2;
+    int x = getWidth() - w - 16;
+    int y = 16;
+
+    g2.setColor(new Color(0, 0, 0, 165));
+    g2.fillRoundRect(x, y, w, h, 10, 10);
+
+    g2.setColor(new Color(90, 170, 240));
+    g2.setStroke(new BasicStroke(1.5f));
+    g2.drawRoundRect(x, y, w, h, 10, 10);
+
+    g2.setColor(Color.WHITE);
+    g2.drawString(text, x + padX, y + padY + fm.getAscent());
+}
+
+private void applyDisplaySettingsFromMenu() {
+    applyBooleanSetter(owner, "setFullscreenEnabled", gameMenu.isFullscreenEnabled());
+    applyBooleanSetter(owner, "setFullscreen", gameMenu.isFullscreenEnabled());
+    owner.revalidate();
+    owner.repaint();
+}
+
+private void applyBooleanSetter(Object target, String methodName, boolean value) {
+    try {
+        java.lang.reflect.Method method = target.getClass().getMethod(methodName, boolean.class);
+        method.invoke(target, value);
+    } catch (ReflectiveOperationException ignored) {
+    }
+}
+
+
 
     private void tick() {
         long now = System.nanoTime();
@@ -84,7 +138,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         else if (client != null) client.tick(dt);
         else world.update(dt);
         perfStats.recordUpdate(System.nanoTime() - updateStarted);
-        if (!galaxyMapOpen) updateCameraControls(dt);
+        if (!galaxyMapOpen && !gameMenuVisible) updateCameraControls(dt);
         camera.update(world, getWidth(), getHeight(), dt);
         repaint();
     }
@@ -99,36 +153,56 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     }
 
     @Override protected void paintComponent(Graphics g) {
-        long paintStarted = System.nanoTime();
-        perfStats.frameStarted(paintStarted);
-        super.paintComponent(g);
-        Graphics2D g2 = (Graphics2D) g.create();
-        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        AffineTransform old = g2.getTransform();
-        camera.apply(g2);
-        world.draw(g2);
-        if (devMode) aiDevOverlay.drawWorld(g2, world);
-        drawSelectionBox(g2);
-        g2.setTransform(old);
-        WormholeIndicator.draw(g2, world, camera, getWidth(), getHeight());
-        drawHud(g2);
-        leaderboardHud.draw(g2, world, getWidth());
-        hangarHud.draw(g2, world, getWidth());
-        if (!galaxyMapOpen) minimapHud.draw(g2, world, camera, getWidth(), getHeight());
-        if (world.devFreeBuild) shieldDebugOverlay.draw(g2, world, getWidth());
-        if (devMode) { devMenu.draw(g2, world, canEditDev()); aiDevPanel.draw(g2, world, canEditDev()); }
-        buildMenu.draw(g2);
-        if (gameMenuVisible) { gameMenu.draw((Graphics2D) g, getWidth(), getHeight()); }
-        if (galaxyMapOpen) galaxyMapOverlay.draw(g2, world.galaxyMapSnapshot(), getWidth(), getHeight());
-        if (devMode && perfOverlayVisible) {
-            PerfSnapshot networkStats = network == null ? null : network.perfSnapshot();
-            PerfSnapshot hostStats = devAuthorityNetwork == null ? null : devAuthorityNetwork.perfSnapshot();
-            perfOverlay.draw(g2, world, getWidth(), updateLabel(), perfStats.snapshot(), networkStats, hostStats);
+    long now = System.nanoTime();
+    if (lastPaintNanos != 0L) {
+        long delta = now - lastPaintNanos;
+        if (delta > 0L) {
+            currentFps = (int) Math.round(1_000_000_000.0 / delta);
         }
-        g2.dispose();
-        perfStats.recordDraw(System.nanoTime() - paintStarted);
+    }
+    lastPaintNanos = now;
+
+    long paintStarted = now;
+    perfStats.frameStarted(paintStarted);
+    super.paintComponent(g);
+
+    Graphics2D g2 = (Graphics2D) g.create();
+    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+    AffineTransform old = g2.getTransform();
+    camera.apply(g2);
+    world.draw(g2);
+    if (devMode) aiDevOverlay.drawWorld(g2, world);
+    drawSelectionBox(g2);
+    g2.setTransform(old);
+
+    WormholeIndicator.draw(g2, world, camera, getWidth(), getHeight());
+    drawHud(g2);
+    leaderboardHud.draw(g2, world, getWidth());
+    hangarHud.draw(g2, world, getWidth());
+    if (!galaxyMapOpen) minimapHud.draw(g2, world, camera, getWidth(), getHeight());
+    if (world.devFreeBuild) shieldDebugOverlay.draw(g2, world, getWidth());
+    if (devMode) { devMenu.draw(g2, world, canEditDev()); aiDevPanel.draw(g2, world, canEditDev()); }
+    buildMenu.draw(g2);
+
+    if (gameMenuVisible) {
+        gameMenu.draw(g2, getWidth(), getHeight());
     }
 
+    drawFpsOverlay(g2);
+
+    if (galaxyMapOpen) galaxyMapOverlay.draw(g2, world.galaxyMapSnapshot(), getWidth(), getHeight());
+    if (devMode && perfOverlayVisible) {
+        PerfSnapshot networkStats = network == null ? null : network.perfSnapshot();
+        PerfSnapshot hostStats = devAuthorityNetwork == null ? null : devAuthorityNetwork.perfSnapshot();
+        perfOverlay.draw(g2, world, getWidth(), updateLabel(), perfStats.snapshot(), networkStats, hostStats);
+    }
+
+    g2.dispose();
+    perfStats.recordDraw(System.nanoTime() - paintStarted);
+}
+    
+    
     private String updateLabel() {
         if (network == null) return "Solo world update";
         if (devAuthorityNetwork != null || network.statusLine().startsWith("CLIENT")) return "Client prediction";
@@ -173,44 +247,47 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private boolean isSelectionDrag() { return dragStart != null && dragNow != null && dragStart.distance(dragNow) >= SELECT_DRAG_PX; }
 
     @Override public void mousePressed(MouseEvent e) {
-        if (gameMenuVisible) {
-        switch (gameMenu.click(e.getX(), e.getY())) {
+    if (gameMenuVisible) {
+        GameMenuOverlay.Selection selection = gameMenu.click(e.getX(), e.getY());
+        applyDisplaySettingsFromMenu();
+
+        switch (selection) {
             case RETURN -> {
                 gameMenuVisible = false;
-                }
-            case OPTIONS -> {
-                System.out.println("Options");
-                }
+            }
             case MAIN_MENU -> {
-                gameMenuVisible = false; owner.showLobby("Returned to main menu.");
-                }
+                gameMenuVisible = false;
+                owner.showLobby("Returned to main menu.");
+            }
             case QUIT -> {
                 System.exit(0);
-                }
-            default -> {}
             }
-            repaint();
-            return;
+            default -> {}
         }
-        requestFocusInWindow();
-        if (galaxyMapOpen) { clickGalaxyMap(e); return; }
-        if (buildMenu.click(e.getX(), e.getY())) return;
-        PeerNetwork devNetwork = devNetwork();
-        if (devMode && aiDevPanel.click(world, devNetwork, e.getX(), e.getY(), canEditDev())) return;
-        if (devMode && devMenu.click(world, devNetwork, e.getX(), e.getY(), canEditDev())) return;
-        if (hangarHud.mousePressed(world, e.getX(), e.getY())) return;
-        if (SwingUtilities.isLeftMouseButton(e)
-                && minimapHud.click(world, camera, e.getX(), e.getY(), getWidth(), getHeight())) {
-            clearCommandMode();
-            dragStart = null;
-            dragNow = null;
-            ProceduralAudio.play(SoundCue.SELECT);
-            repaint();
-            return;
-        }
-        if (SwingUtilities.isRightMouseButton(e)) { clickRight(screenToWorld(e.getPoint())); return; }
-        if (SwingUtilities.isLeftMouseButton(e)) { dragStart = e.getPoint(); dragNow = e.getPoint(); }
+
+        repaint();
+        return;
     }
+
+    requestFocusInWindow();
+    if (galaxyMapOpen) { clickGalaxyMap(e); return; }
+    if (buildMenu.click(e.getX(), e.getY())) return;
+    PeerNetwork devNetwork = devNetwork();
+    if (devMode && aiDevPanel.click(world, devNetwork, e.getX(), e.getY(), canEditDev())) return;
+    if (devMode && devMenu.click(world, devNetwork, e.getX(), e.getY(), canEditDev())) return;
+    if (hangarHud.mousePressed(world, e.getX(), e.getY())) return;
+    if (SwingUtilities.isLeftMouseButton(e)
+            && minimapHud.click(world, camera, e.getX(), e.getY(), getWidth(), getHeight())) {
+        clearCommandMode();
+        dragStart = null;
+        dragNow = null;
+        ProceduralAudio.play(SoundCue.SELECT);
+        repaint();
+        return;
+    }
+    if (SwingUtilities.isRightMouseButton(e)) { clickRight(screenToWorld(e.getPoint())); return; }
+    if (SwingUtilities.isLeftMouseButton(e)) { dragStart = e.getPoint(); dragNow = e.getPoint(); }
+}
 
     private void clickGalaxyMap(MouseEvent e) {
         if (!SwingUtilities.isLeftMouseButton(e)) return;
@@ -410,6 +487,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     }
 
     @Override public void mouseDragged(MouseEvent e) {
+        if (gameMenuVisible) return;
         if (galaxyMapOpen) return;
         if (dragStart != null) { dragNow = e.getPoint(); repaint(); return; }
         hangarHud.mouseDragged(e.getX(), e.getY(), getWidth(), getHeight());
@@ -417,54 +495,105 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     }
 
     @Override public void mouseReleased(MouseEvent e) {
-        if (galaxyMapOpen) { dragStart = null; dragNow = null; return; }
-        if (SwingUtilities.isLeftMouseButton(e) && dragStart != null) {
-            dragNow = e.getPoint();
-            if (isSelectionDrag()) { world.selectBox(screenRectToWorldRect(dragStart, dragNow)); if (world.selectedCount() > 0) ProceduralAudio.play(SoundCue.SELECT); }
-            else clickLeft(e, screenToWorld(e.getPoint()));
-            dragStart = null;
-            dragNow = null;
-            repaint();
-        }
-        hangarHud.mouseReleased();
-        if (devMode) { aiDevPanel.release(); devMenu.release(); }
+    if (gameMenuVisible) return;
+    if (galaxyMapOpen) { dragStart = null; dragNow = null; return; }
+    if (SwingUtilities.isLeftMouseButton(e) && dragStart != null) {
+        dragNow = e.getPoint();
+        if (isSelectionDrag()) { world.selectBox(screenRectToWorldRect(dragStart, dragNow)); if (world.selectedCount() > 0) ProceduralAudio.play(SoundCue.SELECT); }
+        else clickLeft(e, screenToWorld(e.getPoint()));
+        dragStart = null;
+        dragNow = null;
+        repaint();
     }
+    hangarHud.mouseReleased();
+    if (devMode) { aiDevPanel.release(); devMenu.release(); }
+}
 
     @Override public void mouseWheelMoved(MouseWheelEvent e) {
-        if (!galaxyMapOpen && !minimapHud.bounds(world, getWidth(), getHeight()).contains(e.getPoint())) {
-            camera.zoomAt(e.getPoint(), e.getWheelRotation(), world, getWidth(), getHeight());
-        }
-    }
-    @Override public void mouseMoved(MouseEvent e) { 
     if (gameMenuVisible) {
-    gameMenu.updateHover(e.getX(), e.getY());
-    repaint();
-    return;
-        } 
+        if (gameMenu.handleMouseWheel(e.getWheelRotation())) {
+            repaint();
+        }
+        return;
     }
+
+    if (!galaxyMapOpen && !minimapHud.bounds(world, getWidth(), getHeight()).contains(e.getPoint())) {
+        camera.zoomAt(e.getPoint(), e.getWheelRotation(), world, getWidth(), getHeight());
+    }
+}
+
+    @Override public void mouseMoved(MouseEvent e) {
+    if (gameMenuVisible) {
+        gameMenu.updateHover(e.getX(), e.getY());
+        repaint();
+        return;
+    }
+}
+
     @Override public void mouseClicked(MouseEvent e) { }
     @Override public void mouseEntered(MouseEvent e) { }
     @Override public void mouseExited(MouseEvent e) { }
     @Override public void keyTyped(KeyEvent e) { }
+
     @Override public void keyPressed(KeyEvent e) {
-        if (e.getKeyCode() == KeyEvent.VK_M && e.isControlDown()) { boolean muted = ProceduralAudio.toggleMute(); world.status = muted ? "Audio muted." : "Audio enabled."; repaint(); return; }
-        if (e.getKeyCode() == KeyEvent.VK_M) { toggleGalaxyMap(); return; }
-        if (commandMode != UnitOrderType.NONE && e.getKeyCode() == KeyEvent.VK_ESCAPE) { clearCommandMode(); world.status = "Command mode cancelled."; repaint(); return; }
-        if (galaxyMapOpen && e.getKeyCode() == KeyEvent.VK_ESCAPE) { closeGalaxyMap(); return; }
-        if (e.getKeyCode() == KeyEvent.VK_ESCAPE) { gameMenuVisible = !gameMenuVisible; repaint(); return; }
-        if (galaxyMapOpen) return;
-        if (devMode && e.getKeyCode() == KeyEvent.VK_F3) { AiDevSettings.overlay = !AiDevSettings.overlay; world.status = "AI debug overlay: " + (AiDevSettings.overlay ? "ON" : "OFF") + "."; repaint(); return; }
-        if (devMode && e.getKeyCode() == KeyEvent.VK_F4) { perfOverlayVisible = !perfOverlayVisible; world.status = "Performance overlay: " + (perfOverlayVisible ? "ON" : "OFF") + "."; repaint(); return; }
-        if (e.getKeyCode() == KeyEvent.VK_F) { formation = formation.next(); world.status = "Fleet formation: " + formation.label + "."; ProceduralAudio.play(SoundCue.SELECT); return; }
-        if (e.getKeyCode() == KeyEvent.VK_R) { UnitRenderer.toggleMiningRangeOverlay(); world.status = "Miner range overlay: " + (UnitRenderer.miningRangeOverlayVisible() ? "ON" : "OFF") + "."; ProceduralAudio.play(SoundCue.SELECT); repaint(); return; }
-        if (e.getKeyCode() == KeyEvent.VK_X) { setCommandMode(UnitOrderType.ATTACK_MOVE); return; }
-        if (e.getKeyCode() == KeyEvent.VK_P) { setCommandMode(UnitOrderType.PATROL); return; }
-        if (e.getKeyCode() == KeyEvent.VK_G) { setCommandMode(UnitOrderType.GUARD); return; }
-        if (e.getKeyCode() == KeyEvent.VK_E) { setCommandMode(UnitOrderType.ESCORT); return; }
-        if (e.getKeyCode() == KeyEvent.VK_H) { issueSelectedOrder(UnitOrderType.HOLD, 0, 0, 0, 0, ""); clearCommandMode(); return; }
-        setCameraKey(e.getKeyCode(), true);
+    if (gameMenuVisible) {
+        if (gameMenu.handleKeyPressed(e)) {
+            applyDisplaySettingsFromMenu();
+            repaint();
+            return;
+        }
+
+        if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
+            if (gameMenu.handleEscapePressed()) {
+                repaint();
+                return;
+            }
+            gameMenuVisible = false;
+            repaint();
+            return;
+        }
+
+        return;
     }
-    @Override public void keyReleased(KeyEvent e) { setCameraKey(e.getKeyCode(), false); }
+
+    if (gameMenu.matchesAction("mute_audio", e)) { boolean muted = ProceduralAudio.toggleMute(); world.status = muted ? "Audio muted." : "Audio enabled."; repaint(); return; }
+    if (gameMenu.matchesAction("galaxy_map", e)) { toggleGalaxyMap(); return; }
+    if (commandMode != UnitOrderType.NONE && e.getKeyCode() == KeyEvent.VK_ESCAPE) { clearCommandMode(); world.status = "Command mode cancelled."; repaint(); return; }
+    if (galaxyMapOpen && e.getKeyCode() == KeyEvent.VK_ESCAPE) { closeGalaxyMap(); return; }
+
+    if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
+        gameMenuVisible = true;
+        clearCameraKeys();
+        clearCommandMode();
+        dragStart = null;
+        dragNow = null;
+        repaint();
+        return;
+    }
+
+    if (galaxyMapOpen) return;
+
+    if (devMode && gameMenu.matchesAction("ai_debug_overlay", e)) { AiDevSettings.overlay = !AiDevSettings.overlay; world.status = "AI debug overlay: " + (AiDevSettings.overlay ? "ON" : "OFF") + "."; repaint(); return; }
+    if (devMode && gameMenu.matchesAction("performance_overlay", e)) { perfOverlayVisible = !perfOverlayVisible; world.status = "Performance overlay: " + (perfOverlayVisible ? "ON" : "OFF") + "."; repaint(); return; }
+
+    if (gameMenu.matchesAction("fleet_formation", e)) { formation = formation.next(); world.status = "Fleet formation: " + formation.label + "."; ProceduralAudio.play(SoundCue.SELECT); return; }
+    if (gameMenu.matchesAction("miner_range_overlay", e)) { UnitRenderer.toggleMiningRangeOverlay(); world.status = "Miner range overlay: " + (UnitRenderer.miningRangeOverlayVisible() ? "ON" : "OFF") + "."; ProceduralAudio.play(SoundCue.SELECT); repaint(); return; }
+    if (gameMenu.matchesAction("attack_move", e)) { setCommandMode(UnitOrderType.ATTACK_MOVE); return; }
+    if (gameMenu.matchesAction("patrol", e)) { setCommandMode(UnitOrderType.PATROL); return; }
+    if (gameMenu.matchesAction("guard", e)) { setCommandMode(UnitOrderType.GUARD); return; }
+    if (gameMenu.matchesAction("escort", e)) { setCommandMode(UnitOrderType.ESCORT); return; }
+    if (gameMenu.matchesAction("hold", e)) { issueSelectedOrder(UnitOrderType.HOLD, 0, 0, 0, 0, ""); clearCommandMode(); return; }
+
+    setCameraKeyFromBindings(e, true);
+}
+
+    @Override public void keyReleased(KeyEvent e) {
+    if (gameMenuVisible) {
+        return;
+    }
+    setCameraKeyFromBindings(e, false);
+}
+
     @Override public void focusGained(FocusEvent e) { }
     @Override public void focusLost(FocusEvent e) {
         clearCameraKeys();
