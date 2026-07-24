@@ -6,6 +6,8 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 final class LobbyPanel extends JPanel {
+    enum PasswordPromptMode { LOCAL_ACCOUNT, REMOTE_SIGN_IN }
+
     private final GameFrame owner;
     private final JTextField nameField = new JTextField(System.getProperty("user.name", "Player"), 18);
     private final JTextField addressField = new JTextField("127.0.0.1", 18);
@@ -47,12 +49,14 @@ final class LobbyPanel extends JPanel {
 
         JPanel box = new JPanel(new GridLayout(0, 2, 10, 10));
         box.setOpaque(false);
-        box.add(label("Commander"));
+        box.add(label("Commander name"));
         box.add(nameField);
         box.add(label("Address"));
         box.add(addressField);
         box.add(label("Port"));
         box.add(portField);
+        box.add(label("JOIN accounts"));
+        box.add(help("Remote: sign in to an existing commander. Local: an unused name creates one."));
         box.add(label("Starting home"));
         box.add(systemBox);
         box.add(label("Copies per system"));
@@ -93,6 +97,13 @@ final class LobbyPanel extends JPanel {
         JLabel label = new JLabel(text);
         label.setForeground(new Color(220, 238, 250));
         label.setFont(label.getFont().deriveFont(Font.BOLD, 13f));
+        return label;
+    }
+
+    private JLabel help(String text) {
+        JLabel label = new JLabel(text);
+        label.setForeground(new Color(150, 190, 215));
+        label.setFont(label.getFont().deriveFont(Font.PLAIN, 11f));
         return label;
     }
 
@@ -149,35 +160,61 @@ final class LobbyPanel extends JPanel {
         catch (RuntimeException ex) { setStatus(ex.getMessage()); }
     }
 
+    static PasswordPromptMode passwordPromptMode(Config config) {
+        return config != null && config.serverAddress != null && config.serverAddress.getAddress() != null
+                && config.serverAddress.getAddress().isLoopbackAddress()
+                ? PasswordPromptMode.LOCAL_ACCOUNT : PasswordPromptMode.REMOTE_SIGN_IN;
+    }
+
+    static boolean passwordConfirmationRequired(Config config) {
+        return passwordPromptMode(config) == PasswordPromptMode.LOCAL_ACCOUNT;
+    }
+
     private boolean ensurePlayerPassword(Config config) {
         if (SessionTokenStore.scopedCredential(config).valid()) return true;
+        PasswordPromptMode mode = passwordPromptMode(config);
+        boolean localAccount = mode == PasswordPromptMode.LOCAL_ACCOUNT;
         JPasswordField password = new JPasswordField(18);
         JPasswordField confirm = new JPasswordField(18);
-        JCheckBox remember = new JCheckBox("Remember password on this computer", true);
+        JCheckBox remember = new JCheckBox("Remember sign-in on this computer", true);
         styleField(password);
         styleField(confirm);
         styleCheck(remember);
+
+        JTextArea explanation = new JTextArea(localAccount
+                ? "Sign in to this local server. If the commander name is unused, StarChem creates a new account with this password."
+                : "Sign in to an existing commander on this remote server. New remote accounts must be provisioned by the server operator.");
+        explanation.setEditable(false);
+        explanation.setFocusable(false);
+        explanation.setOpaque(false);
+        explanation.setLineWrap(true);
+        explanation.setWrapStyleWord(true);
+        explanation.setRows(localAccount ? 3 : 2);
+
         JPanel panel = new JPanel(new GridLayout(0, 1, 6, 6));
-        panel.add(new JLabel("Create or enter the password for this commander on this server."));
+        panel.add(explanation);
         panel.add(new JLabel("Password"));
         panel.add(password);
-        panel.add(new JLabel("Confirm password"));
-        panel.add(confirm);
+        if (localAccount) {
+            panel.add(new JLabel("Confirm password"));
+            panel.add(confirm);
+        }
         panel.add(remember);
-        int result = JOptionPane.showConfirmDialog(this, panel, "Server Player Password",
+        String title = localAccount ? "Local Commander Sign-In or Creation" : "Commander Sign-In";
+        int result = JOptionPane.showConfirmDialog(this, panel, title,
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (result != JOptionPane.OK_OPTION) {
             setStatus("Join cancelled.");
             return false;
         }
         char[] first = password.getPassword();
-        char[] second = confirm.getPassword();
+        char[] second = localAccount ? confirm.getPassword() : new char[0];
         try {
             if (first.length < 6) {
                 setStatus("Password must be at least 6 characters.");
                 return false;
             }
-            if (!java.util.Arrays.equals(first, second)) {
+            if (localAccount && !java.util.Arrays.equals(first, second)) {
                 setStatus("Passwords did not match.");
                 return false;
             }

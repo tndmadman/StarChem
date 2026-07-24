@@ -23,6 +23,18 @@ public final class ClientLaunchValidator {
         Config doubleGalaxy = Config.parse(new String[]{"--host", "50000", "--galaxy-copies", "2"});
         expectEquals("double galaxy copies", 2, doubleGalaxy.galaxyCopies);
 
+        Config loopbackClient = Config.join("Local Client", "127.0.0.1", 50000);
+        expectEquals("loopback password prompt", LobbyPanel.PasswordPromptMode.LOCAL_ACCOUNT,
+                LobbyPanel.passwordPromptMode(loopbackClient));
+        expectTrue("loopback password confirmation", LobbyPanel.passwordConfirmationRequired(loopbackClient));
+        Config ipv6LoopbackClient = Config.join("IPv6 Local Client", "::1", 50000);
+        expectEquals("IPv6 loopback password prompt", LobbyPanel.PasswordPromptMode.LOCAL_ACCOUNT,
+                LobbyPanel.passwordPromptMode(ipv6LoopbackClient));
+        Config remoteClient = Config.join("Remote Client", "192.0.2.10", 50000);
+        expectEquals("remote password prompt", LobbyPanel.PasswordPromptMode.REMOTE_SIGN_IN,
+                LobbyPanel.passwordPromptMode(remoteClient));
+        expectFalse("remote password confirmation", LobbyPanel.passwordConfirmationRequired(remoteClient));
+
         Config server = Config.parse(new String[]{"--server", "50123", "--name", "Test Server"});
         expectTrue("dedicated server mode", server.dedicatedServerMode());
         expectEquals("dedicated server port", 50123, server.port);
@@ -53,7 +65,7 @@ public final class ClientLaunchValidator {
         expectEquals("null connection status", "", GameFrame.connectionNotice(null));
 
         ClientSessionPropertiesStoreValidator.validate();
-        System.out.println("Client launch and coordinated session-store validation passed.");
+        System.out.println("Client launch, login prompt, and coordinated session-store validation passed.");
     }
 
     private static void expectInvalidHost(String name, String host) {
@@ -85,6 +97,10 @@ public final class ClientLaunchValidator {
 
     private static void expectTrue(String name, boolean actual) {
         if (!actual) throw new IllegalStateException("Expected true: " + name);
+    }
+
+    private static void expectFalse(String name, boolean actual) {
+        if (actual) throw new IllegalStateException("Expected false: " + name);
     }
 
     private static void expectEquals(String name, Object expected, Object actual) {
