@@ -15,41 +15,46 @@ public final class SystemSimulationSchedulerValidator {
 
     static void validateOrThrow() {
         World dormant = new World("Dormant", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
-        for (int i = 0; i < 49; i++) require(SystemSimulationScheduler.step(dormant, 0.1) == 0,
-      "dormant system ticked before its accumulated interval");
+        for (int i = 0; i < 49; i++) {
+            require(SystemSimulationScheduler.step(dormant, 0.1) == 0,
+                    "dormant system ticked before its accumulated interval");
+        }
         require(SystemSimulationScheduler.step(dormant, 0.1) >= 4.99,
-      "dormant system did not release its accumulated interval");
+                "dormant system did not release its accumulated interval");
 
         World cold = new World("Cold", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
         cold.addWorldItem(Material.IRON, 1, 100, 100, 0, 0, 0, 0);
-        for (int i = 0; i < 7; i++) require(SystemSimulationScheduler.step(cold, 0.1) == 0,
-      "cold system ticked before its accumulated interval");
+        for (int i = 0; i < 7; i++) {
+            require(SystemSimulationScheduler.step(cold, 0.1) == 0,
+                    "cold system ticked before its accumulated interval");
+        }
         require(SystemSimulationScheduler.step(cold, 0.1) >= 0.75,
-      "cold system did not release its accumulated interval");
+                "cold system did not release its accumulated interval");
 
         World orbit = new World("Orbit", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
         ResourceNode orbiting = orbit.resources.get(0);
         double beforeAngle = orbiting.orbitAngle;
         orbit.updateCurrentSystem(0.05);
         require(Math.abs(orbiting.orbitAngle - beforeAngle) > 0.000001,
-      "dormant-system resource orbit was frozen by simulation throttling");
+                "dormant-system resource orbit was frozen by simulation throttling");
 
         World warm = new World("Warm", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
         warm.bases.put("NPC_CORSAIRS:B1", new Base("NPC_CORSAIRS:B1", Config.CORSAIRS_ID,
-      Rules.DEFAULT_BASE, warm.width * 0.5, warm.height * 0.5));
+                Rules.DEFAULT_BASE, warm.width * 0.5, warm.height * 0.5));
         require(SystemSimulationScheduler.step(warm, 0.05) == 0, "warm system ticked too frequently");
-        require(SystemSimulationScheduler.step(warm, 0.08) >= 0.12, "warm system did not release accumulated time");
+        require(SystemSimulationScheduler.step(warm, 0.08) >= 0.12,
+                "warm system did not release accumulated time");
 
         World warmFast = new World("Warm Fast Forward", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
         warmFast.bases.put("NPC_CORSAIRS:B1", new Base("NPC_CORSAIRS:B1", Config.CORSAIRS_ID,
-      Rules.DEFAULT_BASE, warmFast.width * 0.5, warmFast.height * 0.5));
+                Rules.DEFAULT_BASE, warmFast.width * 0.5, warmFast.height * 0.5));
         require(Math.abs(SystemSimulationScheduler.step(warmFast, 1.0) - 1.0) < 0.0001,
-      "warm-system fast-forward tick discarded elapsed simulation time");
+                "warm-system fast-forward tick discarded elapsed simulation time");
 
         World hot = new World("Hot", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
         hot.units.put("P1:1", new Unit("P1", 1, "prospector", 1000, 1000));
         require(Math.abs(SystemSimulationScheduler.step(hot, 0.016) - 0.016) < 0.0001,
-      "player-occupied hot system was throttled");
+                "player-occupied hot system was throttled");
 
         validateAuthoritativeScheduling();
     }
@@ -62,11 +67,11 @@ public final class SystemSimulationSchedulerValidator {
         AuthoritativeSystemScheduler scheduler = new AuthoritativeSystemScheduler();
         scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
         require(scheduler.stats().updatedSystems() == initial.systems().size(),
-      "initial scheduler pass did not classify every known system");
+                "initial scheduler pass did not classify every known system");
 
         scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
         require(scheduler.stats().updatedSystems() < initial.systems().size(),
-      "authoritative scheduler still activated every system every server tick");
+                "authoritative scheduler still activated every system every server tick");
 
         String promoted = initial.systems().get(0).id();
         world.activateSystem(promoted);
@@ -75,15 +80,21 @@ public final class SystemSimulationSchedulerValidator {
         scheduler.wake(promoted);
         scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
         require(List.of(scheduler.lastUpdatedSystems()).contains(promoted),
-      "promoted system did not run promptly");
+                "promoted system did not run promptly");
         require(scheduler.stats().hotSystems() >= 1, "promoted system was not classified hot");
 
         GalaxyMapSnapshot reduced = new GalaxyMapSnapshot(initial.activeSystemId(),
-      initial.systems().subList(0, initial.systems().size() - 1), initial.links());
+                initial.systems().subList(0, initial.systems().size() - 1), initial.links());
         scheduler.refreshNow();
         scheduler.update(world, 1.0 / 60.0, () -> reduced);
         require(scheduler.stats().trackedSystems() == reduced.systems().size(),
-      "deleted system remained in authoritative scheduler state");
+                "deleted system remained in authoritative scheduler state");
+
+        AuthoritativeSystemScheduler fallback = new AuthoritativeSystemScheduler();
+        fallback.update(world, 1.0 / 60.0,
+                () -> new GalaxyMapSnapshot(world.activeSystemId(), List.of(), List.of()));
+        require(fallback.stats().trackedSystems() == 1,
+                "empty topology discovery did not preserve the active system");
     }
 
     private static void require(boolean condition, String message) {
