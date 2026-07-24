@@ -1,0 +1,467 @@
+name: Apply issue 190 scheduler fix
+
+on:
+  push:
+    branches:
+      - agent/schedule-inactive-systems
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Apply scheduler implementation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          peer = Path('src/main/java/com/tndmadman/rts/PeerServerSide.java')
+          text = peer.read_text()
+          text = text.replace(
+              '    final ClientViewCache views = new ClientViewCache();\n'
+              '    private final Map<ConnectionId, ServerPeer> peers = new LinkedHashMap<>();',
+              '    final ClientViewCache views = new ClientViewCache();\n'
+              '    private final AuthoritativeSystemScheduler systemScheduler = new AuthoritativeSystemScheduler();\n'
+              '    private final Map<ConnectionId, ServerPeer> peers = new LinkedHashMap<>();')
+          old_status = '''    String statusLine() {
+              int retained = Math.max(0, sessions.size() - peers.size());
+              String result = "HOST " + world.systemName() + " TCP " + transport.localPort()
+                      + " | clients " + peers.size() + " | retained " + retained + " | queued " + transport.queuedCount();
+              return result + (config.devMode ? " | dev host" : "");
+          }
+
+          void updateWorlds(double dt) {
+              PlayerRegistry.activate(world);
+              String old = world.activeSystemId();
+              String[] systems = allKnownSystems();
+              ResourceNetDebug.serverUpdateSystems(world, systems, dt);
+              try {
+                  for (String systemId : systems) {
+                      world.activateSystem(systemId);
+                      world.updateCurrentSystem(dt);
+                  }
+              } finally {
+                  world.activateSystem(old);
+              }
+          }
+'''
+          new_status = '''    String statusLine() {
+              int retained = Math.max(0, sessions.size() - peers.size());
+              String result = "HOST " + world.systemName() + " TCP " + transport.localPort()
+                      + " | clients " + peers.size() + " | retained " + retained + " | queued " + transport.queuedCount()
+                      + " | " + systemScheduler.statusLine();
+              return result + (config.devMode ? " | dev host" : "");
+          }
+
+          void updateWorlds(double dt) {
+              PlayerRegistry.activate(world);
+              systemScheduler.update(world, dt, world::galaxyMapSnapshot);
+              ResourceNetDebug.serverUpdateSystems(world, systemScheduler.lastUpdatedSystems(), dt);
+          }
+'''
+          if old_status not in text:
+              raise SystemExit('PeerServerSide update block did not match expected main content')
+          text = text.replace(old_status, new_status)
+          text = text.replace(
+              '        WorldNetAccess.addPeerGroup(world, id);\n        views.setHome(world, id);',
+              '        WorldNetAccess.addPeerGroup(world, id);\n        systemScheduler.refreshNow();\n        views.setHome(world, id);')
+          peer.write_text(text)
+
+          Path('src/main/java/com/tndmadman/rts/AuthoritativeSystemScheduler.java').write_text('''package com.tndmadman.rts;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.PriorityQueue;
+import java.util.Set;
+import java.util.function.Supplier;
+
+final class AuthoritativeSystemScheduler {
+    private static final double DISCOVERY_INTERVAL_SECONDS = 1.0;
+    private static final double EPSILON = 0.000001;
+
+    private final Map<String, Slot> slots = new LinkedHashMap<>();
+    private final PriorityQueue<Due> due = new PriorityQueue<>(Comparator
+            .comparingDouble(Due::at)
+            .thenComparing(Due::systemId)
+            .thenComparingLong(Due::generation));
+    private double clock;
+    private double nextDiscovery;
+    private long nextGeneration = 1;
+    private List<String> lastUpdatedSystems = List.of();
+    private Stats stats = Stats.empty();
+
+    void update(World world, double dt, Supplier<GalaxyMapSnapshot> discovery) {
+        if (world == null || discovery == null || !Double.isFinite(dt) || dt <= 0) return;
+        clock += dt;
+        if (slots.isEmpty() || clock + EPSILON >= nextDiscovery) refresh(discovery);
+
+        String previousSystem = world.activeSystemId();
+        List<String> updated = new ArrayList<>();
+        int guard = Math.max(16, slots.size() * 4);
+        try {
+            while (guard-- > 0) {
+                Due candidate = due.peek();
+                if (candidate == null || candidate.at() > clock + EPSILON) break;
+                due.poll();
+                Slot slot = slots.get(candidate.systemId());
+                if (slot == null || slot.generation != candidate.generation()) continue;
+
+                double elapsed = Math.max(dt, clock - slot.lastRun);
+                world.activateSystem(slot.systemId);
+                if (!slot.systemId.equals(world.activeSystemId())) {
+                    slots.remove(slot.systemId);
+                    continue;
+                }
+                world.updateCurrentSystem(elapsed);
+                slot.lastRun = clock;
+                slot.tier = SystemSimulationScheduler.tier(world);
+                slot.nextDue = clock + Math.max(dt, SystemSimulationScheduler.intervalSeconds(slot.tier));
+                schedule(slot);
+                updated.add(slot.systemId);
+            }
+        } finally {
+            if (previousSystem != null && !previousSystem.isBlank()) world.activateSystem(previousSystem);
+        }
+
+        lastUpdatedSystems = List.copyOf(updated);
+        stats = snapshotStats(updated.size());
+    }
+
+    void refreshNow() {
+        nextDiscovery = 0;
+    }
+
+    void wake(String systemId) {
+        Slot slot = slots.get(systemId);
+        if (slot == null) {
+            nextDiscovery = 0;
+            return;
+        }
+        slot.nextDue = clock;
+        schedule(slot);
+    }
+
+    String[] lastUpdatedSystems() {
+        return lastUpdatedSystems.toArray(new String[0]);
+    }
+
+    Stats stats() {
+        return stats;
+    }
+
+    String statusLine() {
+        return "sim " + stats.updatedSystems + "/" + stats.trackedSystems
+                + " backlog " + stats.backlog
+                + " tiers " + stats.hotSystems + "/" + stats.warmSystems
+                + "/" + stats.coldSystems + "/" + stats.dormantSystems;
+    }
+
+    private void refresh(Supplier<GalaxyMapSnapshot> discovery) {
+        nextDiscovery = clock + DISCOVERY_INTERVAL_SECONDS;
+        GalaxyMapSnapshot snapshot = discovery.get();
+        Set<String> discovered = new LinkedHashSet<>();
+        if (snapshot != null && !snapshot.empty()) {
+            for (GalaxyMapSystem system : snapshot.systems()) {
+                if (system == null || system.id() == null || system.id().isBlank() || system.id().contains("WAIT")) continue;
+                discovered.add(system.id());
+                int signature = signature(system);
+                Slot slot = slots.get(system.id());
+                if (slot == null) {
+                    slot = new Slot(system.id(), clock, signature);
+                    slots.put(system.id(), slot);
+                    slot.nextDue = clock;
+                    schedule(slot);
+                } else if (slot.signature != signature) {
+                    slot.signature = signature;
+                    slot.nextDue = clock;
+                    schedule(slot);
+                }
+            }
+        }
+
+        Iterator<Map.Entry<String, Slot>> iterator = slots.entrySet().iterator();
+        while (iterator.hasNext()) {
+            if (!discovered.contains(iterator.next().getKey())) iterator.remove();
+        }
+    }
+
+    private int signature(GalaxyMapSystem system) {
+        return Objects.hash(system.ships(), system.bases(), system.localShips(), system.localBases(),
+                system.controllerId(), system.controlStatus(), Math.round(system.captureProgress() * 1000.0));
+    }
+
+    private void schedule(Slot slot) {
+        slot.generation = nextGeneration++;
+        due.add(new Due(slot.systemId, slot.nextDue, slot.generation));
+    }
+
+    private Stats snapshotStats(int updatedSystems) {
+        int backlog = 0;
+        int hot = 0;
+        int warm = 0;
+        int cold = 0;
+        int dormant = 0;
+        for (Slot slot : slots.values()) {
+            if (slot.nextDue <= clock + EPSILON) backlog++;
+            switch (slot.tier) {
+                case HOT -> hot++;
+                case WARM -> warm++;
+                case COLD -> cold++;
+                case DORMANT -> dormant++;
+            }
+        }
+        return new Stats(slots.size(), updatedSystems, backlog, hot, warm, cold, dormant);
+    }
+
+    record Stats(int trackedSystems, int updatedSystems, int backlog, int hotSystems,
+                 int warmSystems, int coldSystems, int dormantSystems) {
+        static Stats empty() {
+            return new Stats(0, 0, 0, 0, 0, 0, 0);
+        }
+    }
+
+    private static final class Slot {
+        final String systemId;
+        double lastRun;
+        double nextDue;
+        long generation;
+        int signature;
+        SystemSimulationScheduler.SimulationTier tier = SystemSimulationScheduler.SimulationTier.DORMANT;
+
+        Slot(String systemId, double lastRun, int signature) {
+            this.systemId = systemId;
+            this.lastRun = lastRun;
+            this.signature = signature;
+        }
+    }
+
+    private record Due(String systemId, double at, long generation) { }
+}
+''')
+
+          Path('src/main/java/com/tndmadman/rts/SystemSimulationScheduler.java').write_text('''package com.tndmadman.rts;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.WeakHashMap;
+
+final class SystemSimulationScheduler {
+    private static final double WARM_STEP_SECONDS = 0.12;
+    private static final double COLD_STEP_SECONDS = 0.75;
+    private static final double DORMANT_STEP_SECONDS = 5.0;
+    private static final Map<World, Map<String, Double>> ACCUMULATED = new WeakHashMap<>();
+
+    private SystemSimulationScheduler() { }
+
+    static synchronized double step(World world, double dt) {
+        if (world == null || dt <= 0) return 0;
+        SimulationTier tier = tier(world);
+        if (tier == SimulationTier.HOT) return dt;
+
+        String systemId = world.activeSystemId();
+        if (systemId == null || systemId.isBlank()) return dt;
+        Map<String, Double> bySystem = ACCUMULATED.computeIfAbsent(world, ignored -> new LinkedHashMap<>());
+        double next = bySystem.getOrDefault(systemId, 0.0) + dt;
+        double threshold = intervalSeconds(tier);
+        if (next + 0.000001 < threshold) {
+            bySystem.put(systemId, next);
+            return 0;
+        }
+        bySystem.put(systemId, 0.0);
+        // Batching may delay an inactive system, but it must never delete elapsed
+        // simulation time when the authoritative scheduler releases it.
+        return next;
+    }
+
+    static double intervalSeconds(SimulationTier tier) {
+        if (tier == null) return DORMANT_STEP_SECONDS;
+        return switch (tier) {
+            case HOT -> 0;
+            case WARM -> WARM_STEP_SECONDS;
+            case COLD -> COLD_STEP_SECONDS;
+            case DORMANT -> DORMANT_STEP_SECONDS;
+        };
+    }
+
+    static synchronized void removeSystems(World world, Iterable<String> systemIds) {
+        Map<String, Double> bySystem = ACCUMULATED.get(world);
+        if (bySystem == null || systemIds == null) return;
+        for (String systemId : systemIds) bySystem.remove(systemId);
+    }
+
+    static synchronized Map<String,Object> capture(World world) {
+        Map<String,Object> out = new LinkedHashMap<>();
+        Map<String, Double> bySystem = ACCUMULATED.get(world);
+        if (bySystem != null) {
+            for (Map.Entry<String, Double> entry : bySystem.entrySet()) {
+                if (entry.getKey() != null && !entry.getKey().isBlank() && entry.getValue() != null) {
+                    out.put(entry.getKey(), Math.max(0, entry.getValue()));
+                }
+            }
+        }
+        return out;
+    }
+
+    static synchronized void restore(World world, Object state) {
+        if (world == null) return;
+        Map<String,Object> saved = ServerSaveStore.object(state);
+        Map<String, Double> bySystem = new LinkedHashMap<>();
+        for (Map.Entry<String,Object> entry : saved.entrySet()) {
+            double value = ServerSaveStore.asDouble(entry.getValue(), 0);
+            if (entry.getKey() != null && !entry.getKey().isBlank() && value > 0) {
+                bySystem.put(entry.getKey(), value);
+            }
+        }
+        if (bySystem.isEmpty()) ACCUMULATED.remove(world);
+        else ACCUMULATED.put(world, bySystem);
+    }
+
+    static SimulationTier tier(World world) {
+        if (world == null) return SimulationTier.DORMANT;
+        boolean npcAssets = false;
+        for (Unit unit : world.units.values()) {
+            if (unit.hp <= 0) continue;
+            if (!NpcRules.isNpcFaction(unit.playerId)) return SimulationTier.HOT;
+            npcAssets = true;
+            if (unit.task == UnitTask.ATTACK || !unit.attackTarget.isBlank()) return SimulationTier.HOT;
+        }
+        for (Base base : world.bases.values()) {
+            if (base.hp <= 0) continue;
+            if (!NpcRules.isNpcFaction(base.playerId)) return SimulationTier.HOT;
+            npcAssets = true;
+        }
+        if (!world.shots.isEmpty()) return SimulationTier.HOT;
+        if (npcAssets) return SimulationTier.WARM;
+        if (!world.items.isEmpty() || !world.explosions.isEmpty()) return SimulationTier.COLD;
+        return SimulationTier.DORMANT;
+    }
+
+    enum SimulationTier { HOT, WARM, COLD, DORMANT }
+}
+''')
+
+          Path('src/main/java/com/tndmadman/rts/SystemSimulationSchedulerValidator.java').write_text('''package com.tndmadman.rts;
+
+import java.util.List;
+import java.util.Set;
+
+public final class SystemSimulationSchedulerValidator {
+    private static final Set<String> NO_NPCS = Set.of(Config.RAIDERS_ID, Config.FREE_MINERS_ID, Config.CORSAIRS_ID);
+
+    private SystemSimulationSchedulerValidator() { }
+
+    public static void main(String[] args) {
+        validateOrThrow();
+        System.out.println("StarChem system simulation scheduler validation passed.");
+    }
+
+    static void validateOrThrow() {
+        World dormant = new World("Dormant", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
+        for (int i = 0; i < 49; i++) require(SystemSimulationScheduler.step(dormant, 0.1) == 0,
+                "dormant system ticked before its accumulated interval");
+        require(SystemSimulationScheduler.step(dormant, 0.1) >= 5.0,
+                "dormant system did not release its accumulated interval");
+
+        World cold = new World("Cold", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
+        cold.addWorldItem(Material.IRON, 1, 100, 100, 0, 0, 0, 0);
+        for (int i = 0; i < 7; i++) require(SystemSimulationScheduler.step(cold, 0.1) == 0,
+                "cold system ticked before its accumulated interval");
+        require(SystemSimulationScheduler.step(cold, 0.1) >= 0.75,
+                "cold system did not release its accumulated interval");
+
+        World orbit = new World("Orbit", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
+        ResourceNode orbiting = orbit.resources.get(0);
+        double beforeAngle = orbiting.orbitAngle;
+        orbit.updateCurrentSystem(0.05);
+        require(Math.abs(orbiting.orbitAngle - beforeAngle) > 0.000001,
+                "dormant-system resource orbit was frozen by simulation throttling");
+
+        World warm = new World("Warm", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
+        warm.bases.put("NPC_CORSAIRS:B1", new Base("NPC_CORSAIRS:B1", Config.CORSAIRS_ID,
+                Rules.DEFAULT_BASE, warm.width * 0.5, warm.height * 0.5));
+        require(SystemSimulationScheduler.step(warm, 0.05) == 0, "warm system ticked too frequently");
+        require(SystemSimulationScheduler.step(warm, 0.08) >= 0.12, "warm system did not release accumulated time");
+
+        World warmFast = new World("Warm Fast Forward", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
+        warmFast.bases.put("NPC_CORSAIRS:B1", new Base("NPC_CORSAIRS:B1", Config.CORSAIRS_ID,
+                Rules.DEFAULT_BASE, warmFast.width * 0.5, warmFast.height * 0.5));
+        require(Math.abs(SystemSimulationScheduler.step(warmFast, 1.0) - 1.0) < 0.0001,
+                "warm-system fast-forward tick discarded elapsed simulation time");
+
+        World hot = new World("Hot", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
+        hot.units.put("P1:1", new Unit("P1", 1, "prospector", 1000, 1000));
+        require(Math.abs(SystemSimulationScheduler.step(hot, 0.016) - 0.016) < 0.0001,
+                "player-occupied hot system was throttled");
+
+        validateAuthoritativeScheduling();
+    }
+
+    private static void validateAuthoritativeScheduling() {
+        World world = new World("Due Scheduler", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
+        GalaxyMapSnapshot initial = world.galaxyMapSnapshot();
+        require(initial != null && initial.systems().size() > 1, "scheduler test galaxy is too small");
+
+        AuthoritativeSystemScheduler scheduler = new AuthoritativeSystemScheduler();
+        scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
+        require(scheduler.stats().updatedSystems() == initial.systems().size(),
+                "initial scheduler pass did not classify every known system");
+
+        scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
+        require(scheduler.stats().updatedSystems() < initial.systems().size(),
+                "authoritative scheduler still activated every system every server tick");
+
+        String promoted = initial.systems().get(0).id();
+        world.activateSystem(promoted);
+        world.units.put("P1:1", new Unit("P1", 1, "prospector", 1000, 1000));
+        world.saveActiveSystem();
+        scheduler.wake(promoted);
+        scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
+        require(List.of(scheduler.lastUpdatedSystems()).contains(promoted),
+                "promoted system did not run promptly");
+        require(scheduler.stats().hotSystems() >= 1, "promoted system was not classified hot");
+
+        GalaxyMapSnapshot reduced = new GalaxyMapSnapshot(initial.activeSystemId(),
+                initial.systems().subList(0, initial.systems().size() - 1), initial.links());
+        scheduler.refreshNow();
+        scheduler.update(world, 1.0 / 60.0, () -> reduced);
+        require(scheduler.stats().trackedSystems() == reduced.systems().size(),
+                "deleted system remained in authoritative scheduler state");
+    }
+
+    private static void require(boolean condition, String message) {
+        if (!condition) throw new IllegalStateException(message);
+    }
+}
+''')
+          PY
+      - name: Verify focused scheduler behavior
+        run: ./gradlew validateSystemSimulationScheduler
+      - name: Verify complete project
+        run: ./gradlew check
+      - name: Commit verified implementation
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/main/java/com/tndmadman/rts/PeerServerSide.java \
+                  src/main/java/com/tndmadman/rts/AuthoritativeSystemScheduler.java \
+                  src/main/java/com/tndmadman/rts/SystemSimulationScheduler.java \
+                  src/main/java/com/tndmadman/rts/SystemSimulationSchedulerValidator.java
+          git commit -m "Schedule inactive systems by due time"
+          git push origin HEAD:agent/schedule-inactive-systems
