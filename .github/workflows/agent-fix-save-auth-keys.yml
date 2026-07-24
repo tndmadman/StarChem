@@ -27,17 +27,37 @@ jobs:
           cache: gradle
 
       - name: Apply narrow source repair
-        run: python3 agent-fix-save-auth-keys.py
+        run: |
+          rm -f agent-validation.log
+          python3 agent-fix-save-auth-keys.py
 
       - name: Verify focused replay protection
-        run: ./gradlew validateSavedCredentialReplay validateDevAccess validateSessionRecovery validateDedicatedTcpServer --no-daemon
+        run: |
+          set +e
+          ./gradlew validateSavedCredentialReplay validateDevAccess validateSessionRecovery validateDedicatedTcpServer --no-daemon > agent-validation.log 2>&1
+          status=$?
+          tail -n 180 agent-validation.log
+          exit $status
+
+      - name: Preserve failure diagnostics
+        if: failure()
+        run: |
+          cp agent-validation.log /tmp/agent-validation.log
+          git reset --hard HEAD
+          git clean -fd
+          cp /tmp/agent-validation.log agent-validation.log
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add agent-validation.log
+          git commit -m "Record authentication repair validation failure"
+          git push origin HEAD:agent/fix-save-auth-keys
 
       - name: Verify full project
         run: ./gradlew clean check jar --no-daemon
 
       - name: Commit validated repair
         run: |
-          rm -f agent-fix-save-auth-keys.py .github/workflows/agent-fix-save-auth-keys.yml
+          rm -f agent-fix-save-auth-keys.py agent-validation.log .github/workflows/agent-fix-save-auth-keys.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
