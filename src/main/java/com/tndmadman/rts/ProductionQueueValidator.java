@@ -85,6 +85,7 @@ public final class ProductionQueueValidator {
         validateDisabledTimers();
         validateAutoProductionQueueVisibility();
         validateAutoProductionAllocation();
+        validateAutoProductionRecipeSelection();
         validateMalformedQueueRejection();
     }
 
@@ -300,6 +301,50 @@ public final class ProductionQueueValidator {
         ProductionPlanner.update(world, 1.0);
         require(countCraftableJobs(plants, "structural_frame", new HashSet<>()) == 3,
                 "rechecking allocated future output queued duplicate Structural Frame batches");
+    }
+
+    private static void validateAutoProductionRecipeSelection() {
+        World salvageWorld = new World("Alternate Recipe Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        String salvagePlayer = "ALTERNATE_RECIPE_TEST";
+        Base salvagePlant = base(salvageWorld, salvagePlayer + ":M1", salvagePlayer, "manufacturing", 100, 100);
+        salvagePlant.inventory.put(Material.NICKEL_STEEL, 6.0);
+        salvagePlant.inventory.put(Material.SCRAP_METAL, 18.0);
+        salvagePlant.inventory.put(Material.INDUSTRIAL_LUBRICANT, 2.0);
+        salvagePlant.inventory.put(Material.FUEL, 1_000.0);
+
+        require(salvageWorld.craftItem(salvagePlant.id, "structural_frame"),
+                "salvage-backed Structural Frame request should create a plan");
+        ProductionPlanner.update(salvageWorld, 1.0);
+        require(hasCraftableJob(salvagePlant, "reclaim_steel_plate"),
+                "planner ignored the viable reclaimed Steel Plate recipe");
+        require(!hasCraftableJob(salvagePlant, "steel_plate"),
+                "planner selected the unavailable standard Steel Plate recipe");
+
+        World deterministicWorld = new World("Recipe Preference Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        String deterministicPlayer = "RECIPE_PREFERENCE_TEST";
+        Base deterministicPlant = base(deterministicWorld, deterministicPlayer + ":M1", deterministicPlayer,
+                "manufacturing", 100, 100);
+        deterministicPlant.inventory.put(Material.NICKEL_STEEL, 6.0);
+        deterministicPlant.inventory.put(Material.IRON, 30.0);
+        deterministicPlant.inventory.put(Material.CARBON, 4.0);
+        deterministicPlant.inventory.put(Material.SCRAP_METAL, 18.0);
+        deterministicPlant.inventory.put(Material.INDUSTRIAL_LUBRICANT, 2.0);
+        deterministicPlant.inventory.put(Material.FUEL, 1_000.0);
+
+        require(deterministicWorld.craftItem(deterministicPlant.id, "structural_frame"),
+                "fully funded alternate-recipe request should create a plan");
+        ProductionPlanner.update(deterministicWorld, 1.0);
+        require(hasCraftableJob(deterministicPlant, "steel_plate"),
+                "equally viable recipes did not preserve deterministic configuration order");
+        require(!hasCraftableJob(deterministicPlant, "reclaim_steel_plate"),
+                "deterministic selection unexpectedly preferred the later reclamation recipe");
+    }
+
+    private static boolean hasCraftableJob(Base base, String itemId) {
+        for (ProductionJob job : base.productionQueue) {
+            if (job.kind == ProductionJobKind.CRAFTABLE && job.itemId.equals(itemId)) return true;
+        }
+        return false;
     }
 
     private static int countCraftableJobs(List<Base> bases, String itemId, Set<String> usedBaseIds) {
