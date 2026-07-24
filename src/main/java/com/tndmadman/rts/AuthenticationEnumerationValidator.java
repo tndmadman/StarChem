@@ -100,7 +100,7 @@ public final class AuthenticationEnumerationValidator {
 
                 AuthResponse correct = response(EXISTING_NAME, EXISTING_PASSWORD, repeatedExisting);
                 server.join(existingRepeat.connectionId, remote, existingRepeat.socket.getLocalPort(), EXISTING_NAME,
-                        correct.registrationMaterial, repeatedExisting.nonce, correct.proof, false, "");
+                        correct.registrationMaterial, repeatedExisting.nonce, "", false, "");
                 String welcome = receivePayload(existingRepeat, "WELCOME|");
                 require(welcome.startsWith("WELCOME|P1|"),
                         "retained identity did not authenticate through the real challenge");
@@ -144,23 +144,17 @@ public final class AuthenticationEnumerationValidator {
         require(PasswordAuth.validVerifier(first) && PasswordAuth.validVerifier(second),
                 "server-scoped verifier derivation failed");
         require(!first.equals(second), "two TLS server identities produced interchangeable password verifiers");
-        byte[] legacyKey = PasswordAuth.serverDigest(
-                PasswordAuth.decodeVerifier(PasswordAuth.verifier("Scoped Player", "same-password")), salt);
-        String nonce = PasswordAuth.newNonce();
-        String firstProof = PasswordAuth.upgradeProof(legacyKey, "Scoped Player", nonce,
-                TEST_SERVER_FINGERPRINT, first);
-        require(PasswordAuth.upgradeProofMatches(legacyKey, "Scoped Player", nonce,
-                        TEST_SERVER_FINGERPRINT, first, firstProof),
-                "server A did not accept its TLS-bound migration proof");
-        require(!PasswordAuth.upgradeProofMatches(legacyKey, "Scoped Player", nonce,
-                        OTHER_SERVER_FINGERPRINT, first, firstProof),
-                "server A migration proof replayed against server B");
-        require(!PasswordAuth.upgradeProofMatches(legacyKey, "Scoped Player", nonce,
-                        TEST_SERVER_FINGERPRINT, second, firstProof),
-                "migration proof accepted a different server-scoped verifier");
+        byte[] firstVerifier = PasswordAuth.decodeVerifier(first);
+        byte[] storedDigest = PasswordAuth.serverDigest(firstVerifier, salt);
+        require(PasswordAuth.passwordCredentialMatches(storedDigest, firstVerifier, salt),
+                "correct server-scoped verifier was rejected");
+        require(!PasswordAuth.passwordCredentialMatches(storedDigest, storedDigest, salt),
+                "stored save digest authenticated as a client credential");
         byte[] upgraded = PasswordAuth.upgradeSalt(salt);
         require(upgraded.length == 16 && !java.security.MessageDigest.isEqual(salt, upgraded),
                 "password upgrade salt was not domain separated");
+        java.util.Arrays.fill(firstVerifier, (byte)0);
+        java.util.Arrays.fill(storedDigest, (byte)0);
     }
 
     private static void validateAttemptLimiter() throws Exception {
@@ -196,21 +190,15 @@ public final class AuthenticationEnumerationValidator {
                                           Challenge challenge) throws Exception {
         AuthResponse response = response(name, password, challenge);
         server.join(connection.connectionId, reportedAddress, connection.socket.getLocalPort(), name,
-                response.registrationMaterial, challenge.nonce, response.proof, false, "");
+                response.registrationMaterial, challenge.nonce, "", false, "");
         return receivePayload(connection, "JOIN_DENIED|");
     }
 
     private static AuthResponse response(String name, String password, Challenge challenge) {
-        byte[] currentSalt = PasswordAuth.decodeHex(challenge.currentSalt);
         byte[] scopedSalt = PasswordAuth.decodeHex(challenge.scopedSalt);
         String legacyVerifier = PasswordAuth.verifier(name, password);
         String scopedVerifier = PasswordAuth.scopedVerifier(name, password, TEST_SERVER_FINGERPRINT, scopedSalt);
-        String legacyProof = PasswordAuth.upgradeProof(PasswordAuth.serverDigest(
-                PasswordAuth.decodeVerifier(legacyVerifier), currentSalt), name, challenge.nonce,
-                TEST_SERVER_FINGERPRINT, scopedVerifier);
-        String scopedProof = PasswordAuth.challengeProof(PasswordAuth.serverDigest(
-                PasswordAuth.decodeVerifier(scopedVerifier), currentSalt), name, challenge.nonce);
-        return new AuthResponse(scopedVerifier + ":" + legacyProof, scopedProof);
+        return new AuthResponse(scopedVerifier + ":" + legacyVerifier);
     }
 
     private static TestConnection connect(PeerTransport transport, InetAddress loopback) throws Exception {
@@ -250,7 +238,7 @@ public final class AuthenticationEnumerationValidator {
     }
 
     private record Challenge(String currentSalt, String scopedSalt, String nonce, int payloadParts) { }
-    private record AuthResponse(String registrationMaterial, String proof) { }
+    private record AuthResponse(String registrationMaterial) { }
 
     private static final class TestConnection implements AutoCloseable {
         final Socket socket;

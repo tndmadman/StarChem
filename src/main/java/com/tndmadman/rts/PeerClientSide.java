@@ -704,24 +704,10 @@ final class PeerClientSide {
         String token = config.devMode ? config.devToken : "";
         String message = "JOIN|" + cleanPacketPart(config.playerName) + "|" + request + "|" + token;
         if (!authChallengeNonce.isBlank() && !authChallengeSalt.isBlank()) {
-            byte[] salt = PasswordAuth.decodeHex(authChallengeSalt);
-            String scopedProof = scopedPasswordVerifier.isBlank() ? ""
-                    : PasswordAuth.challengeProof(PasswordAuth.serverDigest(
-                    PasswordAuth.decodeVerifier(scopedPasswordVerifier), salt), config.playerName, authChallengeNonce);
-            String legacyProof = "";
-            if (!passwordVerifier.isBlank()) {
-                byte[] legacyKey = PasswordAuth.serverDigest(PasswordAuth.decodeVerifier(passwordVerifier), salt);
-                legacyProof = !scopedPasswordVerifier.isBlank() && PasswordAuth.validVerifier(authServerFingerprint)
-                        ? PasswordAuth.upgradeProof(legacyKey, config.playerName, authChallengeNonce,
-                        authServerFingerprint, scopedPasswordVerifier)
-                        : PasswordAuth.challengeProof(legacyKey, config.playerName, authChallengeNonce);
-            }
-            String proof = scopedProof.isBlank() ? legacyProof : scopedProof;
-            String registration = scopedPasswordVerifier;
-            if (!legacyProof.isBlank() && !registration.isBlank()) registration += ":" + legacyProof;
-            return message + (registration.isBlank() ? "" : "|AUTH_REGISTER|" + cleanPacketPart(registration))
-                    + "|AUTH_PROOF_NONCE|" + cleanPacketPart(authChallengeNonce)
-                    + "|AUTH_PROOF|" + cleanPacketPart(proof);
+            String credential = scopedPasswordVerifier;
+            if (!passwordVerifier.isBlank() && !credential.isBlank()) credential += ":" + passwordVerifier;
+            return message + (credential.isBlank() ? "" : "|AUTH_REGISTER|" + cleanPacketPart(credential))
+                    + "|AUTH_PROOF_NONCE|" + cleanPacketPart(authChallengeNonce);
         }
         if (authRegistrationRequested && !scopedPasswordVerifier.isBlank()) {
             return message + "|AUTH_REGISTER|" + cleanPacketPart(scopedPasswordVerifier);
@@ -774,13 +760,8 @@ final class PeerClientSide {
     private String resumeMessage() {
         String request = config.devMode ? "DEV" : "NODEV";
         String devToken = config.devMode ? config.devToken : "";
-        String message = "RESUME|" + cleanPacketPart(localPlayerId) + "||" + request + "|" + devToken;
-        if (!sessionChallengeNonce.isBlank() && !sessionToken.isBlank()) {
-            String proof = PasswordAuth.sessionProof(PasswordAuth.tokenDigest(sessionToken), localPlayerId, sessionChallengeNonce);
-            return message + "|SESSION_PROOF_NONCE|" + cleanPacketPart(sessionChallengeNonce)
-                    + "|SESSION_PROOF|" + cleanPacketPart(proof);
-        }
-        return message;
+        return "RESUME|" + cleanPacketPart(localPlayerId) + "|" + cleanPacketPart(sessionToken)
+                + "|" + request + "|" + devToken;
     }
 
     private boolean canIssueCommands() { return state == ConnectionState.CONNECTED; }
