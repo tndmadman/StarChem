@@ -36,7 +36,6 @@ jobs:
           end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == 'PY')
           prefix = '          '
           extracted = [line[len(prefix):] if line.startswith(prefix) else line for line in lines[start + 1:end]]
-
           adjusted = []
           status_block = False
           for line in extracted:
@@ -49,9 +48,7 @@ jobs:
                   adjusted.append(line)
                   continue
               adjusted.append(('    ' + line) if status_block and line else line)
-
           Path('/tmp/issue-190-patch.py').write_text('\n'.join(adjusted))
-          print('Extracted patch lines:', len(adjusted))
           PY
           python3 /tmp/issue-190-patch.py
 
@@ -66,20 +63,11 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Verify focused scheduler behavior
-        run: gradle validateSystemSimulationScheduler --no-daemon
-
-      - name: Verify complete project
-        run: gradle clean check jar --no-daemon
-
-      - name: Commit verified implementation
+      - name: Diagnose focused scheduler behavior
         shell: bash
         run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/main/java/com/tndmadman/rts/PeerServerSide.java \
-                  src/main/java/com/tndmadman/rts/AuthoritativeSystemScheduler.java \
-                  src/main/java/com/tndmadman/rts/SystemSimulationScheduler.java \
-                  src/main/java/com/tndmadman/rts/SystemSimulationSchedulerValidator.java
-          git commit -m "Schedule inactive systems by due time"
-          git push origin HEAD:agent/schedule-inactive-systems
+          set +e
+          gradle validateSystemSimulationScheduler --stacktrace --no-daemon > /tmp/focused.log 2>&1
+          result=$?
+          tail -n 120 /tmp/focused.log
+          exit "$result"
