@@ -32,6 +32,7 @@ public final class AdmissionRecordingValidator {
             Thread.sleep(10);
 
             TcpIntegrationHarness.TestClient reclaimed = harness.addClient(PLAYER_NAME);
+            rememberForRestart(reclaimed.config());
             harness.awaitJoined(reclaimed);
             TcpIntegrationHarness.require(playerId.equals(reclaimed.playerId()),
                     "password challenge reclaim created a different player identity");
@@ -59,6 +60,15 @@ public final class AdmissionRecordingValidator {
                     requireObservation(harness, playerId, "session challenge resume");
             TcpIntegrationHarness.require(resumedObservation.lastSeenAt() > reclaimedObservation.lastSeenAt(),
                     "session challenge resume did not refresh the player observation");
+        }
+    }
+
+    private static void rememberForRestart(Config config) {
+        char[] password = PASSWORD.toCharArray();
+        try {
+            PendingPlayerPassword.remember(config, password, true);
+        } finally {
+            java.util.Arrays.fill(password, '\0');
         }
     }
 

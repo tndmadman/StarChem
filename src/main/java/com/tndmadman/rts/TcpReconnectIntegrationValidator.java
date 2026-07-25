@@ -4,6 +4,8 @@ import java.net.InetAddress;
 
 /** Exercises abrupt socket loss and the complete automatic RESUME handshake through PeerNetwork. */
 public final class TcpReconnectIntegrationValidator {
+    private static final String VALIDATOR_PASSWORD = "validator-password";
+
     private TcpReconnectIntegrationValidator() { }
 
     public static void main(String[] args) throws Exception {
@@ -16,6 +18,7 @@ public final class TcpReconnectIntegrationValidator {
         try (TcpIntegrationHarness harness = TcpIntegrationHarness.host();
              TcpFaultProxy proxy = new TcpFaultProxy(InetAddress.getLoopbackAddress(), harness.serverConfig.port)) {
             TcpIntegrationHarness.TestClient reconnecting = harness.addProxiedClient("TCP Reconnect", proxy);
+            rememberForRestart(reconnecting.config());
             TcpIntegrationHarness.TestClient observer = harness.addClient("TCP Observer");
             harness.awaitJoined(reconnecting);
             harness.awaitJoined(observer);
@@ -100,6 +103,15 @@ public final class TcpReconnectIntegrationValidator {
                     8_000, "remote view did not remain synchronized after session resume");
             TcpIntegrationHarness.require(observer.network().clientConnected(),
                     "observer was affected by remote-view reconnect");
+        }
+    }
+
+    private static void rememberForRestart(Config config) {
+        char[] password = VALIDATOR_PASSWORD.toCharArray();
+        try {
+            PendingPlayerPassword.remember(config, password, true);
+        } finally {
+            java.util.Arrays.fill(password, '\0');
         }
     }
 
