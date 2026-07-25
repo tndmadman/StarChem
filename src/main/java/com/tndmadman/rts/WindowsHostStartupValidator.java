@@ -10,9 +10,12 @@ import java.util.Set;
 
 /** Exercises Windows storage fallback plus graphical HOST server and loopback client startup. */
 public final class WindowsHostStartupValidator {
+    private static final Path FAILURE_DIAGNOSTIC = Path.of("build", "windows-host-failure.txt");
+
     private WindowsHostStartupValidator() { }
 
     public static void main(String[] args) throws Exception {
+        Files.deleteIfExists(FAILURE_DIAGNOSTIC);
         Path root = Files.createTempDirectory("starchem-windows-host-");
         String previousSaveDirectory = System.getProperty(DefaultStoragePaths.SAVE_DIR_PROPERTY);
         LocalHostSession session = null;
@@ -46,6 +49,9 @@ public final class WindowsHostStartupValidator {
                     "graphical HOST TLS fingerprint changed after restart");
             assertNoTemporaryFiles(selected);
             System.out.println("Windows graphical host storage and loopback connection validation passed.");
+        } catch (Throwable failure) {
+            writeFailureDiagnostic(failure, session);
+            throw failure;
         } finally {
             if (session != null) session.stop();
             if (previousSaveDirectory == null) {
@@ -70,6 +76,19 @@ public final class WindowsHostStartupValidator {
                 "graphical HOST loopback client failed after the validation interval: "
                         + session.clientNetwork.failureMessage() + " | world status: " + session.clientWorld.status);
         System.out.println("Loopback client remained healthy. World status: " + session.clientWorld.status);
+    }
+
+    private static void writeFailureDiagnostic(Throwable failure, LocalHostSession session) {
+        String worldStatus = session == null || session.clientWorld == null ? "unavailable" : session.clientWorld.status;
+        String networkFailure = session == null || session.clientNetwork == null
+                ? "unavailable" : session.clientNetwork.failureMessage();
+        String diagnostic = failure.getClass().getName() + ": " + failure.getMessage()
+                + System.lineSeparator() + "network failure: " + networkFailure
+                + System.lineSeparator() + "world status: " + worldStatus + System.lineSeparator();
+        try {
+            Files.createDirectories(FAILURE_DIAGNOSTIC.getParent());
+            Files.writeString(FAILURE_DIAGNOSTIC, diagnostic, StandardCharsets.UTF_8);
+        } catch (IOException ignored) { }
     }
 
     private static Path validateUnsafeLaunchDirectoryFallback(Path root) throws Exception {
