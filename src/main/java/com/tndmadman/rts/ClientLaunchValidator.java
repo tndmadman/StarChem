@@ -65,7 +65,8 @@ public final class ClientLaunchValidator {
         expectEquals("null connection status", "", GameFrame.connectionNotice(null));
 
         ClientSessionPropertiesStoreValidator.validate();
-        System.out.println("Client launch, login prompt, and coordinated session-store validation passed.");
+        ClientCredentialVaultValidator.validate();
+        System.out.println("Client launch, login prompt, protected credential, and coordinated metadata validation passed.");
     }
 
     private static void expectInvalidHost(String name, String host) {
