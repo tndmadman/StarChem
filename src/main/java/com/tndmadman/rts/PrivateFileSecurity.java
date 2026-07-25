@@ -35,6 +35,7 @@ final class PrivateFileSecurity {
     private static final Set<PosixFilePermission> FILE_PERMISSIONS = EnumSet.of(
             PosixFilePermission.OWNER_READ,
             PosixFilePermission.OWNER_WRITE);
+
     private static final Set<AclEntryPermission> DIRECTORY_ACL_PERMISSIONS =
             EnumSet.allOf(AclEntryPermission.class);
     private static final Set<AclEntryPermission> FILE_ACL_PERMISSIONS = EnumSet.of(
@@ -184,12 +185,21 @@ final class PrivateFileSecurity {
     }
 
     private static void applyPrivateAcl(Path path, AclFileAttributeView acl, boolean directory) throws IOException {
-        UserPrincipal owner = verifyOwner(path, directory);
+        UserPrincipal current = currentPrincipal(path, directory);
+        UserPrincipal owner = Files.getOwner(path, LinkOption.NOFOLLOW_LINKS);
+        if (owner == null) {
+            throw new IOException("Could not determine the owner of " + label(path, directory) + ": " + path);
+        }
+        if (!samePrincipal(owner, current) && !trustedSystem(owner)) {
+            throw new IOException(label(path, directory) + " is owned by an unrelated principal "
+                    + owner.getName() + ": " + path);
+        }
+
         Map<UserPrincipal, PreservedAcl> trusted = new LinkedHashMap<>();
         for (AclEntry entry : acl.getAcl()) {
             UserPrincipal principal = entry.principal();
-            if (principal == null || principal.equals(owner) || entry.type() != AclEntryType.ALLOW
-                    || !trustedSystem(principal)) {
+            if (principal == null || samePrincipal(principal, current)
+                    || entry.type() != AclEntryType.ALLOW || !trustedSystem(principal)) {
                 continue;
             }
             PreservedAcl preserved = trusted.computeIfAbsent(principal, ignored -> new PreservedAcl());
@@ -200,12 +210,12 @@ final class PrivateFileSecurity {
         disableWindowsInheritance(path, directory);
 
         List<AclEntry> replacement = new ArrayList<>();
-        AclEntry.Builder ownerEntry = AclEntry.newBuilder()
+        AclEntry.Builder currentEntry = AclEntry.newBuilder()
                 .setType(AclEntryType.ALLOW)
-                .setPrincipal(owner)
+                .setPrincipal(current)
                 .setPermissions(directory ? DIRECTORY_ACL_PERMISSIONS : FILE_ACL_PERMISSIONS);
-        if (directory) ownerEntry.setFlags(AclEntryFlag.FILE_INHERIT, AclEntryFlag.DIRECTORY_INHERIT);
-        replacement.add(ownerEntry.build());
+        if (directory) currentEntry.setFlags(AclEntryFlag.FILE_INHERIT, AclEntryFlag.DIRECTORY_INHERIT);
+        replacement.add(currentEntry.build());
 
         for (Map.Entry<UserPrincipal, PreservedAcl> entry : trusted.entrySet()) {
             if (entry.getValue().permissions.isEmpty()) continue;
@@ -249,10 +259,10 @@ final class PrivateFileSecurity {
     }
 
     private static void verifyPrivatePath(Path path, boolean directory) throws IOException {
-        UserPrincipal owner = verifyOwner(path, directory);
         PosixFileAttributeView posix = Files.getFileAttributeView(path, PosixFileAttributeView.class,
                 LinkOption.NOFOLLOW_LINKS);
         if (posix != null) {
+            verifyPosixOwner(path, directory);
             Set<PosixFilePermission> actual = posix.readAttributes().permissions();
             Set<PosixFilePermission> required = directory ? DIRECTORY_PERMISSIONS : FILE_PERMISSIONS;
             if (!actual.containsAll(required)) {
@@ -272,14 +282,27 @@ final class PrivateFileSecurity {
             throw new IOException("The file system cannot verify owner-only permissions for "
                     + label(path, directory) + ": " + path);
         }
+        verifyPrivateAcl(path, acl, directory);
+    }
 
-        Set<AclEntryPermission> ownerAllowed = EnumSet.noneOf(AclEntryPermission.class);
-        Set<AclEntryPermission> ownerDenied = EnumSet.noneOf(AclEntryPermission.class);
+    private static void verifyPrivateAcl(Path path, AclFileAttributeView acl, boolean directory) throws IOException {
+        UserPrincipal current = currentPrincipal(path, directory);
+        UserPrincipal owner = Files.getOwner(path, LinkOption.NOFOLLOW_LINKS);
+        if (owner == null) {
+            throw new IOException("Could not determine the owner of " + label(path, directory) + ": " + path);
+        }
+        if (!samePrincipal(owner, current) && !trustedSystem(owner)) {
+            throw new IOException(label(path, directory) + " is owned by an unrelated principal "
+                    + owner.getName() + ": " + path);
+        }
+
+        Set<AclEntryPermission> currentAllowed = EnumSet.noneOf(AclEntryPermission.class);
+        Set<AclEntryPermission> currentDenied = EnumSet.noneOf(AclEntryPermission.class);
         for (AclEntry entry : acl.getAcl()) {
             UserPrincipal principal = entry.principal();
-            if (principal != null && principal.equals(owner)) {
-                if (entry.type() == AclEntryType.ALLOW) ownerAllowed.addAll(entry.permissions());
-                else if (entry.type() == AclEntryType.DENY) ownerDenied.addAll(entry.permissions());
+            if (principal != null && samePrincipal(principal, current)) {
+                if (entry.type() == AclEntryType.ALLOW) currentAllowed.addAll(entry.permissions());
+                else if (entry.type() == AclEntryType.DENY) currentDenied.addAll(entry.permissions());
                 continue;
             }
             if (principal != null && trustedSystem(principal)) continue;
@@ -292,43 +315,64 @@ final class PrivateFileSecurity {
 
         Set<AclEntryPermission> required = directory
                 ? DIRECTORY_REQUIRED_ACL_PERMISSIONS : FILE_REQUIRED_ACL_PERMISSIONS;
-        if (!ownerAllowed.containsAll(required)) {
-            throw new IOException(label(path, directory) + " ACL does not grant its owner required access: " + path);
+        if (!currentAllowed.containsAll(required)) {
+            throw new IOException(label(path, directory) + " ACL does not grant the current user required access: " + path);
         }
         for (AclEntryPermission permission : required) {
-            if (ownerDenied.contains(permission)) {
-                throw new IOException(label(path, directory) + " ACL denies required owner access: " + path);
+            if (currentDenied.contains(permission)) {
+                throw new IOException(label(path, directory) + " ACL denies required current-user access: " + path);
             }
         }
     }
 
-    private static UserPrincipal verifyOwner(Path path, boolean directory) throws IOException {
+    private static void verifyPosixOwner(Path path, boolean directory) throws IOException {
         UserPrincipal owner = Files.getOwner(path, LinkOption.NOFOLLOW_LINKS);
         if (owner == null) {
             throw new IOException("Could not determine the owner of " + label(path, directory) + ": " + path);
         }
+        String currentUser = currentUserName(path, directory);
+        if (!principalNameMatches(owner, currentUser)) {
+            throw new IOException(label(path, directory) + " must be owned by the current user: " + path);
+        }
+    }
+
+    private static UserPrincipal currentPrincipal(Path path, boolean directory) throws IOException {
+        String currentUser = currentUserName(path, directory);
+        try {
+            return path.getFileSystem().getUserPrincipalLookupService().lookupPrincipalByName(currentUser);
+        } catch (UserPrincipalNotFoundException ex) {
+            UserPrincipal owner = Files.getOwner(path, LinkOption.NOFOLLOW_LINKS);
+            if (owner != null && principalNameMatches(owner, currentUser)) return owner;
+            throw new IOException("Could not resolve the current user while securing "
+                    + label(path, directory) + ": " + path, ex);
+        }
+    }
+
+    private static String currentUserName(Path path, boolean directory) throws IOException {
         String currentUser = System.getProperty("user.name", "").trim();
         if (currentUser.isBlank()) {
             throw new IOException("Could not determine the current user while securing "
                     + label(path, directory) + ": " + path);
         }
+        return currentUser;
+    }
 
-        try {
-            UserPrincipal current = path.getFileSystem().getUserPrincipalLookupService()
-                    .lookupPrincipalByName(currentUser);
-            if (owner.equals(current)) return owner;
-        } catch (UserPrincipalNotFoundException ignored) {
-            // Fall through to normalized-name comparison for domain-qualified Windows owners.
-        }
+    private static boolean samePrincipal(UserPrincipal left, UserPrincipal right) {
+        if (left == null || right == null) return false;
+        return left.equals(right) || normalizedPrincipalName(left).equals(normalizedPrincipalName(right));
+    }
 
+    private static boolean principalNameMatches(UserPrincipal principal, String currentUser) {
+        String ownerName = normalizedPrincipalName(principal);
         String normalizedCurrent = currentUser.toLowerCase(Locale.ROOT);
-        String ownerName = owner.getName() == null ? "" : owner.getName().toLowerCase(Locale.ROOT);
-        if (ownerName.equals(normalizedCurrent)
+        return ownerName.equals(normalizedCurrent)
                 || ownerName.endsWith("\\" + normalizedCurrent)
-                || ownerName.endsWith("/" + normalizedCurrent)) {
-            return owner;
-        }
-        throw new IOException(label(path, directory) + " must be owned by the current user: " + path);
+                || ownerName.endsWith("/" + normalizedCurrent);
+    }
+
+    private static String normalizedPrincipalName(UserPrincipal principal) {
+        return principal == null || principal.getName() == null
+                ? "" : principal.getName().toLowerCase(Locale.ROOT);
     }
 
     private static boolean exposesSecret(Set<AclEntryPermission> permissions) {
@@ -339,8 +383,7 @@ final class PrivateFileSecurity {
     }
 
     private static boolean trustedSystem(UserPrincipal principal) {
-        String name = principal == null || principal.getName() == null
-                ? "" : principal.getName().toLowerCase(Locale.ROOT);
+        String name = normalizedPrincipalName(principal);
         return name.equals("system")
                 || name.endsWith("\\system")
                 || name.equals("administrators")
