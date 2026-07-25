@@ -97,8 +97,8 @@ final class ClientCredentialVault {
         String sessionOverride = System.getProperty(SESSION_STORE_OVERRIDE, "").trim();
         if (!sessionOverride.isBlank()) {
             Path session = Path.of(sessionOverride).toAbsolutePath().normalize();
-            Path parent = session.getParent();
-            if (parent != null) return parent.resolve("credentials");
+            Path fileName = session.getFileName();
+            if (fileName != null) return session.resolveSibling(fileName + ".credentials");
         }
         return Path.of(System.getProperty("user.home", "."), ".starchem", "credentials")
                 .toAbsolutePath().normalize();
@@ -117,7 +117,8 @@ final class ClientCredentialVault {
     }
 
     static Path createOwnerOnlyTempFile(Path directory, String prefix, String suffix) throws IOException {
-        ensureOwnerOnlyDirectory(directory);
+        if (directory == null) throw new IOException("Temporary-file directory is missing.");
+        Files.createDirectories(directory);
         Path temporary = Files.createTempFile(directory, prefix, suffix, fileAttributes(directory));
         protect(temporary, false);
         return temporary;
