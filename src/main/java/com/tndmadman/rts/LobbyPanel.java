@@ -73,10 +73,13 @@ final class LobbyPanel extends JPanel {
         JButton serve = new MenuButton("HOST");
         JButton connect = new MenuButton("JOIN");
         JButton codex = new MenuButton("CODEX");
+        JButton clearSignIns = new MenuButton("CLEAR SIGN-INS");
         box.add(solo);
         box.add(serve);
         box.add(connect);
         box.add(codex);
+        box.add(clearSignIns);
+        box.add(label(""));
         statusLabel.setForeground(new Color(215, 232, 245));
         box.add(label("Status"));
         box.add(statusLabel);
@@ -91,6 +94,7 @@ final class LobbyPanel extends JPanel {
         serve.addActionListener(e -> startServer());
         connect.addActionListener(e -> startClient());
         codex.addActionListener(e -> owner.toggleCodexFromLobby());
+        clearSignIns.addActionListener(e -> clearSavedSignIns());
     }
 
     private JLabel label(String text) {
@@ -158,6 +162,20 @@ final class LobbyPanel extends JPanel {
             owner.launchGame(config);
         }
         catch (RuntimeException ex) { setStatus(ex.getMessage()); }
+    }
+
+    private void clearSavedSignIns() {
+        int result = JOptionPane.showConfirmDialog(this,
+                "Clear all remembered multiplayer sign-ins?\n\nTrusted server certificates and the client device identity will be kept.",
+                "Clear Saved Sign-Ins", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (result != JOptionPane.YES_OPTION) return;
+        try {
+            PendingPlayerPassword.clearAll();
+            int removed = ClientSessionPropertiesStore.clearSavedCredentials();
+            setStatus(removed == 0 ? "No saved sign-ins were found." : "Cleared all saved multiplayer sign-ins.");
+        } catch (RuntimeException ex) {
+            setStatus(ex.getMessage() == null ? "Could not clear saved sign-ins." : ex.getMessage());
+        }
     }
 
     static PasswordPromptMode passwordPromptMode(Config config) {
