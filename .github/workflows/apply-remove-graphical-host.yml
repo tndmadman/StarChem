@@ -1,0 +1,247 @@
+name: Apply graphical HOST removal
+
+on:
+  push:
+    branches:
+      - agent/remove-graphical-host
+    paths:
+      - '.github/workflows/apply-remove-graphical-host.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/remove-graphical-host
+          fetch-depth: 0
+      - name: Remove graphical HOST and harden server launcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'target not found in {path}: {old[:80]!r}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              'src/main/java/com/tndmadman/rts/GameFrame.java',
+              '    private LocalHostSession localHostSession;\n',
+              '')
+          replace_once(
+              'src/main/java/com/tndmadman/rts/GameFrame.java',
+              '        if (config.showLobby) showLobby("Choose Solo, Host, or Join.");\n',
+              '        if (config.showLobby) showLobby("Choose Solo or Join.");\n')
+          replace_once(
+              'src/main/java/com/tndmadman/rts/GameFrame.java',
+              '        if (config.role() == NetworkRole.SERVER) { launchLocalHostGame(config); return; }\n',
+              '        if (config.role() == NetworkRole.SERVER) {\n'
+              '            showLobby("Graphical HOST was removed. Start run-starchem-server.bat, then choose JOIN.");\n'
+              '            return;\n'
+              '        }\n')
+          replace_once(
+              'src/main/java/com/tndmadman/rts/GameFrame.java',
+              '''    private void launchLocalHostGame(Config config) {
+                  stopActiveGame();
+                  try {
+                      localHostSession = LocalHostSession.start(config);
+                  } catch (IOException ex) {
+                      showLobby("Local host failed: " + ex.getMessage());
+                      return;
+                  }
+                  network = localHostSession.clientNetwork;
+                  showGame(config, localHostSession.clientWorld, network, localHostSession.devAuthorityNetwork());
+              }
+
+''',
+              '')
+          replace_once(
+              'src/main/java/com/tndmadman/rts/GameFrame.java',
+              '''        if (localHostSession != null) localHostSession.stop();
+                  else if (network != null) network.shutdown();
+''',
+              '        if (network != null) network.shutdown();\n')
+          replace_once(
+              'src/main/java/com/tndmadman/rts/GameFrame.java',
+              '        localHostSession = null;\n',
+              '')
+
+          replace_once(
+              'src/main/java/com/tndmadman/rts/LobbyPanel.java',
+              '    private final JLabel statusLabel = new JLabel("Choose Solo, Host, or Join.");\n',
+              '    private final JLabel statusLabel = new JLabel("Choose Solo or Join.");\n')
+          replace_once(
+              'src/main/java/com/tndmadman/rts/LobbyPanel.java',
+              '        JLabel subtitle = new JLabel("Multiplayer Fleet Command");\n',
+              '        JLabel subtitle = new JLabel("Solo and Dedicated Multiplayer");\n')
+          replace_once(
+              'src/main/java/com/tndmadman/rts/LobbyPanel.java',
+              '        JButton serve = new MenuButton("HOST");\n',
+              '')
+          replace_once(
+              'src/main/java/com/tndmadman/rts/LobbyPanel.java',
+              '''        box.add(solo);
+                  box.add(serve);
+                  box.add(connect);
+                  box.add(codex);
+                  box.add(clearSignIns);
+                  box.add(label(""));
+''',
+              '''        box.add(solo);
+                  box.add(connect);
+                  box.add(codex);
+                  box.add(clearSignIns);
+''')
+          replace_once(
+              'src/main/java/com/tndmadman/rts/LobbyPanel.java',
+              '        serve.addActionListener(e -> startServer());\n',
+              '')
+          replace_once(
+              'src/main/java/com/tndmadman/rts/LobbyPanel.java',
+              '''    private void startServer() {
+                  try { owner.launchGame(Config.host(nameField.getText(), Config.parsePort(portField.getText()), devBox.isSelected(), disabledNpcFactions(), selectedSystemId(), selectedGalaxyCopies())); }
+                  catch (RuntimeException ex) { setStatus(ex.getMessage()); }
+              }
+
+''',
+              '')
+
+          replace_once(
+              'src/main/java/com/tndmadman/rts/Config.java',
+              '        boolean host = false;\n',
+              '')
+          replace_once(
+              'src/main/java/com/tndmadman/rts/Config.java',
+              '''                case "--server" -> {
+                          dedicated = true;
+                          host = true;
+                          if (hasOptionalValue(args, i + 1)) port = parsePort(args[++i]);
+                      }
+                      case "--host" -> {
+                          host = true;
+                          port = parsePort(requiredValue(args, ++i, option));
+                      }
+''',
+              '''                case "--server" -> {
+                          dedicated = true;
+                          if (hasOptionalValue(args, i + 1)) port = parsePort(args[++i]);
+                      }
+''')
+          replace_once(
+              'src/main/java/com/tndmadman/rts/Config.java',
+              '''        if (host) {
+                  Path hostSaveDir = saveDir == null ? DefaultStoragePaths.graphicalSaveDirectory() : saveDir;
+                  return new Config(clean(name), false, true, false, false, dev, devToken,
+                          disableProductionTimers, port == 0 ? 50000 : port, null, Set.of(), system,
+                          galaxyCopies, hostSaveDir, saveName, autosaveSeconds, backupCount, newWorld);
+              }
+''',
+              '')
+
+          replace_once(
+              'src/main/java/com/tndmadman/rts/App.java',
+              '        System.out.println("  java -jar StarChem.jar --host PORT [options]   Host with a local client");\n',
+              '')
+
+          replace_once(
+              'src/main/java/com/tndmadman/rts/ClientLaunchValidator.java',
+              '''        Config doubleGalaxy = Config.parse(new String[]{"--host", "50000", "--galaxy-copies", "2"});
+                  expectEquals("double galaxy copies", 2, doubleGalaxy.galaxyCopies);
+''',
+              '''        Config doubleGalaxy = Config.parse(new String[]{"--solo", "--galaxy-copies", "2"});
+                  expectEquals("double galaxy copies", 2, doubleGalaxy.galaxyCopies);
+''')
+          replace_once(
+              'src/main/java/com/tndmadman/rts/ClientLaunchValidator.java',
+              '        expectInvalidArgs("missing host port", new String[]{"--host"});\n',
+              '        expectInvalidArgs("graphical host option removed", new String[]{"--host", "50000"});\n')
+
+          replace_once(
+              'README.md',
+              'On Windows, double-click `run-starchem.bat` to open the lobby and choose the game mode and connection options from the menu.\n',
+              'On Windows, double-click `run-starchem.bat` to open the lobby. The graphical menu contains only **SOLO** and **JOIN**; multiplayer servers run as separate dedicated-server processes.\n')
+          replace_once(
+              'README.md',
+              'StarChem multiplayer uses framed TCP connections. A host or dedicated server listens on the selected game port, and remote clients connect to that same host and port. Internet-hosted games must allow inbound TCP traffic on the selected port; StarChem no longer uses UDP for multiplayer.\n',
+              'StarChem multiplayer uses framed TCP connections. A dedicated server listens on the selected game port, and clients connect to that server with **JOIN**. Internet-hosted games must allow inbound TCP traffic on the selected port; StarChem no longer uses UDP for multiplayer.\n')
+          replace_once(
+              'README.md',
+              'Existing dedicated-server accounts created with the legacy verifier require one password re-entry; after successful authentication the server upgrades the account in place without replacing its player identity or assets. Graphical HOST mode uses an isolated in-process client and never reuses or overwrites remote-server passwords, sessions, or certificate pins. Dedicated-server operators should still back up the complete save directory, including the `*-tls.p12` identity file.\n',
+              'Existing dedicated-server accounts created with the legacy verifier require one password re-entry; after successful authentication the server upgrades the account in place without replacing its player identity or assets. Dedicated-server operators should back up the complete save directory, including the `*-tls.p12` identity file.\n')
+          replace_once(
+              'README.md',
+              'The codex is read-only and works during solo, hosted, and joined games without changing game state.\n',
+              'The codex is read-only and works during solo and joined games without changing game state.\n')
+
+          Path('packaging/run-starchem-server.bat').write_text(r'''@echo off
+          setlocal
+          cd /d "%~dp0"
+
+          where java >nul 2>&1
+          if errorlevel 1 (
+              echo Java 17 or newer was not found in PATH.
+              echo Install Java, reopen this folder, and run this file again.
+              pause
+              exit /b 1
+          )
+
+          if not exist "StarChem.jar" (
+              echo StarChem.jar was not found beside this launcher.
+              echo Extract the complete StarChem release ZIP before starting the server.
+              pause
+              exit /b 1
+          )
+
+          if not defined STARCHEM_PORT set "STARCHEM_PORT=50000"
+          if not defined STARCHEM_SERVER_NAME set "STARCHEM_SERVER_NAME=StarChem-Server"
+
+          echo Starting %STARCHEM_SERVER_NAME% on TCP port %STARCHEM_PORT%...
+          echo Players can connect from the lobby with JOIN.
+          echo.
+
+          if defined STARCHEM_DEV_TOKEN_FILE (
+              java -Djava.awt.headless=true -jar "StarChem.jar" --server "%STARCHEM_PORT%" --name "%STARCHEM_SERVER_NAME%" --dev-token-file "%STARCHEM_DEV_TOKEN_FILE%" %*
+          ) else (
+              java -Djava.awt.headless=true -jar "StarChem.jar" --server "%STARCHEM_PORT%" --name "%STARCHEM_SERVER_NAME%" %*
+          )
+
+          set "STARCHEM_EXIT=%ERRORLEVEL%"
+          if not "%STARCHEM_EXIT%"=="0" (
+              echo.
+              echo StarChem server exited with code %STARCHEM_EXIT%.
+              pause
+          )
+          exit /b %STARCHEM_EXIT%
+          '''.replace('          ', ''), encoding='utf-8')
+
+          for obsolete in (
+              'src/main/java/com/tndmadman/rts/LocalHostSession.java',
+              'src/main/java/com/tndmadman/rts/WindowsHostStartupValidator.java',
+          ):
+              Path(obsolete).unlink()
+          PY
+
+          if grep -R -n -E 'LocalHostSession|WindowsHostStartupValidator|Choose Solo, Host, or Join|new MenuButton\("HOST"\)|case "--host"' src/main/java README.md packaging; then
+            echo 'Removed graphical HOST references remain.' >&2
+            exit 1
+          fi
+
+          gradle classes validateClientLaunch --no-daemon
+      - name: Commit changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md packaging/run-starchem-server.bat src/main/java/com/tndmadman/rts
+          git commit -m 'Remove graphical HOST mode'
+          git push origin HEAD:agent/remove-graphical-host
