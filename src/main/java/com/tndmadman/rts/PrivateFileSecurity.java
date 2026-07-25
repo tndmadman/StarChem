@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 /** Applies and verifies owner-only storage for local server and client secrets. */
 final class PrivateFileSecurity {
@@ -48,6 +49,22 @@ final class PrivateFileSecurity {
             AclEntryPermission.READ_ACL,
             AclEntryPermission.WRITE_ACL,
             AclEntryPermission.SYNCHRONIZE);
+    private static final Set<AclEntryPermission> DIRECTORY_REQUIRED_ACL_PERMISSIONS = EnumSet.of(
+            AclEntryPermission.READ_DATA,
+            AclEntryPermission.WRITE_DATA,
+            AclEntryPermission.APPEND_DATA,
+            AclEntryPermission.EXECUTE,
+            AclEntryPermission.READ_ATTRIBUTES,
+            AclEntryPermission.WRITE_ATTRIBUTES,
+            AclEntryPermission.READ_ACL,
+            AclEntryPermission.WRITE_ACL);
+    private static final Set<AclEntryPermission> FILE_REQUIRED_ACL_PERMISSIONS = EnumSet.of(
+            AclEntryPermission.READ_DATA,
+            AclEntryPermission.WRITE_DATA,
+            AclEntryPermission.READ_ATTRIBUTES,
+            AclEntryPermission.WRITE_ATTRIBUTES,
+            AclEntryPermission.READ_ACL,
+            AclEntryPermission.WRITE_ACL);
     private static final Set<AclEntryPermission> SECRET_EXPOSURE_PERMISSIONS = EnumSet.of(
             AclEntryPermission.READ_DATA,
             AclEntryPermission.WRITE_DATA,
@@ -180,6 +197,8 @@ final class PrivateFileSecurity {
             if (directory) preserved.flags.addAll(entry.flags());
         }
 
+        disableWindowsInheritance(path, directory);
+
         List<AclEntry> replacement = new ArrayList<>();
         AclEntry.Builder ownerEntry = AclEntry.newBuilder()
                 .setType(AclEntryType.ALLOW)
@@ -201,6 +220,32 @@ final class PrivateFileSecurity {
         }
 
         acl.setAcl(replacement);
+    }
+
+    private static void disableWindowsInheritance(Path path, boolean directory) throws IOException {
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        if (!os.contains("win")) return;
+        Process process = null;
+        try {
+            process = new ProcessBuilder("icacls.exe", path.toString(), "/inheritance:d")
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD)
+                    .start();
+            if (!process.waitFor(10, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                throw new IOException("Timed out while disabling inherited ACL entries for "
+                        + label(path, directory) + ": " + path);
+            }
+            if (process.exitValue() != 0) {
+                throw new IOException("Could not disable inherited ACL entries for "
+                        + label(path, directory) + ": " + path);
+            }
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            if (process != null) process.destroyForcibly();
+            throw new IOException("Interrupted while disabling inherited ACL entries for "
+                    + label(path, directory) + ": " + path, ex);
+        }
     }
 
     private static void verifyPrivatePath(Path path, boolean directory) throws IOException {
@@ -245,7 +290,8 @@ final class PrivateFileSecurity {
             }
         }
 
-        Set<AclEntryPermission> required = directory ? DIRECTORY_ACL_PERMISSIONS : FILE_ACL_PERMISSIONS;
+        Set<AclEntryPermission> required = directory
+                ? DIRECTORY_REQUIRED_ACL_PERMISSIONS : FILE_REQUIRED_ACL_PERMISSIONS;
         if (!ownerAllowed.containsAll(required)) {
             throw new IOException(label(path, directory) + " ACL does not grant its owner required access: " + path);
         }
