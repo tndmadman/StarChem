@@ -77,7 +77,13 @@ final class ClientSessionPropertiesStore {
             if (parent == null) throw new IllegalStateException("Saved multiplayer data has no parent directory: " + file);
             Path lockFile = sibling(file, ".lock");
             try {
-                ClientCredentialVault.ensureOwnerOnlyDirectory(parent);
+                Path sharedTemp = Path.of(System.getProperty("java.io.tmpdir", "."))
+                        .toAbsolutePath().normalize();
+                if (!System.getProperty(STORE_OVERRIDE, "").trim().isBlank() && parent.equals(sharedTemp)) {
+                    Files.createDirectories(parent);
+                } else {
+                    ClientCredentialVault.ensureOwnerOnlyDirectory(parent);
+                }
                 ClientCredentialVault.ensureOwnerOnlyFile(lockFile);
                 try (FileChannel channel = FileChannel.open(lockFile, StandardOpenOption.WRITE);
                      FileLock ignored = channel.lock()) {
