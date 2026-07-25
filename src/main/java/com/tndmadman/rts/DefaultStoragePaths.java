@@ -23,9 +23,10 @@ final class DefaultStoragePaths {
         Path portable = normalized(Path.of("saves"));
         if (!windows()) return portable;
 
+        boolean portableExists = Files.exists(portable, LinkOption.NOFOLLOW_LINKS);
         Path perUser = windowsDataRoot().resolve("StarChem").resolve("saves").toAbsolutePath().normalize();
         Path selected = selectWindowsDirectory(portable, perUser);
-        if (!selected.equals(portable)) {
+        if (portableExists && !selected.equals(portable)) {
             System.err.println("StarChem could not securely use the launch-folder save directory: " + portable);
             System.err.println("Using the per-user save directory instead: " + selected);
         }
@@ -45,6 +46,7 @@ final class DefaultStoragePaths {
         Path probe = null;
         try {
             PrivateFileSecurity.ensurePrivateDirectory(directory);
+            secureExistingTlsFiles(directory);
             probe = PrivateFileSecurity.createPrivateTempFile(directory, "starchem-storage-probe-", ".tmp");
             PrivateFileSecurity.verifyPrivateRegularFile(probe);
             return true;
@@ -54,6 +56,17 @@ final class DefaultStoragePaths {
             if (probe != null) {
                 try { Files.deleteIfExists(probe); }
                 catch (IOException ignored) { }
+            }
+        }
+    }
+
+    private static void secureExistingTlsFiles(Path directory) throws IOException {
+        try (var files = Files.list(directory)) {
+            for (Path file : files.toList()) {
+                String name = file.getFileName() == null
+                        ? "" : file.getFileName().toString().toLowerCase(Locale.ROOT);
+                if (!name.endsWith("-tls.p12") && !name.endsWith("-tls.password")) continue;
+                PrivateFileSecurity.secureFile(file);
             }
         }
     }
