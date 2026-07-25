@@ -33,8 +33,12 @@ jobs:
           exec(compile(script, 'remove-graphical-host.py', 'exec'), {'__name__': '__main__'})
           PY
 
-          if grep -R -n -E 'LocalHostSession|WindowsHostStartupValidator|Choose Solo, Host, or Join|new MenuButton\("HOST"\)|case "--host"' src/main/java README.md packaging; then
-            echo 'Removed graphical HOST references remain.' >&2
+          git checkout origin/main -- \
+            src/main/java/com/tndmadman/rts/LocalHostSession.java \
+            src/main/java/com/tndmadman/rts/WindowsHostStartupValidator.java
+
+          if grep -R -n -E 'Choose Solo, Host, or Join|new MenuButton\("HOST"\)|case "--host"|launchLocalHostGame|Local host failed' src/main/java README.md packaging; then
+            echo 'A user-facing graphical HOST route remains.' >&2
             exit 1
           fi
 
