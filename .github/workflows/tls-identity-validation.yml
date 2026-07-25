@@ -1,4 +1,4 @@
-name: TLS identity validation
+name: TLS identity and private storage validation
 
 on:
   pull_request:
@@ -7,7 +7,12 @@ on:
     paths:
       - 'src/main/java/com/tndmadman/rts/TlsIdentity.java'
       - 'src/main/java/com/tndmadman/rts/PrivateFileSecurity.java'
-      - 'src/main/java/com/tndmadman/rts/TlsIdentityValidator.java'
+      - 'src/main/java/com/tndmadman/rts/PrivateFileSecurityValidator.java'
+      - 'src/main/java/com/tndmadman/rts/WindowsHostStartupValidator.java'
+      - 'src/main/java/com/tndmadman/rts/ClientCredentialVault.java'
+      - 'src/main/java/com/tndmadman/rts/ClientCredentialVaultValidator.java'
+      - 'src/main/java/com/tndmadman/rts/ClientSessionPropertiesStore.java'
+      - 'src/main/java/com/tndmadman/rts/LocalHostSession.java'
       - 'TLS_IDENTITY_SECURITY.md'
       - '.github/workflows/tls-identity-validation.yml'
 
@@ -16,7 +21,13 @@ permissions:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -31,5 +42,12 @@ jobs:
           gradle-version: '8.10.2'
       - name: Compile StarChem
         run: gradle classes --no-daemon
+      - name: Validate private file enforcement
+        run: java -cp build/classes/java/main com.tndmadman.rts.PrivateFileSecurityValidator
       - name: Validate protected TLS identity storage
         run: java -cp build/classes/java/main com.tndmadman.rts.TlsIdentityValidator
+      - name: Validate protected client credential storage
+        run: java -cp build/classes/java/main com.tndmadman.rts.ClientCredentialVaultValidator
+      - name: Validate graphical HOST startup on Windows
+        if: runner.os == 'Windows'
+        run: java -cp build/classes/java/main com.tndmadman.rts.WindowsHostStartupValidator
