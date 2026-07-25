@@ -1,6 +1,8 @@
 package com.tndmadman.rts;
 
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -28,6 +30,13 @@ public final class PrivateFileSecurityValidator {
             validateBroadAclRejected(root.resolve("broad-acl"));
             validateWrongPathTypeRejected(root.resolve("wrong-type"));
             System.out.println("Private file security validation passed.");
+        } catch (Throwable failure) {
+            StringWriter text = new StringWriter();
+            failure.printStackTrace(new PrintWriter(text));
+            Files.writeString(Path.of("private-file-security-failure.txt"), text.toString(),
+                    StandardCharsets.UTF_8, StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+            throw failure;
         } finally {
             deleteTree(root);
         }
