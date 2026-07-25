@@ -27,7 +27,6 @@ final class GameFrame extends JFrame {
     private EndStatePanel endStatePanel;
     private ConnectionOverlayPanel connectionOverlayPanel;
     private PeerNetwork network;
-    private LocalHostSession localHostSession;
     private Timer networkTimer;
     private World activeWorld;
 
@@ -44,7 +43,7 @@ final class GameFrame extends JFrame {
         addWindowListener(new WindowAdapter() {
             @Override public void windowClosing(WindowEvent e) { stopActiveGame(); }
         });
-        if (config.showLobby) showLobby("Choose Solo, Host, or Join.");
+        if (config.showLobby) showLobby("Choose Solo or Join.");
         else launchGame(config);
     }
 
@@ -69,7 +68,10 @@ final class GameFrame extends JFrame {
 
     void launchGame(Config config) {
         GalaxyRuntimeOptions.configure(config);
-        if (config.role() == NetworkRole.SERVER) { launchLocalHostGame(config); return; }
+        if (config.role() == NetworkRole.SERVER) {
+            showLobby("Graphical HOST was removed. Start run-starchem-server.bat, then choose JOIN.");
+            return;
+        }
         stopActiveGame();
         World world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId, config.role() == NetworkRole.SOLO);
         DevTimerSettings.configure(world, config.disableProductionTimers);
@@ -97,18 +99,6 @@ final class GameFrame extends JFrame {
 
     static String connectionNotice(String status) {
         return status != null && status.startsWith(ACTIVE_SESSION_NOTICE) ? DUPLICATE_NAME_NOTICE : "";
-    }
-
-    private void launchLocalHostGame(Config config) {
-        stopActiveGame();
-        try {
-            localHostSession = LocalHostSession.start(config);
-        } catch (IOException ex) {
-            showLobby("Local host failed: " + ex.getMessage());
-            return;
-        }
-        network = localHostSession.clientNetwork;
-        showGame(config, localHostSession.clientWorld, network, localHostSession.devAuthorityNetwork());
     }
 
     private void showGame(Config config, World world, PeerNetwork activeNetwork, PeerNetwork devAuthorityNetwork) {
@@ -188,8 +178,7 @@ final class GameFrame extends JFrame {
         if (endStatePanel != null) endStatePanel.stop();
         if (connectionOverlayPanel != null) connectionOverlayPanel.stop();
         if (networkTimer != null) networkTimer.stop();
-        if (localHostSession != null) localHostSession.stop();
-        else if (network != null) network.shutdown();
+        if (network != null) network.shutdown();
         resetDeveloperSimulationState(stoppingWorld);
         gamePanel = null;
         resourceCatalogOverlay = null;
@@ -198,7 +187,6 @@ final class GameFrame extends JFrame {
         endStatePanel = null;
         connectionOverlayPanel = null;
         network = null;
-        localHostSession = null;
         networkTimer = null;
         activeWorld = null;
     }

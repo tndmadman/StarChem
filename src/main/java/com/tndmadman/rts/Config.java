@@ -59,7 +59,6 @@ final class Config {
         if (args.length == 0) return lobby();
         String name = defaultName();
         String system = StarSystems.DEFAULT_SYSTEM_ID;
-        boolean host = false;
         boolean dedicated = false;
         boolean dev = false;
         String devToken = "";
@@ -103,12 +102,7 @@ final class Config {
                 case "--enable-timers" -> disableProductionTimers = false;
                 case "--server" -> {
                     dedicated = true;
-                    host = true;
                     if (hasOptionalValue(args, i + 1)) port = parsePort(args[++i]);
-                }
-                case "--host" -> {
-                    host = true;
-                    port = parsePort(requiredValue(args, ++i, option));
                 }
                 case "--join" -> {
                     String hostName = parseHost(requiredValue(args, ++i, option));
@@ -125,12 +119,6 @@ final class Config {
             return dedicatedServer(name, port == 0 ? 50000 : port, dev, disableProductionTimers,
                     Set.of(), system, devToken, galaxyCopies, dedicatedSaveDir, saveName,
                     autosaveSeconds, backupCount, newWorld);
-        }
-        if (host) {
-            Path hostSaveDir = saveDir == null ? DefaultStoragePaths.graphicalSaveDirectory() : saveDir;
-            return new Config(clean(name), false, true, false, false, dev, devToken,
-                    disableProductionTimers, port == 0 ? 50000 : port, null, Set.of(), system,
-                    galaxyCopies, hostSaveDir, saveName, autosaveSeconds, backupCount, newWorld);
         }
         if (server != null) {
             return join(name, server.getHostString(), server.getPort(), dev,

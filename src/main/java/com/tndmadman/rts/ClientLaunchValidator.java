@@ -20,7 +20,7 @@ public final class ClientLaunchValidator {
         expectTrue("client mode", client.clientMode());
         expectEquals("client port", 50000, client.serverAddress.getPort());
         expectEquals("blank programmatic host", "127.0.0.1", Config.join("Client", "", 50000).serverAddress.getHostString());
-        Config doubleGalaxy = Config.parse(new String[]{"--host", "50000", "--galaxy-copies", "2"});
+        Config doubleGalaxy = Config.parse(new String[]{"--solo", "--galaxy-copies", "2"});
         expectEquals("double galaxy copies", 2, doubleGalaxy.galaxyCopies);
 
         Config loopbackClient = Config.join("Local Client", "127.0.0.1", 50000);
@@ -48,7 +48,7 @@ public final class ClientLaunchValidator {
         expectInvalidArgs("unknown option", new String[]{"--sever", "50000"});
         expectInvalidArgs("missing name", new String[]{"--solo", "--name"});
         expectInvalidArgs("missing system", new String[]{"--solo", "--system"});
-        expectInvalidArgs("missing host port", new String[]{"--host"});
+        expectInvalidArgs("graphical host option removed", new String[]{"--host", "50000"});
 
         expectInvalidArgs("missing join address and port", new String[]{"--join"});
         expectInvalidArgs("missing join port", new String[]{"--join", "127.0.0.1"});
