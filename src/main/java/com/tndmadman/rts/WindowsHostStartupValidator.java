@@ -27,8 +27,8 @@ public final class WindowsHostStartupValidator {
                     "graphical HOST ignored the selected per-user save directory");
 
             session = LocalHostSession.start(config);
-            Thread.sleep(1_000L);
             require(session.clientNetwork != null, "graphical HOST did not create its loopback client");
+            verifyLoopbackConnectionRemainsHealthy(session);
 
             Path keyFile = selected.resolve("server-tls.p12");
             Path passwordFile = selected.resolve("server-tls.password");
@@ -45,7 +45,7 @@ public final class WindowsHostStartupValidator {
             require(firstFingerprint.equals(restartedFingerprint),
                     "graphical HOST TLS fingerprint changed after restart");
             assertNoTemporaryFiles(selected);
-            System.out.println("Windows graphical host storage fallback validation passed.");
+            System.out.println("Windows graphical host storage and loopback connection validation passed.");
         } finally {
             if (session != null) session.stop();
             if (previousSaveDirectory == null) {
@@ -55,6 +55,21 @@ public final class WindowsHostStartupValidator {
             }
             deleteTree(root);
         }
+    }
+
+    private static void verifyLoopbackConnectionRemainsHealthy(LocalHostSession session) throws Exception {
+        long deadline = System.nanoTime() + 8_000_000_000L;
+        while (System.nanoTime() < deadline) {
+            if (session.clientNetwork.connectionFailed()) {
+                throw new IllegalStateException("graphical HOST loopback client failed: "
+                        + session.clientNetwork.failureMessage() + " | world status: " + session.clientWorld.status);
+            }
+            Thread.sleep(50L);
+        }
+        require(!session.clientNetwork.connectionFailed(),
+                "graphical HOST loopback client failed after the validation interval: "
+                        + session.clientNetwork.failureMessage() + " | world status: " + session.clientWorld.status);
+        System.out.println("Loopback client remained healthy. World status: " + session.clientWorld.status);
     }
 
     private static Path validateUnsafeLaunchDirectoryFallback(Path root) throws Exception {
