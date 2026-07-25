@@ -27,8 +27,8 @@ public final class WindowsHostStartupValidator {
                     "graphical HOST ignored the selected per-user save directory");
 
             session = LocalHostSession.start(config);
-            Thread.sleep(1_000L);
             require(session.clientNetwork != null, "graphical HOST did not create its loopback client");
+            verifyLoopbackConnectionReady(session);
 
             Path keyFile = selected.resolve("server-tls.p12");
             Path passwordFile = selected.resolve("server-tls.password");
@@ -45,7 +45,7 @@ public final class WindowsHostStartupValidator {
             require(firstFingerprint.equals(restartedFingerprint),
                     "graphical HOST TLS fingerprint changed after restart");
             assertNoTemporaryFiles(selected);
-            System.out.println("Windows graphical host storage fallback validation passed.");
+            System.out.println("Windows graphical HOST authenticated loopback validation passed.");
         } finally {
             if (session != null) session.stop();
             if (previousSaveDirectory == null) {
@@ -55,6 +55,29 @@ public final class WindowsHostStartupValidator {
             }
             deleteTree(root);
         }
+    }
+
+    private static void verifyLoopbackConnectionReady(LocalHostSession session) throws Exception {
+        long deadline = System.nanoTime() + 10_000_000_000L;
+        PeerNetwork server = session.devAuthorityNetwork();
+        while (System.nanoTime() < deadline) {
+            if (session.clientNetwork.connectionFailed()) {
+                throw new IllegalStateException("graphical HOST loopback client failed: "
+                        + session.clientNetwork.failureMessage() + " | world status: "
+                        + session.clientWorld.status);
+            }
+            if (session.clientNetwork.clientReady() && server.serverPeerCount() == 1
+                    && server.serverSessionConnected("P1")) {
+                return;
+            }
+            Thread.sleep(25L);
+        }
+        ClientConnectionProgress progress = session.clientNetwork.clientConnectionProgress();
+        throw new IllegalStateException("graphical HOST loopback client did not become ready: "
+                + progress.phase() + " | " + progress.detail() + " | server peers: "
+                + server.serverPeerCount() + " | P1 connected: "
+                + server.serverSessionConnected("P1") + " | world status: "
+                + session.clientWorld.status);
     }
 
     private static Path validateUnsafeLaunchDirectoryFallback(Path root) throws Exception {
