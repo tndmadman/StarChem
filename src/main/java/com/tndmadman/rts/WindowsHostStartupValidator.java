@@ -10,12 +10,9 @@ import java.util.Set;
 
 /** Exercises Windows storage fallback plus graphical HOST server and loopback client startup. */
 public final class WindowsHostStartupValidator {
-    private static final Path FAILURE_DIAGNOSTIC = Path.of("build", "windows-host-failure.txt");
-
     private WindowsHostStartupValidator() { }
 
     public static void main(String[] args) throws Exception {
-        Files.deleteIfExists(FAILURE_DIAGNOSTIC);
         Path root = Files.createTempDirectory("starchem-windows-host-");
         String previousSaveDirectory = System.getProperty(DefaultStoragePaths.SAVE_DIR_PROPERTY);
         LocalHostSession session = null;
@@ -31,7 +28,7 @@ public final class WindowsHostStartupValidator {
 
             session = LocalHostSession.start(config);
             require(session.clientNetwork != null, "graphical HOST did not create its loopback client");
-            verifyLoopbackConnectionRemainsHealthy(session);
+            verifyLoopbackConnectionReady(session);
 
             Path keyFile = selected.resolve("server-tls.p12");
             Path passwordFile = selected.resolve("server-tls.password");
@@ -48,10 +45,7 @@ public final class WindowsHostStartupValidator {
             require(firstFingerprint.equals(restartedFingerprint),
                     "graphical HOST TLS fingerprint changed after restart");
             assertNoTemporaryFiles(selected);
-            System.out.println("Windows graphical host storage and loopback connection validation passed.");
-        } catch (Throwable failure) {
-            writeFailureDiagnostic(failure, session);
-            throw failure;
+            System.out.println("Windows graphical HOST authenticated loopback validation passed.");
         } finally {
             if (session != null) session.stop();
             if (previousSaveDirectory == null) {
@@ -63,32 +57,27 @@ public final class WindowsHostStartupValidator {
         }
     }
 
-    private static void verifyLoopbackConnectionRemainsHealthy(LocalHostSession session) throws Exception {
-        long deadline = System.nanoTime() + 8_000_000_000L;
+    private static void verifyLoopbackConnectionReady(LocalHostSession session) throws Exception {
+        long deadline = System.nanoTime() + 10_000_000_000L;
+        PeerNetwork server = session.devAuthorityNetwork();
         while (System.nanoTime() < deadline) {
             if (session.clientNetwork.connectionFailed()) {
                 throw new IllegalStateException("graphical HOST loopback client failed: "
-                        + session.clientNetwork.failureMessage() + " | world status: " + session.clientWorld.status);
+                        + session.clientNetwork.failureMessage() + " | world status: "
+                        + session.clientWorld.status);
             }
-            Thread.sleep(50L);
+            if (session.clientNetwork.clientReady() && server.serverPeerCount() == 1
+                    && server.serverSessionConnected("P1")) {
+                return;
+            }
+            Thread.sleep(25L);
         }
-        require(!session.clientNetwork.connectionFailed(),
-                "graphical HOST loopback client failed after the validation interval: "
-                        + session.clientNetwork.failureMessage() + " | world status: " + session.clientWorld.status);
-        System.out.println("Loopback client remained healthy. World status: " + session.clientWorld.status);
-    }
-
-    private static void writeFailureDiagnostic(Throwable failure, LocalHostSession session) {
-        String worldStatus = session == null || session.clientWorld == null ? "unavailable" : session.clientWorld.status;
-        String networkFailure = session == null || session.clientNetwork == null
-                ? "unavailable" : session.clientNetwork.failureMessage();
-        String diagnostic = failure.getClass().getName() + ": " + failure.getMessage()
-                + System.lineSeparator() + "network failure: " + networkFailure
-                + System.lineSeparator() + "world status: " + worldStatus + System.lineSeparator();
-        try {
-            Files.createDirectories(FAILURE_DIAGNOSTIC.getParent());
-            Files.writeString(FAILURE_DIAGNOSTIC, diagnostic, StandardCharsets.UTF_8);
-        } catch (IOException ignored) { }
+        ClientConnectionProgress progress = session.clientNetwork.clientConnectionProgress();
+        throw new IllegalStateException("graphical HOST loopback client did not become ready: "
+                + progress.phase() + " | " + progress.detail() + " | server peers: "
+                + server.serverPeerCount() + " | P1 connected: "
+                + server.serverSessionConnected("P1") + " | world status: "
+                + session.clientWorld.status);
     }
 
     private static Path validateUnsafeLaunchDirectoryFallback(Path root) throws Exception {

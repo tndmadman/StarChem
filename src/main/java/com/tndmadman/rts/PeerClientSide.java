@@ -716,7 +716,18 @@ final class PeerClientSide {
     }
 
     private boolean preparePasswordMaterial(String scopedSalt) {
-        if (config.localHostClientMode()) return !passwordVerifier.isBlank();
+        if (config.localHostClientMode()) {
+            if (!PasswordAuth.validVerifier(passwordVerifier)
+                    || PasswordAuth.decodeHex(scopedSalt).length != 16) {
+                failConnection("The graphical HOST credential is unavailable.");
+                return false;
+            }
+            scopedPasswordVerifier = passwordVerifier;
+            authScopedSalt = scopedSalt.toLowerCase(java.util.Locale.ROOT);
+            derivedScopedCredential = false;
+            rememberScopedCredential = false;
+            return true;
+        }
         String fingerprint = SessionTokenStore.serverFingerprint(config);
         if (!PasswordAuth.validVerifier(fingerprint) || PasswordAuth.decodeHex(scopedSalt).length != 16) {
             failConnection("The verified TLS server identity is unavailable; refusing to derive a login credential.");
