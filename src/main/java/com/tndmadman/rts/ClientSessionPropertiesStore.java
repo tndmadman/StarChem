@@ -167,7 +167,7 @@ final class ClientSessionPropertiesStore {
         String prefix = safePrefix(file.getFileName().toString());
         Path temporary = null;
         try {
-            temporary = ClientCredentialVault.createOwnerOnlyTempFile(parent, prefix + "-", ".tmp");
+            temporary = createProtectedTempFile(parent, prefix + "-", ".tmp");
             writeAndSync(temporary, split.metadata());
             loadProperties(temporary);
             if (preserveCurrent && Files.isRegularFile(file)) publishPrevious(file, previous, parent, prefix);
@@ -236,7 +236,7 @@ final class ClientSessionPropertiesStore {
     private static void writeReplacement(Path target, Path parent, String prefix, Properties properties) throws IOException {
         Path temporary = null;
         try {
-            temporary = ClientCredentialVault.createOwnerOnlyTempFile(parent, prefix, ".tmp");
+            temporary = createProtectedTempFile(parent, prefix, ".tmp");
             writeAndSync(temporary, properties);
             loadProperties(temporary);
             moveReplace(temporary, target);
@@ -245,6 +245,13 @@ final class ClientSessionPropertiesStore {
         } finally {
             deleteQuietly(temporary);
         }
+    }
+
+    private static Path createProtectedTempFile(Path parent, String prefix, String suffix) throws IOException {
+        Files.createDirectories(parent);
+        Path temporary = Files.createTempFile(parent, prefix, suffix);
+        ClientCredentialVault.ensureOwnerOnlyFile(temporary);
+        return temporary;
     }
 
     private static void writeAndSync(Path path, Properties properties) throws IOException {
