@@ -58,16 +58,22 @@ public final class WindowsHostStartupValidator {
     }
 
     private static Path validateUnsafeLaunchDirectoryFallback(Path root) throws Exception {
+        Path perUser = root.resolve("local-app-data").resolve("StarChem").resolve("saves")
+                .toAbsolutePath().normalize();
+
         Path launchDirectory = root.resolve("protected-launch");
         Files.createDirectories(launchDirectory);
         Path unusablePortablePath = launchDirectory.resolve("saves");
         Files.writeString(unusablePortablePath, "not a directory", StandardCharsets.UTF_8);
-
-        Path perUser = root.resolve("local-app-data").resolve("StarChem").resolve("saves")
-                .toAbsolutePath().normalize();
         Path selected = DefaultStoragePaths.selectWindowsDirectory(unusablePortablePath, perUser);
         require(selected.equals(perUser),
                 "unsafe launch-folder storage did not fall back to the per-user directory");
+
+        Path badTlsDirectory = root.resolve("bad-existing-tls").resolve("saves");
+        Files.createDirectories(badTlsDirectory.resolve("server-tls.password"));
+        Path tlsFallback = DefaultStoragePaths.selectWindowsDirectory(badTlsDirectory, perUser);
+        require(tlsFallback.equals(perUser),
+                "unprotectable existing TLS storage did not fall back to the per-user directory");
 
         Path portable = root.resolve("portable").resolve("saves");
         Files.createDirectories(portable);
