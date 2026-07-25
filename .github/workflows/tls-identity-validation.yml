@@ -44,6 +44,13 @@ jobs:
         run: gradle classes --no-daemon
       - name: Validate private file enforcement
         run: java -cp build/classes/java/main com.tndmadman.rts.PrivateFileSecurityValidator
+      - name: Upload private storage failure diagnostics
+        if: failure() && hashFiles('private-file-security-failure.txt') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: private-storage-failure-${{ matrix.os }}
+          path: private-file-security-failure.txt
+          if-no-files-found: error
       - name: Validate protected TLS identity storage
         run: java -cp build/classes/java/main com.tndmadman.rts.TlsIdentityValidator
       - name: Validate protected client credential storage
