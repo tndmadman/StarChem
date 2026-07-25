@@ -42,7 +42,12 @@ jobs:
           gradle-version: '8.10.2'
       - name: Compile StarChem
         run: gradle classes --no-daemon
+      - name: Prepare validation temp directory
+        shell: bash
+        run: mkdir -p build/private-validation-temp
       - name: Validate private file enforcement
+        env:
+          JAVA_TOOL_OPTIONS: -Djava.io.tmpdir=build/private-validation-temp
         run: java -cp build/classes/java/main com.tndmadman.rts.PrivateFileSecurityValidator
       - name: Upload private storage failure diagnostics
         if: failure() && hashFiles('private-file-security-failure.txt') != ''
@@ -52,9 +57,15 @@ jobs:
           path: private-file-security-failure.txt
           if-no-files-found: error
       - name: Validate protected TLS identity storage
+        env:
+          JAVA_TOOL_OPTIONS: -Djava.io.tmpdir=build/private-validation-temp
         run: java -cp build/classes/java/main com.tndmadman.rts.TlsIdentityValidator
       - name: Validate protected client credential storage
+        env:
+          JAVA_TOOL_OPTIONS: -Djava.io.tmpdir=build/private-validation-temp
         run: java -cp build/classes/java/main com.tndmadman.rts.ClientCredentialVaultValidator
       - name: Validate graphical HOST startup on Windows
         if: runner.os == 'Windows'
+        env:
+          JAVA_TOOL_OPTIONS: -Djava.io.tmpdir=build/private-validation-temp
         run: java -cp build/classes/java/main com.tndmadman.rts.WindowsHostStartupValidator
