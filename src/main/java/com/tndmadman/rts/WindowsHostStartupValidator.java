@@ -2,32 +2,39 @@ package com.tndmadman.rts;
 
 import java.io.IOException;
 import java.net.ServerSocket;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.Set;
 
-/** Exercises the graphical HOST server and loopback client path with managed TLS storage. */
+/** Exercises Windows storage fallback plus graphical HOST server and loopback client startup. */
 public final class WindowsHostStartupValidator {
     private WindowsHostStartupValidator() { }
 
     public static void main(String[] args) throws Exception {
-        Path saveDirectory = Path.of("saves").toAbsolutePath().normalize();
-        deleteTree(saveDirectory);
-        int port = availablePort();
-        Config config = Config.host("Windows Host Validator", port, false, false, Set.of(),
-                StarSystems.DEFAULT_SYSTEM_ID, "", 1);
+        Path root = Files.createTempDirectory("starchem-windows-host-");
+        String previousSaveDirectory = System.getProperty(DefaultStoragePaths.SAVE_DIR_PROPERTY);
         LocalHostSession session = null;
         try {
+            Path selected = validateUnsafeLaunchDirectoryFallback(root);
+            System.setProperty(DefaultStoragePaths.SAVE_DIR_PROPERTY, selected.toString());
+
+            int port = availablePort();
+            Config config = Config.host("Windows Host Validator", port, false, false, Set.of(),
+                    StarSystems.DEFAULT_SYSTEM_ID, "", 1);
+            require(config.saveDir.toAbsolutePath().normalize().equals(selected),
+                    "graphical HOST ignored the selected per-user save directory");
+
             session = LocalHostSession.start(config);
             Thread.sleep(1_000L);
             require(session.clientNetwork != null, "graphical HOST did not create its loopback client");
 
-            Path keyFile = saveDirectory.resolve("server-tls.p12");
-            Path passwordFile = saveDirectory.resolve("server-tls.password");
+            Path keyFile = selected.resolve("server-tls.p12");
+            Path passwordFile = selected.resolve("server-tls.password");
             require(Files.isRegularFile(keyFile), "graphical HOST did not create its TLS keystore");
             require(Files.isRegularFile(passwordFile), "graphical HOST did not create its TLS password file");
-            PrivateFileSecurity.verifyPrivateDirectory(saveDirectory);
+            PrivateFileSecurity.verifyPrivateDirectory(selected);
             PrivateFileSecurity.verifyPrivateRegularFile(keyFile);
             PrivateFileSecurity.verifyPrivateRegularFile(passwordFile);
 
@@ -37,12 +44,44 @@ public final class WindowsHostStartupValidator {
             String restartedFingerprint = TlsIdentity.serverFingerprint(config);
             require(firstFingerprint.equals(restartedFingerprint),
                     "graphical HOST TLS fingerprint changed after restart");
-            assertNoTemporaryFiles(saveDirectory);
-            System.out.println("Windows graphical host startup validation passed.");
+            assertNoTemporaryFiles(selected);
+            System.out.println("Windows graphical host storage fallback validation passed.");
         } finally {
             if (session != null) session.stop();
-            deleteTree(saveDirectory);
+            if (previousSaveDirectory == null) {
+                System.clearProperty(DefaultStoragePaths.SAVE_DIR_PROPERTY);
+            } else {
+                System.setProperty(DefaultStoragePaths.SAVE_DIR_PROPERTY, previousSaveDirectory);
+            }
+            deleteTree(root);
         }
+    }
+
+    private static Path validateUnsafeLaunchDirectoryFallback(Path root) throws Exception {
+        Path perUser = root.resolve("local-app-data").resolve("StarChem").resolve("saves")
+                .toAbsolutePath().normalize();
+
+        Path launchDirectory = root.resolve("protected-launch");
+        Files.createDirectories(launchDirectory);
+        Path unusablePortablePath = launchDirectory.resolve("saves");
+        Files.writeString(unusablePortablePath, "not a directory", StandardCharsets.UTF_8);
+        Path selected = DefaultStoragePaths.selectWindowsDirectory(unusablePortablePath, perUser);
+        require(selected.equals(perUser),
+                "unsafe launch-folder storage did not fall back to the per-user directory");
+
+        Path badTlsDirectory = root.resolve("bad-existing-tls").resolve("saves");
+        Files.createDirectories(badTlsDirectory.resolve("server-tls.password"));
+        Path tlsFallback = DefaultStoragePaths.selectWindowsDirectory(badTlsDirectory, perUser);
+        require(tlsFallback.equals(perUser),
+                "unprotectable existing TLS storage did not fall back to the per-user directory");
+
+        Path portable = root.resolve("portable").resolve("saves");
+        Files.createDirectories(portable);
+        PrivateFileSecurity.ensurePrivateDirectory(portable);
+        Path portableSelected = DefaultStoragePaths.selectWindowsDirectory(portable, perUser);
+        require(portableSelected.equals(portable.toAbsolutePath().normalize()),
+                "secure existing portable storage was not preserved");
+        return selected;
     }
 
     private static int availablePort() throws IOException {
