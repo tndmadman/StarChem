@@ -64,3 +64,11 @@ jobs:
         env:
           JAVA_TOOL_OPTIONS: -Djava.io.tmpdir=build/private-validation-temp
         run: java -cp build/classes/java/main com.tndmadman.rts.WindowsHostStartupValidator
+      - name: Upload Windows HOST failure diagnostic
+        if: failure() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-host-failure-${{ github.sha }}
+          path: build/windows-host-failure.txt
+          if-no-files-found: error
+          retention-days: 2
