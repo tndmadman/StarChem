@@ -9,32 +9,19 @@ import java.nio.CharBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.attribute.AclEntry;
-import java.nio.file.attribute.AclEntryFlag;
-import java.nio.file.attribute.AclEntryPermission;
-import java.nio.file.attribute.AclEntryType;
-import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.nio.file.attribute.FileAttribute;
-import java.nio.file.attribute.PosixFilePermission;
-import java.nio.file.attribute.PosixFilePermissions;
-import java.nio.file.attribute.UserPrincipal;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
@@ -48,14 +35,9 @@ final class ClientCredentialVault {
     private static final int MAX_SECRET_BYTES = 4096;
     private static final int MAX_COMMAND_OUTPUT = 8192;
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(8);
-    private static final Set<PosixFilePermission> DIRECTORY_PERMISSIONS =
-            PosixFilePermissions.fromString("rwx------");
-    private static final Set<PosixFilePermission> FILE_PERMISSIONS =
-            PosixFilePermissions.fromString("rw-------");
     private static Backend backend;
     private static String backendSignature = "";
     private static boolean fallbackWarningPrinted;
-    private static boolean permissionsWarningPrinted;
 
     private ClientCredentialVault() { }
 
@@ -88,7 +70,6 @@ final class ClientCredentialVault {
         backend = null;
         backendSignature = "";
         fallbackWarningPrinted = false;
-        permissionsWarningPrinted = false;
     }
 
     static Path fallbackRoot() {
@@ -106,22 +87,18 @@ final class ClientCredentialVault {
 
     static void ensureOwnerOnlyDirectory(Path directory) throws IOException {
         if (directory == null) throw new IOException("Credential directory is missing.");
-        Files.createDirectories(directory);
-        protect(directory, true);
+        PrivateFileSecurity.ensurePrivateDirectory(directory);
     }
 
     static void ensureOwnerOnlyFile(Path file) throws IOException {
         if (file == null) throw new IOException("Credential file is missing.");
-        if (!Files.exists(file)) Files.createFile(file, fileAttributes(file));
-        protect(file, false);
+        if (!Files.exists(file)) Files.createFile(file);
+        PrivateFileSecurity.secureFile(file);
     }
 
     static Path createOwnerOnlyTempFile(Path directory, String prefix, String suffix) throws IOException {
         if (directory == null) throw new IOException("Temporary-file directory is missing.");
-        Files.createDirectories(directory);
-        Path temporary = Files.createTempFile(directory, prefix, suffix, fileAttributes(directory));
-        protect(temporary, false);
-        return temporary;
+        return PrivateFileSecurity.createPrivateTempFile(directory, prefix, suffix);
     }
 
     private static Backend backend() {
@@ -310,7 +287,7 @@ final class ClientCredentialVault {
             }
             moveReplace(temporary, file);
             temporary = null;
-            protect(file, false);
+            PrivateFileSecurity.secureFile(file);
         } catch (IOException ex) {
             throw new IllegalStateException("Could not save credentials.", ex);
         } finally {
@@ -326,43 +303,6 @@ final class ClientCredentialVault {
             Files.move(source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } catch (AtomicMoveNotSupportedException ex) {
             Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
-        }
-    }
-
-    private static FileAttribute<?>[] fileAttributes(Path path) throws IOException {
-        FileStore store = Files.getFileStore(Files.exists(path) ? path : nearestExisting(path));
-        if (store.supportsFileAttributeView(PosixFileAttributeView.class)) {
-            return new FileAttribute<?>[]{PosixFilePermissions.asFileAttribute(FILE_PERMISSIONS)};
-        }
-        return new FileAttribute<?>[0];
-    }
-
-    private static Path nearestExisting(Path path) {
-        Path current = path;
-        while (current != null && !Files.exists(current)) current = current.getParent();
-        return current == null ? Path.of(".").toAbsolutePath() : current;
-    }
-
-    private static void protect(Path path, boolean directory) throws IOException {
-        PosixFileAttributeView posix = Files.getFileAttributeView(path, PosixFileAttributeView.class);
-        if (posix != null) {
-            posix.setPermissions(directory ? DIRECTORY_PERMISSIONS : FILE_PERMISSIONS);
-            return;
-        }
-        AclFileAttributeView acl = Files.getFileAttributeView(path, AclFileAttributeView.class);
-        if (acl != null) {
-            UserPrincipal owner = Files.getOwner(path);
-            AclEntry.Builder entry = AclEntry.newBuilder()
-                    .setType(AclEntryType.ALLOW)
-                    .setPrincipal(owner)
-                    .setPermissions(EnumSet.allOf(AclEntryPermission.class));
-            if (directory) entry.setFlags(AclEntryFlag.FILE_INHERIT, AclEntryFlag.DIRECTORY_INHERIT);
-            acl.setAcl(List.of(entry.build()));
-            return;
-        }
-        if (!permissionsWarningPrinted) {
-            permissionsWarningPrinted = true;
-            System.err.println("The current file system cannot enforce owner-only permissions for saved credentials.");
         }
     }
 
