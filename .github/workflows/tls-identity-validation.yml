@@ -49,13 +49,6 @@ jobs:
         env:
           JAVA_TOOL_OPTIONS: -Djava.io.tmpdir=build/private-validation-temp
         run: java -cp build/classes/java/main com.tndmadman.rts.PrivateFileSecurityValidator
-      - name: Upload private storage failure diagnostics
-        if: failure() && hashFiles('private-file-security-failure.txt') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: private-storage-failure-${{ matrix.os }}
-          path: private-file-security-failure.txt
-          if-no-files-found: error
       - name: Validate protected TLS identity storage
         env:
           JAVA_TOOL_OPTIONS: -Djava.io.tmpdir=build/private-validation-temp
