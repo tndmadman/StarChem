@@ -1,0 +1,50 @@
+name: Run graphical HOST removal patch
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/remove-graphical-host
+          fetch-depth: 0
+      - name: Apply staged patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          workflow = Path('.github/workflows/apply-remove-graphical-host.yml').read_text(encoding='utf-8')
+          marker = "          python3 - <<'PY'\n"
+          start = workflow.index(marker) + len(marker)
+          end = workflow.index("\n          PY\n", start)
+          script = textwrap.dedent(workflow[start:end])
+          exec(compile(script, 'remove-graphical-host.py', 'exec'), {'__name__': '__main__'})
+          PY
+
+          if grep -R -n -E 'LocalHostSession|WindowsHostStartupValidator|Choose Solo, Host, or Join|new MenuButton\("HOST"\)|case "--host"' src/main/java README.md packaging; then
+            echo 'Removed graphical HOST references remain.' >&2
+            exit 1
+          fi
+
+          gradle classes validateClientLaunch --no-daemon
+      - name: Commit production changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md packaging/run-starchem-server.bat src/main/java/com/tndmadman/rts
+          git commit -m 'Remove graphical HOST mode'
+          git push origin HEAD:agent/remove-graphical-host
