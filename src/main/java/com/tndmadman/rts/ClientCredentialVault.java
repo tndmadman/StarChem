@@ -129,7 +129,7 @@ final class ClientCredentialVault {
             return new DpapiBackend(fallbackRoot().resolve("dpapi"));
         }
         if (os.contains("mac") && Files.isExecutable(Path.of("/usr/bin/security"))
-                && Files.isExecutable(Path.of("/usr/bin/script"))) {
+                && Files.isExecutable(Path.of("/usr/bin/expect"))) {
             return new MacKeychainBackend();
         }
         if ((os.contains("linux") || os.contains("unix")) && commandExists("secret-tool")
@@ -252,22 +252,26 @@ final class ClientCredentialVault {
     private static void runMacKeychainSave(String id, String encodedSecret) {
         Path statusFile = null;
         Process process = null;
-        byte[] passwordBytes = encodedSecret.getBytes(StandardCharsets.UTF_8);
-        byte[] inputBytes = new byte[(passwordBytes.length + 1) * 2];
+        byte[] inputBytes = (encodedSecret + "\n").getBytes(StandardCharsets.UTF_8);
         try {
-            int offset = 0;
-            System.arraycopy(passwordBytes, 0, inputBytes, offset, passwordBytes.length);
-            offset += passwordBytes.length;
-            inputBytes[offset++] = (byte) '\n';
-            System.arraycopy(passwordBytes, 0, inputBytes, offset, passwordBytes.length);
-            inputBytes[inputBytes.length - 1] = (byte) '\n';
-
             statusFile = PrivateFileSecurity.createPrivateTempFile(
                     fallbackRoot().resolve("keychain-tmp"), "starchem-keychain-status-", ".tmp");
-            String shellCommand = "stty -echo; /usr/bin/security add-generic-password -U -a \"$1\" "
-                    + "-s \"$2\" -w; status=$?; stty echo; printf '%s' \"$status\" > \"$3\"";
-            List<String> command = List.of("/usr/bin/script", "-q", "/dev/null", "/bin/sh", "-c",
-                    shellCommand, "starchem-keychain", id, MacKeychainBackend.SERVICE, statusFile.toString());
+            String expectScript = "set timeout 7; log_user 0; set status 123; "
+                    + "if {[gets stdin secret] >= 0} {"
+                    + "set prompts 0; "
+                    + "spawn -noecho /usr/bin/security add-generic-password -U -a [lindex $argv 0] "
+                    + "-s [lindex $argv 1] -w; "
+                    + "expect {"
+                    + "-re {:[[:space:]]*$} {incr prompts; "
+                    + "if {$prompts <= 2} {send -- \"$secret\r\"; exp_continue} "
+                    + "else {set status 126; catch {close}; catch {wait}}} "
+                    + "eof {set result [wait]; set status [lindex $result 3]} "
+                    + "timeout {set status 124; catch {close}; catch {wait}}"
+                    + "}; set secret \"\"}; "
+                    + "set output [open [lindex $argv 2] w]; "
+                    + "puts -nonewline $output $status; close $output";
+            List<String> command = List.of("/usr/bin/expect", "-c", expectScript,
+                    id, MacKeychainBackend.SERVICE, statusFile.toString());
             process = new ProcessBuilder(new ArrayList<>(command))
                     .redirectOutput(ProcessBuilder.Redirect.DISCARD)
                     .redirectError(ProcessBuilder.Redirect.DISCARD)
@@ -293,7 +297,6 @@ final class ClientCredentialVault {
             if (process != null) destroyProcessTree(process);
             throw ex;
         } finally {
-            Arrays.fill(passwordBytes, (byte) 0);
             Arrays.fill(inputBytes, (byte) 0);
             if (statusFile != null) {
                 try { Files.deleteIfExists(statusFile); }
