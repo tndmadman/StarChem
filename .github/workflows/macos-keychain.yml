@@ -28,7 +28,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
       - name: Compile StarChem
-        run: ./gradlew classes --no-daemon
+        run: gradle classes --no-daemon
       - name: Validate Keychain credential isolation
         run: java -cp build/classes/java/main com.tndmadman.rts.MacCredentialVaultValidator
