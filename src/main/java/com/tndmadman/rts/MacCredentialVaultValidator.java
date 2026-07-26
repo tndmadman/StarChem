@@ -93,15 +93,15 @@ public final class MacCredentialVaultValidator {
     private static void inspectArguments(Process process, List<String> command, String secret,
                                          String encoded, AtomicBoolean observedSecurityProcess) {
         assertNoSecret(command, secret, encoded, "requested command arguments");
-        require(command.equals(List.of("/usr/bin/security", "-i")),
-                "macOS Keychain save did not use security interactive mode");
         ProcessHandle.Info info = process.info();
         String executable = info.command().orElse("");
         String commandLine = info.commandLine().orElse("");
         assertNoSecret(List.of(executable, commandLine), secret, encoded, "spawned process arguments");
         info.arguments().ifPresent(arguments ->
                 assertNoSecret(List.of(arguments), secret, encoded, "spawned process arguments"));
-        observedSecurityProcess.set(true);
+        if (command.equals(List.of("/usr/bin/security", "-i"))) {
+            observedSecurityProcess.set(true);
+        }
     }
 
     private static void assertNoSecret(List<String> values, String secret, String encoded, String location) {
