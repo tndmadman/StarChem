@@ -63,6 +63,11 @@ public final class ClientLaunchValidator {
         expectEquals("unrelated connection status", "",
                 GameFrame.connectionNotice("Connection interrupted. Reconnecting to server."));
         expectEquals("null connection status", "", GameFrame.connectionNotice(null));
+        expectTrue("stale saved sign-in password retry",
+                GameFrame.passwordRetryRequired("Re-enter the player password for this verified server identity."));
+        expectFalse("generic connection failure does not trigger password retry",
+                GameFrame.passwordRetryRequired("Connection failed: no response from server."));
+        expectFalse("null failure does not trigger password retry", GameFrame.passwordRetryRequired(null));
 
         ClientSessionPropertiesStoreValidator.validate();
         ClientCredentialVaultValidator.validate();
