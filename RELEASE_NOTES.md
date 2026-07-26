@@ -1,84 +1,116 @@
-# StarChem v1.6.0
+# StarChem v1.7.0
 
-StarChem v1.6.0 adds a full dedicated-server administration, moderation, diagnostics, developer, and recovery console on top of every multiplayer connectivity, TLS, session-security, and durable-save fix shipped in v1.5.7.
+StarChem v1.7.0 is a security, persistence, multiplayer, server-operations, simulation-scheduling, and production-correctness release. It advances multiplayer to protocol 8 and changes how reusable authentication material is generated, transmitted, stored, and resumed.
 
-## Dedicated Server Console
+## Multiplayer Protocol 8
 
-- Added an interactive headless-server console whose commands are queued and executed on the authoritative server tick.
-- Added server status, uptime, performance, JVM health, disk health, network diagnostics, player/session inspection, leaderboard, system inspection, asset inspection, production inspection, faction inspection, and sanitized state dumps.
-- Added manual saves, runtime autosave controls, checksum-verified backups, backup verification, retention pruning, scheduled shutdowns, targeted notices, broadcasts, resynchronization, and safe simulation pause.
-- Added protected abandoned-system pruning with preview, explicit confirmation, a fresh save, and a verified pre-operation backup.
+- Advanced the multiplayer protocol from 7 to 8 for the revised TLS-protected credential and session-token handshake.
+- Compatibility checks continue to require matching application version, protocol version, rules version, and packaged configuration fingerprint.
+- Build commit remains diagnostic. Builds from different commits may connect only when every required compatibility value matches.
+- StarChem v1.6.0 clients and servers use protocol 7 and are intentionally incompatible with v1.7.0 multiplayer.
+- Older or malformed JOIN, RESUME, and WELCOME packets are rejected with bounded compatibility diagnostics.
 
-## Moderation And Admission
+## Authentication And Session Security
 
-- Added persistent maintenance mode, player-slot limits, MOTD, whitelist, temporary kicks, permanent or expiring bans, and moderation history.
-- Admission policy now applies consistently to new JOIN requests, password-based identity reclaim, token resume, and proof-based resume.
-- Added player-identity, exact IPv4/IPv6, CIDR, and StarChem client-device bans.
-- A player ban records the active numeric IP and StarChem device identifier when those signals are available.
-- Kicked and banned players retain their identity, research, ships, stations, inventories, production queues, systems, and save data.
-- Added persistent last-seen player IP and device observations for moderation of offline identities.
-- `ban mac` is an alias for the StarChem client-device identifier; remote hardware Ethernet/Wi-Fi MAC addresses are not available across internet routers.
+- Replaced save-digest-keyed authentication proofs with TLS-protected client credentials that are verified and hashed again by the server.
+- Replaced proof-key-style session data with raw random session tokens delivered only through the verified TLS channel.
+- Preserved bounded previous-token reconnect grace without allowing authentication fields copied from a server save to be replayed as credentials.
+- Added validation that extracts authentication fields from a real save and confirms they cannot authenticate.
+- Added account-enumeration resistance so retained and unknown names receive the same initial challenge shape.
+- Added bounded authentication attempt limiting by source address and normalized commander name.
+- Remote clients cannot create retained identities directly. New remote identities must first be provisioned through a trusted loopback connection.
+- Stale remembered sign-ins now return the player to password entry instead of falling through to an unusable registration path.
 
-## Runtime Developer And Recovery Controls
+## Remembered Client Credentials
 
-- Added process-local developer mode that can be enabled and disabled from the trusted local server console without restarting.
-- Separated remote developer authorization from free construction.
-- Disabling runtime developer mode revokes remote grants, removes free-build, restores normal AI controls, resets the difficulty preset, and restores startup production-timer behavior.
-- Added authoritative resource inspection, grants, removal, setting, filling, and clearing for individual or all player bases.
-- Added research inspection, prerequisite-aware grants, queued-job completion, cascading revocation, and reset operations.
-- Added AI pause, speed, stepping, player/NPC freezing, attack/economy controls, difficulty presets, snapshots, and hot reload.
-- Added generalized NPC faction inspection, spawning, removal, reset, funding, and forced strategic actions.
-- Added production funding, completion, cancellation, reordering, and protected queue clearing.
-- Added ship/base healing, protected destruction, ship relocation, player-wide repair, player relocation, respawn, and validated ship/base spawning.
-- Destructive and high-risk recovery operations require explicit confirmation and create verified backups where appropriate.
+- Moved reusable session tokens and server-scoped password credentials out of ordinary `sessions.properties` storage.
+- Use Windows user-scoped DPAPI, macOS Keychain, or Linux Secret Service when available.
+- Use an explicitly warned owner-only file fallback when an operating-system credential service is unavailable.
+- Keep TLS trust fingerprints and the client device identifier separate from reusable authentication secrets.
+- Migrate legacy remembered credentials into protected storage and sanitize current, previous, temporary, recovery, and lock files.
+- The **Remember sign-in on this computer** option now controls both the reusable session token and password-derived credential.
+- Added **Clear remembered sign-ins** without removing TLS trust or the client device identity.
 
-## Persistence And Audit
+## TLS And Private Storage
 
-- Added persistent administration state beside the server save.
-- Added persistent whitelist, kick, and ban state.
-- Added a bounded persistent operator activity journal with sensitive arguments and notice contents redacted.
-- Added persistent player observation metadata for moderation use.
-- Existing v1.5.7 world saves remain the base save format; the new administration files are separate companion files and do not discard existing player or galaxy state.
+- Replaced the shared managed-PKCS12 password with a random password generated for each server installation.
+- Store the managed TLS identity and password in separately protected files with verified POSIX permissions or Windows ACLs.
+- Preserve trusted Windows SYSTEM and Administrators access without granting unrelated users broad access.
+- Migrate legacy managed identities without changing the pinned certificate fingerprint.
+- Support operator-provided PKCS12 identities, protected password files, and explicit key aliases.
+- Fail closed for corrupt, unreadable, insecure, ambiguous, or unprotectable identities and credential files.
+- Moved graphical client and dedicated-server data to separate per-user storage locations on Windows.
 
-## Multiplayer Protocol 7
+## Network And Server Hardening
 
-- Advanced the multiplayer protocol from 6 to 7 so JOIN and RESUME handshakes can carry the StarChem client-device identifier.
-- Build commit remains diagnostic only; matching protocol, application version, rules version, and packaged configuration remain the compatibility requirements.
-- v1.6.0 clients and servers must be used together. Published v1.5.7 clients and servers use protocol 6 and are intentionally incompatible with v1.6.0 multiplayer sessions.
+- Added global, address, IPv4 /24, and IPv6 /64 limits before expensive per-connection resources are allocated.
+- Moved TLS handshakes through a bounded executor and enforced an absolute authentication deadline.
+- Added fair per-client inbound scheduling with global, per-client, packet-count, and elapsed-time budgets.
+- Added command throttling, replaceable MOVE coalescing, stale-work cleanup, and queue diagnostics.
+- Bounded save-archive expansion, JSON parsing, companion-file reads, subprocess output, packet diagnostics, and untrusted text handling.
+- Normalize and escape player-controlled terminal text so ANSI, OSC, control, bidi, and invisible formatting cannot affect the operator console.
 
-## Included v1.5.7 Connectivity And Save Fixes
+## Save And Persistence Reliability
 
-- Same-machine servers reached through `127.0.0.1`, `::1`, or another loopback address automatically replace stale TLS certificate pins without prompting.
-- Graphical HOST mode and local dedicated-server joins no longer show an unnecessary certificate replacement prompt after an update or local TLS-key regeneration.
-- Certificate changes from non-loopback remote servers remain blocked before login secrets are sent and require explicit confirmation.
-- Local-host authentication, resume sessions, and certificate trust remain isolated and process-only so they cannot overwrite dedicated-server credentials.
-- Server certificate trust remains scoped to the server endpoint, with migration from earlier per-commander pins.
-- Clients compiled from different Git commits remain compatible when application version, protocol, rules, and packaged configuration match.
-- Transport connection failures and changed-certificate failures remain visible and actionable to the player.
-- Dedicated-server worlds retain player identities, research, ships, stations, inventories, production queues, home systems, ownership, galaxy state, NPC runtime state, and cross-system simulation state.
-- Offline player saves remain indefinitely; normal disconnects and long offline periods do not delete player state.
+- Moved routine save encoding, checksums, ZIP compression, verification, backup rotation, fsync, and promotion off the authoritative simulation tick.
+- Serialize save work through a bounded single-writer persistence coordinator and coalesce overlapping autosaves.
+- Keep shutdown and transaction-critical saves synchronous by awaiting the queued result.
+- Require strict save archive structure, checksum, UTF-8, JSON, duplicate-key, and resource-limit validation before promotion.
+- Retain verified current and previous companion-state copies and recover from malformed current state where possible.
+- Persist pruned galaxy state before reporting success and restore the verified pre-operation backup when a prune transaction fails.
+- Added collision-safe archive naming and stronger activity-journal rollover validation.
 
-## Security
+## Identity, Admission, And Administration
 
-- Multiplayer traffic remains encrypted with self-hosted TLS.
-- Remote changed-certificate fingerprints are rejected before StarChem sends login secrets.
-- Player passwords remain stored as salted PBKDF2-HMAC-SHA256 digests rather than raw passwords.
-- Session resume continues to use nonce challenges and one-time proofs rather than sending raw resume tokens.
-- Client-device identifiers and IP bans are best-effort moderation signals: device identifiers can be reset or spoofed, IP addresses can change or be hidden, and shared addresses may affect multiple players.
-- Developer mutations are accepted only through trusted server authority and execute on the authoritative tick.
+- Added durable retained-identity creation time, last-seen time, archive state, restore, dormant listing, and backup-protected permanent deletion.
+- Preserve a monotonic player-ID high-water mark so deleted identifiers are never recycled.
+- Whitelist admission now uses immutable retained player IDs rather than names that could later be claimed by another identity.
+- Added bounded pre-authentication diagnostics and improved connected/retained session inspection.
+- Added observation retention, age display, pruning, per-player deletion, and confirmed clear-all controls.
+- Observation, administration, moderation, recovery, and identity companion files use the same verified private-storage policy.
+- Developer tokens can be loaded from protected files instead of process arguments.
+- Runtime developer grants and pending client requests are now represented independently.
 
-## Validation
+## Simulation Scheduling And NPC Budgets
 
-- Added command-dispatch and persistence validation for administration, moderation, IPv4/IPv6 CIDR matching, stable device identity, and protocol-7 handshakes.
-- Added real connected-client validation for runtime developer authorization, free-build separation, resources, production, research, spawning, healing, notices, resynchronization, and runtime shutdown.
-- Revalidated network security, TLS identity lifecycle, loopback trust, password reclaim, token/proof resume, long-offline session recovery, simultaneous clients, reconnect, dedicated-server startup/shutdown, and save restoration.
-- Revalidated reproducible JAR output, extracted Linux packages, release checksums, and Windows launchers.
+- Replaced per-tick full-galaxy inactive-system traversal with due-time scheduling for hot, warm, cold, and dormant systems.
+- Kept actively viewed remote systems visually current while preserving their bounded gameplay-simulation tier.
+- Prevented small resource corrections from rewinding client-predicted orbital phase.
+- Reworked NPC resource budgeting to allocate priorities against one shared remaining inventory view.
+- Cache one immutable galaxy-wide NPC budget frame across a traversal and update it after successful spending instead of rescanning every system for each decision.
+- Added focused scheduler, remote-view continuity, budget reuse, mutation refresh, and multi-system traversal validation.
+
+## Production And Gameplay Correctness
+
+- Evaluate every unlocked recipe capable of producing a missing material instead of selecting only the first configured recipe.
+- Prefer fundable and viable prerequisite routes while preserving deterministic configuration-order tie-breaking.
+- Allow reclamation routes to satisfy production requests when standard inputs are unavailable.
+- Added focused validation for alternate-recipe selection, prerequisite planning, queue deduplication, and production persistence.
+- Improved authoritative remote-system visibility, movement isolation, numerical command validation, notification handling, and reconnect convergence.
+
+## Launcher And Package Changes
+
+- The graphical lobby now provides **SOLO** and **JOIN**. Multiplayer hosting runs through the separate dedicated-server launcher.
+- Added a repository-root `run-starchem-server.bat` and retained packaged Windows and Linux player/server launchers.
+- Windows dedicated-server data defaults to `%LOCALAPPDATA%\StarChem\server` and is separate from graphical client saves.
+- The controlled release package contains the JAR, configuration, player and server launchers, README, license, third-party notices, authentication documentation, TLS documentation, and the v1.7.0 upgrade guide.
+
+## Upgrade From v1.6.0
+
+1. Stop the v1.6.0 dedicated server cleanly.
+2. Back up the complete server-data directory, not only the current `.starchem-save` archive.
+3. Preserve current and previous saves, timestamped backups, TLS identity files, administration state, moderation state, observations, activity journal, recovery files, retained-identity state, and authentication-decoy state.
+4. Extract v1.7.0 into a new application directory.
+5. Start v1.7.0 with the same server-data directory and save name.
+6. Confirm the server reports the expected world, retained identities, player assets, research, production, systems, and TLS fingerprint before accepting remote players.
+
+Read `UPGRADING_TO_1.7.0.md` before upgrading or attempting rollback.
 
 ## Compatibility
 
-All multiplayer clients and servers must use StarChem v1.6.0 with network protocol 7 and matching rules and packaged configuration files. Build commit differences do not block otherwise compatible v1.6.0 builds. StarChem v1.5.7 uses protocol 6 and cannot join a v1.6.0 server or accept a v1.6.0 client.
+All multiplayer clients and servers must use StarChem v1.7.0 with network protocol 8 and matching rules and packaged configuration files. StarChem v1.6.0 uses protocol 7 and cannot join a v1.7.0 server or accept a v1.7.0 client.
 
-Existing v1.5.7 dedicated-server save directories should be backed up in full before upgrade, including the world save, previous save, backups, and `*-tls.p12` identity. Start v1.6.0 with the same save directory and save name to retain the existing world and TLS identity.
+Save-format migration is designed to preserve existing v1.6.0 worlds and identities, but a full directory backup is required because v1.7.0 adds and updates security-sensitive companion state. Do not assume that a v1.6.0 binary can safely interpret files written or migrated by v1.7.0.
 
 ## Requirements
 
@@ -86,3 +118,5 @@ Existing v1.5.7 dedicated-server save directories should be backed up in full be
 - Extract the complete release ZIP before launching.
 - Windows client: start with `run-starchem.bat`.
 - Windows dedicated server: start with `run-starchem-server.bat`.
+- Linux client: start with `./run-starchem.sh`.
+- Linux dedicated server: start with `./run-starchem-server.sh`.
