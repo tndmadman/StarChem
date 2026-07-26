@@ -20,11 +20,27 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
-      - name: Run full check and print failure tail
+      - name: Run full check
+        id: check
+        continue-on-error: true
         shell: bash
         run: |
-          set +e
+          mkdir -p build
           gradle check --no-daemon --console=plain > build/remove-host-check.log 2>&1
-          status=$?
-          tail -n 180 build/remove-host-check.log
-          exit $status
+      - name: Extract failure
+        if: always()
+        shell: bash
+        run: |
+          tail -n 220 build/remove-host-check.log > build/remove-host-check-tail.txt
+      - name: Upload failure log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: remove-host-check-${{ github.sha }}
+          path: build/remove-host-check-tail.txt
+          if-no-files-found: error
+          retention-days: 2
+      - name: Preserve check result
+        if: steps.check.outcome == 'failure'
+        shell: bash
+        run: exit 1
