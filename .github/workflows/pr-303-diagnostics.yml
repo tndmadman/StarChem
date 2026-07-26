@@ -23,14 +23,12 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
-      - name: Compile current source
-        run: gradle clean classes --no-daemon
-      - name: Run historical upgrade gate and capture complete output
+      - name: Run complete verification and capture output
         id: verify
         shell: bash
         run: |
           set +e
-          bash validation/run-v160-upgrade.sh 'build/classes/java/main:build/resources/main' > pr-303-diagnostic.log 2>&1
+          gradle clean check jar --no-daemon > pr-303-diagnostic.log 2>&1
           status=$?
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
