@@ -13,6 +13,9 @@ import java.io.IOException;
 final class GameFrame extends JFrame {
     private static final String ACTIVE_SESSION_NOTICE = "Session is already active on another connection.";
     private static final String DUPLICATE_NAME_NOTICE = "Duplicate player names are not allowed on this server. Choose a different name.";
+    private static final String PASSWORD_REENTRY_NOTICE = "Re-enter the player password for this verified server identity.";
+    private static final String SAVED_SIGN_IN_REFRESH_NOTICE =
+            "The saved sign-in no longer matches this server. Enter the commander password again.";
     private static final String RESOURCE_CATALOG_ACTION = "toggle-resource-catalog";
     private static final String CODEX_ACTION = "toggle-codex";
     private static final String NARRATION_SETTINGS_ACTION = "toggle-narration-settings";
@@ -90,7 +93,15 @@ final class GameFrame extends JFrame {
                     showLobby(notice);
                     return;
                 }
-                if (peer.connectionFailed() && !peer.serverCertificateTrustRequired()) showLobby(peer.failureMessage());
+                if (peer.connectionFailed() && !peer.serverCertificateTrustRequired()) {
+                    String failure = peer.failureMessage();
+                    if (passwordRetryRequired(failure)) {
+                        showLobby(SAVED_SIGN_IN_REFRESH_NOTICE);
+                        SwingUtilities.invokeLater(menuPanel::retryJoinAfterCredentialReset);
+                    } else {
+                        showLobby(failure);
+                    }
+                }
             });
             networkTimer.start();
         }
@@ -99,6 +110,10 @@ final class GameFrame extends JFrame {
 
     static String connectionNotice(String status) {
         return status != null && status.startsWith(ACTIVE_SESSION_NOTICE) ? DUPLICATE_NAME_NOTICE : "";
+    }
+
+    static boolean passwordRetryRequired(String failure) {
+        return PASSWORD_REENTRY_NOTICE.equals(failure);
     }
 
     private void showGame(Config config, World world, PeerNetwork activeNetwork, PeerNetwork devAuthorityNetwork) {
