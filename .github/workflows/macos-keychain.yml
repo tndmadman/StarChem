@@ -34,4 +34,18 @@ jobs:
       - name: Compile StarChem
         run: gradle classes --no-daemon
       - name: Validate Keychain credential isolation
-        run: java -cp build/classes/java/main com.tndmadman.rts.MacCredentialVaultValidator
+        shell: bash
+        run: |
+          set +e
+          java -cp build/classes/java/main com.tndmadman.rts.MacCredentialVaultValidator \
+            > build/macos-keychain-validator.log 2>&1
+          status=$?
+          cat build/macos-keychain-validator.log
+          exit "$status"
+      - name: Upload validator diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-keychain-validator-log
+          path: build/macos-keychain-validator.log
+          if-no-files-found: error
