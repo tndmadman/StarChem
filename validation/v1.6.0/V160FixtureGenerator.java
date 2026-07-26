@@ -73,6 +73,7 @@ public final class V160FixtureGenerator {
         Files.copy(serverDir.resolve(SAVE + "-current.starchem-save"),
                 serverDir.resolve(SAVE + "-20260725-120000.starchem-save"), StandardCopyOption.REPLACE_EXISTING);
 
+        TlsIdentity.serverSocketFactory(config);
         Path tls = serverDir.resolve(SAVE + "-tls.p12");
         String fingerprint = tlsFingerprint(tls);
         var posix = Files.getFileAttributeView(tls, java.nio.file.attribute.PosixFileAttributeView.class);
