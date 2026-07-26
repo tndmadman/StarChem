@@ -1,0 +1,38 @@
+name: Export release help pipeline fix
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/remove-graphical-host
+      - name: Patch release workflow copy
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/release.yml')
+          text = path.read_text(encoding='utf-8')
+          old_jar = "          java -jar build/libs/StarChem.jar --help | grep -Fq -- '--server [PORT]'\n"
+          new_jar = "          JAR_HELP_OUTPUT=\"$(java -jar build/libs/StarChem.jar --help)\"\n          printf '%s\\n' \"$JAR_HELP_OUTPUT\" | grep -Fq -- '--server [PORT]'\n"
+          old_server = "          \"$PACKAGE_DIR/run-starchem-server.sh\" --help | grep -Fq -- '--server [PORT]'\n"
+          new_server = "          SERVER_HELP_OUTPUT=\"$(\"$PACKAGE_DIR/run-starchem-server.sh\" --help)\"\n          printf '%s\\n' \"$SERVER_HELP_OUTPUT\" | grep -Fq -- '--server [PORT]'\n"
+          if old_jar not in text or old_server not in text:
+              raise SystemExit('Release help pipeline targets were not found.')
+          path.write_text(text.replace(old_jar, new_jar, 1).replace(old_server, new_server, 1), encoding='utf-8')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: patched-release-workflow-${{ github.sha }}
+          path: .github/workflows/release.yml
+          if-no-files-found: error
+          retention-days: 2
