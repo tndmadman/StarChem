@@ -38,6 +38,7 @@ final class ClientCredentialVault {
     private static Backend backend;
     private static String backendSignature = "";
     private static boolean fallbackWarningPrinted;
+    private static ProcessObserver processObserverForTests;
 
     private ClientCredentialVault() { }
 
@@ -66,10 +67,15 @@ final class ClientCredentialVault {
 
     static synchronized String backendName() { return backend().name(); }
 
+    static synchronized void setProcessObserverForTests(ProcessObserver observer) {
+        processObserverForTests = observer;
+    }
+
     static synchronized void resetForTests() {
         backend = null;
         backendSignature = "";
         fallbackWarningPrinted = false;
+        processObserverForTests = null;
     }
 
     static Path fallbackRoot() {
@@ -198,10 +204,15 @@ final class ClientCredentialVault {
     }
 
     private static CommandResult runCommand(List<String> command, String input) {
-        Process process = null;
         byte[] inputBytes = input == null ? new byte[0] : input.getBytes(StandardCharsets.UTF_8);
+        return runCommand(command, inputBytes);
+    }
+
+    private static CommandResult runCommand(List<String> command, byte[] inputBytes) {
+        Process process = null;
         try {
             process = new ProcessBuilder(new ArrayList<>(command)).redirectErrorStream(true).start();
+            observeProcess(process, command);
             try (OutputStream output = process.getOutputStream()) {
                 output.write(inputBytes);
             }
@@ -235,6 +246,61 @@ final class ClientCredentialVault {
         } finally {
             Arrays.fill(inputBytes, (byte) 0);
         }
+    }
+
+    private static void runMacKeychainSave(String id, String encodedSecret) {
+        requireSecurityToken(id);
+        requireSecurityToken(MacKeychainBackend.SERVICE);
+        requireSecurityToken(encodedSecret);
+        String interactiveCommand = "add-generic-password -U -a " + id + " -s "
+                + MacKeychainBackend.SERVICE + " -w " + encodedSecret + "\n";
+        byte[] inputBytes = interactiveCommand.getBytes(StandardCharsets.UTF_8);
+        Process process = null;
+        try {
+            process = new ProcessBuilder("/usr/bin/security", "-i")
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD)
+                    .start();
+            observeProcess(process, List.of("/usr/bin/security", "-i"));
+            try (OutputStream output = process.getOutputStream()) {
+                output.write(inputBytes);
+            }
+            if (!process.waitFor(COMMAND_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
+                destroyProcessTree(process);
+                throw new IllegalStateException("macOS Keychain save timed out.");
+            }
+            if (process.exitValue() != 0) {
+                throw new IllegalStateException("macOS Keychain could not save credentials.");
+            }
+        } catch (IOException ex) {
+            if (process != null) destroyProcessTree(process);
+            throw new IllegalStateException("Could not start macOS Keychain credential storage.", ex);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            if (process != null) destroyProcessTree(process);
+            throw new IllegalStateException("macOS Keychain credential storage was interrupted.", ex);
+        } finally {
+            Arrays.fill(inputBytes, (byte) 0);
+        }
+    }
+
+    private static void requireSecurityToken(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("macOS Keychain command value is missing.");
+        }
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            boolean safe = character >= 'a' && character <= 'z'
+                    || character >= 'A' && character <= 'Z'
+                    || character >= '0' && character <= '9'
+                    || character == '.' || character == '_' || character == '-';
+            if (!safe) throw new IllegalArgumentException("macOS Keychain command value is invalid.");
+        }
+    }
+
+    private static void observeProcess(Process process, List<String> command) {
+        ProcessObserver observer = processObserverForTests;
+        if (observer != null) observer.started(process, List.copyOf(command));
     }
 
     private static byte[] readBounded(InputStream input) throws IOException {
@@ -306,6 +372,11 @@ final class ClientCredentialVault {
         }
     }
 
+    @FunctionalInterface
+    interface ProcessObserver {
+        void started(Process process, List<String> command);
+    }
+
     private interface Backend {
         String load(String id);
         void save(String id, String encodedSecret);
@@ -375,9 +446,7 @@ final class ClientCredentialVault {
             return result.exitCode() == 0 && !result.output().isBlank() ? decodeSecret(result.output()) : null;
         }
         @Override public void save(String id, String encodedSecret) {
-            CommandResult result = runCommand(List.of("/usr/bin/security", "add-generic-password", "-U",
-                    "-a", id, "-s", SERVICE, "-w", encodedSecret), "");
-            if (result.exitCode() != 0) throw new IllegalStateException("macOS Keychain could not save credentials.");
+            runMacKeychainSave(id, encodedSecret);
         }
         @Override public void delete(String id) {
             runCommand(List.of("/usr/bin/security", "delete-generic-password", "-a", id, "-s", SERVICE), "");
