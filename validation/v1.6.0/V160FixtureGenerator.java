@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.security.KeyStore;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.HexFormat;
@@ -72,8 +73,8 @@ public final class V160FixtureGenerator {
         Files.copy(serverDir.resolve(SAVE + "-current.starchem-save"),
                 serverDir.resolve(SAVE + "-20260725-120000.starchem-save"), StandardCopyOption.REPLACE_EXISTING);
 
-        String fingerprint = TlsIdentity.serverFingerprint(config);
         Path tls = serverDir.resolve(SAVE + "-tls.p12");
+        String fingerprint = tlsFingerprint(tls);
         var posix = Files.getFileAttributeView(tls, java.nio.file.attribute.PosixFileAttributeView.class);
         if (posix != null) posix.setPermissions(java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
 
@@ -114,6 +115,17 @@ public final class V160FixtureGenerator {
         return new PersistentPlayerSession(player.id, player.name, player.rgb, salt,
                 PasswordAuth.serverDigest(verifier, salt), PasswordAuth.tokenDigest(player.currentToken),
                 PasswordAuth.tokenDigest(player.previousToken), System.currentTimeMillis() - 60_000);
+    }
+
+    private static String tlsFingerprint(Path tls) throws Exception {
+        KeyStore store = KeyStore.getInstance("PKCS12");
+        try (var input = Files.newInputStream(tls)) {
+            store.load(input, "starchem-local-tls".toCharArray());
+        }
+        var certificate = store.getCertificate("starchem-server");
+        if (certificate == null) throw new IllegalStateException("v1.6 TLS certificate is missing");
+        return PasswordAuth.encodeVerifier(
+                MessageDigest.getInstance("SHA-256").digest(certificate.getEncoded()));
     }
 
     private static void saveClient(Player player, String fingerprint) {
