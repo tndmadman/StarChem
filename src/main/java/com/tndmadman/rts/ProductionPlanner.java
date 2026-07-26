@@ -281,10 +281,13 @@ final class ProductionPlanner {
                 resolveRequirement(world, plan, input.material(), input.amount(),
                         candidateLedger, candidateAnalysis, candidateVisiting);
             }
+            boolean unblocked = candidateAnalysis.blocker.isBlank();
+            boolean fullyAchievable = unblocked && candidateAnalysis.shortages.isEmpty();
             RecipeEvaluation candidate = new RecipeEvaluation(
                     new RecipeChoice(item, station),
-                    ledgerCanCover(ledger, batchCost),
-                    candidateAnalysis.blocker.isBlank(),
+                    fullyAchievable,
+                    ledgerCanCover(ledger, item.requiredResources),
+                    unblocked,
                     candidateAnalysis.shortages.size(),
                     shortageAmount(candidateAnalysis),
                     item.timeSeconds * batches,
@@ -464,13 +467,15 @@ final class ProductionPlanner {
 
     private record RecipeChoice(CraftableItem item, Base station) { }
 
-    private record RecipeEvaluation(RecipeChoice choice, boolean immediatelyFundable,
-                                    boolean unblocked, int shortageKinds, double shortageAmount,
-                                    double productionSeconds, int order)
+    private record RecipeEvaluation(RecipeChoice choice, boolean fullyAchievable,
+                                    boolean immediatelyFundable, boolean unblocked, int shortageKinds,
+                                    double shortageAmount, double productionSeconds, int order)
             implements Comparable<RecipeEvaluation> {
         @Override
         public int compareTo(RecipeEvaluation other) {
-            int result = Boolean.compare(other.immediatelyFundable, immediatelyFundable);
+            int result = Boolean.compare(other.fullyAchievable, fullyAchievable);
+            if (result != 0) return result;
+            result = Boolean.compare(other.immediatelyFundable, immediatelyFundable);
             if (result != 0) return result;
             result = Boolean.compare(other.unblocked, unblocked);
             if (result != 0) return result;
