@@ -28,7 +28,6 @@ public final class MacCredentialVaultValidator {
         String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         require(os.contains("mac"), "validator requires macOS");
         require(Files.isExecutable(Path.of("/usr/bin/security")), "/usr/bin/security is unavailable");
-        require(Files.isExecutable(Path.of("/usr/bin/expect")), "/usr/bin/expect is unavailable");
 
         String previousMode = System.getProperty(VAULT_MODE);
         String previousPath = System.getProperty(VAULT_PATH);
@@ -41,7 +40,7 @@ public final class MacCredentialVaultValidator {
         String secret = "StarChem-keychain-canary-" + UUID.randomUUID();
         String encoded = Base64.getUrlEncoder().withoutPadding()
                 .encodeToString(secret.getBytes(StandardCharsets.UTF_8));
-        AtomicBoolean observedCredentialProcess = new AtomicBoolean();
+        AtomicBoolean observedSecurityProcess = new AtomicBoolean();
 
         try {
             System.setProperty(VAULT_MODE, "auto");
@@ -51,14 +50,14 @@ public final class MacCredentialVaultValidator {
                             .toString());
             ClientCredentialVault.resetForTests();
             ClientCredentialVault.setProcessObserverForTests((process, command) ->
-                    inspectArguments(process, command, secret, encoded, observedCredentialProcess));
+                    inspectArguments(process, command, secret, encoded, observedSecurityProcess));
             System.setOut(new PrintStream(capturedOut, true, StandardCharsets.UTF_8));
             System.setErr(new PrintStream(capturedErr, true, StandardCharsets.UTF_8));
 
             ClientCredentialVault.save(key, secret);
             require("macOS Keychain".equals(ClientCredentialVault.backendName()),
                     "validator did not select the macOS Keychain backend");
-            require(observedCredentialProcess.get(), "the credential helper process was not observed");
+            require(observedSecurityProcess.get(), "the credential helper process was not observed");
             require(secret.equals(ClientCredentialVault.load(key)), "saved Keychain credential did not load");
 
             ClientCredentialVault.resetForTests();
@@ -92,29 +91,17 @@ public final class MacCredentialVaultValidator {
     }
 
     private static void inspectArguments(Process process, List<String> command, String secret,
-                                         String encoded, AtomicBoolean observedCredentialProcess) {
+                                         String encoded, AtomicBoolean observedSecurityProcess) {
         assertNoSecret(command, secret, encoded, "requested command arguments");
-        require(command.stream().anyMatch(value -> value.contains("/usr/bin/security")),
-                "the fixed Keychain child command was not present");
-        long deadline = System.nanoTime() + 500_000_000L;
-        while (System.nanoTime() < deadline && !observedCredentialProcess.get()) {
-            ProcessHandle.Info info = process.info();
-            String executable = info.command().orElse("");
-            String commandLine = info.commandLine().orElse("");
-            assertNoSecret(List.of(executable, commandLine), secret, encoded, "spawned process arguments");
-            info.arguments().ifPresent(arguments ->
-                    assertNoSecret(List.of(arguments), secret, encoded, "spawned process arguments"));
-            if (executable.endsWith("/expect") || command.get(0).endsWith("/expect")) {
-                observedCredentialProcess.set(true);
-            }
-            if (!observedCredentialProcess.get()) {
-                try { Thread.sleep(5); }
-                catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
-                    throw new IllegalStateException("process argument inspection was interrupted", ex);
-                }
-            }
-        }
+        require(command.equals(List.of("/usr/bin/security", "-i")),
+                "macOS Keychain save did not use security interactive mode");
+        ProcessHandle.Info info = process.info();
+        String executable = info.command().orElse("");
+        String commandLine = info.commandLine().orElse("");
+        assertNoSecret(List.of(executable, commandLine), secret, encoded, "spawned process arguments");
+        info.arguments().ifPresent(arguments ->
+                assertNoSecret(List.of(arguments), secret, encoded, "spawned process arguments"));
+        observedSecurityProcess.set(true);
     }
 
     private static void assertNoSecret(List<String> values, String secret, String encoded, String location) {
