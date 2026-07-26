@@ -92,7 +92,9 @@ public final class V160UpgradeValidator {
                     "administration companion state was lost");
             require(Files.readString(serverDir.resolve(saveName + "-observations.json")).contains(alpha.id),
                     "observation companion state was lost");
-            require(Files.readString(serverDir.resolve(saveName + "-activity.log")).contains("FIXTURE"),
+            List<String> fixtureEvents = new ServerEventJournal(serverDir, saveName)
+                    .lines(20, "FIXTURE", alpha.id);
+            require(fixtureEvents.stream().anyMatch(line -> line.contains("synthetic v1.6 activity")),
                     "activity journal state was lost");
             require(Files.isRegularFile(serverDir.resolve(saveName + "-identities.json")),
                     "identity lifecycle state was not created");
