@@ -1,0 +1,45 @@
+name: PR 303 diagnostics
+
+on:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.event.pull_request.number == 303
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Compile current source
+        run: gradle clean classes --no-daemon
+      - name: Run historical upgrade gate and capture complete output
+        id: verify
+        shell: bash
+        run: |
+          set +e
+          bash validation/run-v160-upgrade.sh 'build/classes/java/main:build/resources/main' > pr-303-diagnostic.log 2>&1
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload diagnostic log
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-303-diagnostic
+          path: pr-303-diagnostic.log
+          if-no-files-found: error
+      - name: Preserve verification result
+        shell: bash
+        run: exit "${{ steps.verify.outputs.status }}"
