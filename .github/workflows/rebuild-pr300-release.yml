@@ -1,0 +1,47 @@
+name: Rebuild PR 300 release controller
+
+on:
+  push:
+    branches:
+      - agent/prepare-v1.7.0-release
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/prepare-v1.7.0-release
+          fetch-depth: 0
+      - name: Rebuild controller on integrated release content
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET_SHA='71bf62d1eb6a35e747ad9b494fded32b6e5e57fb'
+          git fetch origin backup/pr-300-release:refs/remotes/origin/backup/pr-300-release
+          git show origin/backup/pr-300-release:.github/workflows/publish-v1.7.0.yml > .github/workflows/publish-v1.7.0.yml
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/publish-v1.7.0.yml')
+          text = path.read_text(encoding='utf-8')
+          lines = text.splitlines()
+          replaced = False
+          for index, line in enumerate(lines):
+              if line.startswith('  TARGET_SHA: '):
+                  lines[index] = '  TARGET_SHA: 71bf62d1eb6a35e747ad9b494fded32b6e5e57fb'
+                  replaced = True
+                  break
+          if not replaced:
+              raise SystemExit('TARGET_SHA was not found in release controller')
+          path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+          PY
+          rm .github/workflows/rebuild-pr300-release.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/publish-v1.7.0.yml .github/workflows/rebuild-pr300-release.yml
+          git commit -m 'Retarget v1.7.0 publisher to integrated release content'
+          test "$(git diff --name-only "$TARGET_SHA"..HEAD)" = '.github/workflows/publish-v1.7.0.yml'
+          git push origin HEAD:agent/prepare-v1.7.0-release
