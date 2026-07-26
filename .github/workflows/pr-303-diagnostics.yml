@@ -5,15 +5,18 @@ on:
     branches: [ main ]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   diagnose:
     if: github.event.pull_request.number == 303
     runs-on: ubuntu-latest
+    env:
+      BRANCH_NAME: ${{ github.event.pull_request.head.ref }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
           fetch-tags: true
       - uses: actions/setup-java@v4
@@ -23,6 +26,46 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
+      - name: Correct v1.6.0 TLS fingerprint generation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('validation/v1.6.0/V160FixtureGenerator.java')
+          text = path.read_text()
+
+          old_block = '''        String fingerprint = TlsIdentity.serverFingerprint(config);
+        Path tls = serverDir.resolve(SAVE + "-tls.p12");'''
+          new_block = '''        TlsIdentity.serverSocketFactory(config);
+        Path tls = serverDir.resolve(SAVE + "-tls.p12");
+        String fingerprint = tlsFingerprint(tls);'''
+
+          marker = '''    private static void addPlayer(World world, Player player, int slot) {'''
+          helper = '''    private static String tlsFingerprint(Path tls) throws Exception {
+        java.security.KeyStore store = java.security.KeyStore.getInstance("PKCS12");
+        try (var input = Files.newInputStream(tls)) {
+            store.load(input, "starchem-local-tls".toCharArray());
+        }
+        var certificate = store.getCertificate("starchem-server");
+        if (certificate == null) throw new IllegalStateException("v1.6 TLS certificate is missing");
+        return PasswordAuth.encodeVerifier(MessageDigest.getInstance("SHA-256").digest(certificate.getEncoded()));
+    }
+
+'''
+
+          if old_block in text:
+              text = text.replace(old_block, new_block, 1)
+          elif new_block not in text:
+              raise SystemExit('Expected v1.6 TLS fingerprint block was not found.')
+
+          if helper not in text:
+              if marker not in text:
+                  raise SystemExit('Fixture helper insertion point was not found.')
+              text = text.replace(marker, helper + marker, 1)
+
+          path.write_text(text)
+          PY
       - name: Compile current source
         run: gradle clean classes --no-daemon
       - name: Run historical upgrade gate and capture complete output
@@ -34,6 +77,19 @@ jobs:
           status=$?
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
+      - name: Commit verified correction
+        if: steps.verify.outputs.status == '0'
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo 'No source changes required.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add validation/v1.6.0/V160FixtureGenerator.java
+          git commit -m 'Generate v1.6 TLS fingerprint with legacy APIs'
+          git push origin HEAD:"$BRANCH_NAME"
       - name: Upload diagnostic log
         uses: actions/upload-artifact@v4
         with:
