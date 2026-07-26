@@ -1,0 +1,151 @@
+name: Diagnose extracted server package
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Build and diagnose package
+        id: diagnose
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          mkdir -p build release/StarChem
+          VERSION="$(sed -n 's/^# StarChem v//p' RELEASE_NOTES.md | head -n 1 | tr -d '\r')"
+          COMMIT="$GITHUB_SHA"
+          gradle clean jar --no-daemon -PreleaseVersion="$VERSION" -PbuildCommit="$COMMIT" > build/diagnose-build.log 2>&1
+          BUILD_STATUS=$?
+          {
+            echo "build_status=$BUILD_STATUS"
+            echo "version=$VERSION"
+            echo "commit=$COMMIT"
+          } > build/release-package-diagnostic.txt
+          if [ "$BUILD_STATUS" -ne 0 ]; then
+            tail -n 120 build/diagnose-build.log >> build/release-package-diagnostic.txt
+            exit "$BUILD_STATUS"
+          fi
+
+          cp build/libs/StarChem.jar release/StarChem/StarChem.jar
+          cp -R config release/StarChem/config
+          cp packaging/run-starchem.bat release/StarChem/run-starchem.bat
+          cp packaging/run-starchem-server.bat release/StarChem/run-starchem-server.bat
+          cp packaging/run-starchem.sh release/StarChem/run-starchem.sh
+          cp packaging/run-starchem-server.sh release/StarChem/run-starchem-server.sh
+          chmod +x release/StarChem/run-starchem.sh release/StarChem/run-starchem-server.sh
+          cp README.md LICENSE THIRD_PARTY_NOTICES.md release/StarChem/
+          (cd release && zip -X -q -r StarChem-diagnostic.zip StarChem)
+
+          VERIFY_ROOT="$RUNNER_TEMP/starchem-release-diagnostic"
+          rm -rf "$VERIFY_ROOT"
+          mkdir -p "$VERIFY_ROOT"
+          unzip -q release/StarChem-diagnostic.zip -d "$VERIFY_ROOT"
+          PACKAGE_DIR="$VERIFY_ROOT/StarChem"
+          DIAG="$GITHUB_WORKSPACE/build/release-package-diagnostic.txt"
+
+          VERSION_OUTPUT="$("$PACKAGE_DIR/run-starchem.sh" --version 2>&1)"
+          VERSION_STATUS=$?
+          EXPECTED_OUTPUT="StarChem ${VERSION} (${COMMIT:0:12})"
+          {
+            echo "version_status=$VERSION_STATUS"
+            echo "version_output=$VERSION_OUTPUT"
+            echo "version_expected=$EXPECTED_OUTPUT"
+          } >> "$DIAG"
+
+          HELP_OUTPUT="$("$PACKAGE_DIR/run-starchem-server.sh" --help 2>&1)"
+          HELP_STATUS=$?
+          HELP_MATCH=0
+          printf '%s\n' "$HELP_OUTPUT" | grep -Fq -- '--server [PORT]' && HELP_MATCH=1
+          {
+            echo "help_status=$HELP_STATUS"
+            echo "help_match=$HELP_MATCH"
+            echo "help_output_begin"
+            printf '%s\n' "$HELP_OUTPUT"
+            echo "help_output_end"
+          } >> "$DIAG"
+
+          PORT="$(python3 - <<'PY'
+          import socket
+          with socket.socket() as sock:
+              sock.bind(('127.0.0.1', 0))
+              print(sock.getsockname()[1])
+          PY
+          )"
+          SERVER_LOG="$GITHUB_WORKSPACE/build/release-package-server.log"
+          STARCHEM_PORT="$PORT" STARCHEM_SERVER_NAME="Release-Diagnostic" \
+            "$PACKAGE_DIR/run-starchem-server.sh" >"$SERVER_LOG" 2>&1 &
+          SERVER_PID=$!
+          READY=0
+          EARLY_EXIT=0
+          for _ in {1..120}; do
+            if grep -Fq 'Dedicated server ready.' "$SERVER_LOG"; then
+              READY=1
+              break
+            fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              EARLY_EXIT=1
+              break
+            fi
+            sleep 0.1
+          done
+          PORT_MATCH=0
+          grep -Fq "TCP $PORT" "$SERVER_LOG" && PORT_MATCH=1
+
+          if kill -0 "$SERVER_PID" 2>/dev/null; then
+            kill -TERM "$SERVER_PID"
+          fi
+          wait "$SERVER_PID"
+          SERVER_STATUS=$?
+          STOPPED_MATCH=0
+          grep -Fq 'Dedicated server stopped.' "$SERVER_LOG" && STOPPED_MATCH=1
+          {
+            echo "port=$PORT"
+            echo "ready=$READY"
+            echo "early_exit=$EARLY_EXIT"
+            echo "port_match=$PORT_MATCH"
+            echo "server_status=$SERVER_STATUS"
+            echo "stopped_match=$STOPPED_MATCH"
+            echo "server_log_begin"
+            cat "$SERVER_LOG"
+            echo "server_log_end"
+          } >> "$DIAG"
+
+          VALID=1
+          [ "$VERSION_STATUS" -eq 0 ] || VALID=0
+          [ "$VERSION_OUTPUT" = "$EXPECTED_OUTPUT" ] || VALID=0
+          [ "$HELP_STATUS" -eq 0 ] || VALID=0
+          [ "$HELP_MATCH" -eq 1 ] || VALID=0
+          [ "$READY" -eq 1 ] || VALID=0
+          [ "$PORT_MATCH" -eq 1 ] || VALID=0
+          { [ "$SERVER_STATUS" -eq 0 ] || [ "$SERVER_STATUS" -eq 143 ]; } || VALID=0
+          [ "$STOPPED_MATCH" -eq 1 ] || VALID=0
+          echo "valid=$VALID" >> "$DIAG"
+          [ "$VALID" -eq 1 ]
+      - name: Upload package diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-package-diagnostic-${{ github.sha }}
+          path: |
+            build/release-package-diagnostic.txt
+            build/release-package-server.log
+          if-no-files-found: error
+          retention-days: 2
+      - name: Preserve diagnostic result
+        if: steps.diagnose.outcome == 'failure'
+        run: exit 1
