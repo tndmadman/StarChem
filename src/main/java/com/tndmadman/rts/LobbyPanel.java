@@ -156,6 +156,11 @@ final class LobbyPanel extends JPanel {
         catch (RuntimeException ex) { setStatus(ex.getMessage()); }
     }
 
+    void retryJoinAfterCredentialReset() {
+        setStatus("Saved sign-in expired. Enter the commander password to continue.");
+        startClient();
+    }
+
     private void clearSavedSignIns() {
         int result = JOptionPane.showConfirmDialog(this,
                 "Clear all remembered multiplayer sign-ins?\n\nTrusted server certificates and the client device identity will be kept.",
