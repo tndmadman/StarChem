@@ -8,21 +8,25 @@ import java.util.Set;
 final class ClientViewCache {
     private final Map<String, String> viewByPlayer = new LinkedHashMap<>();
     private final Map<String, Long> revisionByPlayer = new LinkedHashMap<>();
+    private World registeredWorld;
 
     void setHome(World world, String playerId) {
         if (!realPlayerId(playerId)) return;
         world.ensurePlayerHome(playerId, WorldNetAccess.usesPrimaryHome(playerId));
         viewByPlayer.put(playerId, world.playerHomeSystemId(playerId));
+        publish(world);
     }
 
     void remove(String playerId) {
         viewByPlayer.remove(playerId);
         revisionByPlayer.remove(playerId);
+        publish(null);
     }
 
     void removeSystems(Set<String> systemIds) {
         if (systemIds == null || systemIds.isEmpty()) return;
         viewByPlayer.values().removeIf(systemIds::contains);
+        publish(null);
     }
 
     String[] systems(World world) {
@@ -38,9 +42,13 @@ final class ClientViewCache {
     String view(World world, String playerId) {
         if (!realPlayerId(playerId)) return world.activeSystemId();
         String existing = viewByPlayer.get(playerId);
-        if (existing != null && !existing.contains("WAIT")) return existing;
+        if (existing != null && !existing.contains("WAIT")) {
+            publish(world);
+            return existing;
+        }
         String home = world.playerHomeSystemId(playerId);
         viewByPlayer.put(playerId, home);
+        publish(world);
         return home;
     }
 
@@ -48,6 +56,7 @@ final class ClientViewCache {
         if (!realPlayerId(playerId) || !knownSystem(world, systemId) || revision < 0) return false;
         viewByPlayer.put(playerId, systemId);
         revisionByPlayer.put(playerId, revision);
+        publish(world);
         return true;
     }
 
@@ -76,10 +85,18 @@ final class ClientViewCache {
             world.activateSystem(view(world, playerId));
             change.run();
             world.saveActiveSystem();
-            if (realPlayerId(playerId) && !world.activeSystemId().contains("WAIT")) viewByPlayer.put(playerId, world.activeSystemId());
+            if (realPlayerId(playerId) && !world.activeSystemId().contains("WAIT")) {
+                viewByPlayer.put(playerId, world.activeSystemId());
+            }
+            publish(world);
         } finally {
             world.activateSystem(old);
         }
+    }
+
+    private void publish(World world) {
+        if (world != null) registeredWorld = world;
+        if (registeredWorld != null) ViewedSystemRegistry.replace(registeredWorld, viewByPlayer.values());
     }
 
     private boolean knownSystem(World world, String systemId) {
