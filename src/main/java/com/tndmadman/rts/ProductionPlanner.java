@@ -273,16 +273,17 @@ final class ProductionPlanner {
             if (station == null) continue;
 
             int batches = Math.max(1, (int)Math.ceil(amount / Math.max(EPSILON, item.outputAmount)));
+            List<Cost> batchCost = multiplyCosts(item.requiredResources, batches);
             EnumMap<Material, Double> candidateLedger = new EnumMap<>(ledger);
             Analysis candidateAnalysis = new Analysis();
             Set<Material> candidateVisiting = new HashSet<>(visiting);
-            for (Cost input : item.requiredResources) {
-                resolveRequirement(world, plan, input.material(), input.amount() * batches,
+            for (Cost input : batchCost) {
+                resolveRequirement(world, plan, input.material(), input.amount(),
                         candidateLedger, candidateAnalysis, candidateVisiting);
             }
             RecipeEvaluation candidate = new RecipeEvaluation(
                     new RecipeChoice(item, station),
-                    ledgerCanCover(ledger, item.requiredResources),
+                    ledgerCanCover(ledger, batchCost),
                     candidateAnalysis.blocker.isBlank(),
                     candidateAnalysis.shortages.size(),
                     shortageAmount(candidateAnalysis),
@@ -291,6 +292,15 @@ final class ProductionPlanner {
             if (best == null || candidate.compareTo(best) < 0) best = candidate;
         }
         return best == null ? null : best.choice;
+    }
+
+    private static List<Cost> multiplyCosts(List<Cost> costs, int batches) {
+        if (batches <= 1) return costs;
+        List<Cost> multiplied = new ArrayList<>(costs.size());
+        for (Cost cost : costs) {
+            multiplied.add(new Cost(cost.material(), cost.amount() * batches));
+        }
+        return List.copyOf(multiplied);
     }
 
     private static boolean ledgerCanCover(EnumMap<Material, Double> ledger, List<Cost> cost) {
