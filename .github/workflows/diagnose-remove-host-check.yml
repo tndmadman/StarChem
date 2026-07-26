@@ -1,0 +1,30 @@
+name: Diagnose removed HOST validation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Run full check and print failure tail
+        shell: bash
+        run: |
+          set +e
+          gradle check --no-daemon --console=plain > build/remove-host-check.log 2>&1
+          status=$?
+          tail -n 180 build/remove-host-check.log
+          exit $status
