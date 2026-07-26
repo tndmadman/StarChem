@@ -1,5 +1,6 @@
 package com.tndmadman.rts;
 
+import java.util.List;
 import java.util.Set;
 
 public final class ClientEnvironmentSyncValidator {
@@ -17,6 +18,7 @@ public final class ClientEnvironmentSyncValidator {
         try {
             GalaxyRuntimeOptions.configureCopies(2);
             validateSecondCopyViewAndOrbitPrediction();
+            validatePartialResourceSyncPreservesOrbitPrediction();
         } finally {
             GalaxyRuntimeOptions.configureCopies(1);
         }
@@ -70,6 +72,31 @@ public final class ClientEnvironmentSyncValidator {
         PlayerRegistry.activate(client);
         WorldNetAccess.applyView(client, correction);
         require(client.resources.size() == server.resources.size(), "client did not retain complete corrected resource set");
+    }
+
+    private static void validatePartialResourceSyncPreservesOrbitPrediction() {
+        World client = new World("Partial Resource Client", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
+        ResourceNode node = firstOrbiting(client);
+        node.updateOrbit(0.25);
+
+        double beforeX = node.x;
+        double beforeY = node.y;
+        double beforeAngle = node.orbitAngle;
+        double updatedAmount = Math.max(0.5, node.amount - 0.5);
+        ResourceState state = new ResourceState(node.id, node.name, node.kind.name(), node.material.name(),
+                node.x + 1.0, node.y, node.maxAmount, node.harvestRate, node.radius,
+                updatedAmount, true, 0,
+                node.orbitCenterX, node.orbitCenterY, node.orbitRadius,
+                node.orbitAngle + 0.4, node.orbitSpeed, node.orbiting);
+
+        NetResourceSync.apply(client, List.of(state));
+
+        require(Math.abs(node.amount - updatedAmount) < 0.000001,
+                "partial resource sync did not update authoritative amount");
+        require(Math.abs(node.x - beforeX) < 0.000001 && Math.abs(node.y - beforeY) < 0.000001,
+                "sub-threshold resource sync snapped the predicted orbit position");
+        require(Math.abs(node.orbitAngle - beforeAngle) < 0.000001,
+                "sub-threshold resource sync rewound the predicted orbit phase");
     }
 
     private static ResourceNode firstOrbiting(World world) {

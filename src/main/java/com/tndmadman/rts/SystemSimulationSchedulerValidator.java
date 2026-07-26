@@ -57,6 +57,7 @@ public final class SystemSimulationSchedulerValidator {
                 "player-occupied hot system was throttled");
 
         validateAuthoritativeScheduling();
+        validateViewedDormantSystemContinuity();
     }
 
     private static void validateAuthoritativeScheduling() {
@@ -127,6 +128,53 @@ public final class SystemSimulationSchedulerValidator {
                 () -> new GalaxyMapSnapshot(world.activeSystemId(), List.of(), List.of()));
         require(fallback.stats().trackedSystems() == 1,
                 "empty topology discovery did not preserve the active system");
+    }
+
+    private static void validateViewedDormantSystemContinuity() {
+        World world = new World("Viewed Dormant", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
+        GalaxyMapSnapshot map = world.galaxyMapSnapshot();
+        require(map != null && map.systems().size() > 1, "viewed-system test galaxy is too small");
+
+        String viewedSystem = "";
+        for (GalaxyMapSystem system : map.systems()) {
+            if (system != null && !system.id().equals(map.activeSystemId())) {
+                viewedSystem = system.id();
+                break;
+            }
+        }
+        require(!viewedSystem.isBlank(), "viewed-system test could not select a remote system");
+
+        world.activateSystem(viewedSystem);
+        require(SystemSimulationScheduler.tier(world) == SystemSimulationScheduler.SimulationTier.DORMANT,
+                "remote viewed system unexpectedly contained simulation-hot assets");
+        ResourceNode resource = world.resources.get(0);
+        double beforeTime = world.systemTime();
+        double beforeAngle = resource.orbitAngle;
+        world.activateSystem(map.activeSystemId());
+
+        ClientViewCache views = new ClientViewCache();
+        require(views.requestView(world, "P1", viewedSystem, 1),
+                "client view cache rejected a known remote system");
+
+        AuthoritativeSystemScheduler scheduler = new AuthoritativeSystemScheduler();
+        for (int i = 0; i < 120; i++) {
+            scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
+            require(List.of(scheduler.lastUpdatedSystems()).contains(viewedSystem),
+                    "actively viewed dormant system skipped an authoritative environment tick");
+        }
+
+        world.activateSystem(viewedSystem);
+        require(world.systemTime() - beforeTime > 1.95,
+                "actively viewed dormant system time did not advance continuously");
+        require(Math.abs(resource.orbitAngle - beforeAngle) > 0.000001,
+                "actively viewed dormant resource orbit remained frozen");
+        require(SystemSimulationScheduler.tier(world) == SystemSimulationScheduler.SimulationTier.DORMANT,
+                "view tracking incorrectly promoted dormant gameplay simulation");
+
+        views.remove("P1");
+        scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
+        require(scheduler.stats().hotSystems() == 0,
+                "system remained visually hot after the final viewer disconnected");
     }
 
     private static void require(boolean condition, String message) {

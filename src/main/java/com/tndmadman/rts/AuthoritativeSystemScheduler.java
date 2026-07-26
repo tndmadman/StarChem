@@ -23,6 +23,7 @@ final class AuthoritativeSystemScheduler {
             .comparingDouble(Due::at)
             .thenComparing(Due::systemId)
             .thenComparingLong(Due::generation));
+    private Set<String> viewedSystems = Set.of();
     private double clock;
     private double nextDiscovery;
     private long nextGeneration = 1;
@@ -32,9 +33,11 @@ final class AuthoritativeSystemScheduler {
     void update(World world, double dt, Supplier<GalaxyMapSnapshot> discovery) {
         if (world == null || discovery == null || !Double.isFinite(dt) || dt <= 0) return;
         clock += dt;
+        viewedSystems = ViewedSystemRegistry.snapshot(world);
         if (slots.isEmpty() || clock + EPSILON >= nextDiscovery) {
             refresh(discovery, world.activeSystemId());
         }
+        promoteViewedSystems();
 
         String previousSystem = world.activeSystemId();
         List<String> updated = new ArrayList<>();
@@ -59,7 +62,7 @@ final class AuthoritativeSystemScheduler {
             nextDiscovery = 0;
             return;
         }
-        if (slot.tier == SystemSimulationScheduler.SimulationTier.HOT) return;
+        if (hotSystems.contains(systemId)) return;
         slot.nextDue = clock;
         schedule(slot);
     }
@@ -79,6 +82,13 @@ final class AuthoritativeSystemScheduler {
                 + "/" + stats.coldSystems() + "/" + stats.dormantSystems();
     }
 
+    private void promoteViewedSystems() {
+        for (String systemId : viewedSystems) {
+            Slot slot = slots.get(systemId);
+            if (slot != null && !hotSystems.contains(systemId)) markHot(slot);
+        }
+    }
+
     private void updateHotSystems(World world, double dt, List<String> updated) {
         for (String systemId : new ArrayList<>(hotSystems)) {
             Slot slot = slots.get(systemId);
@@ -89,7 +99,8 @@ final class AuthoritativeSystemScheduler {
             if (!activate(world, slot)) continue;
 
             run(world, slot, dt);
-            if (slot.tier != SystemSimulationScheduler.SimulationTier.HOT) {
+            if (slot.tier != SystemSimulationScheduler.SimulationTier.HOT
+                    && !viewedSystems.contains(systemId)) {
                 hotSystems.remove(systemId);
                 slot.nextDue = clock + SystemSimulationScheduler.intervalSeconds(slot.tier);
                 schedule(slot);
@@ -106,11 +117,12 @@ final class AuthoritativeSystemScheduler {
             due.poll();
             Slot slot = slots.get(candidate.systemId());
             if (slot == null || slot.generation != candidate.generation()
-                    || slot.tier == SystemSimulationScheduler.SimulationTier.HOT) continue;
+                    || hotSystems.contains(slot.systemId)) continue;
             if (!activate(world, slot)) continue;
 
             run(world, slot, dt);
-            if (slot.tier == SystemSimulationScheduler.SimulationTier.HOT) {
+            if (slot.tier == SystemSimulationScheduler.SimulationTier.HOT
+                    || viewedSystems.contains(slot.systemId)) {
                 markHot(slot);
             } else {
                 slot.nextDue = clock + SystemSimulationScheduler.intervalSeconds(slot.tier);
@@ -172,7 +184,7 @@ final class AuthoritativeSystemScheduler {
             schedule(slot);
         } else if (slot.signature != signature) {
             slot.signature = signature;
-            if (slot.tier != SystemSimulationScheduler.SimulationTier.HOT) {
+            if (!hotSystems.contains(systemId)) {
                 slot.nextDue = clock;
                 schedule(slot);
             }
@@ -202,8 +214,12 @@ final class AuthoritativeSystemScheduler {
         int cold = 0;
         int dormant = 0;
         for (Slot slot : slots.values()) {
-            if (slot.tier != SystemSimulationScheduler.SimulationTier.HOT
-                    && slot.nextDue <= clock + EPSILON) backlog++;
+            boolean effectiveHot = hotSystems.contains(slot.systemId);
+            if (!effectiveHot && slot.nextDue <= clock + EPSILON) backlog++;
+            if (effectiveHot) {
+                hot++;
+                continue;
+            }
             switch (slot.tier) {
                 case HOT -> hot++;
                 case WARM -> warm++;

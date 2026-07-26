@@ -28,7 +28,7 @@ final class NetResourceSync {
                 ResourceNetDebug.netResourceCorrection(world, reason(missing, reactivated, drifted, s.active()), s, before, node, drift);
             } else {
                 synced++;
-                ResourceOrbitSync.apply(world, node, s);
+                ResourceOrbitSync.applyAmounts(node, s);
             }
         }
         ResourceNetDebug.netResourceSummary(world, seen, missingCount, corrected, synced);
