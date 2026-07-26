@@ -5,7 +5,7 @@ import java.nio.file.Path;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
-/** Runs the historical upgrade gate from normal CI without burdening local developer checks. */
+/** Runs the historical upgrade gate from primary CI without burdening duplicate validation workflows. */
 final class V160UpgradeReleaseGate {
     private static final long TIMEOUT_MINUTES = 15;
 
@@ -14,6 +14,11 @@ final class V160UpgradeReleaseGate {
     static void validateIfRequired() throws Exception {
         if (!"true".equalsIgnoreCase(System.getenv("CI"))) {
             System.out.println("Skipping v1.6.0 upgrade validation outside CI; run validation/run-v160-upgrade.sh manually.");
+            return;
+        }
+        String workflow = System.getenv("GITHUB_WORKFLOW");
+        if (workflow != null && !"CI".equals(workflow)) {
+            System.out.println("Skipping duplicate v1.6.0 upgrade validation in workflow " + workflow + ".");
             return;
         }
         String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
