@@ -315,16 +315,18 @@ jobs:
             $env:STARCHEM_PORT = "$port"
             $env:STARCHEM_SERVER_NAME = 'Release-Validation-Windows'
             $env:STARCHEM_SERVER_SAVE_DIR = $saveRoot
-            $logPath = Join-Path $env:RUNNER_TEMP 'starchem-v1.7.0-windows-server.log'
-            $process = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', 'run-starchem-server.bat' -RedirectStandardOutput $logPath -RedirectStandardError $logPath -PassThru
+            $stdoutPath = Join-Path $env:RUNNER_TEMP 'starchem-v1.7.0-windows-server.out.log'
+            $stderrPath = Join-Path $env:RUNNER_TEMP 'starchem-v1.7.0-windows-server.err.log'
+            $process = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', 'run-starchem-server.bat' -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
             try {
               $ready = $false
               for ($i = 0; $i -lt 180; $i++) {
                 Start-Sleep -Milliseconds 100
-                if ($process.HasExited) { throw "Server exited before readiness. $(Get-Content $logPath -Raw)" }
-                if ((Get-Content $logPath -Raw) -match 'Dedicated server ready\.') { $ready = $true; break }
+                $combinedLog = ((Get-Content $stdoutPath -Raw -ErrorAction SilentlyContinue) + "`n" + (Get-Content $stderrPath -Raw -ErrorAction SilentlyContinue))
+                if ($process.HasExited) { throw "Server exited before readiness. $combinedLog" }
+                if ($combinedLog -match 'Dedicated server ready\.') { $ready = $true; break }
               }
-              if (-not $ready) { throw "Server did not become ready. $(Get-Content $logPath -Raw)" }
+              if (-not $ready) { throw "Server did not become ready. $combinedLog" }
             }
             finally {
               if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
@@ -482,7 +484,7 @@ jobs:
           [[ "$(jq -r .targetCommitish <<<"$RELEASE_JSON")" == "$TARGET_SHA" ]]
 
           mapfile -t ASSET_NAMES < <(jq -r '.assets[].name' <<<"$RELEASE_JSON" | sort)
-          [[ "${ASSET_NAMES[*]}" == "$CHECKSUM_FILE $RELEASE_ZIP" ]]
+          [[ "${ASSET_NAMES[*]}" == "$RELEASE_ZIP $CHECKSUM_FILE" ]]
 
           AUDIT_DIR="$RUNNER_TEMP/starchem-v1.7.0-published"
           rm -rf "$AUDIT_DIR"
