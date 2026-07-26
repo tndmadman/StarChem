@@ -12,15 +12,23 @@ if not exist "run-starchem.bat" (
 
 if not defined STARCHEM_PORT set "STARCHEM_PORT=50000"
 if not defined STARCHEM_SERVER_NAME set "STARCHEM_SERVER_NAME=StarChem-Server"
+if not defined STARCHEM_SAVE_DIR (
+    if defined LOCALAPPDATA (
+        set "STARCHEM_SAVE_DIR=%LOCALAPPDATA%\StarChem\saves"
+    ) else (
+        set "STARCHEM_SAVE_DIR=%USERPROFILE%\AppData\Local\StarChem\saves"
+    )
+)
 
 echo Starting %STARCHEM_SERVER_NAME% on TCP port %STARCHEM_PORT%...
+echo Server data: %STARCHEM_SAVE_DIR%
 echo Players can connect from the lobby with JOIN.
 echo.
 
 if defined STARCHEM_DEV_TOKEN_FILE (
-    call "%~dp0run-starchem.bat" --server "%STARCHEM_PORT%" --name "%STARCHEM_SERVER_NAME%" --dev-token-file "%STARCHEM_DEV_TOKEN_FILE%" %*
+    call "%~dp0run-starchem.bat" --server "%STARCHEM_PORT%" --name "%STARCHEM_SERVER_NAME%" --save-dir "%STARCHEM_SAVE_DIR%" --dev-token-file "%STARCHEM_DEV_TOKEN_FILE%" %*
 ) else (
-    call "%~dp0run-starchem.bat" --server "%STARCHEM_PORT%" --name "%STARCHEM_SERVER_NAME%" %*
+    call "%~dp0run-starchem.bat" --server "%STARCHEM_PORT%" --name "%STARCHEM_SERVER_NAME%" --save-dir "%STARCHEM_SAVE_DIR%" %*
 )
 
 set "STARCHEM_EXIT=%ERRORLEVEL%"
