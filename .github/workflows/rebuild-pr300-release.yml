@@ -1,15 +1,16 @@
 name: Rebuild PR 300 release controller
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/prepare-v1.7.0-release
+      - main
 
 permissions:
   contents: write
 
 jobs:
   rebuild:
+    if: github.event.pull_request.number == 300
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,15 +27,12 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           path = Path('.github/workflows/publish-v1.7.0.yml')
-          text = path.read_text(encoding='utf-8')
-          lines = text.splitlines()
-          replaced = False
+          lines = path.read_text(encoding='utf-8').splitlines()
           for index, line in enumerate(lines):
               if line.startswith('  TARGET_SHA: '):
                   lines[index] = '  TARGET_SHA: 71bf62d1eb6a35e747ad9b494fded32b6e5e57fb'
-                  replaced = True
                   break
-          if not replaced:
+          else:
               raise SystemExit('TARGET_SHA was not found in release controller')
           path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
           PY
