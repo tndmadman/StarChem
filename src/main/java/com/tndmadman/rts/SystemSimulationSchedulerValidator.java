@@ -57,6 +57,7 @@ public final class SystemSimulationSchedulerValidator {
                 "player-occupied hot system was throttled");
 
         validateAuthoritativeScheduling();
+        validateGameplayArrivalWake();
         validateViewedDormantSystemContinuity();
     }
 
@@ -122,12 +123,116 @@ public final class SystemSimulationSchedulerValidator {
         scheduler.update(world, 1.0 / 60.0, () -> reduced);
         require(scheduler.stats().trackedSystems() == reduced.systems().size(),
                 "deleted system remained in authoritative scheduler state");
+        require(scheduler.pendingEntryCount() <= scheduler.stats().trackedSystems(),
+                "deleted system left stale due-time entries behind");
 
         AuthoritativeSystemScheduler fallback = new AuthoritativeSystemScheduler();
         fallback.update(world, 1.0 / 60.0,
                 () -> new GalaxyMapSnapshot(world.activeSystemId(), List.of(), List.of()));
         require(fallback.stats().trackedSystems() == 1,
                 "empty topology discovery did not preserve the active system");
+    }
+
+    private static void validateGameplayArrivalWake() {
+        World world = new World("Gameplay Wake", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
+        world.spawnPlayerGroup("P1", 1, true);
+        String homeSystem = world.playerHomeSystemId("P1");
+        world.activateSystem(homeSystem);
+        require(!world.wormholes.isEmpty(), "player home did not contain a wormhole for scheduler wake validation");
+        WormholeGate gate = world.wormholes.get(0);
+        String destinationSystem = gate.toSystemId;
+        Unit ship = firstPlayerUnit(world, "P1");
+        require(ship != null, "player spawn did not create a ship for scheduler wake validation");
+
+        world.activateSystem(destinationSystem);
+        require(SystemSimulationScheduler.tier(world) == SystemSimulationScheduler.SimulationTier.DORMANT,
+                "wormhole destination was not inactive before player arrival");
+        world.activateSystem(homeSystem);
+
+        AuthoritativeSystemScheduler scheduler = new AuthoritativeSystemScheduler();
+        GalaxyMapSnapshot map = world.galaxyMapSnapshot();
+        int classificationLimit = Math.max(16, map.systems().size() * 3);
+        for (int i = 0; i < classificationLimit; i++) {
+            scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
+            if (scheduler.stats().trackedSystems() == map.systems().size()
+                    && scheduler.stats().backlog() == 0) break;
+        }
+        require(scheduler.stats().trackedSystems() == map.systems().size(),
+                "gameplay wake validation did not discover the complete galaxy");
+        require(scheduler.stats().backlog() == 0,
+                "gameplay wake validation did not drain initial scheduler work");
+
+        world.activateSystem(homeSystem);
+        ship = firstPlayerUnit(world, "P1");
+        require(ship != null, "player ship disappeared before wormhole transfer");
+        ship.x = gate.x;
+        ship.y = gate.y;
+        ship.targetX = gate.x;
+        ship.targetY = gate.y;
+        ship.task = UnitTask.IDLE;
+        ship.wormholeCooldown = 0;
+        world.saveActiveSystem();
+
+        scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
+        require(List.of(scheduler.lastUpdatedSystems()).contains(destinationSystem),
+                "normal wormhole transfer did not wake the destination promptly");
+        require(scheduler.stats().hotSystems() >= 2,
+                "wormhole destination was not retained as hot after player arrival");
+
+        world.activateSystem(destinationSystem);
+        Unit transferred = firstPlayerUnit(world, "P1");
+        require(transferred != null, "player ship was not present in the wormhole destination");
+        double startX = transferred.x;
+        transferred.issueMove(startX + 120, transferred.y);
+        world.saveActiveSystem();
+
+        scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
+        world.activateSystem(destinationSystem);
+        transferred = firstPlayerUnit(world, "P1");
+        require(transferred != null && transferred.x > startX,
+                "gameplay command did not execute on the newly hot destination");
+
+        world.units.remove(transferred.key());
+        world.saveActiveSystem();
+        scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
+        scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
+        require(!List.of(scheduler.lastUpdatedSystems()).contains(destinationSystem),
+                "empty destination did not demote after player assets left");
+
+        for (int i = 0; i < 2_000; i++) scheduler.wake(destinationSystem);
+        require(scheduler.pendingEntryCount() <= scheduler.stats().trackedSystems(),
+                "repeated wakes created unbounded stale due-time entries");
+        scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
+        require(frequency(scheduler.lastUpdatedSystems(), destinationSystem) == 1,
+                "repeated wakes caused duplicate simulation updates");
+        require(scheduler.pendingEntryCount() <= scheduler.stats().trackedSystems(),
+                "due-time queue remained unbounded after processing repeated wakes");
+
+        String externalDestination = "";
+        for (GalaxyMapSystem system : map.systems()) {
+            if (system != null && !homeSystem.equals(system.id()) && !destinationSystem.equals(system.id())) {
+                externalDestination = system.id();
+                break;
+            }
+        }
+        require(!externalDestination.isBlank(),
+                "gameplay wake validation could not select an external mutation destination");
+        world.activateSystem(homeSystem);
+        world.movePlayerAssetsToSystem("P1", externalDestination);
+        scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
+        require(List.of(scheduler.lastUpdatedSystems()).contains(externalDestination),
+                "cross-system mutation between scheduler ticks did not wake its destination");
+    }
+
+    private static Unit firstPlayerUnit(World world, String playerId) {
+        for (Unit unit : world.units.values()) if (playerId.equals(unit.playerId) && unit.hp > 0) return unit;
+        return null;
+    }
+
+    private static int frequency(String[] values, String expected) {
+        int count = 0;
+        for (String value : values) if (expected.equals(value)) count++;
+        return count;
     }
 
     private static void validateViewedDormantSystemContinuity() {

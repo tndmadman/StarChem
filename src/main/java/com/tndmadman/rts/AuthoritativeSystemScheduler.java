@@ -34,15 +34,21 @@ final class AuthoritativeSystemScheduler {
         if (world == null || discovery == null || !Double.isFinite(dt) || dt <= 0) return;
         clock += dt;
         viewedSystems = ViewedSystemRegistry.snapshot(world);
-        if (slots.isEmpty() || clock + EPSILON >= nextDiscovery) {
-            refresh(discovery, world.activeSystemId());
+        String activeSystemId = world.activeSystemId();
+        boolean activePlayerAssetsChanged = activePlayerAssetCountChanged(world, activeSystemId);
+        if (slots.isEmpty() || activePlayerAssetsChanged || clock + EPSILON >= nextDiscovery) {
+            refresh(discovery, activeSystemId);
         }
+        if (activePlayerAssetsChanged) wake(activeSystemId);
         promoteViewedSystems();
 
         String previousSystem = world.activeSystemId();
         List<String> updated = new ArrayList<>();
+        List<Slot> ranHot = new ArrayList<>();
         try {
-            updateHotSystems(world, dt, updated);
+            boolean playerAssetTopologyChanged = runHotSystems(world, dt, updated, ranHot);
+            if (playerAssetTopologyChanged) refresh(discovery, previousSystem);
+            finishHotSystems(ranHot);
             updateDueInactiveSystems(world, dt, updated);
         } finally {
             if (previousSystem != null && !previousSystem.isBlank()) world.activateSystem(previousSystem);
@@ -63,6 +69,7 @@ final class AuthoritativeSystemScheduler {
             return;
         }
         if (hotSystems.contains(systemId)) return;
+        if (slot.queuedDue != null && slot.nextDue <= clock + EPSILON) return;
         slot.nextDue = clock;
         schedule(slot);
     }
@@ -73,6 +80,10 @@ final class AuthoritativeSystemScheduler {
 
     Stats stats() {
         return stats;
+    }
+
+    int pendingEntryCount() {
+        return due.size();
     }
 
     String statusLine() {
@@ -89,7 +100,8 @@ final class AuthoritativeSystemScheduler {
         }
     }
 
-    private void updateHotSystems(World world, double dt, List<String> updated) {
+    private boolean runHotSystems(World world, double dt, List<String> updated, List<Slot> ranHot) {
+        boolean playerAssetTopologyChanged = false;
         for (String systemId : new ArrayList<>(hotSystems)) {
             Slot slot = slots.get(systemId);
             if (slot == null) {
@@ -98,14 +110,25 @@ final class AuthoritativeSystemScheduler {
             }
             if (!activate(world, slot)) continue;
 
+            int playerAssetsBefore = playerAssetCount(world);
             run(world, slot, dt);
+            int playerAssetsAfter = slot.playerAssets;
+            if (playerAssetsBefore != playerAssetsAfter) playerAssetTopologyChanged = true;
+            ranHot.add(slot);
+            updated.add(systemId);
+        }
+        return playerAssetTopologyChanged;
+    }
+
+    private void finishHotSystems(List<Slot> ranHot) {
+        for (Slot slot : ranHot) {
+            if (slots.get(slot.systemId) != slot) continue;
             if (slot.tier != SystemSimulationScheduler.SimulationTier.HOT
-                    && !viewedSystems.contains(systemId)) {
-                hotSystems.remove(systemId);
+                    && !viewedSystems.contains(slot.systemId)) {
+                hotSystems.remove(slot.systemId);
                 slot.nextDue = clock + SystemSimulationScheduler.intervalSeconds(slot.tier);
                 schedule(slot);
             }
-            updated.add(systemId);
         }
     }
 
@@ -116,6 +139,7 @@ final class AuthoritativeSystemScheduler {
             if (candidate == null || candidate.at() > clock + EPSILON) break;
             due.poll();
             Slot slot = slots.get(candidate.systemId());
+            if (slot != null && candidate.equals(slot.queuedDue)) slot.queuedDue = null;
             if (slot == null || slot.generation != candidate.generation()
                     || hotSystems.contains(slot.systemId)) continue;
             if (!activate(world, slot)) continue;
@@ -136,8 +160,7 @@ final class AuthoritativeSystemScheduler {
     private boolean activate(World world, Slot slot) {
         world.activateSystem(slot.systemId);
         if (slot.systemId.equals(world.activeSystemId())) return true;
-        slots.remove(slot.systemId);
-        hotSystems.remove(slot.systemId);
+        removeSlot(slot);
         return false;
     }
 
@@ -146,6 +169,24 @@ final class AuthoritativeSystemScheduler {
         world.updateCurrentSystem(elapsed);
         slot.lastRun = clock;
         slot.tier = SystemSimulationScheduler.tier(world);
+        slot.playerAssets = playerAssetCount(world);
+    }
+
+    private boolean activePlayerAssetCountChanged(World world, String systemId) {
+        if (systemId == null || systemId.isBlank()) return false;
+        Slot slot = slots.get(systemId);
+        return slot != null && slot.playerAssets >= 0 && slot.playerAssets != playerAssetCount(world);
+    }
+
+    private int playerAssetCount(World world) {
+        int count = 0;
+        for (Unit unit : world.units.values()) {
+            if (unit.hp > 0 && !NpcRules.isNpcFaction(unit.playerId)) count++;
+        }
+        for (Base base : world.bases.values()) {
+            if (base.hp > 0 && !NpcRules.isNpcFaction(base.playerId)) count++;
+        }
+        return count;
     }
 
     private void refresh(Supplier<GalaxyMapSnapshot> discovery, String activeSystemId) {
@@ -170,6 +211,8 @@ final class AuthoritativeSystemScheduler {
         while (iterator.hasNext()) {
             Map.Entry<String, Slot> entry = iterator.next();
             if (discovered.contains(entry.getKey())) continue;
+            Slot slot = entry.getValue();
+            unschedule(slot);
             hotSystems.remove(entry.getKey());
             iterator.remove();
         }
@@ -197,14 +240,31 @@ final class AuthoritativeSystemScheduler {
     }
 
     private void markHot(Slot slot) {
+        unschedule(slot);
         slot.generation = nextGeneration++;
         hotSystems.add(slot.systemId);
     }
 
     private void schedule(Slot slot) {
+        unschedule(slot);
         hotSystems.remove(slot.systemId);
         slot.generation = nextGeneration++;
-        due.add(new Due(slot.systemId, slot.nextDue, slot.generation));
+        Due scheduled = new Due(slot.systemId, slot.nextDue, slot.generation);
+        slot.queuedDue = scheduled;
+        due.add(scheduled);
+    }
+
+    private void unschedule(Slot slot) {
+        if (slot == null || slot.queuedDue == null) return;
+        due.remove(slot.queuedDue);
+        slot.queuedDue = null;
+    }
+
+    private void removeSlot(Slot slot) {
+        if (slot == null) return;
+        unschedule(slot);
+        slots.remove(slot.systemId);
+        hotSystems.remove(slot.systemId);
     }
 
     private Stats snapshotStats(int updatedSystems) {
@@ -243,6 +303,8 @@ final class AuthoritativeSystemScheduler {
         double nextDue;
         long generation;
         int signature;
+        Due queuedDue;
+        int playerAssets = -1;
         SystemSimulationScheduler.SimulationTier tier = SystemSimulationScheduler.SimulationTier.DORMANT;
 
         Slot(String systemId, double lastRun, int signature) {
