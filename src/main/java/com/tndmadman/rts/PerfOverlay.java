@@ -9,30 +9,54 @@ final class PerfOverlay {
     private static final long REFRESH_NANOS = 250_000_000L;
     private static final int PANEL_WIDTH = 450;
     private long nextRefreshNanos;
+    private double displayedFps;
+
     private List<String> lines = List.of("Collecting performance samples...");
 
     void draw(Graphics2D g2, World world, int screenWidth, String updateLabel,
-              PerfSnapshot frame, PerfSnapshot network, PerfSnapshot host) {
+          PerfSnapshot frame, PerfSnapshot network, PerfSnapshot host,
+          boolean fullOverlay) {
         long now = System.nanoTime();
         if (now >= nextRefreshNanos) {
-            lines = buildLines(world, updateLabel, frame, network, host);
-            nextRefreshNanos = now + REFRESH_NANOS;
-        }
+    if (fullOverlay) {
+        lines = buildLines(world, updateLabel, frame, network, host);
+    } else {
+        if (displayedFps == 0) {
+    displayedFps = frame.fps();
+} else {
+    displayedFps = displayedFps * 0.7 + frame.fps() * 0.3;
+}
 
-        int x = Math.max(14, screenWidth - PANEL_WIDTH - 14);
+lines = List.of(String.format(Locale.ROOT, "FPS %.0f", displayedFps));
+    }
+    nextRefreshNanos = now + REFRESH_NANOS;
+}
+        
+
+        int width = fullOverlay ? PANEL_WIDTH : 110;
+        int x = Math.max(14, screenWidth - width - 14);
         int y = 132;
         int lineHeight = 16;
-        int height = 34 + lines.size() * lineHeight;
+        int height = fullOverlay ? 34 + lines.size() * lineHeight : 42;
         g2.setColor(new Color(0, 0, 0, 190));
-        g2.fillRoundRect(x, y, PANEL_WIDTH, height, 12, 12);
+        g2.fillRoundRect(x, y, width, height, 12, 12);
         g2.setColor(new Color(80, 180, 255, 190));
-        g2.drawRoundRect(x, y, PANEL_WIDTH, height, 12, 12);
-        g2.setFont(g2.getFont().deriveFont(Font.BOLD, 12f));
-        g2.setColor(Color.WHITE);
-        g2.drawString("DEV PERFORMANCE (F4)", x + 12, y + 20);
-        g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f));
-        g2.setColor(new Color(220, 238, 250));
-        int textY = y + 40;
+        g2.drawRoundRect(x, y, width, height, 12, 12);
+        int textY;
+
+if (fullOverlay) {
+    g2.setFont(g2.getFont().deriveFont(Font.BOLD, 12f));
+    g2.setColor(Color.WHITE);
+    g2.drawString("DEV PERFORMANCE (F4)", x + 12, y + 20);
+
+    g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f));
+    g2.setColor(new Color(220, 238, 250));
+    textY = y + 40;
+} else {
+    g2.setFont(g2.getFont().deriveFont(Font.BOLD, 13f));
+    g2.setColor(Color.WHITE);
+    textY = y + 24;
+}
         for (String line : lines) {
             g2.drawString(line, x + 12, textY);
             textY += lineHeight;
