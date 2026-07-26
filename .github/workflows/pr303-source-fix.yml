@@ -1,20 +1,21 @@
 name: PR 303 source fix
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/validate-v160-upgrade
+      - main
 
 permissions:
   contents: write
 
 jobs:
   apply-fix:
+    if: github.event.pull_request.number == 303
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: agent/validate-v160-upgrade
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
       - name: Make fixture generator compatible with v1.6.0
         shell: bash
@@ -69,4 +70,4 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add validation/v1.6.0/V160FixtureGenerator.java
           git commit -m 'Generate v1.6 TLS fingerprint from the legacy keystore'
-          git push origin HEAD:agent/validate-v160-upgrade
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
