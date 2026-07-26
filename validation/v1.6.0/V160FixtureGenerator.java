@@ -48,7 +48,7 @@ public final class V160FixtureGenerator {
         Base alphaBase = firstBase(world, ALPHA.id);
         alphaBase.inventory.put(Material.IRON, 432.0);
         alphaBase.inventory.put(Material.COPPER, 210.0);
-        alphaBase.productionQueue.add(new ProductionJob("fixture-job", ProductionJobKind.SHIP,
+        alphaBase.productionQueue.add(new ProductionJob("P9001", ProductionJobKind.SHIP,
                 Rules.STARTING_SHIP, 25, 17, false, ""));
         firstUnit(world, ALPHA.id).inventory.put(Material.IRON, 19.0);
         world.saveActiveSystem();
