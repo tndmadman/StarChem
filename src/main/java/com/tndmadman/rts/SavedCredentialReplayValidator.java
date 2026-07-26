@@ -60,6 +60,7 @@ public final class SavedCredentialReplayValidator {
             require(!PasswordAuth.sessionTokenMatches(extractedTokenDigest, copiedDigestAsToken),
                     "session digest copied from the save authenticated as a raw token");
 
+            V160UpgradeReleaseGate.validateIfRequired();
             System.out.println("StarChem saved credential replay validation passed.");
         } finally {
             deleteTree(directory);
