@@ -1,0 +1,494 @@
+name: Controlled StarChem v1.7.0 Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/publish-v1.7.0.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: controlled-starchem-v1.7.0-release
+  cancel-in-progress: false
+
+env:
+  RELEASE_VERSION: 1.7.0
+  RELEASE_TAG: v1.7.0
+  TARGET_SHA: 1963355b6312170cc599e545a56dfbd76d1d51e3
+  RELEASE_ZIP: StarChem-v1.7.0.zip
+  CHECKSUM_FILE: StarChem-v1.7.0.zip.sha256
+  RELEASE_ARTIFACT: StarChem-v1.7.0-controlled
+
+jobs:
+  package:
+    name: Build and validate pinned v1.7.0 content
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      issues: read
+
+    steps:
+      - name: Check out release controller
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify pinned release state
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          git cat-file -e "$TARGET_SHA^{commit}"
+          git merge-base --is-ancestor "$TARGET_SHA" "$GITHUB_SHA"
+
+          mapfile -t CHANGED_AFTER_TARGET < <(git diff --name-only "$TARGET_SHA..$GITHUB_SHA" | sort)
+          if [[ "${#CHANGED_AFTER_TARGET[@]}" -ne 1 || "${CHANGED_AFTER_TARGET[0]}" != ".github/workflows/publish-v1.7.0.yml" ]]; then
+            printf 'Pinned release content is stale. Files changed after %s:\n' "$TARGET_SHA" >&2
+            printf '  %s\n' "${CHANGED_AFTER_TARGET[@]}" >&2
+            exit 1
+          fi
+
+          for issue in 272 273 275 276; do
+            state="$(gh api "repos/$GITHUB_REPOSITORY/issues/$issue" --jq .state)"
+            if [[ "$state" != "closed" ]]; then
+              echo "Release blocker #$issue is still $state." >&2
+              exit 1
+            fi
+          done
+
+          git checkout --detach "$TARGET_SHA"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(sed -n 's/^# StarChem v//p' RELEASE_NOTES.md | head -n 1 | tr -d '\r')" = "$RELEASE_VERSION"
+          grep -Fq 'Multiplayer Protocol 8' RELEASE_NOTES.md
+          grep -Fq 'v1.6.0 clients and servers use protocol 7 and are intentionally incompatible' RELEASE_NOTES.md
+          grep -Fq 'static final int PROTOCOL_VERSION = 8;' src/main/java/com/tndmadman/rts/MultiplayerCompatibility.java
+          grep -Fq 'releaseVersion=1.7.0-dev' gradle.properties
+          grep -Fq 'FALLBACK_VERSION = "1.7.0-dev"' src/main/java/com/tndmadman/rts/BuildInfo.java
+          test -s UPGRADING_TO_1.7.0.md
+          test -s AUTHENTICATION.md
+          test -s TLS_IDENTITY_SECURITY.md
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Run complete release validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle clean check jar --no-daemon \
+            -PreleaseVersion="$RELEASE_VERSION" \
+            -PbuildCommit="$TARGET_SHA"
+
+      - name: Verify reproducible JAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          FIRST_JAR="$RUNNER_TEMP/StarChem-first.jar"
+          cp build/libs/StarChem.jar "$FIRST_JAR"
+          FIRST_SHA="$(sha256sum "$FIRST_JAR" | awk '{print $1}')"
+
+          gradle clean jar --no-daemon \
+            -PreleaseVersion="$RELEASE_VERSION" \
+            -PbuildCommit="$TARGET_SHA"
+
+          SECOND_SHA="$(sha256sum build/libs/StarChem.jar | awk '{print $1}')"
+          echo "First JAR SHA-256:  $FIRST_SHA"
+          echo "Second JAR SHA-256: $SECOND_SHA"
+          cmp "$FIRST_JAR" build/libs/StarChem.jar
+
+      - name: Verify runtime build identity and protocol
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION_OUTPUT="$(java -jar build/libs/StarChem.jar --version)"
+          EXPECTED_OUTPUT="StarChem ${RELEASE_VERSION} (${TARGET_SHA:0:12})"
+          echo "$VERSION_OUTPUT"
+          [[ "$VERSION_OUTPUT" == "$EXPECTED_OUTPUT" ]]
+
+          HELP_OUTPUT="$(java -jar build/libs/StarChem.jar --help)"
+          printf '%s\n' "$HELP_OUTPUT" | grep -Fq -- '--server [PORT]'
+          jar tf build/libs/StarChem.jar | grep -Fx 'META-INF/LICENSE'
+          jar tf build/libs/StarChem.jar | grep -Fx 'META-INF/THIRD_PARTY_NOTICES.md'
+
+      - name: Stage deterministic release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf release
+          mkdir -p release/StarChem
+
+          cp build/libs/StarChem.jar release/StarChem/StarChem.jar
+          cp -R config release/StarChem/config
+          cp packaging/run-starchem.bat release/StarChem/run-starchem.bat
+          cp packaging/run-starchem-server.bat release/StarChem/run-starchem-server.bat
+          cp packaging/run-starchem.sh release/StarChem/run-starchem.sh
+          cp packaging/run-starchem-server.sh release/StarChem/run-starchem-server.sh
+          chmod +x release/StarChem/run-starchem.sh release/StarChem/run-starchem-server.sh
+          cp README.md release/StarChem/README.md
+          cp RELEASE_NOTES.md release/StarChem/RELEASE_NOTES.md
+          cp AUTHENTICATION.md release/StarChem/AUTHENTICATION.md
+          cp TLS_IDENTITY_SECURITY.md release/StarChem/TLS_IDENTITY_SECURITY.md
+          cp UPGRADING_TO_1.7.0.md release/StarChem/UPGRADING_TO_1.7.0.md
+          cp LICENSE release/StarChem/LICENSE
+          cp THIRD_PARTY_NOTICES.md release/StarChem/THIRD_PARTY_NOTICES.md
+
+          for required in \
+            StarChem.jar README.md RELEASE_NOTES.md AUTHENTICATION.md \
+            TLS_IDENTITY_SECURITY.md UPGRADING_TO_1.7.0.md LICENSE \
+            THIRD_PARTY_NOTICES.md run-starchem.bat run-starchem-server.bat \
+            run-starchem.sh run-starchem-server.sh; do
+            test -s "release/StarChem/$required"
+          done
+          test -d release/StarChem/config
+          test -x release/StarChem/run-starchem.sh
+          test -x release/StarChem/run-starchem-server.sh
+          grep -Fq 'STARCHEM PROPRIETARY SOFTWARE LICENSE' release/StarChem/LICENSE
+          grep -Fq 'StarChem is proprietary software.' release/StarChem/README.md
+          grep -Fq '# StarChem v1.7.0' release/StarChem/RELEASE_NOTES.md
+          grep -Fq 'protocol 8' release/StarChem/AUTHENTICATION.md
+
+          mapfile -t TOP_LEVEL_FILES < <(find release/StarChem -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)
+          mapfile -t TOP_LEVEL_DIRS < <(find release/StarChem -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
+          EXPECTED_FILES='AUTHENTICATION.md LICENSE README.md RELEASE_NOTES.md StarChem.jar THIRD_PARTY_NOTICES.md TLS_IDENTITY_SECURITY.md UPGRADING_TO_1.7.0.md run-starchem-server.bat run-starchem-server.sh run-starchem.bat run-starchem.sh'
+          [[ "${TOP_LEVEL_FILES[*]}" == "$EXPECTED_FILES" ]]
+          [[ "${TOP_LEVEL_DIRS[*]}" == 'config' ]]
+
+          COMMIT_EPOCH="$(git show -s --format=%ct "$TARGET_SHA")"
+          find release/StarChem -exec touch -d "@$COMMIT_EPOCH" {} +
+
+          (
+            cd release
+            mapfile -t ZIP_ENTRIES < <(find StarChem -print | LC_ALL=C sort)
+            printf '%s\n' "${ZIP_ENTRIES[@]}" | zip -X -q "$RELEASE_ZIP" -@
+            printf '%s\n' "${ZIP_ENTRIES[@]}" | zip -X -q "${RELEASE_ZIP}.repro" -@
+            cmp "$RELEASE_ZIP" "${RELEASE_ZIP}.repro"
+            rm "${RELEASE_ZIP}.repro"
+          )
+
+          cp "release/$RELEASE_ZIP" .
+          sha256sum "$RELEASE_ZIP" > "$CHECKSUM_FILE"
+          sha256sum -c "$CHECKSUM_FILE"
+
+      - name: Validate extracted Linux package and server
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERIFY_ROOT="$RUNNER_TEMP/starchem-v1.7.0-linux"
+          SAVE_ROOT="$RUNNER_TEMP/starchem-v1.7.0-linux-server"
+          rm -rf "$VERIFY_ROOT" "$SAVE_ROOT"
+          mkdir -p "$VERIFY_ROOT" "$SAVE_ROOT"
+          unzip -q "$RELEASE_ZIP" -d "$VERIFY_ROOT"
+          PACKAGE_DIR="$VERIFY_ROOT/StarChem"
+
+          VERSION_OUTPUT="$("$PACKAGE_DIR/run-starchem.sh" --version)"
+          EXPECTED_OUTPUT="StarChem ${RELEASE_VERSION} (${TARGET_SHA:0:12})"
+          [[ "$VERSION_OUTPUT" == "$EXPECTED_OUTPUT" ]]
+          SERVER_HELP_OUTPUT="$("$PACKAGE_DIR/run-starchem-server.sh" --help)"
+          printf '%s\n' "$SERVER_HELP_OUTPUT" | grep -Fq -- '--server [PORT]'
+
+          PORT="$(python3 - <<'PY'
+          import socket
+          with socket.socket() as sock:
+              sock.bind(('127.0.0.1', 0))
+              print(sock.getsockname()[1])
+          PY
+          )"
+          SERVER_LOG="$RUNNER_TEMP/starchem-v1.7.0-linux-server.log"
+          STARCHEM_PORT="$PORT" \
+          STARCHEM_SERVER_NAME='Release-Validation' \
+          STARCHEM_SERVER_SAVE_DIR="$SAVE_ROOT" \
+            "$PACKAGE_DIR/run-starchem-server.sh" >"$SERVER_LOG" 2>&1 &
+          SERVER_PID=$!
+
+          cleanup() {
+            kill -TERM "$SERVER_PID" 2>/dev/null || true
+            wait "$SERVER_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          READY=0
+          for _ in {1..180}; do
+            if grep -Fq 'Dedicated server ready.' "$SERVER_LOG"; then
+              READY=1
+              break
+            fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              cat "$SERVER_LOG"
+              exit 1
+            fi
+            sleep 0.1
+          done
+          [[ "$READY" -eq 1 ]]
+          grep -Fq "TCP $PORT" "$SERVER_LOG"
+          test -f "$SAVE_ROOT/starchem-server-tls.p12" || find "$SAVE_ROOT" -name '*-tls.p12' -print -quit | grep -q .
+          test -f "$SAVE_ROOT/starchem-server-tls.password" || find "$SAVE_ROOT" -name '*-tls.password' -print -quit | grep -q .
+
+          kill -TERM "$SERVER_PID"
+          set +e
+          wait "$SERVER_PID"
+          SERVER_STATUS=$?
+          set -e
+          trap - EXIT
+          [[ "$SERVER_STATUS" -eq 0 || "$SERVER_STATUS" -eq 143 ]]
+          grep -Fq 'Dedicated server stopped.' "$SERVER_LOG"
+
+      - name: Upload validated release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.RELEASE_ARTIFACT }}
+          path: |
+            ${{ env.RELEASE_ZIP }}
+            ${{ env.CHECKSUM_FILE }}
+          if-no-files-found: error
+          retention-days: 14
+
+  windows-security-smoke:
+    name: Validate Windows launchers, TLS, and credential storage
+    needs: package
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.RELEASE_ARTIFACT }}
+          path: release-artifact
+
+      - name: Validate Windows package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zipPath = Join-Path 'release-artifact' $env:RELEASE_ZIP
+          $checksumPath = Join-Path 'release-artifact' $env:CHECKSUM_FILE
+          $expectedHash = ((Get-Content -LiteralPath $checksumPath -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+          $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash.ToLowerInvariant()
+          if ($actualHash -ne $expectedHash) { throw 'Release ZIP checksum mismatch.' }
+
+          $extractRoot = Join-Path $env:RUNNER_TEMP 'starchem-v1.7.0-windows'
+          $saveRoot = Join-Path $env:RUNNER_TEMP 'starchem-v1.7.0-windows-server'
+          Remove-Item -Recurse -Force $extractRoot, $saveRoot -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath $zipPath -DestinationPath $extractRoot
+          New-Item -ItemType Directory -Force $saveRoot | Out-Null
+          Push-Location (Join-Path $extractRoot 'StarChem')
+          try {
+            $versionOutput = (& cmd /c run-starchem.bat --version | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0) { throw "Windows player launcher exited with $LASTEXITCODE" }
+            $expectedIdentity = "StarChem $env:RELEASE_VERSION ($($env:TARGET_SHA.Substring(0, 12)))"
+            if ($versionOutput -ne $expectedIdentity) { throw "Unexpected identity: $versionOutput" }
+
+            $helpOutput = (& cmd /c run-starchem-server.bat --help | Out-String)
+            if ($LASTEXITCODE -ne 0 -or $helpOutput -notmatch '--server \[PORT\]') {
+              throw 'Windows server launcher did not reach help output.'
+            }
+
+            $env:JAVA_TOOL_OPTIONS = "-Djava.io.tmpdir=$saveRoot"
+            java -cp StarChem.jar com.tndmadman.rts.PrivateFileSecurityValidator
+            java -cp StarChem.jar com.tndmadman.rts.TlsIdentityValidator
+            java -cp StarChem.jar com.tndmadman.rts.ClientCredentialVaultValidator
+
+            $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+            $listener.Start()
+            $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+            $listener.Stop()
+
+            $env:STARCHEM_PORT = "$port"
+            $env:STARCHEM_SERVER_NAME = 'Release-Validation-Windows'
+            $env:STARCHEM_SERVER_SAVE_DIR = $saveRoot
+            $logPath = Join-Path $env:RUNNER_TEMP 'starchem-v1.7.0-windows-server.log'
+            $process = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', 'run-starchem-server.bat' -RedirectStandardOutput $logPath -RedirectStandardError $logPath -PassThru
+            try {
+              $ready = $false
+              for ($i = 0; $i -lt 180; $i++) {
+                Start-Sleep -Milliseconds 100
+                if ($process.HasExited) { throw "Server exited before readiness. $(Get-Content $logPath -Raw)" }
+                if ((Get-Content $logPath -Raw) -match 'Dedicated server ready\.') { $ready = $true; break }
+              }
+              if (-not $ready) { throw "Server did not become ready. $(Get-Content $logPath -Raw)" }
+            }
+            finally {
+              if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+            }
+
+            if (-not (Get-ChildItem -LiteralPath $saveRoot -Filter '*-tls.p12')) { throw 'Managed TLS keystore was not created.' }
+            if (-not (Get-ChildItem -LiteralPath $saveRoot -Filter '*-tls.password')) { throw 'Managed TLS password was not created.' }
+          }
+          finally {
+            Pop-Location
+          }
+
+  macos-security-smoke:
+    name: Validate macOS launcher, TLS, and Keychain storage
+    needs: package
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.RELEASE_ARTIFACT }}
+          path: release-artifact
+
+      - name: Validate macOS package and protected storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-artifact
+          shasum -a 256 -c "$CHECKSUM_FILE"
+
+          EXTRACT_ROOT="$RUNNER_TEMP/starchem-v1.7.0-macos"
+          SAVE_ROOT="$RUNNER_TEMP/starchem-v1.7.0-macos-server"
+          rm -rf "$EXTRACT_ROOT" "$SAVE_ROOT"
+          mkdir -p "$EXTRACT_ROOT" "$SAVE_ROOT"
+          ditto -x -k "$RELEASE_ZIP" "$EXTRACT_ROOT"
+          PACKAGE_DIR="$EXTRACT_ROOT/StarChem"
+          chmod +x "$PACKAGE_DIR/run-starchem.sh" "$PACKAGE_DIR/run-starchem-server.sh"
+
+          VERSION_OUTPUT="$("$PACKAGE_DIR/run-starchem.sh" --version)"
+          EXPECTED_OUTPUT="StarChem ${RELEASE_VERSION} (${TARGET_SHA:0:12})"
+          [[ "$VERSION_OUTPUT" == "$EXPECTED_OUTPUT" ]]
+          SERVER_HELP_OUTPUT="$("$PACKAGE_DIR/run-starchem-server.sh" --help)"
+          printf '%s\n' "$SERVER_HELP_OUTPUT" | grep -Fq -- '--server [PORT]'
+
+          export JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$SAVE_ROOT"
+          java -cp "$PACKAGE_DIR/StarChem.jar" com.tndmadman.rts.PrivateFileSecurityValidator
+          java -cp "$PACKAGE_DIR/StarChem.jar" com.tndmadman.rts.TlsIdentityValidator
+          java -cp "$PACKAGE_DIR/StarChem.jar" com.tndmadman.rts.ClientCredentialVaultValidator
+
+          PORT="$(python3 - <<'PY'
+          import socket
+          with socket.socket() as sock:
+              sock.bind(('127.0.0.1', 0))
+              print(sock.getsockname()[1])
+          PY
+          )"
+          SERVER_LOG="$RUNNER_TEMP/starchem-v1.7.0-macos-server.log"
+          STARCHEM_PORT="$PORT" \
+          STARCHEM_SERVER_NAME='Release-Validation-macOS' \
+          STARCHEM_SERVER_SAVE_DIR="$SAVE_ROOT" \
+            "$PACKAGE_DIR/run-starchem-server.sh" >"$SERVER_LOG" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill -TERM "$SERVER_PID" 2>/dev/null || true' EXIT
+
+          READY=0
+          for _ in {1..180}; do
+            if grep -Fq 'Dedicated server ready.' "$SERVER_LOG"; then READY=1; break; fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then cat "$SERVER_LOG"; exit 1; fi
+            sleep 0.1
+          done
+          [[ "$READY" -eq 1 ]]
+          find "$SAVE_ROOT" -name '*-tls.p12' -print -quit | grep -q .
+          find "$SAVE_ROOT" -name '*-tls.password' -print -quit | grep -q .
+          kill -TERM "$SERVER_PID"
+          wait "$SERVER_PID" || true
+          trap - EXIT
+
+  publish:
+    name: Publish immutable v1.7.0 GitHub Release
+    needs:
+      - package
+      - windows-security-smoke
+      - macos-security-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out pinned release notes
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+
+      - name: Download validated release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.RELEASE_ARTIFACT }}
+          path: release-artifact
+
+      - name: Refuse an existing tag or release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "$RELEASE_TAG already exists; refusing to overwrite an immutable tag." >&2
+            exit 1
+          fi
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$RELEASE_TAG already exists; refusing to overwrite an immutable release." >&2
+            exit 1
+          fi
+
+      - name: Publish release and immutable artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ env.TARGET_SHA }}
+          name: StarChem v1.7.0
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          files: |
+            release-artifact/${{ env.RELEASE_ZIP }}
+            release-artifact/${{ env.CHECKSUM_FILE }}
+
+      - name: Audit published tag, metadata, and assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq .object.sha)"
+          [[ "$TAG_SHA" == "$TARGET_SHA" ]]
+
+          RELEASE_JSON="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName,name,isDraft,isPrerelease,targetCommitish,assets,url)"
+          printf '%s\n' "$RELEASE_JSON"
+          [[ "$(jq -r .tagName <<<"$RELEASE_JSON")" == "$RELEASE_TAG" ]]
+          [[ "$(jq -r .name <<<"$RELEASE_JSON")" == 'StarChem v1.7.0' ]]
+          [[ "$(jq -r .isDraft <<<"$RELEASE_JSON")" == 'false' ]]
+          [[ "$(jq -r .isPrerelease <<<"$RELEASE_JSON")" == 'false' ]]
+          [[ "$(jq -r .targetCommitish <<<"$RELEASE_JSON")" == "$TARGET_SHA" ]]
+
+          mapfile -t ASSET_NAMES < <(jq -r '.assets[].name' <<<"$RELEASE_JSON" | sort)
+          [[ "${ASSET_NAMES[*]}" == "$CHECKSUM_FILE $RELEASE_ZIP" ]]
+
+          AUDIT_DIR="$RUNNER_TEMP/starchem-v1.7.0-published"
+          rm -rf "$AUDIT_DIR"
+          mkdir -p "$AUDIT_DIR"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$AUDIT_DIR"
+          cd "$AUDIT_DIR"
+          sha256sum -c "$CHECKSUM_FILE"
+          cmp "$RELEASE_ZIP" "$GITHUB_WORKSPACE/release-artifact/$RELEASE_ZIP"
+          cmp "$CHECKSUM_FILE" "$GITHUB_WORKSPACE/release-artifact/$CHECKSUM_FILE"
