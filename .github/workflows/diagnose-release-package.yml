@@ -1,4 +1,4 @@
-name: Diagnose extracted server package
+name: Diagnose deterministic server package
 
 on:
   pull_request:
@@ -20,27 +20,33 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
-      - name: Build and diagnose package
+      - name: Build exact deterministic archive and diagnose
         id: diagnose
         continue-on-error: true
         shell: bash
         run: |
           set +e
-          mkdir -p build release/StarChem
+          mkdir -p build
+          DIAG="$GITHUB_WORKSPACE/build/release-package-diagnostic.txt"
+          SERVER_LOG="$GITHUB_WORKSPACE/build/release-package-server.log"
           VERSION="$(sed -n 's/^# StarChem v//p' RELEASE_NOTES.md | head -n 1 | tr -d '\r')"
           COMMIT="$GITHUB_SHA"
+          ZIP_NAME="StarChem-diagnostic.zip"
+
           gradle clean jar --no-daemon -PreleaseVersion="$VERSION" -PbuildCommit="$COMMIT" > build/diagnose-build.log 2>&1
           BUILD_STATUS=$?
           {
             echo "build_status=$BUILD_STATUS"
             echo "version=$VERSION"
             echo "commit=$COMMIT"
-          } > build/release-package-diagnostic.txt
+          } > "$DIAG"
           if [ "$BUILD_STATUS" -ne 0 ]; then
-            tail -n 120 build/diagnose-build.log >> build/release-package-diagnostic.txt
+            tail -n 120 build/diagnose-build.log >> "$DIAG"
             exit "$BUILD_STATUS"
           fi
 
+          rm -rf release
+          mkdir -p release/StarChem
           cp build/libs/StarChem.jar release/StarChem/StarChem.jar
           cp -R config release/StarChem/config
           cp packaging/run-starchem.bat release/StarChem/run-starchem.bat
@@ -49,34 +55,51 @@ jobs:
           cp packaging/run-starchem-server.sh release/StarChem/run-starchem-server.sh
           chmod +x release/StarChem/run-starchem.sh release/StarChem/run-starchem-server.sh
           cp README.md LICENSE THIRD_PARTY_NOTICES.md release/StarChem/
-          (cd release && zip -X -q -r StarChem-diagnostic.zip StarChem)
+
+          COMMIT_EPOCH="$(git show -s --format=%ct "$COMMIT")"
+          find release/StarChem -exec touch -d "@${COMMIT_EPOCH}" {} +
+          (
+            cd release
+            mapfile -t ZIP_ENTRIES < <(find StarChem -print | LC_ALL=C sort)
+            printf '%s\n' "${ZIP_ENTRIES[@]}" | zip -X -q "$ZIP_NAME" -@
+          )
 
           VERIFY_ROOT="$RUNNER_TEMP/starchem-release-diagnostic"
           rm -rf "$VERIFY_ROOT"
           mkdir -p "$VERIFY_ROOT"
-          unzip -q release/StarChem-diagnostic.zip -d "$VERIFY_ROOT"
+          unzip -q "release/$ZIP_NAME" -d "$VERIFY_ROOT"
           PACKAGE_DIR="$VERIFY_ROOT/StarChem"
-          DIAG="$GITHUB_WORKSPACE/build/release-package-diagnostic.txt"
+
+          {
+            echo "commit_epoch=$COMMIT_EPOCH"
+            echo "archive_listing_begin"
+            unzip -Z -l "release/$ZIP_NAME"
+            echo "archive_listing_end"
+            echo "modes_begin"
+            find "$PACKAGE_DIR" -maxdepth 1 -printf '%m %f\n' | sort
+            echo "modes_end"
+          } >> "$DIAG"
+
+          FILE_OK=1
+          test -f "$PACKAGE_DIR/StarChem.jar" || FILE_OK=0
+          test -d "$PACKAGE_DIR/config" || FILE_OK=0
+          test -x "$PACKAGE_DIR/run-starchem.sh" || FILE_OK=0
+          test -x "$PACKAGE_DIR/run-starchem-server.sh" || FILE_OK=0
+          echo "file_checks=$FILE_OK" >> "$DIAG"
 
           VERSION_OUTPUT="$("$PACKAGE_DIR/run-starchem.sh" --version 2>&1)"
           VERSION_STATUS=$?
           EXPECTED_OUTPUT="StarChem ${VERSION} (${COMMIT:0:12})"
-          {
-            echo "version_status=$VERSION_STATUS"
-            echo "version_output=$VERSION_OUTPUT"
-            echo "version_expected=$EXPECTED_OUTPUT"
-          } >> "$DIAG"
-
           HELP_OUTPUT="$("$PACKAGE_DIR/run-starchem-server.sh" --help 2>&1)"
           HELP_STATUS=$?
           HELP_MATCH=0
           printf '%s\n' "$HELP_OUTPUT" | grep -Fq -- '--server [PORT]' && HELP_MATCH=1
           {
+            echo "version_status=$VERSION_STATUS"
+            echo "version_output=$VERSION_OUTPUT"
+            echo "version_expected=$EXPECTED_OUTPUT"
             echo "help_status=$HELP_STATUS"
             echo "help_match=$HELP_MATCH"
-            echo "help_output_begin"
-            printf '%s\n' "$HELP_OUTPUT"
-            echo "help_output_end"
           } >> "$DIAG"
 
           PORT="$(python3 - <<'PY'
@@ -86,7 +109,6 @@ jobs:
               print(sock.getsockname()[1])
           PY
           )"
-          SERVER_LOG="$GITHUB_WORKSPACE/build/release-package-server.log"
           STARCHEM_PORT="$PORT" STARCHEM_SERVER_NAME="Release-Diagnostic" \
             "$PACKAGE_DIR/run-starchem-server.sh" >"$SERVER_LOG" 2>&1 &
           SERVER_PID=$!
@@ -105,10 +127,7 @@ jobs:
           done
           PORT_MATCH=0
           grep -Fq "TCP $PORT" "$SERVER_LOG" && PORT_MATCH=1
-
-          if kill -0 "$SERVER_PID" 2>/dev/null; then
-            kill -TERM "$SERVER_PID"
-          fi
+          if kill -0 "$SERVER_PID" 2>/dev/null; then kill -TERM "$SERVER_PID"; fi
           wait "$SERVER_PID"
           SERVER_STATUS=$?
           STOPPED_MATCH=0
@@ -126,6 +145,7 @@ jobs:
           } >> "$DIAG"
 
           VALID=1
+          [ "$FILE_OK" -eq 1 ] || VALID=0
           [ "$VERSION_STATUS" -eq 0 ] || VALID=0
           [ "$VERSION_OUTPUT" = "$EXPECTED_OUTPUT" ] || VALID=0
           [ "$HELP_STATUS" -eq 0 ] || VALID=0
@@ -136,11 +156,11 @@ jobs:
           [ "$STOPPED_MATCH" -eq 1 ] || VALID=0
           echo "valid=$VALID" >> "$DIAG"
           [ "$VALID" -eq 1 ]
-      - name: Upload package diagnostic
+      - name: Upload deterministic package diagnostic
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: release-package-diagnostic-${{ github.sha }}
+          name: deterministic-release-diagnostic-${{ github.sha }}
           path: |
             build/release-package-diagnostic.txt
             build/release-package-server.log
