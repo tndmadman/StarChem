@@ -273,17 +273,21 @@ final class ProductionPlanner {
             if (station == null) continue;
 
             int batches = Math.max(1, (int)Math.ceil(amount / Math.max(EPSILON, item.outputAmount)));
+            List<Cost> batchCost = multiplyCosts(item.requiredResources, batches);
             EnumMap<Material, Double> candidateLedger = new EnumMap<>(ledger);
             Analysis candidateAnalysis = new Analysis();
             Set<Material> candidateVisiting = new HashSet<>(visiting);
-            for (Cost input : item.requiredResources) {
-                resolveRequirement(world, plan, input.material(), input.amount() * batches,
+            for (Cost input : batchCost) {
+                resolveRequirement(world, plan, input.material(), input.amount(),
                         candidateLedger, candidateAnalysis, candidateVisiting);
             }
+            boolean unblocked = candidateAnalysis.blocker.isBlank();
+            boolean fullyAchievable = unblocked && candidateAnalysis.shortages.isEmpty();
             RecipeEvaluation candidate = new RecipeEvaluation(
                     new RecipeChoice(item, station),
+                    fullyAchievable,
                     ledgerCanCover(ledger, item.requiredResources),
-                    candidateAnalysis.blocker.isBlank(),
+                    unblocked,
                     candidateAnalysis.shortages.size(),
                     shortageAmount(candidateAnalysis),
                     item.timeSeconds * batches,
@@ -291,6 +295,15 @@ final class ProductionPlanner {
             if (best == null || candidate.compareTo(best) < 0) best = candidate;
         }
         return best == null ? null : best.choice;
+    }
+
+    private static List<Cost> multiplyCosts(List<Cost> costs, int batches) {
+        if (batches <= 1) return costs;
+        List<Cost> multiplied = new ArrayList<>(costs.size());
+        for (Cost cost : costs) {
+            multiplied.add(new Cost(cost.material(), cost.amount() * batches));
+        }
+        return List.copyOf(multiplied);
     }
 
     private static boolean ledgerCanCover(EnumMap<Material, Double> ledger, List<Cost> cost) {
@@ -454,13 +467,15 @@ final class ProductionPlanner {
 
     private record RecipeChoice(CraftableItem item, Base station) { }
 
-    private record RecipeEvaluation(RecipeChoice choice, boolean immediatelyFundable,
-                                    boolean unblocked, int shortageKinds, double shortageAmount,
-                                    double productionSeconds, int order)
+    private record RecipeEvaluation(RecipeChoice choice, boolean fullyAchievable,
+                                    boolean immediatelyFundable, boolean unblocked, int shortageKinds,
+                                    double shortageAmount, double productionSeconds, int order)
             implements Comparable<RecipeEvaluation> {
         @Override
         public int compareTo(RecipeEvaluation other) {
-            int result = Boolean.compare(other.immediatelyFundable, immediatelyFundable);
+            int result = Boolean.compare(other.fullyAchievable, fullyAchievable);
+            if (result != 0) return result;
+            result = Boolean.compare(other.immediatelyFundable, immediatelyFundable);
             if (result != 0) return result;
             result = Boolean.compare(other.unblocked, unblocked);
             if (result != 0) return result;
