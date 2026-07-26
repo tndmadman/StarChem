@@ -207,6 +207,21 @@ public final class SystemSimulationSchedulerValidator {
                 "repeated wakes caused duplicate simulation updates");
         require(scheduler.pendingEntryCount() <= scheduler.stats().trackedSystems(),
                 "due-time queue remained unbounded after processing repeated wakes");
+
+        String externalDestination = "";
+        for (GalaxyMapSystem system : map.systems()) {
+            if (system != null && !homeSystem.equals(system.id()) && !destinationSystem.equals(system.id())) {
+                externalDestination = system.id();
+                break;
+            }
+        }
+        require(!externalDestination.isBlank(),
+                "gameplay wake validation could not select an external mutation destination");
+        world.activateSystem(homeSystem);
+        world.movePlayerAssetsToSystem("P1", externalDestination);
+        scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
+        require(List.of(scheduler.lastUpdatedSystems()).contains(externalDestination),
+                "cross-system mutation between scheduler ticks did not wake its destination");
     }
 
     private static Unit firstPlayerUnit(World world, String playerId) {
