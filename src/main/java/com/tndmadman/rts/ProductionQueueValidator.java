@@ -338,6 +338,47 @@ public final class ProductionQueueValidator {
                 "equally viable recipes did not preserve deterministic configuration order");
         require(!hasCraftableJob(deterministicPlant, "reclaim_steel_plate"),
                 "deterministic selection unexpectedly preferred the later reclamation recipe");
+
+        World multiBatchWorld = new World("Multi-Batch Recipe Validator", Set.of(),
+                StarSystems.DEFAULT_SYSTEM_ID, false);
+        String multiBatchPlayer = "MULTI_BATCH_RECIPE_TEST";
+        Base packageOutpost = base(multiBatchWorld, multiBatchPlayer + ":B1", multiBatchPlayer,
+                "outpost", 100, 100);
+        Base multiBatchPlant = base(multiBatchWorld, multiBatchPlayer + ":M1", multiBatchPlayer,
+                "manufacturing", 300, 100);
+        packageOutpost.inventory.put(Material.STRUCTURAL_FRAME, 20.0);
+        packageOutpost.inventory.put(Material.POWER_REGULATOR, 8.0);
+        packageOutpost.inventory.put(Material.CARGO_POD, 4.0);
+        packageOutpost.inventory.put(Material.ICE, 80.0);
+        multiBatchPlant.inventory.put(Material.IRON, 30.0);
+        multiBatchPlant.inventory.put(Material.CARBON, 4.0);
+        multiBatchPlant.inventory.put(Material.SCRAP_METAL, 54.0);
+        multiBatchPlant.inventory.put(Material.METHANE, 12.0);
+        multiBatchPlant.inventory.put(Material.SULFUR, 6.0);
+        multiBatchPlant.inventory.put(Material.FUEL, 1_000.0);
+
+        require(multiBatchWorld.loadBasePackage(packageOutpost.id, "shipyard"),
+                "multi-batch Shipyard request should create a plan");
+        ProductionPlanner.update(multiBatchWorld, 1.0);
+        require(hasCraftableJob(multiBatchPlant, "industrial_lubricant"),
+                "planner did not select the achievable multi-batch reclamation route");
+        require(!hasCraftableJob(multiBatchPlant, "steel_plate"),
+                "planner preferred a one-batch-fundable recipe that could not complete the request");
+
+        ProductionPlanner.update(multiBatchWorld, 1.0);
+        require(countCraftableJobs(List.of(multiBatchPlant), "industrial_lubricant", new HashSet<>()) == 1,
+                "rechecking the multi-batch route duplicated its prerequisite job");
+
+        ProductionSystem.update(multiBatchWorld, 1_000.0);
+        ProductionPlanner.update(multiBatchWorld, 1.0);
+        require(hasCraftableJob(multiBatchPlant, "reclaim_steel_plate"),
+                "planner did not queue the selected reclaimed Steel Plate recipe");
+        require(!hasCraftableJob(multiBatchPlant, "steel_plate"),
+                "planner switched back to the blocked standard Steel Plate recipe");
+
+        ProductionPlanner.update(multiBatchWorld, 1.0);
+        require(countCraftableJobs(List.of(multiBatchPlant), "reclaim_steel_plate", new HashSet<>()) == 1,
+                "rechecking the selected multi-batch recipe duplicated its job");
     }
 
     private static boolean hasCraftableJob(Base base, String itemId) {
