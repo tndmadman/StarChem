@@ -13,6 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -20,12 +23,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
-      - name: Run verification and capture complete output
+      - name: Compile current source
+        run: gradle clean classes --no-daemon
+      - name: Run historical upgrade gate and capture complete output
         id: verify
         shell: bash
         run: |
           set +e
-          gradle clean check jar --no-daemon > pr-303-diagnostic.log 2>&1
+          bash validation/run-v160-upgrade.sh 'build/classes/java/main:build/resources/main' > pr-303-diagnostic.log 2>&1
           status=$?
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
