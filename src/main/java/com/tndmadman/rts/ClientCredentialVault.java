@@ -128,8 +128,7 @@ final class ClientCredentialVault {
         if (os.contains("win") && commandExists("powershell.exe")) {
             return new DpapiBackend(fallbackRoot().resolve("dpapi"));
         }
-        if (os.contains("mac") && Files.isExecutable(Path.of("/usr/bin/security"))
-                && Files.isExecutable(Path.of("/usr/bin/expect"))) {
+        if (os.contains("mac") && Files.isExecutable(Path.of("/usr/bin/security"))) {
             return new MacKeychainBackend();
         }
         if ((os.contains("linux") || os.contains("unix")) && commandExists("secret-tool")
@@ -250,33 +249,19 @@ final class ClientCredentialVault {
     }
 
     private static void runMacKeychainSave(String id, String encodedSecret) {
-        Path statusFile = null;
+        requireSecurityToken(id);
+        requireSecurityToken(MacKeychainBackend.SERVICE);
+        requireSecurityToken(encodedSecret);
+        String interactiveCommand = "add-generic-password -U -a " + id + " -s "
+                + MacKeychainBackend.SERVICE + " -w " + encodedSecret + "\n";
+        byte[] inputBytes = interactiveCommand.getBytes(StandardCharsets.UTF_8);
         Process process = null;
-        byte[] inputBytes = (encodedSecret + "\n").getBytes(StandardCharsets.UTF_8);
         try {
-            statusFile = PrivateFileSecurity.createPrivateTempFile(
-                    fallbackRoot().resolve("keychain-tmp"), "starchem-keychain-status-", ".tmp");
-            String expectScript = "set timeout 7; log_user 0; set status 123; "
-                    + "if {[gets stdin secret] >= 0} {"
-                    + "set prompts 0; "
-                    + "spawn -noecho /usr/bin/security add-generic-password -U -a [lindex $argv 0] "
-                    + "-s [lindex $argv 1] -w; "
-                    + "expect {"
-                    + "-re {:[[:space:]]*$} {incr prompts; "
-                    + "if {$prompts <= 2} {send -- \"$secret\r\"; exp_continue} "
-                    + "else {set status 126; catch {close}; catch {wait}}} "
-                    + "eof {set result [wait]; set status [lindex $result 3]} "
-                    + "timeout {set status 124; catch {close}; catch {wait}}"
-                    + "}; set secret \"\"}; "
-                    + "set output [open [lindex $argv 2] w]; "
-                    + "puts -nonewline $output $status; close $output";
-            List<String> command = List.of("/usr/bin/expect", "-c", expectScript,
-                    id, MacKeychainBackend.SERVICE, statusFile.toString());
-            process = new ProcessBuilder(new ArrayList<>(command))
+            process = new ProcessBuilder("/usr/bin/security", "-i")
                     .redirectOutput(ProcessBuilder.Redirect.DISCARD)
                     .redirectError(ProcessBuilder.Redirect.DISCARD)
                     .start();
-            observeProcess(process, command);
+            observeProcess(process, List.of("/usr/bin/security", "-i"));
             try (OutputStream output = process.getOutputStream()) {
                 output.write(inputBytes);
             }
@@ -284,8 +269,9 @@ final class ClientCredentialVault {
                 destroyProcessTree(process);
                 throw new IllegalStateException("macOS Keychain save timed out.");
             }
-            String status = readStatusFile(statusFile);
-            if (!"0".equals(status)) throw new IllegalStateException("macOS Keychain could not save credentials.");
+            if (process.exitValue() != 0) {
+                throw new IllegalStateException("macOS Keychain could not save credentials.");
+            }
         } catch (IOException ex) {
             if (process != null) destroyProcessTree(process);
             throw new IllegalStateException("Could not start macOS Keychain credential storage.", ex);
@@ -293,23 +279,23 @@ final class ClientCredentialVault {
             Thread.currentThread().interrupt();
             if (process != null) destroyProcessTree(process);
             throw new IllegalStateException("macOS Keychain credential storage was interrupted.", ex);
-        } catch (RuntimeException ex) {
-            if (process != null) destroyProcessTree(process);
-            throw ex;
         } finally {
             Arrays.fill(inputBytes, (byte) 0);
-            if (statusFile != null) {
-                try { Files.deleteIfExists(statusFile); }
-                catch (IOException ignored) { }
-            }
         }
     }
 
-    private static String readStatusFile(Path statusFile) throws IOException {
-        if (statusFile == null || !Files.isRegularFile(statusFile)) return "";
-        long size = Files.size(statusFile);
-        if (size <= 0 || size > 16) return "";
-        return Files.readString(statusFile, StandardCharsets.US_ASCII).trim();
+    private static void requireSecurityToken(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("macOS Keychain command value is missing.");
+        }
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            boolean safe = character >= 'a' && character <= 'z'
+                    || character >= 'A' && character <= 'Z'
+                    || character >= '0' && character <= '9'
+                    || character == '.' || character == '_' || character == '-';
+            if (!safe) throw new IllegalArgumentException("macOS Keychain command value is invalid.");
+        }
     }
 
     private static void observeProcess(Process process, List<String> command) {
