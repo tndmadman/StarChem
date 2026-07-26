@@ -59,7 +59,6 @@ public final class App {
         System.out.println("Usage:");
         System.out.println("  java -jar StarChem.jar                         Open the graphical lobby");
         System.out.println("  java -jar StarChem.jar --solo [options]        Start a solo game");
-        System.out.println("  java -jar StarChem.jar --host PORT [options]   Host with a local client");
         System.out.println("  java -jar StarChem.jar --join HOST PORT [options]");
         System.out.println("  java -Djava.awt.headless=true -jar StarChem.jar --server [PORT] [options]");
         System.out.println();

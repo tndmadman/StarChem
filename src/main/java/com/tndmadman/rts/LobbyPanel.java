@@ -18,7 +18,7 @@ final class LobbyPanel extends JPanel {
     private final JCheckBox spawnRaidersBox = new JCheckBox("Raiders", true);
     private final JCheckBox spawnFreeMinersBox = new JCheckBox("Free Miners", true);
     private final JCheckBox spawnCorsairsBox = new JCheckBox("Corsair Syndicate", true);
-    private final JLabel statusLabel = new JLabel("Choose Solo, Host, or Join.");
+    private final JLabel statusLabel = new JLabel("Choose Solo or Join.");
 
     LobbyPanel(GameFrame owner) {
         super(new BorderLayout());
@@ -39,7 +39,7 @@ final class LobbyPanel extends JPanel {
         JLabel title = new JLabel("STAR  CHEM");
         title.setForeground(new Color(230, 248, 255));
         title.setFont(title.getFont().deriveFont(Font.BOLD, 42f));
-        JLabel subtitle = new JLabel("Multiplayer Fleet Command");
+        JLabel subtitle = new JLabel("Solo and Dedicated Multiplayer");
         subtitle.setForeground(new Color(120, 205, 255));
         subtitle.setFont(subtitle.getFont().deriveFont(Font.BOLD, 15f));
         JPanel header = new JPanel(new GridLayout(0, 1, 0, 4));
@@ -70,12 +70,10 @@ final class LobbyPanel extends JPanel {
         box.add(label(""));
         box.add(spawnCorsairsBox);
         JButton solo = new MenuButton("SOLO");
-        JButton serve = new MenuButton("HOST");
         JButton connect = new MenuButton("JOIN");
         JButton codex = new MenuButton("CODEX");
         JButton clearSignIns = new MenuButton("CLEAR SIGN-INS");
         box.add(solo);
-        box.add(serve);
         box.add(connect);
         box.add(codex);
         box.add(clearSignIns);
@@ -91,7 +89,6 @@ final class LobbyPanel extends JPanel {
         add(card, BorderLayout.CENTER);
 
         solo.addActionListener(e -> owner.launchGame(Config.solo(nameField.getText(), devBox.isSelected(), disabledNpcFactions(), selectedSystemId(), selectedGalaxyCopies())));
-        serve.addActionListener(e -> startServer());
         connect.addActionListener(e -> startClient());
         codex.addActionListener(e -> owner.toggleCodexFromLobby());
         clearSignIns.addActionListener(e -> clearSavedSignIns());
@@ -148,11 +145,6 @@ final class LobbyPanel extends JPanel {
         if (!spawnFreeMinersBox.isSelected()) disabled.add(Config.FREE_MINERS_ID);
         if (!spawnCorsairsBox.isSelected()) disabled.add(Config.CORSAIRS_ID);
         return disabled;
-    }
-
-    private void startServer() {
-        try { owner.launchGame(Config.host(nameField.getText(), Config.parsePort(portField.getText()), devBox.isSelected(), disabledNpcFactions(), selectedSystemId(), selectedGalaxyCopies())); }
-        catch (RuntimeException ex) { setStatus(ex.getMessage()); }
     }
 
     private void startClient() {

@@ -43,9 +43,9 @@ public final class DevAccessPolicyValidator {
         expectInvalid("delimiter token", "0123456789abcdef|bad");
         expectInvalid("space token", "0123456789abcdef bad");
 
-        Config host = parseLegacy(new String[]{"--host", "50000", "--dev", "--dev-token", TOKEN});
-        expectTrue("host dev mode", host.devMode);
-        expectEquals("host token", TOKEN, host.devToken);
+        Config server = parseLegacy(new String[]{"--server", "50000", "--dev", "--dev-token", TOKEN});
+        expectTrue("server dev mode", server.devMode);
+        expectEquals("server token", TOKEN, server.devToken);
         Config client = parseLegacy(new String[]{"--join", "127.0.0.1", "50000", "--dev", "--dev-token", TOKEN});
         expectTrue("client mode", client.clientMode());
         expectEquals("client token", TOKEN, client.devToken);

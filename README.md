@@ -9,7 +9,7 @@ Download the release ZIP and its matching `.sha256` file, verify the checksum, t
 The player package contains the compiled `StarChem.jar`, the required `config`
 folder, Windows and Linux launchers, and the packaged legal and quick-start documents.
 
-On Windows, double-click `run-starchem.bat` to open the lobby and choose the game mode and connection options from the menu.
+On Windows, double-click `run-starchem.bat` to open the lobby. The graphical menu contains only **SOLO** and **JOIN**; multiplayer servers run as separate dedicated-server processes.
 
 On Linux, open a terminal in the extracted folder and run:
 
@@ -219,13 +219,13 @@ Clients and servers should use the same StarChem release version.
 
 ## Multiplayer networking
 
-StarChem multiplayer uses framed TCP connections. A host or dedicated server listens on the selected game port, and remote clients connect to that same host and port. Internet-hosted games must allow inbound TCP traffic on the selected port; StarChem no longer uses UDP for multiplayer.
+StarChem multiplayer uses framed TCP connections. A dedicated server listens on the selected game port, and clients connect to that server with **JOIN**. Internet-hosted games must allow inbound TCP traffic on the selected port; StarChem no longer uses UDP for multiplayer.
 
-Remote servers use a pinned TLS certificate. If a server is intentionally moved or its TLS key is replaced, StarChem blocks login secrets and displays the old and new fingerprints. Verify the change with the server owner before choosing **TRUST NEW CERTIFICATE**. Player password verifiers are derived with an intentionally expensive PBKDF2 step from the verified TLS fingerprint, player name, and a server-provided random account salt, so credentials captured from one server cannot be reused on another. Existing dedicated-server accounts created with the legacy verifier require one password re-entry; after successful authentication the server upgrades the account in place without replacing its player identity or assets. Graphical HOST mode uses an isolated in-process client and never reuses or overwrites remote-server passwords, sessions, or certificate pins. Dedicated-server operators should still back up the complete save directory, including the `*-tls.p12` identity file.
+Remote servers use a pinned TLS certificate. If a server is intentionally moved or its TLS key is replaced, StarChem blocks login secrets and displays the old and new fingerprints. Verify the change with the server owner before choosing **TRUST NEW CERTIFICATE**. Player password verifiers are derived with an intentionally expensive PBKDF2 step from the verified TLS fingerprint, player name, and a server-provided random account salt, so credentials captured from one server cannot be reused on another. Existing dedicated-server accounts created with the legacy verifier require one password re-entry; after successful authentication the server upgrades the account in place without replacing its player identity or assets. Dedicated-server operators should still back up the complete save directory, including the `*-tls.p12` identity file.
 
 ## In-game reference menus
 
-Press `F1` during a game, or choose **CODEX** in the lobby, to open the searchable StarChem codex. It is generated from the currently loaded rule definitions and covers ships, stations, resources, research prerequisites and unlocks, manufacturing recipes, NPC factions, and controls. Filter by category or search names, IDs, stats, costs, descriptions, and unlock text. The codex is read-only and works during solo, hosted, and joined games without changing game state.
+Press `F1` during a game, or choose **CODEX** in the lobby, to open the searchable StarChem codex. It is generated from the currently loaded rule definitions and covers ships, stations, resources, research prerequisites and unlocks, manufacturing recipes, NPC factions, and controls. Filter by category or search names, IDs, stats, costs, descriptions, and unlock text. The codex is read-only and works during solo and joined games without changing game state.
 
 Press `I` during a game to open the resource catalog. The catalog lists every loaded material and shows the loaded star-system templates, configured system roles, and resource-node types where the selected raw resource can naturally appear. Manufactured and salvage materials are identified separately because they are not placed in natural system belts.
 
