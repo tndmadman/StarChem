@@ -7,9 +7,13 @@ final class EndStatePanel extends JPanel {
     private final World world;
     private final GameFrame owner;
     private final PeerNetwork network;
+    private final JLabel title = new JLabel("FLEET DESTROYED", SwingConstants.CENTER);
+    private final JLabel help = new JLabel("You are off the leaderboard until you respawn.", SwingConstants.CENTER);
     private final JButton restart = new JButton("RESPAWN");
     private final JButton lobby = new JButton("DISCONNECT");
     private final Timer timer;
+    private boolean victoryMode;
+    private boolean victoryDismissed;
 
     EndStatePanel(World world, GameFrame owner, PeerNetwork network) {
         super(new GridBagLayout());
@@ -21,10 +25,8 @@ final class EndStatePanel extends JPanel {
         JPanel card = new JPanel(new GridLayout(0, 1, 0, 12));
         card.setBorder(BorderFactory.createEmptyBorder(26, 34, 26, 34));
         card.setBackground(new Color(8, 18, 30, 235));
-        JLabel title = new JLabel("FLEET DESTROYED", SwingConstants.CENTER);
         title.setForeground(Color.WHITE);
         title.setFont(title.getFont().deriveFont(Font.BOLD, 24f));
-        JLabel help = new JLabel("You are off the leaderboard until you respawn.", SwingConstants.CENTER);
         help.setForeground(new Color(220, 238, 250));
         JPanel buttons = new JPanel(new GridLayout(1, 2, 12, 0));
         buttons.setOpaque(false);
@@ -34,13 +36,22 @@ final class EndStatePanel extends JPanel {
         card.add(help);
         card.add(buttons);
         add(card);
-        restart.addActionListener(e -> restartPlayer());
-        lobby.addActionListener(e -> owner.showLobby("Disconnected after fleet loss."));
-        timer = new Timer(250, e -> setVisible(finished()));
+        restart.addActionListener(e -> primaryAction());
+        lobby.addActionListener(e -> leaveMatch());
+        timer = new Timer(250, e -> refresh());
         timer.start();
     }
 
     void stop() { timer.stop(); }
+
+    private void primaryAction() {
+        if (victoryMode) {
+            victoryDismissed = true;
+            setVisible(false);
+            return;
+        }
+        restartPlayer();
+    }
 
     private void restartPlayer() {
         String playerId = PlayerRegistry.localId();
@@ -49,12 +60,51 @@ final class EndStatePanel extends JPanel {
         setVisible(false);
     }
 
-    private boolean finished() {
-        if (network != null && network.clientMode()
-                && (!network.clientReady() || network.clientReconnecting())) return false;
+    private void leaveMatch() {
+        owner.showLobby(victoryMode
+                ? "Disconnected after objective victory."
+                : "Disconnected after fleet loss.");
+    }
+
+    private void refresh() {
+        if (!ready()) {
+            setVisible(false);
+            return;
+        }
+
+        ObjectiveView objective = ObjectiveSystem.view(world);
+        if (objective.completed() && !victoryDismissed) {
+            victoryMode = true;
+            title.setText("MATCH OBJECTIVE COMPLETE");
+            String by = objective.completedBy().isBlank() ? "" : " by " + objective.completedBy();
+            help.setText(objective.title() + " was completed" + by + ".");
+            restart.setText("CONTINUE PLAYING");
+            lobby.setText(network == null ? "RETURN TO LOBBY" : "DISCONNECT");
+            setVisible(true);
+            return;
+        }
+
+        if (fleetDestroyed()) {
+            victoryMode = false;
+            title.setText("FLEET DESTROYED");
+            help.setText("You are off the leaderboard until you respawn.");
+            restart.setText("RESPAWN");
+            lobby.setText(network == null ? "RETURN TO LOBBY" : "DISCONNECT");
+            setVisible(true);
+            return;
+        }
+
+        setVisible(false);
+    }
+
+    private boolean ready() {
+        return network == null || !network.clientMode()
+                || network.clientReady() && !network.clientReconnecting();
+    }
+
+    private boolean fleetDestroyed() {
         String playerId = PlayerRegistry.localId();
-        if ("WAIT".equals(playerId)) return false;
-        return !world.hasLiveAssets(playerId);
+        return !"WAIT".equals(playerId) && !world.hasLiveAssets(playerId);
     }
 
     @Override protected void paintComponent(Graphics g) {
