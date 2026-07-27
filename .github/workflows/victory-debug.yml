@@ -1,11 +1,11 @@
-name: Victory Compile Diagnostic
+name: Victory Build Diagnostic
 
 on:
   pull_request:
     branches: [main]
 
 jobs:
-  compile-diagnostic:
+  build-diagnostic:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,21 +14,21 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Capture compiler output
+      - name: Capture build output
         shell: bash
         run: |
           set +e
-          gradle compileJava --no-daemon --console=plain > victory-compile.log 2>&1
+          gradle build --continue --no-daemon --console=plain --stacktrace > victory-build.log 2>&1
           code=$?
           echo "$code" > victory-exit-code.txt
-          tail -n 250 victory-compile.log > victory-compile-tail.log
+          tail -n 750 victory-build.log > victory-build-tail.log
           exit 0
-      - name: Upload compiler output
+      - name: Upload build output
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: victory-compile-output
+          name: victory-build-output
           path: |
-            victory-compile-tail.log
+            victory-build-tail.log
             victory-exit-code.txt
           if-no-files-found: error
