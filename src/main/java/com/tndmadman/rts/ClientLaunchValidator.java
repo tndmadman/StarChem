@@ -75,9 +75,12 @@ public final class ClientLaunchValidator {
                 GameFrame.passwordRetryRequired("Connection failed: no response from server."));
         expectFalse("null failure does not trigger password retry", GameFrame.passwordRetryRequired(null));
 
+        TutorialPreferenceVersionValidator.validate();
+        TutorialOverlayValidator.validate();
+        TutorialControlsValidator.validate();
         ClientSessionPropertiesStoreValidator.validate();
         ClientCredentialVaultValidator.validate();
-        System.out.println("Client launch, login prompt, protected credential, and coordinated metadata validation passed.");
+        System.out.println("Client launch, skirmish settings, tutorial preference migration, core/advanced tutorial controls, login prompt, protected credential, and coordinated metadata validation passed.");
     }
 
     private static void expectInvalidHost(String name, String host) {
