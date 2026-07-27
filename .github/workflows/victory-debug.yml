@@ -1,11 +1,11 @@
-name: Victory Build Diagnostic
+name: Victory Validator Diagnostic
 
 on:
   pull_request:
     branches: [main]
 
 jobs:
-  build-diagnostic:
+  validator-diagnostic:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,21 +14,21 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Capture build output
+      - name: Capture validator output
         shell: bash
         run: |
           set +e
-          gradle build --continue --no-daemon --console=plain --stacktrace > victory-build.log 2>&1
+          gradle validateClientLaunch --no-daemon --console=plain --stacktrace > victory-validator.log 2>&1
           code=$?
           echo "$code" > victory-exit-code.txt
-          tail -n 750 victory-build.log > victory-build-tail.log
+          tail -n 500 victory-validator.log > victory-validator-tail.log
           exit 0
-      - name: Upload build output
+      - name: Upload validator output
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: victory-build-output
+          name: victory-validator-output
           path: |
-            victory-build-tail.log
+            victory-validator-tail.log
             victory-exit-code.txt
           if-no-files-found: error
