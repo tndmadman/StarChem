@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
+import java.util.prefs.Preferences;
 
 /**
  * Tiny runtime synthesizer for StarChem.
@@ -16,6 +17,9 @@ import java.util.Random;
  * a Java Sound PCM line from oscillator, noise, pitch sweep, and envelope code.
  */
 final class ProceduralAudio {
+    private static final Preferences PREFS = Preferences.userNodeForPackage(ProceduralAudio.class);
+    private static final String PREF_MUTED = "proceduralAudioMuted";
+    private static final String PREF_VOLUME = "proceduralAudioVolumePercent";
     private static final ProceduralAudio INSTANCE = new ProceduralAudio();
     private static final float SAMPLE_RATE = 44_100f;
     private static final int BUFFER_FRAMES = 512;
@@ -29,7 +33,8 @@ final class ProceduralAudio {
     private SourceDataLine line;
     private boolean attemptedStart;
     private boolean available = true;
-    private volatile boolean muted;
+    private volatile boolean muted = readBoolean(PREF_MUTED, false);
+    private volatile int volumePercent = clampVolume(readInt(PREF_VOLUME, 80));
 
     private ProceduralAudio() { }
 
@@ -37,23 +42,34 @@ final class ProceduralAudio {
     static void play(SoundCue cue) { INSTANCE.playCue(cue); }
 
     static boolean toggleMute() {
-        boolean nowMuted = INSTANCE.toggleMuteInternal();
+        boolean nowMuted = INSTANCE.setMutedInternal(!INSTANCE.muted);
         if (!nowMuted) play(SoundCue.MUTE_OFF);
         return nowMuted;
     }
 
+    static boolean setMuted(boolean muted) { return INSTANCE.setMutedInternal(muted); }
     static boolean muted() { return INSTANCE.muted; }
+    static int volumePercent() { return INSTANCE.volumePercent; }
+    static int setVolumePercent(int percent) { return INSTANCE.setVolumePercentInternal(percent); }
+    static boolean available() { return INSTANCE.available; }
     static void playWeaponFire(WeaponType weapon, double distance) { INSTANCE.weaponFire(weapon, distance); }
     static void playWeaponImpact(WeaponType weapon) { INSTANCE.weaponImpact(weapon); }
     static void playDestruction(double scale) { INSTANCE.destruction(scale); }
     static void playResourceDepleted(Material material) { INSTANCE.resourceDepleted(material); }
 
-    private synchronized boolean toggleMuteInternal() {
-        muted = !muted;
+    private synchronized boolean setMutedInternal(boolean value) {
+        muted = value;
+        writeBoolean(PREF_MUTED, value);
         if (muted) {
             synchronized (lock) { voices.clear(); }
         }
         return muted;
+    }
+
+    private synchronized int setVolumePercentInternal(int percent) {
+        volumePercent = clampVolume(percent);
+        writeInt(PREF_VOLUME, volumePercent);
+        return volumePercent;
     }
 
     private void playCue(SoundCue cue) {
@@ -162,15 +178,19 @@ final class ProceduralAudio {
     private Voice voice(Wave wave, double startHz, double endHz, double duration, double volume, double noise,
                         double attack, double decay) {
         double pitch = randomPitchFactor();
-        return new Voice(wave, startHz * pitch, endHz * pitch, duration, volume, noise, attack, decay, randomPan(), random.nextLong());
+        return new Voice(wave, startHz * pitch, endHz * pitch, duration, volume, noise, attack, decay,
+                randomPan(), random.nextLong());
     }
 
-    private double randomPitchFactor() { return 1.0 + (random.nextDouble() * 2.0 - 1.0) * PITCH_VARIATION; }
+    private double randomPitchFactor() {
+        return 1.0 + (random.nextDouble() * 2.0 - 1.0) * PITCH_VARIATION;
+    }
+
     private double randomPan() { return random.nextDouble() * 0.42 - 0.21; }
 
     private void add(Voice... newVoices) {
         ensureStarted();
-        if (!available || muted || newVoices == null || newVoices.length == 0) return;
+        if (!available || muted || volumePercent <= 0 || newVoices == null || newVoices.length == 0) return;
         synchronized (lock) {
             for (Voice voice : newVoices) {
                 if (voice == null) continue;
@@ -201,10 +221,11 @@ final class ProceduralAudio {
         byte[] bytes = new byte[BUFFER_FRAMES * 4];
         while (available && line != null) {
             synchronized (lock) {
+                double gain = effectiveGain(volumePercent, muted);
                 for (int i = 0; i < BUFFER_FRAMES; i++) {
                     double left = 0;
                     double right = 0;
-                    if (!muted) {
+                    if (gain > 0) {
                         Iterator<Voice> it = voices.iterator();
                         while (it.hasNext()) {
                             Voice voice = it.next();
@@ -215,8 +236,8 @@ final class ProceduralAudio {
                         }
                     }
                     int offset = i * 4;
-                    writeSample(bytes, offset, left * 0.75);
-                    writeSample(bytes, offset + 2, right * 0.75);
+                    writeSample(bytes, offset, left * 0.75 * gain);
+                    writeSample(bytes, offset + 2, right * 0.75 * gain);
                 }
             }
             line.write(bytes, 0, bytes.length);
@@ -229,7 +250,33 @@ final class ProceduralAudio {
         bytes[offset + 1] = (byte)((v >>> 8) & 0xff);
     }
 
+    static double effectiveGain(int volumePercent, boolean muted) {
+        return muted ? 0.0 : clamp(clampVolume(volumePercent) / 100.0, 0.0, 1.0);
+    }
+
+    private static int clampVolume(int value) { return Math.max(0, Math.min(100, value)); }
     private static double clamp(double value, double min, double max) { return Math.max(min, Math.min(max, value)); }
+
+    private static boolean readBoolean(String key, boolean fallback) {
+        try { return PREFS.getBoolean(key, fallback); }
+        catch (SecurityException ignored) { return fallback; }
+    }
+
+    private static int readInt(String key, int fallback) {
+        try { return PREFS.getInt(key, fallback); }
+        catch (SecurityException ignored) { return fallback; }
+    }
+
+    private static void writeBoolean(String key, boolean value) {
+        try { PREFS.putBoolean(key, value); }
+        catch (SecurityException ignored) { }
+    }
+
+    private static void writeInt(String key, int value) {
+        try { PREFS.putInt(key, value); }
+        catch (SecurityException ignored) { }
+    }
+
     private enum Wave { SINE, TRIANGLE, SQUARE, SAW, NOISE }
 
     private static final class Voice {
