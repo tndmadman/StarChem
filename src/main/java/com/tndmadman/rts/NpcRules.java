@@ -21,7 +21,8 @@ final class NpcRules {
 
     private NpcRules() { }
 
-    static List<NpcFaction> factions() { return FACTIONS; }
+    static List<NpcFaction> factions() { return SkirmishRuntime.factions(); }
+    static List<NpcFaction> baseFactions() { return FACTIONS; }
 
     static boolean isNpcFaction(String playerId) {
         for (NpcFaction faction : FACTIONS) if (faction.id().equals(playerId)) return true;

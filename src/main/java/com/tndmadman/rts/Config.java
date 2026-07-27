@@ -21,6 +21,7 @@ final class Config {
     final int port;
     final InetSocketAddress serverAddress;
     final Set<String> disabledNpcFactionIds;
+    final SkirmishSettings skirmishSettings;
     final String systemId;
     final int galaxyCopies;
     final Path saveDir;
@@ -34,6 +35,18 @@ final class Config {
                    boolean disableProductionTimers, int port, InetSocketAddress serverAddress,
                    Set<String> disabledNpcFactionIds, String systemId, int galaxyCopies, Path saveDir,
                    String saveName, int autosaveSeconds, int backupCount, boolean newWorld) {
+        this(playerName, showLobby, hostMode, dedicatedServer, localHostClient, devMode, devToken,
+                disableProductionTimers, port, serverAddress, disabledNpcFactionIds, systemId,
+                galaxyCopies, saveDir, saveName, autosaveSeconds, backupCount, newWorld,
+                SkirmishSettings.standard(disabledNpcFactionIds));
+    }
+
+    private Config(String playerName, boolean showLobby, boolean hostMode, boolean dedicatedServer,
+                   boolean localHostClient, boolean devMode, String devToken,
+                   boolean disableProductionTimers, int port, InetSocketAddress serverAddress,
+                   Set<String> disabledNpcFactionIds, String systemId, int galaxyCopies, Path saveDir,
+                   String saveName, int autosaveSeconds, int backupCount, boolean newWorld,
+                   SkirmishSettings skirmishSettings) {
         this.playerName = playerName;
         this.showLobby = showLobby;
         this.hostMode = hostMode;
@@ -44,7 +57,9 @@ final class Config {
         this.disableProductionTimers = devMode && disableProductionTimers;
         this.port = port;
         this.serverAddress = serverAddress;
-        this.disabledNpcFactionIds = disabledNpcFactionIds == null ? Set.of() : Set.copyOf(disabledNpcFactionIds);
+        this.skirmishSettings = skirmishSettings == null
+                ? SkirmishSettings.standard(disabledNpcFactionIds) : skirmishSettings;
+        this.disabledNpcFactionIds = this.skirmishSettings.disabledNpcFactionIds();
         this.systemId = cleanSystem(systemId);
         this.galaxyCopies = clampGalaxyCopies(galaxyCopies);
         this.saveDir = saveDir == null ? DefaultStoragePaths.graphicalSaveDirectory() : saveDir;
@@ -72,6 +87,8 @@ final class Config {
         int autosaveSeconds = 60;
         int backupCount = 5;
         boolean newWorld = false;
+        SkirmishPreset skirmishPreset = SkirmishPreset.STANDARD;
+        NpcDifficulty npcDifficulty = NpcDifficulty.NORMAL;
         InetSocketAddress server = null;
         for (int i = 0; i < args.length; i++) {
             String option = args[i];
@@ -79,6 +96,8 @@ final class Config {
                 case "--name", "--id" -> name = clean(requiredValue(args, ++i, option));
                 case "--system" -> system = cleanSystem(requiredValue(args, ++i, option));
                 case "--galaxy-copies" -> galaxyCopies = parseGalaxyCopies(requiredValue(args, ++i, option));
+                case "--skirmish-preset" -> skirmishPreset = SkirmishPreset.parse(requiredValue(args, ++i, option));
+                case "--npc-difficulty" -> npcDifficulty = NpcDifficulty.parse(requiredValue(args, ++i, option));
                 case "--save-dir" -> saveDir = Path.of(requiredValue(args, ++i, option));
                 case "--save-name" -> saveName = requiredValue(args, ++i, option);
                 case "--autosave-seconds" -> autosaveSeconds = parseNonNegativeInt(
@@ -114,11 +133,13 @@ final class Config {
             }
         }
         if (devTokenFile != null) devToken = DevTokenSource.load(devTokenFile);
+        SkirmishSettings selectedSkirmish = SkirmishSettings.create(skirmishPreset, npcDifficulty);
         if (dedicated) {
             Path dedicatedSaveDir = saveDir == null ? Path.of("saves") : saveDir;
-            return dedicatedServer(name, port == 0 ? 50000 : port, dev, disableProductionTimers,
-                    Set.of(), system, devToken, galaxyCopies, dedicatedSaveDir, saveName,
-                    autosaveSeconds, backupCount, newWorld);
+            return new Config(clean(name), false, true, true, false, dev, devToken,
+                    disableProductionTimers, port == 0 ? 50000 : port, null,
+                    selectedSkirmish.disabledNpcFactionIds(), system, galaxyCopies, dedicatedSaveDir,
+                    saveName, autosaveSeconds, backupCount, newWorld, selectedSkirmish);
         }
         if (server != null) {
             return join(name, server.getHostString(), server.getPort(), dev,
@@ -126,8 +147,9 @@ final class Config {
         }
         Path soloSaveDir = saveDir == null ? DefaultStoragePaths.graphicalSaveDirectory() : saveDir;
         return new Config(clean(name), false, false, false, false, dev, devToken,
-                disableProductionTimers, 0, null, Set.of(), system, galaxyCopies,
-                soloSaveDir, saveName, autosaveSeconds, backupCount, newWorld);
+                disableProductionTimers, 0, null, selectedSkirmish.disabledNpcFactionIds(), system,
+                galaxyCopies, soloSaveDir, saveName, autosaveSeconds, backupCount, newWorld,
+                selectedSkirmish);
     }
 
     private static IllegalArgumentException conflictingDevTokenSources() {
@@ -167,6 +189,12 @@ final class Config {
     static Config dedicatedServer(String name, int port, boolean dev, Set<String> disabledNpcFactionIds, String systemId) { return dedicatedServer(name, port, dev, dev, disabledNpcFactionIds, systemId); }
     static Config join(String name, String host, int port, boolean dev, Set<String> disabledNpcFactionIds, String systemId) { return join(name, host, port, dev, dev, disabledNpcFactionIds, systemId); }
     static Config solo(String name, boolean dev, Set<String> disabledNpcFactionIds, String systemId, int galaxyCopies) { return solo(name, dev, dev, disabledNpcFactionIds, systemId, "", galaxyCopies); }
+    static Config solo(String name, boolean dev, SkirmishSettings settings, String systemId, int galaxyCopies) {
+        SkirmishSettings normalized = settings == null ? SkirmishSettings.standard() : settings;
+        return new Config(clean(name), false, false, false, false, dev, "", dev, 0, null,
+                normalized.disabledNpcFactionIds(), systemId, galaxyCopies,
+                DefaultStoragePaths.graphicalSaveDirectory(), "server", 60, 5, false, normalized);
+    }
     static Config host(String name, int port, boolean dev, Set<String> disabledNpcFactionIds, String systemId, int galaxyCopies) { return host(name, port, dev, dev, disabledNpcFactionIds, systemId, "", galaxyCopies); }
     static Config dedicatedServer(String name, int port, boolean dev, Set<String> disabledNpcFactionIds, String systemId, int galaxyCopies) { return dedicatedServer(name, port, dev, dev, disabledNpcFactionIds, systemId, "", galaxyCopies); }
     static Config join(String name, String host, int port, boolean dev, Set<String> disabledNpcFactionIds, String systemId, int galaxyCopies) { return join(name, host, port, dev, dev, disabledNpcFactionIds, systemId, "", galaxyCopies); }
@@ -229,7 +257,7 @@ final class Config {
                 new InetSocketAddress(DEFAULT_HOST, hostConfig.port), hostConfig.disabledNpcFactionIds,
                 hostConfig.systemId, hostConfig.galaxyCopies, hostConfig.saveDir,
                 hostConfig.saveName, hostConfig.autosaveSeconds, hostConfig.backupCount,
-                hostConfig.newWorld);
+                hostConfig.newWorld, hostConfig.skirmishSettings);
     }
 
     NetworkRole role() {

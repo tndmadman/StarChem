@@ -36,8 +36,8 @@ final class GameFrame extends JFrame {
     GameFrame(Config config) {
         super(BuildInfo.display());
         setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
-        setSize(1280, 800);
-        setMinimumSize(new Dimension(900, 620));
+        setSize(1280, 900);
+        setMinimumSize(new Dimension(900, 720));
         setLocationRelativeTo(null);
         setContentPane(root);
         root.addComponentListener(new ComponentAdapter() {
@@ -77,6 +77,7 @@ final class GameFrame extends JFrame {
         }
         stopActiveGame();
         World world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId, config.role() == NetworkRole.SOLO);
+        SkirmishRuntime.bind(world, config.skirmishSettings);
         DevTimerSettings.configure(world, config.disableProductionTimers);
         try {
             network = PeerNetwork.start(config, world);
@@ -136,7 +137,10 @@ final class GameFrame extends JFrame {
         root.add(endStatePanel, JLayeredPane.MODAL_LAYER);
         if (connectionOverlayPanel != null) root.add(connectionOverlayPanel, JLayeredPane.DRAG_LAYER);
         if (!world.status.contains("Press I")) world.status = world.status + " Press I for catalog; F1 for codex; F8 for narration.";
-        setTitle(BuildInfo.display() + " - " + config.modeLabel() + " - " + config.playerName + " - " + world.systemName() + (config.devMode ? " - DEV" : ""));
+        String scenario = config.role() == NetworkRole.SOLO
+                ? " - " + SkirmishRuntime.settings(world).displayLabel() : "";
+        setTitle(BuildInfo.display() + " - " + config.modeLabel() + " - " + config.playerName
+                + " - " + world.systemName() + scenario + (config.devMode ? " - DEV" : ""));
         layoutLayers();
         root.revalidate();
         root.repaint();
@@ -224,7 +228,7 @@ final class GameFrame extends JFrame {
         if (endStatePanel != null) endStatePanel.setBounds(0, 0, w, h);
         if (connectionOverlayPanel != null) connectionOverlayPanel.setBounds(0, 0, w, h);
         int mw = Math.min(760, Math.max(560, w - 160));
-        int mh = Math.min(700, Math.max(580, h - 100));
+        int mh = Math.min(820, Math.max(660, h - 40));
         menuPanel.setBounds((w - mw) / 2, (h - mh) / 2, mw, mh);
     }
 }

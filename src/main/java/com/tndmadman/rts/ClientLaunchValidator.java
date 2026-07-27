@@ -22,6 +22,10 @@ public final class ClientLaunchValidator {
         expectEquals("blank programmatic host", "127.0.0.1", Config.join("Client", "", 50000).serverAddress.getHostString());
         Config doubleGalaxy = Config.parse(new String[]{"--solo", "--galaxy-copies", "2"});
         expectEquals("double galaxy copies", 2, doubleGalaxy.galaxyCopies);
+        Config hostile = Config.parse(new String[]{"--solo", "--skirmish-preset", "hostile",
+                "--npc-difficulty", "hard"});
+        expectEquals("skirmish preset", SkirmishPreset.HOSTILE, hostile.skirmishSettings.preset());
+        expectEquals("NPC difficulty", NpcDifficulty.HARD, hostile.skirmishSettings.difficulty());
 
         Config loopbackClient = Config.join("Local Client", "127.0.0.1", 50000);
         expectEquals("loopback password prompt", LobbyPanel.PasswordPromptMode.LOCAL_ACCOUNT,
@@ -45,6 +49,8 @@ public final class ClientLaunchValidator {
         expectInvalidArgs("galaxy copies below range", new String[]{"--solo", "--galaxy-copies", "0"});
         expectInvalidArgs("galaxy copies above range", new String[]{"--solo", "--galaxy-copies", "3"});
         expectInvalidArgs("non-numeric galaxy copies", new String[]{"--solo", "--galaxy-copies", "many"});
+        expectInvalidArgs("unknown skirmish preset", new String[]{"--solo", "--skirmish-preset", "impossible"});
+        expectInvalidArgs("unknown NPC difficulty", new String[]{"--solo", "--npc-difficulty", "nightmare"});
         expectInvalidArgs("unknown option", new String[]{"--sever", "50000"});
         expectInvalidArgs("missing name", new String[]{"--solo", "--name"});
         expectInvalidArgs("missing system", new String[]{"--solo", "--system"});

@@ -73,9 +73,15 @@ final class HeadlessGameServer {
         ServerBackupAdmin backupAdmin = new ServerBackupAdmin(config.saveDir, config.saveName, config.backupCount);
         ServerAccessPolicy accessPolicy = adminStore.load();
         Optional<World> loaded = config.newWorld ? Optional.empty() : saves.load(config);
-        World world = loaded.orElseGet(() -> new World(config.playerName, config.disabledNpcFactionIds, config.systemId, false));
-        if (loaded.isPresent()) System.out.println("Loaded server save '" + config.saveName + "'.");
-        else System.out.println(config.newWorld ? "Starting a new server world by request." : "No server save found; starting a new world.");
+        World world;
+        if (loaded.isPresent()) {
+            world = loaded.get();
+            System.out.println("Loaded server save '" + config.saveName + "'.");
+        } else {
+            world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId, false);
+            SkirmishRuntime.bind(world, config.skirmishSettings);
+            System.out.println(config.newWorld ? "Starting a new server world by request." : "No server save found; starting a new world.");
+        }
         DevTimerSettings.configure(world, config.disableProductionTimers);
         PeerNetwork network = PeerNetwork.start(config, world, saves.loadedPlayerSessions(), accessPolicy);
         if (network == null) throw new IOException("Dedicated server network did not start.");
@@ -222,7 +228,8 @@ final class HeadlessGameServer {
         String maintenance = accessPolicy.maintenance() ? " | maintenance" : "";
         String slots = accessPolicy.maxSlots() <= 0 ? "" : " | slots " + sortedSessions().size() + "/" + accessPolicy.maxSlots();
         String recovery = recoveryRequiredReason.isBlank() ? "" : " | RECOVERY REQUIRED";
-        return statusLine() + " | save " + config.saveName + " | " + autosave + maintenance + slots + shutdown + recovery;
+        return statusLine() + " | " + SkirmishRuntime.settings(world).statusLabel()
+                + " | save " + config.saveName + " | " + autosave + maintenance + slots + shutdown + recovery;
     }
 
     private List<String> playerStatusLines() {

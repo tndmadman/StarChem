@@ -15,6 +15,7 @@ public final class NpcSystemIsolationValidator {
     }
 
     static void validateOrThrow() {
+        SkirmishPresetValidator.validateOrThrow();
         validateIndependentFactionTimers();
         validateFactionSystemScope();
         validateExpansionScope();
