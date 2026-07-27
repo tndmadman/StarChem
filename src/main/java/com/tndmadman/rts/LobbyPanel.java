@@ -53,7 +53,7 @@ final class LobbyPanel extends JPanel {
         header.add(title);
         header.add(subtitle);
 
-        JPanel box = new JPanel(new GridLayout(0, 2, 10, 10));
+        JPanel box = new JPanel(new GridLayout(0, 2, 10, 8));
         box.setOpaque(false);
         box.add(label("Commander name"));
         box.add(nameField);
@@ -87,7 +87,6 @@ final class LobbyPanel extends JPanel {
         box.add(connect);
         box.add(codex);
         box.add(clearSignIns);
-        box.add(label(""));
         statusLabel.setForeground(new Color(215, 232, 245));
         box.add(label("Status"));
         box.add(statusLabel);
@@ -125,7 +124,7 @@ final class LobbyPanel extends JPanel {
         field.setBackground(new Color(9, 18, 31));
         field.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(new Color(70, 135, 180)),
-                BorderFactory.createEmptyBorder(8, 10, 8, 10)));
+                BorderFactory.createEmptyBorder(5, 10, 5, 10)));
     }
 
     private void styleCombo(JComboBox<?> box) {
