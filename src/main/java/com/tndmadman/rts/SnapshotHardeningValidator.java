@@ -28,10 +28,14 @@ public final class SnapshotHardeningValidator {
                 "current snapshot did not include research and objective sections");
 
         String[] sections = encoded.split("\\|", -1);
-        for (int length = 1; length < sections.length; length++) {
+        for (int length = 1; length < 12; length++) {
             String truncated = String.join("|", Arrays.copyOf(sections, length));
             expectReject(() -> SnapshotReader.read(truncated), "sections");
         }
+        Snapshot previousCurrent = SnapshotReader.read(
+                String.join("|", Arrays.copyOf(sections, 12)));
+        require(previousCurrent.objective().status() == ObjectiveStatus.DISABLED,
+                "previous current snapshot did not default objective state");
 
         String[] badSequence = sections.clone();
         badSequence[1] = "not-a-number";
