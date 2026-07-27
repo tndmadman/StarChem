@@ -12,6 +12,7 @@ public final class SnapshotHardeningValidator {
         validateStrictWireDecoding();
         validatePackedSystemRoundTrip();
         validateResearchRoundTrip();
+        validateObjectiveRoundTrip();
         validateCountAndNumericLimits();
         validateAtomicApplicationAndRecovery();
         validateViewSwitchRecovery();
@@ -23,7 +24,8 @@ public final class SnapshotHardeningValidator {
         String encoded = SnapshotWriter.write(valid);
         Snapshot decoded = SnapshotReader.read(encoded);
         require(decoded.units().size() == 1, "valid snapshot did not decode");
-        require(encoded.split("\\|", -1).length == 12, "current snapshot did not include the research section");
+        require(encoded.split("\\|", -1).length == 13,
+                "current snapshot did not include research and objective sections");
 
         String[] sections = encoded.split("\\|", -1);
         for (int length = 1; length < sections.length; length++) {
@@ -108,6 +110,53 @@ public final class SnapshotHardeningValidator {
         WorldNetAccess.apply(client, completed);
         require(!client.hasResearch("P1", "combat_doctrine"),
                 "authoritative research snapshot did not remove stale client-only research");
+    }
+
+    private static void validateObjectiveRoundTrip() {
+        PlayerRegistry.reset("SOLO", "Objective Sync Validator", 0x50BEFF);
+        SkirmishSettings settings = new SkirmishSettings(SkirmishPreset.STANDARD,
+                NpcDifficulty.NORMAL, Set.of(), "fleet_muster");
+        World host = new World("Objective Sync Host", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, true);
+        World client = new World("Objective Sync Client", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, true);
+        SkirmishRuntime.bind(host, settings);
+        SkirmishRuntime.bind(client, settings);
+        ObjectiveSystem.evaluateAuthoritative(host, 0);
+
+        String encoded = SnapshotWriter.write(WorldNetAccess.snapshot(host, 30));
+        Snapshot decoded = SnapshotReader.read(encoded);
+        require("fleet_muster".equals(decoded.objective().conditionId()),
+                "objective ID did not round-trip");
+        require(decoded.objective().target() == 12,
+                "objective target did not round-trip");
+        WorldNetAccess.apply(client, decoded);
+        ObjectiveView clientView = ObjectiveSystem.view(client);
+        require("fleet_muster".equals(clientView.id()),
+                "client did not apply the authoritative objective ID");
+        require(clientView.current() == decoded.objective().current(),
+                "client objective progress diverged from the authoritative snapshot");
+
+        String[] sections = encoded.split("\\|", -1);
+        String[] objective = sections[12].split(",", -1);
+
+        String[] unknownCondition = sections.clone();
+        String[] unknownFields = objective.clone();
+        unknownFields[0] = "unknown_condition";
+        unknownCondition[12] = String.join(",", unknownFields);
+        expectReject(() -> SnapshotReader.read(String.join("|", unknownCondition)), "condition ID");
+
+        String[] impossibleCompletion = sections.clone();
+        String[] completedFields = objective.clone();
+        completedFields[1] = ObjectiveStatus.COMPLETED.name();
+        completedFields[2] = completedFields[3];
+        completedFields[5] = "-";
+        impossibleCompletion[12] = String.join(",", completedFields);
+        expectReject(() -> SnapshotReader.read(String.join("|", impossibleCompletion)), "completed-by ID");
+
+        String[] wrongTarget = sections.clone();
+        String[] targetFields = objective.clone();
+        targetFields[3] = Integer.toString(Integer.parseInt(targetFields[3]) + 1);
+        wrongTarget[12] = String.join(",", targetFields);
+        expectReject(() -> SnapshotReader.read(String.join("|", wrongTarget)), "target");
     }
 
     private static void validateCountAndNumericLimits() {
