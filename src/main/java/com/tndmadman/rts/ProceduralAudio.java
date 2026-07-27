@@ -17,10 +17,10 @@ import java.util.prefs.Preferences;
  * a Java Sound PCM line from oscillator, noise, pitch sweep, and envelope code.
  */
 final class ProceduralAudio {
-    private static final ProceduralAudio INSTANCE = new ProceduralAudio();
     private static final Preferences PREFS = Preferences.userNodeForPackage(ProceduralAudio.class);
     private static final String PREF_MUTED = "proceduralAudioMuted";
     private static final String PREF_VOLUME = "proceduralAudioVolumePercent";
+    private static final ProceduralAudio INSTANCE = new ProceduralAudio();
     private static final float SAMPLE_RATE = 44_100f;
     private static final int BUFFER_FRAMES = 512;
     private static final int MAX_VOICES = 64;
