@@ -13,12 +13,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
       - name: Capture compiler output
         shell: bash
         run: |
-          chmod +x gradlew
           set +e
-          ./gradlew compileJava --no-daemon --console=plain > victory-compile.log 2>&1
+          gradle compileJava --no-daemon --console=plain > victory-compile.log 2>&1
           code=$?
           echo "$code" > victory-exit-code.txt
           tail -n 250 victory-compile.log > victory-compile-tail.log
