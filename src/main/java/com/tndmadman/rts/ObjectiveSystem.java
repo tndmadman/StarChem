@@ -63,7 +63,10 @@ record ObjectiveView(String id, String title, String description, ObjectiveStatu
 }
 
 final class ObjectiveSystem {
+    private static final long REFRESH_NANOS = 200_000_000L;
     private static final Map<World,ObjectiveState> STATES = Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Map<World,Boolean> NETWORK_STATES = Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Map<World,Long> LAST_REFRESH = Collections.synchronizedMap(new WeakHashMap<>());
 
     private ObjectiveSystem() { }
 
@@ -75,6 +78,8 @@ final class ObjectiveSystem {
         if (previous != null && previous.conditionId().equals(next.conditionId())
                 && previous.status() != ObjectiveStatus.DISABLED) return;
         STATES.put(world, next);
+        NETWORK_STATES.remove(world);
+        LAST_REFRESH.remove(world);
     }
 
     static ObjectiveState state(World world) {
@@ -86,6 +91,15 @@ final class ObjectiveSystem {
         return initial;
     }
 
+    static void refreshAuthoritative(World world) {
+        if (world == null) return;
+        long now = System.nanoTime();
+        Long previous = LAST_REFRESH.get(world);
+        if (previous != null && now - previous < REFRESH_NANOS) return;
+        LAST_REFRESH.put(world, now);
+        evaluateAuthoritative(world, 0);
+    }
+
     static void evaluateAuthoritative(World world, double dt) {
         if (world == null) return;
         SkirmishSettings settings = SkirmishRuntime.settings(world);
@@ -95,17 +109,15 @@ final class ObjectiveSystem {
         }
         VictoryConditionDefinition definition = settings.victoryCondition();
         ObjectiveState previous = state(world);
-        if (!previous.conditionId().equals(definition.id())) {
-            previous = initialState(settings);
-        }
+        if (!previous.conditionId().equals(definition.id())) previous = initialState(settings);
         if (previous.completed()) {
             STATES.put(world, previous);
             return;
         }
 
-        double elapsed = previous.elapsedSeconds();
-        if (Double.isFinite(dt) && dt > 0) elapsed += Math.min(dt, 1.0);
         Metrics metrics = collectMetrics(world);
+        double elapsed = Math.max(previous.elapsedSeconds(), metrics.maxSystemTime());
+        if (Double.isFinite(dt) && dt > 0) elapsed += Math.min(dt, 1.0);
         Progress best = bestProgress(world, definition, metrics, elapsed);
         boolean completed = best.current() >= definition.target() && !best.playerId().isBlank();
         STATES.put(world, new ObjectiveState(
@@ -122,6 +134,7 @@ final class ObjectiveSystem {
         if (world == null || SkirmishRuntime.settings(world).preset() == SkirmishPreset.SANDBOX) {
             return ObjectiveView.disabled();
         }
+        if (!Boolean.TRUE.equals(NETWORK_STATES.get(world))) refreshAuthoritative(world);
         VictoryConditionDefinition definition = SkirmishRuntime.settings(world).victoryCondition();
         ObjectiveState state = state(world);
         if (!definition.id().equals(state.conditionId())) {
@@ -154,6 +167,8 @@ final class ObjectiveSystem {
 
     static void restore(World world, Object saved) {
         if (world == null) return;
+        NETWORK_STATES.remove(world);
+        LAST_REFRESH.remove(world);
         Map<String,Object> row = ServerSaveStore.object(saved);
         if (row.isEmpty()) {
             STATES.put(world, initialState(SkirmishRuntime.settings(world)));
@@ -183,10 +198,13 @@ final class ObjectiveSystem {
         SkirmishSettings settings = SkirmishRuntime.settings(world);
         if (settings.preset() == SkirmishPreset.SANDBOX) {
             STATES.put(world, ObjectiveState.disabled());
+            NETWORK_STATES.put(world, true);
             return;
         }
         if (!settings.victoryConditionId().equals(incoming.conditionId())) return;
         STATES.put(world, incoming);
+        NETWORK_STATES.put(world, true);
+        LAST_REFRESH.remove(world);
     }
 
     private static ObjectiveState initialState(SkirmishSettings settings) {
@@ -254,6 +272,7 @@ final class ObjectiveSystem {
         try {
             for (String systemId : visited) {
                 world.activateSystem(systemId);
+                metrics.maxSystemTime = Math.max(metrics.maxSystemTime, world.systemTime());
                 for (Unit unit : world.units.values()) {
                     if (unit.hp <= 0 || !humanPlayer(unit.playerId)) continue;
                     metrics.addPlayer(unit.playerId);
@@ -307,7 +326,8 @@ final class ObjectiveSystem {
                            Map<String,Integer> liveAssets, Map<String,Integer> fleetPower,
                            Map<String,Integer> controlledSystems,
                            Map<String,Map<String,Integer>> shipTypes,
-                           Map<String,Map<String,Integer>> stationTypes) {
+                           Map<String,Map<String,Integer>> stationTypes,
+                           double maxSystemTime) {
         int ships(String playerId) { return ships.getOrDefault(playerId, 0); }
         int combatShips(String playerId) { return combatShips.getOrDefault(playerId, 0); }
         int stations(String playerId) { return stations.getOrDefault(playerId, 0); }
@@ -328,13 +348,15 @@ final class ObjectiveSystem {
         private final Map<String,Integer> controlledSystems = new LinkedHashMap<>();
         private final Map<String,Map<String,Integer>> shipTypes = new LinkedHashMap<>();
         private final Map<String,Map<String,Integer>> stationTypes = new LinkedHashMap<>();
+        private double maxSystemTime;
 
         void addPlayer(String playerId) { if (humanPlayer(playerId)) players.add(playerId); }
 
         Metrics freeze() {
             return new Metrics(Set.copyOf(players), Map.copyOf(ships), Map.copyOf(combatShips),
                     Map.copyOf(stations), Map.copyOf(liveAssets), Map.copyOf(fleetPower),
-                    Map.copyOf(controlledSystems), nestedCopy(shipTypes), nestedCopy(stationTypes));
+                    Map.copyOf(controlledSystems), nestedCopy(shipTypes), nestedCopy(stationTypes),
+                    maxSystemTime);
         }
 
         private static Map<String,Map<String,Integer>> nestedCopy(Map<String,Map<String,Integer>> source) {
