@@ -1,5 +1,5 @@
 {
-  "rulesVersion": 14,
+  "rulesVersion": 15,
   "startingShipType": "prospector",
   "defaultStationType": "outpost",
   "files": {
@@ -51,6 +51,7 @@
       "config/craftables/reclamation.json"
     ],
     "research": "config/research.json",
-    "npcs": "config/npcs.json"
+    "npcs": "config/npcs.json",
+    "victoryConditions": "config/victory-conditions.json"
   }
 }
