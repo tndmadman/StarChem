@@ -68,6 +68,8 @@ public final class App {
         System.out.println("  --galaxy-copies 1|2     Number of copies per galaxy template");
         System.out.println("  --skirmish-preset ID    peaceful, standard, hostile, or sandbox");
         System.out.println("  --npc-difficulty ID     relaxed, normal, hard, or brutal");
+        System.out.println("  --victory-condition ID  Select a victory preset from config/victory-conditions.json");
+        System.out.println("                          " + victoryConditionIds());
         System.out.println("  --save-dir DIR          Dedicated-server save directory (default: saves)");
         System.out.println("  --save-name NAME        Dedicated-server save name (default: server)");
         System.out.println("  --autosave-seconds N    Dedicated-server autosave interval; 0 disables autosave");
@@ -82,6 +84,15 @@ public final class App {
         System.out.println("  --help, -h              Print this help");
         System.out.println();
         System.out.println("The dedicated server uses TCP. Its default port is 50000.");
+    }
+
+    private static String victoryConditionIds() {
+        StringBuilder out = new StringBuilder();
+        for (VictoryConditionDefinition definition : VictoryConditionRules.all()) {
+            if (!out.isEmpty()) out.append('|');
+            out.append(definition.id());
+        }
+        return out.toString();
     }
 
     private static int runServer(Config config) {
