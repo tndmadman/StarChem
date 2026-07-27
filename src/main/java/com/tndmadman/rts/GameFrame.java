@@ -36,8 +36,8 @@ final class GameFrame extends JFrame {
     GameFrame(Config config) {
         super(BuildInfo.display());
         setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
-        setSize(1280, 800);
-        setMinimumSize(new Dimension(900, 620));
+        setSize(1280, 900);
+        setMinimumSize(new Dimension(900, 720));
         setLocationRelativeTo(null);
         setContentPane(root);
         root.addComponentListener(new ComponentAdapter() {
@@ -228,7 +228,7 @@ final class GameFrame extends JFrame {
         if (endStatePanel != null) endStatePanel.setBounds(0, 0, w, h);
         if (connectionOverlayPanel != null) connectionOverlayPanel.setBounds(0, 0, w, h);
         int mw = Math.min(760, Math.max(560, w - 160));
-        int mh = Math.min(700, Math.max(580, h - 100));
+        int mh = Math.min(820, Math.max(660, h - 40));
         menuPanel.setBounds((w - mw) / 2, (h - mh) / 2, mw, mh);
     }
 }
