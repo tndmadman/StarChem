@@ -1,0 +1,77 @@
+{
+  "victoryConditions": [
+    {
+      "id": "industrial_breakthrough",
+      "displayName": "Industrial Breakthrough",
+      "description": "Complete Advanced Industry research.",
+      "type": "COMPLETE_RESEARCH",
+      "value": "advanced_industry",
+      "target": 1
+    },
+    {
+      "id": "research_supremacy",
+      "displayName": "Research Supremacy",
+      "description": "Complete all four research topics.",
+      "type": "COMPLETE_RESEARCH_COUNT",
+      "target": 4
+    },
+    {
+      "id": "fleet_muster",
+      "displayName": "Fleet Muster",
+      "description": "Command twelve active ships across the galaxy.",
+      "type": "OWN_SHIPS",
+      "target": 12
+    },
+    {
+      "id": "battle_ready",
+      "displayName": "Battle Ready",
+      "description": "Command six armed combat ships across the galaxy.",
+      "type": "OWN_COMBAT_SHIPS",
+      "target": 6
+    },
+    {
+      "id": "station_network",
+      "displayName": "Station Network",
+      "description": "Operate five active stations across the galaxy.",
+      "type": "OWN_STATIONS",
+      "target": 5
+    },
+    {
+      "id": "carrier_group",
+      "displayName": "Carrier Group",
+      "description": "Command two active carriers.",
+      "type": "OWN_SHIP_TYPE",
+      "value": "carrier",
+      "target": 2
+    },
+    {
+      "id": "laboratory_network",
+      "displayName": "Laboratory Network",
+      "description": "Operate three active laboratories.",
+      "type": "OWN_STATION_TYPE",
+      "value": "laboratory",
+      "target": 3
+    },
+    {
+      "id": "fleet_power",
+      "displayName": "Fleet Power",
+      "description": "Reach a combined active fleet and station strength of 30,000.",
+      "type": "FLEET_POWER",
+      "target": 30000
+    },
+    {
+      "id": "system_dominance",
+      "displayName": "System Dominance",
+      "description": "Control three galaxy systems.",
+      "type": "CONTROL_SYSTEMS",
+      "target": 3
+    },
+    {
+      "id": "endurance",
+      "displayName": "Endurance",
+      "description": "Keep at least one active asset alive for thirty minutes.",
+      "type": "SURVIVE_SECONDS",
+      "target": 1800
+    }
+  ]
+}
