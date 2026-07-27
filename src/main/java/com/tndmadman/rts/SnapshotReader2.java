@@ -157,4 +157,28 @@ final class SnapshotReader2 {
         }
         return out;
     }
+
+    static ObjectiveState objective(String[] parts) {
+        if (parts.length <= 12 || parts[12].isBlank()) return ObjectiveState.disabled();
+        String[] c = SnapshotReader.columns(parts[12], "objective", 1);
+        SnapshotReader.requireColumns(c.length, "objective", 1, 7);
+        String conditionId = SnapshotReader.text(CargoCodec.unsafed(c[0]), 64,
+                "objective", 1, "condition ID");
+        ObjectiveStatus status;
+        try { status = ObjectiveStatus.valueOf(c[1]); }
+        catch (RuntimeException ex) {
+            throw SnapshotReader.error("objective", 1, "status", "has unknown value " + SnapshotReader.printable(c[1]));
+        }
+        int current = SnapshotReader.integer(c[2], 0, Integer.MAX_VALUE,
+                "objective", 1, "current progress");
+        int target = SnapshotReader.integer(c[3], 0, Integer.MAX_VALUE,
+                "objective", 1, "target");
+        String leaderId = SnapshotReader.text(CargoCodec.unsafed(c[4]), 64,
+                "objective", 1, "leader ID");
+        String completedById = SnapshotReader.text(CargoCodec.unsafed(c[5]), 64,
+                "objective", 1, "completed-by ID");
+        double elapsed = SnapshotReader.finite(c[6], 0, SnapshotReader.MAX_SCALAR,
+                "objective", 1, "elapsed seconds");
+        return new ObjectiveState(conditionId, status, current, target, leaderId, completedById, elapsed);
+    }
 }
