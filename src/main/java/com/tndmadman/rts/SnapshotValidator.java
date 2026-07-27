@@ -22,6 +22,7 @@ final class SnapshotValidator {
         validateShots(required(snapshot.shots(), "shots"));
         validateItems(required(snapshot.items(), "items"));
         validateResearch(required(snapshot.research(), "research"));
+        validateObjective(snapshot.objective());
     }
 
     private static void validatePlayers(List<PlayerInfo> states) {
@@ -59,7 +60,7 @@ final class SnapshotValidator {
             if (state.resourceId() < -1) throw SnapshotReader.error("units", row, "resource ID", "must be -1 or greater");
             String packageType = SnapshotReader.text(state.packageType(), 128, "units", row, "station package type");
             if (!packageType.isBlank() && Rules.findBase(packageType) == null) {
-                throw SnapshotReader.error("units", row, "station package type", "unknown value " + SnapshotReader.printable(packageType));
+                throw SnapshotReader.error("units", row, "station package type ID", "unknown value " + SnapshotReader.printable(packageType));
             }
             SnapshotReader.validateCargo(state.cargo(), "units", row, "cargo");
             finite(state.hp(), 0, SnapshotReader.MAX_SCALAR, "units", row, "hp");
@@ -198,6 +199,43 @@ final class SnapshotValidator {
                     throw SnapshotReader.error("research", row, "topic ID", "duplicate value " + SnapshotReader.printable(checked));
                 }
             }
+        }
+    }
+
+    private static void validateObjective(ObjectiveState state) {
+        if (state == null) throw SnapshotReader.error("objective", 1, "value", "state is null");
+        finite(state.elapsedSeconds(), 0, SnapshotReader.MAX_SCALAR, "objective", 1, "elapsed seconds");
+        if (state.status() == ObjectiveStatus.DISABLED) {
+            if (!state.conditionId().isBlank() || state.current() != 0 || state.target() != 0
+                    || !state.leaderId().isBlank() || !state.completedById().isBlank()) {
+                throw SnapshotReader.error("objective", 1, "disabled state", "must not contain active progress");
+            }
+            return;
+        }
+        String conditionId = SnapshotReader.requiredText(state.conditionId(), 64,
+                "objective", 1, "condition ID");
+        VictoryConditionDefinition definition = VictoryConditionRules.definition(conditionId);
+        if (definition == null) {
+            throw SnapshotReader.error("objective", 1, "condition ID",
+                    "unknown value " + SnapshotReader.printable(conditionId));
+        }
+        if (state.target() != definition.target()) {
+            throw SnapshotReader.error("objective", 1, "target", "does not match loaded configuration");
+        }
+        if (state.current() < 0) {
+            throw SnapshotReader.error("objective", 1, "current progress", "must not be negative");
+        }
+        SnapshotReader.text(state.leaderId(), 64, "objective", 1, "leader ID");
+        SnapshotReader.text(state.completedById(), 64, "objective", 1, "completed-by ID");
+        if (state.status() == ObjectiveStatus.COMPLETED) {
+            if (state.completedById().isBlank()) {
+                throw SnapshotReader.error("objective", 1, "completed-by ID", "is required for completed state");
+            }
+            if (state.current() < state.target()) {
+                throw SnapshotReader.error("objective", 1, "current progress", "must reach the target when completed");
+            }
+        } else if (!state.completedById().isBlank()) {
+            throw SnapshotReader.error("objective", 1, "completed-by ID", "must be blank while active");
         }
     }
 
