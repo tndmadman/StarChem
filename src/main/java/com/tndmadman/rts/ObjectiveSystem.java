@@ -2,8 +2,13 @@ package com.tndmadman.rts;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.WeakHashMap;
 
 enum ObjectiveStatus {
     DISABLED,
@@ -11,8 +16,27 @@ enum ObjectiveStatus {
     COMPLETED
 }
 
+record ObjectiveState(String conditionId, ObjectiveStatus status, int current, int target,
+                      String leaderId, String completedById, double elapsedSeconds) {
+    ObjectiveState {
+        conditionId = conditionId == null ? "" : conditionId;
+        status = status == null ? ObjectiveStatus.DISABLED : status;
+        current = Math.max(0, current);
+        target = Math.max(0, target);
+        leaderId = leaderId == null ? "" : leaderId;
+        completedById = completedById == null ? "" : completedById;
+        elapsedSeconds = Double.isFinite(elapsedSeconds) ? Math.max(0, elapsedSeconds) : 0;
+    }
+
+    static ObjectiveState disabled() {
+        return new ObjectiveState("", ObjectiveStatus.DISABLED, 0, 0, "", "", 0);
+    }
+
+    boolean completed() { return status == ObjectiveStatus.COMPLETED; }
+}
+
 record ObjectiveView(String id, String title, String description, ObjectiveStatus status,
-                     int current, int target, String completedBy) {
+                     int current, int target, String completedBy, String leader) {
     ObjectiveView {
         id = id == null ? "" : id;
         title = title == null ? "" : title;
@@ -21,65 +45,304 @@ record ObjectiveView(String id, String title, String description, ObjectiveStatu
         current = Math.max(0, current);
         target = Math.max(0, target);
         completedBy = completedBy == null ? "" : completedBy;
+        leader = leader == null ? "" : leader;
     }
 
     static ObjectiveView disabled() {
-        return new ObjectiveView("", "", "", ObjectiveStatus.DISABLED, 0, 0, "");
+        return new ObjectiveView("", "", "", ObjectiveStatus.DISABLED, 0, 0, "", "");
     }
 
     boolean enabled() { return status != ObjectiveStatus.DISABLED; }
     boolean completed() { return status == ObjectiveStatus.COMPLETED; }
 
     String progressLabel() {
-        return completed() ? "COMPLETE" : current + " / " + target;
+        if (completed()) return "COMPLETE";
+        VictoryConditionDefinition definition = VictoryConditionRules.definition(id);
+        return definition == null ? current + " / " + target : definition.formatProgress(current);
     }
 }
 
 final class ObjectiveSystem {
-    static final String ADVANCED_INDUSTRY_OBJECTIVE_ID = "complete_advanced_industry";
-    static final String ADVANCED_INDUSTRY_TOPIC_ID = "advanced_industry";
+    private static final Map<World,ObjectiveState> STATES = Collections.synchronizedMap(new WeakHashMap<>());
 
     private ObjectiveSystem() { }
 
-    /**
-     * Projects objective progress from authoritative world state. In multiplayer, completed research is
-     * mutated by the server and distributed in validated snapshots; clients only render that synchronized
-     * state and never advance objective progress independently.
-     */
+    static void reconfigure(World world, SkirmishSettings settings) {
+        if (world == null) return;
+        SkirmishSettings normalized = settings == null ? SkirmishSettings.standard() : settings;
+        ObjectiveState next = initialState(normalized);
+        ObjectiveState previous = STATES.get(world);
+        if (previous != null && previous.conditionId().equals(next.conditionId())
+                && previous.status() != ObjectiveStatus.DISABLED) return;
+        STATES.put(world, next);
+    }
+
+    static ObjectiveState state(World world) {
+        if (world == null) return ObjectiveState.disabled();
+        ObjectiveState state = STATES.get(world);
+        if (state != null) return state;
+        ObjectiveState initial = initialState(SkirmishRuntime.settings(world));
+        STATES.put(world, initial);
+        return initial;
+    }
+
+    static void evaluateAuthoritative(World world, double dt) {
+        if (world == null) return;
+        SkirmishSettings settings = SkirmishRuntime.settings(world);
+        if (settings.preset() == SkirmishPreset.SANDBOX) {
+            STATES.put(world, ObjectiveState.disabled());
+            return;
+        }
+        VictoryConditionDefinition definition = settings.victoryCondition();
+        ObjectiveState previous = state(world);
+        if (!previous.conditionId().equals(definition.id())) {
+            previous = initialState(settings);
+        }
+        if (previous.completed()) {
+            STATES.put(world, previous);
+            return;
+        }
+
+        double elapsed = previous.elapsedSeconds();
+        if (Double.isFinite(dt) && dt > 0) elapsed += Math.min(dt, 1.0);
+        Metrics metrics = collectMetrics(world);
+        Progress best = bestProgress(world, definition, metrics, elapsed);
+        boolean completed = best.current() >= definition.target() && !best.playerId().isBlank();
+        STATES.put(world, new ObjectiveState(
+                definition.id(),
+                completed ? ObjectiveStatus.COMPLETED : ObjectiveStatus.ACTIVE,
+                best.current(),
+                definition.target(),
+                best.playerId(),
+                completed ? best.playerId() : "",
+                elapsed));
+    }
+
     static ObjectiveView view(World world) {
         if (world == null || SkirmishRuntime.settings(world).preset() == SkirmishPreset.SANDBOX) {
             return ObjectiveView.disabled();
         }
-
-        ResearchTopic topic = ResearchRules.topic(ADVANCED_INDUSTRY_TOPIC_ID);
-        String title = topic == null || topic.name == null || topic.name.isBlank()
-                ? "Advanced Industry" : topic.name;
-        String description = "Complete " + title + " research.";
-        String completedBy = completedBy(world, ADVANCED_INDUSTRY_TOPIC_ID);
-        boolean completed = !completedBy.isBlank();
+        VictoryConditionDefinition definition = SkirmishRuntime.settings(world).victoryCondition();
+        ObjectiveState state = state(world);
+        if (!definition.id().equals(state.conditionId())) {
+            state = initialState(SkirmishRuntime.settings(world));
+            STATES.put(world, state);
+        }
         return new ObjectiveView(
-                ADVANCED_INDUSTRY_OBJECTIVE_ID,
-                title,
-                description,
-                completed ? ObjectiveStatus.COMPLETED : ObjectiveStatus.ACTIVE,
-                completed ? 1 : 0,
-                1,
-                completedBy);
+                definition.id(),
+                definition.displayName(),
+                definition.description(),
+                state.status(),
+                state.current(),
+                state.target(),
+                playerName(state.completedById()),
+                playerName(state.leaderId()));
     }
 
-    private static String completedBy(World world, String topicId) {
-        List<String> playerIds = new ArrayList<>(world.completedResearch.keySet());
-        Collections.sort(playerIds);
-        for (String playerId : playerIds) {
-            if (!humanPlayer(playerId)) continue;
-            Set<String> completed = world.completedResearch.get(playerId);
-            if (completed != null && completed.contains(topicId)) return PlayerRegistry.name(playerId);
+    static Map<String,Object> capture(World world) {
+        ObjectiveState state = state(world);
+        Map<String,Object> out = new LinkedHashMap<>();
+        out.put("conditionId", state.conditionId());
+        out.put("status", state.status().name());
+        out.put("current", state.current());
+        out.put("target", state.target());
+        out.put("leaderId", state.leaderId());
+        out.put("completedById", state.completedById());
+        out.put("elapsedSeconds", state.elapsedSeconds());
+        return out;
+    }
+
+    static void restore(World world, Object saved) {
+        if (world == null) return;
+        Map<String,Object> row = ServerSaveStore.object(saved);
+        if (row.isEmpty()) {
+            STATES.put(world, initialState(SkirmishRuntime.settings(world)));
+            return;
         }
-        return "";
+        String conditionId = ServerSaveStore.string(row, "conditionId",
+                SkirmishRuntime.settings(world).victoryConditionId());
+        VictoryConditionDefinition definition = VictoryConditionRules.definition(conditionId);
+        if (definition == null || !conditionId.equals(SkirmishRuntime.settings(world).victoryConditionId())) {
+            STATES.put(world, initialState(SkirmishRuntime.settings(world)));
+            return;
+        }
+        ObjectiveStatus status = ServerSaveStore.enumValue(ObjectiveStatus.class,
+                row.get("status"), ObjectiveStatus.ACTIVE);
+        int current = Math.max(0, ServerSaveStore.intValue(row, "current", 0));
+        int target = Math.max(1, ServerSaveStore.intValue(row, "target", definition.target()));
+        String leaderId = ServerSaveStore.string(row, "leaderId", "");
+        String completedById = ServerSaveStore.string(row, "completedById", "");
+        double elapsed = Math.max(0, ServerSaveStore.doubleValue(row, "elapsedSeconds", 0));
+        STATES.put(world, new ObjectiveState(conditionId, status, current, target,
+                leaderId, completedById, elapsed));
+    }
+
+    static void applyNetworkState(World world, ObjectiveState state) {
+        if (world == null) return;
+        ObjectiveState incoming = state == null ? ObjectiveState.disabled() : state;
+        SkirmishSettings settings = SkirmishRuntime.settings(world);
+        if (settings.preset() == SkirmishPreset.SANDBOX) {
+            STATES.put(world, ObjectiveState.disabled());
+            return;
+        }
+        if (!settings.victoryConditionId().equals(incoming.conditionId())) return;
+        STATES.put(world, incoming);
+    }
+
+    private static ObjectiveState initialState(SkirmishSettings settings) {
+        if (settings == null || settings.preset() == SkirmishPreset.SANDBOX) {
+            return ObjectiveState.disabled();
+        }
+        VictoryConditionDefinition definition = settings.victoryCondition();
+        return new ObjectiveState(definition.id(), ObjectiveStatus.ACTIVE, 0,
+                definition.target(), "", "", 0);
+    }
+
+    private static Progress bestProgress(World world, VictoryConditionDefinition definition,
+                                         Metrics metrics, double elapsed) {
+        List<String> players = new ArrayList<>(metrics.players());
+        Collections.sort(players);
+        Progress best = new Progress("", 0);
+        for (String playerId : players) {
+            if (!humanPlayer(playerId)) continue;
+            int current = progress(world, definition, metrics, playerId, elapsed);
+            if (current > best.current()) best = new Progress(playerId, current);
+        }
+        return best;
+    }
+
+    private static int progress(World world, VictoryConditionDefinition definition,
+                                Metrics metrics, String playerId, double elapsed) {
+        return switch (definition.type()) {
+            case COMPLETE_RESEARCH -> world.hasResearch(playerId, definition.value()) ? 1 : 0;
+            case COMPLETE_RESEARCH_COUNT -> world.completedResearch.getOrDefault(playerId, Set.of()).size();
+            case OWN_SHIPS -> metrics.ships(playerId);
+            case OWN_COMBAT_SHIPS -> metrics.combatShips(playerId);
+            case OWN_STATIONS -> metrics.stations(playerId);
+            case OWN_SHIP_TYPE -> metrics.shipTypes(playerId).getOrDefault(definition.value(), 0);
+            case OWN_STATION_TYPE -> metrics.stationTypes(playerId).getOrDefault(definition.value(), 0);
+            case FLEET_POWER -> metrics.fleetPower(playerId);
+            case CONTROL_SYSTEMS -> metrics.controlledSystems(playerId);
+            case SURVIVE_SECONDS -> metrics.liveAssets(playerId) > 0
+                    ? (int)Math.min(Integer.MAX_VALUE, Math.floor(elapsed)) : 0;
+        };
+    }
+
+    private static Metrics collectMetrics(World world) {
+        MutableMetrics metrics = new MutableMetrics();
+        for (PlayerInfo player : PlayerRegistry.snapshotPlayers()) metrics.addPlayer(player.id());
+        for (String playerId : world.completedResearch.keySet()) metrics.addPlayer(playerId);
+
+        GalaxyMapSnapshot galaxy = world.authoritativeGalaxyMapSnapshot();
+        if (galaxy != null && galaxy.systems() != null) {
+            for (GalaxyMapSystem system : galaxy.systems()) {
+                if (system == null || !humanPlayer(system.controllerId())) continue;
+                metrics.controlledSystems.merge(system.controllerId(), 1, Integer::sum);
+                metrics.addPlayer(system.controllerId());
+            }
+        }
+
+        String previousSystem = world.activeSystemId();
+        String previousStatus = world.status;
+        Set<String> visited = new LinkedHashSet<>();
+        if (galaxy != null && galaxy.systems() != null) {
+            for (GalaxyMapSystem system : galaxy.systems()) {
+                if (system != null && system.id() != null && !system.id().isBlank()) visited.add(system.id());
+            }
+        }
+        if (visited.isEmpty() && previousSystem != null && !previousSystem.isBlank()) visited.add(previousSystem);
+        try {
+            for (String systemId : visited) {
+                world.activateSystem(systemId);
+                for (Unit unit : world.units.values()) {
+                    if (unit.hp <= 0 || !humanPlayer(unit.playerId)) continue;
+                    metrics.addPlayer(unit.playerId);
+                    metrics.ships.merge(unit.playerId, 1, Integer::sum);
+                    metrics.liveAssets.merge(unit.playerId, 1, Integer::sum);
+                    if (WeaponRules.armed(unit.type())) {
+                        metrics.combatShips.merge(unit.playerId, 1, Integer::sum);
+                    }
+                    metrics.shipTypes.computeIfAbsent(unit.playerId, ignored -> new HashMap<>())
+                            .merge(unit.shipTypeId, 1, Integer::sum);
+                    metrics.fleetPower.merge(unit.playerId,
+                            safeStrength(unit.hp, unit.shield), Integer::sum);
+                }
+                for (Base base : world.bases.values()) {
+                    if (base.hp <= 0 || !humanPlayer(base.playerId)) continue;
+                    metrics.addPlayer(base.playerId);
+                    metrics.stations.merge(base.playerId, 1, Integer::sum);
+                    metrics.liveAssets.merge(base.playerId, 1, Integer::sum);
+                    metrics.stationTypes.computeIfAbsent(base.playerId, ignored -> new HashMap<>())
+                            .merge(base.typeId, 1, Integer::sum);
+                    metrics.fleetPower.merge(base.playerId,
+                            safeStrength(base.hp, base.shield), Integer::sum);
+                }
+            }
+        } finally {
+            if (previousSystem != null && !previousSystem.isBlank()) world.activateSystem(previousSystem);
+            world.status = previousStatus;
+        }
+        return metrics.freeze();
+    }
+
+    private static int safeStrength(double hp, double shield) {
+        double sum = Math.max(0, hp) + Math.max(0, shield);
+        if (!Double.isFinite(sum)) return 0;
+        return (int)Math.min(Integer.MAX_VALUE, Math.round(sum));
+    }
+
+    private static String playerName(String playerId) {
+        return playerId == null || playerId.isBlank() ? "" : PlayerRegistry.name(playerId);
     }
 
     private static boolean humanPlayer(String playerId) {
         return playerId != null && !playerId.isBlank() && !"WAIT".equals(playerId)
                 && !NpcRules.isNpcFaction(playerId);
+    }
+
+    private record Progress(String playerId, int current) { }
+
+    private record Metrics(Set<String> players, Map<String,Integer> ships,
+                           Map<String,Integer> combatShips, Map<String,Integer> stations,
+                           Map<String,Integer> liveAssets, Map<String,Integer> fleetPower,
+                           Map<String,Integer> controlledSystems,
+                           Map<String,Map<String,Integer>> shipTypes,
+                           Map<String,Map<String,Integer>> stationTypes) {
+        int ships(String playerId) { return ships.getOrDefault(playerId, 0); }
+        int combatShips(String playerId) { return combatShips.getOrDefault(playerId, 0); }
+        int stations(String playerId) { return stations.getOrDefault(playerId, 0); }
+        int liveAssets(String playerId) { return liveAssets.getOrDefault(playerId, 0); }
+        int fleetPower(String playerId) { return fleetPower.getOrDefault(playerId, 0); }
+        int controlledSystems(String playerId) { return controlledSystems.getOrDefault(playerId, 0); }
+        Map<String,Integer> shipTypes(String playerId) { return shipTypes.getOrDefault(playerId, Map.of()); }
+        Map<String,Integer> stationTypes(String playerId) { return stationTypes.getOrDefault(playerId, Map.of()); }
+    }
+
+    private static final class MutableMetrics {
+        private final Set<String> players = new LinkedHashSet<>();
+        private final Map<String,Integer> ships = new LinkedHashMap<>();
+        private final Map<String,Integer> combatShips = new LinkedHashMap<>();
+        private final Map<String,Integer> stations = new LinkedHashMap<>();
+        private final Map<String,Integer> liveAssets = new LinkedHashMap<>();
+        private final Map<String,Integer> fleetPower = new LinkedHashMap<>();
+        private final Map<String,Integer> controlledSystems = new LinkedHashMap<>();
+        private final Map<String,Map<String,Integer>> shipTypes = new LinkedHashMap<>();
+        private final Map<String,Map<String,Integer>> stationTypes = new LinkedHashMap<>();
+
+        void addPlayer(String playerId) { if (humanPlayer(playerId)) players.add(playerId); }
+
+        Metrics freeze() {
+            return new Metrics(Set.copyOf(players), Map.copyOf(ships), Map.copyOf(combatShips),
+                    Map.copyOf(stations), Map.copyOf(liveAssets), Map.copyOf(fleetPower),
+                    Map.copyOf(controlledSystems), nestedCopy(shipTypes), nestedCopy(stationTypes));
+        }
+
+        private static Map<String,Map<String,Integer>> nestedCopy(Map<String,Map<String,Integer>> source) {
+            Map<String,Map<String,Integer>> out = new LinkedHashMap<>();
+            for (Map.Entry<String,Map<String,Integer>> entry : source.entrySet()) {
+                out.put(entry.getKey(), Map.copyOf(entry.getValue()));
+            }
+            return Map.copyOf(out);
+        }
     }
 }
