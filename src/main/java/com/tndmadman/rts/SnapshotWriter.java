@@ -79,7 +79,13 @@ final class SnapshotWriter {
                 }
             }
         }
-        return "SNAPSHOT|" + snapshot.sequence() + "|" + players + "|" + units + "|" + resources + "|" + bases + "|" + stocks + "|" + shots + "|" + items + "|" + snapshot.packedSystemField() + "|" + Calc.round(snapshot.systemTime()) + "|" + research;
+        ObjectiveState objectiveState = snapshot.objective();
+        String objective = CargoCodec.safe(objectiveState.conditionId()) + ','
+                + objectiveState.status().name() + ',' + objectiveState.current() + ','
+                + objectiveState.target() + ',' + CargoCodec.safe(objectiveState.leaderId()) + ','
+                + CargoCodec.safe(objectiveState.completedById()) + ','
+                + precise(objectiveState.elapsedSeconds());
+        return "SNAPSHOT|" + snapshot.sequence() + "|" + players + "|" + units + "|" + resources + "|" + bases + "|" + stocks + "|" + shots + "|" + items + "|" + snapshot.packedSystemField() + "|" + Calc.round(snapshot.systemTime()) + "|" + research + "|" + objective;
     }
 
     private static String precise(double value) {
