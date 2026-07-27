@@ -79,14 +79,19 @@ final class LobbyPanel extends JPanel {
         box.add(spawnFreeMinersBox);
         box.add(label(""));
         box.add(spawnCorsairsBox);
+
         JButton solo = new MenuButton("SOLO");
         JButton connect = new MenuButton("JOIN");
         JButton codex = new MenuButton("CODEX");
         JButton clearSignIns = new MenuButton("CLEAR SIGN-INS");
+        JButton settings = new MenuButton("SETTINGS");
         box.add(solo);
         box.add(connect);
         box.add(codex);
         box.add(clearSignIns);
+        box.add(settings);
+        box.add(new JLabel(""));
+
         statusLabel.setForeground(new Color(215, 232, 245));
         box.add(label("Status"));
         box.add(statusLabel);
@@ -102,6 +107,7 @@ final class LobbyPanel extends JPanel {
         connect.addActionListener(e -> startClient());
         codex.addActionListener(e -> owner.toggleCodexFromLobby());
         clearSignIns.addActionListener(e -> clearSavedSignIns());
+        settings.addActionListener(e -> owner.openLobbySettings());
     }
 
     private JLabel label(String text) {
@@ -180,8 +186,9 @@ final class LobbyPanel extends JPanel {
                     Config.parsePort(portField.getText()), devBox.isSelected());
             if (!ensurePlayerPassword(config)) return;
             owner.launchGame(config);
+        } catch (RuntimeException ex) {
+            setStatus(ex.getMessage());
         }
-        catch (RuntimeException ex) { setStatus(ex.getMessage()); }
     }
 
     void retryJoinAfterCredentialReset() {
@@ -270,5 +277,11 @@ final class LobbyPanel extends JPanel {
     }
 
     void setStatus(String status) { statusLabel.setText(status); }
-    void requestFocusForName() { SwingUtilities.invokeLater(() -> { nameField.requestFocusInWindow(); nameField.selectAll(); }); }
+
+    void requestFocusForName() {
+        SwingUtilities.invokeLater(() -> {
+            nameField.requestFocusInWindow();
+            nameField.selectAll();
+        });
+    }
 }
