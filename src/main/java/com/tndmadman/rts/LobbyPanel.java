@@ -69,10 +69,13 @@ final class LobbyPanel extends JPanel {
         JButton serve = new MenuButton("HOST");
         JButton connect = new MenuButton("JOIN");
         JButton codex = new MenuButton("CODEX");
+        JButton settings = new MenuButton("SETTINGS");
         box.add(solo);
         box.add(serve);
         box.add(connect);
         box.add(codex);
+        box.add(settings);
+        box.add(new JLabel(""));
         statusLabel.setForeground(new Color(215, 232, 245));
         box.add(label("Status"));
         box.add(statusLabel);
@@ -87,6 +90,7 @@ final class LobbyPanel extends JPanel {
         serve.addActionListener(e -> startServer());
         connect.addActionListener(e -> startClient());
         codex.addActionListener(e -> owner.toggleCodexFromLobby());
+        settings.addActionListener(e -> owner.openLobbySettings());
     }
 
     private JLabel label(String text) {
