@@ -16,6 +16,8 @@ final class LobbyPanel extends JPanel {
     private final JComboBox<Integer> galaxyCopiesBox = new JComboBox<>(new Integer[]{1, 2});
     private final JComboBox<SkirmishPreset> skirmishPresetBox = new JComboBox<>(SkirmishPreset.values());
     private final JComboBox<NpcDifficulty> npcDifficultyBox = new JComboBox<>(NpcDifficulty.values());
+    private final JComboBox<VictoryConditionDefinition> victoryConditionBox = new JComboBox<>(
+            VictoryConditionRules.all().toArray(new VictoryConditionDefinition[0]));
     private final JCheckBox devBox = new JCheckBox("Dev mode");
     private final JCheckBox spawnRaidersBox = new JCheckBox("Raiders", true);
     private final JCheckBox spawnFreeMinersBox = new JCheckBox("Free Miners", true);
@@ -34,6 +36,7 @@ final class LobbyPanel extends JPanel {
         styleCombo(galaxyCopiesBox);
         styleCombo(skirmishPresetBox);
         styleCombo(npcDifficultyBox);
+        styleCombo(victoryConditionBox);
         for (StarSystemDefinition system : StarSystems.options()) systemBox.addItem(system);
         styleCheck(devBox);
         styleCheck(spawnRaidersBox);
@@ -71,6 +74,8 @@ final class LobbyPanel extends JPanel {
         box.add(skirmishPresetBox);
         box.add(label("Solo NPC difficulty"));
         box.add(npcDifficultyBox);
+        box.add(label("Solo victory condition"));
+        box.add(victoryConditionBox);
         box.add(label("Options"));
         box.add(devBox);
         box.add(label("NPC Spawns"));
@@ -158,9 +163,12 @@ final class LobbyPanel extends JPanel {
     private SkirmishSettings selectedSkirmishSettings() {
         Object selectedPreset = skirmishPresetBox.getSelectedItem();
         Object selectedDifficulty = npcDifficultyBox.getSelectedItem();
+        Object selectedVictory = victoryConditionBox.getSelectedItem();
         SkirmishPreset preset = selectedPreset instanceof SkirmishPreset value ? value : SkirmishPreset.STANDARD;
         NpcDifficulty difficulty = selectedDifficulty instanceof NpcDifficulty value ? value : NpcDifficulty.NORMAL;
-        return new SkirmishSettings(preset, difficulty, disabledNpcFactions());
+        String victoryConditionId = selectedVictory instanceof VictoryConditionDefinition value
+                ? value.id() : VictoryConditionRules.defaultId();
+        return new SkirmishSettings(preset, difficulty, disabledNpcFactions(), victoryConditionId);
     }
 
     private void applyPresetDefaults() {
