@@ -89,6 +89,7 @@ final class Config {
         boolean newWorld = false;
         SkirmishPreset skirmishPreset = SkirmishPreset.STANDARD;
         NpcDifficulty npcDifficulty = NpcDifficulty.NORMAL;
+        String victoryConditionId = VictoryConditionRules.defaultId();
         InetSocketAddress server = null;
         for (int i = 0; i < args.length; i++) {
             String option = args[i];
@@ -98,6 +99,8 @@ final class Config {
                 case "--galaxy-copies" -> galaxyCopies = parseGalaxyCopies(requiredValue(args, ++i, option));
                 case "--skirmish-preset" -> skirmishPreset = SkirmishPreset.parse(requiredValue(args, ++i, option));
                 case "--npc-difficulty" -> npcDifficulty = NpcDifficulty.parse(requiredValue(args, ++i, option));
+                case "--victory-condition" -> victoryConditionId = VictoryConditionRules.require(
+                        requiredValue(args, ++i, option)).id();
                 case "--save-dir" -> saveDir = Path.of(requiredValue(args, ++i, option));
                 case "--save-name" -> saveName = requiredValue(args, ++i, option);
                 case "--autosave-seconds" -> autosaveSeconds = parseNonNegativeInt(
@@ -133,7 +136,8 @@ final class Config {
             }
         }
         if (devTokenFile != null) devToken = DevTokenSource.load(devTokenFile);
-        SkirmishSettings selectedSkirmish = SkirmishSettings.create(skirmishPreset, npcDifficulty);
+        SkirmishSettings selectedSkirmish = SkirmishSettings.create(
+                skirmishPreset, npcDifficulty, victoryConditionId);
         if (dedicated) {
             Path dedicatedSaveDir = saveDir == null ? Path.of("saves") : saveDir;
             return new Config(clean(name), false, true, true, false, dev, devToken,
