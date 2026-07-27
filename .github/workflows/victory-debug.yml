@@ -1,4 +1,4 @@
-name: Victory Validator Diagnostic
+name: Victory Snapshot Diagnostic
 
 on:
   pull_request:
@@ -18,7 +18,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          gradle validateClientLaunch --no-daemon --console=plain --stacktrace > victory-validator.log 2>&1
+          gradle validateSnapshotHardening --no-daemon --console=plain --stacktrace > victory-validator.log 2>&1
           code=$?
           echo "$code" > victory-exit-code.txt
           tail -n 500 victory-validator.log > victory-validator-tail.log
