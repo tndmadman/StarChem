@@ -19,6 +19,7 @@ final class GameFrame extends JFrame {
     private static final String RESOURCE_CATALOG_ACTION = "toggle-resource-catalog";
     private static final String CODEX_ACTION = "toggle-codex";
     private static final String NARRATION_SETTINGS_ACTION = "toggle-narration-settings";
+    private static final String TUTORIAL_ACTION = "toggle-first-run-tutorial";
 
     private final JLayeredPane root = new JLayeredPane();
     private final MenuBackdrop backdrop = new MenuBackdrop();
@@ -27,6 +28,7 @@ final class GameFrame extends JFrame {
     private ResourceCatalogOverlay resourceCatalogOverlay;
     private CodexOverlay codexOverlay;
     private NarrationSettingsOverlay narrationSettingsOverlay;
+    private TutorialOverlay tutorialOverlay;
     private EndStatePanel endStatePanel;
     private ConnectionOverlayPanel connectionOverlayPanel;
     private PeerNetwork network;
@@ -123,20 +125,29 @@ final class GameFrame extends JFrame {
         resourceCatalogOverlay = new ResourceCatalogOverlay(gamePanel, world);
         codexOverlay = new CodexOverlay(gamePanel);
         narrationSettingsOverlay = new NarrationSettingsOverlay();
+        if (config.role() == NetworkRole.SOLO) TutorialPreferenceVersion.ensureCurrent();
+        tutorialOverlay = new TutorialOverlay(world, config.role() == NetworkRole.SOLO);
         installResourceCatalogHotkey(gamePanel);
         installCodexHotkey(gamePanel);
         installNarrationSettingsHotkey(gamePanel);
+        installTutorialHotkey(gamePanel);
         endStatePanel = new EndStatePanel(world, this, activeNetwork);
         connectionOverlayPanel = activeNetwork != null && activeNetwork.clientMode()
                 ? new ConnectionOverlayPanel(this, activeNetwork) : null;
         root.removeAll();
         root.add(gamePanel, JLayeredPane.DEFAULT_LAYER);
         root.add(resourceCatalogOverlay, JLayeredPane.PALETTE_LAYER);
+        root.add(tutorialOverlay, JLayeredPane.PALETTE_LAYER);
         root.add(narrationSettingsOverlay, JLayeredPane.POPUP_LAYER);
         root.add(codexOverlay, JLayeredPane.POPUP_LAYER);
         root.add(endStatePanel, JLayeredPane.MODAL_LAYER);
         if (connectionOverlayPanel != null) root.add(connectionOverlayPanel, JLayeredPane.DRAG_LAYER);
-        if (!world.status.contains("Press I")) world.status = world.status + " Press I for catalog; F1 for codex; F8 for narration.";
+        if (!world.status.contains("Press I")) {
+            world.status = world.status + " Press I for catalog; F1 for codex; F8 for narration"
+                    + (config.role() == NetworkRole.SOLO
+                    ? "; F2 tutorial; F3 skip step; F4 skip section; F5 restart; F6 skip tutorial."
+                    : ".");
+        }
         String scenario = config.role() == NetworkRole.SOLO
                 ? " - " + SkirmishRuntime.settings(world).displayLabel() : "";
         setTitle(BuildInfo.display() + " - " + config.modeLabel() + " - " + config.playerName
@@ -144,7 +155,10 @@ final class GameFrame extends JFrame {
         layoutLayers();
         root.revalidate();
         root.repaint();
-        SwingUtilities.invokeLater(gamePanel::start);
+        SwingUtilities.invokeLater(() -> {
+            gamePanel.start();
+            tutorialOverlay.start();
+        });
     }
 
     private void installResourceCatalogHotkey(JComponent target) {
@@ -187,9 +201,20 @@ final class GameFrame extends JFrame {
         });
     }
 
+    private void installTutorialHotkey(JComponent target) {
+        target.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_F2, 0), TUTORIAL_ACTION);
+        target.getActionMap().put(TUTORIAL_ACTION, new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) {
+                if (tutorialOverlay != null) tutorialOverlay.toggle();
+            }
+        });
+    }
+
     private void stopActiveGame() {
         World stoppingWorld = activeWorld;
         if (gamePanel != null) gamePanel.stop();
+        if (tutorialOverlay != null) tutorialOverlay.stop();
         WorldRuntimeCleanup.discard(stoppingWorld);
         if (resourceCatalogOverlay != null) resourceCatalogOverlay.setVisible(false);
         if (codexOverlay != null) codexOverlay.close();
@@ -203,13 +228,13 @@ final class GameFrame extends JFrame {
         resourceCatalogOverlay = null;
         codexOverlay = null;
         narrationSettingsOverlay = null;
+        tutorialOverlay = null;
         endStatePanel = null;
         connectionOverlayPanel = null;
         network = null;
         networkTimer = null;
         activeWorld = null;
     }
-
 
     static void resetDeveloperSimulationState(World world) {
         if (world == null) return;
@@ -223,6 +248,7 @@ final class GameFrame extends JFrame {
         backdrop.setBounds(0, 0, w, h);
         if (gamePanel != null) gamePanel.setBounds(0, 0, w, h);
         if (resourceCatalogOverlay != null) resourceCatalogOverlay.setBounds(0, 0, w, h);
+        if (tutorialOverlay != null) tutorialOverlay.setBounds(0, 0, w, h);
         if (codexOverlay != null) codexOverlay.setBounds(0, 0, w, h);
         if (narrationSettingsOverlay != null) narrationSettingsOverlay.setBounds(0, 0, w, h);
         if (endStatePanel != null) endStatePanel.setBounds(0, 0, w, h);
