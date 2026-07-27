@@ -78,9 +78,10 @@ public final class ClientLaunchValidator {
         TutorialPreferenceVersionValidator.validate();
         TutorialOverlayValidator.validate();
         TutorialControlsValidator.validate();
+        InGameMenuValidator.validate();
         ClientSessionPropertiesStoreValidator.validate();
         ClientCredentialVaultValidator.validate();
-        System.out.println("Client launch, skirmish settings, tutorial preference migration, core/advanced tutorial controls, login prompt, protected credential, and coordinated metadata validation passed.");
+        System.out.println("Client launch, skirmish settings, tutorial preference migration, core/advanced tutorial controls, ESC menu, audio controls, login prompt, protected credential, and coordinated metadata validation passed.");
     }
 
     private static void expectInvalidHost(String name, String host) {
