@@ -1,11 +1,13 @@
 package com.tndmadman.rts;
 
 import javax.swing.*;
+import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.KeyEvent;
+import java.awt.event.KeyEventDispatcher;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
@@ -24,16 +26,21 @@ final class GameFrame extends JFrame {
     private final JLayeredPane root = new JLayeredPane();
     private final MenuBackdrop backdrop = new MenuBackdrop();
     private final LobbyPanel menuPanel = new LobbyPanel(this);
+    private final KeyEventDispatcher gameMenuDispatcher = this::dispatchGameMenuKey;
     private GamePanel gamePanel;
     private ResourceCatalogOverlay resourceCatalogOverlay;
     private CodexOverlay codexOverlay;
     private NarrationSettingsOverlay narrationSettingsOverlay;
     private TutorialOverlay tutorialOverlay;
+    private InGameMenuOverlay inGameMenuOverlay;
     private EndStatePanel endStatePanel;
     private ConnectionOverlayPanel connectionOverlayPanel;
     private PeerNetwork network;
     private Timer networkTimer;
     private World activeWorld;
+    private boolean gameMenuDispatcherInstalled;
+    private boolean soloSession;
+    private boolean soloPausedByMenu;
 
     GameFrame(Config config) {
         super(BuildInfo.display());
@@ -78,7 +85,8 @@ final class GameFrame extends JFrame {
             return;
         }
         stopActiveGame();
-        World world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId, config.role() == NetworkRole.SOLO);
+        World world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId,
+                config.role() == NetworkRole.SOLO);
         SkirmishRuntime.bind(world, config.skirmishSettings);
         DevTimerSettings.configure(world, config.disableProductionTimers);
         try {
@@ -121,16 +129,26 @@ final class GameFrame extends JFrame {
 
     private void showGame(Config config, World world, PeerNetwork activeNetwork, PeerNetwork devAuthorityNetwork) {
         activeWorld = world;
+        soloSession = config.role() == NetworkRole.SOLO;
         gamePanel = new GamePanel(world, this, activeNetwork, config.devMode, devAuthorityNetwork);
         resourceCatalogOverlay = new ResourceCatalogOverlay(gamePanel, world);
         codexOverlay = new CodexOverlay(gamePanel);
         narrationSettingsOverlay = new NarrationSettingsOverlay();
-        if (config.role() == NetworkRole.SOLO) TutorialPreferenceVersion.ensureCurrent();
-        tutorialOverlay = new TutorialOverlay(world, config.role() == NetworkRole.SOLO);
+        if (soloSession) TutorialPreferenceVersion.ensureCurrent();
+        tutorialOverlay = new TutorialOverlay(world, soloSession);
+        inGameMenuOverlay = new InGameMenuOverlay(
+                soloSession,
+                soloSession,
+                this::closeInGameMenu,
+                this::startTutorialFromMenu,
+                this::restartTutorialFromMenu,
+                this::openNarrationFromMenu,
+                this::returnToLobbyFromMenu);
         installResourceCatalogHotkey(gamePanel);
         installCodexHotkey(gamePanel);
         installNarrationSettingsHotkey(gamePanel);
         installTutorialHotkey(gamePanel);
+        installGameMenuDispatcher();
         endStatePanel = new EndStatePanel(world, this, activeNetwork);
         connectionOverlayPanel = activeNetwork != null && activeNetwork.clientMode()
                 ? new ConnectionOverlayPanel(this, activeNetwork) : null;
@@ -141,15 +159,15 @@ final class GameFrame extends JFrame {
         root.add(narrationSettingsOverlay, JLayeredPane.POPUP_LAYER);
         root.add(codexOverlay, JLayeredPane.POPUP_LAYER);
         root.add(endStatePanel, JLayeredPane.MODAL_LAYER);
+        root.add(inGameMenuOverlay, JLayeredPane.DRAG_LAYER);
         if (connectionOverlayPanel != null) root.add(connectionOverlayPanel, JLayeredPane.DRAG_LAYER);
         if (!world.status.contains("Press I")) {
-            world.status = world.status + " Press I for catalog; F1 for codex; F8 for narration"
-                    + (config.role() == NetworkRole.SOLO
+            world.status = world.status + " Press I for catalog; F1 for codex; F8 for narration; ESC for menu"
+                    + (soloSession
                     ? "; F2 tutorial; F3 skip step; F4 skip section; F5 restart; F6 skip tutorial."
                     : ".");
         }
-        String scenario = config.role() == NetworkRole.SOLO
-                ? " - " + SkirmishRuntime.settings(world).displayLabel() : "";
+        String scenario = soloSession ? " - " + SkirmishRuntime.settings(world).displayLabel() : "";
         setTitle(BuildInfo.display() + " - " + config.modeLabel() + " - " + config.playerName
                 + " - " + world.systemName() + scenario + (config.devMode ? " - DEV" : ""));
         layoutLayers();
@@ -166,7 +184,7 @@ final class GameFrame extends JFrame {
                 .put(KeyStroke.getKeyStroke(KeyEvent.VK_I, 0, true), RESOURCE_CATALOG_ACTION);
         target.getActionMap().put(RESOURCE_CATALOG_ACTION, new AbstractAction() {
             @Override public void actionPerformed(ActionEvent e) {
-                if (resourceCatalogOverlay == null) return;
+                if (resourceCatalogOverlay == null || menuVisible()) return;
                 if (resourceCatalogOverlay.isSearchFocused()) return;
                 if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
                 if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) narrationSettingsOverlay.close();
@@ -180,7 +198,7 @@ final class GameFrame extends JFrame {
                 .put(KeyStroke.getKeyStroke(KeyEvent.VK_F1, 0), CODEX_ACTION);
         target.getActionMap().put(CODEX_ACTION, new AbstractAction() {
             @Override public void actionPerformed(ActionEvent e) {
-                if (codexOverlay == null) return;
+                if (codexOverlay == null || menuVisible()) return;
                 if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
                 if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) narrationSettingsOverlay.close();
                 codexOverlay.toggle();
@@ -193,7 +211,7 @@ final class GameFrame extends JFrame {
                 .put(KeyStroke.getKeyStroke(KeyEvent.VK_F8, 0), NARRATION_SETTINGS_ACTION);
         target.getActionMap().put(NARRATION_SETTINGS_ACTION, new AbstractAction() {
             @Override public void actionPerformed(ActionEvent e) {
-                if (narrationSettingsOverlay == null) return;
+                if (narrationSettingsOverlay == null || menuVisible()) return;
                 if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
                 if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
                 narrationSettingsOverlay.toggle();
@@ -206,15 +224,96 @@ final class GameFrame extends JFrame {
                 .put(KeyStroke.getKeyStroke(KeyEvent.VK_F2, 0), TUTORIAL_ACTION);
         target.getActionMap().put(TUTORIAL_ACTION, new AbstractAction() {
             @Override public void actionPerformed(ActionEvent e) {
-                if (tutorialOverlay != null) tutorialOverlay.toggle();
+                if (tutorialOverlay != null && !menuVisible()) tutorialOverlay.toggle();
             }
         });
     }
 
+    private void installGameMenuDispatcher() {
+        if (gameMenuDispatcherInstalled) return;
+        KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(gameMenuDispatcher);
+        gameMenuDispatcherInstalled = true;
+    }
+
+    private boolean dispatchGameMenuKey(KeyEvent event) {
+        if (gamePanel == null || event.getID() != KeyEvent.KEY_PRESSED
+                || event.getKeyCode() != KeyEvent.VK_ESCAPE
+                || event.isControlDown() || event.isAltDown() || event.isMetaDown()
+                || event.getSource() instanceof JTextComponent) return false;
+        if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) {
+            resourceCatalogOverlay.close();
+            return true;
+        }
+        if (codexOverlay != null && codexOverlay.isVisible()) {
+            codexOverlay.close();
+            return true;
+        }
+        if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) {
+            narrationSettingsOverlay.close();
+            return true;
+        }
+        if (menuVisible()) closeInGameMenu();
+        else openInGameMenu();
+        return true;
+    }
+
+    private boolean menuVisible() {
+        return inGameMenuOverlay != null && inGameMenuOverlay.isVisible();
+    }
+
+    private void openInGameMenu() {
+        if (inGameMenuOverlay == null || menuVisible()) return;
+        if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
+        if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
+        if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) narrationSettingsOverlay.close();
+        if (tutorialOverlay != null) tutorialOverlay.stop();
+        if (soloSession && gamePanel != null) {
+            gamePanel.stop();
+            soloPausedByMenu = true;
+        }
+        inGameMenuOverlay.open();
+    }
+
+    private void closeInGameMenu() {
+        if (inGameMenuOverlay == null || !menuVisible()) return;
+        inGameMenuOverlay.close();
+        if (soloPausedByMenu && gamePanel != null) {
+            gamePanel.start();
+            soloPausedByMenu = false;
+        }
+        if (tutorialOverlay != null) tutorialOverlay.start();
+        if (gamePanel != null) gamePanel.requestFocusInWindow();
+    }
+
+    private void startTutorialFromMenu() {
+        if (tutorialOverlay != null && !tutorialOverlay.active()) tutorialOverlay.toggle();
+        closeInGameMenu();
+    }
+
+    private void restartTutorialFromMenu() {
+        if (tutorialOverlay != null) tutorialOverlay.restartCurrentTrack();
+        closeInGameMenu();
+    }
+
+    private void openNarrationFromMenu() {
+        closeInGameMenu();
+        if (narrationSettingsOverlay != null) narrationSettingsOverlay.toggle();
+    }
+
+    private void returnToLobbyFromMenu() {
+        showLobby("Returned to the main menu.");
+    }
+
     private void stopActiveGame() {
         World stoppingWorld = activeWorld;
+        if (inGameMenuOverlay != null) inGameMenuOverlay.close();
+        soloPausedByMenu = false;
         if (gamePanel != null) gamePanel.stop();
         if (tutorialOverlay != null) tutorialOverlay.stop();
+        if (gameMenuDispatcherInstalled) {
+            KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(gameMenuDispatcher);
+            gameMenuDispatcherInstalled = false;
+        }
         WorldRuntimeCleanup.discard(stoppingWorld);
         if (resourceCatalogOverlay != null) resourceCatalogOverlay.setVisible(false);
         if (codexOverlay != null) codexOverlay.close();
@@ -229,11 +328,13 @@ final class GameFrame extends JFrame {
         codexOverlay = null;
         narrationSettingsOverlay = null;
         tutorialOverlay = null;
+        inGameMenuOverlay = null;
         endStatePanel = null;
         connectionOverlayPanel = null;
         network = null;
         networkTimer = null;
         activeWorld = null;
+        soloSession = false;
     }
 
     static void resetDeveloperSimulationState(World world) {
@@ -251,6 +352,7 @@ final class GameFrame extends JFrame {
         if (tutorialOverlay != null) tutorialOverlay.setBounds(0, 0, w, h);
         if (codexOverlay != null) codexOverlay.setBounds(0, 0, w, h);
         if (narrationSettingsOverlay != null) narrationSettingsOverlay.setBounds(0, 0, w, h);
+        if (inGameMenuOverlay != null) inGameMenuOverlay.setBounds(0, 0, w, h);
         if (endStatePanel != null) endStatePanel.setBounds(0, 0, w, h);
         if (connectionOverlayPanel != null) connectionOverlayPanel.setBounds(0, 0, w, h);
         int mw = Math.min(760, Math.max(560, w - 160));
