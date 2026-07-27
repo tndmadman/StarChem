@@ -63,6 +63,8 @@ final class LeaderboardHud {
         String progress = objective.progressLabel();
         if (objective.completed() && !objective.completedBy().isBlank()) {
             progress += " - " + objective.completedBy();
+        } else if (!objective.leader().isBlank() && objective.current() > 0) {
+            progress += " - Leader: " + objective.leader();
         }
         g2.setColor(objective.completed() ? new Color(150, 245, 180) : new Color(255, 220, 135));
         g2.drawString(progress, x + 12, y + 55);
