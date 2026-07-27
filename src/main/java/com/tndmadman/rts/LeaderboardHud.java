@@ -24,6 +24,7 @@ final class LeaderboardHud {
         if (rows.isEmpty()) {
             g2.setColor(new Color(220, 225, 185));
             g2.drawString("No active commanders", x + 16, y + 44);
+            drawObjective(g2, world, screenW, y + h + 8);
             return;
         }
         int line = y + 42;
@@ -38,6 +39,33 @@ final class LeaderboardHud {
             line += rowH;
             rank++;
         }
+        drawObjective(g2, world, screenW, y + h + 8);
+    }
+
+    private void drawObjective(Graphics2D g2, World world, int screenW, int y) {
+        ObjectiveView objective = ObjectiveSystem.view(world);
+        if (!objective.enabled()) return;
+        int w = 320;
+        int h = 62;
+        int x = Math.max(12, screenW - w - 14);
+        g2.setColor(new Color(0, 0, 0, 185));
+        g2.fillRoundRect(x, y, w, h, 12, 12);
+        g2.setColor(objective.completed()
+                ? new Color(105, 220, 145, 190)
+                : new Color(245, 190, 75, 180));
+        g2.drawRoundRect(x, y, w, h, 12, 12);
+        g2.setFont(g2.getFont().deriveFont(Font.BOLD, 12f));
+        g2.setColor(Color.WHITE);
+        g2.drawString("MATCH OBJECTIVE", x + 12, y + 19);
+        g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f));
+        g2.setColor(new Color(220, 238, 250));
+        g2.drawString(objective.description(), x + 12, y + 39);
+        String progress = objective.progressLabel();
+        if (objective.completed() && !objective.completedBy().isBlank()) {
+            progress += " - " + objective.completedBy();
+        }
+        g2.setColor(objective.completed() ? new Color(150, 245, 180) : new Color(255, 220, 135));
+        g2.drawString(progress, x + 12, y + 55);
     }
 
     private List<Row> rows(World world) {
