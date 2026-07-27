@@ -76,6 +76,15 @@ The equivalent direct Java command on either platform is:
 java -Djava.awt.headless=true -jar StarChem.jar --server 50000 --name StarChem-Server
 ```
 
+Choose a new world's scenario and NPC pressure with:
+
+```text
+--skirmish-preset peaceful|standard|hostile|sandbox
+--npc-difficulty relaxed|normal|hard|brutal
+```
+
+The graphical lobby applies these settings only to **SOLO**. A JOIN client receives the dedicated server's authoritative settings. Dedicated-server settings are captured in the save and remain unchanged on restart even if later launch arguments differ; use `--new-world` to intentionally create a different scenario.
+
 Open or forward the selected **TCP** port. Stop the server with `Ctrl+C` or a normal termination signal; the server closes its network transport before the process exits. It prints a status line at startup and every 60 seconds while running.
 
 ### Console commands

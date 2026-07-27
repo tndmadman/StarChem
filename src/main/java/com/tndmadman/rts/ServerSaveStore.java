@@ -188,7 +188,9 @@ final class ServerSaveStore {
             System.out.println("Loaded save migrated from format " + version + " to " + SAVE_FORMAT_VERSION + ": "
                     + String.join("; ", migrated.notes()));
         }
-        World world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId, false);
+        SkirmishSettings skirmish = SkirmishSettings.fromSaved(manifest.get("skirmish"), config.skirmishSettings);
+        World world = new World(config.playerName, skirmish.disabledNpcFactionIds(), config.systemId, false);
+        SkirmishRuntime.bind(world, skirmish);
         PlayerRegistry.activate(world);
         restorePlayers(players);
         loadedPlayerSessions = restorePlayerSessions(players.get("sessions"));
@@ -227,6 +229,7 @@ final class ServerSaveStore {
         manifest.put("rulesVersion", descriptor.rulesVersion());
         manifest.put("configurationFingerprint", descriptor.configHash());
         manifest.put("archiveKind", "server-state");
+        manifest.put("skirmish", SkirmishRuntime.settings(world).saveMap());
         save.put("manifest", manifest);
 
         Map<String,Object> players = new LinkedHashMap<>();

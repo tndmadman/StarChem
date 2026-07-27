@@ -77,6 +77,7 @@ final class GameFrame extends JFrame {
         }
         stopActiveGame();
         World world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId, config.role() == NetworkRole.SOLO);
+        SkirmishRuntime.bind(world, config.skirmishSettings);
         DevTimerSettings.configure(world, config.disableProductionTimers);
         try {
             network = PeerNetwork.start(config, world);
@@ -136,7 +137,10 @@ final class GameFrame extends JFrame {
         root.add(endStatePanel, JLayeredPane.MODAL_LAYER);
         if (connectionOverlayPanel != null) root.add(connectionOverlayPanel, JLayeredPane.DRAG_LAYER);
         if (!world.status.contains("Press I")) world.status = world.status + " Press I for catalog; F1 for codex; F8 for narration.";
-        setTitle(BuildInfo.display() + " - " + config.modeLabel() + " - " + config.playerName + " - " + world.systemName() + (config.devMode ? " - DEV" : ""));
+        String scenario = config.role() == NetworkRole.SOLO
+                ? " - " + SkirmishRuntime.settings(world).displayLabel() : "";
+        setTitle(BuildInfo.display() + " - " + config.modeLabel() + " - " + config.playerName
+                + " - " + world.systemName() + scenario + (config.devMode ? " - DEV" : ""));
         layoutLayers();
         root.revalidate();
         root.repaint();

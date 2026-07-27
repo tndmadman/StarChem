@@ -14,6 +14,8 @@ final class LobbyPanel extends JPanel {
     private final JTextField portField = new JTextField("50000", 8);
     private final JComboBox<StarSystemDefinition> systemBox = new JComboBox<>();
     private final JComboBox<Integer> galaxyCopiesBox = new JComboBox<>(new Integer[]{1, 2});
+    private final JComboBox<SkirmishPreset> skirmishPresetBox = new JComboBox<>(SkirmishPreset.values());
+    private final JComboBox<NpcDifficulty> npcDifficultyBox = new JComboBox<>(NpcDifficulty.values());
     private final JCheckBox devBox = new JCheckBox("Dev mode");
     private final JCheckBox spawnRaidersBox = new JCheckBox("Raiders", true);
     private final JCheckBox spawnFreeMinersBox = new JCheckBox("Free Miners", true);
@@ -30,11 +32,15 @@ final class LobbyPanel extends JPanel {
         styleField(portField);
         styleCombo(systemBox);
         styleCombo(galaxyCopiesBox);
+        styleCombo(skirmishPresetBox);
+        styleCombo(npcDifficultyBox);
         for (StarSystemDefinition system : StarSystems.options()) systemBox.addItem(system);
         styleCheck(devBox);
         styleCheck(spawnRaidersBox);
         styleCheck(spawnFreeMinersBox);
         styleCheck(spawnCorsairsBox);
+        skirmishPresetBox.addActionListener(e -> applyPresetDefaults());
+        applyPresetDefaults();
 
         JLabel title = new JLabel("STAR  CHEM");
         title.setForeground(new Color(230, 248, 255));
@@ -57,10 +63,14 @@ final class LobbyPanel extends JPanel {
         box.add(portField);
         box.add(label("JOIN accounts"));
         box.add(help("Remote: sign in to an existing commander. Local: an unused name creates one."));
-        box.add(label("Starting home"));
+        box.add(label("Solo starting home"));
         box.add(systemBox);
-        box.add(label("Copies per system"));
+        box.add(label("Solo galaxy copies"));
         box.add(galaxyCopiesBox);
+        box.add(label("Solo skirmish preset"));
+        box.add(skirmishPresetBox);
+        box.add(label("Solo NPC difficulty"));
+        box.add(npcDifficultyBox);
         box.add(label("Options"));
         box.add(devBox);
         box.add(label("NPC Spawns"));
@@ -88,7 +98,8 @@ final class LobbyPanel extends JPanel {
         card.add(box, BorderLayout.CENTER);
         add(card, BorderLayout.CENTER);
 
-        solo.addActionListener(e -> owner.launchGame(Config.solo(nameField.getText(), devBox.isSelected(), disabledNpcFactions(), selectedSystemId(), selectedGalaxyCopies())));
+        solo.addActionListener(e -> owner.launchGame(Config.solo(nameField.getText(), devBox.isSelected(),
+                selectedSkirmishSettings(), selectedSystemId(), selectedGalaxyCopies())));
         connect.addActionListener(e -> startClient());
         codex.addActionListener(e -> owner.toggleCodexFromLobby());
         clearSignIns.addActionListener(e -> clearSavedSignIns());
@@ -139,6 +150,23 @@ final class LobbyPanel extends JPanel {
         return selected instanceof Integer copies ? copies : 1;
     }
 
+    private SkirmishSettings selectedSkirmishSettings() {
+        Object selectedPreset = skirmishPresetBox.getSelectedItem();
+        Object selectedDifficulty = npcDifficultyBox.getSelectedItem();
+        SkirmishPreset preset = selectedPreset instanceof SkirmishPreset value ? value : SkirmishPreset.STANDARD;
+        NpcDifficulty difficulty = selectedDifficulty instanceof NpcDifficulty value ? value : NpcDifficulty.NORMAL;
+        return new SkirmishSettings(preset, difficulty, disabledNpcFactions());
+    }
+
+    private void applyPresetDefaults() {
+        Object selected = skirmishPresetBox.getSelectedItem();
+        SkirmishPreset preset = selected instanceof SkirmishPreset value ? value : SkirmishPreset.STANDARD;
+        Set<String> disabled = preset.defaultDisabledFactionIds();
+        spawnRaidersBox.setSelected(!disabled.contains(Config.RAIDERS_ID));
+        spawnFreeMinersBox.setSelected(!disabled.contains(Config.FREE_MINERS_ID));
+        spawnCorsairsBox.setSelected(!disabled.contains(Config.CORSAIRS_ID));
+    }
+
     private Set<String> disabledNpcFactions() {
         Set<String> disabled = new LinkedHashSet<>();
         if (!spawnRaidersBox.isSelected()) disabled.add(Config.RAIDERS_ID);
@@ -149,7 +177,8 @@ final class LobbyPanel extends JPanel {
 
     private void startClient() {
         try {
-            Config config = Config.join(nameField.getText(), addressField.getText().trim(), Config.parsePort(portField.getText()), devBox.isSelected(), disabledNpcFactions(), selectedSystemId(), selectedGalaxyCopies());
+            Config config = Config.join(nameField.getText(), addressField.getText().trim(),
+                    Config.parsePort(portField.getText()), devBox.isSelected());
             if (!ensurePlayerPassword(config)) return;
             owner.launchGame(config);
         }

@@ -66,6 +66,8 @@ public final class App {
         System.out.println("  --name NAME             Player or server name");
         System.out.println("  --system SYSTEM_ID      Initial star-system template");
         System.out.println("  --galaxy-copies 1|2     Number of copies per galaxy template");
+        System.out.println("  --skirmish-preset ID    peaceful, standard, hostile, or sandbox");
+        System.out.println("  --npc-difficulty ID     relaxed, normal, hard, or brutal");
         System.out.println("  --save-dir DIR          Dedicated-server save directory (default: saves)");
         System.out.println("  --save-name NAME        Dedicated-server save name (default: server)");
         System.out.println("  --autosave-seconds N    Dedicated-server autosave interval; 0 disables autosave");

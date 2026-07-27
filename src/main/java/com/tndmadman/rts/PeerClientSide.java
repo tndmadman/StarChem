@@ -78,6 +78,7 @@ final class PeerClientSide {
             case FAILED -> "failed";
         };
         return "CLIENT " + label + " -> " + config.serverAddress + " | " + world.activeSystemId()
+                + " | " + SkirmishRuntime.settings(world).statusLabel()
                 + " | queued " + transport.queuedCount() + (devApproved ? " | dev" : "");
     }
 
@@ -224,7 +225,8 @@ final class PeerClientSide {
         if (!fromConfiguredServer(packet)) return;
         PlayerRegistry.activate(world);
         lastServerPacket = System.currentTimeMillis();
-        if (readGalaxy(message) || readLeaderboard(message) || readDevStatus(message) || readViewDenied(message)) return;
+        if (readWorldInfo(message) || readGalaxy(message) || readLeaderboard(message)
+                || readDevStatus(message) || readViewDenied(message)) return;
         if (!readAuthRequired(message) && !readAuthChallenge(message) && !readSessionChallenge(message)
                 && !readJoinDenied(message) && !readSessionBusy(message) && !readSessionDenied(message)
                 && !readSystemDelete(message)) ClientPackets.handle(this, message);
@@ -414,6 +416,16 @@ final class PeerClientSide {
         lastServerPacket = now;
         lastPing = now;
         world.status = (resumed ? "Reconnected " : "Joined ") + world.activeSystemId() + " as " + playerName + devStatus(devApproved);
+    }
+
+    private boolean readWorldInfo(String message) {
+        if (message == null || !message.startsWith("WORLDINFO|")) return false;
+        try {
+            SkirmishRuntime.bind(world, SkirmishSettings.fromPacket(message));
+        } catch (IllegalArgumentException ex) {
+            failConnection("Server sent invalid skirmish settings.");
+        }
+        return true;
     }
 
     private boolean readGalaxy(String message) {

@@ -52,7 +52,8 @@ final class PeerServerSide {
         String result = "HOST " + world.systemName() + " TCP " + transport.localPort()
                 + " | clients " + peers.size() + " | retained " + retained + " | queued " + transport.queuedCount()
                 + " | " + systemScheduler.statusLine();
-        return result + (config.devMode ? " | dev host" : "");
+        return result + " | " + SkirmishRuntime.settings(world).statusLabel()
+                + (config.devMode ? " | dev host" : "");
     }
 
     void updateWorlds(double dt) {
@@ -109,6 +110,8 @@ final class PeerServerSide {
     }
 
     void sendInitial(ServerPeer peer) {
+        if (peer == null) return;
+        transport.sendOrdered(SkirmishRuntime.settings(world).packet(), peer.connectionId());
         sequence = PeerSyncBatch.sendInitial(world, views, peer, sequence, transport::send);
         sendLeaderboard(peer);
         sendGalaxy(peer);
