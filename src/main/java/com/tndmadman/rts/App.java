@@ -113,10 +113,10 @@ public final class App {
             }, "starchem-server-shutdown");
             Runtime.getRuntime().addShutdownHook(shutdownHook);
 
-            System.out.println("Dedicated server ready.");
             System.out.println(activeServer.statusLine());
             activeServer.attachConsole(ServerConsole.start(System.in, System.err));
             System.out.println("Type 'help' for dedicated server commands.");
+            System.out.println("Dedicated server ready.");
 
             long nextTick = System.nanoTime();
             long nextStatus = nextTick + SERVER_STATUS_NANOS;
