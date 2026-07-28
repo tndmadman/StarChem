@@ -69,6 +69,8 @@ final class RadarTowerRules {
     }
 
     private static Map<String, RadarTowerTier> load() {
+        // Normal games load ships from JSON, but this also removes the old emergency fallback Scout hull.
+        Rules.SHIPS.remove("scout");
         Path stations = stationConfigPath();
         if (!Files.exists(stations)) throw new RuleConfigurationException("Missing station configuration: " + stations);
         try {
