@@ -31,17 +31,17 @@ public final class TcpRemoteSystemVisibilityValidator {
             viewer.network().viewSystem(viewerId, target);
             TcpIntegrationHarness.require(source.equals(viewer.world().activeSystemId()),
                     "client switched systems optimistically before server approval");
+            harness.await(() -> !viewer.network().clientViewSwitchPending(), 5_000,
+                    "unknown remote system view request was not resolved");
+            TcpIntegrationHarness.require(source.equals(viewer.world().activeSystemId()),
+                    "guessed unknown system view was not denied");
+
+            seedViewerScoutNearOwner(harness.serverWorld, target, viewerId, ownerId);
+            viewer.network().viewSystem(viewerId, target);
             harness.await(() -> !viewer.network().clientViewSwitchPending()
                             && target.equals(viewer.network().clientViewedSystemId())
                             && target.equals(viewer.world().activeSystemId()),
-                    12_000, "client did not settle on the server-approved remote system view");
-
-            TcpIntegrationHarness.require(viewer.world().units.values().stream().noneMatch(unit -> ownerId.equals(unit.playerId)),
-                    "remote system leaked an enemy ship without friendly sensor coverage");
-            TcpIntegrationHarness.require(viewer.world().bases.values().stream().noneMatch(base -> ownerId.equals(base.playerId)),
-                    "remote system leaked an enemy station without friendly sensor coverage");
-
-            seedViewerScoutNearOwner(harness.serverWorld, target, viewerId, ownerId);
+                    12_000, "owned scout system did not become viewable");
             harness.await(() -> viewer.world().units.values().stream().anyMatch(unit -> ownerId.equals(unit.playerId))
                             && viewer.world().bases.values().stream().anyMatch(base -> ownerId.equals(base.playerId)),
                     12_000, "remote enemy assets did not appear after a friendly scout established sensor coverage");
