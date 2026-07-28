@@ -14,6 +14,9 @@
         "station_builder"
       ],
       "canBuildStationPackages": [
+        "radar_picket",
+        "radar_array",
+        "radar_nexus",
         "shipyard",
         "laboratory",
         "manufacturing"
@@ -107,6 +110,81 @@
         "ALUMINUM": 120,
         "NICKEL": 80,
         "CARBON": 80
+      },
+      "packedVolume": 1,
+      "mustBeCarriedByShipType": "station_builder",
+      "carrierIsRemovedAfterPlacement": true,
+      "canBuildShips": [],
+      "canBuildStationPackages": []
+    },
+    "radar_picket": {
+      "displayName": "Radar Picket I",
+      "maxHp": 650,
+      "maxShield": 450,
+      "shieldRegen": 7.0,
+      "shieldRegenDelay": 4.5,
+      "unloadRange": 85,
+      "unloadRate": 50,
+      "buildRadius": 58,
+      "sensorRange": 1500,
+      "buildTimeSeconds": 14,
+      "buildCost": {
+        "IRON": 110,
+        "COPPER": 70,
+        "SILICATES": 60,
+        "ICE": 20
+      },
+      "packedVolume": 1,
+      "mustBeCarriedByShipType": "station_builder",
+      "carrierIsRemovedAfterPlacement": true,
+      "canBuildShips": [],
+      "canBuildStationPackages": []
+    },
+    "radar_array": {
+      "displayName": "Radar Array II",
+      "maxHp": 1100,
+      "maxShield": 900,
+      "shieldRegen": 11.0,
+      "shieldRegenDelay": 5.0,
+      "unloadRange": 100,
+      "unloadRate": 70,
+      "buildRadius": 66,
+      "sensorRange": 2800,
+      "buildTimeSeconds": 32,
+      "buildCost": {
+        "STRUCTURAL_FRAME": 8,
+        "STEEL_PLATE": 12,
+        "PRINTED_CIRCUIT_BOARD": 6,
+        "SENSOR_ARRAY": 6,
+        "POWER_REGULATOR": 4,
+        "WATER_COOLANT": 4
+      },
+      "packedVolume": 1,
+      "mustBeCarriedByShipType": "station_builder",
+      "carrierIsRemovedAfterPlacement": true,
+      "canBuildShips": [],
+      "canBuildStationPackages": []
+    },
+    "radar_nexus": {
+      "displayName": "Radar Nexus III",
+      "maxHp": 1800,
+      "maxShield": 1600,
+      "shieldRegen": 18.0,
+      "shieldRegenDelay": 5.5,
+      "unloadRange": 120,
+      "unloadRate": 90,
+      "buildRadius": 78,
+      "sensorRange": 4800,
+      "buildTimeSeconds": 60,
+      "buildCost": {
+        "STRUCTURAL_FRAME": 20,
+        "TITANIUM_ALLOY": 14,
+        "SENSOR_ARRAY": 18,
+        "TARGETING_COMPUTER": 8,
+        "POWER_REGULATOR": 10,
+        "SHIELD_GENERATOR": 4,
+        "FUSION_REACTOR": 1,
+        "RADIATION_SHIELDING": 8
       },
       "packedVolume": 1,
       "mustBeCarriedByShipType": "station_builder",
