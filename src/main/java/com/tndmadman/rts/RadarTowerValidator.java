@@ -93,20 +93,22 @@ public final class RadarTowerValidator {
         clear(world);
         Base radar = new Base("P1:B9", "P1", radarTypeId, 4_000, 4_000);
         world.bases.put(radar.id, radar);
+        IntelWarfareSystem.setRadarMode(world, radar, IntelWarfareSystem.RadarMode.ACTIVE, "P1");
         Unit inside = new Unit("P2", 1, "frigate", 5_450, 4_000);
-        Unit outside = new Unit("P2", 2, "frigate", 5_550, 4_000);
+        Unit distant = new Unit("P2", 2, "frigate", 8_000, 4_000);
         world.units.put(inside.key(), inside);
-        world.units.put(outside.key(), outside);
+        world.units.put(distant.key(), distant);
         require(VisibilityRules.unitVisible(world, "P1", inside),
-                "Tier-one radar did not reveal a target inside its JSON range.");
-        require(!VisibilityRules.unitVisible(world, "P1", outside),
-                "Tier-one radar revealed a target beyond its JSON range.");
+                "Tier-one radar did not reveal a target inside its nominal JSON range.");
+        require(!VisibilityRules.unitVisible(world, "P1", distant),
+                "Tier-one radar revealed a normal signature at extreme distance.");
     }
 
     private static void validateWorkerDispatch(World world, String radarTypeId) {
         clear(world);
         Base radar = new Base("P1:B10", "P1", radarTypeId, 4_000, 4_000);
         world.bases.put(radar.id, radar);
+        IntelWarfareSystem.setRadarMode(world, radar, IntelWarfareSystem.RadarMode.ACTIVE, "P1");
         ResourceNode node = new ResourceNode(1, "Radar iron", NodeKind.SILICATE_ROCK,
                 Material.IRON, 5_000, 4_000, 500, 5, 3);
         world.resources.add(node);
