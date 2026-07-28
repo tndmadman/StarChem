@@ -105,18 +105,20 @@ final class ClientViewCache {
         Set<String> known = knownSystems(playerId);
         known.add(viewed);
         Map<String, GalaxyMapSystem> observed = observedSystems(playerId);
+        boolean viewingWithSensors = playerHasAssetsInSystem(world, playerId, viewed);
 
         List<GalaxyMapSystem> systems = new ArrayList<>();
         Set<String> included = new LinkedHashSet<>();
         for (GalaxyMapSystem current : authoritative.systems()) {
             if (current == null || !known.contains(current.id())) continue;
+            boolean active = current.id().equals(viewed);
             GalaxyMapSystem projected;
-            if (current.id().equals(viewed)) {
+            if (active && viewingWithSensors) {
                 observed.put(current.id(), current);
                 projected = withActive(current, true);
             } else {
                 GalaxyMapSystem lastObserved = observed.get(current.id());
-                projected = withActive(lastObserved == null ? undiscoveredDetails(current) : lastObserved, false);
+                projected = withActive(lastObserved == null ? undiscoveredDetails(current) : lastObserved, active);
             }
             systems.add(projected);
             included.add(projected.id());
@@ -152,6 +154,9 @@ final class ClientViewCache {
         String active = world.activeSystemId();
         if (active == null || active.isBlank() || active.contains("WAIT")) return;
         knownSystems(playerId).add(active);
+        VisibilityRules.Frame visibility = VisibilityRules.frame(world, playerId);
+        if (visibility.sensors().isEmpty()) return;
+
         GalaxyMapSnapshot authoritative = world.authoritativeGalaxyMapSnapshot();
         if (authoritative != null && authoritative.systems() != null) {
             for (GalaxyMapSystem system : authoritative.systems()) {
@@ -162,7 +167,10 @@ final class ClientViewCache {
             }
         }
         for (WormholeGate gate : world.wormholes) {
-            if (gate != null && gate.toSystemId != null && !gate.toSystemId.isBlank()) knownSystems(playerId).add(gate.toSystemId);
+            if (gate != null && gate.toSystemId != null && !gate.toSystemId.isBlank()
+                    && visibility.pointVisible(gate.x, gate.y)) {
+                knownSystems(playerId).add(gate.toSystemId);
+            }
         }
     }
 
