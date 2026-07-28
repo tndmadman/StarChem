@@ -35,8 +35,13 @@ final class UnitRenderer {
             g2.drawOval((int)unit.x - 26, (int)unit.y - 26, 52, 52);
             drawCargo(g2, unit);
         }
-        if (owner && unit.type().scoutRange > 0 && shouldDrawScoutCircle(unit)) drawRangeCircle(g2, unit, playerColor, unit.type().scoutRange);
+        World world = PlayerRegistry.activeWorld();
+        if (owner && unit.type().scoutRange > 0 && shouldDrawScoutCircle(unit)) {
+            double range = world == null ? unit.type().scoutRange : VisibilityRules.unitSensorRange(world, unit);
+            drawRangeCircle(g2, unit, playerColor, range);
+        }
         if (owner && shouldDrawTractorCircle(unit)) drawRangeCircle(g2, unit, playerColor, unit.type().tractorRange);
+        if (world != null && lastRenderedUnit(world, unit)) FogOfWarView.drawWorld(g2, world);
     }
 
     static void drawRoute(Graphics2D g2, Unit unit, Color ignoredColor) {
@@ -57,6 +62,12 @@ final class UnitRenderer {
         b.setColor(new Color(m.getRed(), m.getGreen(), m.getBlue(), 150));
         b.draw(new Line2D.Double(unit.x, unit.y, node.x, node.y));
         b.dispose();
+    }
+
+    private static boolean lastRenderedUnit(World world, Unit unit) {
+        Unit last = null;
+        for (Unit candidate : world.units.values()) last = candidate;
+        return last == unit;
     }
 
     private static boolean shouldDrawScoutCircle(Unit unit) {
