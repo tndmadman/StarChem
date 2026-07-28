@@ -8,6 +8,7 @@ final class WorldNetAccess {
     private WorldNetAccess() { }
 
     static Snapshot snapshot(World world, long sequence) {
+        ObjectiveSystem.evaluateAuthoritative(world, 0);
         List<PlayerInfo> players = new ArrayList<>();
         boolean includeSolo = hasWorldAssets(world, "SOLO");
         for (PlayerInfo player : PlayerRegistry.snapshotPlayers()) {
@@ -25,7 +26,8 @@ final class WorldNetAccess {
         for (WorldItem item : world.items) items.add(new ItemState(item.id, item.material.name(), item.amount, item.x, item.y, item.vx, item.vy, item.angle, item.spin));
         List<ResearchState> research = researchSnapshot(world);
         return new Snapshot(sequence, players, units, resources, bases, stocks, shots, items,
-                CelestialPacketCache.pack(world.activeSystemId()), world.systemTime(), research);
+                CelestialPacketCache.pack(world.activeSystemId()), world.systemTime(), "", research,
+                ObjectiveSystem.state(world));
     }
 
     static boolean hasPlayerAssets(Snapshot snapshot, String playerId) {
@@ -57,6 +59,7 @@ final class WorldNetAccess {
                               boolean replaceResources, boolean resetView, boolean forceEnvironmentCorrection,
                               boolean forceLocalAuthority) {
         SnapshotValidator.validate(snapshot);
+        ObjectiveSystem.applyNetworkState(world, snapshot.objective());
         String local = PlayerRegistry.localId();
         String snapSystem = snapshotSystemId(snapshot);
         boolean snapshotHasLocalAssets = hasPlayerAssets(snapshot, local);
@@ -250,7 +253,7 @@ final class WorldNetAccess {
         world.bases.values().removeIf(base -> base.playerId.equals(playerId));
         world.shots.removeIf(shot -> shot.ownerId.equals(playerId));
         int salt = Math.max(5, world.units.size() + world.bases.size() + (int)Math.round(world.systemTime()));
-        world.spawnPlayerGroup(playerId, separatedSlot(playerId, slot(playerId) + salt));
+        world.spawnPlayerGroup(playerId, separatedSlot(playerId, slot(playerId)));
     }
 
     private static boolean realPlayerId(String id) { return id != null && !id.isBlank() && !"WAIT".equals(id) && !"SOLO".equals(id) && !NpcRules.isNpcFaction(id); }

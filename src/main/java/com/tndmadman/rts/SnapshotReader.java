@@ -31,7 +31,9 @@ final class SnapshotReader {
         boolean current = p.length > 0 && "SNAPSHOT".equals(p[0]);
         boolean legacy = p.length > 0 && "SNAP".equals(p[0]);
         if (!current && !legacy) throw error("snapshot", 0, "header", "expected SNAPSHOT");
-        if (current && p.length != 12) throw error("snapshot", 0, "sections", "expected 12 sections but found " + p.length);
+        if (current && p.length != 12 && p.length != 13) {
+            throw error("snapshot", 0, "sections", "expected 12 or 13 sections but found " + p.length);
+        }
         if (legacy && (p.length < 4 || p.length > 11)) {
             throw error("snapshot", 0, "sections", "legacy frame must contain 4-11 sections");
         }
@@ -45,6 +47,7 @@ final class SnapshotReader {
         List<ShotState> shots = SnapshotReader2.shots(p);
         List<ItemState> items = SnapshotReader2.items(p);
         List<ResearchState> research = SnapshotReader2.research(p);
+        ObjectiveState objective = SnapshotReader2.objective(p);
 
         String systemId = "";
         double systemTime = -1;
@@ -61,7 +64,7 @@ final class SnapshotReader {
 
         Snapshot snapshot = new Snapshot(sequence, List.copyOf(players), List.copyOf(units), List.copyOf(resources),
                 List.copyOf(bases), List.copyOf(stocks), List.copyOf(shots), List.copyOf(items), systemId, systemTime,
-                List.copyOf(research));
+                "", List.copyOf(research), objective);
         SnapshotValidator.validate(snapshot);
         return snapshot;
     }
@@ -109,7 +112,7 @@ final class SnapshotReader {
             int resourceId = integer(c[9], -1, Integer.MAX_VALUE, "units", rowIndex, "resource ID");
             String packageType = text(CargoCodec.unsafed(c[10]), 128, "units", rowIndex, "station package type");
             if (!packageType.isBlank() && Rules.findBase(packageType) == null) {
-                throw error("units", rowIndex, "station package type", "unknown value " + printable(packageType));
+                throw error("units", rowIndex, "station package type ID", "unknown value " + printable(packageType));
             }
             String cargo = CargoCodec.unsafed(c[11]);
             validateCargo(cargo, "units", rowIndex, "cargo");

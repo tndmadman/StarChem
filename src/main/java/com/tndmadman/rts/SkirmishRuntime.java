@@ -15,13 +15,17 @@ final class SkirmishRuntime {
         if (world == null) return;
         SkirmishSettings normalized = settings == null ? SkirmishSettings.standard() : settings;
         BY_WORLD.put(world, new State(normalized, normalized.resolve(NpcRules.baseFactions())));
+        ObjectiveSystem.reconfigure(world, normalized);
         ACTIVE_WORLD.set(world);
     }
 
     static void activate(World world) {
         ACTIVE_WORLD.set(world);
-        if (world != null) BY_WORLD.computeIfAbsent(world,
-                ignored -> new State(SkirmishSettings.standard(), NpcRules.baseFactions()));
+        if (world != null) {
+            BY_WORLD.computeIfAbsent(world,
+                    ignored -> new State(SkirmishSettings.standard(), NpcRules.baseFactions()));
+            ObjectiveSystem.state(world);
+        }
     }
 
     static SkirmishSettings settings(World world) {
