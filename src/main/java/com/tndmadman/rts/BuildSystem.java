@@ -42,8 +42,8 @@ final class BuildSystem {
             return false;
         }
         boolean free = freeBuild(world, base);
-        if (!free && !RadarTowerRules.unlocked(world, base.playerId, packageType)) {
-            String research = RadarTowerRules.requiredResearchName(packageType);
+        if (!free && !StationPackageResearchRules.unlocked(world, base.playerId, packageType)) {
+            String research = StationPackageResearchRules.requiredResearchName(packageType);
             world.status = pkg.name + " requires research" + (research.isBlank() ? "." : ": " + research + ".");
             GameNoticeCenter.publish(world, base.playerId, NoticeCategory.WARNING, world.status, true);
             return false;
