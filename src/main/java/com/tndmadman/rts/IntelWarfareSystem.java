@@ -5,7 +5,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -14,11 +13,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
 
-/**
- * Authoritative information-warfare rules shared by fog, snapshots, AI, radar automation, and UI.
- * The system intentionally keeps exact entities server-side until the observing player has enough
- * signal quality to identify them.
- */
+/** Authoritative information warfare shared by fog, snapshots, AI, radar automation, and UI. */
 final class IntelWarfareSystem {
     static final String CONTACT_SMALL = "sensor_contact_small";
     static final String CONTACT_MEDIUM = "sensor_contact_medium";
@@ -79,39 +74,42 @@ final class IntelWarfareSystem {
                        boolean decoySuspected) { }
 
     static void update(World world, double dt) {
-        if (world == null || dt <= 0) return;
-        RuntimeState state = state(world);
-        state.responseTimer -= dt;
-        updateMemory(world, state);
-        if (state.responseTimer <= 0) {
-            state.responseTimer = RESPONSE_INTERVAL;
-            dispatchRadarResponses(world, state);
-            investigateLastKnownContacts(world, state);
+        if (world == null || !Double.isFinite(dt) || dt <= 0) return;
+        SystemRuntime runtime = systemRuntime(world);
+        runtime.responseTimer -= dt;
+        updateMemory(world, runtime);
+        if (runtime.responseTimer <= 0) {
+            runtime.responseTimer = RESPONSE_INTERVAL;
+            dispatchRadarResponses(world);
+            investigateLastKnownContacts(world, runtime);
         }
-        prune(world, state);
+        prune(world, runtime);
     }
 
-    static boolean isRadar(String typeId) { return rule(typeId).role.equals("radar"); }
-    static boolean isJammer(String typeId) { return rule(typeId).role.equals("jammer"); }
-    static boolean isDecoy(String typeId) { return rule(typeId).role.equals("decoy"); }
+    static boolean isRadar(String typeId) { return "radar".equals(rule(typeId).role); }
+    static boolean isJammer(String typeId) { return "jammer".equals(rule(typeId).role); }
+    static boolean isDecoy(String typeId) { return "decoy".equals(rule(typeId).role); }
     static int radarTier(String typeId) { return Math.max(0, rule(typeId).tier); }
     static int dispatchLimit(String typeId) { return Math.max(0, rule(typeId).resourceDispatchLimit); }
     static int surveyPower(String typeId) { return Math.max(0, rule(typeId).surveyPower); }
 
     static RadarMode radarMode(World world, Base radar) {
         if (world == null || radar == null || !isRadar(radar.typeId)) return RadarMode.ACTIVE;
-        RuntimeState state = state(world);
-        return state.radarModes.computeIfAbsent(radar.id, ignored -> defaultMode(rule(radar.typeId).defaultMode));
+        SystemRuntime runtime = systemRuntime(world);
+        return runtime.radarModes.computeIfAbsent(radar.id,
+                ignored -> defaultMode(rule(radar.typeId).defaultMode));
+    }
+
+    static boolean setRadarMode(World world, Base radar, RadarMode mode, String actorId) {
+        if (world == null || radar == null || mode == null || !isRadar(radar.typeId)
+                || actorId == null || !actorId.equals(radar.playerId)) return false;
+        systemRuntime(world).radarModes.put(radar.id, mode);
+        world.status = radar.type().name + " switched to " + mode.name().toLowerCase(Locale.ROOT) + " scan mode.";
+        return true;
     }
 
     static boolean cycleRadarMode(World world, Base radar, String actorId) {
-        if (world == null || radar == null || !isRadar(radar.typeId) || actorId == null
-                || !actorId.equals(radar.playerId)) return false;
-        RuntimeState state = state(world);
-        RadarMode next = radarMode(world, radar).next();
-        state.radarModes.put(radar.id, next);
-        world.status = radar.type().name + " switched to " + next.name().toLowerCase(Locale.ROOT) + " scan mode.";
-        return true;
+        return setRadarMode(world, radar, radarMode(world, radar).next(), actorId);
     }
 
     static void setIntelAlliance(World world, String firstPlayerId, String secondPlayerId, boolean shared) {
@@ -176,7 +174,8 @@ final class IntelWarfareSystem {
         DetectionStage best = pointVisible(world, viewerId, node.x, node.y)
                 ? DetectionStage.CONTACT : DetectionStage.NONE;
         for (Base base : world.bases.values()) {
-            if (base == null || base.hp <= 0 || !allied(world, viewerId, base.playerId) || !isRadar(base.typeId)) continue;
+            if (base == null || base.hp <= 0 || !allied(world, viewerId, base.playerId)
+                    || !isRadar(base.typeId)) continue;
             double range = baseSensorRange(world, base);
             double distance = Calc.distance(base.x, base.y, node.x, node.y);
             if (distance > range) continue;
@@ -215,8 +214,7 @@ final class IntelWarfareSystem {
     }
 
     static String contactShipType(Unit target, DetectionStage stage) {
-        if (stage == DetectionStage.CONTACT) return CONTACT_MEDIUM;
-        if (target == null) return CONTACT_MEDIUM;
+        if (stage == DetectionStage.CONTACT || target == null) return CONTACT_MEDIUM;
         double size = target.type().size.scale;
         if (size <= 1.15) return CONTACT_SMALL;
         if (size >= 2.6) return CONTACT_LARGE;
@@ -239,13 +237,13 @@ final class IntelWarfareSystem {
             case DETAILED -> 12;
             default -> 260;
         };
-        return Math.min(900, base + Math.max(0, ageSeconds) * (stage.atLeast(DetectionStage.IDENTIFIED) ? 18 : 28));
+        return Math.min(900, base + Math.max(0, ageSeconds)
+                * (stage.atLeast(DetectionStage.IDENTIFIED) ? 18 : 28));
     }
 
     static List<IntelMemory> memories(World world, String viewerId) {
-        RuntimeState state = STATES.get(world);
-        if (state == null || invalid(viewerId)) return List.of();
-        Map<String, IntelMemory> memory = state.memoryByViewer.get(viewerId);
+        if (world == null || invalid(viewerId)) return List.of();
+        Map<String, IntelMemory> memory = systemRuntime(world).memoryByViewer.get(viewerId);
         if (memory == null || memory.isEmpty()) return List.of();
         List<IntelMemory> out = new ArrayList<>(memory.values());
         out.sort(Comparator.comparingDouble(IntelMemory::lastSeenTime).reversed());
@@ -296,11 +294,13 @@ final class IntelWarfareSystem {
         return signature;
     }
 
-    private static double sensorJammingMultiplier(World world, String sensorOwner, double x, double y, double counterJam) {
+    private static double sensorJammingMultiplier(World world, String sensorOwner, double x, double y,
+                                                  double counterJam) {
         if (world == null) return 1.0;
         double jam = 0;
         for (Base jammer : world.bases.values()) {
-            if (jammer == null || jammer.hp <= 0 || allied(world, sensorOwner, jammer.playerId) || !isJammer(jammer.typeId)) continue;
+            if (jammer == null || jammer.hp <= 0 || allied(world, sensorOwner, jammer.playerId)
+                    || !isJammer(jammer.typeId)) continue;
             StructureIntelRule rule = rule(jammer.typeId);
             double distance = Calc.distance(x, y, jammer.x, jammer.y);
             if (rule.jamRange <= 0 || distance > rule.jamRange) continue;
@@ -311,20 +311,22 @@ final class IntelWarfareSystem {
         return Math.max(0.18, 1.0 - jam);
     }
 
-    private static void updateMemory(World world, RuntimeState state) {
+    private static void updateMemory(World world, SystemRuntime runtime) {
         Set<String> viewers = assetOwners(world);
-        viewers.addAll(state.allies.keySet());
+        viewers.addAll(state(world).allies.keySet());
         double now = world.systemTime();
         for (String viewer : viewers) {
-            Map<String, IntelMemory> memory = state.memoryByViewer.computeIfAbsent(viewer, ignored -> new LinkedHashMap<>());
+            Map<String, IntelMemory> memory = runtime.memoryByViewer.computeIfAbsent(viewer,
+                    ignored -> new LinkedHashMap<>());
             for (Unit target : world.units.values()) {
                 if (target == null || target.hp <= 0 || allied(world, viewer, target.playerId)) continue;
                 DetectionStage stage = unitStage(world, viewer, target);
                 if (stage == DetectionStage.NONE) continue;
                 String key = "U:" + target.key();
                 IntelMemory previous = memory.get(key);
-                double vx = previous == null ? 0 : (target.x - previous.x) / Math.max(0.05, now - previous.lastSeenTime);
-                double vy = previous == null ? 0 : (target.y - previous.y) / Math.max(0.05, now - previous.lastSeenTime);
+                double elapsed = previous == null ? 0 : Math.max(0.05, now - previous.lastSeenTime);
+                double vx = previous == null ? 0 : (target.x - previous.x) / elapsed;
+                double vy = previous == null ? 0 : (target.y - previous.y) / elapsed;
                 memory.put(key, new IntelMemory(key, target.playerId, target.shipTypeId, false, stage,
                         target.x, target.y, vx, vy, now, uncertainty(stage, 0), false));
             }
@@ -345,14 +347,15 @@ final class IntelWarfareSystem {
                     continue;
                 }
                 if (age > 0.05) {
-                    memory.put(entry.getKey(), new IntelMemory(old.key, old.ownerId, old.typeId, old.station, old.stage,
-                            old.x, old.y, old.vx, old.vy, old.lastSeenTime, uncertainty(old.stage, age), old.decoySuspected));
+                    memory.put(entry.getKey(), new IntelMemory(old.key, old.ownerId, old.typeId, old.station,
+                            old.stage, old.x, old.y, old.vx, old.vy, old.lastSeenTime,
+                            uncertainty(old.stage, age), old.decoySuspected));
                 }
             }
         }
     }
 
-    private static void dispatchRadarResponses(World world, RuntimeState state) {
+    private static void dispatchRadarResponses(World world) {
         for (Base radar : world.bases.values()) {
             if (radar == null || radar.hp <= 0 || !isRadar(radar.typeId)) continue;
             StructureIntelRule rule = rule(radar.typeId);
@@ -360,15 +363,15 @@ final class IntelWarfareSystem {
             TargetChoice target = bestResponseTarget(world, radar);
             if (target == null) continue;
             int assigned = 0;
+            String guardTarget = CombatTarget.base(radar);
             for (Unit unit : world.units.values()) {
                 if (assigned >= rule.responseShipLimit) break;
                 if (unit == null || unit.hp <= 0 || !allied(world, radar.playerId, unit.playerId)
                         || !WeaponRules.armed(unit.type())) continue;
+                boolean assignedGuard = unit.orderType == UnitOrderType.GUARD
+                        && guardTarget.equals(unit.orderTarget);
+                if (!assignedGuard && !NpcRules.isNpcFaction(unit.playerId)) continue;
                 if (Calc.distance(unit.x, unit.y, radar.x, radar.y) > rule.responseRadius) continue;
-                if (unit.task == UnitTask.ATTACK && !unit.attackTarget.isBlank()) continue;
-                unit.orderType = UnitOrderType.GUARD;
-                unit.orderTarget = CombatTarget.base(radar);
-                unit.orderRadius = Math.max(160, radar.type().unloadRange + 120);
                 if (target.stage.atLeast(DetectionStage.IDENTIFIED) && !target.key.isBlank()) {
                     unit.issueAttack(target.key);
                 } else {
@@ -410,11 +413,11 @@ final class IntelWarfareSystem {
         return best;
     }
 
-    private static void investigateLastKnownContacts(World world, RuntimeState state) {
+    private static void investigateLastKnownContacts(World world, SystemRuntime runtime) {
         double now = world.systemTime();
         for (String owner : assetOwners(world)) {
             if (!NpcRules.isNpcFaction(owner)) continue;
-            Map<String, IntelMemory> memory = state.memoryByViewer.get(owner);
+            Map<String, IntelMemory> memory = runtime.memoryByViewer.get(owner);
             if (memory == null || memory.isEmpty()) continue;
             IntelMemory newest = null;
             for (IntelMemory candidate : memory.values()) {
@@ -434,10 +437,10 @@ final class IntelWarfareSystem {
         }
     }
 
-    private static void prune(World world, RuntimeState state) {
+    private static void prune(World world, SystemRuntime runtime) {
         Set<String> liveBases = new LinkedHashSet<>();
         for (Base base : world.bases.values()) liveBases.add(base.id);
-        state.radarModes.keySet().removeIf(id -> !liveBases.contains(id));
+        runtime.radarModes.keySet().removeIf(id -> !liveBases.contains(id));
     }
 
     private static Set<String> sensorOwners(World world, String viewerId) {
@@ -450,8 +453,12 @@ final class IntelWarfareSystem {
 
     private static Set<String> assetOwners(World world) {
         Set<String> owners = new LinkedHashSet<>();
-        for (Unit unit : world.units.values()) if (unit != null && unit.hp > 0 && !invalid(unit.playerId)) owners.add(unit.playerId);
-        for (Base base : world.bases.values()) if (base != null && base.hp > 0 && !invalid(base.playerId)) owners.add(base.playerId);
+        for (Unit unit : world.units.values()) {
+            if (unit != null && unit.hp > 0 && !invalid(unit.playerId)) owners.add(unit.playerId);
+        }
+        for (Base base : world.bases.values()) {
+            if (base != null && base.hp > 0 && !invalid(base.playerId)) owners.add(base.playerId);
+        }
         return owners;
     }
 
@@ -475,15 +482,27 @@ final class IntelWarfareSystem {
     }
 
     private static RadarMode defaultMode(String configured) {
-        try { return RadarMode.valueOf(configured == null ? "ACTIVE" : configured.trim().toUpperCase(Locale.ROOT)); }
-        catch (RuntimeException ignored) { return RadarMode.ACTIVE; }
+        try {
+            return RadarMode.valueOf(configured == null ? "ACTIVE" : configured.trim().toUpperCase(Locale.ROOT));
+        } catch (RuntimeException ignored) {
+            return RadarMode.ACTIVE;
+        }
     }
 
     private static RuntimeState state(World world) {
         return STATES.computeIfAbsent(world, ignored -> new RuntimeState());
     }
 
-    private static boolean invalid(String value) { return value == null || value.isBlank() || "WAIT".equals(value); }
+    private static SystemRuntime systemRuntime(World world) {
+        RuntimeState state = state(world);
+        String systemId = world == null || world.activeSystemId() == null || world.activeSystemId().isBlank()
+                ? "DEFAULT" : world.activeSystemId();
+        return state.systems.computeIfAbsent(systemId, ignored -> new SystemRuntime());
+    }
+
+    private static boolean invalid(String value) {
+        return value == null || value.isBlank() || "WAIT".equals(value) || "SENSOR_CONTACT".equals(value);
+    }
 
     private static Map<String, StructureIntelRule> loadStructureRules() {
         Path path = stationConfigPath();
@@ -500,13 +519,15 @@ final class IntelWarfareSystem {
                         integer(row, "resourceDispatchLimit", 0), integer(row, "surveyPower", 0),
                         number(row, "jamRange", 0), number(row, "jamStrength", 0),
                         number(row, "counterJamStrength", 0), number(row, "signatureMultiplier", 1),
-                        string(row, "defaultRadarMode", "ACTIVE"), string(row, "responseMode", "observe").toLowerCase(Locale.ROOT),
+                        string(row, "defaultRadarMode", "ACTIVE"),
+                        string(row, "responseMode", "observe").toLowerCase(Locale.ROOT),
                         integer(row, "responseShipLimit", 0), number(row, "responseRadius", 0),
                         string(row, "decoyProfile", "")));
             }
             return Collections.unmodifiableMap(out);
         } catch (Exception ex) {
-            throw new RuleConfigurationException("Could not load intel-warfare station fields from " + path + ": " + ex.getMessage());
+            throw new RuleConfigurationException("Could not load intel-warfare station fields from "
+                    + path + ": " + ex.getMessage());
         }
     }
 
@@ -554,9 +575,13 @@ final class IntelWarfareSystem {
     private record TargetChoice(String key, double x, double y, DetectionStage stage) { }
 
     private static final class RuntimeState {
-        final Map<String, RadarMode> radarModes = new LinkedHashMap<>();
-        final Map<String, Set<String>> allies = new LinkedHashMap<>();
-        final Map<String, Map<String, IntelMemory>> memoryByViewer = new LinkedHashMap<>();
+        final Map<String,SystemRuntime> systems = new LinkedHashMap<>();
+        final Map<String,Set<String>> allies = new LinkedHashMap<>();
+    }
+
+    private static final class SystemRuntime {
+        final Map<String,RadarMode> radarModes = new LinkedHashMap<>();
+        final Map<String,Map<String,IntelMemory>> memoryByViewer = new LinkedHashMap<>();
         double responseTimer;
     }
 }
