@@ -113,12 +113,12 @@ public final class FogOfWarValidator {
         require(FogOfWarView.lastKnownContactCount(world) >= 2,
                 "Visible enemy ship and station were not recorded as observed contacts.");
 
-        visibleEnemy.x = 2_700;
+        visibleEnemy.x = 5_000;
         visibleEnemy.targetX = visibleEnemy.x;
         world.systemTime += 0.5;
         FogOfWarView.forceRefreshForTest(world);
         require(FogOfWarView.recentHiddenContactCount(world) >= 1,
-                "Enemy leaving radar coverage did not leave a recent last-known contact.");
+                "Enemy leaving detectable range did not leave a recent last-known contact.");
 
         world.systemTime += 3.0;
         FogOfWarView.forceRefreshForTest(world);
