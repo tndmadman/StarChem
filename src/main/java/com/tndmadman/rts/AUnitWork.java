@@ -8,17 +8,18 @@ final class AUnitWork {
         Unit unit = world.units.get(Unit.key(command.playerId(), command.unitId()));
         ResourceNode node = world.findResource(command.resourceId());
         ResourceNetDebug.hostWorkOrder(world, command, unit, node);
-        if (!valid(unit, node, command)) return;
+        if (!valid(world, unit, node, command)) return;
         unit.setMiningAnchor(node.x, node.y);
         unit.startAutoHarvest(node.id);
     }
 
-    private static boolean valid(Unit unit, ResourceNode node, HarvestCommand command) {
+    private static boolean valid(World world, Unit unit, ResourceNode node, HarvestCommand command) {
         return unit != null
                 && unit.playerId.equals(command.playerId())
                 && node != null
                 && node.active
                 && node.amount > 0.05
-                && unit.type().harvestKinds.contains(node.kind);
+                && unit.type().harvestKinds.contains(node.kind)
+                && VisibilityRules.pointVisible(world, command.playerId(), node.x, node.y);
     }
 }
