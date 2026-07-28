@@ -73,7 +73,7 @@ final class ClientViewCache {
         String old = world.activeSystemId();
         try {
             world.activateSystem(view(world, playerId));
-            return WorldNetAccess.snapshot(world, sequence);
+            return FogSnapshotFilter.forPlayer(world, playerId, WorldNetAccess.snapshot(world, sequence));
         } finally {
             world.activateSystem(old);
         }
