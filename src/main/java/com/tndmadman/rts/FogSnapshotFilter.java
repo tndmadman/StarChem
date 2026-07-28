@@ -55,14 +55,22 @@ final class FogSnapshotFilter {
 
     private static UnitState sanitizeUnit(World world, String playerId, VisibilityRules.Frame visibility, UnitState state) {
         boolean own = playerId.equals(state.playerId());
-        String cargo = own ? state.cargo() : "";
+        if (own) return state;
+
+        boolean targetPointVisible = visibility.pointVisible(state.targetX(), state.targetY());
+        double targetX = targetPointVisible ? state.targetX() : state.x();
+        double targetY = targetPointVisible ? state.targetY() : state.y();
+
+        int resourceId = -1;
+        ResourceNode resource = world.findResource(state.resourceId());
+        if (resource != null && visibility.pointVisible(resource.x, resource.y)) resourceId = state.resourceId();
+
         String attackTarget = visibleEntityTarget(world, visibility, state.attackTarget());
         String orderTarget = visibleEntityTarget(world, visibility, state.orderTarget());
         return new UnitState(state.playerId(), state.unitId(), state.shipTypeId(), state.x(), state.y(),
-                state.targetX(), state.targetY(), state.heading(), state.task(), state.resourceId(), state.packageType(),
-                cargo, state.hp(), state.shield(), attackTarget, state.weaponFlashTimer(), state.orderType(),
-                state.orderX1(), state.orderY1(), state.orderX2(), state.orderY2(), state.orderRadius(), orderTarget,
-                state.orderPhase());
+                targetX, targetY, state.heading(), state.task(), resourceId, state.packageType(), "",
+                state.hp(), state.shield(), attackTarget, state.weaponFlashTimer(), UnitOrderType.NONE.name(),
+                0, 0, 0, 0, 0, orderTarget, 0);
     }
 
     private static String visibleEntityTarget(World world, VisibilityRules.Frame visibility, String targetKey) {
