@@ -11,7 +11,9 @@ final class WormholeIndicator {
 
     static void draw(Graphics2D g2, World world, GameCamera camera, int screenW, int screenH) {
         if (screenW <= 0 || screenH <= 0 || world.wormholes.isEmpty()) return;
-        for (WormholeGate gate : world.wormholes) drawOne(g2, gate, camera, screenW, screenH);
+        for (WormholeGate gate : world.wormholes) {
+            if (FogOfWarView.explored(world, gate.x, gate.y)) drawOne(g2, gate, camera, screenW, screenH);
+        }
     }
 
     private static void drawOne(Graphics2D g2, WormholeGate gate, GameCamera camera, int screenW, int screenH) {
