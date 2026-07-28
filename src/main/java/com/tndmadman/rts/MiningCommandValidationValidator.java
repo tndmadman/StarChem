@@ -35,6 +35,8 @@ public final class MiningCommandValidationValidator {
         require(miner.miningAnchorSet && miner.miningAnchorX == node.x && miner.miningAnchorY == node.y,
                 "valid mining order did not set the authoritative anchor");
 
+        validateHiddenResourceOrder(world, miner, node);
+
         reset(miner);
         AUnitWork.apply(world, new HarvestCommand(miner.playerId, miner.unitId, MISSING_RESOURCE_ID));
         requireRejectedOrder(miner, "missing resource order changed authoritative state");
@@ -52,6 +54,32 @@ public final class MiningCommandValidationValidator {
         AUnitWork.apply(world, new HarvestCommand(miner.playerId, miner.unitId, node.id));
         requireRejectedOrder(miner, "depleted resource order changed authoritative state");
         node.amount = amount;
+    }
+
+    private static void validateHiddenResourceOrder(World world, Unit miner, ResourceNode node) {
+        double minerX = miner.x;
+        double minerY = miner.y;
+        double nodeX = node.x;
+        double nodeY = node.y;
+        try {
+            reset(miner);
+            miner.x = 100;
+            miner.y = 100;
+            miner.targetX = miner.x;
+            miner.targetY = miner.y;
+            node.x = Math.max(2_000, world.width - 100);
+            node.y = Math.max(2_000, world.height - 100);
+            AUnitWork.apply(world, new HarvestCommand(miner.playerId, miner.unitId, node.id));
+            requireRejectedOrder(miner, "hidden resource ID bypassed authoritative sensor validation");
+        } finally {
+            miner.x = minerX;
+            miner.y = minerY;
+            miner.targetX = minerX;
+            miner.targetY = minerY;
+            node.x = nodeX;
+            node.y = nodeY;
+            reset(miner);
+        }
     }
 
     private static void validateInvalidStateRecovery(World world, Unit miner, ResourceNode node) {
