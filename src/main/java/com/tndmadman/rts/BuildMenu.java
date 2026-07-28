@@ -180,11 +180,34 @@ final class BuildMenu {
         return false;
     }
 
+    boolean scroll(int sx, int sy, int wheelRotation, int viewportWidth, int viewportHeight) {
+        if (!visible || entries.isEmpty()) return false;
+        Rectangle viewport = viewport(viewportWidth, viewportHeight);
+        updateLayout(viewport);
+        keepOnScreen(viewport);
+        if (!menuBounds().contains(sx, sy)) return false;
+        if (wheelRotation == 0 || !hasOverflow()) return true;
+
+        int previousOffset = scrollOffset;
+        scrollOffset = clampScroll(scrollOffset + wheelRotation);
+        if (scrollOffset != previousOffset) {
+            updateLayout(viewport);
+            scrollOffset = clampScroll(scrollOffset);
+            updateLayout(viewport);
+        }
+        return true;
+    }
+
     void draw(Graphics2D g2) {
-        if (!visible || entries.isEmpty()) return;
         Rectangle clip = g2.getClipBounds();
-        updateLayout(clip);
-        keepOnScreen(clip);
+        draw(g2, clip == null ? 0 : clip.width, clip == null ? 0 : clip.height);
+    }
+
+    void draw(Graphics2D g2, int viewportWidth, int viewportHeight) {
+        if (!visible || entries.isEmpty()) return;
+        Rectangle viewport = viewport(viewportWidth, viewportHeight);
+        updateLayout(viewport);
+        keepOnScreen(viewport);
         g2.setColor(new Color(0, 0, 0, 210));
         g2.fillRoundRect(x, y, WIDTH, menuHeight, 14, 14);
         g2.setColor(new Color(90, 190, 245, 190));
@@ -360,6 +383,10 @@ final class BuildMenu {
         g2.setColor(Color.WHITE);
         int tx = r.x + r.width / 2 - g2.getFontMetrics().stringWidth(text) / 2;
         g2.drawString(text, tx, r.y + 20);
+    }
+
+    private Rectangle viewport(int width, int height) {
+        return new Rectangle(0, 0, Math.max(0, width), Math.max(0, height));
     }
 
     private void updateLayout(Rectangle clip) {

@@ -122,7 +122,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
             devMenu.draw(g2, world, canEditDev());
             aiDevPanel.draw(g2, world, devAuthorityNetwork, canEditDev());
         }
-        buildMenu.draw(g2);
+        buildMenu.draw(g2, getWidth(), getHeight());
         if (galaxyMapOpen) galaxyMapOverlay.draw(g2, world.galaxyMapSnapshot(), getWidth(), getHeight());
         if (devMode && perfOverlayVisible) {
             PerfSnapshot networkStats = network == null ? null : network.perfSnapshot();
@@ -508,6 +508,10 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     }
 
     @Override public void mouseWheelMoved(MouseWheelEvent e) {
+        if (buildMenu.scroll(e.getX(), e.getY(), e.getWheelRotation(), getWidth(), getHeight())) {
+            repaint();
+            return;
+        }
         if (!galaxyMapOpen && !minimapHud.bounds(world, getWidth(), getHeight()).contains(e.getPoint())) {
             camera.zoomAt(e.getPoint(), e.getWheelRotation(), world, getWidth(), getHeight());
         }
