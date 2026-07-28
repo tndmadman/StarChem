@@ -48,6 +48,10 @@ public final class FogOfWarValidator {
                 "Enemy inside scout range should be target-visible.");
         require(!VisibilityRules.targetVisible(world, "P1", CombatTarget.unit(hiddenEnemy)),
                 "Enemy outside all friendly sensors must stay hidden.");
+        require(FogOfWarView.currentlyVisible(world, visibleEnemy.x, visibleEnemy.y),
+                "Visible enemy coordinate was not interactable through fog.");
+        require(!FogOfWarView.currentlyVisible(world, hiddenEnemy.x, hiddenEnemy.y),
+                "Hidden enemy coordinate remained interactable through fog.");
 
         ordinary.attackTarget = "";
         AUnitAttack.apply(world, new AttackCommand("P1", ordinary.unitId, CombatTarget.unit(hiddenEnemy)));
