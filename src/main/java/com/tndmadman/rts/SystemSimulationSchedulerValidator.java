@@ -240,26 +240,49 @@ public final class SystemSimulationSchedulerValidator {
         GalaxyMapSnapshot map = world.galaxyMapSnapshot();
         require(map != null && map.systems().size() > 1, "viewed-system test galaxy is too small");
 
+        String sourceSystem = map.activeSystemId();
+        world.activateSystem(sourceSystem);
         String viewedSystem = "";
-        for (GalaxyMapSystem system : map.systems()) {
-            if (system != null && !system.id().equals(map.activeSystemId())) {
-                viewedSystem = system.id();
+        WormholeGate discoveryGate = null;
+        for (WormholeGate gate : world.wormholes) {
+            if (gate == null || gate.toSystemId == null || gate.toSystemId.isBlank()) continue;
+            world.activateSystem(gate.toSystemId);
+            boolean dormant = SystemSimulationScheduler.tier(world) == SystemSimulationScheduler.SimulationTier.DORMANT;
+            world.activateSystem(sourceSystem);
+            if (dormant) {
+                viewedSystem = gate.toSystemId;
+                discoveryGate = gate;
                 break;
             }
         }
-        require(!viewedSystem.isBlank(), "viewed-system test could not select a remote system");
+        require(discoveryGate != null && !viewedSystem.isBlank(),
+                "viewed-system test could not select a discoverable dormant system");
+
+        world.activateSystem(viewedSystem);
+        ResourceNode resource = world.resources.get(0);
+        double beforeTime = world.systemTime();
+        double beforeAngle = resource.orbitAngle;
+        world.activateSystem(sourceSystem);
+
+        Unit scout = new Unit("P1", 90_101, "scout", discoveryGate.x, discoveryGate.y);
+        world.units.put(scout.key(), scout);
+        world.saveActiveSystem();
+
+        ClientViewCache views = new ClientViewCache();
+        require(views.requestView(world, "P1", sourceSystem, 1),
+                "client view cache rejected the scout-occupied source system");
+        views.makeSnapshot(world, "P1", 1);
+
+        world.activateSystem(sourceSystem);
+        world.units.remove(scout.key());
+        world.saveActiveSystem();
+        require(views.requestView(world, "P1", viewedSystem, 2),
+                "client view cache rejected a sensor-discovered remote system");
 
         world.activateSystem(viewedSystem);
         require(SystemSimulationScheduler.tier(world) == SystemSimulationScheduler.SimulationTier.DORMANT,
                 "remote viewed system unexpectedly contained simulation-hot assets");
-        ResourceNode resource = world.resources.get(0);
-        double beforeTime = world.systemTime();
-        double beforeAngle = resource.orbitAngle;
-        world.activateSystem(map.activeSystemId());
-
-        ClientViewCache views = new ClientViewCache();
-        require(views.requestView(world, "P1", viewedSystem, 1),
-                "client view cache rejected a known remote system");
+        world.activateSystem(sourceSystem);
 
         AuthoritativeSystemScheduler scheduler = new AuthoritativeSystemScheduler();
         for (int i = 0; i < 120; i++) {
