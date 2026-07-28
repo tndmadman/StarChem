@@ -152,6 +152,9 @@
       "sensorRange": 2800,
       "buildTimeSeconds": 32,
       "buildCost": {
+        "IRON": 180,
+        "COPPER": 100,
+        "SILICATES": 80,
         "STRUCTURAL_FRAME": 8,
         "STEEL_PLATE": 12,
         "PRINTED_CIRCUIT_BOARD": 6,
@@ -177,6 +180,10 @@
       "sensorRange": 4800,
       "buildTimeSeconds": 60,
       "buildCost": {
+        "IRON": 350,
+        "COPPER": 220,
+        "SILICATES": 180,
+        "ICE": 120,
         "STRUCTURAL_FRAME": 20,
         "TITANIUM_ALLOY": 14,
         "SENSOR_ARRAY": 18,
