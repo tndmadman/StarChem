@@ -42,6 +42,14 @@ public final class FogOfWarValidator {
         world.resources.add(visibleResource);
         world.resources.add(hiddenResource);
 
+        String weaponId = WeaponRules.WEAPONS.keySet().iterator().next();
+        ProjectileShot visibleShot = world.addShot("P1", weaponId, CombatTarget.unit(hiddenEnemy), 1_350, 1_000);
+        visibleShot.lastX = 1_300;
+        visibleShot.lastY = 1_000;
+        ProjectileShot hiddenShot = world.addShot("P1", weaponId, CombatTarget.unit(hiddenEnemy), 2_500, 1_000);
+        hiddenShot.lastX = 2_450;
+        hiddenShot.lastY = 1_000;
+
         require(VisibilityRules.unitSensorRange(world, scout) > VisibilityRules.unitSensorRange(world, ordinary),
                 "Dedicated scouts must reveal farther than ordinary ships.");
         require(VisibilityRules.targetVisible(world, "P1", CombatTarget.unit(visibleEnemy)),
@@ -72,6 +80,8 @@ public final class FogOfWarValidator {
         require(!hasBase(filtered, hiddenBase.id), "Hidden enemy base leaked into the snapshot.");
         require(hasResource(filtered, visibleResource.id), "Visible resource was omitted from a full correction.");
         require(!hasResource(filtered, hiddenResource.id), "Hidden resource leaked through a full correction.");
+        require(hasShot(filtered, visibleShot.id), "Projectile path inside sensor coverage was omitted.");
+        require(!hasShot(filtered, hiddenShot.id), "Projectile path outside sensor coverage leaked a hidden target direction.");
 
         UnitState visibleState = unit(filtered, visibleEnemy.key());
         require(visibleState != null && visibleState.cargo().isBlank(), "Enemy cargo leaked through fog filtering.");
@@ -190,6 +200,11 @@ public final class FogOfWarValidator {
 
     private static boolean hasResource(Snapshot snapshot, int id) {
         for (ResourceState state : snapshot.resources()) if (state.id() == id) return true;
+        return false;
+    }
+
+    private static boolean hasShot(Snapshot snapshot, int id) {
+        for (ShotState state : snapshot.shots()) if (state.id() == id) return true;
         return false;
     }
 
