@@ -58,10 +58,13 @@ final class Base {
         drawLogistics(s, radius);
         drawProduction(s, radius);
         if (local) drawHangar(s, radius);
+        IntelStructureRenderer.drawStatus(s, this, radius);
         s.dispose();
     }
 
     private double radius() {
+        double intelRadius = IntelStructureRenderer.radius(typeId);
+        if (intelRadius > 0) return intelRadius;
         return switch (typeId) {
             case "shipyard" -> 82;
             case "laboratory", "manufacturing" -> 74;
@@ -73,7 +76,8 @@ final class Base {
     }
 
     private void drawCore(Graphics2D s, Color playerColor) {
-        int radarTier = RadarTowerRules.tierNumber(typeId);
+        if (IntelStructureRenderer.drawCore(s, this, playerColor)) return;
+        int radarTier = IntelWarfareSystem.radarTier(typeId);
         if (radarTier > 0) {
             drawRadarCore(s, playerColor, radarTier);
             return;
@@ -99,8 +103,13 @@ final class Base {
 
     private void drawRadarCore(Graphics2D s, Color playerColor, int tier) {
         double time = System.nanoTime() / 1_000_000_000.0;
-        double spin = time * (0.62 + tier * 0.18);
-        double pulse = (time * (0.42 + tier * 0.05)) % 1.0;
+        double modeSpeed = switch (IntelWarfareSystem.radarMode(PlayerRegistry.activeWorld(), this)) {
+            case PASSIVE -> 0.55;
+            case ACTIVE -> 1.0;
+            case FOCUSED -> 1.65;
+        };
+        double spin = time * (0.62 + tier * 0.18) * modeSpeed;
+        double pulse = (time * (0.42 + tier * 0.05) * modeSpeed) % 1.0;
         double platformRadius = 20 + tier * 5;
         double sweepRadius = 38 + tier * 10;
 
@@ -131,7 +140,9 @@ final class Base {
         Graphics2D radar = (Graphics2D)s.create();
         radar.translate(x, y - 18 - tier * 3);
         radar.rotate(spin);
-        radar.setColor(new Color(70, 230, 255, 24 + tier * 8));
+        int sweepAlpha = IntelWarfareSystem.radarMode(PlayerRegistry.activeWorld(), this)
+                == IntelWarfareSystem.RadarMode.FOCUSED ? 68 : 24 + tier * 8;
+        radar.setColor(new Color(70, 230, 255, sweepAlpha));
         radar.fill(new Arc2D.Double(-sweepRadius, -sweepRadius, sweepRadius * 2, sweepRadius * 2,
                 -24, 48, Arc2D.PIE));
         radar.setColor(new Color(115, 240, 255, 190));
@@ -215,7 +226,8 @@ final class Base {
     }
 
     private void drawLabel(Graphics2D s, BaseType def, double radius, Color playerColor) {
-        String label = def.name + " - " + PlayerRegistry.name(playerId);
+        String label = IntelWarfareSystem.CONTACT_STATION.equals(typeId)
+                ? def.name : def.name + " - " + PlayerRegistry.name(playerId);
         int tw = s.getFontMetrics().stringWidth(label);
         s.setColor(new Color(0,0,0,160));
         s.fillRoundRect((int)(x - tw / 2.0 - 6), (int)(y - radius - 32), tw + 12, 18, 8, 8);
