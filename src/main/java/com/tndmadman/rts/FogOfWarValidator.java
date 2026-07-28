@@ -42,6 +42,17 @@ public final class FogOfWarValidator {
         world.resources.add(visibleResource);
         world.resources.add(hiddenResource);
 
+        visibleEnemy.targetX = hiddenEnemy.x;
+        visibleEnemy.targetY = hiddenEnemy.y;
+        visibleEnemy.automationResourceId = hiddenResource.id;
+        visibleEnemy.orderType = UnitOrderType.PATROL;
+        visibleEnemy.orderX1 = hiddenEnemy.x;
+        visibleEnemy.orderY1 = hiddenEnemy.y;
+        visibleEnemy.orderX2 = hiddenBase.x;
+        visibleEnemy.orderY2 = hiddenBase.y;
+        visibleEnemy.orderRadius = 500;
+        visibleEnemy.orderPhase = 1;
+
         String weaponId = WeaponRules.WEAPONS.keySet().iterator().next();
         ProjectileShot visibleShot = world.addShot("P1", weaponId, CombatTarget.unit(hiddenEnemy), 1_350, 1_000);
         visibleShot.lastX = 1_300;
@@ -87,6 +98,11 @@ public final class FogOfWarValidator {
         require(visibleState != null && visibleState.cargo().isBlank(), "Enemy cargo leaked through fog filtering.");
         require(visibleState.attackTarget().isBlank(), "Hidden attack target leaked through a visible enemy state.");
         require(visibleState.orderTarget().isBlank(), "Hidden order target leaked through a visible enemy state.");
+        require(visibleState.targetX() == visibleState.x() && visibleState.targetY() == visibleState.y(),
+                "Visible enemy movement exposed a hidden destination.");
+        require(visibleState.resourceId() == -1, "Visible enemy mining state exposed a hidden resource ID.");
+        require(UnitOrderType.NONE.name().equals(visibleState.orderType()) && visibleState.orderRadius() == 0,
+                "Visible enemy order state exposed hidden patrol coordinates.");
 
         BaseState visibleBaseState = base(filtered, visibleBase.id);
         require(visibleBaseState != null && visibleBaseState.cargo().isBlank(), "Enemy base inventory leaked through fog filtering.");
