@@ -5,6 +5,7 @@ import java.net.InetAddress;
 /** Exercises abrupt socket loss and the complete automatic RESUME handshake through PeerNetwork. */
 public final class TcpReconnectIntegrationValidator {
     private static final String VALIDATOR_PASSWORD = "validator-password";
+    private static final int REMOTE_SCOUT_ID = 900_101;
 
     private TcpReconnectIntegrationValidator() { }
 
@@ -76,12 +77,19 @@ public final class TcpReconnectIntegrationValidator {
 
             String playerId = reconnecting.playerId();
             String remoteSystem = StarSystems.CORSAIR_SYSTEM_ID;
+            placeRemoteScout(harness.serverWorld, playerId, remoteSystem);
             reconnecting.network().viewSystem(playerId, remoteSystem);
             harness.await(() -> !reconnecting.network().clientViewSwitchPending()
                             && remoteSystem.equals(reconnecting.network().clientViewedSystemId())
                             && remoteSystem.equals(reconnecting.world().activeSystemId())
+                            && currentSystemHasPlayerAssets(reconnecting.world(), playerId),
+                    12_000, "client did not establish an authorized remote view before reconnect validation");
+
+            removeRemoteScout(harness.serverWorld, playerId, remoteSystem);
+            harness.await(() -> remoteSystem.equals(reconnecting.network().clientViewedSystemId())
+                            && remoteSystem.equals(reconnecting.world().activeSystemId())
                             && !currentSystemHasPlayerAssets(reconnecting.world(), playerId),
-                    12_000, "client did not establish a remote view before reconnect validation");
+                    8_000, "remote view did not remain available after the discovery scout left");
 
             proxy.dropActiveConnection();
             harness.await(() -> reconnecting.network().clientReconnecting(), 5_000,
@@ -103,6 +111,29 @@ public final class TcpReconnectIntegrationValidator {
                     8_000, "remote view did not remain synchronized after session resume");
             TcpIntegrationHarness.require(observer.network().clientConnected(),
                     "observer was affected by remote-view reconnect");
+        }
+    }
+
+    private static void placeRemoteScout(World world, String playerId, String systemId) {
+        String previousSystem = world.activeSystemId();
+        try {
+            world.activateSystem(systemId);
+            Unit scout = new Unit(playerId, REMOTE_SCOUT_ID, "scout", world.width * 0.5, world.height * 0.5);
+            world.units.put(scout.key(), scout);
+            world.saveActiveSystem();
+        } finally {
+            world.activateSystem(previousSystem);
+        }
+    }
+
+    private static void removeRemoteScout(World world, String playerId, String systemId) {
+        String previousSystem = world.activeSystemId();
+        try {
+            world.activateSystem(systemId);
+            world.units.remove(Unit.key(playerId, REMOTE_SCOUT_ID));
+            world.saveActiveSystem();
+        } finally {
+            world.activateSystem(previousSystem);
         }
     }
 
