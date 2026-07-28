@@ -10,7 +10,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -43,32 +42,7 @@ jobs:
         run: java -cp build/classes/java/main com.tndmadman.rts.FogOfWarValidator
 
       - name: Verify project
-        id: aggregate_verify
-        shell: bash
-        run: |
-          set +e
-          gradle check jar --no-daemon --console=plain > build/aggregate-check.log 2>&1
-          STATUS=$?
-          set -e
-          if [[ "$STATUS" -ne 0 ]]; then
-            {
-              echo '<!-- FOG_AGGREGATE_DIAGNOSTIC -->'
-              echo '### Temporary aggregate verification diagnostic'
-              echo
-              echo '```text'
-              grep -nE 'FAILED|FAILURE|Execution failed|Exception|Caused by|IllegalState|Assertion|What went wrong' build/aggregate-check.log | tail -n 100 || true
-              echo
-              tail -n 180 build/aggregate-check.log
-              echo '```'
-            } > build/aggregate-failure.md
-          fi
-          exit "$STATUS"
-
-      - name: Publish aggregate failure diagnostic
-        if: ${{ failure() && github.event_name == 'pull_request' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh pr comment "${{ github.event.pull_request.number }}" --body-file build/aggregate-failure.md
+        run: gradle check jar --no-daemon
 
       - name: Validate canonical endpoint identity
         run: java -cp build/classes/java/main com.tndmadman.rts.SessionEndpointIdentityValidator
