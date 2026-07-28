@@ -41,6 +41,38 @@ jobs:
       - name: Validate authoritative fog of war
         run: java -cp build/classes/java/main com.tndmadman.rts.FogOfWarValidator
 
+      - name: Diagnose minimap contract
+        continue-on-error: true
+        run: gradle validateMinimapHud --no-daemon
+
+      - name: Diagnose galaxy wire contract
+        continue-on-error: true
+        run: gradle validateGalaxyMapWire --no-daemon
+
+      - name: Diagnose network security contract
+        continue-on-error: true
+        run: gradle validateNetworkSecurity --no-daemon
+
+      - name: Diagnose snapshot hardening contract
+        continue-on-error: true
+        run: gradle validateSnapshotHardening --no-daemon
+
+      - name: Diagnose remote view contract
+        continue-on-error: true
+        run: gradle validateTcpRemoteSystemVisibility --no-daemon
+
+      - name: Diagnose view switching contract
+        continue-on-error: true
+        run: gradle validateTcpViewSwitching --no-daemon
+
+      - name: Diagnose environment sync contract
+        continue-on-error: true
+        run: gradle validateClientEnvironmentSync --no-daemon
+
+      - name: Diagnose celestial continuity contract
+        continue-on-error: true
+        run: gradle validateCelestialContinuity --no-daemon
+
       - name: Verify project
         run: gradle check jar --no-daemon
 
