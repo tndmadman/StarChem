@@ -44,6 +44,9 @@ jobs:
       - name: Validate radar tower progression
         run: java -cp build/classes/java/main com.tndmadman.rts.RadarTowerValidator
 
+      - name: Validate intel and counterintel warfare
+        run: java -cp build/classes/java/main com.tndmadman.rts.IntelWarfareValidator
+
       - name: Verify project
         run: gradle check jar --no-daemon
 
