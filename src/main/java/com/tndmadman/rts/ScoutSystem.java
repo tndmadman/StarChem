@@ -52,11 +52,12 @@ final class ScoutSystem {
 
     private void updateIntel(World world) {
         double now = world.systemTime();
-        double dt = Double.isFinite(lastIntelUpdateTime) ? now - lastIntelUpdateTime : 0.05;
+        double elapsed = Double.isFinite(lastIntelUpdateTime) ? now - lastIntelUpdateTime : 0.05;
         lastIntelUpdateTime = now;
-        if (!Double.isFinite(dt) || dt <= 0 || dt > 1.0) dt = 0.05;
-        lastIntelDelta = dt;
-        IntelWarfareSystem.update(world, dt);
+        if (!Double.isFinite(elapsed) || elapsed <= 0) elapsed = 0.05;
+        lastIntelDelta = Math.min(5.0, elapsed);
+        double simulationDelta = elapsed > 1.0 ? 0.05 : elapsed;
+        IntelWarfareSystem.update(world, simulationDelta);
     }
 
     private void adaptRadarMode(World world, Base radar) {
