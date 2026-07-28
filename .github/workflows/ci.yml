@@ -73,6 +73,32 @@ jobs:
         continue-on-error: true
         run: gradle validateCelestialContinuity --no-daemon
 
+      - name: Diagnose core and configuration validators
+        continue-on-error: true
+        run: >-
+          gradle validateRules validateProductionQueues validateDevAccess validateClientLaunch
+          validateGalaxyConnectivity validateRuleIds validateTcpConnectionIdentity --no-daemon
+
+      - name: Diagnose remaining TCP validators
+        continue-on-error: true
+        run: >-
+          gradle validateTcpMultiplayer validateTcpMultiClient validateTcpSlowClient validateTcpReconnect
+          validateDedicatedTcpServer validateTcpSoakSmoke validateSessionRecovery --no-daemon
+
+      - name: Diagnose gameplay and NPC validators
+        continue-on-error: true
+        run: >-
+          gradle validateDevSimulationState validateNpcSystemIsolation validateMaterialCoverage
+          validateResourceCatalog validateCodexCatalog validateIntermediateCrafting validateSystemControl
+          validateSystemModifiers validateNpcGalaxyDirector validateSystemSimulationScheduler
+          validateNarrationProcesses --no-daemon
+
+      - name: Diagnose persistence and packaging validators
+        continue-on-error: true
+        run: >-
+          gradle validatePrunePersistence validateObservationRetention validateSavedCredentialReplay
+          verifyLegalNotices verifyBuildMetadata --no-daemon
+
       - name: Verify project
         run: gradle check jar --no-daemon
 
