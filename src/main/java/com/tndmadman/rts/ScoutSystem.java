@@ -5,14 +5,17 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Maintains local miner search behavior and radar-directed worker dispatch. */
+/** Maintains local miner search behavior, radar dispatch, and the authoritative intel tick. */
 final class ScoutSystem {
+    private double lastIntelUpdateTime = Double.NaN;
+
     void update(World world) {
+        updateIntel(world);
         for (Unit miner : world.units.values()) {
             if (canLocalMine(miner)) updateLocalMiner(world, miner);
         }
         for (Base radar : world.bases.values()) {
-            if (radar.hp <= 0 || !RadarTowerRules.isRadarTower(radar.typeId)) continue;
+            if (radar.hp <= 0 || !IntelWarfareSystem.isRadar(radar.typeId)) continue;
             dispatchWorkers(world, radar);
         }
     }
@@ -21,6 +24,14 @@ final class ScoutSystem {
         if (miner.freeCargo() <= 0.05) return false;
         if (retargetLocalMiner(world, miner, oldNode)) return true;
         return retargetFromRadar(world, miner, oldNode);
+    }
+
+    private void updateIntel(World world) {
+        double now = world.systemTime();
+        double dt = Double.isFinite(lastIntelUpdateTime) ? now - lastIntelUpdateTime : 0.05;
+        lastIntelUpdateTime = now;
+        if (!Double.isFinite(dt) || dt <= 0 || dt > 1.0) dt = 0.05;
+        IntelWarfareSystem.update(world, dt);
     }
 
     private void updateLocalMiner(World world, Unit miner) {
@@ -54,7 +65,7 @@ final class ScoutSystem {
     }
 
     private ResourceNode leastAssignedLocalResource(World world, Unit miner, int skippedResourceId,
-                                                    Map<Integer,Integer> assignedCounts) {
+                                                     Map<Integer,Integer> assignedCounts) {
         if (!canLocalMine(miner)) return null;
         ensureMiningAnchor(miner);
         ResourceNode best = null;
@@ -82,11 +93,13 @@ final class ScoutSystem {
         int bestAssigned = Integer.MAX_VALUE;
         double bestDist = Double.MAX_VALUE;
         for (Base radar : world.bases.values()) {
-            if (!miner.playerId.equals(radar.playerId) || radar.hp <= 0 || !RadarTowerRules.isRadarTower(radar.typeId)) continue;
+            if (!miner.playerId.equals(radar.playerId) || radar.hp <= 0 || !IntelWarfareSystem.isRadar(radar.typeId)) continue;
             double range = VisibilityRules.baseSensorRange(world, radar);
             for (ResourceNode node : world.resources) {
                 if (!node.active || node.id == oldNode.id || !miner.type().harvestKinds.contains(node.kind)) continue;
                 if (Calc.distance(radar.x, radar.y, node.x, node.y) > range) continue;
+                if (!VisibilityRules.resourceStage(world, miner.playerId, node)
+                        .atLeast(IntelWarfareSystem.DetectionStage.IDENTIFIED)) continue;
                 int assigned = assignedCounts.getOrDefault(node.id, 0);
                 double distance = Calc.distance(miner.x, miner.y, node.x, node.y);
                 if (betterResource(node, assigned, distance, best, bestAssigned, bestDist)) {
@@ -104,7 +117,7 @@ final class ScoutSystem {
     }
 
     private void dispatchWorkers(World world, Base radar) {
-        int limit = RadarTowerRules.resourceDispatchLimit(radar.typeId);
+        int limit = IntelWarfareSystem.dispatchLimit(radar.typeId);
         if (limit <= 0) return;
 
         List<ResourceNode> visibleResources = radarVisibleResources(world, radar);
@@ -136,7 +149,9 @@ final class ScoutSystem {
         List<ResourceNode> visible = new ArrayList<>();
         double range = VisibilityRules.baseSensorRange(world, radar);
         for (ResourceNode node : world.resources) {
-            if (node.active && Calc.distance(radar.x, radar.y, node.x, node.y) <= range) visible.add(node);
+            if (node.active && Calc.distance(radar.x, radar.y, node.x, node.y) <= range
+                    && VisibilityRules.resourceStage(world, radar.playerId, node)
+                    .atLeast(IntelWarfareSystem.DetectionStage.IDENTIFIED)) visible.add(node);
         }
         return visible;
     }
@@ -152,7 +167,7 @@ final class ScoutSystem {
     }
 
     private DispatchChoice bestDispatchChoice(List<Unit> workers, List<ResourceNode> visibleResources,
-                                              Map<Integer,Integer> assignedCounts) {
+                                               Map<Integer,Integer> assignedCounts) {
         DispatchChoice best = null;
         int bestAssigned = Integer.MAX_VALUE;
         double bestDist = Double.MAX_VALUE;
@@ -172,7 +187,7 @@ final class ScoutSystem {
     }
 
     private boolean betterDispatch(ResourceNode node, Unit worker, int assigned, double distance,
-                                   DispatchChoice best, int bestAssigned, double bestDistance) {
+                                    DispatchChoice best, int bestAssigned, double bestDistance) {
         if (best == null) return true;
         if (assigned != bestAssigned) return assigned < bestAssigned;
         if (Math.abs(distance - bestDistance) > 0.001) return distance < bestDistance;
@@ -193,7 +208,7 @@ final class ScoutSystem {
     }
 
     private boolean betterResource(ResourceNode node, int assigned, double distance, ResourceNode best,
-                                   int bestAssigned, double bestDistance) {
+                                    int bestAssigned, double bestDistance) {
         if (best == null) return true;
         if (assigned != bestAssigned) return assigned < bestAssigned;
         if (Math.abs(distance - bestDistance) > 0.001) return distance < bestDistance;
