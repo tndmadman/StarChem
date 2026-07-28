@@ -17,14 +17,14 @@ public final class FogOfWarValidator {
         world.shots.clear();
         world.items.clear();
 
-        Unit scout = new Unit("P1", 1, "scout", 1_000, 1_000);
+        Base radar = new Base("P1:B0", "P1", RadarTowerRules.TIER_ONE, 1_000, 1_000);
         Unit ordinary = new Unit("P1", 2, "frigate", 1_000, 1_000);
         Unit visibleEnemy = new Unit("P2", 1, "frigate", 1_500, 1_000);
         Unit hiddenEnemy = new Unit("P2", 2, "frigate", 3_000, 1_000);
         visibleEnemy.addCargo(Material.IRON, 40);
         visibleEnemy.attackTarget = CombatTarget.unit(hiddenEnemy);
         visibleEnemy.orderTarget = CombatTarget.unit(hiddenEnemy);
-        world.units.put(scout.key(), scout);
+        world.bases.put(radar.id, radar);
         world.units.put(ordinary.key(), ordinary);
         world.units.put(visibleEnemy.key(), visibleEnemy);
         world.units.put(hiddenEnemy.key(), hiddenEnemy);
@@ -57,14 +57,14 @@ public final class FogOfWarValidator {
         ProjectileShot visibleShot = world.addShot("P1", weaponId, CombatTarget.unit(hiddenEnemy), 1_350, 1_000);
         visibleShot.lastX = 1_300;
         visibleShot.lastY = 1_000;
-        ProjectileShot hiddenShot = world.addShot("P1", weaponId, CombatTarget.unit(hiddenEnemy), 2_500, 1_000);
-        hiddenShot.lastX = 2_450;
+        ProjectileShot hiddenShot = world.addShot("P1", weaponId, CombatTarget.unit(hiddenEnemy), 2_700, 1_000);
+        hiddenShot.lastX = 2_650;
         hiddenShot.lastY = 1_000;
 
-        require(VisibilityRules.unitSensorRange(world, scout) > VisibilityRules.unitSensorRange(world, ordinary),
-                "Dedicated scouts must reveal farther than ordinary ships.");
+        require(VisibilityRules.baseSensorRange(world, radar) > VisibilityRules.unitSensorRange(world, ordinary),
+                "Radar stations must reveal farther than ordinary ships.");
         require(VisibilityRules.targetVisible(world, "P1", CombatTarget.unit(visibleEnemy)),
-                "Enemy inside scout range should be target-visible.");
+                "Enemy inside radar range should be target-visible.");
         require(!VisibilityRules.targetVisible(world, "P1", CombatTarget.unit(hiddenEnemy)),
                 "Enemy outside all friendly sensors must stay hidden.");
         require(FogOfWarView.currentlyVisible(world, visibleEnemy.x, visibleEnemy.y),
@@ -77,14 +77,14 @@ public final class FogOfWarValidator {
         require(ordinary.attackTarget.isBlank(), "Hidden target key bypassed authoritative attack validation.");
         AUnitAttack.apply(world, new AttackCommand("P1", ordinary.unitId, CombatTarget.unit(visibleEnemy)));
         require(CombatTarget.unit(visibleEnemy).equals(ordinary.attackTarget),
-                "Sensor-visible target was rejected by authoritative attack validation.");
+                "Radar-visible target was rejected by authoritative attack validation.");
         ordinary.attackTarget = "";
         ordinary.task = UnitTask.IDLE;
 
         ResourceSyncMode.fullForNextSnapshot();
         Snapshot filtered = FogSnapshotFilter.forPlayer(world, "P1", WorldNetAccess.snapshot(world, 1));
 
-        require(hasUnit(filtered, scout.key()), "Own scout was removed from its snapshot.");
+        require(hasBase(filtered, radar.id), "Own radar was removed from its snapshot.");
         require(hasUnit(filtered, visibleEnemy.key()), "Visible enemy was omitted from the snapshot.");
         require(!hasUnit(filtered, hiddenEnemy.key()), "Hidden enemy leaked into the snapshot.");
         require(hasBase(filtered, visibleBase.id), "Visible enemy base was omitted from the snapshot.");
@@ -109,16 +109,16 @@ public final class FogOfWarValidator {
         require(visibleBaseState.productionQueue().isBlank(), "Enemy production queue leaked through fog filtering.");
 
         FogOfWarView.forceRefreshForTest(world);
-        require(FogOfWarView.exploredCellCount(world) > 0, "Friendly sensors did not reveal explored fog cells.");
+        require(FogOfWarView.exploredCellCount(world) > 0, "Friendly radar did not reveal explored fog cells.");
         require(FogOfWarView.lastKnownContactCount(world) >= 2,
                 "Visible enemy ship and station were not recorded as observed contacts.");
 
-        visibleEnemy.x = 2_200;
+        visibleEnemy.x = 2_700;
         visibleEnemy.targetX = visibleEnemy.x;
         world.systemTime += 0.5;
         FogOfWarView.forceRefreshForTest(world);
         require(FogOfWarView.recentHiddenContactCount(world) >= 1,
-                "Enemy leaving sensor coverage did not leave a recent last-known contact.");
+                "Enemy leaving radar coverage did not leave a recent last-known contact.");
 
         world.systemTime += 3.0;
         FogOfWarView.forceRefreshForTest(world);
@@ -178,14 +178,15 @@ public final class FogOfWarValidator {
         String previous = world.activeSystemId();
         try {
             world.activateSystem(target);
-            Unit remoteScout = new Unit("P1", 90_003, "scout", world.width * 0.4, world.height * 0.5);
-            world.units.put(remoteScout.key(), remoteScout);
+            String radarId = "P1:RADAR-REMOTE";
+            world.bases.put(radarId, new Base(radarId, "P1", RadarTowerRules.TIER_ONE,
+                    world.width * 0.4, world.height * 0.5));
             world.saveActiveSystem();
         } finally {
             world.activateSystem(previous);
         }
         require(views.requestView(world, "P1", target, 2),
-                "System containing the player's scout did not become viewable.");
+                "System containing the player's radar station did not become viewable.");
     }
 
     private static boolean systemHasPlayerAssets(World world, String systemId, String playerId) {
