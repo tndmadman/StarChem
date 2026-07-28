@@ -65,6 +65,8 @@ final class VisibilityRules {
             sensors = List.copyOf(found);
         }
 
+        List<Sensor> sensors() { return sensors; }
+
         boolean pointVisible(double x, double y) {
             if (!Double.isFinite(x) || !Double.isFinite(y)) return false;
             for (Sensor sensor : sensors) {
@@ -92,9 +94,9 @@ final class VisibilityRules {
 
         private Sensor sensor(double x, double y, double range) {
             double safeRange = Double.isFinite(range) ? Math.max(0, range) : 0;
-            return new Sensor(x, y, safeRange * safeRange);
+            return new Sensor(x, y, safeRange, safeRange * safeRange);
         }
     }
 
-    private record Sensor(double x, double y, double rangeSquared) { }
+    record Sensor(double x, double y, double range, double rangeSquared) { }
 }
