@@ -52,37 +52,14 @@
       "stationPackageSlots": 1,
       "canCarryStationPackages": [
         "outpost",
+        "radar_picket",
+        "radar_array",
+        "radar_nexus",
         "shipyard",
         "laboratory",
         "manufacturing"
       ],
       "singleUseAfterStationPlacement": true
-    },
-    "scout": {
-      "displayName": "Scout",
-      "role": "fast recon",
-      "size": "SMALL",
-      "seed": 9907,
-      "maxHp": 70,
-      "maxShield": 50,
-      "shieldRegen": 4.0,
-      "shieldRegenDelay": 2.5,
-      "speed": 275,
-      "cargoCapacity": 45,
-      "harvestRange": 60,
-      "orbitRadius": 70,
-      "idleStationOrbitRadius": 115,
-      "scoutRange": 420,
-      "scoutDispatchLimit": 5,
-      "buildTimeSeconds": 6,
-      "buildCost": {
-        "ALUMINUM_ALLOY": 10,
-        "SENSOR_ARRAY": 2,
-        "NAVIGATION_COMPUTER": 1,
-        "FUEL_CELL_STACK": 1,
-        "HYDROGEN": 20
-      },
-      "canHarvest": []
     }
   }
 }
