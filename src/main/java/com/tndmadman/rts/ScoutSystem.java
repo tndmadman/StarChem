@@ -7,7 +7,9 @@ import java.util.Map;
 
 /** Maintains local miner search behavior, radar dispatch, and the authoritative intel tick. */
 final class ScoutSystem {
+    private final Map<String,Double> radarModePhases = new HashMap<>();
     private double lastIntelUpdateTime = Double.NaN;
+    private double lastIntelDelta = 0.05;
 
     void update(World world) {
         updateIntel(world);
@@ -16,6 +18,7 @@ final class ScoutSystem {
         }
         for (Base radar : world.bases.values()) {
             if (radar.hp <= 0 || !IntelWarfareSystem.isRadar(radar.typeId)) continue;
+            adaptRadarMode(world, radar);
             dispatchWorkers(world, radar);
         }
     }
@@ -31,7 +34,44 @@ final class ScoutSystem {
         double dt = Double.isFinite(lastIntelUpdateTime) ? now - lastIntelUpdateTime : 0.05;
         lastIntelUpdateTime = now;
         if (!Double.isFinite(dt) || dt <= 0 || dt > 1.0) dt = 0.05;
+        lastIntelDelta = dt;
         IntelWarfareSystem.update(world, dt);
+    }
+
+    private void adaptRadarMode(World world, Base radar) {
+        String key = world.activeSystemId() + '|' + radar.id;
+        double phase = radarModePhases.getOrDefault(key, 0.0) + lastIntelDelta;
+        radarModePhases.put(key, phase);
+
+        boolean detected = false;
+        boolean identifiedThreat = false;
+        for (Unit enemy : world.units.values()) {
+            if (enemy == null || enemy.hp <= 0 || IntelWarfareSystem.allied(world, radar.playerId, enemy.playerId)) continue;
+            IntelWarfareSystem.DetectionStage stage = VisibilityRules.unitStage(world, radar.playerId, enemy);
+            detected |= stage.atLeast(IntelWarfareSystem.DetectionStage.CONTACT);
+            identifiedThreat |= stage.atLeast(IntelWarfareSystem.DetectionStage.IDENTIFIED);
+        }
+        for (Base enemy : world.bases.values()) {
+            if (enemy == null || enemy.hp <= 0 || IntelWarfareSystem.allied(world, radar.playerId, enemy.playerId)) continue;
+            IntelWarfareSystem.DetectionStage stage = VisibilityRules.baseStage(world, radar.playerId, enemy);
+            detected |= stage.atLeast(IntelWarfareSystem.DetectionStage.CONTACT);
+            identifiedThreat |= stage.atLeast(IntelWarfareSystem.DetectionStage.IDENTIFIED);
+        }
+
+        IntelWarfareSystem.RadarMode desired;
+        if (identifiedThreat) desired = IntelWarfareSystem.RadarMode.FOCUSED;
+        else if (detected) desired = IntelWarfareSystem.RadarMode.ACTIVE;
+        else desired = phase % 8.0 < 1.5 ? IntelWarfareSystem.RadarMode.ACTIVE
+                : IntelWarfareSystem.RadarMode.PASSIVE;
+        setModeSilently(world, radar, desired);
+    }
+
+    private void setModeSilently(World world, Base radar, IntelWarfareSystem.RadarMode desired) {
+        String status = world.status;
+        for (int i = 0; i < 3 && IntelWarfareSystem.radarMode(world, radar) != desired; i++) {
+            IntelWarfareSystem.cycleRadarMode(world, radar, radar.playerId);
+        }
+        world.status = status;
     }
 
     private void updateLocalMiner(World world, Unit miner) {
