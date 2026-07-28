@@ -2,7 +2,7 @@
   "researchTopics": {
     "advanced_industry": {
       "displayName": "Advanced Industry",
-      "description": "Unlocks specialist mining, hauling, salvage ships, and Radar Array II.",
+      "description": "Unlocks specialist industry ships, Radar Array II, Signal Jammers, and Strategic Decoys.",
       "stationTypes": [
         "laboratory"
       ],
