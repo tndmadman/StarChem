@@ -5,7 +5,8 @@ import java.util.Set;
 /** Validates server-approved remote views without leaking entities outside friendly sensor coverage. */
 public final class TcpRemoteSystemVisibilityValidator {
     private static final int CORSAIR_TEST_UNIT_ID = 90_001;
-    private static final int VIEWER_SCOUT_UNIT_ID = 90_002;
+    private static final String VIEWER_RADAR_ID = "VIEWER-RADAR-90002";
+    private static final String CORSAIR_RADAR_ID = "VIEWER-RADAR-CORSAIR";
 
     private TcpRemoteSystemVisibilityValidator() { }
 
@@ -36,15 +37,15 @@ public final class TcpRemoteSystemVisibilityValidator {
             TcpIntegrationHarness.require(source.equals(viewer.world().activeSystemId()),
                     "guessed unknown system view was not denied");
 
-            seedViewerScoutNearOwner(harness.serverWorld, target, viewerId, ownerId);
+            seedViewerRadarNearOwner(harness.serverWorld, target, viewerId, ownerId);
             viewer.network().viewSystem(viewerId, target);
             harness.await(() -> !viewer.network().clientViewSwitchPending()
                             && target.equals(viewer.network().clientViewedSystemId())
                             && target.equals(viewer.world().activeSystemId()),
-                    12_000, "owned scout system did not become viewable");
+                    12_000, "owned radar-station system did not become viewable");
             harness.await(() -> viewer.world().units.values().stream().anyMatch(unit -> ownerId.equals(unit.playerId))
                             && viewer.world().bases.values().stream().anyMatch(base -> ownerId.equals(base.playerId)),
-                    12_000, "remote enemy assets did not appear after a friendly scout established sensor coverage");
+                    12_000, "remote enemy assets did not appear after a friendly radar established sensor coverage");
 
             validateCorsairViewRemainsLive(harness, viewer, viewerId, ownerId);
 
@@ -74,9 +75,9 @@ public final class TcpRemoteSystemVisibilityValidator {
     }
 
     private static void validateViewSurvivesLastLocalAssetRemoval(TcpIntegrationHarness harness,
-                                                                    TcpIntegrationHarness.TestClient viewer,
-                                                                    String viewerId,
-                                                                    String systemId) throws Exception {
+                                                                  TcpIntegrationHarness.TestClient viewer,
+                                                                  String viewerId,
+                                                                  String systemId) throws Exception {
         long sequenceBeforeRemoval = viewer.network().clientSnapshotSequence();
         removePlayerAssets(harness.serverWorld, systemId, viewerId);
         harness.await(() -> viewer.network().clientSnapshotSequence() > sequenceBeforeRemoval
@@ -123,7 +124,7 @@ public final class TcpRemoteSystemVisibilityValidator {
         }
     }
 
-    private static void seedViewerScoutNearOwner(World world, String systemId, String viewerId, String ownerId) {
+    private static void seedViewerRadarNearOwner(World world, String systemId, String viewerId, String ownerId) {
         String old = world.activeSystemId();
         try {
             world.activateSystem(systemId);
@@ -135,11 +136,8 @@ public final class TcpRemoteSystemVisibilityValidator {
             owner.y = ownerBase.y;
             owner.targetX = owner.x;
             owner.targetY = owner.y;
-            String key = Unit.key(viewerId, VIEWER_SCOUT_UNIT_ID);
-            Unit scout = new Unit(viewerId, VIEWER_SCOUT_UNIT_ID, "scout", ownerBase.x - 120, ownerBase.y);
-            scout.targetX = scout.x;
-            scout.targetY = scout.y;
-            world.units.put(key, scout);
+            world.bases.put(VIEWER_RADAR_ID, new Base(VIEWER_RADAR_ID, viewerId, RadarTowerRules.TIER_ONE,
+                    ownerBase.x - 120, ownerBase.y));
             world.saveActiveSystem();
         } finally {
             world.activateSystem(old);
@@ -147,22 +145,22 @@ public final class TcpRemoteSystemVisibilityValidator {
     }
 
     private static void validateCorsairViewRemainsLive(TcpIntegrationHarness harness,
-                                                         TcpIntegrationHarness.TestClient viewer,
-                                                         String viewerId,
-                                                         String ownerId) throws Exception {
+                                                       TcpIntegrationHarness.TestClient viewer,
+                                                       String viewerId,
+                                                       String ownerId) throws Exception {
         boolean previousDisableAttacks = harness.serverWorld.aiDevSettings.disableAttacks;
         boolean previousFreezeNpcCombat = harness.serverWorld.aiDevSettings.freezeNpcCombat;
         harness.serverWorld.aiDevSettings.disableAttacks = true;
         harness.serverWorld.aiDevSettings.freezeNpcCombat = true;
         try {
             String unitKey = seedCorsairUnit(harness.serverWorld, ownerId);
-            seedCorsairScout(harness.serverWorld, viewerId, unitKey);
+            seedCorsairRadar(harness.serverWorld, viewerId, unitKey);
             viewer.network().viewSystem(viewerId, StarSystems.CORSAIR_SYSTEM_ID);
             harness.await(() -> !viewer.network().clientViewSwitchPending()
                             && StarSystems.CORSAIR_SYSTEM_ID.equals(viewer.network().clientViewedSystemId())
                             && StarSystems.CORSAIR_SYSTEM_ID.equals(viewer.world().activeSystemId())
                             && viewer.world().units.containsKey(unitKey),
-                    12_000, "client did not receive a sensor-visible Corsair Den contact");
+                    12_000, "client did not receive a radar-visible Corsair Den contact");
 
             Unit authoritative = unitInSystem(harness.serverWorld, StarSystems.CORSAIR_SYSTEM_ID, unitKey);
             TcpIntegrationHarness.require(authoritative != null, "Corsair validation unit disappeared from the server");
@@ -178,11 +176,11 @@ public final class TcpRemoteSystemVisibilityValidator {
     }
 
     private static void awaitCorsairReplication(TcpIntegrationHarness harness,
-                                                 TcpIntegrationHarness.TestClient viewer,
-                                                 String unitKey,
-                                                 long sequenceBeforeMove,
-                                                 double targetX,
-                                                 double targetY) throws Exception {
+                                                TcpIntegrationHarness.TestClient viewer,
+                                                String unitKey,
+                                                long sequenceBeforeMove,
+                                                double targetX,
+                                                double targetY) throws Exception {
         long deadline = System.currentTimeMillis() + 12_000;
         while (System.currentTimeMillis() < deadline) {
             Unit replicated = viewer.world().units.get(unitKey);
@@ -197,7 +195,7 @@ public final class TcpRemoteSystemVisibilityValidator {
 
         Unit authoritative = unitInSystem(harness.serverWorld, StarSystems.CORSAIR_SYSTEM_ID, unitKey);
         Unit replicated = viewer.world().units.get(unitKey);
-        throw new IllegalStateException("Corsair Den stopped accepting live sensor-visible snapshots after the view switch"
+        throw new IllegalStateException("Corsair Den stopped accepting live radar-visible snapshots after the view switch"
                 + " | beforeSequence=" + sequenceBeforeMove
                 + " | clientSequence=" + viewer.network().clientSnapshotSequence()
                 + " | viewed=" + viewer.network().clientViewedSystemId()
@@ -226,16 +224,14 @@ public final class TcpRemoteSystemVisibilityValidator {
         }
     }
 
-    private static void seedCorsairScout(World world, String viewerId, String targetKey) {
+    private static void seedCorsairRadar(World world, String viewerId, String targetKey) {
         String old = world.activeSystemId();
         try {
             world.activateSystem(StarSystems.CORSAIR_SYSTEM_ID);
             Unit target = world.units.get(targetKey);
             TcpIntegrationHarness.require(target != null, "Corsair validation target is missing");
-            Unit scout = new Unit(viewerId, VIEWER_SCOUT_UNIT_ID, "scout", target.x - 140, target.y);
-            scout.targetX = scout.x;
-            scout.targetY = scout.y;
-            world.units.put(scout.key(), scout);
+            world.bases.put(CORSAIR_RADAR_ID, new Base(CORSAIR_RADAR_ID, viewerId, RadarTowerRules.TIER_ONE,
+                    target.x - 140, target.y));
             world.saveActiveSystem();
         } finally {
             world.activateSystem(old);
