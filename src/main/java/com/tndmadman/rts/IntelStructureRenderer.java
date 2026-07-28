@@ -43,7 +43,7 @@ final class IntelStructureRenderer {
         Color color = new Color(125, 225, 255);
         if (IntelWarfareSystem.isRadar(base.typeId)) {
             IntelWarfareSystem.RadarMode mode = IntelWarfareSystem.radarMode(PlayerRegistry.activeWorld(), base);
-            text = "RADAR " + mode.name() + " | Ctrl-click to cycle";
+            text = "RADAR " + mode.name() + " | ADAPTIVE";
         } else if (IntelWarfareSystem.isJammer(base.typeId)) {
             text = "ECM ACTIVE";
             color = new Color(215, 120, 255);
