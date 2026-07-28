@@ -35,8 +35,14 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
+      - name: Compile project
+        run: gradle clean classes --no-daemon
+
+      - name: Validate authoritative fog of war
+        run: java -cp build/classes/java/main com.tndmadman.rts.FogOfWarValidator
+
       - name: Verify project
-        run: gradle clean check jar --no-daemon
+        run: gradle check jar --no-daemon
 
       - name: Validate canonical endpoint identity
         run: java -cp build/classes/java/main com.tndmadman.rts.SessionEndpointIdentityValidator
@@ -52,9 +58,6 @@ jobs:
 
       - name: Validate authoritative mining commands
         run: java -cp build/classes/java/main com.tndmadman.rts.MiningCommandValidationValidator
-
-      - name: Validate authoritative fog of war
-        run: java -cp build/classes/java/main com.tndmadman.rts.FogOfWarValidator
 
       - name: Smoke-test Linux headless server
         shell: bash
