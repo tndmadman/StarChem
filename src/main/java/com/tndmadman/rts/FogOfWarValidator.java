@@ -137,7 +137,7 @@ public final class FogOfWarValidator {
         String home = world.playerHomeSystemId("P1");
         String target = "";
         for (GalaxyMapSystem system : authoritative.systems()) {
-            if (system != null && !home.equals(system.id())) {
+            if (system != null && !home.equals(system.id()) && !systemHasPlayerAssets(world, system.id(), "P1")) {
                 target = system.id();
                 break;
             }
@@ -156,6 +156,18 @@ public final class FogOfWarValidator {
         }
         require(views.requestView(world, "P1", target, 2),
                 "System containing the player's scout did not become viewable.");
+    }
+
+    private static boolean systemHasPlayerAssets(World world, String systemId, String playerId) {
+        String previous = world.activeSystemId();
+        try {
+            world.activateSystem(systemId);
+            for (Unit unit : world.units.values()) if (playerId.equals(unit.playerId) && unit.hp > 0) return true;
+            for (Base base : world.bases.values()) if (playerId.equals(base.playerId) && base.hp > 0) return true;
+            return false;
+        } finally {
+            world.activateSystem(previous);
+        }
     }
 
     private static boolean hasUnit(Snapshot snapshot, String key) { return unit(snapshot, key) != null; }
