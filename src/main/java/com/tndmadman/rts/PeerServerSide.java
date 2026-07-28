@@ -613,13 +613,17 @@ final class PeerServerSide {
 
     private void broadcastGalaxy() {
         if (peers.isEmpty()) return;
-        String message = GalaxyMapWire.encode(config.galaxyCopies, world.authoritativeGalaxyMapSnapshot());
-        for (ServerPeer peer : peers.values()) transport.send(message, peer.connectionId(), DeliveryClass.GALAXY);
+        for (ServerPeer peer : peers.values()) {
+            String message = GalaxyMapWire.encode(config.galaxyCopies,
+                    views.galaxySnapshot(world, peer.playerId()));
+            transport.send(message, peer.connectionId(), DeliveryClass.GALAXY);
+        }
     }
 
     private void sendGalaxy(ServerPeer peer) {
         if (peer == null) return;
-        String message = GalaxyMapWire.encode(config.galaxyCopies, world.authoritativeGalaxyMapSnapshot());
+        String message = GalaxyMapWire.encode(config.galaxyCopies,
+                views.galaxySnapshot(world, peer.playerId()));
         transport.send(message, peer.connectionId(), DeliveryClass.GALAXY);
     }
 
