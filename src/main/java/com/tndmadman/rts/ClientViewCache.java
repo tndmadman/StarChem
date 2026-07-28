@@ -105,7 +105,6 @@ final class ClientViewCache {
         Set<String> known = knownSystems(playerId);
         known.add(viewed);
         Map<String, GalaxyMapSystem> observed = observedSystems(playerId);
-        boolean viewingWithSensors = playerHasAssetsInSystem(world, playerId, viewed);
 
         List<GalaxyMapSystem> systems = new ArrayList<>();
         Set<String> included = new LinkedHashSet<>();
@@ -113,12 +112,14 @@ final class ClientViewCache {
             if (current == null || !known.contains(current.id())) continue;
             boolean active = current.id().equals(viewed);
             GalaxyMapSystem projected;
-            if (active && viewingWithSensors) {
-                observed.put(current.id(), current);
-                projected = withActive(current, true);
+            if (active) {
+                GalaxyMapSystem observation = visibleObservation(world, playerId, current);
+                if (observation != null) observed.put(current.id(), observation);
+                GalaxyMapSystem lastObserved = observation == null ? observed.get(current.id()) : observation;
+                projected = withActive(lastObserved == null ? undiscoveredDetails(current) : lastObserved, true);
             } else {
                 GalaxyMapSystem lastObserved = observed.get(current.id());
-                projected = withActive(lastObserved == null ? undiscoveredDetails(current) : lastObserved, active);
+                projected = withActive(lastObserved == null ? undiscoveredDetails(current) : lastObserved, false);
             }
             systems.add(projected);
             included.add(projected.id());
@@ -160,10 +161,10 @@ final class ClientViewCache {
         GalaxyMapSnapshot authoritative = world.authoritativeGalaxyMapSnapshot();
         if (authoritative != null && authoritative.systems() != null) {
             for (GalaxyMapSystem system : authoritative.systems()) {
-                if (system != null && active.equals(system.id())) {
-                    observedSystems(playerId).put(active, system);
-                    break;
-                }
+                if (system == null || !active.equals(system.id())) continue;
+                GalaxyMapSystem observation = visibleObservation(world, playerId, system);
+                if (observation != null) observedSystems(playerId).put(active, observation);
+                break;
             }
         }
         for (WormholeGate gate : world.wormholes) {
@@ -171,6 +172,42 @@ final class ClientViewCache {
                     && visibility.pointVisible(gate.x, gate.y)) {
                 knownSystems(playerId).add(gate.toSystemId);
             }
+        }
+    }
+
+    private GalaxyMapSystem visibleObservation(World world, String playerId, GalaxyMapSystem system) {
+        if (world == null || system == null || playerId == null || playerId.isBlank()) return null;
+        String old = world.activeSystemId();
+        try {
+            world.activateSystem(system.id());
+            if (!system.id().equals(world.activeSystemId())) return null;
+            VisibilityRules.Frame visibility = VisibilityRules.frame(world, playerId);
+            if (visibility.sensors().isEmpty()) return null;
+
+            int ships = 0;
+            int bases = 0;
+            int resources = 0;
+            int localShips = 0;
+            int localBases = 0;
+            for (Unit unit : world.units.values()) {
+                if (unit == null || unit.hp <= 0) continue;
+                if (playerId.equals(unit.playerId)) localShips++;
+                if (visibility.unitVisible(unit)) ships++;
+            }
+            for (Base base : world.bases.values()) {
+                if (base == null || base.hp <= 0) continue;
+                if (playerId.equals(base.playerId)) localBases++;
+                if (visibility.baseVisible(base)) bases++;
+            }
+            for (ResourceNode node : world.resources) {
+                if (node != null && node.active && visibility.pointVisible(node.x, node.y)) resources++;
+            }
+            return new GalaxyMapSystem(system.id(), system.name(), system.templateId(), system.lifetime(),
+                    ships, bases, resources, localShips, localBases, false, system.home(), system.special(),
+                    system.controllerId(), system.controllerName(), system.controlStatus(), system.captureProgress(),
+                    system.controlColorRgb());
+        } finally {
+            world.activateSystem(old);
         }
     }
 
