@@ -95,7 +95,67 @@ public final class FogOfWarValidator {
         require(FogOfWarView.recentHiddenContactCount(world) == 0,
                 "Confirmed-clear last-known contact was not retired after the grace period.");
 
+        validateEnvironmentSeedIsolation(world);
+        validateWormholeRoundTrip(world);
+        validateGalaxyDiscoveryAuthorization(world);
+
         System.out.println("Fog-of-war validator passed.");
+    }
+
+    private static void validateEnvironmentSeedIsolation(World world) {
+        long authoritative = world.systemSeed();
+        long activeClientSeed = ClientEnvironmentSeed.forActiveSystem(world);
+        long otherClientSeed = ClientEnvironmentSeed.forSystem(authoritative, "fog-validator-other-system");
+        require(activeClientSeed != authoritative, "Authoritative galaxy seed leaked as the client environment seed.");
+        require(activeClientSeed != otherClientSeed, "Per-system client environment seeds were not isolated.");
+    }
+
+    private static void validateWormholeRoundTrip(World world) {
+        world.wormholes.clear();
+        world.wormholes.add(new WormholeGate("fog-test-gate", world.activeSystemId(), "fog-test-target",
+                1_200, 1_250, 220, 260));
+        String encoded = WormholeSnapshotSync.write(world);
+        WormholeSnapshotSync.validate(encoded);
+
+        World replica = new World("Fog wormhole replica", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        replica.wormholes.clear();
+        WormholeSnapshotSync.apply(replica, encoded);
+        require(replica.wormholes.size() == 1, "Current-system wormhole state did not round-trip.");
+        WormholeGate gate = replica.wormholes.get(0);
+        require("fog-test-target".equals(gate.toSystemId) && Math.abs(gate.x - 1_200) < 0.001,
+                "Current-system wormhole round-trip changed its identity or position.");
+    }
+
+    private static void validateGalaxyDiscoveryAuthorization(World world) {
+        ClientViewCache views = new ClientViewCache();
+        views.setHome(world, "P1");
+        GalaxyMapSnapshot authoritative = world.authoritativeGalaxyMapSnapshot();
+        GalaxyMapSnapshot projected = views.galaxySnapshot(world, "P1");
+        require(projected.systems().size() < authoritative.systems().size(),
+                "Initial galaxy projection exposed every authoritative system.");
+
+        String home = world.playerHomeSystemId("P1");
+        String target = "";
+        for (GalaxyMapSystem system : authoritative.systems()) {
+            if (system != null && !home.equals(system.id())) {
+                target = system.id();
+                break;
+            }
+        }
+        require(!target.isBlank(), "Galaxy discovery validation could not select an unknown system.");
+        require(!views.requestView(world, "P1", target, 1), "Guessed unknown system ID bypassed view authorization.");
+
+        String previous = world.activeSystemId();
+        try {
+            world.activateSystem(target);
+            Unit remoteScout = new Unit("P1", 90_003, "scout", world.width * 0.4, world.height * 0.5);
+            world.units.put(remoteScout.key(), remoteScout);
+            world.saveActiveSystem();
+        } finally {
+            world.activateSystem(previous);
+        }
+        require(views.requestView(world, "P1", target, 2),
+                "System containing the player's scout did not become viewable.");
     }
 
     private static boolean hasUnit(Snapshot snapshot, String key) { return unit(snapshot, key) != null; }
