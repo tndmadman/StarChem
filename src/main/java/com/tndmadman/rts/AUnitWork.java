@@ -20,6 +20,7 @@ final class AUnitWork {
                 && node.active
                 && node.amount > 0.05
                 && unit.type().harvestKinds.contains(node.kind)
-                && VisibilityRules.pointVisible(world, command.playerId(), node.x, node.y);
+                && VisibilityRules.resourceStage(world, command.playerId(), node)
+                .atLeast(IntelWarfareSystem.DetectionStage.IDENTIFIED);
     }
 }
