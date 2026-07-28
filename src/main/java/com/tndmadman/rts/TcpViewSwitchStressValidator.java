@@ -7,7 +7,7 @@ import java.util.Set;
 
 /** Repeatedly switches authorized views while snapshots churn, validating revision-based stale-response rejection. */
 public final class TcpViewSwitchStressValidator {
-    private static final int REMOTE_SCOUT_ID_BASE = 910_000;
+    private static final String REMOTE_RADAR_ID_BASE = "VIEW-STRESS-RADAR-";
 
     private TcpViewSwitchStressValidator() { }
 
@@ -25,7 +25,7 @@ public final class TcpViewSwitchStressValidator {
             TcpIntegrationHarness.require(authorizedSystems.size() >= 3,
                     "view-switch validation could not select three authoritative systems");
             for (int i = 1; i < authorizedSystems.size(); i++) {
-                placeRemoteScout(harness.serverWorld, playerId, authorizedSystems.get(i), REMOTE_SCOUT_ID_BASE + i);
+                placeRemoteRadar(harness.serverWorld, playerId, authorizedSystems.get(i), REMOTE_RADAR_ID_BASE + i);
             }
 
             String desired = switching.network().clientViewedSystemId();
@@ -80,12 +80,12 @@ public final class TcpViewSwitchStressValidator {
         return new ArrayList<>(systems);
     }
 
-    private static void placeRemoteScout(World world, String playerId, String systemId, int unitId) {
+    private static void placeRemoteRadar(World world, String playerId, String systemId, String radarId) {
         String previousSystem = world.activeSystemId();
         try {
             world.activateSystem(systemId);
-            Unit scout = new Unit(playerId, unitId, "scout", world.width * 0.5, world.height * 0.5);
-            world.units.put(scout.key(), scout);
+            world.bases.put(radarId, new Base(radarId, playerId, RadarTowerRules.TIER_ONE,
+                    world.width * 0.5, world.height * 0.5));
             world.saveActiveSystem();
         } finally {
             world.activateSystem(previousSystem);
