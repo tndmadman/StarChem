@@ -110,6 +110,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         camera.apply(g2);
         world.draw(g2);
         if (devMode) aiDevOverlay.drawWorld(g2, world, aiDevPanel.overlayEnabled(), aiDevPanel.pathLinesEnabled());
+        FogOfWarView.drawWorld(g2, world);
         drawSelectionBox(g2);
         g2.setTransform(old);
         WormholeIndicator.draw(g2, world, camera, getWidth(), getHeight());
