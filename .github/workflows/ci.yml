@@ -53,6 +53,9 @@ jobs:
       - name: Validate authoritative mining commands
         run: java -cp build/classes/java/main com.tndmadman.rts.MiningCommandValidationValidator
 
+      - name: Validate authoritative fog of war
+        run: java -cp build/classes/java/main com.tndmadman.rts.FogOfWarValidator
+
       - name: Smoke-test Linux headless server
         shell: bash
         run: |
@@ -128,7 +131,6 @@ jobs:
           gradle clean verifyBuildMetadata --no-daemon \
             -PreleaseVersion="$SAMPLE_VERSION" \
             -PbuildCommit="$SAMPLE_COMMIT"
-
           test -f build/libs/StarChem.jar
           VERSION_OUTPUT="$(java -jar build/libs/StarChem.jar --version)"
           echo "$VERSION_OUTPUT"
