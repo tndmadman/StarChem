@@ -45,7 +45,6 @@
       "canBuildShips": [
         "prospector",
         "station_builder",
-        "scout",
         "hauler",
         "deep_miner",
         "gas_harvester",
@@ -119,6 +118,11 @@
     },
     "radar_picket": {
       "displayName": "Radar Picket I",
+      "role": "radar",
+      "radarTier": 1,
+      "sensorRange": 1500,
+      "requiredResearch": "",
+      "resourceDispatchLimit": 2,
       "maxHp": 650,
       "maxShield": 450,
       "shieldRegen": 7.0,
@@ -126,7 +130,6 @@
       "unloadRange": 85,
       "unloadRate": 50,
       "buildRadius": 58,
-      "sensorRange": 1500,
       "buildTimeSeconds": 14,
       "buildCost": {
         "IRON": 110,
@@ -142,6 +145,11 @@
     },
     "radar_array": {
       "displayName": "Radar Array II",
+      "role": "radar",
+      "radarTier": 2,
+      "sensorRange": 2800,
+      "requiredResearch": "advanced_industry",
+      "resourceDispatchLimit": 5,
       "maxHp": 1100,
       "maxShield": 900,
       "shieldRegen": 11.0,
@@ -149,7 +157,6 @@
       "unloadRange": 100,
       "unloadRate": 70,
       "buildRadius": 66,
-      "sensorRange": 2800,
       "buildTimeSeconds": 32,
       "buildCost": {
         "IRON": 180,
@@ -170,6 +177,11 @@
     },
     "radar_nexus": {
       "displayName": "Radar Nexus III",
+      "role": "radar",
+      "radarTier": 3,
+      "sensorRange": 4800,
+      "requiredResearch": "battlefleet_engineering",
+      "resourceDispatchLimit": 10,
       "maxHp": 1800,
       "maxShield": 1600,
       "shieldRegen": 18.0,
@@ -177,7 +189,6 @@
       "unloadRange": 120,
       "unloadRate": 90,
       "buildRadius": 78,
-      "sensorRange": 4800,
       "buildTimeSeconds": 60,
       "buildCost": {
         "IRON": 350,
