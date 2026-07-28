@@ -264,20 +264,21 @@ public final class SystemSimulationSchedulerValidator {
         double beforeAngle = resource.orbitAngle;
         world.activateSystem(sourceSystem);
 
-        Unit scout = new Unit("P1", 90_101, "scout", discoveryGate.x, discoveryGate.y);
-        world.units.put(scout.key(), scout);
+        String radarId = "P1:RADAR-VIEW";
+        world.bases.put(radarId, new Base(radarId, "P1", RadarTowerRules.TIER_ONE,
+                discoveryGate.x, discoveryGate.y));
         world.saveActiveSystem();
 
         ClientViewCache views = new ClientViewCache();
         require(views.requestView(world, "P1", sourceSystem, 1),
-                "client view cache rejected the scout-occupied source system");
+                "client view cache rejected the radar-occupied source system");
         views.makeSnapshot(world, "P1", 1);
 
         world.activateSystem(sourceSystem);
-        world.units.remove(scout.key());
+        world.bases.remove(radarId);
         world.saveActiveSystem();
         require(views.requestView(world, "P1", viewedSystem, 2),
-                "client view cache rejected a sensor-discovered remote system");
+                "client view cache rejected a radar-discovered remote system");
 
         world.activateSystem(viewedSystem);
         require(SystemSimulationScheduler.tier(world) == SystemSimulationScheduler.SimulationTier.DORMANT,
