@@ -4,23 +4,26 @@ import java.util.ArrayList;
 import java.util.List;
 
 final class VisibilityRules {
-    private static final double MIN_UNIT_SENSOR_RANGE = 260.0;
-    private static final double MIN_BASE_SENSOR_RANGE = 650.0;
-
     private VisibilityRules() { }
 
     static double unitSensorRange(World world, Unit unit) {
-        if (unit == null) return 0;
-        double baseline = MIN_UNIT_SENSOR_RANGE + Math.max(0, unit.type().size.scale) * 70.0;
-        double configuredRange = Math.max(0, unit.type().scoutRange);
-        return Math.max(baseline, configuredRange) * SystemModifierRules.sensorRange(world);
+        return IntelWarfareSystem.ordinaryUnitRange(world, unit);
     }
 
     static double baseSensorRange(World world, Base base) {
-        if (base == null) return 0;
-        double ordinaryRange = Math.max(MIN_BASE_SENSOR_RANGE, Math.max(0, base.type().unloadRange) * 4.5);
-        double range = Math.max(ordinaryRange, RadarTowerRules.sensorRange(base.typeId));
-        return range * SystemModifierRules.sensorRange(world);
+        return IntelWarfareSystem.baseSensorRange(world, base);
+    }
+
+    static IntelWarfareSystem.DetectionStage unitStage(World world, String playerId, Unit unit) {
+        return IntelWarfareSystem.unitStage(world, playerId, unit);
+    }
+
+    static IntelWarfareSystem.DetectionStage baseStage(World world, String playerId, Base base) {
+        return IntelWarfareSystem.baseStage(world, playerId, base);
+    }
+
+    static IntelWarfareSystem.DetectionStage resourceStage(World world, String playerId, ResourceNode resource) {
+        return IntelWarfareSystem.resourceStage(world, playerId, resource);
     }
 
     static Frame frame(World world, String playerId) {
@@ -44,21 +47,16 @@ final class VisibilityRules {
     }
 
     static final class Frame {
+        private final World world;
         private final String playerId;
         private final List<Sensor> sensors;
 
         private Frame(World world, String playerId) {
+            this.world = world;
             this.playerId = playerId == null ? "" : playerId;
             List<Sensor> found = new ArrayList<>();
-            if (world != null && !this.playerId.isBlank()) {
-                for (Unit unit : world.units.values()) {
-                    if (!this.playerId.equals(unit.playerId) || unit.hp <= 0) continue;
-                    found.add(sensor(unit.x, unit.y, unitSensorRange(world, unit)));
-                }
-                for (Base base : world.bases.values()) {
-                    if (!this.playerId.equals(base.playerId) || base.hp <= 0) continue;
-                    found.add(sensor(base.x, base.y, baseSensorRange(world, base)));
-                }
+            for (IntelWarfareSystem.IntelSensor sensor : IntelWarfareSystem.sensors(world, this.playerId)) {
+                found.add(sensor(sensor.x(), sensor.y(), sensor.range()));
             }
             sensors = List.copyOf(found);
         }
@@ -75,19 +73,39 @@ final class VisibilityRules {
             return false;
         }
 
+        IntelWarfareSystem.DetectionStage unitStage(Unit unit) {
+            return IntelWarfareSystem.unitStage(world, playerId, unit);
+        }
+
+        IntelWarfareSystem.DetectionStage baseStage(Base base) {
+            return IntelWarfareSystem.baseStage(world, playerId, base);
+        }
+
+        IntelWarfareSystem.DetectionStage resourceStage(ResourceNode resource) {
+            return IntelWarfareSystem.resourceStage(world, playerId, resource);
+        }
+
         boolean unitVisible(Unit unit) {
-            return unit != null && (playerId.equals(unit.playerId) || pointVisible(unit.x, unit.y));
+            return unitStage(unit).atLeast(IntelWarfareSystem.DetectionStage.CONTACT);
         }
 
         boolean baseVisible(Base base) {
-            return base != null && (playerId.equals(base.playerId) || pointVisible(base.x, base.y));
+            return baseStage(base).atLeast(IntelWarfareSystem.DetectionStage.CONTACT);
+        }
+
+        boolean unitIdentified(Unit unit) {
+            return unitStage(unit).atLeast(IntelWarfareSystem.DetectionStage.IDENTIFIED);
+        }
+
+        boolean baseIdentified(Base base) {
+            return baseStage(base).atLeast(IntelWarfareSystem.DetectionStage.IDENTIFIED);
         }
 
         boolean targetVisible(World world, String targetKey) {
             Unit unit = CombatTarget.unit(world, targetKey);
-            if (unit != null) return unitVisible(unit);
+            if (unit != null) return unitIdentified(unit);
             Base base = CombatTarget.base(world, targetKey);
-            return base != null && baseVisible(base);
+            return base != null && baseIdentified(base);
         }
 
         private Sensor sensor(double x, double y, double range) {
