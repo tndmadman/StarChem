@@ -9,10 +9,11 @@ import java.awt.RadialGradientPaint;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.Stroke;
+import java.awt.geom.AffineTransform;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Point2D;
+import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
-import java.awt.image.Raster;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Iterator;
@@ -25,14 +26,18 @@ import java.util.WeakHashMap;
 
 final class FogOfWarView {
     static final int CELL_SIZE = 128;
-    private static final double MASK_WORLD_UNITS = 32.0;
+    private static final double EXPLORATION_MASK_WORLD_UNITS = 64.0;
+    private static final double WORLD_BUFFER_SCALE = 0.5;
     private static final double EDGE_FEATHER_WORLD_UNITS = 96.0;
-    private static final long UPDATE_INTERVAL_NANOS = 80_000_000L;
+    private static final long UPDATE_INTERVAL_NANOS = 50_000_000L;
+    private static final long MINIMAP_REFRESH_NANOS = 100_000_000L;
     private static final double CONTACT_CLEAR_CONFIRM_SECONDS = 2.0;
     private static final int MAX_CONTACTS = 512;
+    private static final int GRADIENT_STAMP_SIZE = 128;
     private static final Color UNEXPLORED = new Color(1, 3, 7);
     private static final Color EXPLORED = new Color(8, 14, 22);
     private static final Map<World, WorldState> STATES = new WeakHashMap<>();
+    private static final Map<Integer, BufferedImage> GRADIENT_STAMPS = new LinkedHashMap<>();
 
     private FogOfWarView() { }
 
@@ -40,18 +45,25 @@ final class FogOfWarView {
         SystemState state = update(world, System.nanoTime());
         if (source == null || world == null || state == null) return;
         Graphics2D g = (Graphics2D)source.create();
-        drawFog(g, state, 0, 0, world.width, world.height);
+        Rectangle2D view = visibleWorldBounds(g, world);
+        if (view.getWidth() > 0 && view.getHeight() > 0) {
+            double zoom = transformScale(g.getTransform());
+            BufferedImage fog = composeWorldFog(state, view, zoom);
+            drawBuffer(g, fog, view);
+        }
         drawContacts(g, world, state, 1.0, 1.0, 0, 0);
         g.dispose();
     }
 
     static synchronized void drawMinimap(Graphics2D source, World world, Rectangle map) {
-        SystemState state = update(world, System.nanoTime());
+        long now = System.nanoTime();
+        SystemState state = update(world, now);
         if (source == null || world == null || map == null || state == null) return;
         Graphics2D g = (Graphics2D)source.create();
+        BufferedImage fog = composeMinimapFog(state, map.width, map.height, now);
+        if (fog != null) g.drawImage(fog, map.x, map.y, null);
         double sx = map.width / Math.max(1.0, world.width);
         double sy = map.height / Math.max(1.0, world.height);
-        drawFog(g, state, map.x, map.y, map.width, map.height);
         drawContacts(g, world, state, sx, sy, map.x, map.y);
         g.dispose();
     }
@@ -92,12 +104,14 @@ final class FogOfWarView {
 
     static synchronized int smoothTransitionPixelCount(World world) {
         SystemState state = update(world, System.nanoTime());
-        if (state == null || state.fogMask == null) return 0;
+        if (state == null || state.exploredFogMask == null) return 0;
+        int unexplored = UNEXPLORED.getRGB() & 0x00FFFFFF;
+        int explored = EXPLORED.getRGB() & 0x00FFFFFF;
         int count = 0;
-        for (int y = 0; y < state.fogMask.getHeight(); y++) {
-            for (int x = 0; x < state.fogMask.getWidth(); x++) {
-                int alpha = state.fogMask.getRGB(x, y) >>> 24;
-                if (alpha > 0 && alpha < 255) count++;
+        for (int y = 0; y < state.exploredFogMask.getHeight(); y++) {
+            for (int x = 0; x < state.exploredFogMask.getWidth(); x++) {
+                int rgb = state.exploredFogMask.getRGB(x, y) & 0x00FFFFFF;
+                if (rgb != unexplored && rgb != explored) count++;
             }
         }
         return count;
@@ -128,10 +142,10 @@ final class FogOfWarView {
         state.lastUpdateNanos = now;
         state.visible.clear();
         VisibilityRules.Frame frame = VisibilityRules.frame(world, playerId);
-        for (VisibilityRules.Sensor sensor : frame.sensors()) reveal(state, sensor);
+        state.sensors = frame.sensors();
+        for (VisibilityRules.Sensor sensor : state.sensors) reveal(state, sensor);
         state.explored.or(state.visible);
-        paintExploration(state, frame.sensors());
-        rebuildFogMask(state, frame.sensors());
+        paintExploration(state, state.sensors);
         observeContacts(world, playerId, frame, state);
         observeWormholes(world, frame, state);
         return state;
@@ -159,72 +173,148 @@ final class FogOfWarView {
     }
 
     private static void paintExploration(SystemState state, List<VisibilityRules.Sensor> sensors) {
-        Graphics2D g = state.exploredMask.createGraphics();
+        Graphics2D g = state.exploredFogMask.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setColor(Color.WHITE);
+        g.setColor(EXPLORED);
         for (VisibilityRules.Sensor sensor : sensors) {
             if (sensor == null || sensor.range() <= 0) continue;
-            double radius = sensor.range() / MASK_WORLD_UNITS;
-            double x = sensor.x() / MASK_WORLD_UNITS - radius;
-            double y = sensor.y() / MASK_WORLD_UNITS - radius;
+            double radius = sensor.range() / EXPLORATION_MASK_WORLD_UNITS;
+            double x = sensor.x() / EXPLORATION_MASK_WORLD_UNITS - radius;
+            double y = sensor.y() / EXPLORATION_MASK_WORLD_UNITS - radius;
             g.fill(new Ellipse2D.Double(x, y, radius * 2.0, radius * 2.0));
         }
         g.dispose();
     }
 
-    private static void rebuildFogMask(SystemState state, List<VisibilityRules.Sensor> sensors) {
-        Raster explored = state.exploredMask.getRaster();
-        for (int y = 0; y < state.maskHeight; y++) {
-            for (int x = 0; x < state.maskWidth; x++) {
-                double coverage = smoothedCoverage(explored, x, y, state.maskWidth, state.maskHeight);
-                int red = blend(UNEXPLORED.getRed(), EXPLORED.getRed(), coverage);
-                int green = blend(UNEXPLORED.getGreen(), EXPLORED.getGreen(), coverage);
-                int blue = blend(UNEXPLORED.getBlue(), EXPLORED.getBlue(), coverage);
-                state.fogMask.setRGB(x, y, 0xFF000000 | red << 16 | green << 8 | blue);
-            }
-        }
-
-        Graphics2D g = state.fogMask.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setComposite(AlphaComposite.DstOut);
-        for (VisibilityRules.Sensor sensor : sensors) carveVisibleSensor(g, sensor);
+    private static BufferedImage composeWorldFog(SystemState state, Rectangle2D view, double zoom) {
+        int width = clampBufferSize((int)Math.ceil(view.getWidth() * zoom * WORLD_BUFFER_SCALE));
+        int height = clampBufferSize((int)Math.ceil(view.getHeight() * zoom * WORLD_BUFFER_SCALE));
+        state.worldFogBuffer = ensureBuffer(state.worldFogBuffer, width, height);
+        Graphics2D g = state.worldFogBuffer.createGraphics();
+        prepareBuffer(g, width, height);
+        drawExplorationSlice(g, state, view, width, height);
+        carveSensors(g, state.sensors, view, width, height);
         g.dispose();
+        return state.worldFogBuffer;
     }
 
-    private static double smoothedCoverage(Raster raster, int x, int y, int width, int height) {
-        int weighted = 0;
-        int totalWeight = 0;
-        for (int dy = -1; dy <= 1; dy++) {
-            int sampleY = Math.max(0, Math.min(height - 1, y + dy));
-            int wy = dy == 0 ? 2 : 1;
-            for (int dx = -1; dx <= 1; dx++) {
-                int sampleX = Math.max(0, Math.min(width - 1, x + dx));
-                int wx = dx == 0 ? 2 : 1;
-                int weight = wx * wy;
-                weighted += raster.getSample(sampleX, sampleY, 0) * weight;
-                totalWeight += weight;
-            }
+    private static BufferedImage composeMinimapFog(SystemState state, int width, int height, long now) {
+        if (width <= 0 || height <= 0) return null;
+        boolean resized = state.minimapFogBuffer == null
+                || state.minimapFogBuffer.getWidth() != width || state.minimapFogBuffer.getHeight() != height;
+        state.minimapFogBuffer = ensureBuffer(state.minimapFogBuffer, width, height);
+        if (!resized && now - state.lastMinimapRefreshNanos < MINIMAP_REFRESH_NANOS) return state.minimapFogBuffer;
+        state.lastMinimapRefreshNanos = now;
+        Graphics2D g = state.minimapFogBuffer.createGraphics();
+        prepareBuffer(g, width, height);
+        Rectangle2D wholeWorld = new Rectangle2D.Double(0, 0, state.worldWidth, state.worldHeight);
+        drawExplorationSlice(g, state, wholeWorld, width, height);
+        carveSensors(g, state.sensors, wholeWorld, width, height);
+        g.dispose();
+        return state.minimapFogBuffer;
+    }
+
+    private static void prepareBuffer(Graphics2D g, int width, int height) {
+        g.setComposite(AlphaComposite.Src);
+        g.setColor(UNEXPLORED);
+        g.fillRect(0, 0, width, height);
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+    }
+
+    private static void drawExplorationSlice(Graphics2D g, SystemState state, Rectangle2D view,
+                                             int width, int height) {
+        double scaleX = EXPLORATION_MASK_WORLD_UNITS * width / Math.max(1.0, view.getWidth());
+        double scaleY = EXPLORATION_MASK_WORLD_UNITS * height / Math.max(1.0, view.getHeight());
+        double translateX = -view.getX() * width / Math.max(1.0, view.getWidth());
+        double translateY = -view.getY() * height / Math.max(1.0, view.getHeight());
+        AffineTransform transform = new AffineTransform(scaleX, 0, 0, scaleY, translateX, translateY);
+        g.setComposite(AlphaComposite.SrcOver);
+        g.drawImage(state.exploredFogMask, transform, null);
+    }
+
+    private static void carveSensors(Graphics2D g, List<VisibilityRules.Sensor> sensors, Rectangle2D view,
+                                     int width, int height) {
+        if (sensors == null || sensors.isEmpty()) return;
+        g.setComposite(AlphaComposite.DstOut);
+        double sx = width / Math.max(1.0, view.getWidth());
+        double sy = height / Math.max(1.0, view.getHeight());
+        for (VisibilityRules.Sensor sensor : sensors) {
+            if (sensor == null || sensor.range() <= 0) continue;
+            double centerX = (sensor.x() - view.getX()) * sx;
+            double centerY = (sensor.y() - view.getY()) * sy;
+            double radiusX = Math.max(0.5, sensor.range() * sx - 1.5);
+            double radiusY = Math.max(0.5, sensor.range() * sy - 1.5);
+            if (centerX + radiusX < 0 || centerY + radiusY < 0
+                    || centerX - radiusX > width || centerY - radiusY > height) continue;
+            BufferedImage stamp = gradientStamp(sensor.range());
+            int x1 = (int)Math.floor(centerX - radiusX);
+            int y1 = (int)Math.floor(centerY - radiusY);
+            int x2 = (int)Math.ceil(centerX + radiusX);
+            int y2 = (int)Math.ceil(centerY + radiusY);
+            g.drawImage(stamp, x1, y1, x2, y2, 0, 0, stamp.getWidth(), stamp.getHeight(), null);
         }
-        return weighted / (255.0 * totalWeight);
+        g.setComposite(AlphaComposite.SrcOver);
     }
 
-    private static void carveVisibleSensor(Graphics2D g, VisibilityRules.Sensor sensor) {
-        if (sensor == null || sensor.range() <= 0) return;
-        float radius = (float)Math.max(1.0, sensor.range() / MASK_WORLD_UNITS);
-        float centerX = (float)(sensor.x() / MASK_WORLD_UNITS);
-        float centerY = (float)(sensor.y() / MASK_WORLD_UNITS);
-        float inner = (float)Calc.clamp(1.0 - EDGE_FEATHER_WORLD_UNITS / sensor.range(), 0.08, 0.92);
-        RadialGradientPaint fade = new RadialGradientPaint(
-                new Point2D.Float(centerX, centerY), radius,
-                new float[]{0f, inner, 1f},
+    private static BufferedImage gradientStamp(double sensorRange) {
+        double inner = Calc.clamp(1.0 - EDGE_FEATHER_WORLD_UNITS / Math.max(1.0, sensorRange), 0.08, 0.92);
+        int bucket = Math.max(2, Math.min(18, (int)Math.round(inner * 20.0)));
+        BufferedImage cached = GRADIENT_STAMPS.get(bucket);
+        if (cached != null) return cached;
+        BufferedImage stamp = new BufferedImage(GRADIENT_STAMP_SIZE, GRADIENT_STAMP_SIZE,
+                BufferedImage.TYPE_INT_ARGB_PRE);
+        Graphics2D g = stamp.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        float center = (GRADIENT_STAMP_SIZE - 1) * 0.5f;
+        float radius = center;
+        float stop = bucket / 20.0f;
+        RadialGradientPaint gradient = new RadialGradientPaint(
+                new Point2D.Float(center, center), radius,
+                new float[]{0f, stop, 1f},
                 new Color[]{new Color(255, 255, 255, 255), new Color(255, 255, 255, 255),
                         new Color(255, 255, 255, 0)});
-        g.setPaint(fade);
-        g.fill(new Ellipse2D.Float(centerX - radius, centerY - radius, radius * 2f, radius * 2f));
+        g.setPaint(gradient);
+        g.fill(new Ellipse2D.Float(0, 0, GRADIENT_STAMP_SIZE - 1, GRADIENT_STAMP_SIZE - 1));
+        g.dispose();
+        GRADIENT_STAMPS.put(bucket, stamp);
+        return stamp;
     }
 
-    private static int blend(int hidden, int explored, double amount) {
-        return (int)Math.round(hidden + (explored - hidden) * Calc.clamp(amount, 0, 1));
+    private static void drawBuffer(Graphics2D g, BufferedImage buffer, Rectangle2D view) {
+        if (buffer == null) return;
+        Object oldInterpolation = g.getRenderingHint(RenderingHints.KEY_INTERPOLATION);
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        AffineTransform transform = new AffineTransform(
+                view.getWidth() / buffer.getWidth(), 0, 0, view.getHeight() / buffer.getHeight(),
+                view.getX(), view.getY());
+        g.drawImage(buffer, transform, null);
+        if (oldInterpolation == null) g.getRenderingHints().remove(RenderingHints.KEY_INTERPOLATION);
+        else g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, oldInterpolation);
+    }
+
+    private static Rectangle2D visibleWorldBounds(Graphics2D g, World world) {
+        Rectangle clip = g.getClipBounds();
+        if (clip == null) return new Rectangle2D.Double(0, 0, world.width, world.height);
+        double x1 = Calc.clamp(clip.getMinX(), 0, world.width);
+        double y1 = Calc.clamp(clip.getMinY(), 0, world.height);
+        double x2 = Calc.clamp(clip.getMaxX(), 0, world.width);
+        double y2 = Calc.clamp(clip.getMaxY(), 0, world.height);
+        return new Rectangle2D.Double(x1, y1, Math.max(0, x2 - x1), Math.max(0, y2 - y1));
+    }
+
+    private static double transformScale(AffineTransform transform) {
+        if (transform == null) return 1.0;
+        double scale = Math.hypot(transform.getScaleX(), transform.getShearX());
+        return Double.isFinite(scale) && scale > 0 ? scale : 1.0;
+    }
+
+    private static int clampBufferSize(int value) {
+        return Math.max(2, Math.min(2048, value));
+    }
+
+    private static BufferedImage ensureBuffer(BufferedImage image, int width, int height) {
+        if (image != null && image.getWidth() == width && image.getHeight() == height) return image;
+        return new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB_PRE);
     }
 
     private static void observeContacts(World world, String playerId, VisibilityRules.Frame frame, SystemState state) {
@@ -265,16 +355,6 @@ final class FogOfWarView {
                     ? gate.toSystemId + ':' + Math.round(gate.x) + ':' + Math.round(gate.y) : gate.id;
             state.wormholes.put(key, new KnownWormhole(key, gate.toSystemId, gate.x, gate.y));
         }
-    }
-
-    private static void drawFog(Graphics2D g, SystemState state, int offsetX, int offsetY, int width, int height) {
-        if (state.fogMask == null) return;
-        Object oldInterpolation = g.getRenderingHint(RenderingHints.KEY_INTERPOLATION);
-        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-        g.drawImage(state.fogMask, offsetX, offsetY, offsetX + width, offsetY + height,
-                0, 0, state.maskWidth, state.maskHeight, null);
-        if (oldInterpolation == null) g.getRenderingHints().remove(RenderingHints.KEY_INTERPOLATION);
-        else g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, oldInterpolation);
     }
 
     private static void drawContacts(Graphics2D g, World world, SystemState state, double scaleX, double scaleY,
@@ -324,12 +404,15 @@ final class FogOfWarView {
         final int maskHeight;
         final BitSet explored;
         final BitSet visible;
-        final BufferedImage exploredMask;
-        final BufferedImage fogMask;
+        final BufferedImage exploredFogMask;
         final Map<String, LastKnownContact> contacts = new LinkedHashMap<>();
         final Set<String> liveContacts = new LinkedHashSet<>();
         final Map<String, KnownWormhole> wormholes = new LinkedHashMap<>();
+        List<VisibilityRules.Sensor> sensors = List.of();
+        BufferedImage worldFogBuffer;
+        BufferedImage minimapFogBuffer;
         long lastUpdateNanos;
+        long lastMinimapRefreshNanos;
 
         SystemState(String systemId, int columns, int rows, int worldWidth, int worldHeight) {
             this.systemId = systemId;
@@ -337,12 +420,16 @@ final class FogOfWarView {
             this.rows = rows;
             this.worldWidth = worldWidth;
             this.worldHeight = worldHeight;
-            maskWidth = Math.max(2, (int)Math.ceil(worldWidth / MASK_WORLD_UNITS));
-            maskHeight = Math.max(2, (int)Math.ceil(worldHeight / MASK_WORLD_UNITS));
+            maskWidth = Math.max(2, (int)Math.ceil(worldWidth / EXPLORATION_MASK_WORLD_UNITS));
+            maskHeight = Math.max(2, (int)Math.ceil(worldHeight / EXPLORATION_MASK_WORLD_UNITS));
             explored = new BitSet(columns * rows);
             visible = new BitSet(columns * rows);
-            exploredMask = new BufferedImage(maskWidth, maskHeight, BufferedImage.TYPE_BYTE_GRAY);
-            fogMask = new BufferedImage(maskWidth, maskHeight, BufferedImage.TYPE_INT_ARGB_PRE);
+            exploredFogMask = new BufferedImage(maskWidth, maskHeight, BufferedImage.TYPE_INT_ARGB_PRE);
+            Graphics2D g = exploredFogMask.createGraphics();
+            g.setComposite(AlphaComposite.Src);
+            g.setColor(UNEXPLORED);
+            g.fillRect(0, 0, maskWidth, maskHeight);
+            g.dispose();
         }
 
         int index(int column, int row) { return row * columns + column; }
