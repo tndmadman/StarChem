@@ -5,7 +5,6 @@ import java.util.List;
 
 final class VisibilityRules {
     private static final double MIN_UNIT_SENSOR_RANGE = 260.0;
-    private static final double DEDICATED_SCOUT_SENSOR_RANGE = 720.0;
     private static final double MIN_BASE_SENSOR_RANGE = 650.0;
 
     private VisibilityRules() { }
@@ -13,10 +12,8 @@ final class VisibilityRules {
     static double unitSensorRange(World world, Unit unit) {
         if (unit == null) return 0;
         double baseline = MIN_UNIT_SENSOR_RANGE + Math.max(0, unit.type().size.scale) * 70.0;
-        double configuredScoutRange = Math.max(0, unit.type().scoutRange);
-        double range = Math.max(baseline, configuredScoutRange);
-        if ("scout".equals(unit.shipTypeId)) range = Math.max(range, DEDICATED_SCOUT_SENSOR_RANGE);
-        return range * SystemModifierRules.sensorRange(world);
+        double configuredRange = Math.max(0, unit.type().scoutRange);
+        return Math.max(baseline, configuredRange) * SystemModifierRules.sensorRange(world);
     }
 
     static double baseSensorRange(World world, Base base) {
