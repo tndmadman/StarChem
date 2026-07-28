@@ -33,8 +33,7 @@ final class FogSnapshotFilter {
 
         List<ShotState> shots = new ArrayList<>();
         for (ShotState state : source.shots()) {
-            if (playerId.equals(state.ownerId())
-                    || visibility.pointVisible(state.x(), state.y())
+            if (visibility.pointVisible(state.x(), state.y())
                     || visibility.pointVisible(state.lastX(), state.lastY())
                     || visibility.targetVisible(world, state.targetKey())) {
                 shots.add(state);
