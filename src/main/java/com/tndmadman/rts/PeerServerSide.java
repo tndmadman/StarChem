@@ -772,10 +772,10 @@ final class PeerServerSide {
     String requestedDevToken(String[] parts) { return parts.length > 3 ? parts[3] : ""; }
     boolean requestedResumeDev(String[] parts) { return parts.length > 3 && flag(parts[3]); }
     String requestedResumeDevToken(String[] parts) { return parts.length > 4 ? parts[4] : ""; }
-    private String envMessage() { return "ENV|" + world.systemId() + "|" + world.systemSeed() + "|" + Calc.round(world.systemTime()); }
+    private String envMessage() { return "ENV|" + world.systemId() + "|" + ClientEnvironmentSeed.forActiveSystem(world) + "|" + Calc.round(world.systemTime()); }
     private String welcome(String id, String name, int rgb, boolean devAllowed, String token) {
         return "WELCOME|" + id + "|" + Config.clean(name) + "|" + rgb + "|" + world.systemId() + "|"
-                + world.systemSeed() + "|" + Calc.round(world.systemTime()) + "|DEV|" + (devAllowed ? "1" : "0")
+                + ClientEnvironmentSeed.forActiveSystem(world) + "|" + Calc.round(world.systemTime()) + "|DEV|" + (devAllowed ? "1" : "0")
                 + "|SESSION|" + token;
     }
     private int colorFor(int i) { int[] colors = {0x50BEFF,0xFF5F55,0x7DFF7A,0xFFE066,0xC77DFF,0xFF9F1C}; return colors[Math.floorMod(i, colors.length)]; }
