@@ -41,6 +41,9 @@ jobs:
       - name: Validate authoritative fog of war
         run: java -cp build/classes/java/main com.tndmadman.rts.FogOfWarValidator
 
+      - name: Validate radar tower progression
+        run: java -cp build/classes/java/main com.tndmadman.rts.RadarTowerValidator
+
       - name: Verify project
         run: gradle check jar --no-daemon
 
