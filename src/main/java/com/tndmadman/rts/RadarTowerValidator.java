@@ -40,6 +40,10 @@ public final class RadarTowerValidator {
         require(totalCost(tierOne) < totalCost(tierTwo) && totalCost(tierTwo) < totalCost(tierThree),
                 "Radar tower package costs do not increase by tier.");
         require(Rules.findShip("scout") == null, "Scout hull remains registered after removal.");
+        require("prospector".equals(SaveContentResolver.shipId("scout")),
+                "Legacy Scout ships do not migrate to Prospectors.");
+        require("prospector".equals(SaveContentResolver.productionItemId(ProductionJobKind.SHIP, "scout")),
+                "Queued legacy Scout builds do not migrate to Prospectors.");
 
         Base outpost = new Base("P1:B1", "P1", Rules.DEFAULT_BASE, 1_000, 1_000);
         world.bases.put(outpost.id, outpost);
@@ -110,7 +114,7 @@ public final class RadarTowerValidator {
             Unit miner = new Unit("P1", i, "prospector", 1_000, 1_000 + i * 20);
             world.units.put(miner.key(), miner);
         }
-        new ScoutSystem().update(world);
+        world.updateCurrentSystem(0.1);
         int assigned = 0;
         for (Unit unit : world.units.values()) {
             if (unit.task == UnitTask.AUTO_HARVEST && unit.automationResourceId == node.id) assigned++;
