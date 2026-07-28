@@ -1,0 +1,73 @@
+name: Apply fog protocol patch
+
+on:
+  push:
+    branches:
+      - agent/issue-69-authoritative-fog
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/issue-69-authoritative-fog
+          fetch-depth: 0
+
+      - name: Apply protocol and validation updates
+        shell: python
+        run: |
+          from pathlib import Path
+
+          compatibility = Path("src/main/java/com/tndmadman/rts/MultiplayerCompatibility.java")
+          text = compatibility.read_text(encoding="utf-8")
+          old = "    static final int PROTOCOL_VERSION = 9;"
+          if text.count(old) != 1:
+              raise SystemExit("Expected protocol version line was not found exactly once")
+          compatibility.write_text(text.replace(old, "    static final int PROTOCOL_VERSION = 10;", 1), encoding="utf-8")
+
+          validator = Path("src/main/java/com/tndmadman/rts/SnapshotValidator.java")
+          text = validator.read_text(encoding="utf-8")
+          old = '''        SnapshotReader.text(snapshot.celestialState(), SnapshotReader.MAX_SYSTEM_FIELD_LENGTH, "snapshot", 0, "celestial state");
+          '''
+          new = '''        SnapshotReader.text(snapshot.celestialState(), SnapshotReader.MAX_SYSTEM_FIELD_LENGTH, "snapshot", 0, "celestial state");
+                  CelestialPacketCache.validateState(snapshot.celestialState());
+          '''
+          if text.count(old) != 1:
+              raise SystemExit("Expected celestial validation line was not found exactly once")
+          validator.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          server = Path("src/main/java/com/tndmadman/rts/PeerServerSide.java")
+          text = server.read_text(encoding="utf-8")
+          old_env = '''    private String envMessage() { return "ENV|" + world.systemId() + "|" + world.systemSeed() + "|" + Calc.round(world.systemTime()); }
+          '''
+          new_env = '''    private String envMessage() { return "ENV|" + world.systemId() + "|" + ClientEnvironmentSeed.forActiveSystem(world) + "|" + Calc.round(world.systemTime()); }
+          '''
+          if text.count(old_env) != 1:
+              raise SystemExit("Expected ENV message line was not found exactly once")
+          text = text.replace(old_env, new_env, 1)
+          old_welcome = '''        return "WELCOME|" + id + "|" + Config.clean(name) + "|" + rgb + "|" + world.systemId() + "|"
+                          + world.systemSeed() + "|" + Calc.round(world.systemTime()) + "|DEV|" + (devAllowed ? "1" : "0")
+          '''
+          new_welcome = '''        return "WELCOME|" + id + "|" + Config.clean(name) + "|" + rgb + "|" + world.systemId() + "|"
+                          + ClientEnvironmentSeed.forActiveSystem(world) + "|" + Calc.round(world.systemTime()) + "|DEV|" + (devAllowed ? "1" : "0")
+          '''
+          if text.count(old_welcome) != 1:
+              raise SystemExit("Expected WELCOME seed block was not found exactly once")
+          server.write_text(text.replace(old_welcome, new_welcome, 1), encoding="utf-8")
+
+      - name: Commit protocol update
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-fog-protocol-patch.yml
+          git add src/main/java/com/tndmadman/rts/MultiplayerCompatibility.java \
+                  src/main/java/com/tndmadman/rts/SnapshotValidator.java \
+                  src/main/java/com/tndmadman/rts/PeerServerSide.java
+          git commit -m "Hide authoritative galaxy seed from clients"
+          git push origin HEAD:agent/issue-69-authoritative-fog
