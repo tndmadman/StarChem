@@ -42,6 +42,12 @@ final class BuildSystem {
             return false;
         }
         boolean free = freeBuild(world, base);
+        if (!free && !RadarTowerRules.unlocked(world, base.playerId, packageType)) {
+            String research = RadarTowerRules.requiredResearchName(packageType);
+            world.status = pkg.name + " requires research" + (research.isBlank() ? "." : ": " + research + ".");
+            GameNoticeCenter.publish(world, base.playerId, NoticeCategory.WARNING, world.status, true);
+            return false;
+        }
         if (!free && !HangarStore.canAfford(base.inventory, pkg.buildCost)) {
             if (world.logisticsSystem.queueBasePackage(world, base, pkg)) return true;
             if (ProductionPlanner.queuePackage(world, base, pkg)) return true;
