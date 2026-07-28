@@ -23,7 +23,21 @@ final class VisibilityRules {
     }
 
     static IntelWarfareSystem.DetectionStage resourceStage(World world, String playerId, ResourceNode resource) {
-        return IntelWarfareSystem.resourceStage(world, playerId, resource);
+        IntelWarfareSystem.DetectionStage stage = IntelWarfareSystem.resourceStage(world, playerId, resource);
+        if (world == null || resource == null || !resource.active) return stage;
+        for (Unit unit : world.units.values()) {
+            if (unit == null || unit.hp <= 0 || !IntelWarfareSystem.allied(world, playerId, unit.playerId)
+                    || !unit.type().harvestKinds.contains(resource.kind)) continue;
+            double distance = Calc.distance(unit.x, unit.y, resource.x, resource.y);
+            double localSurveyRange = Math.max(unit.type().scoutRange,
+                    Math.max(unit.type().harvestRange * 3.0, 180.0)) * SystemModifierRules.sensorRange(world);
+            if (distance > localSurveyRange) continue;
+            IntelWarfareSystem.DetectionStage local = distance <= Math.max(40, unit.type().harvestRange * 1.25)
+                    ? IntelWarfareSystem.DetectionStage.DETAILED
+                    : IntelWarfareSystem.DetectionStage.IDENTIFIED;
+            if (local.ordinal() > stage.ordinal()) stage = local;
+        }
+        return stage;
     }
 
     static Frame frame(World world, String playerId) {
@@ -74,15 +88,15 @@ final class VisibilityRules {
         }
 
         IntelWarfareSystem.DetectionStage unitStage(Unit unit) {
-            return IntelWarfareSystem.unitStage(world, playerId, unit);
+            return VisibilityRules.unitStage(world, playerId, unit);
         }
 
         IntelWarfareSystem.DetectionStage baseStage(Base base) {
-            return IntelWarfareSystem.baseStage(world, playerId, base);
+            return VisibilityRules.baseStage(world, playerId, base);
         }
 
         IntelWarfareSystem.DetectionStage resourceStage(ResourceNode resource) {
-            return IntelWarfareSystem.resourceStage(world, playerId, resource);
+            return VisibilityRules.resourceStage(world, playerId, resource);
         }
 
         boolean unitVisible(Unit unit) {
