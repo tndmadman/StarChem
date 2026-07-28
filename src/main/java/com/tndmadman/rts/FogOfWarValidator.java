@@ -49,6 +49,15 @@ public final class FogOfWarValidator {
         require(!VisibilityRules.targetVisible(world, "P1", CombatTarget.unit(hiddenEnemy)),
                 "Enemy outside all friendly sensors must stay hidden.");
 
+        ordinary.attackTarget = "";
+        AUnitAttack.apply(world, new AttackCommand("P1", ordinary.unitId, CombatTarget.unit(hiddenEnemy)));
+        require(ordinary.attackTarget.isBlank(), "Hidden target key bypassed authoritative attack validation.");
+        AUnitAttack.apply(world, new AttackCommand("P1", ordinary.unitId, CombatTarget.unit(visibleEnemy)));
+        require(CombatTarget.unit(visibleEnemy).equals(ordinary.attackTarget),
+                "Sensor-visible target was rejected by authoritative attack validation.");
+        ordinary.attackTarget = "";
+        ordinary.task = UnitTask.IDLE;
+
         ResourceSyncMode.fullForNextSnapshot();
         Snapshot filtered = FogSnapshotFilter.forPlayer(world, "P1", WorldNetAccess.snapshot(world, 1));
 
@@ -68,6 +77,23 @@ public final class FogOfWarValidator {
         BaseState visibleBaseState = base(filtered, visibleBase.id);
         require(visibleBaseState != null && visibleBaseState.cargo().isBlank(), "Enemy base inventory leaked through fog filtering.");
         require(visibleBaseState.productionQueue().isBlank(), "Enemy production queue leaked through fog filtering.");
+
+        FogOfWarView.forceRefreshForTest(world);
+        require(FogOfWarView.exploredCellCount(world) > 0, "Friendly sensors did not reveal explored fog cells.");
+        require(FogOfWarView.lastKnownContactCount(world) >= 2,
+                "Visible enemy ship and station were not recorded as observed contacts.");
+
+        visibleEnemy.x = 2_200;
+        visibleEnemy.targetX = visibleEnemy.x;
+        world.systemTime += 0.5;
+        FogOfWarView.forceRefreshForTest(world);
+        require(FogOfWarView.recentHiddenContactCount(world) >= 1,
+                "Enemy leaving sensor coverage did not leave a recent last-known contact.");
+
+        world.systemTime += 3.0;
+        FogOfWarView.forceRefreshForTest(world);
+        require(FogOfWarView.recentHiddenContactCount(world) == 0,
+                "Confirmed-clear last-known contact was not retired after the grace period.");
 
         System.out.println("Fog-of-war validator passed.");
     }
