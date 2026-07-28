@@ -1,12 +1,18 @@
 package com.tndmadman.rts;
 
+import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics2D;
+import java.awt.RadialGradientPaint;
 import java.awt.Rectangle;
+import java.awt.RenderingHints;
 import java.awt.Stroke;
 import java.awt.geom.Ellipse2D;
+import java.awt.geom.Point2D;
+import java.awt.image.BufferedImage;
+import java.awt.image.Raster;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Iterator;
@@ -19,6 +25,8 @@ import java.util.WeakHashMap;
 
 final class FogOfWarView {
     static final int CELL_SIZE = 128;
+    private static final double MASK_WORLD_UNITS = 32.0;
+    private static final double EDGE_FEATHER_WORLD_UNITS = 96.0;
     private static final long UPDATE_INTERVAL_NANOS = 80_000_000L;
     private static final double CONTACT_CLEAR_CONFIRM_SECONDS = 2.0;
     private static final int MAX_CONTACTS = 512;
@@ -32,7 +40,7 @@ final class FogOfWarView {
         SystemState state = update(world, System.nanoTime());
         if (source == null || world == null || state == null) return;
         Graphics2D g = (Graphics2D)source.create();
-        drawFog(g, state, 0, 0, world.width, world.height, 1.0, 1.0);
+        drawFog(g, state, 0, 0, world.width, world.height);
         drawContacts(g, world, state, 1.0, 1.0, 0, 0);
         g.dispose();
     }
@@ -43,7 +51,7 @@ final class FogOfWarView {
         Graphics2D g = (Graphics2D)source.create();
         double sx = map.width / Math.max(1.0, world.width);
         double sy = map.height / Math.max(1.0, world.height);
-        drawFog(g, state, map.x, map.y, map.width, map.height, sx, sy);
+        drawFog(g, state, map.x, map.y, map.width, map.height);
         drawContacts(g, world, state, sx, sy, map.x, map.y);
         g.dispose();
     }
@@ -82,6 +90,19 @@ final class FogOfWarView {
         return state == null ? 0 : state.explored.cardinality();
     }
 
+    static synchronized int smoothTransitionPixelCount(World world) {
+        SystemState state = update(world, System.nanoTime());
+        if (state == null || state.fogMask == null) return 0;
+        int count = 0;
+        for (int y = 0; y < state.fogMask.getHeight(); y++) {
+            for (int x = 0; x < state.fogMask.getWidth(); x++) {
+                int alpha = state.fogMask.getRGB(x, y) >>> 24;
+                if (alpha > 0 && alpha < 255) count++;
+            }
+        }
+        return count;
+    }
+
     static synchronized void forceRefreshForTest(World world) {
         WorldState worldState = STATES.get(world);
         if (worldState != null) for (SystemState state : worldState.systems.values()) state.lastUpdateNanos = 0;
@@ -98,8 +119,9 @@ final class FogOfWarView {
         int columns = Math.max(1, (int)Math.ceil(world.width / (double)CELL_SIZE));
         int rows = Math.max(1, (int)Math.ceil(world.height / (double)CELL_SIZE));
         SystemState state = worldState.systems.get(key);
-        if (state == null || state.columns != columns || state.rows != rows) {
-            state = new SystemState(systemId, columns, rows);
+        if (state == null || state.columns != columns || state.rows != rows
+                || state.worldWidth != world.width || state.worldHeight != world.height) {
+            state = new SystemState(systemId, columns, rows, world.width, world.height);
             worldState.systems.put(key, state);
         }
         if (now - state.lastUpdateNanos < UPDATE_INTERVAL_NANOS) return state;
@@ -108,6 +130,8 @@ final class FogOfWarView {
         VisibilityRules.Frame frame = VisibilityRules.frame(world, playerId);
         for (VisibilityRules.Sensor sensor : frame.sensors()) reveal(state, sensor);
         state.explored.or(state.visible);
+        paintExploration(state, frame.sensors());
+        rebuildFogMask(state, frame.sensors());
         observeContacts(world, playerId, frame, state);
         observeWormholes(world, frame, state);
         return state;
@@ -132,6 +156,75 @@ final class FogOfWarView {
                 if (dx * dx + dy * dy <= sensor.rangeSquared()) state.visible.set(state.index(column, row));
             }
         }
+    }
+
+    private static void paintExploration(SystemState state, List<VisibilityRules.Sensor> sensors) {
+        Graphics2D g = state.exploredMask.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setColor(Color.WHITE);
+        for (VisibilityRules.Sensor sensor : sensors) {
+            if (sensor == null || sensor.range() <= 0) continue;
+            double radius = sensor.range() / MASK_WORLD_UNITS;
+            double x = sensor.x() / MASK_WORLD_UNITS - radius;
+            double y = sensor.y() / MASK_WORLD_UNITS - radius;
+            g.fill(new Ellipse2D.Double(x, y, radius * 2.0, radius * 2.0));
+        }
+        g.dispose();
+    }
+
+    private static void rebuildFogMask(SystemState state, List<VisibilityRules.Sensor> sensors) {
+        Raster explored = state.exploredMask.getRaster();
+        for (int y = 0; y < state.maskHeight; y++) {
+            for (int x = 0; x < state.maskWidth; x++) {
+                double coverage = smoothedCoverage(explored, x, y, state.maskWidth, state.maskHeight);
+                int red = blend(UNEXPLORED.getRed(), EXPLORED.getRed(), coverage);
+                int green = blend(UNEXPLORED.getGreen(), EXPLORED.getGreen(), coverage);
+                int blue = blend(UNEXPLORED.getBlue(), EXPLORED.getBlue(), coverage);
+                state.fogMask.setRGB(x, y, 0xFF000000 | red << 16 | green << 8 | blue);
+            }
+        }
+
+        Graphics2D g = state.fogMask.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setComposite(AlphaComposite.DstOut);
+        for (VisibilityRules.Sensor sensor : sensors) carveVisibleSensor(g, sensor);
+        g.dispose();
+    }
+
+    private static double smoothedCoverage(Raster raster, int x, int y, int width, int height) {
+        int weighted = 0;
+        int totalWeight = 0;
+        for (int dy = -1; dy <= 1; dy++) {
+            int sampleY = Math.max(0, Math.min(height - 1, y + dy));
+            int wy = dy == 0 ? 2 : 1;
+            for (int dx = -1; dx <= 1; dx++) {
+                int sampleX = Math.max(0, Math.min(width - 1, x + dx));
+                int wx = dx == 0 ? 2 : 1;
+                int weight = wx * wy;
+                weighted += raster.getSample(sampleX, sampleY, 0) * weight;
+                totalWeight += weight;
+            }
+        }
+        return weighted / (255.0 * totalWeight);
+    }
+
+    private static void carveVisibleSensor(Graphics2D g, VisibilityRules.Sensor sensor) {
+        if (sensor == null || sensor.range() <= 0) return;
+        float radius = (float)Math.max(1.0, sensor.range() / MASK_WORLD_UNITS);
+        float centerX = (float)(sensor.x() / MASK_WORLD_UNITS);
+        float centerY = (float)(sensor.y() / MASK_WORLD_UNITS);
+        float inner = (float)Calc.clamp(1.0 - EDGE_FEATHER_WORLD_UNITS / sensor.range(), 0.08, 0.92);
+        RadialGradientPaint fade = new RadialGradientPaint(
+                new Point2D.Float(centerX, centerY), radius,
+                new float[]{0f, inner, 1f},
+                new Color[]{new Color(255, 255, 255, 255), new Color(255, 255, 255, 255),
+                        new Color(255, 255, 255, 0)});
+        g.setPaint(fade);
+        g.fill(new Ellipse2D.Float(centerX - radius, centerY - radius, radius * 2f, radius * 2f));
+    }
+
+    private static int blend(int hidden, int explored, double amount) {
+        return (int)Math.round(hidden + (explored - hidden) * Calc.clamp(amount, 0, 1));
     }
 
     private static void observeContacts(World world, String playerId, VisibilityRules.Frame frame, SystemState state) {
@@ -174,33 +267,14 @@ final class FogOfWarView {
         }
     }
 
-    private static void drawFog(Graphics2D g, SystemState state, int offsetX, int offsetY, int width, int height,
-                                double scaleX, double scaleY) {
-        for (int row = 0; row < state.rows; row++) {
-            int column = 0;
-            while (column < state.columns) {
-                int index = state.index(column, row);
-                int mode = state.visible.get(index) ? 0 : state.explored.get(index) ? 1 : 2;
-                if (mode == 0) {
-                    column++;
-                    continue;
-                }
-                int end = column + 1;
-                while (end < state.columns) {
-                    int next = state.index(end, row);
-                    int nextMode = state.visible.get(next) ? 0 : state.explored.get(next) ? 1 : 2;
-                    if (nextMode != mode) break;
-                    end++;
-                }
-                g.setColor(mode == 1 ? EXPLORED : UNEXPLORED);
-                int x = offsetX + (int)Math.floor(column * CELL_SIZE * scaleX);
-                int y = offsetY + (int)Math.floor(row * CELL_SIZE * scaleY);
-                int x2 = offsetX + (int)Math.ceil(Math.min(width / Math.max(scaleX, 0.000001), end * (double)CELL_SIZE) * scaleX);
-                int y2 = offsetY + (int)Math.ceil(Math.min(height / Math.max(scaleY, 0.000001), (row + 1.0) * CELL_SIZE) * scaleY);
-                g.fillRect(x, y, Math.max(1, x2 - x), Math.max(1, y2 - y));
-                column = end;
-            }
-        }
+    private static void drawFog(Graphics2D g, SystemState state, int offsetX, int offsetY, int width, int height) {
+        if (state.fogMask == null) return;
+        Object oldInterpolation = g.getRenderingHint(RenderingHints.KEY_INTERPOLATION);
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+        g.drawImage(state.fogMask, offsetX, offsetY, offsetX + width, offsetY + height,
+                0, 0, state.maskWidth, state.maskHeight, null);
+        if (oldInterpolation == null) g.getRenderingHints().remove(RenderingHints.KEY_INTERPOLATION);
+        else g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, oldInterpolation);
     }
 
     private static void drawContacts(Graphics2D g, World world, SystemState state, double scaleX, double scaleY,
@@ -244,19 +318,31 @@ final class FogOfWarView {
         final String systemId;
         final int columns;
         final int rows;
+        final int worldWidth;
+        final int worldHeight;
+        final int maskWidth;
+        final int maskHeight;
         final BitSet explored;
         final BitSet visible;
+        final BufferedImage exploredMask;
+        final BufferedImage fogMask;
         final Map<String, LastKnownContact> contacts = new LinkedHashMap<>();
         final Set<String> liveContacts = new LinkedHashSet<>();
         final Map<String, KnownWormhole> wormholes = new LinkedHashMap<>();
         long lastUpdateNanos;
 
-        SystemState(String systemId, int columns, int rows) {
+        SystemState(String systemId, int columns, int rows, int worldWidth, int worldHeight) {
             this.systemId = systemId;
             this.columns = columns;
             this.rows = rows;
+            this.worldWidth = worldWidth;
+            this.worldHeight = worldHeight;
+            maskWidth = Math.max(2, (int)Math.ceil(worldWidth / MASK_WORLD_UNITS));
+            maskHeight = Math.max(2, (int)Math.ceil(worldHeight / MASK_WORLD_UNITS));
             explored = new BitSet(columns * rows);
             visible = new BitSet(columns * rows);
+            exploredMask = new BufferedImage(maskWidth, maskHeight, BufferedImage.TYPE_BYTE_GRAY);
+            fogMask = new BufferedImage(maskWidth, maskHeight, BufferedImage.TYPE_INT_ARGB_PRE);
         }
 
         int index(int column, int row) { return row * columns + column; }
