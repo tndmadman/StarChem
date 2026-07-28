@@ -2,8 +2,10 @@ package com.tndmadman.rts;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** Maintains local miner search behavior, radar dispatch, and the authoritative intel tick. */
 final class ScoutSystem {
@@ -12,6 +14,7 @@ final class ScoutSystem {
     private double lastIntelDelta = 0.05;
 
     void update(World world) {
+        refreshTeamIntelSharing(world);
         updateIntel(world);
         for (Unit miner : world.units.values()) {
             if (canLocalMine(miner)) updateLocalMiner(world, miner);
@@ -27,6 +30,24 @@ final class ScoutSystem {
         if (miner.freeCargo() <= 0.05) return false;
         if (retargetLocalMiner(world, miner, oldNode)) return true;
         return retargetFromRadar(world, miner, oldNode);
+    }
+
+    private void refreshTeamIntelSharing(World world) {
+        Set<String> owners = new LinkedHashSet<>();
+        for (Unit unit : world.units.values()) if (unit != null && unit.hp > 0) owners.add(unit.playerId);
+        for (Base base : world.bases.values()) if (base != null && base.hp > 0) owners.add(base.playerId);
+        List<String> players = new ArrayList<>(owners);
+        for (int i = 0; i < players.size(); i++) {
+            String first = players.get(i);
+            if (first == null || first.isBlank() || NpcRules.isNpcFaction(first)) continue;
+            for (int j = i + 1; j < players.size(); j++) {
+                String second = players.get(j);
+                if (second == null || second.isBlank() || NpcRules.isNpcFaction(second)) continue;
+                if (PlayerRegistry.color(first).getRGB() == PlayerRegistry.color(second).getRGB()) {
+                    IntelWarfareSystem.setIntelAlliance(world, first, second, true);
+                }
+            }
+        }
     }
 
     private void updateIntel(World world) {
@@ -67,10 +88,9 @@ final class ScoutSystem {
     }
 
     private void setModeSilently(World world, Base radar, IntelWarfareSystem.RadarMode desired) {
+        if (IntelWarfareSystem.radarMode(world, radar) == desired) return;
         String status = world.status;
-        for (int i = 0; i < 3 && IntelWarfareSystem.radarMode(world, radar) != desired; i++) {
-            IntelWarfareSystem.cycleRadarMode(world, radar, radar.playerId);
-        }
+        IntelWarfareSystem.setRadarMode(world, radar, desired, radar.playerId);
         world.status = status;
     }
 
