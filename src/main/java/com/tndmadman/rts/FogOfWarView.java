@@ -32,6 +32,7 @@ final class FogOfWarView {
     private static final long UPDATE_INTERVAL_NANOS = 50_000_000L;
     private static final long MINIMAP_REFRESH_NANOS = 100_000_000L;
     private static final double CONTACT_CLEAR_CONFIRM_SECONDS = 2.0;
+    private static final double CONTACT_MEMORY_SECONDS = 45.0;
     private static final int MAX_CONTACTS = 512;
     private static final int GRADIENT_STAMP_SIZE = 128;
     private static final Color UNEXPLORED = new Color(1, 3, 7);
@@ -321,23 +322,39 @@ final class FogOfWarView {
         state.liveContacts.clear();
         double time = world.systemTime();
         for (Unit unit : world.units.values()) {
-            if (unit == null || unit.hp <= 0 || playerId.equals(unit.playerId) || !frame.unitVisible(unit)) continue;
+            if (unit == null || unit.hp <= 0 || IntelWarfareSystem.allied(world, playerId, unit.playerId)) continue;
+            IntelWarfareSystem.DetectionStage stage = frame.unitStage(unit);
+            if (!stage.atLeast(IntelWarfareSystem.DetectionStage.CONTACT)) continue;
             String key = "U:" + unit.key();
             state.liveContacts.add(key);
-            state.contacts.put(key, new LastKnownContact(key, unit.playerId, unit.shipTypeId, false, unit.x, unit.y, time));
+            LastKnownContact previous = state.contacts.get(key);
+            double elapsed = previous == null ? 0 : Math.max(0.05, time - previous.lastSeenSystemTime());
+            double vx = previous == null ? 0 : (unit.x - previous.x()) / elapsed;
+            double vy = previous == null ? 0 : (unit.y - previous.y()) / elapsed;
+            String type = stage.atLeast(IntelWarfareSystem.DetectionStage.IDENTIFIED)
+                    ? unit.shipTypeId : contactLabel(unit, stage);
+            state.contacts.put(key, new LastKnownContact(key, unit.playerId, type, false, unit.x, unit.y,
+                    vx, vy, stage, time, false));
         }
         for (Base base : world.bases.values()) {
-            if (base == null || base.hp <= 0 || playerId.equals(base.playerId) || !frame.baseVisible(base)) continue;
+            if (base == null || base.hp <= 0 || IntelWarfareSystem.allied(world, playerId, base.playerId)) continue;
+            IntelWarfareSystem.DetectionStage stage = frame.baseStage(base);
+            if (!stage.atLeast(IntelWarfareSystem.DetectionStage.CONTACT)) continue;
             String key = "B:" + base.id;
             state.liveContacts.add(key);
-            state.contacts.put(key, new LastKnownContact(key, base.playerId, base.typeId, true, base.x, base.y, time));
+            String type = stage.atLeast(IntelWarfareSystem.DetectionStage.IDENTIFIED)
+                    ? base.typeId : "STATION CONTACT";
+            state.contacts.put(key, new LastKnownContact(key, base.playerId, type, true, base.x, base.y,
+                    0, 0, stage, time, IntelWarfareSystem.isDecoy(base.typeId)
+                    && !stage.atLeast(IntelWarfareSystem.DetectionStage.DETAILED)));
         }
         Iterator<Map.Entry<String, LastKnownContact>> iterator = state.contacts.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<String, LastKnownContact> entry = iterator.next();
             LastKnownContact contact = entry.getValue();
             double age = Math.max(0, time - contact.lastSeenSystemTime());
-            if (!state.liveContacts.contains(entry.getKey()) && frame.pointVisible(contact.x(), contact.y())
+            if (age > CONTACT_MEMORY_SECONDS
+                    || !state.liveContacts.contains(entry.getKey()) && frame.pointVisible(contact.x(), contact.y())
                     && age >= CONTACT_CLEAR_CONFIRM_SECONDS) iterator.remove();
         }
         while (state.contacts.size() > MAX_CONTACTS) {
@@ -346,6 +363,14 @@ final class FogOfWarView {
             keys.next();
             keys.remove();
         }
+    }
+
+    private static String contactLabel(Unit unit, IntelWarfareSystem.DetectionStage stage) {
+        if (stage == IntelWarfareSystem.DetectionStage.CONTACT) return "UNKNOWN CONTACT";
+        double size = unit.type().size.scale;
+        if (size <= 1.15) return "SMALL SHIP CONTACT";
+        if (size >= 2.6) return "LARGE SHIP CONTACT";
+        return "SHIP CONTACT";
     }
 
     private static void observeWormholes(World world, VisibilityRules.Frame frame, SystemState state) {
@@ -361,21 +386,43 @@ final class FogOfWarView {
                                      int offsetX, int offsetY) {
         Stroke oldStroke = g.getStroke();
         Font oldFont = g.getFont();
+        double now = world.systemTime();
         for (LastKnownContact contact : new ArrayList<>(state.contacts.values())) {
             if (state.liveContacts.contains(contact.key())) continue;
-            double x = offsetX + contact.x() * scaleX;
-            double y = offsetY + contact.y() * scaleY;
-            double radius = Math.max(4, (contact.base() ? 18 : 12) * Math.max(0.35, Math.min(1.0, scaleX)));
+            double age = Math.max(0, now - contact.lastSeenSystemTime());
+            double projectionSeconds = Math.min(6, age);
+            double predictedWorldX = contact.x() + contact.vx() * projectionSeconds;
+            double predictedWorldY = contact.y() + contact.vy() * projectionSeconds;
+            double x = offsetX + predictedWorldX * scaleX;
+            double y = offsetY + predictedWorldY * scaleY;
+            double uncertaintyWorld = IntelWarfareSystem.uncertainty(contact.stage(), age);
+            double uncertainty = Math.max(4, uncertaintyWorld * Math.max(0.001, (scaleX + scaleY) * 0.5));
+            if (scaleX >= 0.8) uncertainty = Math.max(12, uncertainty);
+            else uncertainty = Math.min(32, uncertainty);
             Color owner = PlayerRegistry.color(contact.ownerId());
-            g.setColor(new Color(owner.getRed(), owner.getGreen(), owner.getBlue(), 175));
+            int alpha = Math.max(65, (int)Math.round(190 * (1.0 - age / CONTACT_MEMORY_SECONDS)));
+            g.setColor(new Color(owner.getRed(), owner.getGreen(), owner.getBlue(), alpha));
             g.setStroke(new BasicStroke((float)Math.max(1, 1.8 * Math.max(0.45, scaleX)), BasicStroke.CAP_ROUND,
-                    BasicStroke.JOIN_ROUND, 0, new float[]{5f, 4f}, 0));
-            g.draw(new Ellipse2D.Double(x - radius, y - radius, radius * 2, radius * 2));
-            g.drawLine((int)Math.round(x - radius), (int)Math.round(y), (int)Math.round(x + radius), (int)Math.round(y));
-            g.drawLine((int)Math.round(x), (int)Math.round(y - radius), (int)Math.round(x), (int)Math.round(y + radius));
+                    BasicStroke.JOIN_ROUND, 0, new float[]{6f, 5f}, (float)(age * 2)));
+            g.draw(new Ellipse2D.Double(x - uncertainty, y - uncertainty, uncertainty * 2, uncertainty * 2));
+            double marker = Math.max(4, (contact.base() ? 10 : 7) * Math.max(0.4, Math.min(1.0, scaleX)));
+            g.drawLine((int)Math.round(x - marker), (int)Math.round(y), (int)Math.round(x + marker), (int)Math.round(y));
+            g.drawLine((int)Math.round(x), (int)Math.round(y - marker), (int)Math.round(x), (int)Math.round(y + marker));
+
+            double speed = Math.hypot(contact.vx(), contact.vy());
+            if (speed > 1 && scaleX >= 0.15) {
+                double length = Math.min(120, speed * 0.7) * Math.max(0.15, scaleX);
+                double dx = contact.vx() / speed * length;
+                double dy = contact.vy() / speed * length;
+                g.setStroke(new BasicStroke((float)Math.max(1, 1.4 * Math.max(0.45, scaleX))));
+                g.drawLine((int)Math.round(x), (int)Math.round(y), (int)Math.round(x + dx), (int)Math.round(y + dy));
+            }
             if (scaleX >= 0.8) {
                 g.setFont(oldFont.deriveFont(Font.PLAIN, 10f));
-                g.drawString("LAST KNOWN " + contact.typeId(), (int)Math.round(x + radius + 5), (int)Math.round(y - 3));
+                String warning = contact.decoySuspected() ? " | ANOMALOUS" : "";
+                String label = "LAST KNOWN " + contact.typeId() + " | " + Math.round(age) + "s ago"
+                        + " | ±" + Math.round(uncertaintyWorld) + warning;
+                g.drawString(label, (int)Math.round(x + marker + 7), (int)Math.round(y - 4));
             }
         }
         g.setStroke(oldStroke);
@@ -388,7 +435,8 @@ final class FogOfWarView {
 
     record KnownWormhole(String id, String toSystemId, double x, double y) { }
     record LastKnownContact(String key, String ownerId, String typeId, boolean base, double x, double y,
-                            double lastSeenSystemTime) { }
+                            double vx, double vy, IntelWarfareSystem.DetectionStage stage,
+                            double lastSeenSystemTime, boolean decoySuspected) { }
 
     private static final class WorldState {
         final Map<String, SystemState> systems = new LinkedHashMap<>();
