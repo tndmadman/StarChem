@@ -48,10 +48,15 @@ public final class MinimapHudValidator {
         require(!hud.click(world, camera, 2, 2, screenW, screenH),
                 "click outside minimap was incorrectly consumed");
 
-        Unit enemy = new Unit("ENEMY", 1, "prospector", world.width * 0.80, world.height * 0.22);
-        world.units.put(enemy.key(), enemy);
+        Unit hiddenEnemy = new Unit("ENEMY", 1, "prospector", world.width * 0.80, world.height * 0.22);
+        world.units.put(hiddenEnemy.key(), hiddenEnemy);
         hud.draw(graphics, world, camera, screenW, screenH);
-        require(hud.pingCount() > 0, "new enemy contact did not create a minimap ping");
+        require(hud.pingCount() == 0, "enemy outside sensor coverage created a minimap ping");
+
+        Unit visibleEnemy = new Unit("ENEMY", 2, "prospector", unit.x + 120, unit.y);
+        world.units.put(visibleEnemy.key(), visibleEnemy);
+        hud.draw(graphics, world, camera, screenW, screenH);
+        require(hud.pingCount() > 0, "new sensor-visible enemy contact did not create a minimap ping");
 
         world.units.remove(unit.key());
         hud.draw(graphics, world, camera, screenW, screenH);
