@@ -75,7 +75,8 @@ final class WeaponSystem {
     }
 
     private void updateAttack(World world, Unit unit) {
-        if (unit.attackTarget.isBlank() || !CombatTarget.enemy(world, unit, unit.attackTarget)) {
+        if (unit.attackTarget.isBlank() || !CombatTarget.enemy(world, unit, unit.attackTarget)
+                || !VisibilityRules.targetVisible(world, unit.playerId, unit.attackTarget)) {
             unit.attackTarget = "";
             unit.task = UnitTask.IDLE;
             return;
