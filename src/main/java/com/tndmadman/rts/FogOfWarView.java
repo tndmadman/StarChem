@@ -5,6 +5,7 @@ import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
+import java.awt.Stroke;
 import java.awt.geom.Ellipse2D;
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -19,6 +20,7 @@ import java.util.WeakHashMap;
 final class FogOfWarView {
     static final int CELL_SIZE = 128;
     private static final long UPDATE_INTERVAL_NANOS = 80_000_000L;
+    private static final double CONTACT_CLEAR_CONFIRM_SECONDS = 2.0;
     private static final int MAX_CONTACTS = 512;
     private static final Color UNEXPLORED = new Color(1, 3, 7);
     private static final Color EXPLORED = new Color(8, 14, 22);
@@ -67,9 +69,23 @@ final class FogOfWarView {
         return state == null ? 0 : state.contacts.size();
     }
 
+    static synchronized int recentHiddenContactCount(World world) {
+        SystemState state = update(world, System.nanoTime());
+        if (state == null) return 0;
+        int count = 0;
+        for (String key : state.contacts.keySet()) if (!state.liveContacts.contains(key)) count++;
+        return count;
+    }
+
     static synchronized int exploredCellCount(World world) {
         SystemState state = update(world, System.nanoTime());
         return state == null ? 0 : state.explored.cardinality();
+    }
+
+    static synchronized void forceRefreshForTest(World world) {
+        WorldState worldState = STATES.get(world);
+        if (worldState != null) for (SystemState state : worldState.systems.values()) state.lastUpdateNanos = 0;
+        update(world, System.nanoTime());
     }
 
     private static SystemState update(World world, long now) {
@@ -119,25 +135,27 @@ final class FogOfWarView {
     }
 
     private static void observeContacts(World world, String playerId, VisibilityRules.Frame frame, SystemState state) {
-        Set<String> live = new LinkedHashSet<>();
+        state.liveContacts.clear();
         double time = world.systemTime();
         for (Unit unit : world.units.values()) {
             if (unit == null || unit.hp <= 0 || playerId.equals(unit.playerId) || !frame.unitVisible(unit)) continue;
             String key = "U:" + unit.key();
-            live.add(key);
+            state.liveContacts.add(key);
             state.contacts.put(key, new LastKnownContact(key, unit.playerId, unit.shipTypeId, false, unit.x, unit.y, time));
         }
         for (Base base : world.bases.values()) {
             if (base == null || base.hp <= 0 || playerId.equals(base.playerId) || !frame.baseVisible(base)) continue;
             String key = "B:" + base.id;
-            live.add(key);
+            state.liveContacts.add(key);
             state.contacts.put(key, new LastKnownContact(key, base.playerId, base.typeId, true, base.x, base.y, time));
         }
         Iterator<Map.Entry<String, LastKnownContact>> iterator = state.contacts.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<String, LastKnownContact> entry = iterator.next();
             LastKnownContact contact = entry.getValue();
-            if (!live.contains(entry.getKey()) && frame.pointVisible(contact.x(), contact.y())) iterator.remove();
+            double age = Math.max(0, time - contact.lastSeenSystemTime());
+            if (!state.liveContacts.contains(entry.getKey()) && frame.pointVisible(contact.x(), contact.y())
+                    && age >= CONTACT_CLEAR_CONFIRM_SECONDS) iterator.remove();
         }
         while (state.contacts.size() > MAX_CONTACTS) {
             Iterator<String> keys = state.contacts.keySet().iterator();
@@ -187,11 +205,10 @@ final class FogOfWarView {
 
     private static void drawContacts(Graphics2D g, World world, SystemState state, double scaleX, double scaleY,
                                      int offsetX, int offsetY) {
-        BasicStroke oldStroke = (BasicStroke)g.getStroke();
+        Stroke oldStroke = g.getStroke();
         Font oldFont = g.getFont();
         for (LastKnownContact contact : new ArrayList<>(state.contacts.values())) {
-            int cell = state.cell(contact.x(), contact.y());
-            if (cell >= 0 && state.visible.get(cell)) continue;
+            if (state.liveContacts.contains(contact.key())) continue;
             double x = offsetX + contact.x() * scaleX;
             double y = offsetY + contact.y() * scaleY;
             double radius = Math.max(4, (contact.base() ? 18 : 12) * Math.max(0.35, Math.min(1.0, scaleX)));
@@ -230,6 +247,7 @@ final class FogOfWarView {
         final BitSet explored;
         final BitSet visible;
         final Map<String, LastKnownContact> contacts = new LinkedHashMap<>();
+        final Set<String> liveContacts = new LinkedHashSet<>();
         final Map<String, KnownWormhole> wormholes = new LinkedHashMap<>();
         long lastUpdateNanos;
 
