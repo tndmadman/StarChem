@@ -21,7 +21,8 @@ final class VisibilityRules {
 
     static double baseSensorRange(World world, Base base) {
         if (base == null) return 0;
-        double range = Math.max(MIN_BASE_SENSOR_RANGE, Math.max(0, base.type().unloadRange) * 4.5);
+        double ordinaryRange = Math.max(MIN_BASE_SENSOR_RANGE, Math.max(0, base.type().unloadRange) * 4.5);
+        double range = Math.max(ordinaryRange, RadarTowerRules.sensorRange(base.typeId));
         return range * SystemModifierRules.sensorRange(world);
     }
 
