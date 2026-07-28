@@ -1,0 +1,157 @@
+name: Apply scheduler discovery validator patch
+
+on:
+  push:
+    branches:
+      - agent/issue-69-authoritative-fog
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/issue-69-authoritative-fog
+          fetch-depth: 0
+
+      - name: Align viewed dormant fixture with discovery authorization
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("src/main/java/com/tndmadman/rts/SystemSimulationSchedulerValidator.java")
+          text = path.read_text(encoding="utf-8")
+          old = '''    private static void validateViewedDormantSystemContinuity() {
+                  World world = new World("Viewed Dormant", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
+                  GalaxyMapSnapshot map = world.galaxyMapSnapshot();
+                  require(map != null && map.systems().size() > 1, "viewed-system test galaxy is too small");
+
+                  String viewedSystem = "";
+                  for (GalaxyMapSystem system : map.systems()) {
+                      if (system != null && !system.id().equals(map.activeSystemId())) {
+                          viewedSystem = system.id();
+                          break;
+                      }
+                  }
+                  require(!viewedSystem.isBlank(), "viewed-system test could not select a remote system");
+
+                  world.activateSystem(viewedSystem);
+                  require(SystemSimulationScheduler.tier(world) == SystemSimulationScheduler.SimulationTier.DORMANT,
+                          "remote viewed system unexpectedly contained simulation-hot assets");
+                  ResourceNode resource = world.resources.get(0);
+                  double beforeTime = world.systemTime();
+                  double beforeAngle = resource.orbitAngle;
+                  world.activateSystem(map.activeSystemId());
+
+                  ClientViewCache views = new ClientViewCache();
+                  require(views.requestView(world, "P1", viewedSystem, 1),
+                          "client view cache rejected a known remote system");
+
+                  AuthoritativeSystemScheduler scheduler = new AuthoritativeSystemScheduler();
+                  for (int i = 0; i < 120; i++) {
+                      scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
+                      require(List.of(scheduler.lastUpdatedSystems()).contains(viewedSystem),
+                              "actively viewed dormant system skipped an authoritative environment tick");
+                  }
+
+                  world.activateSystem(viewedSystem);
+                  require(world.systemTime() - beforeTime > 1.95,
+                          "actively viewed dormant system time did not advance continuously");
+                  require(Math.abs(resource.orbitAngle - beforeAngle) > 0.000001,
+                          "actively viewed dormant resource orbit remained frozen");
+                  require(SystemSimulationScheduler.tier(world) == SystemSimulationScheduler.SimulationTier.DORMANT,
+                          "view tracking incorrectly promoted dormant gameplay simulation");
+
+                  views.remove("P1");
+                  scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
+                  require(scheduler.stats().hotSystems() == 0,
+                          "system remained visually hot after the final viewer disconnected");
+              }
+          '''
+          new = '''    private static void validateViewedDormantSystemContinuity() {
+                  World world = new World("Viewed Dormant", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
+                  GalaxyMapSnapshot map = world.galaxyMapSnapshot();
+                  require(map != null && map.systems().size() > 1, "viewed-system test galaxy is too small");
+
+                  String sourceSystem = map.activeSystemId();
+                  world.activateSystem(sourceSystem);
+                  String viewedSystem = "";
+                  WormholeGate discoveryGate = null;
+                  for (WormholeGate gate : world.wormholes) {
+                      if (gate == null || gate.toSystemId == null || gate.toSystemId.isBlank()) continue;
+                      world.activateSystem(gate.toSystemId);
+                      boolean dormant = SystemSimulationScheduler.tier(world) == SystemSimulationScheduler.SimulationTier.DORMANT;
+                      world.activateSystem(sourceSystem);
+                      if (dormant) {
+                          viewedSystem = gate.toSystemId;
+                          discoveryGate = gate;
+                          break;
+                      }
+                  }
+                  require(discoveryGate != null && !viewedSystem.isBlank(),
+                          "viewed-system test could not select a discoverable dormant system");
+
+                  world.activateSystem(viewedSystem);
+                  ResourceNode resource = world.resources.get(0);
+                  double beforeTime = world.systemTime();
+                  double beforeAngle = resource.orbitAngle;
+                  world.activateSystem(sourceSystem);
+
+                  Unit scout = new Unit("P1", 90_101, "scout", discoveryGate.x, discoveryGate.y);
+                  world.units.put(scout.key(), scout);
+                  world.saveActiveSystem();
+
+                  ClientViewCache views = new ClientViewCache();
+                  require(views.requestView(world, "P1", sourceSystem, 1),
+                          "client view cache rejected the scout-occupied source system");
+                  views.makeSnapshot(world, "P1", 1);
+
+                  world.activateSystem(sourceSystem);
+                  world.units.remove(scout.key());
+                  world.saveActiveSystem();
+                  require(views.requestView(world, "P1", viewedSystem, 2),
+                          "client view cache rejected a sensor-discovered remote system");
+
+                  world.activateSystem(viewedSystem);
+                  require(SystemSimulationScheduler.tier(world) == SystemSimulationScheduler.SimulationTier.DORMANT,
+                          "remote viewed system unexpectedly contained simulation-hot assets");
+                  world.activateSystem(sourceSystem);
+
+                  AuthoritativeSystemScheduler scheduler = new AuthoritativeSystemScheduler();
+                  for (int i = 0; i < 120; i++) {
+                      scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
+                      require(List.of(scheduler.lastUpdatedSystems()).contains(viewedSystem),
+                              "actively viewed dormant system skipped an authoritative environment tick");
+                  }
+
+                  world.activateSystem(viewedSystem);
+                  require(world.systemTime() - beforeTime > 1.95,
+                          "actively viewed dormant system time did not advance continuously");
+                  require(Math.abs(resource.orbitAngle - beforeAngle) > 0.000001,
+                          "actively viewed dormant resource orbit remained frozen");
+                  require(SystemSimulationScheduler.tier(world) == SystemSimulationScheduler.SimulationTier.DORMANT,
+                          "view tracking incorrectly promoted dormant gameplay simulation");
+
+                  views.remove("P1");
+                  scheduler.update(world, 1.0 / 60.0, world::galaxyMapSnapshot);
+                  require(scheduler.stats().hotSystems() == 0,
+                          "system remained visually hot after the final viewer disconnected");
+              }
+          '''
+          if old not in text:
+              raise SystemExit("Expected viewed dormant validation method was not found")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+      - name: Commit scheduler discovery validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-scheduler-discovery-test-patch.yml
+          git add src/main/java/com/tndmadman/rts/SystemSimulationSchedulerValidator.java
+          git commit -m "Validate dormant views through discovered systems"
+          git push origin HEAD:agent/issue-69-authoritative-fog
