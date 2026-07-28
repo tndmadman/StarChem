@@ -2,7 +2,7 @@
   "researchTopics": {
     "advanced_industry": {
       "displayName": "Advanced Industry",
-      "description": "Unlocks scouting, specialist mining, hauling, and salvage ships.",
+      "description": "Unlocks specialist mining, hauling, salvage ships, and Radar Array II.",
       "stationTypes": [
         "laboratory"
       ],
@@ -18,7 +18,6 @@
       },
       "unlocks": {
         "ships": [
-          "scout",
           "hauler",
           "deep_miner",
           "gas_harvester",
@@ -54,7 +53,7 @@
     },
     "battlefleet_engineering": {
       "displayName": "Battlefleet Engineering",
-      "description": "Unlocks battlecruisers, battleships, and capital hulls.",
+      "description": "Unlocks battlecruisers, battleships, capital hulls, and Radar Nexus III.",
       "stationTypes": [
         "laboratory"
       ],
