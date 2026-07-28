@@ -1,0 +1,68 @@
+name: Apply fog galaxy patch
+
+on:
+  push:
+    branches:
+      - agent/issue-69-authoritative-fog
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/issue-69-authoritative-fog
+          fetch-depth: 0
+
+      - name: Apply per-player galaxy projection
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("src/main/java/com/tndmadman/rts/PeerServerSide.java")
+          text = path.read_text(encoding="utf-8")
+          old = '''    private void broadcastGalaxy() {
+                  if (peers.isEmpty()) return;
+                  String message = GalaxyMapWire.encode(config.galaxyCopies, world.authoritativeGalaxyMapSnapshot());
+                  for (ServerPeer peer : peers.values()) transport.send(message, peer.connectionId(), DeliveryClass.GALAXY);
+              }
+
+              private void sendGalaxy(ServerPeer peer) {
+                  if (peer == null) return;
+                  String message = GalaxyMapWire.encode(config.galaxyCopies, world.authoritativeGalaxyMapSnapshot());
+                  transport.send(message, peer.connectionId(), DeliveryClass.GALAXY);
+              }
+          '''
+          new = '''    private void broadcastGalaxy() {
+                  if (peers.isEmpty()) return;
+                  for (ServerPeer peer : peers.values()) {
+                      String message = GalaxyMapWire.encode(config.galaxyCopies,
+                              views.galaxySnapshot(world, peer.playerId()));
+                      transport.send(message, peer.connectionId(), DeliveryClass.GALAXY);
+                  }
+              }
+
+              private void sendGalaxy(ServerPeer peer) {
+                  if (peer == null) return;
+                  String message = GalaxyMapWire.encode(config.galaxyCopies,
+                          views.galaxySnapshot(world, peer.playerId()));
+                  transport.send(message, peer.connectionId(), DeliveryClass.GALAXY);
+              }
+          '''
+          if old not in text:
+              raise SystemExit("Expected PeerServerSide galaxy methods were not found exactly once")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+      - name: Commit galaxy projection
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-fog-galaxy-patch.yml
+          git add src/main/java/com/tndmadman/rts/PeerServerSide.java
+          git commit -m "Send per-player discovered galaxy state"
+          git push origin HEAD:agent/issue-69-authoritative-fog
