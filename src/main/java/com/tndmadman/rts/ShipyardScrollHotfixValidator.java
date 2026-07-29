@@ -16,11 +16,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 
-/**
- * Guards the native Swing production popup shared by every station type.
- *
- * The historical class name is retained because CI already invokes it.
- */
+/** Guards scrolling, compact presentation, previews, and hover-only costs. */
 public final class ShipyardScrollHotfixValidator {
     private static final int VIEWPORT_WIDTH = 800;
     private static final int VIEWPORT_HEIGHT = 480;
@@ -30,35 +26,37 @@ public final class ShipyardScrollHotfixValidator {
     private ShipyardScrollHotfixValidator() { }
 
     public static void main(String[] args) throws Exception {
-        String buildMenuSource =
-                Files.readString(BUILD_MENU, StandardCharsets.UTF_8);
-
-        validateIntegration(buildMenuSource);
+        String source = Files.readString(BUILD_MENU, StandardCharsets.UTF_8);
+        validateIntegration(source);
         SwingUtilities.invokeAndWait(ShipyardScrollHotfixValidator::validateRealStationMenus);
-
-        System.out.println(
-                "Native station production-menu scrolling and research filtering validation passed.");
+        System.out.println("Compact native production-menu previews, hover costs, and scrolling validation passed.");
     }
 
-    private static void validateIntegration(String buildMenu) {
-        require(buildMenu.contains("new JScrollPane(content)"),
-                "BuildMenu must use a real Swing JScrollPane.");
-        require(buildMenu.contains("VERTICAL_SCROLLBAR_ALWAYS"),
-                "Every production menu must show a visible vertical scrollbar.");
-        require(buildMenu.contains("setWheelScrollingEnabled(true)"),
-                "Native wheel scrolling must be enabled.");
-        require(buildMenu.contains("popup.show(invoker, x, y)"),
-                "The production menu must be displayed as a Swing popup.");
-        require(buildMenu.contains("MOUSE WHEEL / DRAG SCROLLBAR"),
-                "Every production menu needs an obvious scrolling clue.");
-        require(!buildMenu.contains("drawScrollBar("),
-                "The legacy painted fake scrollbar must not return.");
-        require(!buildMenu.contains("free || ResearchRules.shipUnlocked"),
+    private static void validateIntegration(String source) {
+        require(source.contains("new JScrollPane(content)"),
+                "BuildMenu must retain its native JScrollPane.");
+        require(source.contains("VERTICAL_SCROLLBAR_ALWAYS"),
+                "Every production menu must retain a visible scrollbar.");
+        require(source.contains("setToolTipText(entry.tooltip)"),
+                "Required resources must be exposed through row tooltips.");
+        require(source.contains("new ShipPreviewIcon(ship)"),
+                "Ship rows need procedural ship previews.");
+        require(source.contains("new StationPreviewIcon(station)"),
+                "Station rows need station previews.");
+        require(source.contains("new MaterialPreviewIcon(item.outputMaterial)"),
+                "Manufacturing rows need material previews.");
+        require(source.contains("new ResearchPreviewIcon(topic)"),
+                "Research rows need research previews.");
+        require(source.contains("ROW_H = 68"),
+                "Normal production rows must stay compact.");
+        require(!source.contains("drawScrollBar("),
+                "The painted fake scrollbar must not return.");
+        require(!source.contains("free || ResearchRules.shipUnlocked"),
                 "Free-build mode must not reveal unresearched ships.");
-        require(!buildMenu.contains("free || StationPackageResearchRules.unlocked"),
+        require(!source.contains("free || StationPackageResearchRules.unlocked"),
                 "Free-build mode must not reveal unresearched station packages.");
-        require(!buildMenu.contains("free || item.unlockedFor"),
-                "Free-build mode must not reveal unresearched crafting recipes.");
+        require(!source.contains("free || item.unlockedFor"),
+                "Free-build mode must not reveal unresearched recipes.");
     }
 
     private static void validateRealStationMenus() {
@@ -83,8 +81,8 @@ public final class ShipyardScrollHotfixValidator {
             world.completeResearch(playerId, topic.id);
         }
 
-        validateResearchUnlocksAppear(
-                menu, world, outpost, shipyard, manufacturing);
+        validateHoverOnlyRequirementsAndIcons(
+                menu, world, outpost, shipyard, laboratory, manufacturing);
         validateNativeWheelScrolling(menu, world, shipyard);
         validateOverflowingStationMenus(menu, world,
                 List.of(outpost, shipyard, manufacturing));
@@ -92,6 +90,8 @@ public final class ShipyardScrollHotfixValidator {
 
     private static void validateEveryStationOpens(
             BuildMenu menu, World world, List<Base> stations) {
+        require(menu.normalRowHeightForTest() <= 68,
+                "Production rows are not compact enough for the viewport.");
         for (Base station : stations) {
             menu.showForBase(world, station, 760, 440);
             require(!menu.entryTitlesForTest().isEmpty(),
@@ -99,6 +99,10 @@ public final class ShipyardScrollHotfixValidator {
             require(menu.scrollPaneForTest().getVerticalScrollBarPolicy()
                             == ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS,
                     station.type().name + " does not always show its scrollbar.");
+            for (String title : menu.entryTitlesForTest()) {
+                require(menu.entryHasIconForTest(title),
+                        station.type().name + " row has no preview icon: " + title);
+            }
         }
     }
 
@@ -107,15 +111,14 @@ public final class ShipyardScrollHotfixValidator {
             Base outpost, Base shipyard, Base manufacturing) {
         String lockedShip = firstLockedShip(world, shipyard);
         String lockedPackage = firstLockedPackage(world, outpost);
-        CraftableItem lockedCraftable =
-                firstLockedCraftable(world, manufacturing);
+        CraftableItem lockedCraftable = firstLockedCraftable(world, manufacturing);
 
         require(lockedShip != null,
-                "The real shipyard config has no research-gated ship to test.");
+                "The shipyard config has no research-gated ship to test.");
         require(lockedPackage != null,
-                "The real outpost config has no research-gated package to test.");
+                "The outpost config has no research-gated package to test.");
         require(lockedCraftable != null,
-                "The real manufacturing config has no research-gated recipe to test.");
+                "The manufacturing config has no research-gated recipe to test.");
 
         menu.showForBase(world, shipyard, 760, 440);
         require(!menu.entryTitlesForTest().contains(
@@ -125,45 +128,69 @@ public final class ShipyardScrollHotfixValidator {
         menu.showForBase(world, outpost, 760, 440);
         require(!menu.entryTitlesForTest().contains(
                         "Load " + Rules.base(lockedPackage).name),
-                "Free-build mode exposed unresearched station package "
-                        + lockedPackage + ".");
+                "Free-build mode exposed unresearched station package " + lockedPackage + ".");
 
         menu.showForBase(world, manufacturing, 760, 440);
         require(!menu.entryTitlesForTest().contains(
                         "Manufacture " + lockedCraftable.name),
-                "Free-build mode exposed unresearched recipe "
-                        + lockedCraftable.id + ".");
+                "Free-build mode exposed unresearched recipe " + lockedCraftable.id + ".");
     }
 
-    private static void validateResearchUnlocksAppear(
-            BuildMenu menu, World world,
-            Base outpost, Base shipyard, Base manufacturing) {
-        String researchedShip = firstResearchGatedShip(shipyard);
-        String researchedPackage = firstResearchGatedPackage(outpost);
-        CraftableItem researchedCraftable =
-                firstResearchGatedCraftable(manufacturing);
-
-        require(researchedShip != null
-                        && researchedPackage != null
-                        && researchedCraftable != null,
-                "The real configs need gated production content.");
-
+    private static void validateHoverOnlyRequirementsAndIcons(
+            BuildMenu menu, World world, Base outpost, Base shipyard,
+            Base laboratory, Base manufacturing) {
+        ShipType ship = firstBuildableShip(shipyard);
+        require(ship != null, "No researched ship exists for presentation testing.");
         menu.showForBase(world, shipyard, 760, 440);
-        require(menu.entryTitlesForTest().contains(
-                        "Build " + Rules.ship(researchedShip).name),
-                "Researched ship did not appear in the shipyard.");
+        assertHoverOnlyCost(menu, "Build " + ship.name,
+                Rules.formatCost(ship.buildCost), "ship");
 
+        BaseType station = firstBuildablePackage(outpost);
+        require(station != null, "No researched station package exists for presentation testing.");
         menu.showForBase(world, outpost, 760, 440);
-        require(menu.entryTitlesForTest().contains(
-                        "Load " + Rules.base(researchedPackage).name),
-                "Researched station package did not appear in the outpost.");
+        assertHoverOnlyCost(menu, "Load " + station.name,
+                Rules.formatCost(station.buildCost), "station package");
 
-        menu.showForBase(world, manufacturing, 760, 440);
-        require(menu.entryTitlesForTest().stream()
-                        .anyMatch(title -> title.startsWith("Manufacturing | ")
-                                || title.equals(
-                                "Manufacture " + researchedCraftable.name)),
-                "Researched crafting content did not appear in manufacturing.");
+        List<ResearchTopic> topics = ResearchRules.forStation(laboratory.typeId);
+        require(!topics.isEmpty(), "The laboratory has no research topics.");
+        ResearchTopic topic = topics.get(0);
+        menu.showForBase(world, laboratory, 760, 440);
+        assertHoverOnlyCost(menu, "Research " + topic.name,
+                Rules.formatCost(topic.requiredResources), "research");
+
+        CraftingCategory category = firstCategoryWithRecipe(manufacturing);
+        require(category != null, "Manufacturing has no recipe category to test.");
+        CraftableItem item = CraftingRules.forStationAndCategory(
+                manufacturing.typeId, category).stream()
+                .filter(candidate -> candidate.unlockedFor(world, manufacturing.playerId))
+                .findFirst().orElse(null);
+        require(item != null, "Manufacturing category has no unlocked recipe.");
+        menu.showCraftingCategoryForTest(world, manufacturing, category);
+        assertHoverOnlyCost(menu, "Manufacture " + item.name,
+                Rules.formatCost(item.requiredResources), "manufacturing recipe");
+
+        for (String detail : menu.entryDetailsForTest()) {
+            require(!detail.toLowerCase().contains("required resources"),
+                    "Normal menu text exposes required resources: " + detail);
+        }
+    }
+
+    private static void assertHoverOnlyCost(
+            BuildMenu menu, String title, String formattedCost, String kind) {
+        require(menu.entryTitlesForTest().contains(title),
+                "Missing " + kind + " row: " + title);
+        require(menu.entryHasIconForTest(title),
+                "Missing preview icon for " + kind + ": " + title);
+        String detail = menu.entryDetailForTest(title);
+        String tooltip = menu.entryTooltipForTest(title);
+        if (formattedCost != null && !formattedCost.isBlank()) {
+            require(!detail.contains(formattedCost),
+                    "Normal " + kind + " row still shows resource cost: " + detail);
+            require(tooltip.contains(formattedCost),
+                    "Hover tooltip omits " + kind + " resource cost.");
+        }
+        require(tooltip.contains("Required resources"),
+                "Hover tooltip does not label required resources for " + kind + ".");
     }
 
     private static void validateNativeWheelScrolling(
@@ -204,8 +231,7 @@ public final class ShipyardScrollHotfixValidator {
 
         bar.setValue(bar.getMaximum() - bar.getVisibleAmount());
         require(menu.visibleEntryTitlesForTest().contains(
-                        menu.entryTitlesForTest().get(
-                                menu.entryTitlesForTest().size() - 1)),
+                        menu.entryTitlesForTest().get(menu.entryTitlesForTest().size() - 1)),
                 "The native scrollbar cannot expose the final production entry.");
 
         Rectangle bounds = menu.menuBoundsForTest();
@@ -228,8 +254,7 @@ public final class ShipyardScrollHotfixValidator {
                     bar.getMaximum() - bar.getVisibleAmount(),
                     before + Math.max(1, bar.getUnitIncrement(1))));
             require(bar.getValue() > before,
-                    station.type().name
-                            + " native scrollbar did not move.");
+                    station.type().name + " native scrollbar did not move.");
         }
     }
 
@@ -241,17 +266,34 @@ public final class ShipyardScrollHotfixValidator {
         graphics.dispose();
     }
 
-    private static String firstLockedShip(World world, Base shipyard) {
+    private static ShipType firstBuildableShip(Base shipyard) {
         for (String shipId : shipyard.type().buildableShips) {
-            if (!ResearchRules.shipUnlocked(
-                    world, shipyard.playerId, shipId)) return shipId;
+            ShipType ship = Rules.ship(shipId);
+            if (ship != null) return ship;
         }
         return null;
     }
 
-    private static String firstResearchGatedShip(Base shipyard) {
+    private static BaseType firstBuildablePackage(Base outpost) {
+        for (String stationId : outpost.type().basePackages) {
+            BaseType station = Rules.base(stationId);
+            if (station != null) return station;
+        }
+        return null;
+    }
+
+    private static CraftingCategory firstCategoryWithRecipe(Base manufacturing) {
+        for (CraftingCategory category : CraftingRules.categoriesForStation(manufacturing.typeId)) {
+            if (!CraftingRules.forStationAndCategory(manufacturing.typeId, category).isEmpty()) {
+                return category;
+            }
+        }
+        return null;
+    }
+
+    private static String firstLockedShip(World world, Base shipyard) {
         for (String shipId : shipyard.type().buildableShips) {
-            if (ResearchRules.firstTopicUnlockingShip(shipId) != null) return shipId;
+            if (!ResearchRules.shipUnlocked(world, shipyard.playerId, shipId)) return shipId;
         }
         return null;
     }
@@ -264,31 +306,9 @@ public final class ShipyardScrollHotfixValidator {
         return null;
     }
 
-    private static String firstResearchGatedPackage(Base outpost) {
-        for (String packageId : outpost.type().basePackages) {
-            if (!StationPackageResearchRules.requiredResearchId(
-                    packageId).isBlank()) return packageId;
-        }
-        return null;
-    }
-
-    private static CraftableItem firstLockedCraftable(
-            World world, Base manufacturing) {
-        for (CraftableItem item :
-                CraftingRules.forStation(manufacturing.typeId)) {
+    private static CraftableItem firstLockedCraftable(World world, Base manufacturing) {
+        for (CraftableItem item : CraftingRules.forStation(manufacturing.typeId)) {
             if (!item.unlockedFor(world, manufacturing.playerId)) return item;
-        }
-        return null;
-    }
-
-    private static CraftableItem firstResearchGatedCraftable(
-            Base manufacturing) {
-        World emptyResearchWorld = new World(
-                "Craft Gate Probe", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
-        for (CraftableItem item :
-                CraftingRules.forStation(manufacturing.typeId)) {
-            if (!item.unlockedFor(
-                    emptyResearchWorld, manufacturing.playerId)) return item;
         }
         return null;
     }
