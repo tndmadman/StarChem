@@ -1,15 +1,16 @@
 name: Apply station control integration
 
 on:
-  push:
-    branches:
-      - agent/station-control-menus
   pull_request:
     branches:
       - agent/radar-dispatch-caps
 
 permissions:
   contents: write
+
+concurrency:
+  group: station-control-integration
+  cancel-in-progress: true
 
 jobs:
   apply:
@@ -69,4 +70,5 @@ jobs:
             src/main/java/com/tndmadman/rts/FogSnapshotFilter.java \
             tools/apply_station_controls.py
           git commit -m "Add role-specific station control menus"
+          git pull --rebase origin agent/station-control-menus
           git push origin HEAD:agent/station-control-menus
