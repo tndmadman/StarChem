@@ -13,7 +13,8 @@ final class LobbyPanel extends JPanel {
     private final JTextField nameField = new JTextField(System.getProperty("user.name", "Player"), 18);
     private final JTextField addressField = new JTextField("127.0.0.1", 18);
     private final JTextField portField = new JTextField("50000", 8);
-    private final JComboBox<String> lanServerBox = new JComboBox<>();
+    private final DefaultListModel<String> lanServerModel = new DefaultListModel<>();
+    private final JList<String> lanServerList = new JList<>(lanServerModel);
     private final JComboBox<String> recentServerBox = new JComboBox<>();
     private final JComboBox<StarSystemDefinition> systemBox = new JComboBox<>();
     private final JComboBox<Integer> galaxyCopiesBox = new JComboBox<>(new Integer[]{1, 2});
@@ -39,7 +40,7 @@ final class LobbyPanel extends JPanel {
         styleField(nameField);
         styleField(addressField);
         styleField(portField);
-        styleCombo(lanServerBox);
+        styleLanList();
         styleCombo(recentServerBox);
         styleCombo(systemBox);
         styleCombo(galaxyCopiesBox);
@@ -70,7 +71,7 @@ final class LobbyPanel extends JPanel {
         box.add(label("Commander name"));
         box.add(nameField);
         box.add(label("LAN servers"));
-        box.add(lanServerBox);
+        box.add(createLanServerPane());
         box.add(label("Recent servers"));
         box.add(recentServerBox);
         box.add(label("Address"));
@@ -128,8 +129,15 @@ final class LobbyPanel extends JPanel {
         codex.addActionListener(e -> owner.toggleCodexFromLobby());
         clearSignIns.addActionListener(e -> clearSavedSignIns());
         settings.addActionListener(e -> owner.openLobbySettings());
-        lanServerBox.addActionListener(e -> applySelectedLanServer());
         recentServerBox.addActionListener(e -> applySelectedRecentServer());
+        lanServerList.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) applySelectedLanServer();
+        });
+        lanServerList.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseClicked(java.awt.event.MouseEvent event) {
+                if (event.getClickCount() == 2 && lanServerList.getSelectedIndex() >= 0) startClient();
+            }
+        });
 
         discoveryClient.addListener(servers -> SwingUtilities.invokeLater(() -> updateLanServers(servers)));
         discoveryTimer = new Timer(3_000, e -> refreshLanServers());
@@ -147,6 +155,15 @@ final class LobbyPanel extends JPanel {
         discoveryTimer.stop();
         discoveryClient.close();
         super.removeNotify();
+    }
+
+    private JScrollPane createLanServerPane() {
+        JScrollPane pane = new JScrollPane(lanServerList);
+        pane.setPreferredSize(new Dimension(360, 104));
+        pane.setMinimumSize(new Dimension(220, 80));
+        pane.setBorder(BorderFactory.createLineBorder(new Color(70, 135, 180)));
+        pane.getViewport().setBackground(new Color(9, 18, 31));
+        return pane;
     }
 
     private JLabel label(String text) {
@@ -172,6 +189,18 @@ final class LobbyPanel extends JPanel {
                 BorderFactory.createEmptyBorder(5, 10, 5, 10)));
     }
 
+    private void styleLanList() {
+        lanServerList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        lanServerList.setVisibleRowCount(4);
+        lanServerList.setFixedCellHeight(24);
+        lanServerList.setForeground(Color.WHITE);
+        lanServerList.setBackground(new Color(9, 18, 31));
+        lanServerList.setSelectionForeground(Color.WHITE);
+        lanServerList.setSelectionBackground(new Color(35, 92, 132));
+        lanServerList.setFont(lanServerList.getFont().deriveFont(Font.PLAIN, 12f));
+        lanServerList.setBorder(BorderFactory.createEmptyBorder(3, 6, 3, 6));
+    }
+
     private void styleCombo(JComboBox<?> box) {
         box.setForeground(Color.WHITE);
         box.setBackground(new Color(9, 18, 31));
@@ -190,22 +219,44 @@ final class LobbyPanel extends JPanel {
     }
 
     private void updateLanServers(List<LanDiscoveryProtocol.DiscoveredServer> servers) {
+        String selectedKey = selectedLanServerKey();
         discoveredServers = servers == null ? List.of() : List.copyOf(servers);
-        Object selected = lanServerBox.getSelectedItem();
-        lanServerBox.removeAllItems();
+        lanServerModel.clear();
         if (discoveredServers.isEmpty()) {
-            lanServerBox.addItem("No LAN servers found");
-            if (statusLabel.getText().startsWith("Searching")) setStatus("No LAN servers found. Direct connect remains available.");
+            lanServerModel.addElement("No LAN servers found");
+            lanServerList.clearSelection();
+            if (statusLabel.getText().startsWith("Searching")) {
+                setStatus("No LAN servers found. Direct connect remains available.");
+            }
             return;
         }
-        for (LanDiscoveryProtocol.DiscoveredServer server : discoveredServers) lanServerBox.addItem(server.displayLabel());
-        if (selected != null) lanServerBox.setSelectedItem(selected);
-        applySelectedLanServer();
-        setStatus("Found " + discoveredServers.size() + " LAN server" + (discoveredServers.size() == 1 ? "." : "s."));
+        for (LanDiscoveryProtocol.DiscoveredServer server : discoveredServers) {
+            lanServerModel.addElement(server.displayLabel());
+        }
+        int restoreIndex = indexOfLanServer(selectedKey);
+        lanServerList.setSelectedIndex(restoreIndex >= 0 ? restoreIndex : 0);
+        setStatus("Found " + discoveredServers.size() + " LAN server"
+                + (discoveredServers.size() == 1 ? "." : "s."));
+    }
+
+    private String selectedLanServerKey() {
+        int index = lanServerList.getSelectedIndex();
+        if (index < 0 || index >= discoveredServers.size()) return "";
+        LanDiscoveryProtocol.DiscoveredServer server = discoveredServers.get(index);
+        return server.host() + ':' + server.port();
+    }
+
+    private int indexOfLanServer(String key) {
+        if (key == null || key.isBlank()) return -1;
+        for (int i = 0; i < discoveredServers.size(); i++) {
+            LanDiscoveryProtocol.DiscoveredServer server = discoveredServers.get(i);
+            if ((server.host() + ':' + server.port()).equals(key)) return i;
+        }
+        return -1;
     }
 
     private void applySelectedLanServer() {
-        int index = lanServerBox.getSelectedIndex();
+        int index = lanServerList.getSelectedIndex();
         if (index < 0 || index >= discoveredServers.size()) return;
         LanDiscoveryProtocol.DiscoveredServer server = discoveredServers.get(index);
         addressField.setText(server.host());
@@ -229,6 +280,7 @@ final class LobbyPanel extends JPanel {
         RecentServerStore.RecentServer server = recentServers.get(index);
         addressField.setText(server.host());
         portField.setText(Integer.toString(server.port()));
+        lanServerList.clearSelection();
     }
 
     private String selectedSystemId() {
@@ -284,12 +336,12 @@ final class LobbyPanel extends JPanel {
     }
 
     private String selectedServerName() {
-        int index = lanServerBox.getSelectedIndex();
+        int index = lanServerList.getSelectedIndex();
         return index >= 0 && index < discoveredServers.size() ? discoveredServers.get(index).name() : "";
     }
 
     private String selectedServerVersion() {
-        int index = lanServerBox.getSelectedIndex();
+        int index = lanServerList.getSelectedIndex();
         return index >= 0 && index < discoveredServers.size() ? discoveredServers.get(index).version() : "";
     }
 
@@ -329,9 +381,6 @@ final class LobbyPanel extends JPanel {
         JPasswordField password = new JPasswordField(18);
         JPasswordField confirm = new JPasswordField(18);
         JCheckBox remember = new JCheckBox("Remember sign-in on this computer", true);
-        styleField(password);
-        styleField(confirm);
-        styleCheck(remember);
 
         JTextArea explanation = new JTextArea(localAccount
                 ? "Sign in to this local server. If the commander name is unused, StarChem creates a new account with this password."
@@ -341,19 +390,60 @@ final class LobbyPanel extends JPanel {
         explanation.setOpaque(false);
         explanation.setLineWrap(true);
         explanation.setWrapStyleWord(true);
+        explanation.setColumns(38);
         explanation.setRows(localAccount ? 3 : 2);
+        explanation.setFont(UIManager.getFont("Label.font"));
+        explanation.setForeground(UIManager.getColor("Label.foreground"));
 
-        JPanel panel = new JPanel(new GridLayout(0, 1, 6, 6));
-        panel.add(explanation);
-        panel.add(new JLabel("Password"));
-        panel.add(password);
+        JPanel fields = new JPanel(new GridBagLayout());
+        GridBagConstraints constraints = new GridBagConstraints();
+        constraints.gridx = 0;
+        constraints.gridy = 0;
+        constraints.gridwidth = 2;
+        constraints.weightx = 1.0;
+        constraints.fill = GridBagConstraints.HORIZONTAL;
+        constraints.insets = new Insets(0, 0, 10, 0);
+        fields.add(explanation, constraints);
+
+        constraints.gridwidth = 1;
+        constraints.weightx = 0.0;
+        constraints.fill = GridBagConstraints.NONE;
+        constraints.anchor = GridBagConstraints.WEST;
+        constraints.insets = new Insets(0, 0, 6, 10);
+        constraints.gridy++;
+        fields.add(new JLabel("Password"), constraints);
+
+        constraints.gridx = 1;
+        constraints.weightx = 1.0;
+        constraints.fill = GridBagConstraints.HORIZONTAL;
+        constraints.insets = new Insets(0, 0, 6, 0);
+        fields.add(password, constraints);
+
         if (localAccount) {
-            panel.add(new JLabel("Confirm password"));
-            panel.add(confirm);
+            constraints.gridx = 0;
+            constraints.gridy++;
+            constraints.weightx = 0.0;
+            constraints.fill = GridBagConstraints.NONE;
+            constraints.insets = new Insets(0, 0, 6, 10);
+            fields.add(new JLabel("Confirm password"), constraints);
+
+            constraints.gridx = 1;
+            constraints.weightx = 1.0;
+            constraints.fill = GridBagConstraints.HORIZONTAL;
+            constraints.insets = new Insets(0, 0, 6, 0);
+            fields.add(confirm, constraints);
         }
-        panel.add(remember);
+
+        constraints.gridx = 0;
+        constraints.gridy++;
+        constraints.gridwidth = 2;
+        constraints.weightx = 1.0;
+        constraints.fill = GridBagConstraints.HORIZONTAL;
+        constraints.insets = new Insets(4, 0, 0, 0);
+        fields.add(remember, constraints);
+
         String title = localAccount ? "Local Commander Sign-In or Creation" : "Commander Sign-In";
-        int result = JOptionPane.showConfirmDialog(this, panel, title,
+        int result = JOptionPane.showConfirmDialog(this, fields, title,
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (result != JOptionPane.OK_OPTION) {
             setStatus("Join cancelled.");
