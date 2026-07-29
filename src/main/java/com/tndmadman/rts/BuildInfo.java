@@ -10,6 +10,10 @@ final class BuildInfo {
     private static final String UNKNOWN_COMMIT = "unknown";
     private static final ManifestData MANIFEST = loadManifest();
 
+    static {
+        LanDiscoveryBootstrap.initializeFromCommandLine();
+    }
+
     private BuildInfo() { }
 
     static String version() {
