@@ -25,6 +25,10 @@ public final class IntelWarfareValidator {
         require(IntelWarfareSystem.isRadar("radar_picket"), "Radar role did not load from JSON.");
         require(IntelWarfareSystem.isJammer("signal_jammer"), "Jammer role did not load from JSON.");
         require(IntelWarfareSystem.isDecoy("radar_decoy"), "Decoy role did not load from JSON.");
+        require(IntelWarfareSystem.dispatchLimit("radar_picket") == 20
+                        && IntelWarfareSystem.dispatchLimit("radar_array") == 50
+                        && IntelWarfareSystem.dispatchLimit("radar_nexus") == 100,
+                "Radar dispatch defaults did not load from JSON.");
         require(Rules.findShip(IntelWarfareSystem.CONTACT_SMALL) != null
                         && Rules.findShip(IntelWarfareSystem.CONTACT_MEDIUM) != null
                         && Rules.findShip(IntelWarfareSystem.CONTACT_LARGE) != null,
@@ -85,13 +89,14 @@ public final class IntelWarfareValidator {
         world.resources.add(resource);
         require(VisibilityRules.resourceStage(world, "P1", resource) == IntelWarfareSystem.DetectionStage.DETAILED,
                 "Radar Array did not fully survey a nearby resource.");
-        for (int i = 1; i <= 8; i++) unit(world, "P1", i, "prospector", 1_000, 1_000 + i * 20);
+        int limit = IntelWarfareSystem.dispatchLimit(radar.typeId);
+        for (int i = 1; i <= limit + 2; i++) unit(world, "P1", i, "prospector", 1_000, 1_000 + i * 20);
         new ScoutSystem().update(world);
         int assigned = 0;
         for (Unit unit : world.units.values()) {
             if (unit.task == UnitTask.AUTO_HARVEST && unit.automationResourceId == resource.id) assigned++;
         }
-        require(assigned == IntelWarfareSystem.dispatchLimit(radar.typeId),
+        require(assigned == limit,
                 "Radar dispatch ignored its JSON limit.");
 
         clear(world);

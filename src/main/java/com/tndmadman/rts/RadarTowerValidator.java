@@ -28,9 +28,10 @@ public final class RadarTowerValidator {
                         && RadarTowerRules.sensorRange(tierTwo.id) == 2_800
                         && RadarTowerRules.sensorRange(tierThree.id) == 4_800,
                 "Radar sensor ranges were not loaded from JSON.");
-        require(RadarTowerRules.resourceDispatchLimit(tierOne.id) < RadarTowerRules.resourceDispatchLimit(tierTwo.id)
-                        && RadarTowerRules.resourceDispatchLimit(tierTwo.id) < RadarTowerRules.resourceDispatchLimit(tierThree.id),
-                "Radar resource-dispatch limits do not increase by JSON tier.");
+        require(RadarTowerRules.resourceDispatchLimit(tierOne.id) == 20
+                        && RadarTowerRules.resourceDispatchLimit(tierTwo.id) == 50
+                        && RadarTowerRules.resourceDispatchLimit(tierThree.id) == 100,
+                "Radar resource-dispatch limits were not loaded from JSON.");
         require(RadarTowerRules.requiredResearchName(tierOne.id).isBlank(),
                 "Tier-one radar unexpectedly loaded a research requirement.");
         require("Advanced Industry".equals(RadarTowerRules.requiredResearchName(tierTwo.id)),
@@ -112,7 +113,8 @@ public final class RadarTowerValidator {
         ResourceNode node = new ResourceNode(1, "Radar iron", NodeKind.SILICATE_ROCK,
                 Material.IRON, 5_000, 4_000, 500, 5, 3);
         world.resources.add(node);
-        for (int i = 1; i <= 4; i++) {
+        int limit = RadarTowerRules.resourceDispatchLimit(radarTypeId);
+        for (int i = 1; i <= limit + 2; i++) {
             Unit miner = new Unit("P1", i, "prospector", 1_000, 1_000 + i * 20);
             world.units.put(miner.key(), miner);
         }
@@ -121,7 +123,7 @@ public final class RadarTowerValidator {
         for (Unit unit : world.units.values()) {
             if (unit.task == UnitTask.AUTO_HARVEST && unit.automationResourceId == node.id) assigned++;
         }
-        require(assigned == RadarTowerRules.resourceDispatchLimit(radarTypeId),
+        require(assigned == limit,
                 "Radar did not dispatch the JSON-configured number of workers.");
     }
 
