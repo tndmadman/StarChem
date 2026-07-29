@@ -37,6 +37,7 @@ final class LobbyPanel extends JPanel {
         this.owner = owner;
         setOpaque(false);
         setBorder(BorderFactory.createEmptyBorder(26, 34, 26, 34));
+
         styleField(nameField);
         styleField(addressField);
         styleField(portField);
@@ -66,60 +67,32 @@ final class LobbyPanel extends JPanel {
         header.add(title);
         header.add(subtitle);
 
-        JPanel box = new JPanel(new GridLayout(0, 2, 10, 8));
-        box.setOpaque(false);
-        box.add(label("Commander name"));
-        box.add(nameField);
-        box.add(label("LAN servers"));
-        box.add(createLanServerPane());
-        box.add(label("Recent servers"));
-        box.add(recentServerBox);
-        box.add(label("Address"));
-        box.add(addressField);
-        box.add(label("Port"));
-        box.add(portField);
-        box.add(label("JOIN accounts"));
-        box.add(help("Remote: sign in to an existing commander. Local: an unused name creates one."));
-        box.add(label("Solo starting home"));
-        box.add(systemBox);
-        box.add(label("Solo galaxy copies"));
-        box.add(galaxyCopiesBox);
-        box.add(label("Solo skirmish preset"));
-        box.add(skirmishPresetBox);
-        box.add(label("Solo NPC difficulty"));
-        box.add(npcDifficultyBox);
-        box.add(label("Solo victory condition"));
-        box.add(victoryConditionBox);
-        box.add(label("Options"));
-        box.add(devBox);
-        box.add(label("NPC Spawns"));
-        box.add(spawnRaidersBox);
-        box.add(label(""));
-        box.add(spawnFreeMinersBox);
-        box.add(label(""));
-        box.add(spawnCorsairsBox);
-
         JButton solo = new MenuButton("SOLO");
         JButton connect = new MenuButton("JOIN");
         JButton refresh = new MenuButton("REFRESH LAN");
         JButton codex = new MenuButton("CODEX");
         JButton clearSignIns = new MenuButton("CLEAR SIGN-INS");
         JButton settings = new MenuButton("SETTINGS");
-        box.add(solo);
-        box.add(connect);
-        box.add(refresh);
-        box.add(codex);
-        box.add(clearSignIns);
-        box.add(settings);
+
+        JPanel content = new JPanel();
+        content.setOpaque(false);
+        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+        content.add(createLanSection(refresh));
+        content.add(Box.createVerticalStrut(12));
+        content.add(createSettingsGrid(solo, connect, codex, clearSignIns, settings));
 
         statusLabel.setForeground(new Color(215, 232, 245));
-        box.add(label("Status"));
-        box.add(statusLabel);
+        JPanel statusRow = new JPanel(new BorderLayout(10, 0));
+        statusRow.setOpaque(false);
+        statusRow.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
+        statusRow.add(label("Status"), BorderLayout.WEST);
+        statusRow.add(statusLabel, BorderLayout.CENTER);
+        content.add(statusRow);
 
         MenuCardPanel card = new MenuCardPanel(new BorderLayout(0, 18));
         card.setBorder(BorderFactory.createEmptyBorder(26, 30, 26, 30));
         card.add(header, BorderLayout.NORTH);
-        card.add(box, BorderLayout.CENTER);
+        card.add(content, BorderLayout.CENTER);
         add(card, BorderLayout.CENTER);
 
         solo.addActionListener(e -> owner.launchGame(Config.solo(nameField.getText(), devBox.isSelected(),
@@ -145,6 +118,91 @@ final class LobbyPanel extends JPanel {
         reloadRecentServers();
     }
 
+    private JPanel createLanSection(JButton refresh) {
+        JPanel section = new JPanel(new BorderLayout(0, 8));
+        section.setOpaque(false);
+        section.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JPanel heading = new JPanel(new BorderLayout(10, 0));
+        heading.setOpaque(false);
+        JLabel headingLabel = label("LAN servers");
+        heading.add(headingLabel, BorderLayout.WEST);
+        heading.add(refresh, BorderLayout.EAST);
+        section.add(heading, BorderLayout.NORTH);
+
+        JScrollPane pane = new JScrollPane(lanServerList);
+        pane.setPreferredSize(new Dimension(720, 132));
+        pane.setMinimumSize(new Dimension(420, 110));
+        pane.setMaximumSize(new Dimension(Integer.MAX_VALUE, 160));
+        pane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        pane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
+        pane.setBorder(BorderFactory.createLineBorder(new Color(70, 135, 180)));
+        pane.getViewport().setBackground(new Color(9, 18, 31));
+        section.add(pane, BorderLayout.CENTER);
+
+        JLabel hint = help("Select a server to fill Address and Port. Double-click to join.");
+        section.add(hint, BorderLayout.SOUTH);
+        return section;
+    }
+
+    private JPanel createSettingsGrid(JButton solo, JButton connect, JButton codex,
+                                      JButton clearSignIns, JButton settings) {
+        JPanel grid = new JPanel(new GridBagLayout());
+        grid.setOpaque(false);
+        grid.setAlignmentX(Component.LEFT_ALIGNMENT);
+        int row = 0;
+        addFormRow(grid, row++, "Commander name", nameField);
+        addFormRow(grid, row++, "Recent servers", recentServerBox);
+        addFormRow(grid, row++, "Address", addressField);
+        addFormRow(grid, row++, "Port", portField);
+        addFormRow(grid, row++, "JOIN accounts",
+                help("Remote: sign in to an existing commander. Local: an unused name creates one."));
+        addFormRow(grid, row++, "Solo starting home", systemBox);
+        addFormRow(grid, row++, "Solo galaxy copies", galaxyCopiesBox);
+        addFormRow(grid, row++, "Solo skirmish preset", skirmishPresetBox);
+        addFormRow(grid, row++, "Solo NPC difficulty", npcDifficultyBox);
+        addFormRow(grid, row++, "Solo victory condition", victoryConditionBox);
+        addFormRow(grid, row++, "Options", devBox);
+        addFormRow(grid, row++, "NPC Spawns", spawnRaidersBox);
+        addFormRow(grid, row++, "", spawnFreeMinersBox);
+        addFormRow(grid, row++, "", spawnCorsairsBox);
+
+        JPanel buttons = new JPanel(new GridLayout(1, 5, 8, 0));
+        buttons.setOpaque(false);
+        buttons.add(solo);
+        buttons.add(connect);
+        buttons.add(codex);
+        buttons.add(clearSignIns);
+        buttons.add(settings);
+        GridBagConstraints constraints = new GridBagConstraints();
+        constraints.gridx = 0;
+        constraints.gridy = row;
+        constraints.gridwidth = 2;
+        constraints.weightx = 1.0;
+        constraints.fill = GridBagConstraints.HORIZONTAL;
+        constraints.insets = new Insets(8, 0, 0, 0);
+        grid.add(buttons, constraints);
+        return grid;
+    }
+
+    private void addFormRow(JPanel panel, int row, String labelText, Component component) {
+        GridBagConstraints labelConstraints = new GridBagConstraints();
+        labelConstraints.gridx = 0;
+        labelConstraints.gridy = row;
+        labelConstraints.weightx = 0.0;
+        labelConstraints.anchor = GridBagConstraints.WEST;
+        labelConstraints.insets = new Insets(4, 0, 4, 12);
+        panel.add(label(labelText), labelConstraints);
+
+        GridBagConstraints fieldConstraints = new GridBagConstraints();
+        fieldConstraints.gridx = 1;
+        fieldConstraints.gridy = row;
+        fieldConstraints.weightx = 1.0;
+        fieldConstraints.fill = GridBagConstraints.HORIZONTAL;
+        fieldConstraints.insets = new Insets(4, 0, 4, 0);
+        panel.add(component, fieldConstraints);
+    }
+
     @Override public void addNotify() {
         super.addNotify();
         discoveryTimer.start();
@@ -155,15 +213,6 @@ final class LobbyPanel extends JPanel {
         discoveryTimer.stop();
         discoveryClient.close();
         super.removeNotify();
-    }
-
-    private JScrollPane createLanServerPane() {
-        JScrollPane pane = new JScrollPane(lanServerList);
-        pane.setPreferredSize(new Dimension(360, 104));
-        pane.setMinimumSize(new Dimension(220, 80));
-        pane.setBorder(BorderFactory.createLineBorder(new Color(70, 135, 180)));
-        pane.getViewport().setBackground(new Color(9, 18, 31));
-        return pane;
     }
 
     private JLabel label(String text) {
@@ -191,14 +240,14 @@ final class LobbyPanel extends JPanel {
 
     private void styleLanList() {
         lanServerList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        lanServerList.setVisibleRowCount(4);
-        lanServerList.setFixedCellHeight(24);
+        lanServerList.setVisibleRowCount(5);
+        lanServerList.setFixedCellHeight(25);
         lanServerList.setForeground(Color.WHITE);
         lanServerList.setBackground(new Color(9, 18, 31));
         lanServerList.setSelectionForeground(Color.WHITE);
         lanServerList.setSelectionBackground(new Color(35, 92, 132));
         lanServerList.setFont(lanServerList.getFont().deriveFont(Font.PLAIN, 12f));
-        lanServerList.setBorder(BorderFactory.createEmptyBorder(3, 6, 3, 6));
+        lanServerList.setBorder(BorderFactory.createEmptyBorder(4, 7, 4, 7));
     }
 
     private void styleCombo(JComboBox<?> box) {
