@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/station-control-menus
+  pull_request:
+    branches:
+      - agent/radar-dispatch-caps
 
 permissions:
   contents: write
