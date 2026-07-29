@@ -31,6 +31,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          sha256sum .automation/compact-menu/buildmenu.*.b64
+          sha256sum .automation/compact-menu/validator.*.b64
           cat .automation/compact-menu/buildmenu.*.b64 | tr -d '\n' | base64 -d > /tmp/BuildMenu.java
           cat .automation/compact-menu/validator.*.b64 | tr -d '\n' | base64 -d > /tmp/ShipyardScrollHotfixValidator.java
           echo '5bab13703b6942aad9428b900dbc82004b4f4cc56466f7c669353cd53e328fb9  /tmp/BuildMenu.java' | sha256sum -c -
