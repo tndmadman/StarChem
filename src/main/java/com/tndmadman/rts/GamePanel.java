@@ -268,8 +268,11 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         Unit unit = world.unitAt(p.getX(), p.getY());
         if (base != null) {
             ProceduralAudio.play(SoundCue.SELECT);
-            if (PlayerRegistry.isLocal(base.playerId)) buildMenu.showForBase(world, network, base, e.getX(), e.getY());
-            else world.status = "Enemy base: " + PlayerRegistry.name(base.playerId) + " | " + base.type().name + " | " + base.id;
+            if (PlayerRegistry.isLocal(base.playerId)) {
+                if (!StationControlMenu.showIfHandled(this, world, network, base, e.getX(), e.getY())) {
+                    buildMenu.showForBase(world, network, base, e.getX(), e.getY());
+                }
+            } else world.status = "Enemy base: " + PlayerRegistry.name(base.playerId) + " | " + base.type().name + " | " + base.id;
             return;
         }
         if (unit != null && !PlayerRegistry.isLocal(unit.playerId)) {

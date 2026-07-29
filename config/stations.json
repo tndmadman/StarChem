@@ -22,7 +22,9 @@
         "shipyard",
         "laboratory",
         "manufacturing"
-      ]
+      ],
+      "role": "production",
+      "nonProduction": false
     },
     "shipyard": {
       "displayName": "Shipyard",
@@ -63,7 +65,9 @@
         "titan",
         "monolith"
       ],
-      "canBuildStationPackages": []
+      "canBuildStationPackages": [],
+      "role": "production",
+      "nonProduction": false
     },
     "laboratory": {
       "displayName": "Research Lab",
@@ -90,7 +94,9 @@
         "perSecond": 0.25
       },
       "canBuildShips": [],
-      "canBuildStationPackages": []
+      "canBuildStationPackages": [],
+      "role": "production",
+      "nonProduction": false
     },
     "manufacturing": {
       "displayName": "Manufacturing Plant",
@@ -116,7 +122,9 @@
       "mustBeCarriedByShipType": "station_builder",
       "carrierIsRemovedAfterPlacement": true,
       "canBuildShips": [],
-      "canBuildStationPackages": []
+      "canBuildStationPackages": [],
+      "role": "production",
+      "nonProduction": false
     },
     "radar_picket": {
       "displayName": "Radar Picket I",
@@ -150,7 +158,8 @@
       "mustBeCarriedByShipType": "station_builder",
       "carrierIsRemovedAfterPlacement": true,
       "canBuildShips": [],
-      "canBuildStationPackages": []
+      "canBuildStationPackages": [],
+      "nonProduction": true
     },
     "radar_array": {
       "displayName": "Radar Array II",
@@ -189,7 +198,8 @@
       "mustBeCarriedByShipType": "station_builder",
       "carrierIsRemovedAfterPlacement": true,
       "canBuildShips": [],
-      "canBuildStationPackages": []
+      "canBuildStationPackages": [],
+      "nonProduction": true
     },
     "radar_nexus": {
       "displayName": "Radar Nexus III",
@@ -231,7 +241,8 @@
       "mustBeCarriedByShipType": "station_builder",
       "carrierIsRemovedAfterPlacement": true,
       "canBuildShips": [],
-      "canBuildStationPackages": []
+      "canBuildStationPackages": [],
+      "nonProduction": true
     },
     "signal_jammer": {
       "displayName": "Signal Jammer",
@@ -262,13 +273,14 @@
       "mustBeCarriedByShipType": "station_builder",
       "carrierIsRemovedAfterPlacement": true,
       "canBuildShips": [],
-      "canBuildStationPackages": []
+      "canBuildStationPackages": [],
+      "nonProduction": true
     },
     "radar_decoy": {
       "displayName": "Strategic Decoy",
       "role": "decoy",
       "requiredResearch": "advanced_industry",
-      "decoyProfile": "capital_station",
+      "decoyProfile": "radar_nexus",
       "signatureMultiplier": 2.8,
       "maxHp": 280,
       "maxShield": 180,
@@ -289,7 +301,16 @@
       "mustBeCarriedByShipType": "station_builder",
       "carrierIsRemovedAfterPlacement": true,
       "canBuildShips": [],
-      "canBuildStationPackages": []
+      "canBuildStationPackages": [],
+      "nonProduction": true,
+      "decoyProfiles": [
+        "radar_nexus",
+        "radar_array",
+        "shipyard",
+        "manufacturing",
+        "laboratory",
+        "outpost"
+      ]
     },
     "sensor_contact_station": {
       "displayName": "Unidentified Station Contact",
@@ -304,7 +325,8 @@
       "buildTimeSeconds": 0,
       "buildCost": {},
       "canBuildShips": [],
-      "canBuildStationPackages": []
+      "canBuildStationPackages": [],
+      "nonProduction": true
     }
   }
 }

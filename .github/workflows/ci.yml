@@ -47,6 +47,9 @@ jobs:
       - name: Validate intel and counterintel warfare
         run: java -cp build/classes/java/main com.tndmadman.rts.IntelWarfareValidator
 
+      - name: Validate station control menus
+        run: java -cp build/classes/java/main com.tndmadman.rts.StationControlValidator
+
       - name: Validate shipyard scroll hotfix
         run: java -cp build/classes/java/main com.tndmadman.rts.ShipyardScrollHotfixValidator
 

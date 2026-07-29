@@ -151,6 +151,7 @@ final class ScoutSystem {
         if (oldNode == null) return false;
         Map<Integer,Integer> assignedCounts = assignmentCounts(world, miner.playerId);
         ResourceNode best = null;
+        int bestPriority = Integer.MAX_VALUE;
         int bestAssigned = Integer.MAX_VALUE;
         double bestDist = Double.MAX_VALUE;
         for (Base radar : world.bases.values()) {
@@ -161,10 +162,13 @@ final class ScoutSystem {
                 if (Calc.distance(radar.x, radar.y, node.x, node.y) > range) continue;
                 if (!VisibilityRules.resourceStage(world, miner.playerId, node)
                         .atLeast(IntelWarfareSystem.DetectionStage.IDENTIFIED)) continue;
+                int priority = StationControls.priorityRank(world, radar, node.material);
                 int assigned = assignedCounts.getOrDefault(node.id, 0);
                 double distance = Calc.distance(miner.x, miner.y, node.x, node.y);
-                if (betterResource(node, assigned, distance, best, bestAssigned, bestDist)) {
+                if (betterRadarResource(node, priority, assigned, distance, best,
+                        bestPriority, bestAssigned, bestDist)) {
                     best = node;
+                    bestPriority = priority;
                     bestAssigned = assigned;
                     bestDist = distance;
                 }
@@ -193,7 +197,7 @@ final class ScoutSystem {
         List<Unit> idleWorkers = idleHarvestWorkers(world, radar.playerId);
         int sent = 0;
         while (sent < availableSlots && !idleWorkers.isEmpty()) {
-            DispatchChoice choice = bestDispatchChoice(idleWorkers, visibleResources, assignedCounts);
+            DispatchChoice choice = bestDispatchChoice(world, radar, idleWorkers, visibleResources, assignedCounts);
             if (choice == null) break;
             choice.worker.setMiningAnchor(choice.node.x, choice.node.y);
             choice.worker.startAutoHarvest(choice.node.id);
@@ -227,18 +231,23 @@ final class ScoutSystem {
         return workers;
     }
 
-    private DispatchChoice bestDispatchChoice(List<Unit> workers, List<ResourceNode> visibleResources,
+    private DispatchChoice bestDispatchChoice(World world, Base radar, List<Unit> workers,
+                                               List<ResourceNode> visibleResources,
                                                Map<Integer,Integer> assignedCounts) {
         DispatchChoice best = null;
+        int bestPriority = Integer.MAX_VALUE;
         int bestAssigned = Integer.MAX_VALUE;
         double bestDist = Double.MAX_VALUE;
         for (Unit worker : workers) {
             for (ResourceNode node : visibleResources) {
                 if (!worker.type().harvestKinds.contains(node.kind)) continue;
+                int priority = StationControls.priorityRank(world, radar, node.material);
                 int assigned = assignedCounts.getOrDefault(node.id, 0);
                 double distance = Calc.distance(worker.x, worker.y, node.x, node.y);
-                if (betterDispatch(node, worker, assigned, distance, best, bestAssigned, bestDist)) {
+                if (betterDispatch(node, worker, priority, assigned, distance,
+                        best, bestPriority, bestAssigned, bestDist)) {
                     best = new DispatchChoice(node, worker);
+                    bestPriority = priority;
                     bestAssigned = assigned;
                     bestDist = distance;
                 }
@@ -247,13 +256,24 @@ final class ScoutSystem {
         return best;
     }
 
-    private boolean betterDispatch(ResourceNode node, Unit worker, int assigned, double distance,
-                                    DispatchChoice best, int bestAssigned, double bestDistance) {
+    private boolean betterDispatch(ResourceNode node, Unit worker, int priority, int assigned, double distance,
+                                    DispatchChoice best, int bestPriority, int bestAssigned, double bestDistance) {
         if (best == null) return true;
+        if (priority != bestPriority) return priority < bestPriority;
         if (assigned != bestAssigned) return assigned < bestAssigned;
         if (Math.abs(distance - bestDistance) > 0.001) return distance < bestDistance;
         if (node.id != best.node.id) return node.id < best.node.id;
         return worker.unitId < best.worker.unitId;
+    }
+
+    private boolean betterRadarResource(ResourceNode node, int priority, int assigned, double distance,
+                                        ResourceNode best, int bestPriority, int bestAssigned,
+                                        double bestDistance) {
+        if (best == null) return true;
+        if (priority != bestPriority) return priority < bestPriority;
+        if (assigned != bestAssigned) return assigned < bestAssigned;
+        if (Math.abs(distance - bestDistance) > 0.001) return distance < bestDistance;
+        return node.id < best.id;
     }
 
     private Map<Integer,Integer> assignmentCounts(World world, String playerId) {
