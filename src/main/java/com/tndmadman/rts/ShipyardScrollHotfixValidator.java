@@ -34,6 +34,8 @@ public final class ShipyardScrollHotfixValidator {
         require(buildMenu.contains(
                         "boolean scroll(int sx, int sy, int wheelRotation, int viewportWidth, int viewportHeight)"),
                 "BuildMenu must expose viewport-aware wheel scrolling.");
+        require(buildMenu.contains("capture the wheel anywhere"),
+                "An overflowing repositioned menu must capture wheel input globally.");
         require(buildMenu.contains("drawScrollBar(g2)"),
                 "Overflowing production menus must draw a visible scrollbar.");
         require(buildMenu.contains("Mouse wheel  "),
@@ -109,9 +111,12 @@ public final class ShipyardScrollHotfixValidator {
         require(scrollOffsetField.getInt(menu) > 0,
                 "Wheel-down input must advance the production menu.");
 
+        int offsetAfterInsideWheel = scrollOffsetField.getInt(menu);
         boolean outsideConsumed = menu.scroll(790, 470, 1, image.getWidth(), image.getHeight());
-        require(!outsideConsumed,
-                "Wheel input outside the production menu must remain available to the camera.");
+        require(outsideConsumed,
+                "An overflowing open production menu must capture wheel input even after it is repositioned.");
+        require(scrollOffsetField.getInt(menu) > offsetAfterInsideWheel,
+                "Wheel input outside the repositioned menu must still advance its list.");
     }
 
     private static void require(boolean condition, String message) {
