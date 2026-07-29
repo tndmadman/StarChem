@@ -518,7 +518,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     }
 
     @Override public void mouseWheelMoved(MouseWheelEvent e) {
-        if (buildMenu.scroll(e.getX(), e.getY(), e.getWheelRotation(), getWidth(), getHeight())) {
+        if (buildMenu.scroll(e.getX(), e.getY(), e.getPreciseWheelRotation(), getWidth(), getHeight())) {
             repaint();
             return;
         }
