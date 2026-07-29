@@ -4,10 +4,12 @@ on:
   push:
     branches:
       - agent/game-styled-scrollbars-tooltips
+      - agent/remove-white-ui-frames
     paths:
       - 'src/main/java/com/tndmadman/rts/App.java'
       - 'src/main/java/com/tndmadman/rts/GameSwingUi.java'
       - 'src/main/java/com/tndmadman/rts/GameSwingUiValidator.java'
+      - 'src/main/java/com/tndmadman/rts/GameSwingWhiteFrameValidator.java'
       - '.github/workflows/game-swing-ui-validation.yml'
   pull_request:
     branches:
@@ -16,6 +18,7 @@ on:
       - 'src/main/java/com/tndmadman/rts/App.java'
       - 'src/main/java/com/tndmadman/rts/GameSwingUi.java'
       - 'src/main/java/com/tndmadman/rts/GameSwingUiValidator.java'
+      - 'src/main/java/com/tndmadman/rts/GameSwingWhiteFrameValidator.java'
       - '.github/workflows/game-swing-ui-validation.yml'
 
 permissions:
@@ -44,3 +47,6 @@ jobs:
 
       - name: Validate game-styled Swing UI
         run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.GameSwingUiValidator
+
+      - name: Validate rendered scrollbar and tooltip pixels
+        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.GameSwingWhiteFrameValidator
