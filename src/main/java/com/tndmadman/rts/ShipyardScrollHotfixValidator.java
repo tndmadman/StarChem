@@ -1,7 +1,14 @@
 package com.tndmadman.rts;
 
+import javax.swing.JScrollBar;
+import javax.swing.JScrollPane;
+import javax.swing.ScrollPaneConstants;
+import javax.swing.SwingUtilities;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseWheelEvent;
+import java.awt.event.MouseWheelListener;
 import java.awt.image.BufferedImage;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -10,7 +17,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Guards real station-production menu scrolling and research filtering.
+ * Guards the native Swing production popup shared by every station type.
  *
  * The historical class name is retained because CI already invokes it.
  */
@@ -19,52 +26,38 @@ public final class ShipyardScrollHotfixValidator {
     private static final int VIEWPORT_HEIGHT = 480;
     private static final Path BUILD_MENU = Path.of(
             "src/main/java/com/tndmadman/rts/BuildMenu.java");
-    private static final Path GAME_PANEL = Path.of(
-            "src/main/java/com/tndmadman/rts/GamePanel.java");
 
     private ShipyardScrollHotfixValidator() { }
 
     public static void main(String[] args) throws Exception {
         String buildMenuSource =
                 Files.readString(BUILD_MENU, StandardCharsets.UTF_8);
-        String gamePanelSource =
-                Files.readString(GAME_PANEL, StandardCharsets.UTF_8);
 
-        validateIntegration(buildMenuSource, gamePanelSource);
-        validateRealStationMenus();
+        validateIntegration(buildMenuSource);
+        SwingUtilities.invokeAndWait(ShipyardScrollHotfixValidator::validateRealStationMenus);
 
         System.out.println(
-                "Station production-menu scrolling and research filtering validation passed.");
+                "Native station production-menu scrolling and research filtering validation passed.");
     }
 
-    private static void validateIntegration(String buildMenu, String gamePanel) {
-        require(buildMenu.contains(
-                        "double preciseWheelRotation"),
-                "BuildMenu must accept precise fractional wheel movement.");
-        require(buildMenu.contains(
-                        "PRECISE_SCROLL_THRESHOLD"),
-                "BuildMenu must accumulate small high-resolution wheel events.");
-        require(buildMenu.contains(
-                        "if (!menuBounds().contains(sx, sy))"),
-                "Production menus must only capture wheel input under the pointer.");
-        require(buildMenu.contains(
-                        "calculateBottomOffset"),
-                "Mixed-height production rows need a stable bottom offset.");
-        require(buildMenu.contains(
-                        "SCROLL  ↕"),
-                "Overflowing production menus must show a visual scroll clue.");
-        require(gamePanel.contains(
-                        "e.getPreciseWheelRotation()"),
-                "GamePanel must pass precise wheel data to BuildMenu.");
-
-        require(!buildMenu.contains(
-                        "free || ResearchRules.shipUnlocked"),
+    private static void validateIntegration(String buildMenu) {
+        require(buildMenu.contains("new JScrollPane(content)"),
+                "BuildMenu must use a real Swing JScrollPane.");
+        require(buildMenu.contains("VERTICAL_SCROLLBAR_ALWAYS"),
+                "Every production menu must show a visible vertical scrollbar.");
+        require(buildMenu.contains("setWheelScrollingEnabled(true)"),
+                "Native wheel scrolling must be enabled.");
+        require(buildMenu.contains("popup.show(invoker, x, y)"),
+                "The production menu must be displayed as a Swing popup.");
+        require(buildMenu.contains("MOUSE WHEEL / DRAG SCROLLBAR"),
+                "Every production menu needs an obvious scrolling clue.");
+        require(!buildMenu.contains("drawScrollBar("),
+                "The legacy painted fake scrollbar must not return.");
+        require(!buildMenu.contains("free || ResearchRules.shipUnlocked"),
                 "Free-build mode must not reveal unresearched ships.");
-        require(!buildMenu.contains(
-                        "free || StationPackageResearchRules.unlocked"),
+        require(!buildMenu.contains("free || StationPackageResearchRules.unlocked"),
                 "Free-build mode must not reveal unresearched station packages.");
-        require(!buildMenu.contains(
-                        "free || item.unlockedFor"),
+        require(!buildMenu.contains("free || item.unlockedFor"),
                 "Free-build mode must not reveal unresearched crafting recipes.");
     }
 
@@ -92,7 +85,7 @@ public final class ShipyardScrollHotfixValidator {
 
         validateResearchUnlocksAppear(
                 menu, world, outpost, shipyard, manufacturing);
-        validatePreciseScrollingAndStableBottom(menu, world, shipyard);
+        validateNativeWheelScrolling(menu, world, shipyard);
         validateOverflowingStationMenus(menu, world,
                 List.of(outpost, shipyard, manufacturing));
     }
@@ -103,6 +96,9 @@ public final class ShipyardScrollHotfixValidator {
             menu.showForBase(world, station, 760, 440);
             require(!menu.entryTitlesForTest().isEmpty(),
                     station.type().name + " production menu is empty.");
+            require(menu.scrollPaneForTest().getVerticalScrollBarPolicy()
+                            == ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS,
+                    station.type().name + " does not always show its scrollbar.");
         }
     }
 
@@ -170,61 +166,53 @@ public final class ShipyardScrollHotfixValidator {
                 "Researched crafting content did not appear in manufacturing.");
     }
 
-    private static void validatePreciseScrollingAndStableBottom(
+    private static void validateNativeWheelScrolling(
             BuildMenu menu, World world, Base shipyard) {
         fill(shipyard);
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 5; i++) {
             require(world.buildShip(shipyard.id, "prospector"),
-                    "Could not create mixed-height real queue rows.");
+                    "Could not create real production queue rows.");
         }
 
         menu.showForBase(world, shipyard, 760, 440);
         draw(menu);
-
         require(menu.overflowForTest(),
                 "The researched shipyard menu must overflow the test viewport.");
 
-        Rectangle bounds = menu.menuBoundsForTest();
-        int insideX = bounds.x + 24;
-        int insideY = bounds.y + 54;
-        int outsideX = bounds.x > 2
-                ? bounds.x - 2
-                : bounds.x + bounds.width + 2;
+        JScrollPane pane = menu.scrollPaneForTest();
+        JScrollBar bar = pane.getVerticalScrollBar();
+        int before = bar.getValue();
 
-        require(!menu.scroll(
-                        outsideX, insideY, 1.0,
-                        VIEWPORT_WIDTH, VIEWPORT_HEIGHT),
-                "Wheel input outside the production menu must fall through.");
-        require(menu.scrollOffsetForTest() == 0,
-                "Outside wheel input moved the production menu.");
-
-        require(menu.scroll(
-                        insideX, insideY, 0.10,
-                        VIEWPORT_WIDTH, VIEWPORT_HEIGHT),
-                "A fractional wheel event over the production menu was not consumed.");
-        require(menu.scrollOffsetForTest() == 0,
-                "One sub-threshold wheel event should accumulate, not jump.");
-
-        require(menu.scroll(
-                        insideX, insideY, 0.10,
-                        VIEWPORT_WIDTH, VIEWPORT_HEIGHT),
-                "The accumulated fractional wheel event was not consumed.");
-        require(menu.scrollOffsetForTest() > 0,
-                "Fractional wheel input did not advance the production menu.");
-
-        for (int i = 0; i < 200; i++) {
-            menu.scroll(insideX, insideY, 1.0,
-                    VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
+        MouseWheelEvent event = new MouseWheelEvent(
+                pane,
+                MouseEvent.MOUSE_WHEEL,
+                System.currentTimeMillis(),
+                0,
+                20,
+                20,
+                0,
+                false,
+                MouseWheelEvent.WHEEL_UNIT_SCROLL,
+                3,
+                1);
+        for (MouseWheelListener listener : pane.getMouseWheelListeners()) {
+            listener.mouseWheelMoved(event);
         }
 
-        require(menu.scrollOffsetForTest() == menu.maxScrollOffsetForTest(),
-                "Mixed-height production rows could not reach the true bottom.");
+        require(bar.getValue() > before,
+                "A real JScrollPane wheel listener did not move the production menu.");
 
-        List<String> allTitles = menu.entryTitlesForTest();
-        List<String> visibleTitles = menu.visibleEntryTitlesForTest();
-        require(!allTitles.isEmpty()
-                        && visibleTitles.contains(allTitles.get(allTitles.size() - 1)),
-                "The final production entry is not visible at the bottom.");
+        bar.setValue(bar.getMaximum() - bar.getVisibleAmount());
+        require(menu.visibleEntryTitlesForTest().contains(
+                        menu.entryTitlesForTest().get(
+                                menu.entryTitlesForTest().size() - 1)),
+                "The native scrollbar cannot expose the final production entry.");
+
+        Rectangle bounds = menu.menuBoundsForTest();
+        require(!menu.scroll(
+                        Math.max(0, bounds.x - 2), bounds.y + 20, 1.0,
+                        VIEWPORT_WIDTH, VIEWPORT_HEIGHT),
+                "Wheel input outside the production popup must fall through.");
     }
 
     private static void validateOverflowingStationMenus(
@@ -234,14 +222,14 @@ public final class ShipyardScrollHotfixValidator {
             draw(menu);
             if (!menu.overflowForTest()) continue;
 
-            Rectangle bounds = menu.menuBoundsForTest();
-            int x = bounds.x + 24;
-            int y = bounds.y + 54;
-            int before = menu.scrollOffsetForTest();
-            menu.scroll(x, y, 1.0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
-            require(menu.scrollOffsetForTest() > before,
+            JScrollBar bar = menu.scrollPaneForTest().getVerticalScrollBar();
+            int before = bar.getValue();
+            bar.setValue(Math.min(
+                    bar.getMaximum() - bar.getVisibleAmount(),
+                    before + Math.max(1, bar.getUnitIncrement(1))));
+            require(bar.getValue() > before,
                     station.type().name
-                            + " did not respond to wheel input.");
+                            + " native scrollbar did not move.");
         }
     }
 
