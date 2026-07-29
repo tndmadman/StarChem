@@ -377,6 +377,7 @@ final class BuildMenu {
     }
 
     private void openAt(int requestedX, int requestedY) {
+        if (popup.isVisible()) popup.setVisible(false);
         rebuildContent();
         titleLabel.setText(title);
         preciseWheelRemainder = 0;
@@ -595,8 +596,11 @@ final class BuildMenu {
         popup.setSize(size);
         popup.doLayout();
         scrollPane.setSize(Math.max(1, size.width - 4), Math.max(1, size.height - 70));
+        Dimension viewSize = content.getPreferredSize();
+        viewSize.width = Math.max(1, scrollPane.getViewport().getExtentSize().width);
+        scrollPane.getViewport().setViewSize(viewSize);
         scrollPane.doLayout();
-        content.setSize(content.getPreferredSize());
+        content.setSize(viewSize);
         content.doLayout();
     }
 
