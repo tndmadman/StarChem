@@ -12,11 +12,16 @@ final class AiDevPanel {
     private boolean pathLines = true;
 
     boolean click(World world, PeerNetwork devAuthorityNetwork, int sx, int sy, boolean canEdit) {
-        if (!window.contains(sx, sy, bodyHeight())) return false;
-        if (sy <= window.y + 28) return window.press(sx, sy, bodyHeight());
+        return click(world, devAuthorityNetwork, sx, sy, canEdit, Integer.MAX_VALUE);
+    }
+
+    boolean click(World world, PeerNetwork devAuthorityNetwork, int sx, int sy,
+                  boolean canEdit, int screenH) {
+        if (!window.contains(sx, sy, bodyHeight(), screenH)) return false;
+        if (sy <= window.y + 28) return window.press(sx, sy, bodyHeight(), screenH);
         if (window.collapsed || !canEdit) return true;
         AiDevSettings settings = settings(world, devAuthorityNetwork);
-        int row = clickedRow(sy - window.bodyY());
+        int row = clickedRow(window.contentY(sy));
         if (row < 0 || row >= ROW_COUNT) return true;
         switch (row) {
             case 0 -> overlay = !overlay;
@@ -47,37 +52,53 @@ final class AiDevPanel {
         return true;
     }
 
+    boolean scroll(int sx, int sy, int wheelRotation, int screenH) {
+        return window.scroll(sx, sy, wheelRotation, bodyHeight(), screenH);
+    }
+
     void drag(int sx, int sy, int screenW, int screenH) { window.drag(sx, sy, screenW, screenH); }
     void release() { window.release(); }
 
     void draw(Graphics2D g2, World world, PeerNetwork devAuthorityNetwork, boolean canEdit) {
-        window.draw(g2, "AI DEVTOOLS", bodyHeight(), new Color(180, 120, 255, 190));
+        draw(g2, world, devAuthorityNetwork, canEdit, Integer.MAX_VALUE);
+    }
+
+    void draw(Graphics2D g2, World world, PeerNetwork devAuthorityNetwork,
+              boolean canEdit, int screenH) {
+        window.draw(g2, "AI DEVTOOLS", bodyHeight(), new Color(180, 120, 255, 190), screenH);
         if (window.collapsed) return;
+        Graphics2D body = window.bodyGraphics(g2, bodyHeight(), screenH);
         int x = window.x + 12;
         int y = window.bodyY();
-        g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f));
-        if (!canEdit) { g2.setColor(new Color(255, 225, 150)); g2.drawString("Host dev approval required", x, y + 16); return; }
+        body.setFont(body.getFont().deriveFont(Font.PLAIN, 12f));
+        if (!canEdit) {
+            body.setColor(new Color(255, 225, 150));
+            body.drawString("Host dev approval required", x, y + 16);
+            body.dispose();
+            return;
+        }
 
         AiDevSettings settings = settings(world, devAuthorityNetwork);
         NpcFaction f = AiDevSnapshot.corsairs();
-        g2.setColor(Color.WHITE);
+        body.setColor(Color.WHITE);
         int yy = y + 14;
-        for (String line : AiDevSnapshot.summary(world, f, settings)) { g2.drawString(line, x, yy); yy += 15; }
-        g2.setColor(new Color(255, 225, 150));
-        g2.drawString("Blocked: " + AiDevSnapshot.blockedReason(world, f), x, yy);
+        for (String line : AiDevSnapshot.summary(world, f, settings)) { body.drawString(line, x, yy); yy += 15; }
+        body.setColor(new Color(255, 225, 150));
+        body.drawString("Blocked: " + AiDevSnapshot.blockedReason(world, f), x, yy);
 
         String[] rows = rows(settings);
-        for (int i = 0; i < rows.length; i++) drawRow(g2, x, y + ROW_BASELINE_Y + i * ROW, rows[i]);
+        for (int i = 0; i < rows.length; i++) drawRow(body, x, y + ROW_BASELINE_Y + i * ROW, rows[i]);
 
         int logY = y + ROW_BASELINE_Y + rows.length * ROW + 16;
-        g2.setColor(new Color(190, 220, 255));
-        g2.drawString("Brain file: " + trim(AiBrainLog.status(), 56), x, logY);
+        body.setColor(new Color(190, 220, 255));
+        body.drawString("Brain file: " + trim(AiBrainLog.status(), 56), x, logY);
         logY += 15;
-        g2.drawString("Recent AI events:", x, logY);
+        body.drawString("Recent AI events:", x, logY);
         logY += 15;
         List<String> log = AiDevLog.lines(7);
-        g2.setColor(new Color(220, 235, 245));
-        for (String line : log) { g2.drawString(trim(line, 62), x, logY); logY += 14; }
+        body.setColor(new Color(220, 235, 245));
+        for (String line : log) { body.drawString(trim(line, 62), x, logY); logY += 14; }
+        body.dispose();
     }
 
     boolean overlayEnabled() { return overlay; }
