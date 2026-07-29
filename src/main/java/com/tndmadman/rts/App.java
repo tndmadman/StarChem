@@ -39,6 +39,7 @@ public final class App {
             if (exitCode != 0) System.exit(exitCode);
             return;
         }
+        GameSwingUi.install();
         SwingUtilities.invokeLater(() -> new GameFrame(config).setVisible(true));
     }
 
