@@ -19,11 +19,16 @@ final class DevMenu {
     private PeerNetwork accessNetwork;
 
     boolean click(World world, PeerNetwork devAuthorityNetwork, int sx, int sy, boolean canEdit) {
+        return click(world, devAuthorityNetwork, sx, sy, canEdit, Integer.MAX_VALUE);
+    }
+
+    boolean click(World world, PeerNetwork devAuthorityNetwork, int sx, int sy,
+                  boolean canEdit, int screenH) {
         accessNetwork = devAuthorityNetwork;
-        if (!window.contains(sx, sy, bodyHeight())) return false;
-        if (sy <= window.y + 28) return window.press(sx, sy, bodyHeight());
+        if (!window.contains(sx, sy, bodyHeight(), screenH)) return false;
+        if (sy <= window.y + 28) return window.press(sx, sy, bodyHeight(), screenH);
         if (window.collapsed || !canEdit) return true;
-        int localY = sy - window.bodyY();
+        int localY = window.contentY(sy);
         if (hit(localY, TARGET_Y)) {
             if (localStationCount(world) > 0) targetIndex++;
             return true;
@@ -69,39 +74,58 @@ final class DevMenu {
         return true;
     }
 
+    boolean scroll(int sx, int sy, int wheelRotation, int screenH) {
+        return window.scroll(sx, sy, wheelRotation, bodyHeight(), screenH);
+    }
+
     void drag(int sx, int sy, int screenW, int screenH) { window.drag(sx, sy, screenW, screenH); }
     void release() { window.release(); }
-    void draw(Graphics2D g2, World world, boolean canEdit) { draw(g2, world, accessNetwork, canEdit); }
+
+    void draw(Graphics2D g2, World world, boolean canEdit) {
+        draw(g2, world, accessNetwork, canEdit, Integer.MAX_VALUE);
+    }
+
+    void draw(Graphics2D g2, World world, boolean canEdit, int screenH) {
+        draw(g2, world, accessNetwork, canEdit, screenH);
+    }
 
     void draw(Graphics2D g2, World world, PeerNetwork devAuthorityNetwork, boolean canEdit) {
-        window.draw(g2, "DEV CRAFTING", bodyHeight(), new Color(255, 180, 80, 180));
+        draw(g2, world, devAuthorityNetwork, canEdit, Integer.MAX_VALUE);
+    }
+
+    void draw(Graphics2D g2, World world, PeerNetwork devAuthorityNetwork,
+              boolean canEdit, int screenH) {
+        window.draw(g2, "DEV CRAFTING", bodyHeight(), new Color(255, 180, 80, 180), screenH);
         if (window.collapsed) return;
+        Graphics2D body = window.bodyGraphics(g2, bodyHeight(), screenH);
         int x = window.x + 12;
         int y = window.bodyY();
-        g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f));
+        body.setFont(body.getFont().deriveFont(Font.PLAIN, 12f));
         if (!canEdit) {
-            g2.setColor(new Color(255, 225, 150));
-            g2.drawString("Host dev approval required", x, y + 16);
+            body.setColor(new Color(255, 225, 150));
+            body.drawString("Host dev approval required", x, y + 16);
+            body.dispose();
             return;
         }
         Base base = target(world);
-        drawStationLine(g2, base, x, y + TARGET_Y);
-        drawToggle(g2, world.devFreeBuildFor(PlayerRegistry.localId()), "Free crafting", x, y + FREE_CRAFTING_Y);
-        drawToggle(g2, DevTimerSettings.disabled(world), "Disable production timers", x, y + PRODUCTION_TIMERS_Y);
+        drawStationLine(body, base, x, y + TARGET_Y);
+        drawToggle(body, world.devFreeBuildFor(PlayerRegistry.localId()), "Free crafting", x, y + FREE_CRAFTING_Y);
+        drawToggle(body, DevTimerSettings.disabled(world), "Disable production timers", x, y + PRODUCTION_TIMERS_Y);
         if (base == null) {
-            g2.setColor(new Color(255, 225, 150));
-            g2.drawString("No local station hangar", x, y + RESOURCE_Y);
+            body.setColor(new Color(255, 225, 150));
+            body.drawString("No local station hangar", x, y + RESOURCE_Y);
         } else {
-            g2.setColor(new Color(255, 225, 150));
-            g2.drawString("Add 500 | " + selectedFamily().name() + " (click to cycle)", x, y + RESOURCE_Y - 22);
+            body.setColor(new Color(255, 225, 150));
+            body.drawString("Add 500 | " + selectedFamily().name() + " (click to cycle)", x, y + RESOURCE_Y - 22);
             int line = y + RESOURCE_Y;
             for (Material material : visibleMaterials()) {
-                g2.setColor(material.color);
-                g2.drawString("+500 " + material.label, x + 4, line);
+                body.setColor(material.color);
+                body.drawString("+500 " + material.label, x + 4, line);
                 line += ROW_H;
             }
         }
-        drawRemoteAccess(g2, devAuthorityNetwork, x, y + remoteAccessY());
+        drawRemoteAccess(body, devAuthorityNetwork, x, y + remoteAccessY());
+        body.dispose();
     }
 
     private void drawRemoteAccess(Graphics2D g2, PeerNetwork devAuthorityNetwork, int x, int y) {
