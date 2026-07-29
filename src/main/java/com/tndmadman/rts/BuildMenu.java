@@ -194,7 +194,9 @@ final class BuildMenu {
         Rectangle viewport = viewport(viewportWidth, viewportHeight);
         updateLayout(viewport);
         keepOnScreen(viewport);
-        if (!menuBounds().contains(sx, sy)) return false;
+        // The menu may be repositioned away from the click point to stay on-screen.
+        // While an overflowing menu is open, capture the wheel anywhere so camera zoom
+        // cannot steal the input before the player moves the pointer over the menu.
         if (wheelRotation == 0 || !hasOverflow()) return true;
 
         int direction = Integer.signum(wheelRotation);
