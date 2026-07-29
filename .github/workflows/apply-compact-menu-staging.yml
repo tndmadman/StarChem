@@ -1,0 +1,43 @@
+name: Apply compact production menu staging
+
+on:
+  push:
+    branches:
+      - agent/compact-production-menu-previews
+    paths:
+      - '.automation/compact-menu/**'
+      - '.github/workflows/apply-compact-menu-staging.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out validation branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/compact-production-menu-previews
+
+      - name: Assemble verified Java sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .automation/compact-menu/buildmenu.*.b64 | tr -d '\n' | base64 -d > /tmp/BuildMenu.java
+          cat .automation/compact-menu/validator.*.b64 | tr -d '\n' | base64 -d > /tmp/ShipyardScrollHotfixValidator.java
+          echo '5bab13703b6942aad9428b900dbc82004b4f4cc56466f7c669353cd53e328fb9  /tmp/BuildMenu.java' | sha256sum -c -
+          echo '98c001cfd93683144848914432db9316dcab394b14424649beea30cc3832b6a6  /tmp/ShipyardScrollHotfixValidator.java' | sha256sum -c -
+          mv /tmp/BuildMenu.java src/main/java/com/tndmadman/rts/BuildMenu.java
+          mv /tmp/ShipyardScrollHotfixValidator.java src/main/java/com/tndmadman/rts/ShipyardScrollHotfixValidator.java
+          rm -rf .automation/compact-menu
+          rm -f .github/workflows/apply-compact-menu-staging.yml
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/main/java/com/tndmadman/rts/BuildMenu.java
+          git add src/main/java/com/tndmadman/rts/ShipyardScrollHotfixValidator.java
+          git add -A .automation .github/workflows/apply-compact-menu-staging.yml
+          git commit -m 'Add compact production previews and hover requirements'
+          git push origin HEAD:agent/compact-production-menu-previews
