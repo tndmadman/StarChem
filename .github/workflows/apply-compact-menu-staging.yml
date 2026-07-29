@@ -7,6 +7,12 @@ on:
     paths:
       - '.automation/compact-menu/**'
       - '.github/workflows/apply-compact-menu-staging.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.automation/compact-menu/**'
+      - '.github/workflows/apply-compact-menu-staging.yml'
 
 permissions:
   contents: write
