@@ -21,21 +21,35 @@ jobs:
           ref: agent/station-control-menus
           fetch-depth: 0
 
+      - name: Check whether integration remains
+        id: integration
+        shell: bash
+        run: |
+          if [[ -f tools/apply_station_controls.py ]]; then
+            echo "apply=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "apply=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Java 17
+        if: steps.integration.outputs.apply == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Gradle 8.10.2
+        if: steps.integration.outputs.apply == 'true'
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
 
       - name: Apply source integration
+        if: steps.integration.outputs.apply == 'true'
         run: python tools/apply_station_controls.py
 
       - name: Compile and validate controls
+        if: steps.integration.outputs.apply == 'true'
         run: |
           gradle clean classes --no-daemon
           java -cp build/classes/java/main com.tndmadman.rts.StationControlValidator
@@ -43,10 +57,16 @@ jobs:
           java -cp build/classes/java/main com.tndmadman.rts.IntelWarfareValidator
 
       - name: Commit integrated implementation
+        if: steps.integration.outputs.apply == 'true'
         run: |
-          rm tools/apply_station_controls.py .github/workflows/apply-station-controls.yml
+          rm tools/apply_station_controls.py
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add -A
+          git add config/stations.json \
+            src/main/java/com/tndmadman/rts/GamePanel.java \
+            src/main/java/com/tndmadman/rts/ProductionSystem.java \
+            src/main/java/com/tndmadman/rts/ScoutSystem.java \
+            src/main/java/com/tndmadman/rts/FogSnapshotFilter.java \
+            tools/apply_station_controls.py
           git commit -m "Add role-specific station control menus"
           git push origin HEAD:agent/station-control-menus
