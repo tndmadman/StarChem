@@ -3,6 +3,7 @@ package com.tndmadman.rts;
 import javax.swing.*;
 import java.awt.*;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 final class LobbyPanel extends JPanel {
@@ -12,6 +13,8 @@ final class LobbyPanel extends JPanel {
     private final JTextField nameField = new JTextField(System.getProperty("user.name", "Player"), 18);
     private final JTextField addressField = new JTextField("127.0.0.1", 18);
     private final JTextField portField = new JTextField("50000", 8);
+    private final JComboBox<String> lanServerBox = new JComboBox<>();
+    private final JComboBox<String> recentServerBox = new JComboBox<>();
     private final JComboBox<StarSystemDefinition> systemBox = new JComboBox<>();
     private final JComboBox<Integer> galaxyCopiesBox = new JComboBox<>(new Integer[]{1, 2});
     private final JComboBox<SkirmishPreset> skirmishPresetBox = new JComboBox<>(SkirmishPreset.values());
@@ -23,6 +26,10 @@ final class LobbyPanel extends JPanel {
     private final JCheckBox spawnFreeMinersBox = new JCheckBox("Free Miners", true);
     private final JCheckBox spawnCorsairsBox = new JCheckBox("Corsair Syndicate", true);
     private final JLabel statusLabel = new JLabel("Choose Solo or Join.");
+    private final LanDiscoveryClient discoveryClient = new LanDiscoveryClient();
+    private List<LanDiscoveryProtocol.DiscoveredServer> discoveredServers = List.of();
+    private List<RecentServerStore.RecentServer> recentServers = List.of();
+    private final Timer discoveryTimer;
 
     LobbyPanel(GameFrame owner) {
         super(new BorderLayout());
@@ -32,6 +39,8 @@ final class LobbyPanel extends JPanel {
         styleField(nameField);
         styleField(addressField);
         styleField(portField);
+        styleCombo(lanServerBox);
+        styleCombo(recentServerBox);
         styleCombo(systemBox);
         styleCombo(galaxyCopiesBox);
         styleCombo(skirmishPresetBox);
@@ -60,6 +69,10 @@ final class LobbyPanel extends JPanel {
         box.setOpaque(false);
         box.add(label("Commander name"));
         box.add(nameField);
+        box.add(label("LAN servers"));
+        box.add(lanServerBox);
+        box.add(label("Recent servers"));
+        box.add(recentServerBox);
         box.add(label("Address"));
         box.add(addressField);
         box.add(label("Port"));
@@ -87,15 +100,16 @@ final class LobbyPanel extends JPanel {
 
         JButton solo = new MenuButton("SOLO");
         JButton connect = new MenuButton("JOIN");
+        JButton refresh = new MenuButton("REFRESH LAN");
         JButton codex = new MenuButton("CODEX");
         JButton clearSignIns = new MenuButton("CLEAR SIGN-INS");
         JButton settings = new MenuButton("SETTINGS");
         box.add(solo);
         box.add(connect);
+        box.add(refresh);
         box.add(codex);
         box.add(clearSignIns);
         box.add(settings);
-        box.add(new JLabel(""));
 
         statusLabel.setForeground(new Color(215, 232, 245));
         box.add(label("Status"));
@@ -110,9 +124,29 @@ final class LobbyPanel extends JPanel {
         solo.addActionListener(e -> owner.launchGame(Config.solo(nameField.getText(), devBox.isSelected(),
                 selectedSkirmishSettings(), selectedSystemId(), selectedGalaxyCopies())));
         connect.addActionListener(e -> startClient());
+        refresh.addActionListener(e -> refreshLanServers());
         codex.addActionListener(e -> owner.toggleCodexFromLobby());
         clearSignIns.addActionListener(e -> clearSavedSignIns());
         settings.addActionListener(e -> owner.openLobbySettings());
+        lanServerBox.addActionListener(e -> applySelectedLanServer());
+        recentServerBox.addActionListener(e -> applySelectedRecentServer());
+
+        discoveryClient.addListener(servers -> SwingUtilities.invokeLater(() -> updateLanServers(servers)));
+        discoveryTimer = new Timer(3_000, e -> refreshLanServers());
+        discoveryTimer.setInitialDelay(100);
+        reloadRecentServers();
+    }
+
+    @Override public void addNotify() {
+        super.addNotify();
+        discoveryTimer.start();
+        refreshLanServers();
+    }
+
+    @Override public void removeNotify() {
+        discoveryTimer.stop();
+        discoveryClient.close();
+        super.removeNotify();
     }
 
     private JLabel label(String text) {
@@ -148,6 +182,53 @@ final class LobbyPanel extends JPanel {
         box.setOpaque(false);
         box.setForeground(new Color(220, 238, 250));
         box.setFont(box.getFont().deriveFont(Font.BOLD, 13f));
+    }
+
+    private void refreshLanServers() {
+        setStatus("Searching for LAN servers...");
+        discoveryClient.refresh();
+    }
+
+    private void updateLanServers(List<LanDiscoveryProtocol.DiscoveredServer> servers) {
+        discoveredServers = servers == null ? List.of() : List.copyOf(servers);
+        Object selected = lanServerBox.getSelectedItem();
+        lanServerBox.removeAllItems();
+        if (discoveredServers.isEmpty()) {
+            lanServerBox.addItem("No LAN servers found");
+            if (statusLabel.getText().startsWith("Searching")) setStatus("No LAN servers found. Direct connect remains available.");
+            return;
+        }
+        for (LanDiscoveryProtocol.DiscoveredServer server : discoveredServers) lanServerBox.addItem(server.displayLabel());
+        if (selected != null) lanServerBox.setSelectedItem(selected);
+        applySelectedLanServer();
+        setStatus("Found " + discoveredServers.size() + " LAN server" + (discoveredServers.size() == 1 ? "." : "s."));
+    }
+
+    private void applySelectedLanServer() {
+        int index = lanServerBox.getSelectedIndex();
+        if (index < 0 || index >= discoveredServers.size()) return;
+        LanDiscoveryProtocol.DiscoveredServer server = discoveredServers.get(index);
+        addressField.setText(server.host());
+        portField.setText(Integer.toString(server.port()));
+        if (!server.compatible()) setStatus("Selected server uses incompatible version " + server.version() + ".");
+    }
+
+    private void reloadRecentServers() {
+        recentServers = RecentServerStore.load();
+        recentServerBox.removeAllItems();
+        if (recentServers.isEmpty()) {
+            recentServerBox.addItem("No recent servers");
+            return;
+        }
+        for (RecentServerStore.RecentServer server : recentServers) recentServerBox.addItem(server.displayLabel());
+    }
+
+    private void applySelectedRecentServer() {
+        int index = recentServerBox.getSelectedIndex();
+        if (index < 0 || index >= recentServers.size()) return;
+        RecentServerStore.RecentServer server = recentServers.get(index);
+        addressField.setText(server.host());
+        portField.setText(Integer.toString(server.port()));
     }
 
     private String selectedSystemId() {
@@ -193,10 +274,23 @@ final class LobbyPanel extends JPanel {
             Config config = Config.join(nameField.getText(), addressField.getText().trim(),
                     Config.parsePort(portField.getText()), devBox.isSelected());
             if (!ensurePlayerPassword(config)) return;
+            RecentServerStore.record(addressField.getText().trim(), Config.parsePort(portField.getText()),
+                    selectedServerName(), selectedServerVersion());
+            reloadRecentServers();
             owner.launchGame(config);
         } catch (RuntimeException ex) {
             setStatus(ex.getMessage());
         }
+    }
+
+    private String selectedServerName() {
+        int index = lanServerBox.getSelectedIndex();
+        return index >= 0 && index < discoveredServers.size() ? discoveredServers.get(index).name() : "";
+    }
+
+    private String selectedServerVersion() {
+        int index = lanServerBox.getSelectedIndex();
+        return index >= 0 && index < discoveredServers.size() ? discoveredServers.get(index).version() : "";
     }
 
     void retryJoinAfterCredentialReset() {
