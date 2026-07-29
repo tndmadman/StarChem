@@ -499,7 +499,13 @@ final class ProductionCommands {
         if (world == null || playerId == null || action == null || baseId == null) return false;
         Base base = world.bases.get(baseId);
         if (base == null || !playerId.equals(base.playerId)) return false;
-        return switch (action.toUpperCase(Locale.ROOT)) {
+        String normalized = action.toUpperCase(Locale.ROOT);
+        if (!"CONTROL".equals(normalized) && StationControls.nonProduction(base.typeId)) {
+            world.status = base.type().name + " is a non-production station.";
+            return false;
+        }
+        return switch (normalized) {
+            case "CONTROL" -> StationControlCommands.apply(world, playerId, baseId, value, extra);
             case "ENQUEUE" -> enqueue(world, value, baseId, extra);
             case "CANCEL" -> ProductionSystem.cancel(world, playerId, baseId, value);
             case "MOVE" -> ProductionSystem.move(world, playerId, baseId, value, parseInt(extra));

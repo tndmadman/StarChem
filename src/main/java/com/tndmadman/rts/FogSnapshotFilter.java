@@ -122,16 +122,20 @@ final class FogSnapshotFilter {
         boolean ownOrAllied = IntelWarfareSystem.allied(world, playerId, state.playerId());
         if (ownOrAllied) return state;
         String key = "B:" + state.id();
+        boolean spoofing = base != null && IntelWarfareSystem.isDecoy(base.typeId)
+                && stage.atLeast(IntelWarfareSystem.DetectionStage.CLASSIFIED)
+                && stage != IntelWarfareSystem.DetectionStage.DETAILED;
+        String visibleType = spoofing ? StationControls.decoySpoofType(world, base) : state.typeId();
         if (!stage.atLeast(IntelWarfareSystem.DetectionStage.IDENTIFIED)) {
             double x = IntelWarfareSystem.approximateX(world, key, stage, state.x());
             double y = IntelWarfareSystem.approximateY(world, key, stage, state.y());
             return new BaseState("CONTACT-" + Integer.toUnsignedString(key.hashCode()), UNKNOWN_OWNER,
-                    IntelWarfareSystem.CONTACT_STATION, x, y, 1, 0, "", "");
+                    spoofing ? visibleType : IntelWarfareSystem.CONTACT_STATION, x, y, 1, 0, "", "");
         }
         if (stage == IntelWarfareSystem.DetectionStage.IDENTIFIED) {
             double hp = approximateCondition(state.hp(), base == null ? state.hp() : base.type().maxHp);
             double shield = approximateCondition(state.shield(), base == null ? state.shield() : base.type().maxShield);
-            return new BaseState(state.id(), state.playerId(), state.typeId(), state.x(), state.y(),
+            return new BaseState(state.id(), state.playerId(), visibleType, state.x(), state.y(),
                     hp, shield, "", "");
         }
         return new BaseState(state.id(), state.playerId(), state.typeId(), state.x(), state.y(),
