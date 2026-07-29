@@ -23,6 +23,11 @@ public final class StationControlValidator {
         PlayerRegistry.activate(world);
         PlayerRegistry.reset("P1", "Operator", 0x50BEFF);
         PlayerRegistry.register("P2", "Opponent", 0xFF5F55, false);
+        world.units.clear();
+        world.bases.clear();
+        world.resources.clear();
+        world.shots.clear();
+        world.items.clear();
 
         Base radar = new Base("P1:R1", "P1", "radar_picket", 4_000, 4_000);
         world.bases.put(radar.id, radar);
