@@ -589,17 +589,17 @@ final class BuildMenu {
     void draw(Graphics2D graphics, int viewportWidth, int viewportHeight) {
         testViewportWidth = Math.max(1, viewportWidth);
         testViewportHeight = Math.max(1, viewportHeight);
-        if (!visible) return;
+        if (!visible || popup.isVisible()) return;
         Dimension size = popupSize(null);
         popup.setPopupSize(size);
         popup.setPreferredSize(size);
         popup.setSize(size);
         popup.doLayout();
         scrollPane.setSize(Math.max(1, size.width - 4), Math.max(1, size.height - 70));
+        scrollPane.doLayout();
         Dimension viewSize = content.getPreferredSize();
         viewSize.width = Math.max(1, scrollPane.getViewport().getExtentSize().width);
         scrollPane.getViewport().setViewSize(viewSize);
-        scrollPane.doLayout();
         content.setSize(viewSize);
         content.doLayout();
     }
