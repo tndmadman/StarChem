@@ -35,8 +35,20 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
+      - name: Compile project
+        run: gradle clean classes --no-daemon
+
+      - name: Validate authoritative fog of war
+        run: java -cp build/classes/java/main com.tndmadman.rts.FogOfWarValidator
+
+      - name: Validate radar tower progression
+        run: java -cp build/classes/java/main com.tndmadman.rts.RadarTowerValidator
+
+      - name: Validate intel and counterintel warfare
+        run: java -cp build/classes/java/main com.tndmadman.rts.IntelWarfareValidator
+
       - name: Verify project
-        run: gradle clean check jar --no-daemon
+        run: gradle check jar --no-daemon
 
       - name: Validate canonical endpoint identity
         run: java -cp build/classes/java/main com.tndmadman.rts.SessionEndpointIdentityValidator
@@ -128,7 +140,6 @@ jobs:
           gradle clean verifyBuildMetadata --no-daemon \
             -PreleaseVersion="$SAMPLE_VERSION" \
             -PbuildCommit="$SAMPLE_COMMIT"
-
           test -f build/libs/StarChem.jar
           VERSION_OUTPUT="$(java -jar build/libs/StarChem.jar --version)"
           echo "$VERSION_OUTPUT"

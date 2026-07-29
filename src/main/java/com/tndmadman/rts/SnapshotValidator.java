@@ -13,6 +13,7 @@ final class SnapshotValidator {
         finite(snapshot.systemTime(), -1, SnapshotReader.MAX_SCALAR, "snapshot", 0, "system time");
         SnapshotReader.text(snapshot.systemId(), SnapshotReader.MAX_SYSTEM_FIELD_LENGTH, "snapshot", 0, "system");
         SnapshotReader.text(snapshot.celestialState(), SnapshotReader.MAX_SYSTEM_FIELD_LENGTH, "snapshot", 0, "celestial state");
+        CelestialPacketCache.validateState(snapshot.celestialState());
 
         validatePlayers(required(snapshot.players(), "players"));
         validateUnits(required(snapshot.units(), "units"));

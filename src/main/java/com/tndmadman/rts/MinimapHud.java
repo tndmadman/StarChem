@@ -41,6 +41,7 @@ final class MinimapHud {
         drawWormholes(g, world, layout.map);
         drawBases(g, world, layout.map);
         drawUnits(g, world, layout.map);
+        FogOfWarView.drawMinimap(g, world, layout.map);
         drawPings(g, world, layout.map);
         drawCamera(g, camera.visibleWorldRect(screenW, screenH), world, layout.map);
         g.dispose();
@@ -57,7 +58,8 @@ final class MinimapHud {
         double worldX = Calc.clamp(nx * world.width, 0, world.width);
         double worldY = Calc.clamp(ny * world.height, 0, world.height);
         camera.centerAt(worldX, worldY, world, screenW, screenH);
-        world.status = "Camera moved from tactical minimap.";
+        world.status = FogOfWarView.explored(world, worldX, worldY)
+                ? "Camera moved from tactical minimap." : "Camera moved into unexplored space.";
         return true;
     }
 
@@ -206,15 +208,21 @@ final class MinimapHud {
 
     private Map<String, TrackedContact> currentContacts(World world) {
         Map<String, TrackedContact> out = new LinkedHashMap<>();
+        VisibilityRules.Frame visibility = VisibilityRules.frame(world, PlayerRegistry.localId());
         for (Unit unit : world.units.values()) {
-            ContactKind kind = PlayerRegistry.isLocal(unit.playerId) ? ContactKind.LOCAL : ContactKind.ENEMY;
+            boolean local = PlayerRegistry.isLocal(unit.playerId);
+            if (!local && !visibility.unitVisible(unit)) continue;
+            ContactKind kind = local ? ContactKind.LOCAL : ContactKind.ENEMY;
             out.put("U:" + unit.key(), new TrackedContact(unit.x, unit.y, kind));
         }
         for (Base base : world.bases.values()) {
-            ContactKind kind = PlayerRegistry.isLocal(base.playerId) ? ContactKind.LOCAL : ContactKind.ENEMY;
+            boolean local = PlayerRegistry.isLocal(base.playerId);
+            if (!local && !visibility.baseVisible(base)) continue;
+            ContactKind kind = local ? ContactKind.LOCAL : ContactKind.ENEMY;
             out.put("B:" + base.id, new TrackedContact(base.x, base.y, kind));
         }
         for (WormholeGate gate : world.wormholes) {
+            if (!FogOfWarView.explored(world, gate.x, gate.y)) continue;
             String key = "W:" + gate.toSystemId + ":" + Math.round(gate.x) + ":" + Math.round(gate.y);
             out.put(key, new TrackedContact(gate.x, gate.y, ContactKind.WORMHOLE));
         }

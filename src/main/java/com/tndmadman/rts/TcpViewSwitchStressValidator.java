@@ -1,7 +1,14 @@
 package com.tndmadman.rts;
 
-/** Repeatedly switches views while snapshots are churned, validating revision-based stale-response rejection. */
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+
+/** Repeatedly switches authorized views while snapshots churn, validating revision-based stale-response rejection. */
 public final class TcpViewSwitchStressValidator {
+    private static final String REMOTE_RADAR_ID_BASE = "VIEW-STRESS-RADAR-";
+
     private TcpViewSwitchStressValidator() { }
 
     public static void main(String[] args) throws Exception {
@@ -13,28 +20,34 @@ public final class TcpViewSwitchStressValidator {
             String playerId = switching.playerId();
             Unit unit = harness.firstUnit(harness.serverWorld, playerId);
             TcpIntegrationHarness.require(unit != null, "view-switch client had no authoritative unit");
+
+            List<String> authorizedSystems = authorizedSystems(harness.serverWorld, playerId, 3);
+            TcpIntegrationHarness.require(authorizedSystems.size() >= 3,
+                    "view-switch validation could not select three authoritative systems");
+            for (int i = 1; i < authorizedSystems.size(); i++) {
+                placeRemoteRadar(harness.serverWorld, playerId, authorizedSystems.get(i), REMOTE_RADAR_ID_BASE + i);
+            }
+
             String desired = switching.network().clientViewedSystemId();
             String observerSystem = observer.network().clientViewedSystemId();
             long previousSequence = switching.network().clientSnapshotSequence();
+            int targetIndex = Math.max(0, authorizedSystems.indexOf(desired));
 
             for (int i = 0; i < 160; i++) {
-                String firstTarget = harness.reachableFromSystem(desired);
-                TcpIntegrationHarness.require(firstTarget != null && !firstTarget.isBlank(),
-                        "current system had no reachable view target: " + desired);
-                switching.network().viewSystem(playerId, firstTarget);
-                desired = firstTarget;
+                targetIndex = (targetIndex + 1) % authorizedSystems.size();
+                desired = authorizedSystems.get(targetIndex);
+                switching.network().viewSystem(playerId, desired);
                 if (i % 3 == 0) {
-                    String secondTarget = harness.reachableFromSystem(desired);
-                    if (secondTarget != null && !secondTarget.isBlank()) {
-                        switching.network().viewSystem(playerId, secondTarget);
-                        desired = secondTarget;
-                    }
+                    targetIndex = (targetIndex + 1) % authorizedSystems.size();
+                    desired = authorizedSystems.get(targetIndex);
+                    switching.network().viewSystem(playerId, desired);
                 }
                 harness.setAuthoritativePosition(playerId, unit.unitId,
                         1500 + i * 3.0, 2200 + Math.sin(i / 8.0) * 160);
                 harness.runTicks(3);
                 long sequence = switching.network().clientSnapshotSequence();
-                TcpIntegrationHarness.require(sequence >= previousSequence, "snapshot sequence moved backward during view switching");
+                TcpIntegrationHarness.require(sequence >= previousSequence,
+                        "snapshot sequence moved backward during view switching");
                 previousSequence = sequence;
                 TcpIntegrationHarness.require(observerSystem.equals(observer.network().clientViewedSystemId()),
                         "another client's view changed during view-switch stress");
@@ -42,31 +55,67 @@ public final class TcpViewSwitchStressValidator {
 
             String expected = desired;
             harness.await(() -> !switching.network().clientViewSwitchPending()
-                            && expected.equals(switching.network().clientViewedSystemId()),
+                            && expected.equals(switching.network().clientViewedSystemId())
+                            && expected.equals(switching.world().activeSystemId()),
                     12_000, "client did not settle on the newest requested view revision");
-            harness.await(() -> sameEntityKeys(harness.serverWorld, switching.world(), expected),
-                    10_000, "final viewed system did not converge to the authoritative entity set");
+            harness.await(() -> sameOwnEntityKeys(harness.serverWorld, switching.world(), expected, playerId),
+                    10_000, "final viewed system did not converge to the authoritative owned-entity set");
             TcpIntegrationHarness.require(observer.network().clientConnected(),
                     "observer disconnected during another client's view-switch stress");
             System.out.println("StarChem TCP view-switch stress validation passed.");
         }
     }
 
-    private static java.util.Set<Integer> resourceIds(World world) {
-        java.util.LinkedHashSet<Integer> ids = new java.util.LinkedHashSet<>();
-        for (ResourceNode resource : world.resources) ids.add(resource.id);
-        return ids;
+    private static List<String> authorizedSystems(World world, String playerId, int limit) {
+        LinkedHashSet<String> systems = new LinkedHashSet<>();
+        systems.add(world.playerHomeSystemId(playerId));
+        GalaxyMapSnapshot map = world.authoritativeGalaxyMapSnapshot();
+        if (map != null && map.systems() != null) {
+            for (GalaxyMapSystem system : map.systems()) {
+                if (system == null || system.id() == null || system.id().isBlank()) continue;
+                systems.add(system.id());
+                if (systems.size() >= limit) break;
+            }
+        }
+        return new ArrayList<>(systems);
     }
 
-    private static boolean sameEntityKeys(World server, World client, String systemId) {
+    private static void placeRemoteRadar(World world, String playerId, String systemId, String radarId) {
+        String previousSystem = world.activeSystemId();
+        try {
+            world.activateSystem(systemId);
+            world.bases.put(radarId, new Base(radarId, playerId, RadarTowerRules.TIER_ONE,
+                    world.width * 0.5, world.height * 0.5));
+            world.saveActiveSystem();
+        } finally {
+            world.activateSystem(previousSystem);
+        }
+    }
+
+    private static Set<String> ownUnitKeys(World world, String playerId) {
+        LinkedHashSet<String> keys = new LinkedHashSet<>();
+        for (Unit unit : world.units.values()) {
+            if (playerId.equals(unit.playerId) && unit.hp > 0) keys.add(unit.key());
+        }
+        return keys;
+    }
+
+    private static Set<String> ownBaseKeys(World world, String playerId) {
+        LinkedHashSet<String> keys = new LinkedHashSet<>();
+        for (Base base : world.bases.values()) {
+            if (playerId.equals(base.playerId) && base.hp > 0) keys.add(base.id);
+        }
+        return keys;
+    }
+
+    private static boolean sameOwnEntityKeys(World server, World client, String systemId, String playerId) {
         String oldServer = server.activeSystemId();
         String oldClient = client.activeSystemId();
         try {
             server.activateSystem(systemId);
             client.activateSystem(systemId);
-            return server.units.keySet().equals(client.units.keySet())
-                    && server.bases.keySet().equals(client.bases.keySet())
-                    && resourceIds(server).equals(resourceIds(client));
+            return ownUnitKeys(server, playerId).equals(ownUnitKeys(client, playerId))
+                    && ownBaseKeys(server, playerId).equals(ownBaseKeys(client, playerId));
         } finally {
             server.activateSystem(oldServer);
             client.activateSystem(oldClient);

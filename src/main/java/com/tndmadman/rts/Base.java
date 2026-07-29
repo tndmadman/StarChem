@@ -1,6 +1,9 @@
 package com.tndmadman.rts;
 
 import java.awt.*;
+import java.awt.geom.Arc2D;
+import java.awt.geom.Ellipse2D;
+import java.awt.geom.Path2D;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
@@ -55,18 +58,30 @@ final class Base {
         drawLogistics(s, radius);
         drawProduction(s, radius);
         if (local) drawHangar(s, radius);
+        IntelStructureRenderer.drawStatus(s, this, radius);
         s.dispose();
     }
 
     private double radius() {
+        double intelRadius = IntelStructureRenderer.radius(typeId);
+        if (intelRadius > 0) return intelRadius;
         return switch (typeId) {
             case "shipyard" -> 82;
             case "laboratory", "manufacturing" -> 74;
+            case RadarTowerRules.TIER_ONE -> 54;
+            case RadarTowerRules.TIER_TWO -> 66;
+            case RadarTowerRules.TIER_THREE -> 78;
             default -> 64;
         };
     }
 
     private void drawCore(Graphics2D s, Color playerColor) {
+        if (IntelStructureRenderer.drawCore(s, this, playerColor)) return;
+        int radarTier = IntelWarfareSystem.radarTier(typeId);
+        if (radarTier > 0) {
+            drawRadarCore(s, playerColor, radarTier);
+            return;
+        }
         if ("laboratory".equals(typeId)) {
             s.setColor(new Color(80, 230, 255, 80));
             s.fillOval((int)(x - 30), (int)(y - 30), 60, 60);
@@ -84,6 +99,113 @@ final class Base {
         }
         s.setColor(new Color(125,205,255,90));
         s.fillOval((int)(x - 26), (int)(y - 26), 52, 52);
+    }
+
+    private void drawRadarCore(Graphics2D s, Color playerColor, int tier) {
+        double time = System.nanoTime() / 1_000_000_000.0;
+        double modeSpeed = switch (IntelWarfareSystem.radarMode(PlayerRegistry.activeWorld(), this)) {
+            case PASSIVE -> 0.55;
+            case ACTIVE -> 1.0;
+            case FOCUSED -> 1.65;
+        };
+        double spin = time * (0.62 + tier * 0.18) * modeSpeed;
+        double pulse = (time * (0.42 + tier * 0.05) * modeSpeed) % 1.0;
+        double platformRadius = 20 + tier * 5;
+        double sweepRadius = 38 + tier * 10;
+
+        for (int ring = 0; ring < tier + 1; ring++) {
+            double phase = (pulse + ring / (double)(tier + 1)) % 1.0;
+            double r = platformRadius + 8 + phase * (18 + tier * 5);
+            int alpha = (int)Math.round(85 * (1.0 - phase));
+            s.setColor(new Color(75, 225, 255, Math.max(0, alpha)));
+            s.setStroke(new BasicStroke((float)Math.max(0.8, 2.1 - phase)));
+            s.draw(new Ellipse2D.Double(x - r, y - r, r * 2, r * 2));
+        }
+
+        s.setColor(new Color(5, 18, 28, 235));
+        s.fill(new Ellipse2D.Double(x - platformRadius, y - platformRadius * 0.72,
+                platformRadius * 2, platformRadius * 1.44));
+        s.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), 210));
+        s.setStroke(new BasicStroke(2.2f));
+        s.draw(new Ellipse2D.Double(x - platformRadius, y - platformRadius * 0.72,
+                platformRadius * 2, platformRadius * 1.44));
+
+        s.setStroke(new BasicStroke(5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        s.setColor(new Color(72, 92, 112));
+        s.drawLine((int)Math.round(x), (int)Math.round(y + 21), (int)Math.round(x), (int)Math.round(y - 18 - tier * 3));
+        s.setStroke(new BasicStroke(2f));
+        s.setColor(new Color(150, 235, 255));
+        s.drawLine((int)Math.round(x), (int)Math.round(y + 17), (int)Math.round(x), (int)Math.round(y - 20 - tier * 3));
+
+        Graphics2D radar = (Graphics2D)s.create();
+        radar.translate(x, y - 18 - tier * 3);
+        radar.rotate(spin);
+        int sweepAlpha = IntelWarfareSystem.radarMode(PlayerRegistry.activeWorld(), this)
+                == IntelWarfareSystem.RadarMode.FOCUSED ? 68 : 24 + tier * 8;
+        radar.setColor(new Color(70, 230, 255, sweepAlpha));
+        radar.fill(new Arc2D.Double(-sweepRadius, -sweepRadius, sweepRadius * 2, sweepRadius * 2,
+                -24, 48, Arc2D.PIE));
+        radar.setColor(new Color(115, 240, 255, 190));
+        radar.setStroke(new BasicStroke(1.8f));
+        radar.drawLine(0, 0, (int)Math.round(sweepRadius), 0);
+
+        int arms = 2 + tier;
+        for (int i = 0; i < arms; i++) {
+            double angle = i * Math.PI * 2.0 / arms;
+            double armLength = 19 + tier * 5 + (i % 2) * 5;
+            double ax = Math.cos(angle) * armLength;
+            double ay = Math.sin(angle) * armLength;
+            radar.setColor(new Color(145, 175, 195, 225));
+            radar.setStroke(new BasicStroke(2.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            radar.drawLine(0, 0, (int)Math.round(ax), (int)Math.round(ay));
+            radar.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), 230));
+            double node = 4.0 + tier * 0.8;
+            radar.fill(new Ellipse2D.Double(ax - node, ay - node, node * 2, node * 2));
+            radar.setColor(new Color(210, 250, 255, 230));
+            radar.draw(new Ellipse2D.Double(ax - node, ay - node, node * 2, node * 2));
+        }
+
+        double dishWidth = 30 + tier * 8;
+        double dishHeight = 16 + tier * 3;
+        Path2D dish = new Path2D.Double();
+        dish.moveTo(-dishWidth * 0.5, -2);
+        dish.quadTo(0, dishHeight, dishWidth * 0.5, -2);
+        dish.quadTo(0, dishHeight * 0.45, -dishWidth * 0.5, -2);
+        dish.closePath();
+        radar.setColor(new Color(72, 96, 118, 245));
+        radar.fill(dish);
+        radar.setColor(new Color(175, 238, 255, 235));
+        radar.setStroke(new BasicStroke(1.7f));
+        radar.draw(dish);
+        radar.setColor(new Color(235, 255, 255));
+        radar.fill(new Ellipse2D.Double(-3.2, -3.2, 6.4, 6.4));
+        radar.dispose();
+
+        if (tier >= 2) {
+            Graphics2D orbit = (Graphics2D)s.create();
+            orbit.translate(x, y);
+            orbit.rotate(-spin * 0.42);
+            double orbitRadius = 33 + tier * 7;
+            orbit.setColor(new Color(90, 220, 255, 90));
+            orbit.setStroke(new BasicStroke(1.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
+                    0, new float[]{5f, 5f}, 0));
+            orbit.draw(new Ellipse2D.Double(-orbitRadius, -orbitRadius * 0.52,
+                    orbitRadius * 2, orbitRadius * 1.04));
+            for (int i = 0; i < tier; i++) {
+                double angle = i * Math.PI * 2.0 / tier;
+                double ox = Math.cos(angle) * orbitRadius;
+                double oy = Math.sin(angle) * orbitRadius * 0.52;
+                orbit.setColor(new Color(100, 240, 255, 220));
+                orbit.fill(new Ellipse2D.Double(ox - 3.5, oy - 3.5, 7, 7));
+            }
+            orbit.dispose();
+        }
+
+        double coreGlow = 8 + Math.sin(time * 3.0) * 1.5;
+        s.setColor(new Color(90, 235, 255, 70));
+        s.fill(new Ellipse2D.Double(x - coreGlow, y - coreGlow, coreGlow * 2, coreGlow * 2));
+        s.setColor(new Color(225, 255, 255, 235));
+        s.fill(new Ellipse2D.Double(x - 3.5, y - 3.5, 7, 7));
     }
 
     private void drawBars(Graphics2D s, BaseType def, double radius) {
@@ -104,7 +226,8 @@ final class Base {
     }
 
     private void drawLabel(Graphics2D s, BaseType def, double radius, Color playerColor) {
-        String label = def.name + " - " + PlayerRegistry.name(playerId);
+        String label = IntelWarfareSystem.CONTACT_STATION.equals(typeId)
+                ? def.name : def.name + " - " + PlayerRegistry.name(playerId);
         int tw = s.getFontMetrics().stringWidth(label);
         s.setColor(new Color(0,0,0,160));
         s.fillRoundRect((int)(x - tw / 2.0 - 6), (int)(y - radius - 32), tw + 12, 18, 8, 8);

@@ -5,6 +5,7 @@ import java.net.InetAddress;
 /** Exercises abrupt socket loss and the complete automatic RESUME handshake through PeerNetwork. */
 public final class TcpReconnectIntegrationValidator {
     private static final String VALIDATOR_PASSWORD = "validator-password";
+    private static final String REMOTE_RADAR_ID = "REMOTE-RADAR-900101";
 
     private TcpReconnectIntegrationValidator() { }
 
@@ -62,7 +63,6 @@ public final class TcpReconnectIntegrationValidator {
                 Unit current = harness.unit(harness.serverWorld, playerId, resumed.unitId);
                 return current != null && Math.abs(current.targetX - Double.parseDouble(Calc.round(targetX))) < 0.001;
             }, 5_000, "post-resume command did not reach the authoritative server");
-
         }
     }
 
@@ -76,12 +76,19 @@ public final class TcpReconnectIntegrationValidator {
 
             String playerId = reconnecting.playerId();
             String remoteSystem = StarSystems.CORSAIR_SYSTEM_ID;
+            placeRemoteRadar(harness.serverWorld, playerId, remoteSystem);
             reconnecting.network().viewSystem(playerId, remoteSystem);
             harness.await(() -> !reconnecting.network().clientViewSwitchPending()
                             && remoteSystem.equals(reconnecting.network().clientViewedSystemId())
                             && remoteSystem.equals(reconnecting.world().activeSystemId())
+                            && currentSystemHasPlayerAssets(reconnecting.world(), playerId),
+                    12_000, "client did not establish an authorized remote view before reconnect validation");
+
+            removeRemoteRadar(harness.serverWorld, playerId, remoteSystem);
+            harness.await(() -> remoteSystem.equals(reconnecting.network().clientViewedSystemId())
+                            && remoteSystem.equals(reconnecting.world().activeSystemId())
                             && !currentSystemHasPlayerAssets(reconnecting.world(), playerId),
-                    12_000, "client did not establish a remote view before reconnect validation");
+                    8_000, "remote view did not remain available after the discovery radar was removed");
 
             proxy.dropActiveConnection();
             harness.await(() -> reconnecting.network().clientReconnecting(), 5_000,
@@ -103,6 +110,30 @@ public final class TcpReconnectIntegrationValidator {
                     8_000, "remote view did not remain synchronized after session resume");
             TcpIntegrationHarness.require(observer.network().clientConnected(),
                     "observer was affected by remote-view reconnect");
+        }
+    }
+
+    private static void placeRemoteRadar(World world, String playerId, String systemId) {
+        String previousSystem = world.activeSystemId();
+        try {
+            world.activateSystem(systemId);
+            world.bases.put(REMOTE_RADAR_ID, new Base(REMOTE_RADAR_ID, playerId, RadarTowerRules.TIER_ONE,
+                    world.width * 0.5, world.height * 0.5));
+            world.saveActiveSystem();
+        } finally {
+            world.activateSystem(previousSystem);
+        }
+    }
+
+    private static void removeRemoteRadar(World world, String playerId, String systemId) {
+        String previousSystem = world.activeSystemId();
+        try {
+            world.activateSystem(systemId);
+            Base radar = world.bases.get(REMOTE_RADAR_ID);
+            if (radar != null && playerId.equals(radar.playerId)) world.bases.remove(REMOTE_RADAR_ID);
+            world.saveActiveSystem();
+        } finally {
+            world.activateSystem(previousSystem);
         }
     }
 

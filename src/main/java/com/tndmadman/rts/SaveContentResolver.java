@@ -4,7 +4,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 final class SaveContentResolver {
-    private static final Map<String, String> SHIP_ALIASES = Map.of();
+    private static final Map<String, String> SHIP_ALIASES = Map.of(
+            "scout", "prospector"
+    );
     private static final Map<String, String> BASE_ALIASES = Map.of();
     private static final Map<String, String> CRAFTABLE_ALIASES = Map.of();
     private static final Map<String, String> RESEARCH_ALIASES = Map.of();
@@ -69,6 +71,7 @@ final class SaveContentResolver {
 
     static Map<String,Object> migrationPolicy() {
         Map<String,Object> out = new LinkedHashMap<>();
+        out.put("retiredScoutShips", "replace-with-prospector");
         out.put("unknownShips", "replace-with-starting-ship");
         out.put("unknownStations", "replace-with-default-station");
         out.put("unknownStationPackages", "clear-package");

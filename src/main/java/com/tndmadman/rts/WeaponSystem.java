@@ -56,17 +56,32 @@ final class WeaponSystem {
 
     private void acquireTarget(World world, Unit unit) {
         String best = "";
-        double bestDist = Double.MAX_VALUE;
+        double bestScore = Double.MAX_VALUE;
         double range = UnitOrderSystem.acquisitionRange(unit) * SystemModifierRules.sensorRange(world);
         for (Unit target : world.units.values()) {
-            if (target.playerId.equals(unit.playerId) || target.hp <= 0) continue;
-            double d = Calc.distance(unit.x, unit.y, target.x, target.y);
-            if (d <= range && d < bestDist && UnitOrderSystem.canEngage(world, unit, target.x, target.y)) { best = CombatTarget.unit(target); bestDist = d; }
+            if (target.playerId.equals(unit.playerId) || target.hp <= 0
+                    || !VisibilityRules.targetVisible(world, unit.playerId, CombatTarget.unit(target))) continue;
+            double distance = Calc.distance(unit.x, unit.y, target.x, target.y);
+            if (distance > range || !UnitOrderSystem.canEngage(world, unit, target.x, target.y)) continue;
+            double score = distance;
+            if (target.weaponFlashTimer > 0) score *= 0.88;
+            if (score < bestScore) {
+                best = CombatTarget.unit(target);
+                bestScore = score;
+            }
         }
         for (Base target : world.bases.values()) {
-            if (target.playerId.equals(unit.playerId) || target.hp <= 0) continue;
-            double d = Calc.distance(unit.x, unit.y, target.x, target.y);
-            if (d <= range && d < bestDist && UnitOrderSystem.canEngage(world, unit, target.x, target.y)) { best = CombatTarget.base(target); bestDist = d; }
+            if (target.playerId.equals(unit.playerId) || target.hp <= 0
+                    || !VisibilityRules.targetVisible(world, unit.playerId, CombatTarget.base(target))) continue;
+            double distance = Calc.distance(unit.x, unit.y, target.x, target.y);
+            if (distance > range || !UnitOrderSystem.canEngage(world, unit, target.x, target.y)) continue;
+            double priority = IntelWarfareSystem.isJammer(target.typeId) ? 0.45
+                    : IntelWarfareSystem.isRadar(target.typeId) ? 0.62 : 1.0;
+            double score = distance * priority;
+            if (score < bestScore) {
+                best = CombatTarget.base(target);
+                bestScore = score;
+            }
         }
         if (!best.isBlank()) {
             unit.attackTarget = best;
@@ -75,7 +90,8 @@ final class WeaponSystem {
     }
 
     private void updateAttack(World world, Unit unit) {
-        if (unit.attackTarget.isBlank() || !CombatTarget.enemy(world, unit, unit.attackTarget)) {
+        if (unit.attackTarget.isBlank() || !CombatTarget.enemy(world, unit, unit.attackTarget)
+                || !VisibilityRules.targetVisible(world, unit.playerId, unit.attackTarget)) {
             unit.attackTarget = "";
             unit.task = UnitTask.IDLE;
             return;

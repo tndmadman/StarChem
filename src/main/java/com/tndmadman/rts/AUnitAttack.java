@@ -5,6 +5,9 @@ final class AUnitAttack {
 
     static void apply(World world, AttackCommand c) {
         Unit u = world.units.get(Unit.key(c.playerId(), c.unitId()));
-        if (u != null && CombatTarget.enemy(world, u, c.targetKey()) && WeaponRules.armed(u.type())) u.issueAttack(c.targetKey());
+        if (u != null && VisibilityRules.targetVisible(world, c.playerId(), c.targetKey())
+                && CombatTarget.enemy(world, u, c.targetKey()) && WeaponRules.armed(u.type())) {
+            u.issueAttack(c.targetKey());
+        }
     }
 }

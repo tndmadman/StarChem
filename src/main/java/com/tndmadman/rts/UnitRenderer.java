@@ -35,7 +35,11 @@ final class UnitRenderer {
             g2.drawOval((int)unit.x - 26, (int)unit.y - 26, 52, 52);
             drawCargo(g2, unit);
         }
-        if (owner && unit.type().scoutRange > 0 && shouldDrawScoutCircle(unit)) drawRangeCircle(g2, unit, playerColor, unit.type().scoutRange);
+        World world = PlayerRegistry.activeWorld();
+        if (owner && unit.type().scoutRange > 0 && shouldDrawScoutCircle(unit)) {
+            double range = world == null ? unit.type().scoutRange : VisibilityRules.unitSensorRange(world, unit);
+            drawRangeCircle(g2, unit, playerColor, range);
+        }
         if (owner && shouldDrawTractorCircle(unit)) drawRangeCircle(g2, unit, playerColor, unit.type().tractorRange);
     }
 

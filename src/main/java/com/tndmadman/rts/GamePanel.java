@@ -110,6 +110,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         camera.apply(g2);
         world.draw(g2);
         if (devMode) aiDevOverlay.drawWorld(g2, world, aiDevPanel.overlayEnabled(), aiDevPanel.pathLinesEnabled());
+        FogOfWarView.drawWorld(g2, world);
         drawSelectionBox(g2);
         g2.setTransform(old);
         WormholeIndicator.draw(g2, world, camera, getWidth(), getHeight());
@@ -246,14 +247,21 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     }
 
     private void clickLeft(MouseEvent e, Point2D p) {
-        String targetSystemId = world.wormholeTargetAt(p.getX(), p.getY());
+        boolean visiblePoint = FogOfWarView.currentlyVisible(world, p.getX(), p.getY());
+        boolean exploredPoint = FogOfWarView.explored(world, p.getX(), p.getY());
+        String targetSystemId = exploredPoint ? world.wormholeTargetAt(p.getX(), p.getY()) : "";
         if (targetSystemId != null && !targetSystemId.isBlank() && network != null) {
             network.viewSystem(network.localPlayerId(), targetSystemId);
             ProceduralAudio.play(SoundCue.SELECT);
             return;
         }
-        if (world.jumpThroughWormholeAt(p.getX(), p.getY())) {
+        if (exploredPoint && world.jumpThroughWormholeAt(p.getX(), p.getY())) {
             ProceduralAudio.play(SoundCue.SELECT);
+            return;
+        }
+        if (!visiblePoint) {
+            clearSelection();
+            world.status = "Unexplored space.";
             return;
         }
         Base base = world.baseAt(p.getX(), p.getY());
@@ -306,19 +314,21 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
 
     private void clickRight(Point2D p) {
         if (commandMode != UnitOrderType.NONE) { handleCommandClick(p); return; }
-        Unit enemyUnit = world.unitAt(p.getX(), p.getY());
+        boolean visiblePoint = FogOfWarView.currentlyVisible(world, p.getX(), p.getY());
+        boolean exploredPoint = FogOfWarView.explored(world, p.getX(), p.getY());
+        Unit enemyUnit = visiblePoint ? world.unitAt(p.getX(), p.getY()) : null;
         if (enemyUnit != null && !PlayerRegistry.isLocal(enemyUnit.playerId)) {
             ProceduralAudio.play(SoundCue.ATTACK_ORDER);
             orderAttack(CombatTarget.unit(enemyUnit));
             return;
         }
-        Base enemyBase = world.baseAt(p.getX(), p.getY());
+        Base enemyBase = visiblePoint ? world.baseAt(p.getX(), p.getY()) : null;
         if (enemyBase != null && !PlayerRegistry.isLocal(enemyBase.playerId)) {
             ProceduralAudio.play(SoundCue.ATTACK_ORDER);
             orderAttack(CombatTarget.base(enemyBase));
             return;
         }
-        WormholeGate gate = wormholeAt(p);
+        WormholeGate gate = exploredPoint ? wormholeAt(p) : null;
         if (gate != null) {
             int selected = world.selectedCount();
             if (selected <= 0) {
@@ -339,7 +349,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
             }
             return;
         }
-        ResourceNode node = world.resourceAt(p.getX(), p.getY());
+        ResourceNode node = visiblePoint ? world.resourceAt(p.getX(), p.getY()) : null;
         if (node != null) {
             world.autoHarvestSelected(node);
             ProceduralAudio.play(world.status.startsWith("Auto-harvesting ")
