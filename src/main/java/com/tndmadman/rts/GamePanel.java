@@ -120,8 +120,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         if (!galaxyMapOpen) minimapHud.draw(g2, world, camera, getWidth(), getHeight());
         if (world.devFreeBuild) shieldDebugOverlay.draw(g2, world, getWidth());
         if (devMode) {
-            devMenu.draw(g2, world, canEditDev());
-            aiDevPanel.draw(g2, world, devAuthorityNetwork, canEditDev());
+            devMenu.draw(g2, world, canEditDev(), getHeight());
+            aiDevPanel.draw(g2, world, devAuthorityNetwork, canEditDev(), getHeight());
         }
         buildMenu.draw(g2, getWidth(), getHeight());
         if (galaxyMapOpen) galaxyMapOverlay.draw(g2, world.galaxyMapSnapshot(), getWidth(), getHeight());
@@ -209,8 +209,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         if (galaxyMapOpen) { clickGalaxyMap(e); return; }
         if (buildMenu.click(e.getX(), e.getY())) return;
         PeerNetwork devNetwork = devNetwork();
-        if (devMode && aiDevPanel.click(world, devNetwork, e.getX(), e.getY(), canEditDev())) return;
-        if (devMode && devMenu.click(world, devNetwork, e.getX(), e.getY(), canEditDev())) return;
+        if (devMode && aiDevPanel.click(world, devNetwork, e.getX(), e.getY(), canEditDev(), getHeight())) return;
+        if (devMode && devMenu.click(world, devNetwork, e.getX(), e.getY(), canEditDev(), getHeight())) return;
         if (hangarHud.mousePressed(world, e.getX(), e.getY())) return;
         if (SwingUtilities.isLeftMouseButton(e)
                 && minimapHud.click(world, camera, e.getX(), e.getY(), getWidth(), getHeight())) {
@@ -519,6 +519,14 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
 
     @Override public void mouseWheelMoved(MouseWheelEvent e) {
         if (buildMenu.scroll(e.getX(), e.getY(), e.getWheelRotation(), getWidth(), getHeight())) {
+            repaint();
+            return;
+        }
+        if (devMode && aiDevPanel.scroll(e.getX(), e.getY(), e.getWheelRotation(), getHeight())) {
+            repaint();
+            return;
+        }
+        if (devMode && devMenu.scroll(e.getX(), e.getY(), e.getWheelRotation(), getHeight())) {
             repaint();
             return;
         }
