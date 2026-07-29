@@ -13,6 +13,7 @@ final class BuildMenu {
     private static final int FOOTER_H = 32;
     private static final int MARGIN = 4;
     private static final int ICON_W = 74;
+    private static final int SCROLLBAR_W = 6;
     private final List<Entry> entries = new ArrayList<>();
     private String title = "BUILD MENU";
     private int x, y;
@@ -38,14 +39,17 @@ final class BuildMenu {
         addQueueEntries(world, network, base);
 
         for (String shipId : def.buildableShips) {
+            boolean unlocked = free || ResearchRules.shipUnlocked(world, base.playerId, shipId);
+            if (!unlocked) continue;
             ShipType ship = Rules.ship(shipId);
-            boolean unlocked = ResearchRules.shipUnlocked(world, base.playerId, shipId);
-            String detail = free ? "free (dev mode)" : unlocked ? Rules.formatCost(ship.buildCost) : "LOCKED: " + requiredResearch(shipId);
+            String detail = free ? "free (dev mode)" : Rules.formatCost(ship.buildCost);
             detail += " | " + whole(ship.buildTimeSeconds) + "s";
             entries.add(new Entry("Build " + ship.name, detail, defenseLine(ship), ship, weaponBadges(ship), false, false, false, () ->
                     sendProduction(world, network, base, "ENQUEUE", ProductionJobKind.SHIP.name(), shipId)));
         }
         for (String packageId : def.basePackages) {
+            boolean unlocked = free || StationPackageResearchRules.unlocked(world, base.playerId, packageId);
+            if (!unlocked) continue;
             BaseType pkg = Rules.base(packageId);
             String detail = (free ? "free (dev mode)" : Rules.formatCost(pkg.buildCost)) + " | " + whole(pkg.buildTimeSeconds) + "s";
             entries.add(new Entry("Load " + pkg.name, detail, stationDefenseLine(pkg), null, List.of(), false, false, false, () ->
@@ -71,7 +75,8 @@ final class BuildMenu {
             List<CraftableItem> inCategory = CraftingRules.forStationAndCategory(base.typeId, category);
             int unlocked = 0;
             for (CraftableItem item : inCategory) if (free || item.unlockedFor(world, base.playerId)) unlocked++;
-            String detail = unlocked + " / " + inCategory.size() + " recipes available";
+            if (unlocked <= 0) continue;
+            String detail = unlocked + (unlocked == 1 ? " recipe available" : " recipes available");
             entries.add(new Entry("Manufacturing | " + category.label, detail,
                     "Open this recipe category", null, List.of(), false, true, true,
                     () -> showCraftingCategory(world, network, base, category, free)));
@@ -97,14 +102,12 @@ final class BuildMenu {
     private void addCraftableEntry(World world, PeerNetwork network, Base base,
                                    CraftableItem item, boolean free) {
         boolean unlocked = free || item.unlockedFor(world, base.playerId);
-        String detail;
-        if (free) detail = "free (dev mode)";
-        else if (!unlocked) detail = "LOCKED: " + item.missingResearchLabel(world, base.playerId);
-        else detail = Rules.formatCost(item.requiredResources) + " -> " + item.outputLabel();
+        if (!unlocked) return;
+        String detail = free ? "free (dev mode)" : Rules.formatCost(item.requiredResources) + " -> " + item.outputLabel();
         detail += " | " + whole(item.timeSeconds) + "s";
         String info = item.description.isBlank() ? "Style: " + item.style : item.description;
         entries.add(new Entry("Manufacture " + item.name, detail, info, null, List.of(),
-                !unlocked, false, false, () ->
+                false, false, false, () ->
                 sendProduction(world, network, base, "ENQUEUE", ProductionJobKind.CRAFTABLE.name(), item.id)));
     }
 
@@ -161,6 +164,12 @@ final class BuildMenu {
         if (hasOverflow()) {
             if (upButton().contains(sx, sy)) { page(-1); return true; }
             if (downButton().contains(sx, sy)) { page(1); return true; }
+            if (scrollTrack().contains(sx, sy)) {
+                Rectangle thumb = scrollThumb();
+                if (sy < thumb.y) page(-1);
+                else if (sy >= thumb.y + thumb.height) page(1);
+                return true;
+            }
         }
         for (int slot = 0; slot < visibleRows; slot++) {
             int entryIndex = scrollOffset + slot;
@@ -188,13 +197,16 @@ final class BuildMenu {
         if (!menuBounds().contains(sx, sy)) return false;
         if (wheelRotation == 0 || !hasOverflow()) return true;
 
-        int previousOffset = scrollOffset;
-        scrollOffset = clampScroll(scrollOffset + wheelRotation);
-        if (scrollOffset != previousOffset) {
+        int direction = Integer.signum(wheelRotation);
+        int steps = Math.max(1, Math.min(4, Math.abs(wheelRotation)));
+        for (int i = 0; i < steps; i++) {
+            int previousOffset = scrollOffset;
+            scrollOffset = clampScroll(scrollOffset + direction);
+            if (scrollOffset == previousOffset) break;
             updateLayout(viewport);
             scrollOffset = clampScroll(scrollOffset);
-            updateLayout(viewport);
         }
+        updateLayout(viewport);
         return true;
     }
 
@@ -215,12 +227,16 @@ final class BuildMenu {
         g2.setFont(g2.getFont().deriveFont(Font.BOLD, 12f));
         g2.setColor(Color.WHITE);
         g2.drawString(title, x + 14, y + 20);
+        if (hasOverflow()) drawScrollHint(g2);
         for (int slot = 0; slot < visibleRows; slot++) {
             int entryIndex = scrollOffset + slot;
             if (entryIndex >= entries.size()) break;
             drawEntry(g2, row(slot), entries.get(entryIndex));
         }
-        if (hasOverflow()) drawFooter(g2);
+        if (hasOverflow()) {
+            drawScrollBar(g2);
+            drawFooter(g2);
+        }
     }
 
     private void drawEntry(Graphics2D g2, Rectangle r, Entry e) {
@@ -313,11 +329,6 @@ final class BuildMenu {
         return fuel == null ? base : base + " | Fuel " + one(fuel.perSecond()) + "/s";
     }
 
-    private String requiredResearch(String shipId) {
-        ResearchTopic topic = ResearchRules.firstTopicUnlockingShip(shipId);
-        return topic == null ? "Research" : topic.name;
-    }
-
     private String researchDetail(World world, Base base, ResearchTopic topic, boolean free) {
         if (world.hasResearch(base.playerId, topic.id)) return "completed";
         ProductionJob job = ProductionSystem.researchJob(world, base.playerId, topic.id);
@@ -363,13 +374,30 @@ final class BuildMenu {
         icon.dispose();
     }
 
+    private void drawScrollHint(Graphics2D g2) {
+        String hint = "SCROLL  ↕";
+        g2.setFont(g2.getFont().deriveFont(Font.BOLD, 10f));
+        g2.setColor(new Color(160, 225, 255));
+        int textW = g2.getFontMetrics().stringWidth(hint);
+        g2.drawString(hint, x + WIDTH - textW - 15, y + 20);
+    }
+
+    private void drawScrollBar(Graphics2D g2) {
+        Rectangle track = scrollTrack();
+        Rectangle thumb = scrollThumb();
+        g2.setColor(new Color(30, 70, 90, 210));
+        g2.fillRoundRect(track.x, track.y, track.width, track.height, SCROLLBAR_W, SCROLLBAR_W);
+        g2.setColor(new Color(130, 225, 255, 230));
+        g2.fillRoundRect(thumb.x, thumb.y, thumb.width, thumb.height, SCROLLBAR_W, SCROLLBAR_W);
+    }
+
     private void drawFooter(Graphics2D g2) {
         Rectangle up = upButton();
         Rectangle down = downButton();
         g2.setFont(g2.getFont().deriveFont(Font.BOLD, 12f));
         drawButton(g2, up, scrollOffset == 0 ? "Top" : "▲ Up");
         int end = Math.min(entries.size(), scrollOffset + visibleRows);
-        String label = end + " / " + entries.size();
+        String label = "Mouse wheel  " + (scrollOffset + 1) + "-" + end + " / " + entries.size();
         g2.setColor(new Color(220, 225, 185));
         g2.drawString(label, x + WIDTH / 2 - g2.getFontMetrics().stringWidth(label) / 2, up.y + 20);
         drawButton(g2, down, end >= entries.size() ? "Bottom" : "Down ▼");
@@ -429,6 +457,22 @@ final class BuildMenu {
     private Rectangle downButton() {
         int fy = y + HEADER_H + visibleHeight();
         return new Rectangle(x + WIDTH - 100, fy + 4, 90, FOOTER_H - 8);
+    }
+
+    private Rectangle scrollTrack() {
+        int height = Math.max(24, visibleHeight() - 8);
+        return new Rectangle(x + WIDTH - SCROLLBAR_W - 3, y + HEADER_H + 4, SCROLLBAR_W, height);
+    }
+
+    private Rectangle scrollThumb() {
+        Rectangle track = scrollTrack();
+        int maxScroll = Math.max(1, entries.size() - Math.max(1, visibleRows));
+        int thumbHeight = Math.max(28, (int)Math.round(track.height * Math.min(1.0,
+                Math.max(1, visibleRows) / (double)Math.max(1, entries.size()))));
+        thumbHeight = Math.min(track.height, thumbHeight);
+        int travel = Math.max(0, track.height - thumbHeight);
+        int thumbY = track.y + (int)Math.round(travel * (scrollOffset / (double)maxScroll));
+        return new Rectangle(track.x, thumbY, track.width, thumbHeight);
     }
 
     private String fit(Graphics2D g2, String text, int maxW) {
