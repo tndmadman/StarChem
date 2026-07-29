@@ -1,25 +1,20 @@
-name: Game Swing UI Validation
+name: Game Swing White Frame Validation
 
 on:
   push:
     branches:
-      - agent/game-styled-scrollbars-tooltips
       - agent/remove-white-ui-frames
     paths:
-      - 'src/main/java/com/tndmadman/rts/App.java'
       - 'src/main/java/com/tndmadman/rts/GameSwingUi.java'
-      - 'src/main/java/com/tndmadman/rts/GameSwingUiValidator.java'
       - 'src/main/java/com/tndmadman/rts/GameSwingWhiteFrameValidator.java'
-      - '.github/workflows/game-swing-ui-validation.yml'
+      - '.github/workflows/game-swing-white-frame-validation.yml'
   pull_request:
     branches:
       - main
     paths:
-      - 'src/main/java/com/tndmadman/rts/App.java'
       - 'src/main/java/com/tndmadman/rts/GameSwingUi.java'
-      - 'src/main/java/com/tndmadman/rts/GameSwingUiValidator.java'
       - 'src/main/java/com/tndmadman/rts/GameSwingWhiteFrameValidator.java'
-      - '.github/workflows/game-swing-ui-validation.yml'
+      - '.github/workflows/game-swing-white-frame-validation.yml'
 
 permissions:
   contents: read
@@ -44,9 +39,6 @@ jobs:
 
       - name: Compile project
         run: gradle classes --no-daemon
-
-      - name: Validate game-styled Swing UI
-        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.GameSwingUiValidator
 
       - name: Validate rendered scrollbar and tooltip pixels
         run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.GameSwingWhiteFrameValidator

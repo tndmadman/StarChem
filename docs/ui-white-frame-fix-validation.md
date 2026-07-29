@@ -1,0 +1,1 @@
+Validation covers full Java compilation, the existing Swing UI checks, and rendered pixel inspection for the scrollbar and hover tooltip. The pixel check pre-fills the render surface white and fails if the custom components leave white framing behind.

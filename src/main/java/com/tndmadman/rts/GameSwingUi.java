@@ -13,6 +13,7 @@ import java.util.Objects;
 /** Installs StarChem-styled Swing chrome and deterministic hover tooltips. */
 public final class GameSwingUi {
     private static final Color TRACK = new Color(4, 15, 24);
+    private static final Color TRACK_INNER = new Color(7, 24, 37);
     private static final Color TRACK_EDGE = new Color(27, 70, 96);
     private static final Color THUMB = new Color(40, 126, 164);
     private static final Color THUMB_HOVER = new Color(70, 190, 230);
@@ -20,6 +21,7 @@ public final class GameSwingUi {
     private static final Color TOOLTIP_BG = new Color(5, 18, 29);
     private static final Color TOOLTIP_EDGE = new Color(86, 192, 240);
     private static final Color TOOLTIP_TEXT = new Color(225, 242, 250);
+    private static final Color TRANSPARENT = new Color(0, 0, 0, 0);
 
     private static boolean installed;
     private static TooltipController tooltipController;
@@ -33,10 +35,13 @@ public final class GameSwingUi {
         UIManager.put("ScrollBarUI", GameScrollBarUI.class.getName());
         UIManager.put("ScrollBar.width", 14);
         UIManager.put("ScrollBar.minimumThumbSize", new Dimension(10, 28));
+        UIManager.put("ScrollBar.background", TRACK);
+        UIManager.put("ScrollPane.background", TRACK);
+        UIManager.put("Viewport.background", TRACK);
         UIManager.put("ToolTipUI", GameToolTipUI.class.getName());
         UIManager.put("ToolTip.background", TOOLTIP_BG);
         UIManager.put("ToolTip.foreground", TOOLTIP_TEXT);
-        UIManager.put("ToolTip.border", BorderFactory.createEmptyBorder(8, 11, 9, 11));
+        UIManager.put("ToolTip.border", BorderFactory.createEmptyBorder(9, 12, 10, 12));
 
         ToolTipManager manager = ToolTipManager.sharedInstance();
         manager.setInitialDelay(0);
@@ -70,6 +75,14 @@ public final class GameSwingUi {
         return GraphicsEnvironment.isHeadless() || tooltipController != null;
     }
 
+    static JComponent tooltipPanelForTest(String text) {
+        return new GameTooltipPanel(text, true);
+    }
+
+    static Color tooltipFallbackBackgroundForTest() {
+        return TOOLTIP_BG;
+    }
+
     public static final class GameScrollBarUI extends BasicScrollBarUI {
         public static ComponentUI createUI(JComponent component) {
             return new GameScrollBarUI();
@@ -85,9 +98,11 @@ public final class GameSwingUi {
 
         @Override public void installUI(JComponent component) {
             super.installUI(component);
-            component.setOpaque(false);
+            component.setOpaque(true);
+            component.setBackground(TRACK);
+            component.setForeground(ACCENT);
+            component.setBorder(BorderFactory.createEmptyBorder());
             if (component instanceof JScrollBar bar) {
-                bar.setBorder(BorderFactory.createEmptyBorder(1, 1, 1, 1));
                 bar.setFocusable(false);
                 bar.setUnitIncrement(Math.max(24, bar.getUnitIncrement()));
             }
@@ -110,12 +125,23 @@ public final class GameSwingUi {
         @Override protected void paintTrack(Graphics graphics, JComponent component, Rectangle trackBounds) {
             Graphics2D g = (Graphics2D)graphics.create();
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+            // Paint the complete component first. Leaving these outside pixels transparent
+            // exposed the operating-system scrollbar background as white framing.
             g.setColor(TRACK);
-            g.fillRoundRect(trackBounds.x + 2, trackBounds.y + 1,
-                    Math.max(1, trackBounds.width - 4), Math.max(1, trackBounds.height - 2), 8, 8);
+            g.fillRect(0, 0, component.getWidth(), component.getHeight());
+
+            int insetX = scrollbar.getOrientation() == Adjustable.VERTICAL ? 2 : 1;
+            int insetY = scrollbar.getOrientation() == Adjustable.VERTICAL ? 1 : 2;
+            int x = trackBounds.x + insetX;
+            int y = trackBounds.y + insetY;
+            int width = Math.max(1, trackBounds.width - insetX * 2);
+            int height = Math.max(1, trackBounds.height - insetY * 2);
+
+            g.setColor(TRACK_INNER);
+            g.fillRoundRect(x, y, width, height, 8, 8);
             g.setColor(TRACK_EDGE);
-            g.drawRoundRect(trackBounds.x + 2, trackBounds.y + 1,
-                    Math.max(0, trackBounds.width - 5), Math.max(0, trackBounds.height - 3), 8, 8);
+            g.drawRoundRect(x, y, Math.max(0, width - 1), Math.max(0, height - 1), 8, 8);
             g.dispose();
         }
 
@@ -130,12 +156,12 @@ public final class GameSwingUi {
             int height = Math.max(1, thumbBounds.height - 4);
             Color fill = isThumbRollover() ? THUMB_HOVER : THUMB;
 
-            g.setColor(new Color(fill.getRed(), fill.getGreen(), fill.getBlue(), 95));
+            g.setColor(new Color(fill.getRed(), fill.getGreen(), fill.getBlue(), 150));
             g.fillRoundRect(x, y, width, height, 8, 8);
-            g.setColor(isThumbRollover() ? Color.WHITE : ACCENT);
+            g.setColor(isThumbRollover() ? new Color(220, 250, 255) : ACCENT);
             g.drawRoundRect(x, y, Math.max(0, width - 1), Math.max(0, height - 1), 8, 8);
 
-            g.setColor(new Color(215, 245, 255, 180));
+            g.setColor(new Color(205, 240, 252, 185));
             if (scrollbar.getOrientation() == Adjustable.VERTICAL) {
                 int centerY = y + height / 2;
                 for (int offset = -4; offset <= 4; offset += 4) {
@@ -158,11 +184,16 @@ public final class GameSwingUi {
             button.setMaximumSize(zero);
             button.setFocusable(false);
             button.setBorder(BorderFactory.createEmptyBorder());
-            button.setOpaque(false);
+            button.setBackground(TRACK);
+            button.setOpaque(true);
             return button;
         }
     }
 
+    /**
+     * Retained for any directly-created JToolTip instances. Normal in-game hover details
+     * are displayed by the dedicated transparent GameTooltipPanel/JWindow path below.
+     */
     public static final class GameToolTipUI extends BasicToolTipUI {
         public static ComponentUI createUI(JComponent component) {
             return new GameToolTipUI();
@@ -173,35 +204,64 @@ public final class GameSwingUi {
             component.setOpaque(false);
             component.setForeground(TOOLTIP_TEXT);
             component.setBackground(TOOLTIP_BG);
-            component.setBorder(BorderFactory.createEmptyBorder(8, 11, 9, 11));
+            component.setBorder(BorderFactory.createEmptyBorder(9, 12, 10, 12));
             Font font = UIManager.getFont("Label.font");
             if (font != null) component.setFont(font.deriveFont(Font.PLAIN, 12f));
         }
 
+        @Override public void update(Graphics graphics, JComponent component) {
+            // Do not let BasicToolTipUI pre-fill a native rectangular background.
+            paint(graphics, component);
+        }
+
         @Override public void paint(Graphics graphics, JComponent component) {
-            Graphics2D g = (Graphics2D)graphics.create();
-            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            int width = component.getWidth();
-            int height = component.getHeight();
-
-            g.setColor(new Color(0, 0, 0, 115));
-            g.fillRoundRect(3, 4, Math.max(1, width - 4), Math.max(1, height - 5), 11, 11);
-            g.setColor(TOOLTIP_BG);
-            g.fillRoundRect(0, 0, Math.max(1, width - 3), Math.max(1, height - 3), 10, 10);
-            g.setColor(TOOLTIP_EDGE);
-            g.drawRoundRect(0, 0, Math.max(0, width - 4), Math.max(0, height - 4), 10, 10);
-            g.setColor(new Color(120, 220, 255, 145));
-            g.drawLine(8, 3, Math.max(8, width - 12), 3);
-            g.dispose();
-
+            paintTooltipShell((Graphics2D)graphics, component.getWidth(), component.getHeight());
             super.paint(graphics, component);
         }
+    }
+
+    private static final class GameTooltipPanel extends JPanel {
+        private GameTooltipPanel(String text, boolean transparentHost) {
+            super(new BorderLayout());
+            setOpaque(!transparentHost);
+            setBackground(TOOLTIP_BG);
+            setBorder(BorderFactory.createEmptyBorder(9, 12, 10, 12));
+
+            JLabel label = new JLabel(text);
+            label.setOpaque(false);
+            label.setForeground(TOOLTIP_TEXT);
+            Font font = UIManager.getFont("Label.font");
+            if (font != null) label.setFont(font.deriveFont(Font.PLAIN, 12f));
+            add(label, BorderLayout.CENTER);
+        }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            Graphics2D g = (Graphics2D)graphics.create();
+            paintTooltipShell(g, getWidth(), getHeight());
+            g.dispose();
+            super.paintComponent(graphics);
+        }
+    }
+
+    private static void paintTooltipShell(Graphics2D source, int width, int height) {
+        Graphics2D g = (Graphics2D)source.create();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        g.setColor(new Color(0, 0, 0, 135));
+        g.fillRoundRect(3, 4, Math.max(1, width - 4), Math.max(1, height - 5), 11, 11);
+        g.setColor(TOOLTIP_BG);
+        g.fillRoundRect(0, 0, Math.max(1, width - 3), Math.max(1, height - 3), 10, 10);
+        g.setColor(TOOLTIP_EDGE);
+        g.drawRoundRect(0, 0, Math.max(0, width - 4), Math.max(0, height - 4), 10, 10);
+        g.setColor(new Color(120, 220, 255, 145));
+        g.drawLine(8, 3, Math.max(8, width - 12), 3);
+        g.dispose();
     }
 
     private static final class TooltipController implements AWTEventListener {
         private JComponent owner;
         private String text;
-        private Popup popup;
+        private JWindow tooltipWindow;
 
         @Override public void eventDispatched(AWTEvent event) {
             if (event instanceof WindowEvent windowEvent) {
@@ -213,7 +273,12 @@ public final class GameSwingUi {
                 return;
             }
             if (!(event instanceof MouseEvent mouse)) return;
-            if (mouse.getSource() instanceof JToolTip) return;
+
+            Component source = mouse.getSource() instanceof Component component ? component : null;
+            if (tooltipWindow != null && source != null
+                    && SwingUtilities.getWindowAncestor(source) == tooltipWindow) {
+                return;
+            }
 
             switch (mouse.getID()) {
                 case MouseEvent.MOUSE_MOVED, MouseEvent.MOUSE_ENTERED, MouseEvent.MOUSE_EXITED -> update(mouse);
@@ -250,17 +315,22 @@ public final class GameSwingUi {
             Point inWindow = new Point(screen);
             SwingUtilities.convertPointFromScreen(inWindow, window);
             Component deepest = SwingUtilities.getDeepestComponentAt(window, inWindow.x, inWindow.y);
-            if (deepest instanceof JToolTip) return owner;
             return tooltipOwner(deepest);
         }
 
         private void show(JComponent nextOwner, String nextText, Point pointer) {
-            JToolTip tip = nextOwner.createToolTip();
-            tip.setComponent(nextOwner);
-            tip.setTipText(nextText);
-            tip.updateUI();
-            Dimension size = tip.getPreferredSize();
-            tip.setSize(size);
+            Window host = SwingUtilities.getWindowAncestor(nextOwner);
+            JWindow window = host == null ? new JWindow() : new JWindow(host);
+            window.setFocusableWindowState(false);
+            window.setType(Window.Type.POPUP);
+
+            boolean transparentHost = supportsPerPixelTransparency(nextOwner.getGraphicsConfiguration());
+            configureWindowBackground(window, transparentHost);
+
+            GameTooltipPanel panel = new GameTooltipPanel(nextText, transparentHost);
+            window.setContentPane(panel);
+            window.pack();
+            Dimension size = window.getSize();
 
             GraphicsConfiguration configuration = nextOwner.getGraphicsConfiguration();
             Rectangle bounds = configuration == null
@@ -278,15 +348,39 @@ public final class GameSwingUi {
 
             owner = nextOwner;
             text = nextText;
-            popup = PopupFactory.getSharedInstance().getPopup(nextOwner, tip, popupX, popupY);
-            popup.show();
+            tooltipWindow = window;
+            window.setLocation(popupX, popupY);
+            window.setVisible(true);
         }
 
         private void hide() {
-            if (popup != null) popup.hide();
-            popup = null;
+            if (tooltipWindow != null) {
+                tooltipWindow.setVisible(false);
+                tooltipWindow.dispose();
+            }
+            tooltipWindow = null;
             owner = null;
             text = null;
         }
+    }
+
+    private static boolean supportsPerPixelTransparency(GraphicsConfiguration configuration) {
+        if (GraphicsEnvironment.isHeadless()) return false;
+        GraphicsDevice device = configuration == null
+                ? GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice()
+                : configuration.getDevice();
+        return device.isWindowTranslucencySupported(GraphicsDevice.WindowTranslucency.PERPIXEL_TRANSLUCENT);
+    }
+
+    private static void configureWindowBackground(JWindow window, boolean transparentHost) {
+        Color background = transparentHost ? TRANSPARENT : TOOLTIP_BG;
+        window.setBackground(background);
+        window.getRootPane().setOpaque(!transparentHost);
+        window.getRootPane().setBackground(background);
+        window.getLayeredPane().setOpaque(!transparentHost);
+        window.getLayeredPane().setBackground(background);
+        Container content = window.getContentPane();
+        content.setBackground(background);
+        if (content instanceof JComponent swingContent) swingContent.setOpaque(!transparentHost);
     }
 }
