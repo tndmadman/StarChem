@@ -12,6 +12,7 @@ final class DiplomacyValidator {
         validatesWorldCleanup();
         validatesBootstrapModes();
         validatesMatchSettingsRoundTrip();
+        validatesAuthoritativeStateRoundTrip();
         validatesCommandPolicies();
         System.out.println("Diplomacy validation passed.");
     }
@@ -145,6 +146,29 @@ final class DiplomacyValidator {
                 "Bound settings must assign registered players to configured teams.");
         require(!firstTeam.equals(secondTeam) && DiplomacySystem.hostile(world, "P1", "P2"),
                 "Fixed-team assignments must place consecutive players on opposing teams.");
+    }
+
+    private static void validatesAuthoritativeStateRoundTrip() {
+        World server = new World("DiplomacyWireServer", java.util.Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        PlayerRegistry.activate(server);
+        PlayerRegistry.reset("P1", "One", 0x50BEFF);
+        PlayerRegistry.register("P2", "Two", 0x77DD88, false);
+        SkirmishSettings settings = SkirmishSettings.standard().withDiplomacy(DiplomacyMatchSettings.teams());
+        SkirmishRuntime.bind(server, settings);
+        DiplomacySystem.assignTeam(server, "P2", DiplomacySystem.teamId(server, "P1"));
+        DiplomacySystem.setRelationship(server, "P1", "P3", DiplomacySystem.Relationship.NEUTRAL);
+
+        SkirmishSettings received = SkirmishSettings.fromPacket(SkirmishRuntime.settings(server).packet());
+        require(!received.diplomacyState().isEmpty(),
+                "WORLDINFO must include authoritative diplomacy assignments and overrides.");
+
+        World client = new World("DiplomacyWireClient", java.util.Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        PlayerRegistry.activate(client);
+        SkirmishRuntime.bind(client, received);
+        require(DiplomacySystem.allied(client, "P1", "P2"),
+                "Client must restore the server's exact team assignment.");
+        require(DiplomacySystem.neutral(client, "P1", "P3"),
+                "Client must restore explicit relationship overrides.");
     }
 
     private static void validatesCommandPolicies() {
