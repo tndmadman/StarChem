@@ -7,6 +7,8 @@ final class DiplomacyValidator {
 
     public static void main(String[] args) {
         validatesRelationshipsAndPersistence();
+        validatesModeTransitions();
+        validatesWorldCleanup();
         validatesBootstrapModes();
         System.out.println("Diplomacy validation passed.");
     }
@@ -33,6 +35,39 @@ final class DiplomacyValidator {
         DiplomacySystem.restore(restored, saved);
         require(DiplomacySystem.allied(restored, "P1", "P2"), "Team assignments must survive restore.");
         require(DiplomacySystem.neutral(restored, "P1", "P3"), "Explicit relationships must survive restore.");
+    }
+
+    private static void validatesModeTransitions() {
+        World world = new World("DiplomacyModeTransition", java.util.Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        DiplomacySystem.configure(world, DiplomacySystem.MatchMode.FIXED_TEAMS, false, true, true);
+        DiplomacySystem.defineTeam(world, new DiplomacySystem.TeamDefinition("alpha", "Alpha", 0x50BEFF));
+        DiplomacySystem.assignTeam(world, "P1", "alpha");
+        DiplomacySystem.assignTeam(world, "P2", "alpha");
+        DiplomacySystem.setRelationship(world, "P1", "P3", DiplomacySystem.Relationship.NEUTRAL);
+        require(DiplomacySystem.allied(world, "P1", "P2"), "Fixed-team setup must establish an alliance.");
+
+        DiplomacySystem.configure(world, DiplomacySystem.MatchMode.FFA, true, true, true);
+        require(DiplomacySystem.mode(world) == DiplomacySystem.MatchMode.FFA,
+                "Mode transition must enter FFA.");
+        require(DiplomacySystem.teams(world).isEmpty(), "FFA transition must clear team definitions.");
+        require(DiplomacySystem.teamId(world, "P1").isBlank(), "FFA transition must clear owner assignments.");
+        require(DiplomacySystem.hostile(world, "P1", "P2"), "Former teammates must become hostile in FFA.");
+        require(DiplomacySystem.hostile(world, "P1", "P3"), "FFA transition must clear explicit neutrality.");
+        require(!DiplomacySystem.friendlyFire(world), "FFA must normalize friendly fire off.");
+        require(!DiplomacySystem.sharedVision(world), "FFA must normalize shared vision off.");
+        require(!DiplomacySystem.sharedVictory(world), "FFA must normalize shared victory off.");
+    }
+
+    private static void validatesWorldCleanup() {
+        World world = new World("DiplomacyCleanup", java.util.Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        DiplomacySystem.configure(world, DiplomacySystem.MatchMode.FIXED_TEAMS, false, true, true);
+        DiplomacySystem.defineTeam(world, new DiplomacySystem.TeamDefinition("alpha", "Alpha", 0x50BEFF));
+        DiplomacySystem.assignTeam(world, "P1", "alpha");
+        WorldRuntimeCleanup.discard(world);
+        require(DiplomacySystem.mode(world) == DiplomacySystem.MatchMode.FFA,
+                "Discarded worlds must not retain diplomacy mode state.");
+        require(DiplomacySystem.teams(world).isEmpty(),
+                "Discarded worlds must not retain diplomacy teams.");
     }
 
     private static void validatesBootstrapModes() {
