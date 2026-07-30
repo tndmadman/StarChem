@@ -4,24 +4,34 @@ on:
   pull_request:
     paths:
       - 'src/main/java/com/tndmadman/rts/Diplomacy*.java'
+      - 'src/main/java/com/tndmadman/rts/AUnitMove.java'
+      - 'src/main/java/com/tndmadman/rts/BPackets.java'
+      - 'src/main/java/com/tndmadman/rts/GameMenuOverlay.java'
+      - 'src/main/java/com/tndmadman/rts/InGameMenuOverlay.java'
       - 'src/main/java/com/tndmadman/rts/CombatTarget.java'
       - 'src/main/java/com/tndmadman/rts/WeaponSystem.java'
       - 'src/main/java/com/tndmadman/rts/WorldRuntimeCleanup.java'
       - 'src/main/java/com/tndmadman/rts/AuthoritativeIdRepair*.java'
       - 'src/main/java/com/tndmadman/rts/SyncPacketBuilder.java'
       - 'src/main/java/com/tndmadman/rts/WorldLootDrops.java'
+      - 'config/starchem.json'
       - '.github/workflows/diplomacy.yml'
   push:
     branches:
       - main
     paths:
       - 'src/main/java/com/tndmadman/rts/Diplomacy*.java'
+      - 'src/main/java/com/tndmadman/rts/AUnitMove.java'
+      - 'src/main/java/com/tndmadman/rts/BPackets.java'
+      - 'src/main/java/com/tndmadman/rts/GameMenuOverlay.java'
+      - 'src/main/java/com/tndmadman/rts/InGameMenuOverlay.java'
       - 'src/main/java/com/tndmadman/rts/CombatTarget.java'
       - 'src/main/java/com/tndmadman/rts/WeaponSystem.java'
       - 'src/main/java/com/tndmadman/rts/WorldRuntimeCleanup.java'
       - 'src/main/java/com/tndmadman/rts/AuthoritativeIdRepair*.java'
       - 'src/main/java/com/tndmadman/rts/SyncPacketBuilder.java'
       - 'src/main/java/com/tndmadman/rts/WorldLootDrops.java'
+      - 'config/starchem.json'
       - '.github/workflows/diplomacy.yml'
   workflow_dispatch:
 
