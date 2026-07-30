@@ -84,7 +84,10 @@ final class ConnectionOverlayPanel extends JPanel {
         refresh();
     }
 
-    void stop() { timer.stop(); }
+    void stop() {
+        if (network != null && network.clientMode()) trace(network.clientConnectionProgress());
+        timer.stop();
+    }
 
     private void trustChangedCertificate() {
         if (network == null || !network.serverCertificateTrustRequired()) return;
