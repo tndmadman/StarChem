@@ -90,8 +90,11 @@ final class DiplomacySystem {
         if (world == null || invalidOwner(ownerId)) return;
         State state = state(world);
         String cleanTeam = cleanId(teamId);
+        String currentTeam = state.ownerTeams.getOrDefault(ownerId, "");
+        if (state.mode == MatchMode.LOCKED_ALLIANCES && !currentTeam.isBlank()
+                && !currentTeam.equals(cleanTeam)) return;
         if (cleanTeam.isBlank()) {
-            state.ownerTeams.remove(ownerId);
+            if (state.mode != MatchMode.LOCKED_ALLIANCES) state.ownerTeams.remove(ownerId);
             return;
         }
         if (!state.teams.containsKey(cleanTeam)) {
@@ -115,6 +118,7 @@ final class DiplomacySystem {
         if (world == null || invalidOwner(firstOwnerId) || invalidOwner(secondOwnerId)
                 || firstOwnerId.equals(secondOwnerId)) return;
         State state = state(world);
+        if (state.mode == MatchMode.LOCKED_ALLIANCES) return;
         Relationship normalized = relationship == null ? Relationship.NEUTRAL : relationship;
         state.explicitRelationships.put(pair(firstOwnerId, secondOwnerId), normalized);
     }
@@ -152,13 +156,15 @@ final class DiplomacySystem {
     }
 
     static boolean mayTarget(World world, String actorId, String targetOwnerId) {
-        return hostile(world, actorId, targetOwnerId);
+        Relationship relationship = relationship(world, actorId, targetOwnerId);
+        return relationship == Relationship.HOSTILE
+                || relationship == Relationship.ALLIED && friendlyFire(world);
     }
 
     static boolean mayDamage(World world, String actorId, String targetOwnerId) {
         Relationship relationship = relationship(world, actorId, targetOwnerId);
         return relationship == Relationship.HOSTILE
-                || (relationship == Relationship.ALLIED && friendlyFire(world));
+                || relationship == Relationship.ALLIED && friendlyFire(world);
     }
 
     static boolean sharesVision(World world, String viewerId, String ownerId) {
