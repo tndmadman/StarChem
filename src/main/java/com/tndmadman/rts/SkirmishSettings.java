@@ -220,6 +220,8 @@ record SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
     }
 }
 
+enum SkirmPresetPlaceholder { }
+
 enum SkirmishPreset {
     PEACEFUL("peaceful", "Peaceful Economy", 1.35, 0.80,
             Set.of(Config.RAIDERS_ID, Config.CORSAIRS_ID)),
@@ -251,8 +253,11 @@ enum SkirmishPreset {
 
     static SkirmishPreset parse(String value) {
         String clean = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
-        for (SkirmishPreset preset : values()) if (preset.id.equals(clean) || preset.name().equalsIgnoreCase(clean)) return preset;
-        return STANDARD;
+        for (SkirmishPreset preset : values()) {
+            if (preset.id.equals(clean) || preset.name().equalsIgnoreCase(clean)) return preset;
+        }
+        throw new IllegalArgumentException("Unknown skirmish preset: " + value
+                + ". Expected peaceful, standard, hostile, or sandbox.");
     }
 
     @Override public String toString() { return label; }
