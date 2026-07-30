@@ -75,7 +75,9 @@ record DiplomacyMatchSettings(DiplomacySystem.MatchMode mode,
     void apply(World world) {
         if (world == null) return;
         DiplomacySystem.configure(world, mode, friendlyFire, sharedVision, sharedVictory);
-        DiplomacyBootstrap.defineDefaultTeams(world, mode);
+        if (DiplomacySystem.teams(world).isEmpty()) {
+            DiplomacyBootstrap.defineDefaultTeams(world, mode);
+        }
         for (PlayerInfo player : PlayerRegistry.snapshotPlayers()) {
             if (player != null) DiplomacyBootstrap.assignRegisteredOwner(world, player.id(), player.rgb());
         }
