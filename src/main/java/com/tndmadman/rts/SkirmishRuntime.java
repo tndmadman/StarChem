@@ -15,6 +15,7 @@ final class SkirmishRuntime {
         if (world == null) return;
         SkirmishSettings normalized = settings == null ? SkirmishSettings.standard() : settings;
         BY_WORLD.put(world, new State(normalized, normalized.resolve(NpcRules.baseFactions())));
+        normalized.diplomacy().apply(world);
         ObjectiveSystem.reconfigure(world, normalized);
         ACTIVE_WORLD.set(world);
     }
@@ -22,8 +23,9 @@ final class SkirmishRuntime {
     static void activate(World world) {
         ACTIVE_WORLD.set(world);
         if (world != null) {
-            BY_WORLD.computeIfAbsent(world,
+            State state = BY_WORLD.computeIfAbsent(world,
                     ignored -> new State(SkirmishSettings.standard(), NpcRules.baseFactions()));
+            state.settings().diplomacy().apply(world);
             ObjectiveSystem.state(world);
         }
     }
