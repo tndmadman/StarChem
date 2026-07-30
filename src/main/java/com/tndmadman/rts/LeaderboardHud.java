@@ -95,7 +95,8 @@ final class LeaderboardHud {
             for (Unit unit : world.units.values()) if (unit.playerId.equals(player.id()) && unit.hp > 0) { units++; hp += unit.hp; }
             for (Base base : world.bases.values()) if (base.playerId.equals(player.id()) && base.hp > 0) { bases++; hp += base.hp; }
             if (units + bases <= 0) continue;
-            out.add(new Row(player.id(), player.name(), units, bases, (int)Math.round(hp + bases * 1000.0 + units * 100.0)));
+            out.add(new Row(player.id(), PlayerRegistry.name(player.id()), units, bases,
+                    (int)Math.round(hp + bases * 1000.0 + units * 100.0)));
         }
         out.sort(Comparator.comparingInt(Row::score).reversed());
         return out;
