@@ -1,5 +1,7 @@
 package com.tndmadman.rts;
 
+import java.net.InetAddress;
+
 final class SideAJoin {
     private SideAJoin() { }
 
@@ -10,18 +12,32 @@ final class SideAJoin {
                 String registrationVerifier = markerValue(parts, "AUTH_REGISTER");
                 String proofNonce = markerValue(parts, "AUTH_PROOF_NONCE");
                 String proof = markerValue(parts, "AUTH_PROOF");
-                String source = packet == null || packet.address() == null ? "unknown"
-                        : packet.address().getHostAddress() + ':' + packet.port();
+                InetAddress realAddress = packet == null ? null : packet.address();
+                int realPort = packet == null ? 0 : packet.port();
+                String source = realAddress == null ? "unknown" : realAddress.getHostAddress() + ':' + realPort;
+                RemoteRegistrationBridge.JoinAddress joinAddress =
+                        RemoteRegistrationBridge.select(server, name, realAddress);
+                boolean remoteRegistration = joinAddress.remoteRegistration();
                 String phase = !registrationVerifier.isBlank() ? "registration response"
-                        : !proof.isBlank() ? "authentication proof" : "initial join";
+                        : !proof.isBlank() ? "authentication proof"
+                        : remoteRegistration ? "remote registration request" : "initial join";
                 System.out.println("[CONNECTION][SERVER][AUTH] JOIN " + phase + " name="
                         + Config.clean(name) + " source=" + source + " connection=" + connectionId + '.');
+                if (remoteRegistration) {
+                    System.out.println("[CONNECTION][SERVER][REGISTRATION] Unused remote commander name="
+                            + Config.clean(name) + " source=" + source
+                            + "; issuing the existing registration challenge.");
+                }
                 try {
                     server.join(connectionId,
-                            packet == null ? null : packet.address(),
-                            packet == null ? 0 : packet.port(),
+                            joinAddress.address(),
+                            realPort,
                             name, registrationVerifier, proofNonce, proof,
-                            server.requestedDev(parts), server.requestedDevToken(parts));
+                            remoteRegistration ? false : server.requestedDev(parts),
+                            remoteRegistration ? "" : server.requestedDevToken(parts));
+                    if (remoteRegistration) {
+                        RemoteRegistrationBridge.restoreRealAddress(server, connectionId, realAddress, realPort);
+                    }
                     System.out.println("[CONNECTION][SERVER][AUTH] JOIN " + phase
                             + " processed name=" + Config.clean(name) + " connection=" + connectionId + '.');
                 } catch (RuntimeException ex) {
