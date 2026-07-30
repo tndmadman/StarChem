@@ -7,6 +7,9 @@ on:
       - 'src/main/java/com/tndmadman/rts/CombatTarget.java'
       - 'src/main/java/com/tndmadman/rts/WeaponSystem.java'
       - 'src/main/java/com/tndmadman/rts/WorldRuntimeCleanup.java'
+      - 'src/main/java/com/tndmadman/rts/AuthoritativeIdRepair*.java'
+      - 'src/main/java/com/tndmadman/rts/SyncPacketBuilder.java'
+      - 'src/main/java/com/tndmadman/rts/WorldLootDrops.java'
       - '.github/workflows/diplomacy.yml'
   push:
     branches:
@@ -16,6 +19,9 @@ on:
       - 'src/main/java/com/tndmadman/rts/CombatTarget.java'
       - 'src/main/java/com/tndmadman/rts/WeaponSystem.java'
       - 'src/main/java/com/tndmadman/rts/WorldRuntimeCleanup.java'
+      - 'src/main/java/com/tndmadman/rts/AuthoritativeIdRepair*.java'
+      - 'src/main/java/com/tndmadman/rts/SyncPacketBuilder.java'
+      - 'src/main/java/com/tndmadman/rts/WorldLootDrops.java'
       - '.github/workflows/diplomacy.yml'
   workflow_dispatch:
 
@@ -45,3 +51,6 @@ jobs:
 
       - name: Validate diplomacy rules
         run: java -cp build/classes/java/main com.tndmadman.rts.DiplomacyValidator
+
+      - name: Validate authoritative ID repair
+        run: java -cp build/classes/java/main com.tndmadman.rts.AuthoritativeIdRepairValidator
