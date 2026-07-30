@@ -38,7 +38,6 @@ final class DiplomacyCommand {
         String actionName = parts[3] == null ? "" : parts[3].trim();
         if ("REFRESH".equals(actionName)) {
             sendView(server, actorId, connectionId);
-            sendResult(server, connectionId, requestId, "REFRESHED", "Diplomacy roster refreshed.");
             return;
         }
 
