@@ -18,9 +18,10 @@ final class PlayerRegistry {
 
     static void activate(World world) {
         ACTIVE_WORLD.set(world);
-        SkirmishRuntime.activate(world);
         ACTIVE.set(world == null ? DEFAULT : BY_WORLD.computeIfAbsent(world, ignored -> new RegistryState()));
+        SkirmishRuntime.activate(world);
         DiplomacyBootstrap.initialize(world);
+        DiplomacyBootstrap.refreshIntelAlliances(world);
     }
 
     static World activeWorld() { return ACTIVE_WORLD.get(); }
