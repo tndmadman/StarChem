@@ -19,28 +19,56 @@ final class DiplomacyBootstrap {
         boolean friendlyFire = booleanOption("starchem.friendlyFire", "STARCHEM_FRIENDLY_FIRE", false);
         boolean sharedVision = booleanOption("starchem.sharedVision", "STARCHEM_SHARED_VISION", true);
         boolean sharedVictory = booleanOption("starchem.sharedVictory", "STARCHEM_SHARED_VICTORY", true);
-        DiplomacySystem.configure(world, mode, friendlyFire, sharedVision, sharedVictory);
-        defineDefaultTeams(world, mode);
+        System.out.println("[CONNECTION][DIPLOMACY] Initializing mode=" + mode
+                + " friendlyFire=" + friendlyFire + " sharedVision=" + sharedVision
+                + " sharedVictory=" + sharedVictory + ".");
+        try {
+            DiplomacySystem.configure(world, mode, friendlyFire, sharedVision, sharedVictory);
+            defineDefaultTeams(world, mode);
+            System.out.println("[CONNECTION][DIPLOMACY] Initialization completed mode=" + mode + ".");
+        } catch (RuntimeException ex) {
+            System.err.println("[CONNECTION][DIPLOMACY][FAILURE] Initialization failed at "
+                    + ex.getClass().getSimpleName() + ": " + safe(ex.getMessage()));
+            ex.printStackTrace(System.err);
+            throw ex;
+        }
     }
 
     static void assignRegisteredOwner(World world, String ownerId, int rgb) {
-        if (world == null || ownerId == null || ownerId.isBlank() || "WAIT".equals(ownerId)) return;
-        initialize(world);
-        if (DiplomacySystem.teamId(world, ownerId).isBlank()) {
-            DiplomacySystem.MatchMode mode = DiplomacySystem.mode(world);
-            if (NpcRules.isNpcFaction(ownerId)) {
-                String teamId = "NPC_" + sanitize(ownerId);
-                DiplomacySystem.defineTeam(world, new DiplomacySystem.TeamDefinition(teamId,
-                        rawPlayerName(ownerId), rgb));
-                DiplomacySystem.assignTeam(world, ownerId, teamId);
-            } else {
-                switch (mode) {
-                    case COOP_VS_NPC -> DiplomacySystem.assignTeam(world, ownerId, HUMAN_COOP_TEAM);
-                    case FIXED_TEAMS, LOCKED_ALLIANCES -> DiplomacySystem.assignTeam(world, ownerId,
-                            playerOrdinal(ownerId) % 2 == 0 ? TEAM_BETA : TEAM_ALPHA);
-                    case FFA -> { }
+        if (world == null) {
+            System.err.println("[CONNECTION][DIPLOMACY] Skipped owner assignment because active world is null; owner="
+                    + safe(ownerId) + ".");
+            return;
+        }
+        if (ownerId == null || ownerId.isBlank() || "WAIT".equals(ownerId)) return;
+        System.out.println("[CONNECTION][DIPLOMACY] Assigning registered owner=" + safe(ownerId) + ".");
+        try {
+            initialize(world);
+            if (DiplomacySystem.teamId(world, ownerId).isBlank()) {
+                DiplomacySystem.MatchMode mode = DiplomacySystem.mode(world);
+                if (NpcRules.isNpcFaction(ownerId)) {
+                    String teamId = "NPC_" + sanitize(ownerId);
+                    DiplomacySystem.defineTeam(world, new DiplomacySystem.TeamDefinition(teamId,
+                            rawPlayerName(ownerId), rgb));
+                    DiplomacySystem.assignTeam(world, ownerId, teamId);
+                } else {
+                    switch (mode) {
+                        case COOP_VS_NPC -> DiplomacySystem.assignTeam(world, ownerId, HUMAN_COOP_TEAM);
+                        case FIXED_TEAMS, LOCKED_ALLIANCES -> DiplomacySystem.assignTeam(world, ownerId,
+                                playerOrdinal(ownerId) % 2 == 0 ? TEAM_BETA : TEAM_ALPHA);
+                        case FFA -> { }
+                    }
                 }
             }
+            String teamId = DiplomacySystem.teamId(world, ownerId);
+            System.out.println("[CONNECTION][DIPLOMACY] Owner assignment completed owner=" + safe(ownerId)
+                    + " mode=" + DiplomacySystem.mode(world) + " team="
+                    + (teamId.isBlank() ? "<none>" : safe(teamId)) + ".");
+        } catch (RuntimeException ex) {
+            System.err.println("[CONNECTION][DIPLOMACY][FAILURE] Owner assignment failed owner="
+                    + safe(ownerId) + " at " + ex.getClass().getSimpleName() + ": " + safe(ex.getMessage()));
+            ex.printStackTrace(System.err);
+            throw ex;
         }
     }
 
@@ -98,5 +126,11 @@ final class DiplomacyBootstrap {
 
     private static String sanitize(String value) {
         return value.replaceAll("[^A-Za-z0-9_.-]", "_");
+    }
+
+    private static String safe(String value) {
+        if (value == null) return "<null>";
+        String clean = value.replace('\n', ' ').replace('\r', ' ').replace('|', ' ').trim();
+        return clean.isBlank() ? "<blank>" : clean;
     }
 }
