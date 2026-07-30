@@ -41,7 +41,7 @@ final class AuthoritativeIdRepairValidator {
         world.shots.add(new ProjectileShot(7, "P1", weaponId, "U:P2:1", 100, 100));
         world.shots.add(new ProjectileShot(7, "P1", weaponId, "U:P2:1", 120, 100));
 
-        expectReject(() -> SnapshotWriter.write(snapshot(world)), "duplicate value 13");
+        expectReject(() -> SnapshotWriter.write(snapshot(world)), "duplicate value 7");
         AuthoritativeIdRepair.RepairStats repaired = AuthoritativeIdRepair.repairActive(world);
 
         require(repaired.items() == 1, "Duplicate world-item ID was not repaired exactly once.");
