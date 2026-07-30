@@ -36,8 +36,12 @@ public final class TcpDiplomacyValidator {
                 return recipient != null && recipient.incomingOffer()
                         && sender != null && sender.outgoingOffer();
             }, 5_000, "recipient and sender did not receive scoped offer state");
-            harness.await(() -> !AlertCenter.list(two.world()).isEmpty(),
-                    5_000, "recipient did not receive a visible alliance-offer notification");
+            harness.await(() -> AlertCenter.list(two.world()).stream()
+                            .anyMatch(notification -> notification.text.contains("offered you an alliance")),
+                    5_000, "recipient did not receive the visible alliance-offer notification");
+            long offerRevision = DiplomacyClientState.revision(one.world());
+            harness.await(() -> DiplomacyClientState.revision(three.world()) >= offerRevision,
+                    5_000, "unrelated client did not receive the scoped diplomacy revision");
             require(!DiplomacySystem.hasAllianceOffer(three.world(), one.playerId(), two.playerId()),
                     "unrelated client received another pair's private alliance offer");
 
