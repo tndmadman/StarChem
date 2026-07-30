@@ -46,7 +46,7 @@ final class DiplomacyCommand {
     }
 
     private static void broadcastState(PeerServerSide server) {
-        String packet = SkirmishRuntime.settings(server.world).packet();
+        String packet = "DIPLOMACY_STATE|" + DiplomacyStateWire.encode(DiplomacySystem.capture(server.world));
         for (PlayerInfo player : PlayerRegistry.snapshotPlayers()) {
             if (player == null || player.id() == null || player.id().isBlank()) continue;
             ConnectionId connectionId = server.connectionIdForPlayer(player.id());
