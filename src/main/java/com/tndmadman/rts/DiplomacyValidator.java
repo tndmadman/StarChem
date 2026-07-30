@@ -8,9 +8,11 @@ final class DiplomacyValidator {
     public static void main(String[] args) {
         validatesRelationshipsAndPersistence();
         validatesModeTransitions();
+        validatesLockedAlliances();
         validatesWorldCleanup();
         validatesBootstrapModes();
         validatesMatchSettingsRoundTrip();
+        validatesCommandPolicies();
         System.out.println("Diplomacy validation passed.");
     }
 
@@ -29,6 +31,10 @@ final class DiplomacyValidator {
         require(DiplomacySystem.hostile(world, "P1", "P3"), "Different fixed teams must be hostile.");
         require(DiplomacySystem.sharesVision(world, "P1", "P2"), "Configured allies must share vision.");
         require(DiplomacySystem.sharesVictory(world, "P1", "P2"), "Configured allies must share victory.");
+        DiplomacySystem.configure(world, DiplomacySystem.MatchMode.FIXED_TEAMS, true, true, true);
+        require(DiplomacySystem.mayTarget(world, "P1", "P2"),
+                "Friendly-fire rules must allow deliberate allied targeting when enabled.");
+        DiplomacySystem.configure(world, DiplomacySystem.MatchMode.FIXED_TEAMS, false, true, true);
         DiplomacySystem.setRelationship(world, "P1", "P3", DiplomacySystem.Relationship.NEUTRAL);
         require(DiplomacySystem.neutral(world, "P1", "P3"), "Explicit neutral relationships must override defaults.");
         Map<String,Object> saved = DiplomacySystem.capture(world);
@@ -59,6 +65,21 @@ final class DiplomacyValidator {
         require(!DiplomacySystem.sharedVictory(world), "FFA must normalize shared victory off.");
     }
 
+    private static void validatesLockedAlliances() {
+        World world = new World("LockedAllianceValidator", java.util.Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        DiplomacySystem.configure(world, DiplomacySystem.MatchMode.LOCKED_ALLIANCES, false, true, true);
+        DiplomacySystem.defineTeam(world, new DiplomacySystem.TeamDefinition("alpha", "Alpha", 0x50BEFF));
+        DiplomacySystem.defineTeam(world, new DiplomacySystem.TeamDefinition("beta", "Beta", 0xFF7050));
+        DiplomacySystem.assignTeam(world, "P1", "alpha");
+        DiplomacySystem.assignTeam(world, "P2", "beta");
+        DiplomacySystem.assignTeam(world, "P1", "beta");
+        DiplomacySystem.setRelationship(world, "P1", "P2", DiplomacySystem.Relationship.NEUTRAL);
+        require("alpha".equals(DiplomacySystem.teamId(world, "P1")),
+                "Locked alliances must reject team reassignment.");
+        require(DiplomacySystem.hostile(world, "P1", "P2"),
+                "Locked alliances must reject relationship overrides.");
+    }
+
     private static void validatesWorldCleanup() {
         World world = new World("DiplomacyCleanup", java.util.Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
         DiplomacySystem.configure(world, DiplomacySystem.MatchMode.FIXED_TEAMS, false, true, true);
@@ -84,6 +105,8 @@ final class DiplomacyValidator {
                     "Bootstrap must select co-op mode.");
             require(DiplomacySystem.allied(world, "P1", "P2"), "Co-op humans must share a team.");
             require(DiplomacySystem.hostile(world, "P1", Config.RAIDERS_ID), "Co-op humans must oppose NPCs.");
+            require(IntelWarfareSystem.allied(world, "P1", "P2"),
+                    "Shared-vision diplomacy must feed the intelligence system.");
             require(PlayerRegistry.name("P1").contains("Human Coalition"), "Team identity must be visible.");
         } finally {
             if (previous == null) System.clearProperty("starchem.diplomacyMode");
@@ -114,10 +137,43 @@ final class DiplomacyValidator {
         PlayerRegistry.reset("P1", "One", 0x50BEFF);
         PlayerRegistry.register("P2", "Two", 0x77DD88, false);
         SkirmishRuntime.bind(world, configured);
+        String firstTeam = DiplomacySystem.teamId(world, "P1");
+        String secondTeam = DiplomacySystem.teamId(world, "P2");
         require(DiplomacySystem.mode(world) == DiplomacySystem.MatchMode.FIXED_TEAMS,
                 "Bound skirmish settings must configure world diplomacy.");
-        require(DiplomacySystem.allied(world, "P1", "P2") != DiplomacySystem.teamId(world, "P1").isBlank(),
+        require(!firstTeam.isBlank() && !secondTeam.isBlank(),
                 "Bound settings must assign registered players to configured teams.");
+        require(!firstTeam.equals(secondTeam) && DiplomacySystem.hostile(world, "P1", "P2"),
+                "Fixed-team assignments must place consecutive players on opposing teams.");
+    }
+
+    private static void validatesCommandPolicies() {
+        World world = new World("CommandPolicyValidator", java.util.Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        PlayerRegistry.activate(world);
+        DiplomacySystem.configure(world, DiplomacySystem.MatchMode.FIXED_TEAMS, false, true, true);
+        DiplomacySystem.defineTeam(world, new DiplomacySystem.TeamDefinition("alpha", "Alpha", 0x50BEFF));
+        DiplomacySystem.defineTeam(world, new DiplomacySystem.TeamDefinition("beta", "Beta", 0xFF7050));
+        DiplomacySystem.assignTeam(world, "P1", "alpha");
+        DiplomacySystem.assignTeam(world, "P2", "alpha");
+        DiplomacySystem.assignTeam(world, "P3", "beta");
+        Unit actor = new Unit("P1", 1, Rules.STARTING_SHIP, 100, 100);
+        Unit ally = new Unit("P2", 1, Rules.STARTING_SHIP, 140, 100);
+        Unit enemy = new Unit("P3", 1, Rules.STARTING_SHIP, 180, 100);
+        world.units.put(actor.key(), actor);
+        world.units.put(ally.key(), ally);
+        world.units.put(enemy.key(), enemy);
+
+        actor.issueAttack(CombatTarget.unit(ally));
+        require(actor.attackTarget.isBlank(), "Attack mutation must reject allied targets.");
+        actor.issueAttack(CombatTarget.unit(enemy));
+        require(!actor.attackTarget.isBlank(), "Attack mutation must accept hostile targets.");
+
+        UnitOrderCommand escortAlly = new UnitOrderCommand("P1", 1, UnitOrderType.ESCORT,
+                0, 0, 0, 0, 0, CombatTarget.unit(ally), 0);
+        require(AUnitOrder.apply(world, escortAlly), "Server order validation must accept allied escort targets.");
+        UnitOrderCommand escortEnemy = new UnitOrderCommand("P1", 1, UnitOrderType.ESCORT,
+                0, 0, 0, 0, 0, CombatTarget.unit(enemy), 0);
+        require(!AUnitOrder.apply(world, escortEnemy), "Server order validation must reject hostile escort targets.");
     }
 
     private static void require(boolean condition, String message) {
