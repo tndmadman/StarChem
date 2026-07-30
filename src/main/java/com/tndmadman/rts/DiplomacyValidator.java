@@ -10,6 +10,7 @@ final class DiplomacyValidator {
         validatesModeTransitions();
         validatesWorldCleanup();
         validatesBootstrapModes();
+        validatesMatchSettingsRoundTrip();
         System.out.println("Diplomacy validation passed.");
     }
 
@@ -88,6 +89,35 @@ final class DiplomacyValidator {
             if (previous == null) System.clearProperty("starchem.diplomacyMode");
             else System.setProperty("starchem.diplomacyMode", previous);
         }
+    }
+
+    private static void validatesMatchSettingsRoundTrip() {
+        SkirmishSettings configured = SkirmishSettings.standard().withDiplomacy(
+                new DiplomacyMatchSettings(DiplomacySystem.MatchMode.FIXED_TEAMS, true, true, false));
+        SkirmishSettings packet = SkirmishSettings.fromPacket(configured.packet());
+        require(packet.diplomacy().mode() == DiplomacySystem.MatchMode.FIXED_TEAMS,
+                "WORLDINFO must preserve diplomacy mode.");
+        require(packet.diplomacy().friendlyFire(), "WORLDINFO must preserve friendly-fire policy.");
+        require(packet.diplomacy().sharedVision(), "WORLDINFO must preserve shared-vision policy.");
+        require(!packet.diplomacy().sharedVictory(), "WORLDINFO must preserve shared-victory policy.");
+
+        SkirmishSettings saved = SkirmishSettings.fromSaved(configured.saveMap(), SkirmishSettings.standard());
+        require(saved.diplomacy().equals(configured.diplomacy()),
+                "Server-save skirmish settings must preserve diplomacy policy.");
+
+        SkirmishSettings legacy = SkirmishSettings.fromPacket("WORLDINFO|standard|normal||");
+        require(legacy.diplomacy().mode() == DiplomacySystem.MatchMode.FFA,
+                "Legacy WORLDINFO packets must default to FFA.");
+
+        World world = new World("SettingsApply", java.util.Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        PlayerRegistry.activate(world);
+        PlayerRegistry.reset("P1", "One", 0x50BEFF);
+        PlayerRegistry.register("P2", "Two", 0x77DD88, false);
+        SkirmishRuntime.bind(world, configured);
+        require(DiplomacySystem.mode(world) == DiplomacySystem.MatchMode.FIXED_TEAMS,
+                "Bound skirmish settings must configure world diplomacy.");
+        require(DiplomacySystem.allied(world, "P1", "P2") != DiplomacySystem.teamId(world, "P1").isBlank(),
+                "Bound settings must assign registered players to configured teams.");
     }
 
     private static void require(boolean condition, String message) {
