@@ -1,5 +1,6 @@
 package com.tndmadman.rts;
 
+import java.util.List;
 import java.util.Locale;
 
 /** Initializes bounded match diplomacy and assigns newly registered owners to teams. */
@@ -26,20 +27,37 @@ final class DiplomacyBootstrap {
     static void assignRegisteredOwner(World world, String ownerId, int rgb) {
         if (world == null || ownerId == null || ownerId.isBlank() || "WAIT".equals(ownerId)) return;
         initialize(world);
-        if (!DiplomacySystem.teamId(world, ownerId).isBlank()) return;
-        DiplomacySystem.MatchMode mode = DiplomacySystem.mode(world);
-        if (NpcRules.isNpcFaction(ownerId)) {
-            String teamId = "NPC_" + sanitize(ownerId);
-            DiplomacySystem.defineTeam(world, new DiplomacySystem.TeamDefinition(teamId,
-                    rawPlayerName(ownerId), rgb));
-            DiplomacySystem.assignTeam(world, ownerId, teamId);
-            return;
+        if (DiplomacySystem.teamId(world, ownerId).isBlank()) {
+            DiplomacySystem.MatchMode mode = DiplomacySystem.mode(world);
+            if (NpcRules.isNpcFaction(ownerId)) {
+                String teamId = "NPC_" + sanitize(ownerId);
+                DiplomacySystem.defineTeam(world, new DiplomacySystem.TeamDefinition(teamId,
+                        rawPlayerName(ownerId), rgb));
+                DiplomacySystem.assignTeam(world, ownerId, teamId);
+            } else {
+                switch (mode) {
+                    case COOP_VS_NPC -> DiplomacySystem.assignTeam(world, ownerId, HUMAN_COOP_TEAM);
+                    case FIXED_TEAMS, LOCKED_ALLIANCES -> DiplomacySystem.assignTeam(world, ownerId,
+                            playerOrdinal(ownerId) % 2 == 0 ? TEAM_BETA : TEAM_ALPHA);
+                    case FFA -> { }
+                }
+            }
         }
-        switch (mode) {
-            case COOP_VS_NPC -> DiplomacySystem.assignTeam(world, ownerId, HUMAN_COOP_TEAM);
-            case FIXED_TEAMS, LOCKED_ALLIANCES -> DiplomacySystem.assignTeam(world, ownerId,
-                    playerOrdinal(ownerId) % 2 == 0 ? TEAM_BETA : TEAM_ALPHA);
-            case FFA -> { }
+        refreshIntelAlliances(world);
+    }
+
+    static void refreshIntelAlliances(World world) {
+        if (world == null) return;
+        List<PlayerInfo> players = PlayerRegistry.snapshotPlayers();
+        for (int first = 0; first < players.size(); first++) {
+            PlayerInfo a = players.get(first);
+            if (a == null || a.id() == null || a.id().isBlank()) continue;
+            for (int second = first + 1; second < players.size(); second++) {
+                PlayerInfo b = players.get(second);
+                if (b == null || b.id() == null || b.id().isBlank()) continue;
+                IntelWarfareSystem.setIntelAlliance(world, a.id(), b.id(),
+                        DiplomacySystem.sharesVision(world, a.id(), b.id()));
+            }
         }
     }
 
