@@ -52,7 +52,9 @@ final class DiplomacySystem {
                           boolean sharedVision, boolean sharedVictory) {
         if (world == null) return;
         State state = state(world);
-        state.mode = mode == null ? MatchMode.FFA : mode;
+        MatchMode nextMode = mode == null ? MatchMode.FFA : mode;
+        if (state.mode != nextMode) clearModeSpecificState(state);
+        state.mode = nextMode;
         state.friendlyFire = friendlyFire;
         state.sharedVision = sharedVision;
         state.sharedVictory = sharedVictory;
@@ -252,11 +254,18 @@ final class DiplomacySystem {
         if (world != null) STATES.remove(world);
     }
 
+    private static void clearModeSpecificState(State state) {
+        state.teams.clear();
+        state.ownerTeams.clear();
+        state.explicitRelationships.clear();
+    }
+
     private static void normalizeForMode(State state) {
         if (state.mode == MatchMode.FFA) {
             state.friendlyFire = false;
             state.sharedVision = false;
             state.sharedVictory = false;
+            clearModeSpecificState(state);
         } else if (state.mode == MatchMode.COOP_VS_NPC) {
             state.sharedVision = true;
             state.sharedVictory = true;
