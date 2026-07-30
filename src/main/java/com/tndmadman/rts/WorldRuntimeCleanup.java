@@ -8,6 +8,7 @@ final class WorldRuntimeCleanup {
         world.aiDevSettings.resetToDefaults();
         DevTimerSettings.configure(world, false);
         DiplomacySystem.clear(world);
+        DiplomacyClientState.clear(world);
         SystemAudio.markNonRendered(world);
         AudioEventCenter.discard(world);
         GameNoticeCenter.clear(world);

@@ -5,6 +5,7 @@ on:
     paths:
       - 'src/main/java/com/tndmadman/rts/Diplomacy*.java'
       - 'src/main/java/com/tndmadman/rts/LiveDiplomacyValidator.java'
+      - 'src/main/java/com/tndmadman/rts/TcpDiplomacyValidator.java'
       - 'src/main/java/com/tndmadman/rts/AUnitMove.java'
       - 'src/main/java/com/tndmadman/rts/BPackets.java'
       - 'src/main/java/com/tndmadman/rts/GameMenuOverlay.java'
@@ -23,6 +24,7 @@ on:
     paths:
       - 'src/main/java/com/tndmadman/rts/Diplomacy*.java'
       - 'src/main/java/com/tndmadman/rts/LiveDiplomacyValidator.java'
+      - 'src/main/java/com/tndmadman/rts/TcpDiplomacyValidator.java'
       - 'src/main/java/com/tndmadman/rts/AUnitMove.java'
       - 'src/main/java/com/tndmadman/rts/BPackets.java'
       - 'src/main/java/com/tndmadman/rts/GameMenuOverlay.java'
@@ -64,8 +66,11 @@ jobs:
       - name: Validate diplomacy rules
         run: java -cp build/classes/java/main com.tndmadman.rts.DiplomacyValidator
 
-      - name: Validate live diplomacy
+      - name: Validate live diplomacy state
         run: java -cp build/classes/java/main com.tndmadman.rts.LiveDiplomacyValidator
+
+      - name: Validate live diplomacy over TCP
+        run: java -cp build/classes/java/main com.tndmadman.rts.TcpDiplomacyValidator
 
       - name: Validate shared objective progress
         run: java -cp build/classes/java/main com.tndmadman.rts.DiplomacyObjectiveValidator

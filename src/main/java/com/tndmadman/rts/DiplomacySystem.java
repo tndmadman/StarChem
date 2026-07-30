@@ -30,7 +30,10 @@ final class DiplomacySystem {
     }
 
     enum LiveAction {
-        ALLY,
+        OFFER_ALLIANCE,
+        ACCEPT_ALLIANCE,
+        DECLINE_ALLIANCE,
+        CANCEL_ALLIANCE,
         NEUTRAL,
         HOSTILE
     }
@@ -39,8 +42,11 @@ final class DiplomacySystem {
         INVALID_TARGET(false),
         MODE_LOCKED(false),
         UNCHANGED(false),
+        NO_PENDING_OFFER(false),
         ALLIANCE_OFFERED(true),
         ALLIANCE_ACCEPTED(true),
+        ALLIANCE_DECLINED(true),
+        ALLIANCE_CANCELED(true),
         NEUTRAL_SET(true),
         HOSTILE_SET(true);
 
@@ -162,7 +168,10 @@ final class DiplomacySystem {
         if (state.mode != MatchMode.FFA) return LiveResult.MODE_LOCKED;
 
         return switch (action) {
-            case ALLY -> offerOrAcceptAlliance(state, actorId, targetId);
+            case OFFER_ALLIANCE -> offerAlliance(state, actorId, targetId);
+            case ACCEPT_ALLIANCE -> acceptAlliance(state, actorId, targetId);
+            case DECLINE_ALLIANCE -> declineAlliance(state, actorId, targetId);
+            case CANCEL_ALLIANCE -> cancelAlliance(state, actorId, targetId);
             case NEUTRAL -> setLiveRelationship(state, actorId, targetId,
                     Relationship.NEUTRAL, LiveResult.NEUTRAL_SET);
             case HOSTILE -> setLiveRelationship(state, actorId, targetId,
@@ -180,6 +189,15 @@ final class DiplomacySystem {
         List<String> out = new ArrayList<>();
         for (AllianceOffer offer : state(world).allianceOffers) {
             if (ownerId.equals(offer.toOwnerId())) out.add(offer.fromOwnerId());
+        }
+        return List.copyOf(out);
+    }
+
+    static List<String> outgoingAllianceOffers(World world, String ownerId) {
+        if (invalidOwner(ownerId)) return List.of();
+        List<String> out = new ArrayList<>();
+        for (AllianceOffer offer : state(world).allianceOffers) {
+            if (ownerId.equals(offer.fromOwnerId())) out.add(offer.toOwnerId());
         }
         return List.copyOf(out);
     }
@@ -341,22 +359,40 @@ final class DiplomacySystem {
         if (world != null) STATES.remove(world);
     }
 
-    private static LiveResult offerOrAcceptAlliance(State state, String actorId, String targetId) {
+    private static LiveResult offerAlliance(State state, String actorId, String targetId) {
         if (relationship(state, actorId, targetId) == Relationship.ALLIED) {
             clearAllianceOffers(state, actorId, targetId);
             return LiveResult.UNCHANGED;
-        }
-        AllianceOffer reciprocal = new AllianceOffer(targetId, actorId);
-        if (state.allianceOffers.remove(reciprocal)) {
-            clearAllianceOffers(state, actorId, targetId);
-            state.explicitRelationships.put(pair(actorId, targetId), Relationship.ALLIED);
-            return LiveResult.ALLIANCE_ACCEPTED;
         }
         AllianceOffer offer = new AllianceOffer(actorId, targetId);
         if (state.allianceOffers.contains(offer)) return LiveResult.UNCHANGED;
         if (state.allianceOffers.size() >= MAX_ALLIANCE_OFFERS) return LiveResult.INVALID_TARGET;
         state.allianceOffers.add(offer);
         return LiveResult.ALLIANCE_OFFERED;
+    }
+
+    private static LiveResult acceptAlliance(State state, String actorId, String targetId) {
+        if (relationship(state, actorId, targetId) == Relationship.ALLIED) {
+            clearAllianceOffers(state, actorId, targetId);
+            return LiveResult.UNCHANGED;
+        }
+        AllianceOffer incoming = new AllianceOffer(targetId, actorId);
+        if (!state.allianceOffers.remove(incoming)) return LiveResult.NO_PENDING_OFFER;
+        clearAllianceOffers(state, actorId, targetId);
+        state.explicitRelationships.put(pair(actorId, targetId), Relationship.ALLIED);
+        return LiveResult.ALLIANCE_ACCEPTED;
+    }
+
+    private static LiveResult declineAlliance(State state, String actorId, String targetId) {
+        AllianceOffer incoming = new AllianceOffer(targetId, actorId);
+        if (!state.allianceOffers.remove(incoming)) return LiveResult.NO_PENDING_OFFER;
+        return LiveResult.ALLIANCE_DECLINED;
+    }
+
+    private static LiveResult cancelAlliance(State state, String actorId, String targetId) {
+        AllianceOffer outgoing = new AllianceOffer(actorId, targetId);
+        if (!state.allianceOffers.remove(outgoing)) return LiveResult.NO_PENDING_OFFER;
+        return LiveResult.ALLIANCE_CANCELED;
     }
 
     private static LiveResult setLiveRelationship(State state, String actorId, String targetId,
