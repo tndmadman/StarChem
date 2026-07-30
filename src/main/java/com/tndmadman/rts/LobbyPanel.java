@@ -15,7 +15,8 @@ final class LobbyPanel extends JPanel {
     private final JTextField portField = new JTextField("50000", 8);
     private final DefaultListModel<String> lanServerModel = new DefaultListModel<>();
     private final JList<String> lanServerList = new JList<>(lanServerModel);
-    private final JComboBox<String> recentServerBox = new JComboBox<>();
+    private final DefaultListModel<String> recentServerModel = new DefaultListModel<>();
+    private final JList<String> recentServerList = new JList<>(recentServerModel);
     private final JComboBox<StarSystemDefinition> systemBox = new JComboBox<>();
     private final JComboBox<Integer> galaxyCopiesBox = new JComboBox<>(new Integer[]{1, 2});
     private final JComboBox<SkirmishPreset> skirmishPresetBox = new JComboBox<>(SkirmishPreset.values());
@@ -36,13 +37,13 @@ final class LobbyPanel extends JPanel {
         super(new BorderLayout());
         this.owner = owner;
         setOpaque(false);
-        setBorder(BorderFactory.createEmptyBorder(26, 34, 26, 34));
+        setBorder(BorderFactory.createEmptyBorder(20, 28, 20, 28));
 
         styleField(nameField);
         styleField(addressField);
         styleField(portField);
-        styleLanList();
-        styleCombo(recentServerBox);
+        styleServerList(lanServerList);
+        styleServerList(recentServerList);
         styleCombo(systemBox);
         styleCombo(galaxyCopiesBox);
         styleCombo(skirmishPresetBox);
@@ -74,25 +75,35 @@ final class LobbyPanel extends JPanel {
         JButton clearSignIns = new MenuButton("CLEAR SIGN-INS");
         JButton settings = new MenuButton("SETTINGS");
 
-        JPanel content = new JPanel();
-        content.setOpaque(false);
-        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
-        content.add(createLanSection(refresh));
-        content.add(Box.createVerticalStrut(12));
-        content.add(createSettingsGrid(solo, connect, codex, clearSignIns, settings));
+        JPanel center = new JPanel(new BorderLayout(0, 10));
+        center.setOpaque(false);
+        center.add(createServerBrowser(refresh), BorderLayout.NORTH);
+        center.add(createSettingsGrid(), BorderLayout.CENTER);
 
+        JPanel footer = new JPanel(new BorderLayout(0, 8));
+        footer.setOpaque(false);
         statusLabel.setForeground(new Color(215, 232, 245));
         JPanel statusRow = new JPanel(new BorderLayout(10, 0));
         statusRow.setOpaque(false);
-        statusRow.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
         statusRow.add(label("Status"), BorderLayout.WEST);
         statusRow.add(statusLabel, BorderLayout.CENTER);
-        content.add(statusRow);
+        footer.add(statusRow, BorderLayout.NORTH);
 
-        MenuCardPanel card = new MenuCardPanel(new BorderLayout(0, 18));
-        card.setBorder(BorderFactory.createEmptyBorder(26, 30, 26, 30));
+        JPanel buttons = new JPanel(new GridLayout(2, 3, 8, 8));
+        buttons.setOpaque(false);
+        buttons.add(solo);
+        buttons.add(connect);
+        buttons.add(refresh);
+        buttons.add(codex);
+        buttons.add(clearSignIns);
+        buttons.add(settings);
+        footer.add(buttons, BorderLayout.CENTER);
+
+        MenuCardPanel card = new MenuCardPanel(new BorderLayout(0, 14));
+        card.setBorder(BorderFactory.createEmptyBorder(22, 28, 22, 28));
         card.add(header, BorderLayout.NORTH);
-        card.add(content, BorderLayout.CENTER);
+        card.add(center, BorderLayout.CENTER);
+        card.add(footer, BorderLayout.SOUTH);
         add(card, BorderLayout.CENTER);
 
         solo.addActionListener(e -> owner.launchGame(Config.solo(nameField.getText(), devBox.isSelected(),
@@ -102,15 +113,15 @@ final class LobbyPanel extends JPanel {
         codex.addActionListener(e -> owner.toggleCodexFromLobby());
         clearSignIns.addActionListener(e -> clearSavedSignIns());
         settings.addActionListener(e -> owner.openLobbySettings());
-        recentServerBox.addActionListener(e -> applySelectedRecentServer());
+
         lanServerList.addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) applySelectedLanServer();
         });
-        lanServerList.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override public void mouseClicked(java.awt.event.MouseEvent event) {
-                if (event.getClickCount() == 2 && lanServerList.getSelectedIndex() >= 0) startClient();
-            }
+        recentServerList.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) applySelectedRecentServer();
         });
+        installDoubleClickJoin(lanServerList);
+        installDoubleClickJoin(recentServerList);
 
         discoveryClient.addListener(servers -> SwingUtilities.invokeLater(() -> updateLanServers(servers)));
         discoveryTimer = new Timer(3_000, e -> refreshLanServers());
@@ -118,41 +129,43 @@ final class LobbyPanel extends JPanel {
         reloadRecentServers();
     }
 
-    private JPanel createLanSection(JButton refresh) {
-        JPanel section = new JPanel(new BorderLayout(0, 8));
-        section.setOpaque(false);
-        section.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        JPanel heading = new JPanel(new BorderLayout(10, 0));
-        heading.setOpaque(false);
-        JLabel headingLabel = label("LAN servers");
-        heading.add(headingLabel, BorderLayout.WEST);
-        heading.add(refresh, BorderLayout.EAST);
-        section.add(heading, BorderLayout.NORTH);
-
-        JScrollPane pane = new JScrollPane(lanServerList);
-        pane.setPreferredSize(new Dimension(720, 132));
-        pane.setMinimumSize(new Dimension(420, 110));
-        pane.setMaximumSize(new Dimension(Integer.MAX_VALUE, 160));
-        pane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        pane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
-        pane.setBorder(BorderFactory.createLineBorder(new Color(70, 135, 180)));
-        pane.getViewport().setBackground(new Color(9, 18, 31));
-        section.add(pane, BorderLayout.CENTER);
-
-        JLabel hint = help("Select a server to fill Address and Port. Double-click to join.");
-        section.add(hint, BorderLayout.SOUTH);
-        return section;
+    private JPanel createServerBrowser(JButton refresh) {
+        JPanel browser = new JPanel(new GridLayout(1, 2, 12, 0));
+        browser.setOpaque(false);
+        browser.add(createServerListPanel("LAN servers", lanServerList,
+                "Select to fill Address and Port. Double-click to join.", refresh));
+        browser.add(createServerListPanel("Recent servers", recentServerList,
+                "Previously joined servers. Double-click to reconnect.", null));
+        return browser;
     }
 
-    private JPanel createSettingsGrid(JButton solo, JButton connect, JButton codex,
-                                      JButton clearSignIns, JButton settings) {
+    private JPanel createServerListPanel(String title, JList<String> list, String hint, JButton headingButton) {
+        JPanel panel = new JPanel(new BorderLayout(0, 5));
+        panel.setOpaque(false);
+
+        JPanel heading = new JPanel(new BorderLayout(8, 0));
+        heading.setOpaque(false);
+        heading.add(label(title), BorderLayout.WEST);
+        if (headingButton != null) heading.add(headingButton, BorderLayout.EAST);
+        panel.add(heading, BorderLayout.NORTH);
+
+        JScrollPane pane = new JScrollPane(list);
+        pane.setPreferredSize(new Dimension(320, 78));
+        pane.setMinimumSize(new Dimension(220, 60));
+        pane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+        pane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        pane.setBorder(BorderFactory.createLineBorder(new Color(70, 135, 180)));
+        pane.getViewport().setBackground(new Color(9, 18, 31));
+        panel.add(pane, BorderLayout.CENTER);
+        panel.add(help(hint), BorderLayout.SOUTH);
+        return panel;
+    }
+
+    private JPanel createSettingsGrid() {
         JPanel grid = new JPanel(new GridBagLayout());
         grid.setOpaque(false);
-        grid.setAlignmentX(Component.LEFT_ALIGNMENT);
         int row = 0;
         addFormRow(grid, row++, "Commander name", nameField);
-        addFormRow(grid, row++, "Recent servers", recentServerBox);
         addFormRow(grid, row++, "Address", addressField);
         addFormRow(grid, row++, "Port", portField);
         addFormRow(grid, row++, "JOIN accounts",
@@ -165,23 +178,7 @@ final class LobbyPanel extends JPanel {
         addFormRow(grid, row++, "Options", devBox);
         addFormRow(grid, row++, "NPC Spawns", spawnRaidersBox);
         addFormRow(grid, row++, "", spawnFreeMinersBox);
-        addFormRow(grid, row++, "", spawnCorsairsBox);
-
-        JPanel buttons = new JPanel(new GridLayout(1, 5, 8, 0));
-        buttons.setOpaque(false);
-        buttons.add(solo);
-        buttons.add(connect);
-        buttons.add(codex);
-        buttons.add(clearSignIns);
-        buttons.add(settings);
-        GridBagConstraints constraints = new GridBagConstraints();
-        constraints.gridx = 0;
-        constraints.gridy = row;
-        constraints.gridwidth = 2;
-        constraints.weightx = 1.0;
-        constraints.fill = GridBagConstraints.HORIZONTAL;
-        constraints.insets = new Insets(8, 0, 0, 0);
-        grid.add(buttons, constraints);
+        addFormRow(grid, row, "", spawnCorsairsBox);
         return grid;
     }
 
@@ -191,7 +188,7 @@ final class LobbyPanel extends JPanel {
         labelConstraints.gridy = row;
         labelConstraints.weightx = 0.0;
         labelConstraints.anchor = GridBagConstraints.WEST;
-        labelConstraints.insets = new Insets(4, 0, 4, 12);
+        labelConstraints.insets = new Insets(2, 0, 2, 12);
         panel.add(label(labelText), labelConstraints);
 
         GridBagConstraints fieldConstraints = new GridBagConstraints();
@@ -199,8 +196,16 @@ final class LobbyPanel extends JPanel {
         fieldConstraints.gridy = row;
         fieldConstraints.weightx = 1.0;
         fieldConstraints.fill = GridBagConstraints.HORIZONTAL;
-        fieldConstraints.insets = new Insets(4, 0, 4, 0);
+        fieldConstraints.insets = new Insets(2, 0, 2, 0);
         panel.add(component, fieldConstraints);
+    }
+
+    private void installDoubleClickJoin(JList<String> list) {
+        list.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseClicked(java.awt.event.MouseEvent event) {
+                if (event.getClickCount() == 2 && list.getSelectedIndex() >= 0) startClient();
+            }
+        });
     }
 
     @Override public void addNotify() {
@@ -238,16 +243,16 @@ final class LobbyPanel extends JPanel {
                 BorderFactory.createEmptyBorder(5, 10, 5, 10)));
     }
 
-    private void styleLanList() {
-        lanServerList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        lanServerList.setVisibleRowCount(5);
-        lanServerList.setFixedCellHeight(25);
-        lanServerList.setForeground(Color.WHITE);
-        lanServerList.setBackground(new Color(9, 18, 31));
-        lanServerList.setSelectionForeground(Color.WHITE);
-        lanServerList.setSelectionBackground(new Color(35, 92, 132));
-        lanServerList.setFont(lanServerList.getFont().deriveFont(Font.PLAIN, 12f));
-        lanServerList.setBorder(BorderFactory.createEmptyBorder(4, 7, 4, 7));
+    private void styleServerList(JList<String> list) {
+        list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        list.setVisibleRowCount(3);
+        list.setFixedCellHeight(23);
+        list.setForeground(Color.WHITE);
+        list.setBackground(new Color(9, 18, 31));
+        list.setSelectionForeground(Color.WHITE);
+        list.setSelectionBackground(new Color(35, 92, 132));
+        list.setFont(list.getFont().deriveFont(Font.PLAIN, 12f));
+        list.setBorder(BorderFactory.createEmptyBorder(3, 6, 3, 6));
     }
 
     private void styleCombo(JComboBox<?> box) {
@@ -308,28 +313,51 @@ final class LobbyPanel extends JPanel {
         int index = lanServerList.getSelectedIndex();
         if (index < 0 || index >= discoveredServers.size()) return;
         LanDiscoveryProtocol.DiscoveredServer server = discoveredServers.get(index);
+        recentServerList.clearSelection();
         addressField.setText(server.host());
         portField.setText(Integer.toString(server.port()));
         if (!server.compatible()) setStatus("Selected server uses incompatible version " + server.version() + ".");
     }
 
     private void reloadRecentServers() {
+        String selectedKey = selectedRecentServerKey();
         recentServers = RecentServerStore.load();
-        recentServerBox.removeAllItems();
+        recentServerModel.clear();
         if (recentServers.isEmpty()) {
-            recentServerBox.addItem("No recent servers");
+            recentServerModel.addElement("No recent servers");
+            recentServerList.clearSelection();
             return;
         }
-        for (RecentServerStore.RecentServer server : recentServers) recentServerBox.addItem(server.displayLabel());
+        for (RecentServerStore.RecentServer server : recentServers) {
+            recentServerModel.addElement(server.displayLabel());
+        }
+        int restoreIndex = indexOfRecentServer(selectedKey);
+        if (restoreIndex >= 0) recentServerList.setSelectedIndex(restoreIndex);
+    }
+
+    private String selectedRecentServerKey() {
+        int index = recentServerList.getSelectedIndex();
+        if (index < 0 || index >= recentServers.size()) return "";
+        RecentServerStore.RecentServer server = recentServers.get(index);
+        return server.host() + ':' + server.port();
+    }
+
+    private int indexOfRecentServer(String key) {
+        if (key == null || key.isBlank()) return -1;
+        for (int i = 0; i < recentServers.size(); i++) {
+            RecentServerStore.RecentServer server = recentServers.get(i);
+            if ((server.host() + ':' + server.port()).equals(key)) return i;
+        }
+        return -1;
     }
 
     private void applySelectedRecentServer() {
-        int index = recentServerBox.getSelectedIndex();
+        int index = recentServerList.getSelectedIndex();
         if (index < 0 || index >= recentServers.size()) return;
         RecentServerStore.RecentServer server = recentServers.get(index);
+        lanServerList.clearSelection();
         addressField.setText(server.host());
         portField.setText(Integer.toString(server.port()));
-        lanServerList.clearSelection();
     }
 
     private String selectedSystemId() {
@@ -385,13 +413,17 @@ final class LobbyPanel extends JPanel {
     }
 
     private String selectedServerName() {
-        int index = lanServerList.getSelectedIndex();
-        return index >= 0 && index < discoveredServers.size() ? discoveredServers.get(index).name() : "";
+        int lanIndex = lanServerList.getSelectedIndex();
+        if (lanIndex >= 0 && lanIndex < discoveredServers.size()) return discoveredServers.get(lanIndex).name();
+        int recentIndex = recentServerList.getSelectedIndex();
+        return recentIndex >= 0 && recentIndex < recentServers.size() ? recentServers.get(recentIndex).name() : "";
     }
 
     private String selectedServerVersion() {
-        int index = lanServerList.getSelectedIndex();
-        return index >= 0 && index < discoveredServers.size() ? discoveredServers.get(index).version() : "";
+        int lanIndex = lanServerList.getSelectedIndex();
+        if (lanIndex >= 0 && lanIndex < discoveredServers.size()) return discoveredServers.get(lanIndex).version();
+        int recentIndex = recentServerList.getSelectedIndex();
+        return recentIndex >= 0 && recentIndex < recentServers.size() ? recentServers.get(recentIndex).version() : "";
     }
 
     void retryJoinAfterCredentialReset() {
