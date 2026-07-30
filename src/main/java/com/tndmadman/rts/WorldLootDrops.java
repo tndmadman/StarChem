@@ -8,6 +8,7 @@ final class WorldLootDrops {
 
     static int scatter(World world, EnumMap<Material, Double> cargo, double x, double y, double power, long seed) {
         if (cargo == null || cargo.isEmpty()) return 0;
+        AuthoritativeIdRepair.prepareWorldItems(world);
         Random random = new Random(seed);
         int count = 0;
         for (Material material : Material.values()) {
