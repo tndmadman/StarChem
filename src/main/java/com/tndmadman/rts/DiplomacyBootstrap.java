@@ -42,15 +42,6 @@ final class DiplomacyBootstrap {
                 }
             }
         }
-        syncIntelAlliances(world, ownerId);
-    }
-
-    private static void syncIntelAlliances(World world, String ownerId) {
-        for (PlayerInfo other : PlayerRegistry.snapshotPlayers()) {
-            if (other == null || other.id() == null || other.id().equals(ownerId)) continue;
-            boolean shared = DiplomacySystem.sharesVision(world, ownerId, other.id());
-            IntelWarfareSystem.setIntelAlliance(world, ownerId, other.id(), shared);
-        }
     }
 
     private static String rawPlayerName(String ownerId) {
