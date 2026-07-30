@@ -101,21 +101,33 @@ final class DiplomacyDialog {
         root.add(south, BorderLayout.SOUTH);
 
         long[] lastRevision = { Long.MIN_VALUE };
+        int[] lastRosterHash = { Integer.MIN_VALUE };
         long[] lastRefreshRequest = { 0 };
+        boolean[] rebuilding = { false };
         Runnable rebuild = () -> {
+            if (rebuilding[0]) return;
             long revision = DiplomacyClientState.revision(world);
-            if (revision == lastRevision[0] && model.getSize() > 0) return;
-            String selectedId = selected(playerBox) == null ? "" : selected(playerBox).id();
             List<PlayerChoice> choices = choices(world, localId);
-            model.removeAllElements();
-            PlayerChoice selected = null;
-            for (PlayerChoice choice : choices) {
-                model.addElement(choice);
-                if (choice.id().equals(selectedId)) selected = choice;
+            int rosterHash = choices.hashCode();
+            if (revision == lastRevision[0] && rosterHash == lastRosterHash[0]
+                    && model.getSize() == choices.size()) return;
+
+            rebuilding[0] = true;
+            try {
+                String selectedId = selected(playerBox) == null ? "" : selected(playerBox).id();
+                lastRevision[0] = revision;
+                lastRosterHash[0] = rosterHash;
+                model.removeAllElements();
+                PlayerChoice selected = null;
+                for (PlayerChoice choice : choices) {
+                    model.addElement(choice);
+                    if (choice.id().equals(selectedId)) selected = choice;
+                }
+                if (selected != null) playerBox.setSelectedItem(selected);
+                else if (model.getSize() > 0) playerBox.setSelectedIndex(0);
+            } finally {
+                rebuilding[0] = false;
             }
-            if (selected != null) playerBox.setSelectedItem(selected);
-            else if (model.getSize() > 0) playerBox.setSelectedIndex(0);
-            lastRevision[0] = revision;
         };
         Runnable refresh = () -> {
             rebuild.run();
@@ -129,7 +141,9 @@ final class DiplomacyDialog {
             }
         };
 
-        playerBox.addActionListener(event -> refresh.run());
+        playerBox.addActionListener(event -> {
+            if (!rebuilding[0]) refresh.run();
+        });
         offerAlliance.addActionListener(event -> send(network, world, selected(playerBox),
                 DiplomacySystem.LiveAction.OFFER_ALLIANCE, requestRefresh));
         acceptAlliance.addActionListener(event -> send(network, world, selected(playerBox),
@@ -151,7 +165,7 @@ final class DiplomacyDialog {
 
         Timer timer = new Timer(400, event -> {
             if (network != null && network.clientMode()
-                    && System.currentTimeMillis() - lastRefreshRequest[0] >= 2_000) requestRefresh.run();
+                    && System.currentTimeMillis() - lastRefreshRequest[0] >= 5_000) requestRefresh.run();
             refresh.run();
         });
         dialog.addWindowListener(new WindowAdapter() {
