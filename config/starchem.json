@@ -37,6 +37,21 @@
       "config/systems/carbon-basin.json",
       "config/systems/ancient-graveyard.json"
     ],
-    "galaxy": "config/galaxy.json"
+    "galaxy": "config/galaxy.json",
+    "automation": "config/automation.json",
+    "craftables": [
+      "config/craftables/fuel.json",
+      "config/craftables/materials.json",
+      "config/craftables/chemicals.json",
+      "config/craftables/electronics.json",
+      "config/craftables/industry.json",
+      "config/craftables/power-defense.json",
+      "config/craftables/weapons.json",
+      "config/craftables/capital.json",
+      "config/craftables/reclamation.json"
+    ],
+    "research": "config/research.json",
+    "npcs": "config/npcs.json",
+    "victoryConditions": "config/victory-conditions.json"
   }
 }
