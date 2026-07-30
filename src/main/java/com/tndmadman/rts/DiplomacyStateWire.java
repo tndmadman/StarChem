@@ -2,6 +2,7 @@ package com.tndmadman.rts;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -63,6 +64,6 @@ final class DiplomacyStateWire {
             if (entry.getKey() == null) continue;
             out.put(String.valueOf(entry.getKey()), entry.getValue());
         }
-        return Map.copyOf(out);
+        return Collections.unmodifiableMap(out);
     }
 }
