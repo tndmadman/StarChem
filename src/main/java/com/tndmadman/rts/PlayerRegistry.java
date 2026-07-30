@@ -54,6 +54,7 @@ final class PlayerRegistry {
         int rgb = current == null ? 0x888888 : current.rgb();
         boolean local = current != null && current.local();
         state.players.put(id, new PlayerInfo(id, cleanName, rgb, local));
+        DiplomacyBootstrap.assignRegisteredOwner(activeWorld(), id, rgb);
     }
 
     static void remove(String id) { state().players.remove(id); }
