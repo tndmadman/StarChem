@@ -11,35 +11,43 @@ import java.util.Set;
 
 record SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
                         Set<String> disabledNpcFactionIds, String victoryConditionId,
-                        DiplomacyMatchSettings diplomacy) {
+                        DiplomacyMatchSettings diplomacy, Map<String,Object> diplomacyState) {
     SkirmishSettings {
         preset = preset == null ? SkirmishPreset.STANDARD : preset;
         difficulty = difficulty == null ? NpcDifficulty.NORMAL : difficulty;
         disabledNpcFactionIds = sanitizeDisabled(disabledNpcFactionIds);
         victoryConditionId = VictoryConditionRules.normalizeId(victoryConditionId);
         diplomacy = diplomacy == null ? DiplomacyMatchSettings.ffa() : diplomacy;
+        diplomacyState = immutableState(diplomacyState);
+    }
+
+    SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
+                     Set<String> disabledNpcFactionIds, String victoryConditionId,
+                     DiplomacyMatchSettings diplomacy) {
+        this(preset, difficulty, disabledNpcFactionIds, victoryConditionId, diplomacy, Map.of());
     }
 
     SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
                      Set<String> disabledNpcFactionIds, String victoryConditionId) {
-        this(preset, difficulty, disabledNpcFactionIds, victoryConditionId, DiplomacyMatchSettings.ffa());
+        this(preset, difficulty, disabledNpcFactionIds, victoryConditionId,
+                DiplomacyMatchSettings.ffa(), Map.of());
     }
 
     SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
                      Set<String> disabledNpcFactionIds) {
         this(preset, difficulty, disabledNpcFactionIds, VictoryConditionRules.defaultId(),
-                DiplomacyMatchSettings.ffa());
+                DiplomacyMatchSettings.ffa(), Map.of());
     }
 
     static SkirmishSettings standard() {
         return new SkirmishSettings(SkirmishPreset.STANDARD, NpcDifficulty.NORMAL,
                 SkirmishPreset.STANDARD.defaultDisabledFactionIds(), VictoryConditionRules.defaultId(),
-                DiplomacyMatchSettings.ffa());
+                DiplomacyMatchSettings.ffa(), Map.of());
     }
 
     static SkirmishSettings standard(Set<String> disabledNpcFactionIds) {
         return new SkirmishSettings(SkirmishPreset.STANDARD, NpcDifficulty.NORMAL,
-                disabledNpcFactionIds, VictoryConditionRules.defaultId(), DiplomacyMatchSettings.ffa());
+                disabledNpcFactionIds, VictoryConditionRules.defaultId(), DiplomacyMatchSettings.ffa(), Map.of());
     }
 
     static SkirmishSettings create(SkirmishPreset preset, NpcDifficulty difficulty) {
@@ -50,11 +58,12 @@ record SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
                                    String victoryConditionId) {
         SkirmishPreset normalized = preset == null ? SkirmishPreset.STANDARD : preset;
         return new SkirmishSettings(normalized, difficulty,
-                normalized.defaultDisabledFactionIds(), victoryConditionId, DiplomacyMatchSettings.ffa());
+                normalized.defaultDisabledFactionIds(), victoryConditionId, DiplomacyMatchSettings.ffa(), Map.of());
     }
 
     SkirmishSettings withDiplomacy(DiplomacyMatchSettings settings) {
-        return new SkirmishSettings(preset, difficulty, disabledNpcFactionIds, victoryConditionId, settings);
+        return new SkirmishSettings(preset, difficulty, disabledNpcFactionIds,
+                victoryConditionId, settings, Map.of());
     }
 
     String presetId() { return preset.id(); }
@@ -81,6 +90,12 @@ record SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
         out.put("disabledNpcFactionIds", new ArrayList<>(disabledNpcFactionIds));
         out.put("victoryConditionId", victoryConditionId);
         out.put("diplomacy", diplomacy.saveMap());
+        Map<String,Object> state = diplomacyState;
+        World activeWorld = PlayerRegistry.activeWorld();
+        if (activeWorld != null && SkirmishRuntime.settings(activeWorld) == this) {
+            state = DiplomacySystem.capture(activeWorld);
+        }
+        if (!state.isEmpty()) out.put("diplomacyState", state);
         return out;
     }
 
@@ -102,7 +117,9 @@ record SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
         }
         DiplomacyMatchSettings diplomacy = DiplomacyMatchSettings.fromSaved(
                 map.get("diplomacy"), safeFallback.diplomacy());
-        return new SkirmishSettings(preset, difficulty, disabled, String.valueOf(savedVictory), diplomacy);
+        Map<String,Object> diplomacyState = ServerSaveStore.object(map.get("diplomacyState"));
+        return new SkirmishSettings(preset, difficulty, disabled,
+                String.valueOf(savedVictory), diplomacy, diplomacyState);
     }
 
     String packet() {
@@ -128,7 +145,7 @@ record SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
         DiplomacyMatchSettings diplomacy = parts.length == 6
                 ? DiplomacyMatchSettings.fromPacketField(parts[5]) : DiplomacyMatchSettings.ffa();
         return new SkirmishSettings(SkirmishPreset.parse(parts[1]),
-                NpcDifficulty.parse(parts[2]), disabled, victoryConditionId, diplomacy);
+                NpcDifficulty.parse(parts[2]), disabled, victoryConditionId, diplomacy, Map.of());
     }
 
     List<NpcFaction> resolve(List<NpcFaction> baseFactions) {
@@ -196,6 +213,11 @@ record SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
         if (values != null && values.contains(Config.CORSAIRS_ID)) out.add(Config.CORSAIRS_ID);
         return Collections.unmodifiableSet(out);
     }
+
+    private static Map<String,Object> immutableState(Map<String,Object> value) {
+        if (value == null || value.isEmpty()) return Map.of();
+        return Collections.unmodifiableMap(new LinkedHashMap<>(value));
+    }
 }
 
 enum SkirmishPreset {
@@ -218,8 +240,7 @@ enum SkirmishPreset {
         this.label = label;
         this.timingMultiplier = timingMultiplier;
         this.forceMultiplier = forceMultiplier;
-        this.defaultDisabledFactionIds = new SkirmishSettings(this, NpcDifficulty.NORMAL,
-                defaultDisabledFactionIds, VictoryConditionRules.defaultId()).disabledNpcFactionIds();
+        this.defaultDisabledFactionIds = Collections.unmodifiableSet(new LinkedHashSet<>(defaultDisabledFactionIds));
     }
 
     String id() { return id; }
@@ -230,46 +251,8 @@ enum SkirmishPreset {
 
     static SkirmishPreset parse(String value) {
         String clean = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
-        for (SkirmishPreset preset : values()) {
-            if (preset.id.equals(clean) || preset.name().equalsIgnoreCase(clean)) return preset;
-        }
-        throw new IllegalArgumentException("Unknown skirmish preset: " + value
-                + ". Expected peaceful, standard, hostile, or sandbox.");
-    }
-
-    @Override public String toString() { return label; }
-}
-
-enum NpcDifficulty {
-    RELAXED("relaxed", "Relaxed", 1.35, 0.80),
-    NORMAL("normal", "Normal", 1.0, 1.0),
-    HARD("hard", "Hard", 0.75, 1.25),
-    BRUTAL("brutal", "Brutal", 0.55, 1.55);
-
-    private final String id;
-    private final String label;
-    private final double timingMultiplier;
-    private final double forceMultiplier;
-
-    NpcDifficulty(String id, String label, double timingMultiplier, double forceMultiplier) {
-        this.id = id;
-        this.label = label;
-        this.timingMultiplier = timingMultiplier;
-        this.forceMultiplier = forceMultiplier;
-    }
-
-    String id() { return id; }
-    String label() { return label; }
-    double timingMultiplier() { return timingMultiplier; }
-    double forceMultiplier() { return forceMultiplier; }
-
-    static NpcDifficulty parse(String value) {
-        String clean = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
-        for (NpcDifficulty difficulty : values()) {
-            if (difficulty.id.equals(clean) || difficulty.name().equalsIgnoreCase(clean)) return difficulty;
-        }
-        throw new IllegalArgumentException("Unknown NPC difficulty: " + value
-                + ". Expected relaxed, normal, hard, or brutal.");
+        for (SkirmishPreset preset : values()) if (preset.id.equals(clean) || preset.name().equalsIgnoreCase(clean)) return preset;
+        return STANDARD;
     }
 
     @Override public String toString() { return label; }
