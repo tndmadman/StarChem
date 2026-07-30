@@ -16,6 +16,10 @@ final class SkirmishRuntime {
         SkirmishSettings normalized = settings == null ? SkirmishSettings.standard() : settings;
         BY_WORLD.put(world, new State(normalized, normalized.resolve(NpcRules.baseFactions())));
         normalized.diplomacy().apply(world);
+        if (!normalized.diplomacyState().isEmpty()) {
+            DiplomacySystem.restore(world, normalized.diplomacyState());
+        }
+        DiplomacyBootstrap.refreshIntelAlliances(world);
         ObjectiveSystem.reconfigure(world, normalized);
         ACTIVE_WORLD.set(world);
     }
@@ -26,6 +30,7 @@ final class SkirmishRuntime {
             State state = BY_WORLD.computeIfAbsent(world,
                     ignored -> new State(SkirmishSettings.standard(), NpcRules.baseFactions()));
             state.settings().diplomacy().apply(world);
+            DiplomacyBootstrap.refreshIntelAlliances(world);
             ObjectiveSystem.state(world);
         }
     }
