@@ -4,24 +4,36 @@ on:
   pull_request:
     paths:
       - 'src/main/java/com/tndmadman/rts/Diplomacy*.java'
+      - 'src/main/java/com/tndmadman/rts/LiveDiplomacyValidator.java'
+      - 'src/main/java/com/tndmadman/rts/AUnitMove.java'
+      - 'src/main/java/com/tndmadman/rts/BPackets.java'
+      - 'src/main/java/com/tndmadman/rts/GameMenuOverlay.java'
+      - 'src/main/java/com/tndmadman/rts/InGameMenuOverlay.java'
       - 'src/main/java/com/tndmadman/rts/CombatTarget.java'
       - 'src/main/java/com/tndmadman/rts/WeaponSystem.java'
       - 'src/main/java/com/tndmadman/rts/WorldRuntimeCleanup.java'
       - 'src/main/java/com/tndmadman/rts/AuthoritativeIdRepair*.java'
       - 'src/main/java/com/tndmadman/rts/SyncPacketBuilder.java'
       - 'src/main/java/com/tndmadman/rts/WorldLootDrops.java'
+      - 'config/starchem.json'
       - '.github/workflows/diplomacy.yml'
   push:
     branches:
       - main
     paths:
       - 'src/main/java/com/tndmadman/rts/Diplomacy*.java'
+      - 'src/main/java/com/tndmadman/rts/LiveDiplomacyValidator.java'
+      - 'src/main/java/com/tndmadman/rts/AUnitMove.java'
+      - 'src/main/java/com/tndmadman/rts/BPackets.java'
+      - 'src/main/java/com/tndmadman/rts/GameMenuOverlay.java'
+      - 'src/main/java/com/tndmadman/rts/InGameMenuOverlay.java'
       - 'src/main/java/com/tndmadman/rts/CombatTarget.java'
       - 'src/main/java/com/tndmadman/rts/WeaponSystem.java'
       - 'src/main/java/com/tndmadman/rts/WorldRuntimeCleanup.java'
       - 'src/main/java/com/tndmadman/rts/AuthoritativeIdRepair*.java'
       - 'src/main/java/com/tndmadman/rts/SyncPacketBuilder.java'
       - 'src/main/java/com/tndmadman/rts/WorldLootDrops.java'
+      - 'config/starchem.json'
       - '.github/workflows/diplomacy.yml'
   workflow_dispatch:
 
@@ -51,6 +63,9 @@ jobs:
 
       - name: Validate diplomacy rules
         run: java -cp build/classes/java/main com.tndmadman.rts.DiplomacyValidator
+
+      - name: Validate live diplomacy
+        run: java -cp build/classes/java/main com.tndmadman.rts.LiveDiplomacyValidator
 
       - name: Validate shared objective progress
         run: java -cp build/classes/java/main com.tndmadman.rts.DiplomacyObjectiveValidator

@@ -29,6 +29,30 @@ final class DiplomacySystem {
         LOCKED_ALLIANCES
     }
 
+    enum LiveAction {
+        ALLY,
+        NEUTRAL,
+        HOSTILE
+    }
+
+    enum LiveResult {
+        INVALID_TARGET(false),
+        MODE_LOCKED(false),
+        UNCHANGED(false),
+        ALLIANCE_OFFERED(true),
+        ALLIANCE_ACCEPTED(true),
+        NEUTRAL_SET(true),
+        HOSTILE_SET(true);
+
+        private final boolean changed;
+
+        LiveResult(boolean changed) {
+            this.changed = changed;
+        }
+
+        boolean changed() { return changed; }
+    }
+
     record TeamDefinition(String id, String displayName, int rgb) {
         TeamDefinition {
             id = cleanId(id);
@@ -40,6 +64,7 @@ final class DiplomacySystem {
     }
 
     private static final int MAX_TEAMS = 16;
+    private static final int MAX_ALLIANCE_OFFERS = 256;
     private static final Map<World, State> STATES = Collections.synchronizedMap(new WeakHashMap<>());
 
     private DiplomacySystem() { }
@@ -53,7 +78,7 @@ final class DiplomacySystem {
         if (world == null) return;
         State state = state(world);
         MatchMode nextMode = mode == null ? MatchMode.FFA : mode;
-        if (state.mode != nextMode) clearModeSpecificState(state);
+        if (state.mode != nextMode) clearAllModeState(state);
         state.mode = nextMode;
         state.friendlyFire = friendlyFire;
         state.sharedVision = sharedVision;
@@ -71,6 +96,10 @@ final class DiplomacySystem {
 
     static boolean sharedVictory(World world) {
         return state(world).sharedVictory;
+    }
+
+    static boolean liveNegotiationAllowed(World world) {
+        return mode(world) == MatchMode.FFA;
     }
 
     static void defineTeam(World world, TeamDefinition team) {
@@ -119,8 +148,40 @@ final class DiplomacySystem {
                 || firstOwnerId.equals(secondOwnerId)) return;
         State state = state(world);
         if (state.mode == MatchMode.LOCKED_ALLIANCES) return;
+        clearAllianceOffers(state, firstOwnerId, secondOwnerId);
         Relationship normalized = relationship == null ? Relationship.NEUTRAL : relationship;
         state.explicitRelationships.put(pair(firstOwnerId, secondOwnerId), normalized);
+    }
+
+    static LiveResult applyLiveAction(World world, String actorId, String targetId, LiveAction action) {
+        if (world == null || invalidOwner(actorId) || invalidOwner(targetId) || actorId.equals(targetId)
+                || NpcRules.isNpcFaction(actorId) || NpcRules.isNpcFaction(targetId) || action == null) {
+            return LiveResult.INVALID_TARGET;
+        }
+        State state = state(world);
+        if (state.mode != MatchMode.FFA) return LiveResult.MODE_LOCKED;
+
+        return switch (action) {
+            case ALLY -> offerOrAcceptAlliance(state, actorId, targetId);
+            case NEUTRAL -> setLiveRelationship(state, actorId, targetId,
+                    Relationship.NEUTRAL, LiveResult.NEUTRAL_SET);
+            case HOSTILE -> setLiveRelationship(state, actorId, targetId,
+                    Relationship.HOSTILE, LiveResult.HOSTILE_SET);
+        };
+    }
+
+    static boolean hasAllianceOffer(World world, String fromOwnerId, String toOwnerId) {
+        if (invalidOwner(fromOwnerId) || invalidOwner(toOwnerId)) return false;
+        return state(world).allianceOffers.contains(new AllianceOffer(fromOwnerId, toOwnerId));
+    }
+
+    static List<String> incomingAllianceOffers(World world, String ownerId) {
+        if (invalidOwner(ownerId)) return List.of();
+        List<String> out = new ArrayList<>();
+        for (AllianceOffer offer : state(world).allianceOffers) {
+            if (ownerId.equals(offer.toOwnerId())) out.add(offer.fromOwnerId());
+        }
+        return List.copyOf(out);
     }
 
     static Relationship relationship(World world, String firstOwnerId, String secondOwnerId) {
@@ -212,6 +273,15 @@ final class DiplomacySystem {
             relationships.add(row);
         }
         out.put("relationships", relationships);
+
+        List<Object> allianceOffers = new ArrayList<>();
+        for (AllianceOffer offer : state.allianceOffers) {
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("from", offer.fromOwnerId());
+            row.put("to", offer.toOwnerId());
+            allianceOffers.add(row);
+        }
+        out.put("allianceOffers", allianceOffers);
         return out;
     }
 
@@ -252,6 +322,17 @@ final class DiplomacySystem {
                 replacement.explicitRelationships.put(pair(first, second), relationship);
             }
         }
+
+        for (Object value : ServerSaveStore.list(root.get("allianceOffers"))) {
+            if (replacement.allianceOffers.size() >= MAX_ALLIANCE_OFFERS) break;
+            Map<String,Object> row = ServerSaveStore.object(value);
+            String from = ServerSaveStore.string(row, "from", "");
+            String to = ServerSaveStore.string(row, "to", "");
+            if (!invalidOwner(from) && !invalidOwner(to) && !from.equals(to)
+                    && !NpcRules.isNpcFaction(from) && !NpcRules.isNpcFaction(to)) {
+                replacement.allianceOffers.add(new AllianceOffer(from, to));
+            }
+        }
         normalizeForMode(replacement);
         STATES.put(world, replacement);
     }
@@ -260,10 +341,58 @@ final class DiplomacySystem {
         if (world != null) STATES.remove(world);
     }
 
-    private static void clearModeSpecificState(State state) {
+    private static LiveResult offerOrAcceptAlliance(State state, String actorId, String targetId) {
+        if (relationship(state, actorId, targetId) == Relationship.ALLIED) {
+            clearAllianceOffers(state, actorId, targetId);
+            return LiveResult.UNCHANGED;
+        }
+        AllianceOffer reciprocal = new AllianceOffer(targetId, actorId);
+        if (state.allianceOffers.remove(reciprocal)) {
+            clearAllianceOffers(state, actorId, targetId);
+            state.explicitRelationships.put(pair(actorId, targetId), Relationship.ALLIED);
+            return LiveResult.ALLIANCE_ACCEPTED;
+        }
+        AllianceOffer offer = new AllianceOffer(actorId, targetId);
+        if (state.allianceOffers.contains(offer)) return LiveResult.UNCHANGED;
+        if (state.allianceOffers.size() >= MAX_ALLIANCE_OFFERS) return LiveResult.INVALID_TARGET;
+        state.allianceOffers.add(offer);
+        return LiveResult.ALLIANCE_OFFERED;
+    }
+
+    private static LiveResult setLiveRelationship(State state, String actorId, String targetId,
+                                                  Relationship relationship, LiveResult result) {
+        clearAllianceOffers(state, actorId, targetId);
+        OwnerPair pair = pair(actorId, targetId);
+        if (relationship(state, actorId, targetId) == relationship
+                && state.explicitRelationships.get(pair) == relationship) return LiveResult.UNCHANGED;
+        state.explicitRelationships.put(pair, relationship);
+        return result;
+    }
+
+    private static Relationship relationship(State state, String firstOwnerId, String secondOwnerId) {
+        Relationship explicit = state.explicitRelationships.get(pair(firstOwnerId, secondOwnerId));
+        if (explicit != null) return explicit;
+        String firstTeam = state.ownerTeams.get(firstOwnerId);
+        String secondTeam = state.ownerTeams.get(secondOwnerId);
+        if (firstTeam != null && firstTeam.equals(secondTeam)) return Relationship.ALLIED;
+        boolean firstNpc = NpcRules.isNpcFaction(firstOwnerId);
+        boolean secondNpc = NpcRules.isNpcFaction(secondOwnerId);
+        return switch (state.mode) {
+            case COOP_VS_NPC -> firstNpc == secondNpc ? Relationship.ALLIED : Relationship.HOSTILE;
+            case FIXED_TEAMS, LOCKED_ALLIANCES, FFA -> Relationship.HOSTILE;
+        };
+    }
+
+    private static void clearAllianceOffers(State state, String firstOwnerId, String secondOwnerId) {
+        state.allianceOffers.remove(new AllianceOffer(firstOwnerId, secondOwnerId));
+        state.allianceOffers.remove(new AllianceOffer(secondOwnerId, firstOwnerId));
+    }
+
+    private static void clearAllModeState(State state) {
         state.teams.clear();
         state.ownerTeams.clear();
         state.explicitRelationships.clear();
+        state.allianceOffers.clear();
     }
 
     private static void normalizeForMode(State state) {
@@ -271,10 +400,14 @@ final class DiplomacySystem {
             state.friendlyFire = false;
             state.sharedVision = false;
             state.sharedVictory = false;
-            clearModeSpecificState(state);
-        } else if (state.mode == MatchMode.COOP_VS_NPC) {
-            state.sharedVision = true;
-            state.sharedVictory = true;
+            state.teams.clear();
+            state.ownerTeams.clear();
+        } else {
+            state.allianceOffers.clear();
+            if (state.mode == MatchMode.COOP_VS_NPC) {
+                state.sharedVision = true;
+                state.sharedVictory = true;
+            }
         }
     }
 
@@ -307,6 +440,7 @@ final class DiplomacySystem {
     }
 
     private record OwnerPair(String first, String second) { }
+    private record AllianceOffer(String fromOwnerId, String toOwnerId) { }
 
     private static final class State {
         static final State NULL = new State();
@@ -317,5 +451,6 @@ final class DiplomacySystem {
         final Map<String,TeamDefinition> teams = new LinkedHashMap<>();
         final Map<String,String> ownerTeams = new LinkedHashMap<>();
         final Map<OwnerPair,Relationship> explicitRelationships = new LinkedHashMap<>();
+        final Set<AllianceOffer> allianceOffers = new LinkedHashSet<>();
     }
 }

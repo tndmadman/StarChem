@@ -82,6 +82,10 @@ final class InGameMenuOverlay extends JComponent {
         switch (action) {
             case RESUME -> run(resumeAction);
             case SETTINGS -> run(settingsAction);
+            case DIPLOMACY -> {
+                close();
+                DiplomacyDialog.open(this);
+            }
             case TUTORIAL -> run(tutorialAction);
             case RETURN_TO_MAIN_MENU -> run(lobbyAction);
             case QUIT -> run(quitAction);

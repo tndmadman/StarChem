@@ -9,6 +9,11 @@ final class ClientPackets {
         if (p[0].equals("ENV")) { c.readEnv(p); return; }
         if (p[0].equals("SEED") && p.length >= 2) { c.readSeed(p[1]); return; }
         if (p[0].equals("WELCOME")) { c.readWelcome(p); return; }
+        if (p[0].equals("DIPLOMACY_STATE") && p.length == 2) {
+            DiplomacySystem.restore(c.world, DiplomacyStateWire.decode(p[1]));
+            DiplomacyBootstrap.refreshIntelAlliances(c.world);
+            return;
+        }
         if (p[0].equals("SERVER_NOTICE")) {
             String notice = message.length() > 14 ? message.substring(14).trim() : "";
             c.world.status = notice.isBlank() ? "Server notice." : "SERVER: " + notice;
