@@ -35,6 +35,18 @@ final class DiplomacyNetworkBridge {
         return sendPacket(network, world, "", "REFRESH");
     }
 
+    static boolean sendRawForTest(PeerNetwork network, World world, String packet) {
+        if (network == null || world == null || packet == null || !packet.startsWith("DIPLOMACY|")) return false;
+        try {
+            Object client = CLIENT.get(network);
+            if (!(client instanceof PeerClientSide)) return false;
+            SEND_COMMAND.invoke(client, packet);
+            return true;
+        } catch (ReflectiveOperationException ex) {
+            return false;
+        }
+    }
+
     private static boolean sendPacket(PeerNetwork network, World world, String targetId, String action) {
         try {
             Object client = CLIENT.get(network);
