@@ -20,13 +20,14 @@ public final class InGameMenuValidator {
         expectEquals("feature menu labels", List.of(
                 "Return to Game",
                 "Settings",
+                "Diplomacy",
                 "Start / Resume Tutorial",
                 "Return to Main Menu",
                 "Quit Game"), soloMenu.labelsForTest());
 
         GameMenuOverlay multiplayerMenu = new GameMenuOverlay(false);
         expectEquals("multiplayer tutorial label", "Tutorial - Solo Only",
-                multiplayerMenu.labelsForTest().get(2));
+                multiplayerMenu.labelsForTest().get(3));
         expectEquals("settings panel width", 980, SettingsPanel.panelWidthForTest());
         expectEquals("settings panel height", 680, SettingsPanel.panelHeightForTest());
 
