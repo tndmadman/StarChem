@@ -52,5 +52,8 @@ jobs:
       - name: Validate diplomacy rules
         run: java -cp build/classes/java/main com.tndmadman.rts.DiplomacyValidator
 
+      - name: Validate shared objective progress
+        run: java -cp build/classes/java/main com.tndmadman.rts.DiplomacyObjectiveValidator
+
       - name: Validate authoritative ID repair
         run: java -cp build/classes/java/main com.tndmadman.rts.AuthoritativeIdRepairValidator
