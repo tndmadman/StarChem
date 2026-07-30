@@ -29,46 +29,23 @@ final class PlayerRegistry {
         RegistryState state = state();
         state.players.clear();
         state.localId = id;
-        System.out.println("[CONNECTION][CLIENT] Resetting player registry for local owner id=" + safe(id));
         register(id, name, rgb, true);
     }
 
     static void register(String id, String name, int rgb, boolean local) {
-        if (id == null || id.isBlank()) {
-            System.err.println("[CONNECTION][REGISTRY] Rejected player registration: blank player id.");
-            return;
-        }
-        if (!local && "WAIT".equals(id)) {
-            System.err.println("[CONNECTION][SERVER] Ignored invalid remote WAIT registration attempt.");
-            return;
-        }
-        String side = local ? "CLIENT" : "SERVER";
-        System.out.println("[CONNECTION][" + side + "] Registering player id=" + safe(id)
-                + " name=" + safe(Config.clean(name)) + ".");
+        if (id == null || id.isBlank()) return;
+        if (!local && "WAIT".equals(id)) return;
         RegistryState state = state();
-        try {
-            if (local) {
-                if (!id.equals(state.localId)) state.players.remove(state.localId);
-                state.localId = id;
-                if (!"WAIT".equals(id)) state.players.remove("WAIT");
-            }
-            state.players.put(id, new PlayerInfo(id, Config.clean(name), rgb, local));
-            System.out.println("[CONNECTION][" + side + "] Player record stored; assigning diplomacy owner state.");
-            DiplomacyBootstrap.assignRegisteredOwner(activeWorld(), id, rgb);
-            System.out.println("[CONNECTION][" + side + "] Player registration completed id=" + safe(id) + ".");
-        } catch (RuntimeException ex) {
-            System.err.println("[CONNECTION][" + side + "][FAILURE] Player registration failed id="
-                    + safe(id) + " at " + ex.getClass().getSimpleName() + ": " + safe(ex.getMessage()));
-            ex.printStackTrace(System.err);
-            throw ex;
+        if (local) {
+            if (!id.equals(state.localId)) state.players.remove(state.localId);
+            state.localId = id;
+            if (!"WAIT".equals(id)) state.players.remove("WAIT");
         }
+        state.players.put(id, new PlayerInfo(id, Config.clean(name), rgb, local));
+        DiplomacyBootstrap.assignRegisteredOwner(activeWorld(), id, rgb);
     }
 
-    static void remove(String id) {
-        if (state().players.remove(id) != null) {
-            System.out.println("[CONNECTION][REGISTRY] Removed player id=" + safe(id) + ".");
-        }
-    }
+    static void remove(String id) { state().players.remove(id); }
     static boolean isLocal(String id) { return id != null && id.equals(state().localId); }
     static String localId() { return state().localId; }
     static Color color(String id) {
@@ -91,12 +68,6 @@ final class PlayerRegistry {
     static List<PlayerInfo> snapshotPlayers() { return new ArrayList<>(state().players.values()); }
 
     private static RegistryState state() { return ACTIVE.get(); }
-
-    private static String safe(String value) {
-        if (value == null) return "<null>";
-        String clean = value.replace('\n', ' ').replace('\r', ' ').replace('|', ' ').trim();
-        return clean.isBlank() ? "<blank>" : clean;
-    }
 
     private static final class RegistryState {
         final Map<String, PlayerInfo> players = new LinkedHashMap<>();
