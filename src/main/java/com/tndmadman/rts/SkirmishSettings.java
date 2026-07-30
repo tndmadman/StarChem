@@ -220,8 +220,6 @@ record SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
     }
 }
 
-enum SkirmPresetPlaceholder { }
-
 enum SkirmishPreset {
     PEACEFUL("peaceful", "Peaceful Economy", 1.35, 0.80,
             Set.of(Config.RAIDERS_ID, Config.CORSAIRS_ID)),
