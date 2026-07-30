@@ -90,11 +90,7 @@ record SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
         out.put("disabledNpcFactionIds", new ArrayList<>(disabledNpcFactionIds));
         out.put("victoryConditionId", victoryConditionId);
         out.put("diplomacy", diplomacy.saveMap());
-        Map<String,Object> state = diplomacyState;
-        World activeWorld = PlayerRegistry.activeWorld();
-        if (activeWorld != null && SkirmishRuntime.settings(activeWorld) == this) {
-            state = DiplomacySystem.capture(activeWorld);
-        }
+        Map<String,Object> state = currentDiplomacyState();
         if (!state.isEmpty()) out.put("diplomacyState", state);
         return out;
     }
@@ -125,7 +121,8 @@ record SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
     String packet() {
         return "WORLDINFO|" + preset.id() + "|" + difficulty.id() + "|"
                 + String.join(",", disabledNpcFactionIds) + "|" + victoryConditionId
-                + "|" + diplomacy.packetField();
+                + "|" + diplomacy.packetField() + "|"
+                + DiplomacyStateWire.encode(currentDiplomacyState());
     }
 
     static SkirmishSettings fromPacket(String message) {
@@ -133,7 +130,7 @@ record SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
             throw new IllegalArgumentException("Invalid world-info packet.");
         }
         String[] parts = message.split("\\|", -1);
-        if (parts.length < 4 || parts.length > 6) {
+        if (parts.length < 4 || parts.length > 7) {
             throw new IllegalArgumentException("Malformed world-info packet.");
         }
         Set<String> disabled = new LinkedHashSet<>();
@@ -142,10 +139,12 @@ record SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
         }
         String victoryConditionId = parts.length >= 5 && !parts[4].isBlank()
                 ? parts[4] : VictoryConditionRules.defaultId();
-        DiplomacyMatchSettings diplomacy = parts.length == 6
+        DiplomacyMatchSettings diplomacy = parts.length >= 6
                 ? DiplomacyMatchSettings.fromPacketField(parts[5]) : DiplomacyMatchSettings.ffa();
+        Map<String,Object> diplomacyState = parts.length == 7
+                ? DiplomacyStateWire.decode(parts[6]) : Map.of();
         return new SkirmishSettings(SkirmishPreset.parse(parts[1]),
-                NpcDifficulty.parse(parts[2]), disabled, victoryConditionId, diplomacy, Map.of());
+                NpcDifficulty.parse(parts[2]), disabled, victoryConditionId, diplomacy, diplomacyState);
     }
 
     List<NpcFaction> resolve(List<NpcFaction> baseFactions) {
@@ -182,6 +181,14 @@ record SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
                 faction.attackUnits(), faction.attackNpcFactions(), faction.replaceWorkers(),
                 faction.harassWorkers(), faction.preferWorkerTargets(), faction.requirePlayerCombatShips(),
                 faction.minPlayerCombatShips(), faction.spawnMessage());
+    }
+
+    private Map<String,Object> currentDiplomacyState() {
+        World activeWorld = PlayerRegistry.activeWorld();
+        if (activeWorld != null && SkirmishRuntime.settings(activeWorld) == this) {
+            return DiplomacySystem.capture(activeWorld);
+        }
+        return diplomacyState;
     }
 
     private static List<String> scaleUnits(List<String> units, double multiplier) {
