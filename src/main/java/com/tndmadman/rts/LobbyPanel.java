@@ -23,6 +23,11 @@ final class LobbyPanel extends JPanel {
     private final JComboBox<NpcDifficulty> npcDifficultyBox = new JComboBox<>(NpcDifficulty.values());
     private final JComboBox<VictoryConditionDefinition> victoryConditionBox = new JComboBox<>(
             VictoryConditionRules.all().toArray(new VictoryConditionDefinition[0]));
+    private final JComboBox<DiplomacySystem.MatchMode> diplomacyModeBox =
+            new JComboBox<>(DiplomacySystem.MatchMode.values());
+    private final JCheckBox friendlyFireBox = new JCheckBox("Friendly fire");
+    private final JCheckBox sharedVisionBox = new JCheckBox("Shared vision");
+    private final JCheckBox sharedVictoryBox = new JCheckBox("Shared victory");
     private final JCheckBox devBox = new JCheckBox("Dev mode");
     private final JCheckBox spawnRaidersBox = new JCheckBox("Raiders", true);
     private final JCheckBox spawnFreeMinersBox = new JCheckBox("Free Miners", true);
@@ -49,13 +54,29 @@ final class LobbyPanel extends JPanel {
         styleCombo(skirmishPresetBox);
         styleCombo(npcDifficultyBox);
         styleCombo(victoryConditionBox);
+        styleCombo(diplomacyModeBox);
+        diplomacyModeBox.setRenderer(new DefaultListCellRenderer() {
+            @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                                     boolean selected, boolean focus) {
+                Component component = super.getListCellRendererComponent(list, value, index, selected, focus);
+                if (component instanceof JLabel label && value instanceof DiplomacySystem.MatchMode mode) {
+                    label.setText(diplomacyModeLabel(mode));
+                }
+                return component;
+            }
+        });
         for (StarSystemDefinition system : StarSystems.options()) systemBox.addItem(system);
+        styleCheck(friendlyFireBox);
+        styleCheck(sharedVisionBox);
+        styleCheck(sharedVictoryBox);
         styleCheck(devBox);
         styleCheck(spawnRaidersBox);
         styleCheck(spawnFreeMinersBox);
         styleCheck(spawnCorsairsBox);
         skirmishPresetBox.addActionListener(e -> applyPresetDefaults());
+        diplomacyModeBox.addActionListener(e -> applyDiplomacyDefaults());
         applyPresetDefaults();
+        applyDiplomacyDefaults();
 
         JLabel title = new JLabel("STAR  CHEM");
         title.setForeground(new Color(230, 248, 255));
@@ -175,11 +196,22 @@ final class LobbyPanel extends JPanel {
         addFormRow(grid, row++, "Solo skirmish preset", skirmishPresetBox);
         addFormRow(grid, row++, "Solo NPC difficulty", npcDifficultyBox);
         addFormRow(grid, row++, "Solo victory condition", victoryConditionBox);
+        addFormRow(grid, row++, "Solo diplomacy", diplomacyModeBox);
+        addFormRow(grid, row++, "Diplomacy rules", diplomacyRulesPanel());
         addFormRow(grid, row++, "Options", devBox);
         addFormRow(grid, row++, "NPC Spawns", spawnRaidersBox);
         addFormRow(grid, row++, "", spawnFreeMinersBox);
         addFormRow(grid, row, "", spawnCorsairsBox);
         return grid;
+    }
+
+    private JPanel diplomacyRulesPanel() {
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+        panel.setOpaque(false);
+        panel.add(friendlyFireBox);
+        panel.add(sharedVisionBox);
+        panel.add(sharedVictoryBox);
+        return panel;
     }
 
     private void addFormRow(JPanel panel, int row, String labelText, Component component) {
@@ -374,11 +406,16 @@ final class LobbyPanel extends JPanel {
         Object selectedPreset = skirmishPresetBox.getSelectedItem();
         Object selectedDifficulty = npcDifficultyBox.getSelectedItem();
         Object selectedVictory = victoryConditionBox.getSelectedItem();
+        Object selectedDiplomacy = diplomacyModeBox.getSelectedItem();
         SkirmishPreset preset = selectedPreset instanceof SkirmishPreset value ? value : SkirmishPreset.STANDARD;
         NpcDifficulty difficulty = selectedDifficulty instanceof NpcDifficulty value ? value : NpcDifficulty.NORMAL;
         String victoryConditionId = selectedVictory instanceof VictoryConditionDefinition value
                 ? value.id() : VictoryConditionRules.defaultId();
-        return new SkirmishSettings(preset, difficulty, disabledNpcFactions(), victoryConditionId);
+        DiplomacySystem.MatchMode mode = selectedDiplomacy instanceof DiplomacySystem.MatchMode value
+                ? value : DiplomacySystem.MatchMode.FFA;
+        DiplomacyMatchSettings diplomacy = new DiplomacyMatchSettings(mode,
+                friendlyFireBox.isSelected(), sharedVisionBox.isSelected(), sharedVictoryBox.isSelected());
+        return new SkirmishSettings(preset, difficulty, disabledNpcFactions(), victoryConditionId, diplomacy);
     }
 
     private void applyPresetDefaults() {
@@ -388,6 +425,38 @@ final class LobbyPanel extends JPanel {
         spawnRaidersBox.setSelected(!disabled.contains(Config.RAIDERS_ID));
         spawnFreeMinersBox.setSelected(!disabled.contains(Config.FREE_MINERS_ID));
         spawnCorsairsBox.setSelected(!disabled.contains(Config.CORSAIRS_ID));
+    }
+
+    private void applyDiplomacyDefaults() {
+        Object selected = diplomacyModeBox.getSelectedItem();
+        DiplomacySystem.MatchMode mode = selected instanceof DiplomacySystem.MatchMode value
+                ? value : DiplomacySystem.MatchMode.FFA;
+        boolean enabled = mode != DiplomacySystem.MatchMode.FFA;
+        friendlyFireBox.setEnabled(enabled);
+        sharedVisionBox.setEnabled(enabled && mode != DiplomacySystem.MatchMode.COOP_VS_NPC);
+        sharedVictoryBox.setEnabled(enabled && mode != DiplomacySystem.MatchMode.COOP_VS_NPC);
+        if (!enabled) {
+            friendlyFireBox.setSelected(false);
+            sharedVisionBox.setSelected(false);
+            sharedVictoryBox.setSelected(false);
+        } else if (mode == DiplomacySystem.MatchMode.COOP_VS_NPC) {
+            friendlyFireBox.setSelected(false);
+            sharedVisionBox.setSelected(true);
+            sharedVictoryBox.setSelected(true);
+        } else {
+            sharedVisionBox.setSelected(true);
+            sharedVictoryBox.setSelected(true);
+        }
+    }
+
+    private static String diplomacyModeLabel(DiplomacySystem.MatchMode mode) {
+        if (mode == null) return "Free-for-all";
+        return switch (mode) {
+            case FFA -> "Free-for-all";
+            case FIXED_TEAMS -> "Fixed teams";
+            case COOP_VS_NPC -> "Co-op vs NPC";
+            case LOCKED_ALLIANCES -> "Locked alliances";
+        };
     }
 
     private Set<String> disabledNpcFactions() {
