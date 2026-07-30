@@ -26,21 +26,38 @@ final class DiplomacyBootstrap {
     static void assignRegisteredOwner(World world, String ownerId, int rgb) {
         if (world == null || ownerId == null || ownerId.isBlank() || "WAIT".equals(ownerId)) return;
         initialize(world);
-        if (!DiplomacySystem.teamId(world, ownerId).isBlank()) return;
-        DiplomacySystem.MatchMode mode = DiplomacySystem.mode(world);
-        if (NpcRules.isNpcFaction(ownerId)) {
-            String teamId = "NPC_" + sanitize(ownerId);
-            DiplomacySystem.defineTeam(world, new DiplomacySystem.TeamDefinition(teamId,
-                    PlayerRegistry.name(ownerId), rgb));
-            DiplomacySystem.assignTeam(world, ownerId, teamId);
-            return;
+        if (DiplomacySystem.teamId(world, ownerId).isBlank()) {
+            DiplomacySystem.MatchMode mode = DiplomacySystem.mode(world);
+            if (NpcRules.isNpcFaction(ownerId)) {
+                String teamId = "NPC_" + sanitize(ownerId);
+                DiplomacySystem.defineTeam(world, new DiplomacySystem.TeamDefinition(teamId,
+                        rawPlayerName(ownerId), rgb));
+                DiplomacySystem.assignTeam(world, ownerId, teamId);
+            } else {
+                switch (mode) {
+                    case COOP_VS_NPC -> DiplomacySystem.assignTeam(world, ownerId, HUMAN_COOP_TEAM);
+                    case FIXED_TEAMS, LOCKED_ALLIANCES -> DiplomacySystem.assignTeam(world, ownerId,
+                            playerOrdinal(ownerId) % 2 == 0 ? TEAM_BETA : TEAM_ALPHA);
+                    case FFA -> { }
+                }
+            }
         }
-        switch (mode) {
-            case COOP_VS_NPC -> DiplomacySystem.assignTeam(world, ownerId, HUMAN_COOP_TEAM);
-            case FIXED_TEAMS, LOCKED_ALLIANCES -> DiplomacySystem.assignTeam(world, ownerId,
-                    playerOrdinal(ownerId) % 2 == 0 ? TEAM_BETA : TEAM_ALPHA);
-            case FFA -> { }
+        syncIntelAlliances(world, ownerId);
+    }
+
+    private static void syncIntelAlliances(World world, String ownerId) {
+        for (PlayerInfo other : PlayerRegistry.snapshotPlayers()) {
+            if (other == null || other.id() == null || other.id().equals(ownerId)) continue;
+            boolean shared = DiplomacySystem.sharesVision(world, ownerId, other.id());
+            IntelWarfareSystem.setIntelAlliance(world, ownerId, other.id(), shared);
         }
+    }
+
+    private static String rawPlayerName(String ownerId) {
+        for (PlayerInfo player : PlayerRegistry.snapshotPlayers()) {
+            if (player != null && ownerId.equals(player.id())) return player.name();
+        }
+        return ownerId;
     }
 
     private static void defineDefaultTeams(World world, DiplomacySystem.MatchMode mode) {
