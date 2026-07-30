@@ -50,7 +50,8 @@ final class DiplomacyBootstrap {
         return ownerId;
     }
 
-    private static void defineDefaultTeams(World world, DiplomacySystem.MatchMode mode) {
+    static void defineDefaultTeams(World world, DiplomacySystem.MatchMode mode) {
+        if (world == null || mode == null) return;
         if (mode == DiplomacySystem.MatchMode.COOP_VS_NPC) {
             DiplomacySystem.defineTeam(world, new DiplomacySystem.TeamDefinition(
                     HUMAN_COOP_TEAM, "Human Coalition", 0x50BEFF));
