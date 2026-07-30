@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
 
+
 enum ObjectiveStatus {
     DISABLED,
     ACTIVE,
@@ -119,14 +120,14 @@ final class ObjectiveSystem {
         double elapsed = Math.max(previous.elapsedSeconds(), metrics.maxSystemTime());
         if (Double.isFinite(dt) && dt > 0) elapsed += Math.min(dt, 1.0);
         Progress best = bestProgress(world, definition, metrics, elapsed);
-        boolean completed = best.current() >= definition.target() && !best.playerId().isBlank();
+        boolean completed = best.current() >= definition.target() && !best.participantId().isBlank();
         STATES.put(world, new ObjectiveState(
                 definition.id(),
                 completed ? ObjectiveStatus.COMPLETED : ObjectiveStatus.ACTIVE,
                 best.current(),
                 definition.target(),
-                best.playerId(),
-                completed ? best.playerId() : "",
+                best.participantId(),
+                completed ? best.participantId() : "",
                 elapsed));
     }
 
@@ -148,8 +149,8 @@ final class ObjectiveSystem {
                 state.status(),
                 state.current(),
                 state.target(),
-                playerName(state.completedById()),
-                playerName(state.leaderId()));
+                participantName(world, state.completedById()),
+                participantName(world, state.leaderId()));
     }
 
     static Map<String,Object> capture(World world) {
@@ -220,30 +221,49 @@ final class ObjectiveSystem {
                                          Metrics metrics, double elapsed) {
         List<String> players = new ArrayList<>(metrics.players());
         Collections.sort(players);
-        Progress best = new Progress("", 0);
+        Map<String,List<String>> groups = new LinkedHashMap<>();
         for (String playerId : players) {
             if (!humanPlayer(playerId)) continue;
-            int current = progress(world, definition, metrics, playerId, elapsed);
-            if (current > best.current()) best = new Progress(playerId, current);
+            String groupId = DiplomacySystem.victoryGroupId(world, playerId);
+            if (groupId.isBlank()) groupId = playerId;
+            groups.computeIfAbsent(groupId, ignored -> new ArrayList<>()).add(playerId);
+        }
+        Progress best = new Progress("", 0);
+        for (Map.Entry<String,List<String>> entry : groups.entrySet()) {
+            int current = groupProgress(world, definition, metrics, entry.getValue(), elapsed);
+            if (current > best.current()) best = new Progress(entry.getKey(), current);
         }
         return best;
     }
 
-    private static int progress(World world, VictoryConditionDefinition definition,
-                                Metrics metrics, String playerId, double elapsed) {
+    private static int groupProgress(World world, VictoryConditionDefinition definition,
+                                     Metrics metrics, List<String> members, double elapsed) {
+        if (members == null || members.isEmpty()) return 0;
         return switch (definition.type()) {
-            case COMPLETE_RESEARCH -> world.hasResearch(playerId, definition.value()) ? 1 : 0;
-            case COMPLETE_RESEARCH_COUNT -> world.completedResearch.getOrDefault(playerId, Set.of()).size();
-            case OWN_SHIPS -> metrics.ships(playerId);
-            case OWN_COMBAT_SHIPS -> metrics.combatShips(playerId);
-            case OWN_STATIONS -> metrics.stations(playerId);
-            case OWN_SHIP_TYPE -> metrics.shipTypes(playerId).getOrDefault(definition.value(), 0);
-            case OWN_STATION_TYPE -> metrics.stationTypes(playerId).getOrDefault(definition.value(), 0);
-            case FLEET_POWER -> metrics.fleetPower(playerId);
-            case CONTROL_SYSTEMS -> metrics.controlledSystems(playerId);
-            case SURVIVE_SECONDS -> metrics.liveAssets(playerId) > 0
+            case COMPLETE_RESEARCH -> members.stream().anyMatch(playerId -> world.hasResearch(playerId, definition.value())) ? 1 : 0;
+            case COMPLETE_RESEARCH_COUNT -> {
+                Set<String> completed = new LinkedHashSet<>();
+                for (String playerId : members) completed.addAll(world.completedResearch.getOrDefault(playerId, Set.of()));
+                yield completed.size();
+            }
+            case OWN_SHIPS -> sum(members, metrics::ships);
+            case OWN_COMBAT_SHIPS -> sum(members, metrics::combatShips);
+            case OWN_STATIONS -> sum(members, metrics::stations);
+            case OWN_SHIP_TYPE -> sum(members,
+                    playerId -> metrics.shipTypes(playerId).getOrDefault(definition.value(), 0));
+            case OWN_STATION_TYPE -> sum(members,
+                    playerId -> metrics.stationTypes(playerId).getOrDefault(definition.value(), 0));
+            case FLEET_POWER -> sum(members, metrics::fleetPower);
+            case CONTROL_SYSTEMS -> sum(members, metrics::controlledSystems);
+            case SURVIVE_SECONDS -> sum(members, metrics::liveAssets) > 0
                     ? (int)Math.min(Integer.MAX_VALUE, Math.floor(elapsed)) : 0;
         };
+    }
+
+    private static int sum(List<String> members, java.util.function.ToIntFunction<String> value) {
+        long total = 0;
+        for (String member : members) total += Math.max(0, value.applyAsInt(member));
+        return (int)Math.min(Integer.MAX_VALUE, total);
     }
 
     private static Metrics collectMetrics(World world) {
@@ -310,8 +330,15 @@ final class ObjectiveSystem {
         return (int)Math.min(Integer.MAX_VALUE, Math.round(sum));
     }
 
-    private static String playerName(String playerId) {
-        return playerId == null || playerId.isBlank() ? "" : PlayerRegistry.name(playerId);
+    private static String participantName(World world, String participantId) {
+        if (participantId == null || participantId.isBlank()) return "";
+        if (participantId.startsWith("TEAM:")) {
+            String teamId = participantId.substring(5);
+            for (DiplomacySystem.TeamDefinition team : DiplomacySystem.teams(world)) {
+                if (team.id().equals(teamId)) return team.displayName();
+            }
+        }
+        return PlayerRegistry.name(participantId);
     }
 
     private static boolean humanPlayer(String playerId) {
@@ -319,7 +346,7 @@ final class ObjectiveSystem {
                 && !NpcRules.isNpcFaction(playerId);
     }
 
-    private record Progress(String playerId, int current) { }
+    private record Progress(String participantId, int current) { }
 
     private record Metrics(Set<String> players, Map<String,Integer> ships,
                            Map<String,Integer> combatShips, Map<String,Integer> stations,

@@ -16,6 +16,13 @@ final class CombatTarget {
         return world.bases.get(key.substring(2));
     }
 
+    static String owner(World world, String key) {
+        Unit unit = unit(world, key);
+        if (unit != null) return unit.playerId;
+        Base base = base(world, key);
+        return base == null ? "" : base.playerId;
+    }
+
     static boolean alive(World world, String key) {
         Unit unit = unit(world, key);
         if (unit != null) return unit.hp > 0;
@@ -24,10 +31,16 @@ final class CombatTarget {
     }
 
     static boolean enemy(World world, Unit attacker, String key) {
-        Unit unit = unit(world, key);
-        if (unit != null) return !unit.playerId.equals(attacker.playerId) && unit.hp > 0;
-        Base base = base(world, key);
-        return base != null && !base.playerId.equals(attacker.playerId) && base.hp > 0;
+        return attacker != null && alive(world, key)
+                && DiplomacySystem.mayTarget(world, attacker.playerId, owner(world, key));
+    }
+
+    static boolean mayTarget(World world, String actorId, String key) {
+        return alive(world, key) && DiplomacySystem.mayTarget(world, actorId, owner(world, key));
+    }
+
+    static boolean mayDamage(World world, String actorId, String key) {
+        return alive(world, key) && DiplomacySystem.mayDamage(world, actorId, owner(world, key));
     }
 
     static double x(World world, String key) {
@@ -52,5 +65,11 @@ final class CombatTarget {
         }
         Base base = base(world, key);
         if (base != null) ShieldSystem.damage(base, amount);
+    }
+
+    static boolean damage(World world, String attackerId, String key, double amount) {
+        if (!mayDamage(world, attackerId, key)) return false;
+        damage(world, key, amount);
+        return true;
     }
 }

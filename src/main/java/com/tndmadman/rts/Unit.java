@@ -65,7 +65,11 @@ final class Unit {
     }
 
     void attack(String targetKey) {
-        attackTarget = targetKey == null ? "" : targetKey;
+        String candidate = targetKey == null ? "" : targetKey.trim();
+        World world = PlayerRegistry.activeWorld();
+        if (world != null && !candidate.isBlank()
+                && !CombatTarget.mayTarget(world, playerId, candidate)) candidate = "";
+        attackTarget = candidate;
         task = attackTarget.isBlank() ? UnitTask.IDLE : UnitTask.ATTACK;
         automationResourceId = -1;
     }
@@ -85,6 +89,12 @@ final class Unit {
         if (!GameplayCommandNumbers.finite(command.x1(), command.y1(), command.x2(), command.y2(), command.radius())
                 || !GameplayCommandNumbers.orderRadius(command.radius())
                 || command.phase() < 0 || command.phase() > 1) return;
+        World world = PlayerRegistry.activeWorld();
+        if (world != null && (command.type() == UnitOrderType.ESCORT || command.type() == UnitOrderType.GUARD)
+                && command.targetKey() != null && !command.targetKey().isBlank()) {
+            String targetOwner = CombatTarget.owner(world, command.targetKey());
+            if (!DiplomacySystem.allied(world, playerId, targetOwner)) return;
+        }
         orderType = command.type();
         orderX1 = command.x1();
         orderY1 = command.y1();

@@ -73,17 +73,21 @@ final class UnitOrderSystem {
 
     static double anchorX(World world, Unit unit) {
         Unit targetUnit = CombatTarget.unit(world, unit.orderTarget);
-        if (targetUnit != null && targetUnit.hp > 0 && targetUnit.playerId.equals(unit.playerId)) return targetUnit.x;
+        if (targetUnit != null && targetUnit.hp > 0
+                && DiplomacySystem.allied(world, unit.playerId, targetUnit.playerId)) return targetUnit.x;
         Base targetBase = CombatTarget.base(world, unit.orderTarget);
-        if (targetBase != null && targetBase.hp > 0 && targetBase.playerId.equals(unit.playerId)) return targetBase.x;
+        if (targetBase != null && targetBase.hp > 0
+                && DiplomacySystem.allied(world, unit.playerId, targetBase.playerId)) return targetBase.x;
         return unit.orderX1;
     }
 
     static double anchorY(World world, Unit unit) {
         Unit targetUnit = CombatTarget.unit(world, unit.orderTarget);
-        if (targetUnit != null && targetUnit.hp > 0 && targetUnit.playerId.equals(unit.playerId)) return targetUnit.y;
+        if (targetUnit != null && targetUnit.hp > 0
+                && DiplomacySystem.allied(world, unit.playerId, targetUnit.playerId)) return targetUnit.y;
         Base targetBase = CombatTarget.base(world, unit.orderTarget);
-        if (targetBase != null && targetBase.hp > 0 && targetBase.playerId.equals(unit.playerId)) return targetBase.y;
+        if (targetBase != null && targetBase.hp > 0
+                && DiplomacySystem.allied(world, unit.playerId, targetBase.playerId)) return targetBase.y;
         return unit.orderY1;
     }
 
@@ -109,7 +113,8 @@ final class UnitOrderSystem {
 
     private static void updateEscort(World world, Unit unit) {
         Unit escorted = CombatTarget.unit(world, unit.orderTarget);
-        if (escorted == null || escorted.hp <= 0 || !escorted.playerId.equals(unit.playerId) || escorted == unit) {
+        if (escorted == null || escorted.hp <= 0
+                || !DiplomacySystem.allied(world, unit.playerId, escorted.playerId) || escorted == unit) {
             holdHere(unit);
             return;
         }
@@ -164,10 +169,12 @@ final class UnitOrderSystem {
 
     private static boolean friendlyTarget(World world, Unit unit, String key, boolean unitOnly) {
         Unit targetUnit = CombatTarget.unit(world, key);
-        if (targetUnit != null) return targetUnit != unit && targetUnit.hp > 0 && targetUnit.playerId.equals(unit.playerId);
+        if (targetUnit != null) return targetUnit != unit && targetUnit.hp > 0
+                && DiplomacySystem.allied(world, unit.playerId, targetUnit.playerId);
         if (unitOnly) return false;
         Base targetBase = CombatTarget.base(world, key);
-        return targetBase != null && targetBase.hp > 0 && targetBase.playerId.equals(unit.playerId);
+        return targetBase != null && targetBase.hp > 0
+                && DiplomacySystem.allied(world, unit.playerId, targetBase.playerId);
     }
 
     private static double distanceToSegment(double px, double py, double ax, double ay, double bx, double by) {
@@ -209,10 +216,12 @@ final class AUnitOrder {
 
     private static boolean friendlyTarget(World world, Unit unit, String key, boolean unitOnly) {
         Unit targetUnit = CombatTarget.unit(world, key);
-        if (targetUnit != null) return targetUnit != unit && targetUnit.hp > 0 && targetUnit.playerId.equals(unit.playerId);
+        if (targetUnit != null) return targetUnit != unit && targetUnit.hp > 0
+                && DiplomacySystem.allied(world, unit.playerId, targetUnit.playerId);
         if (unitOnly) return false;
         Base targetBase = CombatTarget.base(world, key);
-        return targetBase != null && targetBase.hp > 0 && targetBase.playerId.equals(unit.playerId);
+        return targetBase != null && targetBase.hp > 0
+                && DiplomacySystem.allied(world, unit.playerId, targetBase.playerId);
     }
 
     private static boolean finite(double... values) {

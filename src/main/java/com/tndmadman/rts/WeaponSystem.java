@@ -59,7 +59,7 @@ final class WeaponSystem {
         double bestScore = Double.MAX_VALUE;
         double range = UnitOrderSystem.acquisitionRange(unit) * SystemModifierRules.sensorRange(world);
         for (Unit target : world.units.values()) {
-            if (target.playerId.equals(unit.playerId) || target.hp <= 0
+            if (target.hp <= 0 || !DiplomacySystem.hostile(world, unit.playerId, target.playerId)
                     || !VisibilityRules.targetVisible(world, unit.playerId, CombatTarget.unit(target))) continue;
             double distance = Calc.distance(unit.x, unit.y, target.x, target.y);
             if (distance > range || !UnitOrderSystem.canEngage(world, unit, target.x, target.y)) continue;
@@ -71,7 +71,7 @@ final class WeaponSystem {
             }
         }
         for (Base target : world.bases.values()) {
-            if (target.playerId.equals(unit.playerId) || target.hp <= 0
+            if (target.hp <= 0 || !DiplomacySystem.hostile(world, unit.playerId, target.playerId)
                     || !VisibilityRules.targetVisible(world, unit.playerId, CombatTarget.base(target))) continue;
             double distance = Calc.distance(unit.x, unit.y, target.x, target.y);
             if (distance > range || !UnitOrderSystem.canEngage(world, unit, target.x, target.y)) continue;
@@ -126,7 +126,7 @@ final class WeaponSystem {
         WeaponVolley direct = WeaponRules.directVolley(unit.type(), effectiveDistance);
         List<WeaponType> moving = WeaponRules.movingWeapons(unit.type(), effectiveDistance);
         if (direct.damage() <= 0 && moving.isEmpty()) return;
-        if (direct.damage() > 0) CombatTarget.damage(world, unit.attackTarget, direct.damage());
+        if (direct.damage() > 0) CombatTarget.damage(world, unit.playerId, unit.attackTarget, direct.damage());
         double cooldown = direct.damage() > 0 ? direct.cooldownSeconds() : 0;
         for (WeaponType weapon : moving) {
             world.addShot(unit.playerId, weapon.id, unit.attackTarget, unit.x, unit.y);
@@ -147,7 +147,8 @@ final class WeaponSystem {
         while (it.hasNext()) {
             ProjectileShot shot = it.next();
             WeaponType weapon = shot.weapon();
-            if (weapon == null || !CombatTarget.alive(world, shot.targetKey)) { it.remove(); continue; }
+            if (weapon == null || !CombatTarget.alive(world, shot.targetKey)
+                    || !CombatTarget.mayDamage(world, shot.ownerId, shot.targetKey)) { it.remove(); continue; }
             double tx = CombatTarget.x(world, shot.targetKey);
             double ty = CombatTarget.y(world, shot.targetKey);
             double dist = Calc.distance(shot.x, shot.y, tx, ty);
@@ -156,7 +157,8 @@ final class WeaponSystem {
             shot.lastY = shot.y;
             if (dist <= step + 10) {
                 SystemAudio.playWeaponImpact(world, weapon);
-                CombatTarget.damage(world, shot.targetKey, weapon.damage * hitScale(world, shot.targetKey, weapon));
+                CombatTarget.damage(world, shot.ownerId, shot.targetKey,
+                        weapon.damage * hitScale(world, shot.targetKey, weapon));
                 it.remove();
                 continue;
             }
@@ -175,7 +177,8 @@ final class WeaponSystem {
         double bestDist = Double.MAX_VALUE;
         for (ProjectileShot shot : world.shots) {
             WeaponType weapon = shot.weapon();
-            if (weapon == null || !weapon.stoppable || shot.ownerId.equals(unit.playerId)) continue;
+            if (weapon == null || !weapon.stoppable
+                    || !DiplomacySystem.hostile(world, unit.playerId, shot.ownerId)) continue;
             double d = Calc.distance(unit.x, unit.y, shot.x, shot.y);
             if (d <= screen.range * SystemModifierRules.weaponRange(world) && d < bestDist) { best = shot; bestDist = d; }
         }

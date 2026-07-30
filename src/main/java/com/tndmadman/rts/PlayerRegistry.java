@@ -18,8 +18,10 @@ final class PlayerRegistry {
 
     static void activate(World world) {
         ACTIVE_WORLD.set(world);
-        SkirmishRuntime.activate(world);
         ACTIVE.set(world == null ? DEFAULT : BY_WORLD.computeIfAbsent(world, ignored -> new RegistryState()));
+        SkirmishRuntime.activate(world);
+        DiplomacyBootstrap.initialize(world);
+        DiplomacyBootstrap.refreshIntelAlliances(world);
     }
 
     static World activeWorld() { return ACTIVE_WORLD.get(); }
@@ -41,18 +43,43 @@ final class PlayerRegistry {
             if (!"WAIT".equals(id)) state.players.remove("WAIT");
         }
         state.players.put(id, new PlayerInfo(id, Config.clean(name), rgb, local));
+        DiplomacyBootstrap.assignRegisteredOwner(activeWorld(), id, rgb);
+    }
+
+    static void synchronizeName(String id, String name) {
+        if (id == null || id.isBlank() || "WAIT".equals(id)) return;
+        String cleanName = Config.clean(name);
+        if (cleanName.isBlank()) return;
+        RegistryState state = state();
+        PlayerInfo current = state.players.get(id);
+        int rgb = current == null ? 0x888888 : current.rgb();
+        boolean local = current != null && current.local();
+        state.players.put(id, new PlayerInfo(id, cleanName, rgb, local));
+        DiplomacyBootstrap.assignRegisteredOwner(activeWorld(), id, rgb);
     }
 
     static void remove(String id) { state().players.remove(id); }
     static boolean isLocal(String id) { return id != null && id.equals(state().localId); }
     static String localId() { return state().localId; }
     static Color color(String id) {
+        World world = activeWorld();
+        DiplomacySystem.TeamDefinition team = DiplomacySystem.team(world, id);
+        if (team != null && DiplomacySystem.mode(world) != DiplomacySystem.MatchMode.FFA) {
+            return new Color(team.rgb());
+        }
         PlayerInfo p = state().players.get(id);
         return new Color(p == null ? 0x888888 : p.rgb());
     }
-    static String name(String id) {
+    static String baseName(String id) {
         PlayerInfo p = state().players.get(id);
         return p == null ? id : p.name();
+    }
+    static String name(String id) {
+        String base = baseName(id);
+        World world = activeWorld();
+        DiplomacySystem.TeamDefinition team = DiplomacySystem.team(world, id);
+        if (team == null || DiplomacySystem.mode(world) == DiplomacySystem.MatchMode.FFA) return base;
+        return base + " [" + team.displayName() + "]";
     }
     static List<PlayerInfo> snapshotPlayers() { return new ArrayList<>(state().players.values()); }
 

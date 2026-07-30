@@ -4,6 +4,8 @@ import javax.swing.*;
 import java.awt.*;
 
 final class ConnectionOverlayPanel extends JPanel {
+    private static final long RETRY_TRACE_INTERVAL_MS = 2_000;
+
     private final GameFrame owner;
     private final PeerNetwork network;
     private final JLabel title = new JLabel("CONNECTING TO SERVER", SwingConstants.CENTER);
@@ -12,6 +14,8 @@ final class ConnectionOverlayPanel extends JPanel {
     private final JProgressBar progress = new JProgressBar(0, 4);
     private final JButton trust = new JButton("TRUST NEW CERTIFICATE");
     private final Timer timer;
+    private String lastTraceKey = "";
+    private long lastRetryTraceAt;
 
     ConnectionOverlayPanel(GameFrame owner, PeerNetwork network) {
         super(new GridBagLayout());
@@ -30,7 +34,10 @@ final class ConnectionOverlayPanel extends JPanel {
         trust.setVisible(false);
         trust.addActionListener(e -> trustChangedCertificate());
         JButton cancel = new JButton("CANCEL");
-        cancel.addActionListener(e -> owner.showLobby("Connection cancelled."));
+        cancel.addActionListener(e -> {
+            System.out.println("[CONNECTION][CLIENT][CANCELLED] User cancelled the connection attempt.");
+            owner.showLobby("Connection cancelled.");
+        });
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 0));
         buttons.setOpaque(false);
         buttons.add(trust);
@@ -38,8 +45,8 @@ final class ConnectionOverlayPanel extends JPanel {
 
         JPanel card = new JPanel(new GridBagLayout());
         card.setBorder(BorderFactory.createCompoundBorder(
-      BorderFactory.createLineBorder(new Color(70, 135, 180)),
-      BorderFactory.createEmptyBorder(28, 34, 28, 34)));
+                BorderFactory.createLineBorder(new Color(70, 135, 180)),
+                BorderFactory.createEmptyBorder(28, 34, 28, 34)));
         card.setBackground(new Color(8, 18, 30, 242));
 
         GridBagConstraints c = new GridBagConstraints();
@@ -77,33 +84,44 @@ final class ConnectionOverlayPanel extends JPanel {
         refresh();
     }
 
-    void stop() { timer.stop(); }
+    void stop() {
+        if (network != null && network.clientMode()) trace(network.clientConnectionProgress());
+        timer.stop();
+    }
 
     private void trustChangedCertificate() {
         if (network == null || !network.serverCertificateTrustRequired()) return;
+        System.err.println("[CONNECTION][CLIENT][TLS] Server certificate changed; waiting for user verification.");
         int choice = JOptionPane.showConfirmDialog(this,
-      network.serverCertificateTrustPrompt(),
-      "Server Certificate Changed",
-      JOptionPane.YES_NO_OPTION,
-      JOptionPane.WARNING_MESSAGE);
-        if (choice != JOptionPane.YES_OPTION) return;
-        if (!network.trustChangedServerCertificate()) {
-  JOptionPane.showMessageDialog(this,
-          "The pending certificate changed again or could not be stored. Reconnect and verify it again.",
-          "Certificate Trust Failed",
-          JOptionPane.ERROR_MESSAGE);
+                network.serverCertificateTrustPrompt(),
+                "Server Certificate Changed",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+        if (choice != JOptionPane.YES_OPTION) {
+            System.err.println("[CONNECTION][CLIENT][TLS] Changed server certificate was not trusted.");
+            return;
         }
+        if (!network.trustChangedServerCertificate()) {
+            System.err.println("[CONNECTION][CLIENT][TLS][FAILURE] Changed server certificate could not be stored.");
+            JOptionPane.showMessageDialog(this,
+                    "The pending certificate changed again or could not be stored. Reconnect and verify it again.",
+                    "Certificate Trust Failed",
+                    JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        System.out.println("[CONNECTION][CLIENT][TLS] Changed server certificate trusted; reconnecting.");
     }
 
     private void refresh() {
         if (network == null || !network.clientMode()) {
-  setVisible(false);
-  return;
+            setVisible(false);
+            return;
         }
         ClientConnectionProgress state = network.clientConnectionProgress();
+        trace(state);
         if (state.ready()) {
-  setVisible(false);
-  return;
+            setVisible(false);
+            return;
         }
         setVisible(true);
         title.setText(state.title());
@@ -117,12 +135,51 @@ final class ConnectionOverlayPanel extends JPanel {
         repaint();
     }
 
+    private void trace(ClientConnectionProgress state) {
+        if (state == null) return;
+        long now = System.currentTimeMillis();
+        String cleanTitle = clean(state.title());
+        String cleanDetail = clean(state.detail());
+        String traceKey = state.phase() + "|" + state.stage() + "|" + cleanTitle + "|" + cleanDetail;
+        boolean changed = !traceKey.equals(lastTraceKey);
+        boolean retryHeartbeat = (state.phase() == ConnectionPhase.CONNECTING
+                || state.phase() == ConnectionPhase.RECONNECTING)
+                && now - lastRetryTraceAt >= RETRY_TRACE_INTERVAL_MS;
+        if (!changed && !retryHeartbeat) return;
+
+        String prefix = switch (state.phase()) {
+            case CONNECTING, RECONNECTING -> "[CONNECTION][CLIENT][ATTEMPT]";
+            case HANDSHAKING -> "[CONNECTION][CLIENT][TCP]";
+            case SYNCHRONIZING -> "[CONNECTION][CLIENT][SYNC]";
+            case READY -> "[CONNECTION][CLIENT][READY]";
+            case FAILED -> "[CONNECTION][CLIENT][FAILURE]";
+            case DISCONNECTED -> "[CONNECTION][CLIENT][DISCONNECTED]";
+        };
+        String message = prefix
+                + " phase=" + state.phase()
+                + " stage=" + state.stage() + "/" + state.stageCount()
+                + " elapsed=" + String.format(java.util.Locale.ROOT, "%.1fs", state.elapsedMillis() / 1000.0)
+                + " status=\"" + clean(network.statusLine()) + "\""
+                + " detail=\"" + cleanDetail + "\"";
+        if (state.failed()) System.err.println(message); else System.out.println(message);
+
+        lastTraceKey = traceKey;
+        if (state.phase() == ConnectionPhase.CONNECTING || state.phase() == ConnectionPhase.RECONNECTING) {
+            lastRetryTraceAt = now;
+        }
+    }
+
+    private static String clean(String value) {
+        if (value == null) return "";
+        return value.replace('\n', ' ').replace('\r', ' ').replace('|', '/').trim();
+    }
+
     private static String asHtml(String value) {
         String safe = value == null ? "" : value
-      .replace("&", "&amp;")
-      .replace("<", "&lt;")
-      .replace(">", "&gt;")
-      .replace("\n", "<br>");
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\n", "<br>");
         return "<html><div style='text-align:center;width:1050px'>" + safe + "</div></html>";
     }
 

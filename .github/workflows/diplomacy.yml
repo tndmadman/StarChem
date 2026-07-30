@@ -1,0 +1,59 @@
+name: Diplomacy Validation
+
+on:
+  pull_request:
+    paths:
+      - 'src/main/java/com/tndmadman/rts/Diplomacy*.java'
+      - 'src/main/java/com/tndmadman/rts/CombatTarget.java'
+      - 'src/main/java/com/tndmadman/rts/WeaponSystem.java'
+      - 'src/main/java/com/tndmadman/rts/WorldRuntimeCleanup.java'
+      - 'src/main/java/com/tndmadman/rts/AuthoritativeIdRepair*.java'
+      - 'src/main/java/com/tndmadman/rts/SyncPacketBuilder.java'
+      - 'src/main/java/com/tndmadman/rts/WorldLootDrops.java'
+      - '.github/workflows/diplomacy.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/main/java/com/tndmadman/rts/Diplomacy*.java'
+      - 'src/main/java/com/tndmadman/rts/CombatTarget.java'
+      - 'src/main/java/com/tndmadman/rts/WeaponSystem.java'
+      - 'src/main/java/com/tndmadman/rts/WorldRuntimeCleanup.java'
+      - 'src/main/java/com/tndmadman/rts/AuthoritativeIdRepair*.java'
+      - 'src/main/java/com/tndmadman/rts/SyncPacketBuilder.java'
+      - 'src/main/java/com/tndmadman/rts/WorldLootDrops.java'
+      - '.github/workflows/diplomacy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Compile project
+        run: gradle clean classes --no-daemon
+
+      - name: Validate diplomacy rules
+        run: java -cp build/classes/java/main com.tndmadman.rts.DiplomacyValidator
+
+      - name: Validate shared objective progress
+        run: java -cp build/classes/java/main com.tndmadman.rts.DiplomacyObjectiveValidator
+
+      - name: Validate authoritative ID repair
+        run: java -cp build/classes/java/main com.tndmadman.rts.AuthoritativeIdRepairValidator
