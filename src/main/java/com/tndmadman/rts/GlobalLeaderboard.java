@@ -58,6 +58,7 @@ final class GlobalLeaderboard {
             if (!first) out.append(';');
             first = false;
             out.append(clean(entry.playerId())).append(',')
+                    .append(clean(PlayerRegistry.baseName(entry.playerId()))).append(',')
                     .append(Math.max(0, entry.units())).append(',')
                     .append(Math.max(0, entry.bases())).append(',')
                     .append(Math.max(0, entry.score()));
@@ -73,8 +74,15 @@ final class GlobalLeaderboard {
         for (String row : body.split(";")) {
             String[] fields = row.split(",", -1);
             if (fields.length < 4 || fields[0].isBlank()) continue;
+            boolean includesName = fields.length >= 5;
+            int statsOffset = includesName ? 1 : 0;
             try {
-                out.add(new LeaderboardEntry(fields[0], Integer.parseInt(fields[1]), Integer.parseInt(fields[2]), Integer.parseInt(fields[3])));
+                String playerId = fields[0];
+                if (includesName) PlayerRegistry.synchronizeName(playerId, fields[1]);
+                out.add(new LeaderboardEntry(playerId,
+                        Integer.parseInt(fields[1 + statsOffset]),
+                        Integer.parseInt(fields[2 + statsOffset]),
+                        Integer.parseInt(fields[3 + statsOffset])));
             } catch (NumberFormatException ignored) { }
         }
         return out;
@@ -146,7 +154,7 @@ final class GlobalLeaderboard {
     }
 
     private static String clean(String value) {
-        return value.replace("|", "").replace(";", "").replace(",", "").trim();
+        return value == null ? "" : value.replace("|", "").replace(";", "").replace(",", "").trim();
     }
 
     private static final class AuthoritativeState {
