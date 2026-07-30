@@ -99,7 +99,7 @@ final class LobbyPanel extends JPanel {
         JPanel center = new JPanel(new BorderLayout(0, 10));
         center.setOpaque(false);
         center.add(createServerBrowser(refresh), BorderLayout.NORTH);
-        center.add(createSettingsGrid(), BorderLayout.CENTER);
+        center.add(createSettingsScrollPane(), BorderLayout.CENTER);
 
         JPanel footer = new JPanel(new BorderLayout(0, 8));
         footer.setOpaque(false);
@@ -180,6 +180,20 @@ final class LobbyPanel extends JPanel {
         panel.add(pane, BorderLayout.CENTER);
         panel.add(help(hint), BorderLayout.SOUTH);
         return panel;
+    }
+
+    private JScrollPane createSettingsScrollPane() {
+        JPanel grid = createSettingsGrid();
+        grid.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 8));
+        JScrollPane pane = new JScrollPane(grid);
+        pane.setOpaque(false);
+        pane.getViewport().setOpaque(false);
+        pane.setBorder(BorderFactory.createEmptyBorder());
+        pane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        pane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+        pane.getVerticalScrollBar().setUnitIncrement(18);
+        pane.setMinimumSize(new Dimension(0, 120));
+        return pane;
     }
 
     private JPanel createSettingsGrid() {
