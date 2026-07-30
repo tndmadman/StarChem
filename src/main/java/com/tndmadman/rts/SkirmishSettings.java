@@ -10,27 +10,36 @@ import java.util.Map;
 import java.util.Set;
 
 record SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
-                        Set<String> disabledNpcFactionIds, String victoryConditionId) {
+                        Set<String> disabledNpcFactionIds, String victoryConditionId,
+                        DiplomacyMatchSettings diplomacy) {
     SkirmishSettings {
         preset = preset == null ? SkirmishPreset.STANDARD : preset;
         difficulty = difficulty == null ? NpcDifficulty.NORMAL : difficulty;
         disabledNpcFactionIds = sanitizeDisabled(disabledNpcFactionIds);
         victoryConditionId = VictoryConditionRules.normalizeId(victoryConditionId);
+        diplomacy = diplomacy == null ? DiplomacyMatchSettings.ffa() : diplomacy;
+    }
+
+    SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
+                     Set<String> disabledNpcFactionIds, String victoryConditionId) {
+        this(preset, difficulty, disabledNpcFactionIds, victoryConditionId, DiplomacyMatchSettings.ffa());
     }
 
     SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
                      Set<String> disabledNpcFactionIds) {
-        this(preset, difficulty, disabledNpcFactionIds, VictoryConditionRules.defaultId());
+        this(preset, difficulty, disabledNpcFactionIds, VictoryConditionRules.defaultId(),
+                DiplomacyMatchSettings.ffa());
     }
 
     static SkirmishSettings standard() {
         return new SkirmishSettings(SkirmishPreset.STANDARD, NpcDifficulty.NORMAL,
-                SkirmishPreset.STANDARD.defaultDisabledFactionIds(), VictoryConditionRules.defaultId());
+                SkirmishPreset.STANDARD.defaultDisabledFactionIds(), VictoryConditionRules.defaultId(),
+                DiplomacyMatchSettings.ffa());
     }
 
     static SkirmishSettings standard(Set<String> disabledNpcFactionIds) {
         return new SkirmishSettings(SkirmishPreset.STANDARD, NpcDifficulty.NORMAL,
-                disabledNpcFactionIds, VictoryConditionRules.defaultId());
+                disabledNpcFactionIds, VictoryConditionRules.defaultId(), DiplomacyMatchSettings.ffa());
     }
 
     static SkirmishSettings create(SkirmishPreset preset, NpcDifficulty difficulty) {
@@ -41,7 +50,11 @@ record SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
                                    String victoryConditionId) {
         SkirmishPreset normalized = preset == null ? SkirmishPreset.STANDARD : preset;
         return new SkirmishSettings(normalized, difficulty,
-                normalized.defaultDisabledFactionIds(), victoryConditionId);
+                normalized.defaultDisabledFactionIds(), victoryConditionId, DiplomacyMatchSettings.ffa());
+    }
+
+    SkirmishSettings withDiplomacy(DiplomacyMatchSettings settings) {
+        return new SkirmishSettings(preset, difficulty, disabledNpcFactionIds, victoryConditionId, settings);
     }
 
     String presetId() { return preset.id(); }
@@ -52,12 +65,13 @@ record SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
         String custom = disabledNpcFactionIds.equals(preset.defaultDisabledFactionIds())
                 ? "" : " / Custom factions";
         return preset.label() + " / " + difficulty.label() + " / "
-                + victoryCondition().displayName() + custom;
+                + victoryCondition().displayName() + " / " + diplomacy.displayLabel() + custom;
     }
 
     String statusLabel() {
         return "preset " + preset.label() + " | difficulty " + difficulty.label()
-                + " | victory " + victoryCondition().displayName();
+                + " | victory " + victoryCondition().displayName()
+                + " | diplomacy " + diplomacy.displayLabel();
     }
 
     Map<String,Object> saveMap() {
@@ -66,6 +80,7 @@ record SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
         out.put("difficultyId", difficulty.id());
         out.put("disabledNpcFactionIds", new ArrayList<>(disabledNpcFactionIds));
         out.put("victoryConditionId", victoryConditionId);
+        out.put("diplomacy", diplomacy.saveMap());
         return out;
     }
 
@@ -85,12 +100,15 @@ record SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
         } else {
             disabled.addAll(preset.defaultDisabledFactionIds());
         }
-        return new SkirmishSettings(preset, difficulty, disabled, String.valueOf(savedVictory));
+        DiplomacyMatchSettings diplomacy = DiplomacyMatchSettings.fromSaved(
+                map.get("diplomacy"), safeFallback.diplomacy());
+        return new SkirmishSettings(preset, difficulty, disabled, String.valueOf(savedVictory), diplomacy);
     }
 
     String packet() {
         return "WORLDINFO|" + preset.id() + "|" + difficulty.id() + "|"
-                + String.join(",", disabledNpcFactionIds) + "|" + victoryConditionId;
+                + String.join(",", disabledNpcFactionIds) + "|" + victoryConditionId
+                + "|" + diplomacy.packetField();
     }
 
     static SkirmishSettings fromPacket(String message) {
@@ -98,17 +116,19 @@ record SkirmishSettings(SkirmishPreset preset, NpcDifficulty difficulty,
             throw new IllegalArgumentException("Invalid world-info packet.");
         }
         String[] parts = message.split("\\|", -1);
-        if (parts.length != 4 && parts.length != 5) {
+        if (parts.length < 4 || parts.length > 6) {
             throw new IllegalArgumentException("Malformed world-info packet.");
         }
         Set<String> disabled = new LinkedHashSet<>();
         if (!parts[3].isBlank()) {
             for (String id : parts[3].split(",")) disabled.add(id);
         }
-        String victoryConditionId = parts.length == 5 && !parts[4].isBlank()
+        String victoryConditionId = parts.length >= 5 && !parts[4].isBlank()
                 ? parts[4] : VictoryConditionRules.defaultId();
+        DiplomacyMatchSettings diplomacy = parts.length == 6
+                ? DiplomacyMatchSettings.fromPacketField(parts[5]) : DiplomacyMatchSettings.ffa();
         return new SkirmishSettings(SkirmishPreset.parse(parts[1]),
-                NpcDifficulty.parse(parts[2]), disabled, victoryConditionId);
+                NpcDifficulty.parse(parts[2]), disabled, victoryConditionId, diplomacy);
     }
 
     List<NpcFaction> resolve(List<NpcFaction> baseFactions) {
