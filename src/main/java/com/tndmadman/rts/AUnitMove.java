@@ -31,6 +31,7 @@ final class SideAOrders {
                 if (p.length >= 4) s.requestView(connectionId, id, p[2], viewRevision(p));
             }
             case "WHTOUCH" -> { s.touch(connectionId); if (s.owns(connectionId, id)) { s.change(id, () -> applyWormholeTouch(s.world, id, p)); s.sendInitialTo(connectionId); } }
+            case "DIPLOMACY" -> DiplomacyCommand.handle(s, p, connectionId, id);
         }
     }
 
