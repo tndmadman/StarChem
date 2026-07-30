@@ -32,7 +32,7 @@ final class CombatTarget {
 
     static boolean enemy(World world, Unit attacker, String key) {
         return attacker != null && alive(world, key)
-                && DiplomacySystem.hostile(world, attacker.playerId, owner(world, key));
+                && DiplomacySystem.mayTarget(world, attacker.playerId, owner(world, key));
     }
 
     static boolean mayTarget(World world, String actorId, String key) {
