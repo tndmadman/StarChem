@@ -55,8 +55,10 @@ final class DiplomacyBootstrap {
             for (int second = first + 1; second < players.size(); second++) {
                 PlayerInfo b = players.get(second);
                 if (b == null || b.id() == null || b.id().isBlank()) continue;
-                IntelWarfareSystem.setIntelAlliance(world, a.id(), b.id(),
-                        DiplomacySystem.sharesVision(world, a.id(), b.id()));
+                boolean shareVision = DiplomacySystem.sharesVision(world, a.id(), b.id())
+                        || DiplomacySystem.mode(world) == DiplomacySystem.MatchMode.FFA
+                        && DiplomacySystem.allied(world, a.id(), b.id());
+                IntelWarfareSystem.setIntelAlliance(world, a.id(), b.id(), shareVision);
             }
         }
     }
