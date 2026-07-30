@@ -1,33 +1,26 @@
 package com.tndmadman.rts;
 
-import java.net.InetAddress;
-
 final class SideAJoin {
     private SideAJoin() { }
 
     static boolean handle(PeerServerSide server, String[] parts, ConnectionId connectionId, NetPacket packet) {
         switch (parts[0]) {
             case "JOIN" -> {
-                InetAddress sourceAddress = packet == null ? null : packet.address();
-                int sourcePort = packet == null ? 0 : packet.port();
                 String name = parts.length > 1 ? parts[1] : "Player";
                 String registrationVerifier = markerValue(parts, "AUTH_REGISTER");
                 String proofNonce = markerValue(parts, "AUTH_PROOF_NONCE");
                 String proof = markerValue(parts, "AUTH_PROOF");
-
-                boolean registrationPath = proof.isBlank();
-                InetAddress admissionAddress = registrationPath
-                        ? RegistrationAddress.permitOnce(sourceAddress)
-                        : sourceAddress;
-                String source = sourceAddress == null ? "unknown" : sourceAddress.getHostAddress() + ':' + sourcePort;
+                String source = packet == null || packet.address() == null ? "unknown"
+                        : packet.address().getHostAddress() + ':' + packet.port();
                 String phase = !registrationVerifier.isBlank() ? "registration response"
                         : !proof.isBlank() ? "authentication proof" : "initial join";
                 System.out.println("[CONNECTION][SERVER][AUTH] JOIN " + phase + " name="
                         + Config.clean(name) + " source=" + source + " connection=" + connectionId + '.');
-
                 try {
-                    server.join(connectionId, admissionAddress, sourcePort, name,
-                            registrationVerifier, proofNonce, proof,
+                    server.join(connectionId,
+                            packet == null ? null : packet.address(),
+                            packet == null ? 0 : packet.port(),
+                            name, registrationVerifier, proofNonce, proof,
                             server.requestedDev(parts), server.requestedDevToken(parts));
                     System.out.println("[CONNECTION][SERVER][AUTH] JOIN " + phase
                             + " processed name=" + Config.clean(name) + " connection=" + connectionId + '.');
