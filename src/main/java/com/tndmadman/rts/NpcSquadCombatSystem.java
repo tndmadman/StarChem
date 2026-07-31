@@ -78,6 +78,10 @@ final class NpcSquadCombatSystem {
         if (world != null) RUNTIMES.remove(world);
     }
 
+    static double targetThreatScoreForTesting(Unit unit) {
+        return TargetInfo.unit(unit).threatScore;
+    }
+
     static synchronized Map<String,Object> capture(World world) {
         Map<String,Object> out = new LinkedHashMap<>();
         Map<String, RuntimeState> byKey = RUNTIMES.get(world);
@@ -709,11 +713,11 @@ final class NpcSquadCombatSystem {
 
         static TargetInfo unit(Unit unit) {
             ShipType type = unit.type();
-            boolean armed = WeaponRules.armed(type);
+            boolean armed = WeaponRules.armed(unit);
             double maxEffective = Math.max(1.0, type.maxHp + type.maxShield);
             double currentEffective = Math.max(0.0, unit.hp) + Math.max(0.0, unit.shield);
-            WeaponVolley volley = WeaponRules.volley(type,
-                    Math.max(1.0, WeaponRules.maxRange(type) * 0.75));
+            WeaponVolley volley = WeaponRules.volley(unit,
+                    Math.max(1.0, WeaponRules.maxRange(unit) * 0.75));
             double dps = volley.damage() <= 0 ? 0
                     : volley.damage() / Math.max(0.2, volley.cooldownSeconds());
             double threat = armed ? 85.0 + dps * 0.65 + type.size.scale * 18.0 : 8.0;
