@@ -25,24 +25,16 @@ final class ClientViewCache {
             String playerId = entry.getKey();
             ServerPlayerIntelStore.PlayerIntel intel = entry.getValue();
             if (!realPlayerId(playerId) || intel == null) continue;
-            if (!intel.viewedSystemId().isBlank()) viewByPlayer.put(playerId, intel.viewedSystemId());
             knownSystemsByPlayer.put(playerId, new LinkedHashSet<>(intel.knownSystemIds()));
         }
     }
 
     void setHome(World world, String playerId) {
-        if (world == null || !realPlayerId(playerId)) return;
+        if (!realPlayerId(playerId)) return;
         world.ensurePlayerHome(playerId, WorldNetAccess.usesPrimaryHome(playerId));
         String home = world.playerHomeSystemId(playerId);
-        Set<String> known = knownSystems(playerId);
-        boolean changed = known.add(home);
-        changed |= known.removeIf(systemId -> !globalSystemExists(world, systemId));
-        String existing = viewByPlayer.get(playerId);
-        if (existing == null || existing.isBlank() || !known.contains(existing) || !globalSystemExists(world, existing)) {
-            changed |= !home.equals(viewByPlayer.put(playerId, home));
-        } else {
-            changed |= known.add(existing);
-        }
+        boolean changed = !home.equals(viewByPlayer.put(playerId, home));
+        changed |= knownSystems(playerId).add(home);
         publish(world);
         if (changed) persist();
     }
@@ -80,7 +72,7 @@ final class ClientViewCache {
     String view(World world, String playerId) {
         if (!realPlayerId(playerId)) return world.activeSystemId();
         String existing = viewByPlayer.get(playerId);
-        if (existing != null && !existing.contains("WAIT") && globalSystemExists(world, existing)) {
+        if (existing != null && !existing.contains("WAIT")) {
             boolean changed = knownSystems(playerId).add(existing);
             publish(world);
             if (changed) persist();
@@ -171,8 +163,8 @@ final class ClientViewCache {
             world.saveActiveSystem();
             boolean changed = false;
             if (realPlayerId(playerId) && !world.activeSystemId().contains("WAIT")) {
-                changed |= !world.activeSystemId().equals(viewByPlayer.put(playerId, world.activeSystemId()));
-                changed |= discoverCurrent(world, playerId);
+                viewByPlayer.put(playerId, world.activeSystemId());
+                changed = discoverCurrent(world, playerId);
             }
             publish(world);
             if (changed) persist();
@@ -289,12 +281,9 @@ final class ClientViewCache {
 
     private void persist() {
         Map<String, ServerPlayerIntelStore.PlayerIntel> state = new LinkedHashMap<>();
-        Set<String> playerIds = new LinkedHashSet<>(knownSystemsByPlayer.keySet());
-        playerIds.addAll(viewByPlayer.keySet());
-        for (String playerId : playerIds) {
-            if (!realPlayerId(playerId)) continue;
-            state.put(playerId, new ServerPlayerIntelStore.PlayerIntel(
-                    viewByPlayer.getOrDefault(playerId, ""), knownSystemsByPlayer.getOrDefault(playerId, Set.of())));
+        for (Map.Entry<String, Set<String>> entry : knownSystemsByPlayer.entrySet()) {
+            if (!realPlayerId(entry.getKey())) continue;
+            state.put(entry.getKey(), new ServerPlayerIntelStore.PlayerIntel("", entry.getValue()));
         }
         persistence.save(state);
     }
