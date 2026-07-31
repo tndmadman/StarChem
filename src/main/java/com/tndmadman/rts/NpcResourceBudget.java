@@ -220,6 +220,7 @@ final class NpcResourceBudget {
                 hash = mix(hash, job.id.hashCode());
                 hash = mix(hash, job.kind.ordinal());
                 hash = mix(hash, job.itemId.hashCode());
+                hash = mix(hash, job.loadoutId.hashCode());
                 hash = mix(hash, Double.doubleToLongBits(job.remaining));
                 hash = mix(hash, job.resourcesReserved ? 1 : 0);
             }
@@ -228,6 +229,7 @@ final class NpcResourceBudget {
             if (!faction.id().equals(unit.playerId)) continue;
             hash = mix(hash, unit.key().hashCode());
             hash = mix(hash, unit.shipTypeId.hashCode());
+            hash = mix(hash, unit.loadoutId.hashCode());
             hash = mix(hash, Double.doubleToLongBits(unit.hp));
             hash = mix(hash, unit.basePackageType.hashCode());
         }
@@ -446,7 +448,7 @@ final class NpcResourceBudget {
             ShipType type = unit.type();
             if (!type.harvestKinds.isEmpty()
                     && (workerTypes.isEmpty() || workerTypes.contains(unit.shipTypeId))) scan.workers++;
-            if (WeaponRules.armed(type)) scan.combat++;
+            if (WeaponRules.armed(unit)) scan.combat++;
             if (type.baseBuilder && unit.basePackageType.isBlank()) scan.emptyBuilder = true;
         }
 
