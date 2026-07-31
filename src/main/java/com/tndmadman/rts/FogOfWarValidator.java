@@ -208,7 +208,8 @@ public final class FogOfWarValidator {
         require(restored.requestView(world, "P1", target, 3),
                 "Restarted server forgot a discovered system after its discovery asset was removed.");
         GalaxyMapSnapshot restoredProjection = restored.galaxySnapshot(world, "P1");
-        require(restoredProjection.systems().stream().anyMatch(system -> target.equals(system.id())),
+        String restoredTarget = target;
+        require(restoredProjection.systems().stream().anyMatch(system -> restoredTarget.equals(system.id())),
                 "Restarted server omitted a previously discovered system from the galaxy projection.");
     }
 
