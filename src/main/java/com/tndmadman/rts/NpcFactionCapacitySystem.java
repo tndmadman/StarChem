@@ -97,8 +97,9 @@ final class NpcFactionCapacitySystem {
                 if (job.kind != ProductionJobKind.SHIP) continue;
                 ShipType ship = Rules.ship(job.itemId);
                 if (ship == null) continue;
+                ShipLoadoutDefinition loadout = WeaponRules.resolveForHull(ship.id, job.loadoutId);
                 shipTypes.merge(ship.id, 1, Integer::sum);
-                if (WeaponRules.armed(ship)) combat++;
+                if (WeaponRules.armed(loadout)) combat++;
                 if (supportTypes.contains(ship.id)) support++;
                 if (faction.industryUnitTypes().contains(ship.id)) industry++;
                 if (!ship.harvestKinds.isEmpty()
@@ -110,7 +111,7 @@ final class NpcFactionCapacitySystem {
             if (!faction.id().equals(unit.playerId) || unit.hp <= 0) continue;
             ShipType ship = unit.type();
             shipTypes.merge(unit.shipTypeId, 1, Integer::sum);
-            if (WeaponRules.armed(ship)) combat++;
+            if (WeaponRules.armed(unit)) combat++;
             if (supportTypes.contains(unit.shipTypeId)) support++;
             if (faction.industryUnitTypes().contains(unit.shipTypeId)) industry++;
             if (!ship.harvestKinds.isEmpty()
