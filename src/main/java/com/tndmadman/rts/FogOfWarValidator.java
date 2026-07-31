@@ -1,11 +1,13 @@
 package com.tndmadman.rts;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Set;
 
 public final class FogOfWarValidator {
     private FogOfWarValidator() { }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         World world = new World("Fog validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
         PlayerRegistry.activate(world);
         PlayerRegistry.reset("P1", "Observer", 0x50BEFF);
@@ -128,6 +130,7 @@ public final class FogOfWarValidator {
         validateEnvironmentSeedIsolation(world);
         validateWormholeRoundTrip(world);
         validateGalaxyDiscoveryAuthorization(world);
+        validateExplorationPersistence();
 
         System.out.println("Fog-of-war validator passed.");
     }
@@ -156,8 +159,10 @@ public final class FogOfWarValidator {
                 "Current-system wormhole round-trip changed its identity or position.");
     }
 
-    private static void validateGalaxyDiscoveryAuthorization(World world) {
-        ClientViewCache views = new ClientViewCache();
+    private static void validateGalaxyDiscoveryAuthorization(World world) throws Exception {
+        Path directory = Files.createTempDirectory("starchem-intel-validator-");
+        ServerPlayerIntelStore store = ServerPlayerIntelStore.forTest(directory, "fog-validator");
+        ClientViewCache views = new ClientViewCache(store);
         views.setHome(world, "P1");
         GalaxyMapSnapshot authoritative = world.authoritativeGalaxyMapSnapshot();
         GalaxyMapSnapshot projected = views.galaxySnapshot(world, "P1");
@@ -176,9 +181,9 @@ public final class FogOfWarValidator {
         require(!views.requestView(world, "P1", target, 1), "Guessed unknown system ID bypassed view authorization.");
 
         String previous = world.activeSystemId();
+        String radarId = "P1:RADAR-REMOTE";
         try {
             world.activateSystem(target);
-            String radarId = "P1:RADAR-REMOTE";
             world.bases.put(radarId, new Base(radarId, "P1", RadarTowerRules.TIER_ONE,
                     world.width * 0.4, world.height * 0.5));
             world.saveActiveSystem();
@@ -187,6 +192,75 @@ public final class FogOfWarValidator {
         }
         require(views.requestView(world, "P1", target, 2),
                 "System containing the player's radar station did not become viewable.");
+
+        try {
+            world.activateSystem(target);
+            world.bases.remove(radarId);
+            world.saveActiveSystem();
+        } finally {
+            world.activateSystem(previous);
+        }
+
+        ClientViewCache restored = new ClientViewCache(store);
+        restored.setHome(world, "P1");
+        require(target.equals(restored.view(world, "P1")),
+                "Restarted server did not restore the player's viewed system.");
+        require(restored.requestView(world, "P1", target, 3),
+                "Restarted server forgot a discovered system after its discovery asset was removed.");
+        GalaxyMapSnapshot restoredProjection = restored.galaxySnapshot(world, "P1");
+        require(restoredProjection.systems().stream().anyMatch(system -> target.equals(system.id())),
+                "Restarted server omitted a previously discovered system from the galaxy projection.");
+    }
+
+    private static void validateExplorationPersistence() throws Exception {
+        Path directory = Files.createTempDirectory("starchem-fow-validator-");
+        String previousStore = System.getProperty("starchem.sessionStore");
+        Path store = directory.resolve("sessions.properties");
+        System.setProperty("starchem.sessionStore", store.toString());
+        World world = new World("Fog persistence validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        PlayerRegistry.activate(world);
+        PlayerRegistry.reset("P1", "Observer", 0x50BEFF);
+        world.units.clear();
+        world.bases.clear();
+        world.resources.clear();
+        world.shots.clear();
+        world.items.clear();
+        world.wormholes.clear();
+        String systemId = world.activeSystemId();
+        long seed = world.systemSeed();
+        int columns = Math.max(1, (int)Math.ceil(world.width / (double)FogOfWarView.CELL_SIZE));
+        int rows = Math.max(1, (int)Math.ceil(world.height / (double)FogOfWarView.CELL_SIZE));
+        try {
+            FogOfWarPersistence.clearForTest("P1", systemId, seed, columns, rows);
+            Base radar = new Base("P1:PERSIST-RADAR", "P1", RadarTowerRules.TIER_ONE, 1_000, 1_000);
+            world.bases.put(radar.id, radar);
+            world.wormholes.add(new WormholeGate("persisted-gate", systemId, "persisted-target",
+                    1_150, 1_100, 250, 260));
+            FogOfWarView.clearCachedStateForTest(world);
+            FogOfWarView.forceRefreshForTest(world);
+            int explored = FogOfWarView.exploredCellCount(world);
+            require(explored > 0, "Persistence fixture did not explore any fog cells.");
+            require(FogOfWarView.knownWormholes(world).stream()
+                            .anyMatch(gate -> "persisted-gate".equals(gate.id())),
+                    "Persistence fixture did not observe its wormhole.");
+            FogOfWarPersistence.flushForTest();
+
+            world.bases.clear();
+            world.units.clear();
+            world.wormholes.clear();
+            FogOfWarView.clearCachedStateForTest(world);
+            FogOfWarView.forceRefreshForTest(world);
+            require(FogOfWarView.exploredCellCount(world) == explored,
+                    "Explored tactical fog was not restored after rebuilding the client view.");
+            require(FogOfWarView.knownWormholes(world).stream()
+                            .anyMatch(gate -> "persisted-gate".equals(gate.id())
+                                    && "persisted-target".equals(gate.toSystemId())),
+                    "Known wormhole memory was not restored after rebuilding the client view.");
+        } finally {
+            FogOfWarView.clearCachedStateForTest(world);
+            if (previousStore == null) System.clearProperty("starchem.sessionStore");
+            else System.setProperty("starchem.sessionStore", previousStore);
+        }
     }
 
     private static boolean systemHasPlayerAssets(World world, String systemId, String playerId) {
