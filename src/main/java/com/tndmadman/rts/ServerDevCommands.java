@@ -634,13 +634,15 @@ final class ServerDevCommands {
                 default -> { AiDevCommands.spawnAttackWave(host.world); changed(host, "SPAWN", "wave", "attack"); yield List.of(host.world.status); }
             };
         }
-        if (args.size() < 4) return List.of("Usage: dev spawn <ship <player> <ship-type> [count] [system]|base <player> <base-type> <system> [x] [y]|loot|wave>");
+        if (args.size() < 4) return List.of("Usage: dev spawn <ship <player> <ship-type|loadout-id> [count] [system]|base <player> <base-type> <system> [x] [y]|loot|wave>");
         String type = args.get(1).toLowerCase(Locale.ROOT);
         String playerId = resolvePlayer(host.network, args.get(2));
         if (playerId.isBlank()) return List.of("Unknown player session: " + args.get(2));
         if ("ship".equals(type)) {
-            ShipType ship = Rules.findShip(args.get(3));
-            if (ship == null) return List.of("Unknown ship type: " + args.get(3));
+            ShipLoadoutDefinition loadout = resolveSpawnLoadout(args.get(3));
+            if (loadout == null) return List.of("Unknown ship or loadout: " + args.get(3));
+            ShipType ship = Rules.findShip(loadout.hullId());
+            if (ship == null) return List.of("Unknown ship type for loadout: " + loadout.id());
             int count = 1;
             String systemSelector = host.world.playerHomeSystemId(playerId);
             if (args.size() >= 5) {
@@ -659,12 +661,14 @@ final class ServerDevCommands {
                     double angle = i * Math.PI * 2 / Math.max(1, count);
                     Unit unit = new Unit(playerId, next++, ship.id, host.world.width / 2.0 + Math.cos(angle) * 120,
                             host.world.height / 2.0 + Math.sin(angle) * 120);
+                    unit.loadoutId = loadout.id();
                     host.world.units.put(unit.key(), unit);
                 }
                 host.world.saveActiveSystem();
             } finally { restore(host.world, previous); }
-            changed(host, "SPAWN", playerId, count + " " + ship.id + " in " + system);
-            return List.of("Spawned " + count + " " + ship.name + " ship" + (count == 1 ? "" : "s") + " for " + playerId + " in " + system + ".");
+            changed(host, "SPAWN", playerId, count + " " + ship.id + "/" + loadout.id() + " in " + system);
+            return List.of("Spawned " + count + " " + ship.name + " - " + loadout.displayName() + " ship"
+                    + (count == 1 ? "" : "s") + " for " + playerId + " in " + system + ".");
         }
         if ("base".equals(type)) {
             if (args.size() < 5) return List.of("Usage: dev spawn base <player> <base-type> <system> [x] [y]");
@@ -689,7 +693,7 @@ final class ServerDevCommands {
             changed(host, "SPAWN", playerId, "base " + baseType.id + " in " + system);
             return List.of("Spawned " + baseType.name + " " + id + " for " + playerId + " in " + system + ".");
         }
-        return List.of("Usage: dev spawn <ship <player> <ship-type> [count] [system]|base <player> <base-type> <system> [x] [y]|loot|wave>");
+        return List.of("Usage: dev spawn <ship <player> <ship-type|loadout-id> [count] [system]|base <player> <base-type> <system> [x] [y]|loot|wave>");
     }
 
     private static List<String> legacyTrigger(HeadlessGameServer host, List<String> args) {
@@ -1154,6 +1158,13 @@ final class ServerDevCommands {
         if (snapshot != null) for (GalaxyMapSystem system : snapshot.systems()) if (system != null
                 && (system.id().equalsIgnoreCase(selector) || system.name().equalsIgnoreCase(selector))) return system.id();
         return "";
+    }
+
+    static ShipLoadoutDefinition resolveSpawnLoadout(String requestedId) {
+        ShipLoadoutDefinition loadout = WeaponRules.findLoadout(requestedId);
+        if (loadout != null) return loadout;
+        ShipType ship = Rules.findShip(requestedId);
+        return ship == null ? null : WeaponRules.defaultLoadout(ship.id);
     }
 
     private static String resolvePlayer(PeerNetwork network, String selector) {
