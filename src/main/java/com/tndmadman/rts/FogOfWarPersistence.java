@@ -1,5 +1,6 @@
 package com.tndmadman.rts;
 
+import java.awt.GraphicsEnvironment;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -11,7 +12,6 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -40,6 +40,7 @@ final class FogOfWarPersistence {
     private FogOfWarPersistence() { }
 
     static Stored load(String playerId, String systemId, long environmentSeed, int columns, int rows) {
+        if (!enabled()) return new Stored(new BitSet(), List.of());
         String key = storageKey(playerId, systemId, environmentSeed, columns, rows);
         if (key.isBlank()) return new Stored(new BitSet(), List.of());
         return ClientSessionPropertiesStore.read(properties -> decode(
@@ -48,6 +49,7 @@ final class FogOfWarPersistence {
 
     static void saveLater(String playerId, String systemId, long environmentSeed, int columns, int rows,
                           BitSet explored, Iterable<FogOfWarView.KnownWormhole> wormholes) {
+        if (!enabled()) return;
         String key = storageKey(playerId, systemId, environmentSeed, columns, rows);
         if (key.isBlank() || explored == null) return;
         Pending snapshot = new Pending(columns, rows, (BitSet)explored.clone(), copyWormholes(wormholes));
@@ -62,6 +64,7 @@ final class FogOfWarPersistence {
     }
 
     static void clearForTest(String playerId, String systemId, long environmentSeed, int columns, int rows) {
+        if (!enabled()) return;
         String key = storageKey(playerId, systemId, environmentSeed, columns, rows);
         if (key.isBlank()) return;
         PENDING.remove(key);
@@ -71,6 +74,10 @@ final class FogOfWarPersistence {
             properties.remove(key);
             return null;
         });
+    }
+
+    private static boolean enabled() {
+        return !GraphicsEnvironment.isHeadless() || Boolean.getBoolean("starchem.fowPersistenceHeadless");
     }
 
     private static void flushKey(String key) {
