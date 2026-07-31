@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/issue-289-loadouts
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
