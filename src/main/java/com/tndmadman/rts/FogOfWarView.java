@@ -124,6 +124,10 @@ final class FogOfWarView {
         update(world, System.nanoTime());
     }
 
+    static synchronized void clearCachedStateForTest(World world) {
+        if (world != null) STATES.remove(world);
+    }
+
     private static SystemState update(World world, long now) {
         if (world == null || world.width <= 0 || world.height <= 0) return null;
         String playerId = PlayerRegistry.localId();
@@ -133,14 +137,19 @@ final class FogOfWarView {
         String key = playerId + '|' + systemId;
         int columns = Math.max(1, (int)Math.ceil(world.width / (double)CELL_SIZE));
         int rows = Math.max(1, (int)Math.ceil(world.height / (double)CELL_SIZE));
+        long environmentSeed = world.systemSeed();
         SystemState state = worldState.systems.get(key);
         if (state == null || state.columns != columns || state.rows != rows
-                || state.worldWidth != world.width || state.worldHeight != world.height) {
-            state = new SystemState(systemId, columns, rows, world.width, world.height);
+                || state.worldWidth != world.width || state.worldHeight != world.height
+                || state.environmentSeed != environmentSeed) {
+            state = new SystemState(systemId, environmentSeed, columns, rows, world.width, world.height);
+            state.restore(FogOfWarPersistence.load(playerId, systemId, environmentSeed, columns, rows));
             worldState.systems.put(key, state);
         }
         if (now - state.lastUpdateNanos < UPDATE_INTERVAL_NANOS) return state;
         state.lastUpdateNanos = now;
+        int exploredBefore = state.explored.cardinality();
+        int wormholesBefore = state.wormholes.hashCode();
         state.visible.clear();
         VisibilityRules.Frame frame = VisibilityRules.frame(world, playerId);
         state.sensors = frame.sensors();
@@ -149,6 +158,10 @@ final class FogOfWarView {
         paintExploration(state, state.sensors);
         observeContacts(world, playerId, frame, state);
         observeWormholes(world, frame, state);
+        if (state.explored.cardinality() != exploredBefore || state.wormholes.hashCode() != wormholesBefore) {
+            FogOfWarPersistence.saveLater(playerId, systemId, environmentSeed, columns, rows,
+                    state.explored, state.wormholes.values());
+        }
         return state;
     }
 
@@ -444,6 +457,7 @@ final class FogOfWarView {
 
     private static final class SystemState {
         final String systemId;
+        final long environmentSeed;
         final int columns;
         final int rows;
         final int worldWidth;
@@ -462,8 +476,9 @@ final class FogOfWarView {
         long lastUpdateNanos;
         long lastMinimapRefreshNanos;
 
-        SystemState(String systemId, int columns, int rows, int worldWidth, int worldHeight) {
+        SystemState(String systemId, long environmentSeed, int columns, int rows, int worldWidth, int worldHeight) {
             this.systemId = systemId;
+            this.environmentSeed = environmentSeed;
             this.columns = columns;
             this.rows = rows;
             this.worldWidth = worldWidth;
@@ -477,6 +492,31 @@ final class FogOfWarView {
             g.setComposite(AlphaComposite.Src);
             g.setColor(UNEXPLORED);
             g.fillRect(0, 0, maskWidth, maskHeight);
+            g.dispose();
+        }
+
+        void restore(FogOfWarPersistence.Stored stored) {
+            if (stored == null) return;
+            explored.or(stored.explored());
+            for (KnownWormhole gate : stored.wormholes()) {
+                if (gate != null && gate.id() != null && !gate.id().isBlank()) wormholes.put(gate.id(), gate);
+            }
+            rebuildExplorationMask();
+        }
+
+        private void rebuildExplorationMask() {
+            Graphics2D g = exploredFogMask.createGraphics();
+            g.setComposite(AlphaComposite.SrcOver);
+            g.setColor(EXPLORED);
+            for (int cell = explored.nextSetBit(0); cell >= 0; cell = explored.nextSetBit(cell + 1)) {
+                int column = cell % columns;
+                int row = cell / columns;
+                int x1 = (int)Math.floor(column * CELL_SIZE / EXPLORATION_MASK_WORLD_UNITS);
+                int y1 = (int)Math.floor(row * CELL_SIZE / EXPLORATION_MASK_WORLD_UNITS);
+                int x2 = (int)Math.ceil((column + 1.0) * CELL_SIZE / EXPLORATION_MASK_WORLD_UNITS);
+                int y2 = (int)Math.ceil((row + 1.0) * CELL_SIZE / EXPLORATION_MASK_WORLD_UNITS);
+                g.fillRect(x1, y1, Math.max(1, x2 - x1), Math.max(1, y2 - y1));
+            }
             g.dispose();
         }
 
