@@ -29,6 +29,7 @@ final class FogOfWarPersistence {
             new DaemonThreadFactory());
     private static final Map<String, Pending> PENDING = new ConcurrentHashMap<>();
     private static final Map<String, ScheduledFuture<?>> SCHEDULED = new ConcurrentHashMap<>();
+    private static volatile boolean testEnabled;
 
     record Stored(BitSet explored, List<FogOfWarView.KnownWormhole> wormholes) {
         Stored {
@@ -64,7 +65,7 @@ final class FogOfWarPersistence {
     }
 
     static void clearForTest(String playerId, String systemId, long environmentSeed, int columns, int rows) {
-        if (!enabled()) return;
+        testEnabled = true;
         String key = storageKey(playerId, systemId, environmentSeed, columns, rows);
         if (key.isBlank()) return;
         PENDING.remove(key);
@@ -77,7 +78,8 @@ final class FogOfWarPersistence {
     }
 
     private static boolean enabled() {
-        return !GraphicsEnvironment.isHeadless() || Boolean.getBoolean("starchem.fowPersistenceHeadless");
+        return testEnabled || !GraphicsEnvironment.isHeadless()
+                || Boolean.getBoolean("starchem.fowPersistenceHeadless");
     }
 
     private static void flushKey(String key) {
