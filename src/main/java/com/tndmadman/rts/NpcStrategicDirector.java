@@ -253,7 +253,7 @@ final class NpcStrategicDirector {
                             ShipType type = unit.type();
                             if (!type.harvestKinds.isEmpty()
                                     && (workerTypes.isEmpty() || workerTypes.contains(unit.shipTypeId))) workers++;
-                            if (WeaponRules.armed(type)) {
+                            if (WeaponRules.armed(unit)) {
                                 combat++;
                                 double hpRatio = unit.hp / Math.max(1.0, type.maxHp);
                                 if (faction.retreatHpPercent() > 0
