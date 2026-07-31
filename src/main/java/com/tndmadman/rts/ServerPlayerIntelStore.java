@@ -63,7 +63,7 @@ final class ServerPlayerIntelStore {
     static synchronized ServerPlayerIntelStore consumeConfigured() {
         ServerPlayerIntelStore configured = pending;
         pending = DISABLED;
-        return configured;
+        return configured.enabled() ? configured : fromProcessArguments();
     }
 
     static ServerPlayerIntelStore forTest(Path directory, String saveName) {
@@ -206,6 +206,30 @@ final class ServerPlayerIntelStore {
             properties.load(input);
         }
         return properties;
+    }
+
+    private static ServerPlayerIntelStore fromProcessArguments() {
+        String[] arguments = ProcessHandle.current().info().arguments().orElse(new String[0]);
+        boolean dedicated = false;
+        boolean reset = false;
+        Path saveDir = null;
+        String saveName = "server";
+        for (int index = 0; index < arguments.length; index++) {
+            String argument = arguments[index];
+            if ("--server".equals(argument)) dedicated = true;
+            else if ("--new-world".equals(argument)) reset = true;
+            else if ("--save-dir".equals(argument) && index + 1 < arguments.length) saveDir = Path.of(arguments[++index]);
+            else if ("--save-name".equals(argument) && index + 1 < arguments.length) saveName = arguments[++index];
+        }
+        if (!dedicated) return DISABLED;
+        if (saveDir == null) {
+            String environment = System.getenv("STARCHEM_SERVER_SAVE_DIR");
+            saveDir = environment == null || environment.isBlank() ? Path.of("saves") : Path.of(environment);
+        }
+        ServerPlayerIntelStore store = new ServerPlayerIntelStore(
+                saveDir.resolve(Config.cleanSaveName(saveName) + "-intel.properties"));
+        if (reset) store.clear();
+        return store;
     }
 
     private static void moveReplace(Path from, Path to) throws IOException {
