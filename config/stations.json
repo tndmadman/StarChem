@@ -67,7 +67,9 @@
       ],
       "canBuildStationPackages": [],
       "role": "production",
-      "nonProduction": false
+      "nonProduction": false,
+      "canRefitShips": true,
+      "refitRange": 150
     },
     "laboratory": {
       "displayName": "Research Lab",

@@ -157,7 +157,9 @@ final class Rules {
                     stringList(s.get("canBuildShips")),
                     stringList(s.get("canBuildStationPackages")),
                     costs(s.get("buildCost")),
-                    number(s, "buildTimeSeconds", 0)));
+                    number(s, "buildTimeSeconds", 0),
+                    bool(s, "canRefitShips", false),
+                    number(s, "refitRange", number(s, "unloadRange", 120))));
         }
         return out;
     }
@@ -406,6 +408,8 @@ final class BaseType {
     final String id, name;
     final double maxHp, unloadRange, unloadRate, buildRadius;
     final double maxShield, shieldRegen, shieldRegenDelay, buildTimeSeconds;
+    final double refitRange;
+    final boolean canRefitShips;
     final List<String> buildableShips, basePackages;
     final List<Cost> buildCost;
 
@@ -425,10 +429,20 @@ final class BaseType {
     BaseType(String id, String name, double maxHp, double unloadRange, double unloadRate, double buildRadius,
              double maxShield, double shieldRegen, double shieldRegenDelay,
              List<String> buildableShips, List<String> basePackages, List<Cost> buildCost, double buildTimeSeconds) {
+        this(id, name, maxHp, unloadRange, unloadRate, buildRadius, maxShield, shieldRegen, shieldRegenDelay,
+                buildableShips, basePackages, buildCost, buildTimeSeconds, "shipyard".equals(id), unloadRange);
+    }
+
+    BaseType(String id, String name, double maxHp, double unloadRange, double unloadRate, double buildRadius,
+             double maxShield, double shieldRegen, double shieldRegenDelay,
+             List<String> buildableShips, List<String> basePackages, List<Cost> buildCost, double buildTimeSeconds,
+             boolean canRefitShips, double refitRange) {
         this.id = id; this.name = name; this.maxHp = maxHp; this.unloadRange = unloadRange; this.unloadRate = unloadRate;
         this.buildRadius = buildRadius; this.maxShield = maxShield; this.shieldRegen = shieldRegen; this.shieldRegenDelay = shieldRegenDelay;
         this.buildableShips = buildableShips; this.basePackages = basePackages; this.buildCost = buildCost;
         this.buildTimeSeconds = Math.max(0, buildTimeSeconds);
+        this.canRefitShips = canRefitShips;
+        this.refitRange = Math.max(0, refitRange);
     }
 }
 

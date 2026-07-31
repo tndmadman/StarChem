@@ -14,6 +14,7 @@ final class SnapshotSmoother {
         applyTarget(unit, state, serverTask, local, forceLocalAuthority);
         if (!local || snapped || forceLocalAuthority) unit.heading = state.heading();
         unit.shipTypeId = state.shipTypeId();
+        unit.loadoutId = state.loadoutId();
         unit.task = serverTask;
         unit.automationResourceId = state.resourceId();
         unit.basePackageType = state.packageType();

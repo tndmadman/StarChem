@@ -22,7 +22,7 @@ final class ClientPrediction {
     private static void predictTarget(World world, Unit unit, double dt) {
         if (unit.task != UnitTask.ATTACK) return;
         if (!CombatTarget.enemy(world, unit, unit.attackTarget)) return;
-        double range = WeaponRules.maxRange(unit.type());
+        double range = WeaponRules.maxRange(unit);
         if (range <= 0) return;
         double tx = CombatTarget.x(world, unit.attackTarget);
         double ty = CombatTarget.y(world, unit.attackTarget);

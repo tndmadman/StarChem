@@ -8,9 +8,66 @@ final class ProductionSystem {
     private ProductionSystem() { }
 
     static boolean enqueueShip(World world, Base base, ShipType ship, boolean free) {
-        if (world == null || base == null || ship == null) return false;
-        return enqueue(world, base, ProductionJobKind.SHIP, ship.id, ship.name, ship.buildCost,
-                ship.buildTimeSeconds, free, "");
+        return enqueueShip(world, base, ship, ship == null ? null : WeaponRules.defaultLoadout(ship.id), free);
+    }
+
+    static boolean enqueueShip(World world, Base base, ShipType ship, ShipLoadoutDefinition loadout, boolean free) {
+        if (world == null || base == null || ship == null || loadout == null || !ship.id.equals(loadout.hullId())) return false;
+        return enqueue(world, base, ProductionJobKind.SHIP, ship.id,
+                ship.name + " - " + loadout.displayName(), WeaponRules.buildCost(ship, loadout),
+                ship.buildTimeSeconds, free, "", loadout.id(), "");
+    }
+
+    static boolean enqueueRefit(World world, Base base, Unit unit, ShipLoadoutDefinition loadout, boolean free) {
+        if (world == null || base == null || unit == null || loadout == null) return false;
+        if (!base.canRefit(unit)) {
+            world.status = base.type().name + " cannot refit that ship from its current position.";
+            return false;
+        }
+        if (!unit.playerId.equals(base.playerId) || !unit.shipTypeId.equals(loadout.hullId())) {
+            world.status = "That loadout is not valid for the selected ship.";
+            return false;
+        }
+        if (loadout.id().equals(unit.loadoutId)) {
+            world.status = unit.type().name + " already uses " + loadout.displayName() + ".";
+            return false;
+        }
+        if (!free && !WeaponRules.unlocked(world, base.playerId, loadout)) {
+            world.status = loadout.displayName() + " requires research: "
+                    + WeaponRules.missingResearchLabel(world, base.playerId, loadout) + ".";
+            return false;
+        }
+        if (refitLocked(world, unit.key())) {
+            world.status = "That ship is already reserved for refitting.";
+            return false;
+        }
+        if (unit.task != UnitTask.IDLE || !unit.attackTarget.isBlank()
+                || Calc.distance(unit.x, unit.y, unit.targetX, unit.targetY) > 2
+                || unit.weaponFlashTimer > 0 || unit.weaponCooldown > 0 || unit.shieldDelayTimer > 0) {
+            world.status = "Ship must be idle, stationary, and out of combat before refitting.";
+            return false;
+        }
+        List<Cost> cost = WeaponRules.refitCost(loadout);
+        if (!free && !HangarStore.canAfford(base.inventory, cost)) {
+            world.status = "Need " + Rules.formatCost(cost) + " in " + base.type().name + " hangar.";
+            return false;
+        }
+        if (!free) HangarStore.spend(base.inventory, cost);
+        ProductionJob job = newJob(base, ProductionJobKind.REFIT, unit.shipTypeId,
+                loadout.refitTimeSeconds(), !free, "");
+        job.loadoutId = loadout.id();
+        job.subjectUnitKey = unit.key();
+        base.productionQueue.add(job);
+        unit.attackTarget = "";
+        unit.automationResourceId = -1;
+        unit.clearOrder();
+        unit.task = UnitTask.IDLE;
+        unit.targetX = unit.x;
+        unit.targetY = unit.y;
+        world.status = "Queued refit: " + unit.type().name + " - " + loadout.displayName() + ".";
+        AlertCenter.push(world, world.status);
+        processBase(world, base, 0);
+        return true;
     }
 
     static boolean enqueuePackage(World world, Base base, BaseType station, boolean free) {
@@ -21,13 +78,13 @@ final class ProductionSystem {
             return false;
         }
         return enqueue(world, base, ProductionJobKind.STATION_PACKAGE, station.id,
-                station.name + " package", station.buildCost, station.buildTimeSeconds, free, builder.key());
+                station.name + " package", station.buildCost, station.buildTimeSeconds, free, builder.key(), "", "");
     }
 
     static boolean enqueueCraftable(World world, Base base, CraftableItem item, boolean free) {
         if (world == null || base == null || item == null) return false;
         return enqueue(world, base, ProductionJobKind.CRAFTABLE, item.id, item.name,
-                item.requiredResources, item.timeSeconds, free, "");
+                item.requiredResources, item.timeSeconds, free, "", "", "");
     }
 
     static boolean enqueueResearch(World world, Base base, ResearchTopic topic, boolean free) {
@@ -46,7 +103,7 @@ final class ProductionSystem {
             return false;
         }
         return enqueue(world, base, ProductionJobKind.RESEARCH, topic.id, topic.name,
-                topic.requiredResources, topic.timeSeconds, free, "");
+                topic.requiredResources, topic.timeSeconds, free, "", "", "");
     }
 
     static boolean enqueuePrepaidResearch(World world, Base base, ResearchTopic topic) {
@@ -62,8 +119,15 @@ final class ProductionSystem {
 
     static ProductionJob enqueueWaiting(World world, Base base, ProductionJobKind kind, String itemId,
                                         String itemName, double duration) {
+        return enqueueWaiting(world, base, kind, itemId, itemName, duration, "", "");
+    }
+
+    static ProductionJob enqueueWaiting(World world, Base base, ProductionJobKind kind, String itemId,
+                                        String itemName, double duration, String loadoutId, String subjectUnitKey) {
         if (world == null || base == null || kind == null || itemId == null || itemId.isBlank()) return null;
         ProductionJob job = newJob(base, kind, itemId, duration, false, "");
+        job.loadoutId = loadoutId == null ? "" : loadoutId;
+        job.subjectUnitKey = subjectUnitKey == null ? "" : subjectUnitKey;
         job.blockedReason = WAITING_FOR_RESOURCES;
         base.productionQueue.add(job);
         int position = base.productionQueue.size();
@@ -75,13 +139,15 @@ final class ProductionSystem {
 
     private static boolean enqueue(World world, Base base, ProductionJobKind kind, String itemId,
                                    String itemName, List<Cost> cost, double duration, boolean free,
-                                   String reservedUnitKey) {
+                                   String reservedUnitKey, String loadoutId, String subjectUnitKey) {
         if (!free && !HangarStore.canAfford(base.inventory, cost)) {
             world.status = "Need " + Rules.formatCost(cost) + " in " + base.type().name + " hangar.";
             return false;
         }
         if (!free) HangarStore.spend(base.inventory, cost);
         ProductionJob job = newJob(base, kind, itemId, duration, !free, reservedUnitKey);
+        job.loadoutId = loadoutId == null ? "" : loadoutId;
+        job.subjectUnitKey = subjectUnitKey == null ? "" : subjectUnitKey;
         base.productionQueue.add(job);
         int position = base.productionQueue.size();
         world.status = "Queued " + itemName + (position > 1 ? " at position " + position : "") + ".";
@@ -99,7 +165,25 @@ final class ProductionSystem {
 
     static void update(World world, double dt) {
         if (world == null || dt < 0) return;
-        for (Base base : new ArrayList<>(world.bases.values())) processBase(world, base, dt);
+        for (Base base : new ArrayList<>(world.bases.values())) {
+            cleanupInvalidRefits(world, base);
+            processBase(world, base, dt);
+        }
+    }
+
+    private static void cleanupInvalidRefits(World world, Base base) {
+        if (base == null || base.productionQueue.isEmpty()) return;
+        Iterator<ProductionJob> iterator = base.productionQueue.iterator();
+        while (iterator.hasNext()) {
+            ProductionJob job = iterator.next();
+            if (job.kind != ProductionJobKind.REFIT) continue;
+            Unit unit = world.units.get(job.subjectUnitKey);
+            if (unit != null && unit.hp > 0) continue;
+            if (job.resourcesReserved) refund(base, costFor(job));
+            job.resourcesReserved = false;
+            iterator.remove();
+            world.status = "Refit cancelled because the target ship was destroyed; reserved resources were refunded.";
+        }
     }
 
     private static void processBase(World world, Base base, double dt) {
@@ -119,6 +203,13 @@ final class ProductionSystem {
                 return;
             }
             if (job.kind == ProductionJobKind.STATION_PACKAGE && !ensureBuilder(world, base, job)) return;
+            if (job.kind == ProductionJobKind.REFIT && !prepareRefit(world, base, job)) {
+                if (job.blockedReason.equals("refit target destroyed")) {
+                    base.productionQueue.remove(0);
+                    continue;
+                }
+                return;
+            }
 
             if (job.remaining > 0 && availableDt > 0) {
                 double used = Math.min(job.remaining, availableDt);
@@ -182,6 +273,7 @@ final class ProductionSystem {
             case STATION_PACKAGE -> completePackage(world, base, job);
             case CRAFTABLE -> completeCraftable(world, base, job);
             case RESEARCH -> completeResearch(world, base, job);
+            case REFIT -> completeRefit(world, base, job);
         };
     }
 
@@ -193,8 +285,10 @@ final class ProductionSystem {
         Unit unit = new Unit(base.playerId, n, job.itemId,
                 base.x + Math.cos(a) * (base.type().buildRadius + 40),
                 base.y + Math.sin(a) * (base.type().buildRadius + 40));
+        unit.loadoutId = WeaponRules.resolveForHull(ship.id, job.loadoutId).id();
         world.units.put(unit.key(), unit);
-        completed(world, base, job, "Built " + ship.name + ".", SoundCue.BUILD_SHIP);
+        completed(world, base, job, "Built " + ship.name + " - "
+                + WeaponRules.resolveForHull(ship.id, unit.loadoutId).displayName() + ".", SoundCue.BUILD_SHIP);
         return true;
     }
 
@@ -222,6 +316,55 @@ final class ProductionSystem {
         world.completeResearch(base.playerId, topic.id);
         completed(world, base, job, "Research completed: " + topic.name + ".", SoundCue.CRAFT_ITEM);
         return true;
+    }
+
+    private static boolean prepareRefit(World world, Base base, ProductionJob job) {
+        Unit unit = world.units.get(job.subjectUnitKey);
+        if (unit == null || unit.hp <= 0) {
+            if (job.resourcesReserved) refund(base, costFor(job));
+            job.resourcesReserved = false;
+            job.blockedReason = "refit target destroyed";
+            world.status = "Refit cancelled because the target ship was destroyed; reserved resources were refunded.";
+            return false;
+        }
+        ShipLoadoutDefinition loadout = WeaponRules.findLoadout(job.loadoutId);
+        if (loadout == null || !unit.shipTypeId.equals(loadout.hullId()) || !base.canRefit(unit)) {
+            job.blockedReason = "waiting for refit target in range";
+            return false;
+        }
+        unit.attackTarget = "";
+        unit.automationResourceId = -1;
+        unit.clearOrder();
+        unit.task = UnitTask.IDLE;
+        unit.targetX = unit.x;
+        unit.targetY = unit.y;
+        job.blockedReason = "";
+        return true;
+    }
+
+    private static boolean completeRefit(World world, Base base, ProductionJob job) {
+        Unit unit = world.units.get(job.subjectUnitKey);
+        ShipLoadoutDefinition loadout = WeaponRules.findLoadout(job.loadoutId);
+        if (unit == null || loadout == null || !unit.shipTypeId.equals(loadout.hullId())) return failUnknown(world, job);
+        unit.loadoutId = loadout.id();
+        unit.attackTarget = "";
+        unit.automationResourceId = -1;
+        unit.clearOrder();
+        unit.task = UnitTask.IDLE;
+        unit.targetX = unit.x;
+        unit.targetY = unit.y;
+        unit.weaponFlashTimer = 0;
+        unit.weaponCooldown = WeaponRules.maxCooldown(unit);
+        completed(world, base, job, "Refit completed: " + unit.type().name + " - " + loadout.displayName() + ".", SoundCue.CRAFT_ITEM);
+        return true;
+    }
+
+    static boolean refitLocked(World world, String unitKey) {
+        if (world == null || unitKey == null || unitKey.isBlank()) return false;
+        for (Base base : world.bases.values()) for (ProductionJob job : base.productionQueue) {
+            if (job.kind == ProductionJobKind.REFIT && unitKey.equals(job.subjectUnitKey)) return true;
+        }
+        return false;
     }
 
     private static boolean failUnknown(World world, ProductionJob job) {
@@ -342,6 +485,12 @@ final class ProductionSystem {
                 ResearchTopic topic = ResearchRules.topic(job.itemId);
                 yield topic == null ? job.itemId : topic.name + " research";
             }
+            case REFIT -> {
+                ShipLoadoutDefinition loadout = WeaponRules.findLoadout(job.loadoutId);
+                ShipType ship = Rules.findShip(job.itemId);
+                yield "Refit " + (ship == null ? job.itemId : ship.name) + " - "
+                        + (loadout == null ? job.loadoutId : loadout.displayName());
+            }
         };
     }
 
@@ -362,7 +511,8 @@ final class ProductionSystem {
     static List<Cost> costFor(ProductionJob job) {
         if (job == null) return List.of();
         return switch (job.kind) {
-            case SHIP -> Rules.ship(job.itemId).buildCost;
+            case SHIP -> WeaponRules.buildCost(Rules.findShip(job.itemId),
+                    WeaponRules.resolveForHull(job.itemId, job.loadoutId));
             case STATION_PACKAGE -> Rules.base(job.itemId).buildCost;
             case CRAFTABLE -> {
                 CraftableItem item = CraftingRules.item(job.itemId);
@@ -372,6 +522,7 @@ final class ProductionSystem {
                 ResearchTopic topic = ResearchRules.topic(job.itemId);
                 yield topic == null ? List.of() : topic.requiredResources;
             }
+            case REFIT -> WeaponRules.refitCost(WeaponRules.findLoadout(job.loadoutId));
         };
     }
 
@@ -412,7 +563,7 @@ final class ProductionSystem {
     }
 }
 
-enum ProductionJobKind { SHIP, STATION_PACKAGE, CRAFTABLE, RESEARCH }
+enum ProductionJobKind { SHIP, STATION_PACKAGE, CRAFTABLE, RESEARCH, REFIT }
 
 final class ProductionJob {
     final String id;
@@ -422,6 +573,8 @@ final class ProductionJob {
     double remaining;
     boolean resourcesReserved;
     String reservedUnitKey;
+    String loadoutId = "";
+    String subjectUnitKey = "";
     String blockedReason = "";
 
     ProductionJob(String id, ProductionJobKind kind, String itemId, double duration, double remaining,
@@ -452,7 +605,8 @@ final class ProductionQueueCodec {
             out.append(clean(job.id)).append('^').append(job.kind.name()).append('^').append(clean(job.itemId)).append('^')
                     .append(job.duration).append('^').append(job.remaining).append('^')
                     .append(job.resourcesReserved ? '1' : '0').append('^').append(clean(job.reservedUnitKey)).append('^')
-                    .append(clean(job.blockedReason));
+                    .append(clean(job.blockedReason)).append('^').append(clean(job.loadoutId)).append('^')
+                    .append(clean(job.subjectUnitKey));
         }
         return out.toString();
     }
@@ -470,6 +624,8 @@ final class ProductionQueueCodec {
                 ProductionJob job = new ProductionJob(id, kind, c[2], Double.parseDouble(c[3]),
                         Double.parseDouble(c[4]), "1".equals(c[5]), unclean(c[6]));
                 if (c.length >= 8) job.blockedReason = unclean(c[7]);
+                if (c.length >= 9) job.loadoutId = unclean(c[8]);
+                if (c.length >= 10) job.subjectUnitKey = unclean(c[9]);
                 base.productionQueue.add(job);
                 base.nextProductionJobId = Math.max(base.nextProductionJobId, numericSuffix(id) + 1);
             } catch (RuntimeException ignored) { }
@@ -509,6 +665,7 @@ final class ProductionCommands {
             case "ENQUEUE" -> enqueue(world, value, baseId, extra);
             case "CANCEL" -> ProductionSystem.cancel(world, playerId, baseId, value);
             case "MOVE" -> ProductionSystem.move(world, playerId, baseId, value, parseInt(extra));
+            case "REFIT" -> refit(world, base, value, extra);
             default -> false;
         };
     }
@@ -522,7 +679,15 @@ final class ProductionCommands {
             case STATION_PACKAGE -> world.loadBasePackage(baseId, itemId);
             case CRAFTABLE -> world.craftItem(baseId, itemId);
             case RESEARCH -> world.research(baseId, itemId);
+            case REFIT -> false;
         };
+    }
+
+    private static boolean refit(World world, Base base, String unitKey, String loadoutId) {
+        Unit unit = world.units.get(unitKey);
+        ShipLoadoutDefinition loadout = WeaponRules.findLoadout(loadoutId);
+        boolean free = world.devFreeBuildFor(base.playerId);
+        return ProductionSystem.enqueueRefit(world, base, unit, loadout, free);
     }
 
     private static int parseInt(String value) {

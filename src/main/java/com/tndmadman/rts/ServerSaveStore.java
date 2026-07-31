@@ -29,7 +29,7 @@ import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 
 final class ServerSaveStore {
-    static final int SAVE_FORMAT_VERSION = 2;
+    static final int SAVE_FORMAT_VERSION = 3;
     private static final String EXTENSION = ".starchem-save";
     private static final DateTimeFormatter BACKUP_TIMESTAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS")
             .withZone(java.time.ZoneOffset.UTC);
@@ -367,7 +367,7 @@ final class ServerSaveStore {
         Map<String,Object> players = parseObject(entries.get("players.json"), "players.json");
         Map<String,Object> galaxy = parseObject(entries.get("galaxy.json"), "galaxy.json");
         Map<String,Object> runtime;
-        if (version == SAVE_FORMAT_VERSION) {
+        if (version >= 2 && version <= SAVE_FORMAT_VERSION) {
             runtime = parseObject(entries.get("runtime.json"), "runtime.json");
             verifyRequiredChecksum(entries, manifest, "players.json", "playersSha256");
             verifyRequiredChecksum(entries, manifest, "galaxy.json", "galaxySha256");

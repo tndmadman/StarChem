@@ -17,11 +17,16 @@ final class WeaponSystem {
         if (settings.disableAttacks) return;
         for (Unit unit : new ArrayList<>(world.units.values())) {
             if (settings.freezeNpcCombat && NpcRules.isNpcFaction(unit.playerId)) continue;
-            if (!WeaponRules.screenWeapons(unit.type()).isEmpty()) screenShots(world, unit);
+            if (ProductionSystem.refitLocked(world, unit.key())) continue;
+            if (!WeaponRules.screenWeapons(unit).isEmpty()) screenShots(world, unit);
         }
         for (Unit unit : new ArrayList<>(world.units.values())) {
             if (settings.freezeNpcCombat && NpcRules.isNpcFaction(unit.playerId)) continue;
-            if (!WeaponRules.armed(unit.type())) {
+            if (ProductionSystem.refitLocked(world, unit.key())) {
+                clearIllegalAttack(unit);
+                continue;
+            }
+            if (!WeaponRules.armed(unit)) {
                 clearIllegalAttack(unit);
                 continue;
             }
@@ -40,7 +45,7 @@ final class WeaponSystem {
             double tx = CombatTarget.x(world, unit.attackTarget);
             double ty = CombatTarget.y(world, unit.attackTarget);
             double dist = Calc.distance(unit.x, unit.y, tx, ty);
-            WeaponVolley volley = WeaponRules.directVolley(unit.type(), dist / SystemModifierRules.weaponRange(world));
+            WeaponVolley volley = WeaponRules.directVolley(unit, dist / SystemModifierRules.weaponRange(world));
             WeaponType visual = volley.visualWeapon();
             if (visual == null) continue;
             float alpha = (float)(unit.weaponFlashTimer > 0 ? 0.85 : 0.18);
@@ -105,7 +110,7 @@ final class WeaponSystem {
         }
         double dist = Calc.distance(unit.x, unit.y, tx, ty);
         double rangeScale = SystemModifierRules.weaponRange(world);
-        double range = WeaponRules.maxRange(unit.type()) * rangeScale;
+        double range = WeaponRules.maxRange(unit) * rangeScale;
         if (range <= 0) {
             unit.attackTarget = "";
             unit.task = UnitTask.IDLE;
@@ -123,8 +128,8 @@ final class WeaponSystem {
         }
         if (unit.weaponCooldown > 0) return;
         double effectiveDistance = dist / rangeScale;
-        WeaponVolley direct = WeaponRules.directVolley(unit.type(), effectiveDistance);
-        List<WeaponType> moving = WeaponRules.movingWeapons(unit.type(), effectiveDistance);
+        WeaponVolley direct = WeaponRules.directVolley(unit, effectiveDistance);
+        List<WeaponType> moving = WeaponRules.movingWeapons(unit, effectiveDistance);
         if (direct.damage() <= 0 && moving.isEmpty()) return;
         if (direct.damage() > 0) CombatTarget.damage(world, unit.playerId, unit.attackTarget, direct.damage());
         double cooldown = direct.damage() > 0 ? direct.cooldownSeconds() : 0;
@@ -170,7 +175,7 @@ final class WeaponSystem {
 
     private void screenShots(World world, Unit unit) {
         if (unit.weaponCooldown > 0) return;
-        List<WeaponType> screens = WeaponRules.screenWeapons(unit.type());
+        List<WeaponType> screens = WeaponRules.screenWeapons(unit);
         if (screens.isEmpty()) return;
         WeaponType screen = screens.get(0);
         ProjectileShot best = null;

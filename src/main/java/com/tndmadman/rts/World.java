@@ -234,14 +234,14 @@ final class World {
         boolean allPlayers = playerId == null || playerId.isBlank();
         for (Unit unit : units.values()) {
             if (!allPlayers && !playerId.equals(unit.playerId)) continue;
-            if (unit.wormholeCooldown > 0) continue;
+            if (unit.wormholeCooldown > 0 || ProductionSystem.refitLocked(this, unit.key())) continue;
             WormholeGate gate = wormholeAt(unit.x, unit.y);
             if (gate != null && gate.toSystemId != null && !gate.toSystemId.isBlank()) destinations.add(gate.toSystemId);
         }
         return destinations;
     }
 
-    boolean playerShipTouchingWormhole(String playerId) { if (playerId == null || playerId.isBlank()) return false; for (Unit unit : units.values()) if (playerId.equals(unit.playerId) && unit.wormholeCooldown <= 0 && wormholeAt(unit.x, unit.y) != null) return true; return false; }
+    boolean playerShipTouchingWormhole(String playerId) { if (playerId == null || playerId.isBlank()) return false; for (Unit unit : units.values()) if (playerId.equals(unit.playerId) && unit.wormholeCooldown <= 0 && !ProductionSystem.refitLocked(this, unit.key()) && wormholeAt(unit.x, unit.y) != null) return true; return false; }
     private WormholeGate wormholeAt(double x, double y) { for (WormholeGate gate : wormholes) if (gate.contains(x, y)) return gate; return null; }
     private WormholeGate wormholeTo(String targetSystemId) { if (targetSystemId == null || targetSystemId.isBlank()) return null; for (WormholeGate gate : wormholes) if (targetSystemId.equals(gate.toSystemId)) return gate; return null; }
 
@@ -436,7 +436,7 @@ final class World {
         int combatShips = 0;
         for (Unit unit : units.values()) {
             if (unit.hp <= 0 || NpcRules.isNpcFaction(unit.playerId)) continue;
-            if (WeaponRules.armed(unit.type())) combatShips++;
+            if (WeaponRules.armed(unit)) combatShips++;
         }
         return combatShips >= Math.max(1, faction.minPlayerCombatShips());
     }
@@ -473,6 +473,15 @@ final class World {
     private void updateUnit(Unit unit, double dt) {
         unit.unloadingThisFrame = false;
         unit.wormholeCooldown = Math.max(0, unit.wormholeCooldown - dt);
+        if (ProductionSystem.refitLocked(this, unit.key())) {
+            unit.task = UnitTask.IDLE;
+            unit.attackTarget = "";
+            unit.automationResourceId = -1;
+            unit.clearOrder();
+            unit.targetX = unit.x;
+            unit.targetY = unit.y;
+            return;
+        }
         boolean recoveryOwned = NpcRecoverySystem.ownsUnit(this, unit)
                 || NpcRepairEvacuationSystem.ownsUnit(this, unit);
         if (!recoveryOwned) {
@@ -511,12 +520,12 @@ final class World {
     void selectAt(double x, double y) { ResourceNode node = resourceAt(x, y); ResourceNetDebug.select(this, x, y, node); if (node != null) { selectedResourceId = node.id; status = "Targeted " + node.name + ". Right-click to auto-harvest."; return; } Unit unit = unitAt(x, y); for (Unit u : units.values()) u.selected = false; if (unit != null && PlayerRegistry.isLocal(unit.playerId)) { unit.selected = true; status = "Selected " + unit.type().name + " #" + unit.unitId + "."; } }
     void selectBox(Rectangle2D box) { for (Unit unit : units.values()) unit.selected = PlayerRegistry.isLocal(unit.playerId) && box.contains(unit.x, unit.y); status = selectedCount() + " ship(s) selected."; }
     void moveSelected(double x, double y) { moveSelected(x, y, FleetFormation.GRID); }
-    void moveSelected(double x, double y, FleetFormation formation) { List<Unit> selected = selectedUnits(); if (selected.isEmpty()) { status = "No ship selected."; return; } for (int i = 0; i < selected.size(); i++) { Unit unit = selected.get(i); Point2D target = formationTarget(x, y, i, selected.size(), formation); unit.issueMove(target.getX(), target.getY()); } status = "Moving " + selected.size() + " ship(s) in " + formation.label + " formation."; }
+    void moveSelected(double x, double y, FleetFormation formation) { List<Unit> selected = selectedUnits(); if (selected.isEmpty()) { status = "No ship selected."; return; } int moved = 0; for (int i = 0; i < selected.size(); i++) { Unit unit = selected.get(i); if (ProductionSystem.refitLocked(this, unit.key())) continue; Point2D target = formationTarget(x, y, i, selected.size(), formation); unit.issueMove(target.getX(), target.getY()); moved++; } status = moved > 0 ? "Moving " + moved + " ship(s) in " + formation.label + " formation." : "Selected ship is reserved for refitting."; }
     void orderSelected(UnitOrderType type, double x1, double y1, double x2, double y2, String targetKey, FleetFormation formation) { List<Unit> selected = selectedUnits(); if (selected.isEmpty()) { status = "No ship selected."; return; } int applied = 0; for (int i = 0; i < selected.size(); i++) { Unit unit = selected.get(i); double ax = x1, ay = y1, bx = x2, by = y2; if (type == UnitOrderType.HOLD) { ax = bx = unit.x; ay = by = unit.y; } else if (type == UnitOrderType.ATTACK_MOVE) { Point2D end = formationTarget(x2, y2, i, selected.size(), formation); ax = unit.x; ay = unit.y; bx = end.getX(); by = end.getY(); } else if (type == UnitOrderType.PATROL) { Point2D start = formationTarget(x1, y1, i, selected.size(), formation); Point2D end = formationTarget(x2, y2, i, selected.size(), formation); ax = start.getX(); ay = start.getY(); bx = end.getX(); by = end.getY(); } else if (type == UnitOrderType.GUARD && (targetKey == null || targetKey.isBlank())) { Point2D anchor = formationTarget(x1, y1, i, selected.size(), formation); ax = bx = anchor.getX(); ay = by = anchor.getY(); } double radius = UnitOrderSystem.defaultRadius(type); if (AUnitOrder.apply(this, new UnitOrderCommand(unit.playerId, unit.unitId, type, ax, ay, bx, by, radius, targetKey, 0))) applied++; } status = applied > 0 ? orderLabel(type) + " order assigned to " + applied + " ship(s)." : "Unable to assign " + orderLabel(type).toLowerCase(Locale.ROOT) + " order."; }
     private String orderLabel(UnitOrderType type) { return switch (type) { case PATROL -> "Patrol"; case GUARD -> "Guard"; case ESCORT -> "Escort"; case HOLD -> "Hold position"; case ATTACK_MOVE -> "Attack-move"; case NONE -> "No"; }; }
     private Point2D formationTarget(double x, double y, int index, int count, FleetFormation formation) { double spacing = 54, ox = 0, oy = 0; switch (formation) { case LINE -> ox = (index - (count - 1) / 2.0) * spacing; case COLUMN -> oy = (index - (count - 1) / 2.0) * spacing; case WEDGE -> { if (index > 0) { int rank = (index + 1) / 2; int side = index % 2 == 1 ? -1 : 1; ox = side * rank * spacing; oy = rank * spacing; } } case GRID -> { int cols = (int)Math.ceil(Math.sqrt(count)); double rows = Math.ceil(count / (double)cols); int col = index % cols; int row = index / cols; ox = (col - (cols - 1) / 2.0) * 42; oy = (row - (rows - 1) / 2.0) * 42; } } return new Point2D.Double(Calc.clamp(x + ox, 0, width), Calc.clamp(y + oy, 0, height)); }
-    void attackSelected(String targetKey) { int started = 0, unarmed = 0; for (Unit unit : selectedUnits()) { if (WeaponRules.armed(unit.type())) { if (!CombatTarget.enemy(this, unit, targetKey)) continue; unit.issueAttack(targetKey); started++; } else unarmed++; } status = started > 0 ? "Attacking target with " + started + " ship(s)." : unarmed > 0 ? "Selected ship has no weapons." : "No valid attack target."; }
-    void autoHarvestSelected(ResourceNode node) { int started = 0; for (Unit unit : selectedUnits()) { if (!unit.type().harvestKinds.contains(node.kind)) continue; unit.setMiningAnchor(node.x, node.y); unit.startAutoHarvest(node.id); started++; } status = started == 0 ? "Selected ship cannot harvest this node." : "Auto-harvesting " + node.name + "."; }
+    void attackSelected(String targetKey) { int started = 0, unarmed = 0, refitting = 0; for (Unit unit : selectedUnits()) { if (ProductionSystem.refitLocked(this, unit.key())) { refitting++; continue; } if (WeaponRules.armed(unit)) { if (!CombatTarget.enemy(this, unit, targetKey)) continue; unit.issueAttack(targetKey); started++; } else unarmed++; } status = started > 0 ? "Attacking target with " + started + " ship(s)." : refitting > 0 ? "Selected ship is reserved for refitting." : unarmed > 0 ? "Selected ship has no weapons." : "No valid attack target."; }
+    void autoHarvestSelected(ResourceNode node) { int started = 0, refitting = 0; for (Unit unit : selectedUnits()) { if (ProductionSystem.refitLocked(this, unit.key())) { refitting++; continue; } if (!unit.type().harvestKinds.contains(node.kind)) continue; unit.setMiningAnchor(node.x, node.y); unit.startAutoHarvest(node.id); started++; } status = started > 0 ? "Auto-harvesting " + node.name + "." : refitting > 0 ? "Selected ship is reserved for refitting." : "Selected ship cannot harvest this node."; }
     void sendToNearestBase(Unit unit) { Base base = nearestBase(unit.playerId, unit.x, unit.y); Unit depot = MobileDepot.preferredFor(this, unit, base); if (base == null && depot == null) return; unit.task = UnitTask.RETURN_TO_STATION; if (depot != null) moveTowardOrbit(unit, depot.x, depot.y, MobileDepot.range(depot) * 0.55); else moveTowardOrbit(unit, base.x, base.y, base.type().unloadRange * 0.55); }
     boolean returnToMiningAnchor(Unit unit) { if (unit == null || !unit.miningAnchorSet || unit.type().harvestKinds.isEmpty()) return false; unit.moveTo(unit.miningAnchorX, unit.miningAnchorY); return true; }
     boolean scoutRetarget(Unit unit, ResourceNode oldNode) { return oldNode != null && scoutSystem.retargetAfterDepletion(this, unit, oldNode); }

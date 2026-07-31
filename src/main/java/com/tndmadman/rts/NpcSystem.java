@@ -77,7 +77,7 @@ final class NpcSystem {
         int combatShips = 0;
         for (Unit unit : world.units.values()) {
             if (unit.hp <= 0 || NpcRules.isNpcFaction(unit.playerId)) continue;
-            if (WeaponRules.armed(unit.type())) combatShips++;
+            if (WeaponRules.armed(unit)) combatShips++;
         }
         return combatShips >= Math.max(1, faction.minPlayerCombatShips());
     }
@@ -201,7 +201,7 @@ final class NpcSystem {
                 assignMiningTarget(world, faction, unit);
                 continue;
             }
-            if (WeaponRules.armed(unit.type())) {
+            if (WeaponRules.armed(unit)) {
                 String target = nearestEnemyTarget(world, faction, unit);
                 if (!target.isBlank()) unit.attack(target);
             }
@@ -726,7 +726,7 @@ final class NpcSystem {
         List<Unit> out = new ArrayList<>();
         for (Unit unit : world.units.values()) {
             if (!unit.playerId.equals(faction.id()) || unit.hp <= 0) continue;
-            if (WeaponRules.armed(unit.type())) out.add(unit);
+            if (WeaponRules.armed(unit)) out.add(unit);
         }
         return out;
     }
@@ -887,7 +887,7 @@ final class NpcSystem {
         for (Unit unit : world.units.values()) {
             if (!canTarget(faction, unit.playerId)
                     || unit.hp <= 0
-                    || !WeaponRules.armed(unit.type())) continue;
+                    || !WeaponRules.armed(unit)) continue;
             double d = Calc.distance(x, y, unit.x, unit.y);
             if (d < bestDist) {
                 best = CombatTarget.unit(unit);

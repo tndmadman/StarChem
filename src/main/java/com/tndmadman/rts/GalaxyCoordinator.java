@@ -354,7 +354,7 @@ final class GalaxyCoordinator {
         boolean allPlayers = playerId == null || playerId.isBlank();
         for (Unit unit : unitsToMove) {
             if (!allPlayers && !playerId.equals(unit.playerId)) continue;
-            if (unit.wormholeCooldown > 0) continue;
+            if (unit.wormholeCooldown > 0 || ProductionSystem.refitLocked(world, unit.key())) continue;
             WormholeGate gate = touchingGate(world, unit);
             if (gate == null) continue;
             moved |= transferUnit(world, gate, unit);
@@ -409,7 +409,7 @@ final class GalaxyCoordinator {
             if (!factionId.equals(unit.playerId) || unit.hp <= 0) continue;
             if (builder == null && unit.type().baseBuilder && unit.basePackageType.isBlank()) builder = unit;
             else if (worker == null && !unit.type().harvestKinds.isEmpty()) worker = unit;
-            if (WeaponRules.armed(unit.type())) combat.add(unit);
+            if (WeaponRules.armed(unit)) combat.add(unit);
         }
         int fleetSize = Math.max(2, requestedCombatShips);
         if (builder == null || worker == null || combat.size() < fleetSize) return false;
@@ -772,6 +772,7 @@ final class GalaxyCoordinator {
         for (Unit unit : units) {
             Map<String,Object> row = new LinkedHashMap<>();
             row.put("playerId", unit.playerId); row.put("unitId", unit.unitId); row.put("shipTypeId", unit.shipTypeId);
+            row.put("loadoutId", unit.loadoutId);
             row.put("basePackageType", unit.basePackageType); row.put("attackTarget", unit.attackTarget);
             row.put("logisticsTargetBaseId", unit.logisticsTargetBaseId); row.put("logisticsRequestId", unit.logisticsRequestId);
             row.put("orderTarget", unit.orderTarget); row.put("task", unit.task.name()); row.put("orderType", unit.orderType.name());
@@ -795,6 +796,10 @@ final class GalaxyCoordinator {
             Unit unit = new Unit(ServerSaveStore.string(row, "playerId", "SOLO"), ServerSaveStore.intValue(row, "unitId", 1),
                     SaveContentResolver.shipId(ServerSaveStore.string(row, "shipTypeId", Rules.STARTING_SHIP)), ServerSaveStore.doubleValue(row, "x", 0),
                     ServerSaveStore.doubleValue(row, "y", 0));
+            String savedLoadoutId = ServerSaveStore.string(row, "loadoutId", WeaponRules.defaultLoadoutId(unit.shipTypeId));
+            ShipLoadoutDefinition savedLoadout = WeaponRules.findLoadout(savedLoadoutId);
+            unit.loadoutId = savedLoadout != null && unit.shipTypeId.equals(savedLoadout.hullId())
+                    ? savedLoadout.id() : WeaponRules.defaultLoadoutId(unit.shipTypeId);
             unit.basePackageType = SaveContentResolver.optionalBaseId(ServerSaveStore.string(row, "basePackageType", ""));
             unit.attackTarget = ServerSaveStore.string(row, "attackTarget", "");
             unit.logisticsTargetBaseId = ServerSaveStore.string(row, "logisticsTargetBaseId", "");
@@ -857,7 +862,8 @@ final class GalaxyCoordinator {
             Map<String,Object> row = new LinkedHashMap<>();
             row.put("id", job.id); row.put("kind", job.kind.name()); row.put("itemId", job.itemId);
             row.put("duration", job.duration); row.put("remaining", job.remaining); row.put("resourcesReserved", job.resourcesReserved);
-            row.put("reservedUnitKey", job.reservedUnitKey); row.put("blockedReason", job.blockedReason);
+            row.put("reservedUnitKey", job.reservedUnitKey); row.put("loadoutId", job.loadoutId);
+            row.put("subjectUnitKey", job.subjectUnitKey); row.put("blockedReason", job.blockedReason);
             out.add(row);
         }
         return out;
@@ -875,6 +881,14 @@ final class GalaxyCoordinator {
                     ServerSaveStore.doubleValue(row, "remaining", 0), ServerSaveStore.boolValue(row, "resourcesReserved", false),
                     ServerSaveStore.string(row, "reservedUnitKey", ""));
             job.blockedReason = ServerSaveStore.string(row, "blockedReason", "");
+            job.loadoutId = ServerSaveStore.string(row, "loadoutId",
+                    kind == ProductionJobKind.SHIP ? WeaponRules.defaultLoadoutId(itemId) : "");
+            job.subjectUnitKey = ServerSaveStore.string(row, "subjectUnitKey", "");
+            if ((kind == ProductionJobKind.SHIP || kind == ProductionJobKind.REFIT)) {
+                ShipLoadoutDefinition loadout = WeaponRules.findLoadout(job.loadoutId);
+                if (loadout == null || !itemId.equals(loadout.hullId())
+                        || kind == ProductionJobKind.REFIT && job.subjectUnitKey.isBlank()) continue;
+            }
             out.add(job);
         }
         return out;

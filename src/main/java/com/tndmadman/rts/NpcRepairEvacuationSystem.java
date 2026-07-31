@@ -410,7 +410,7 @@ final class NpcRepairEvacuationSystem {
                 for (String key : keys) {
                     Unit unit = world.units.get(key);
                     if (unit != null && unit.hp > 0
-                            && WeaponRules.armed(unit.type())) units.add(unit);
+                            && WeaponRules.armed(unit)) units.add(unit);
                 }
             }
         } finally {
@@ -426,7 +426,7 @@ final class NpcRepairEvacuationSystem {
         List<Unit> result = new ArrayList<>();
         for (Unit unit : world.units.values()) {
             if (!factionId.equals(unit.playerId) || unit.hp <= 0
-                    || !WeaponRules.armed(unit.type())) continue;
+                    || !WeaponRules.armed(unit)) continue;
             if (hpRatio(unit) < DAMAGED_RATIO) result.add(unit);
         }
         return result;
@@ -438,7 +438,7 @@ final class NpcRepairEvacuationSystem {
         for (Unit unit : world.units.values()) {
             if (!factionId.equals(unit.playerId) || unit.hp <= 0
                     || excluded.contains(unit.key())
-                    || !WeaponRules.armed(unit.type())
+                    || !WeaponRules.armed(unit)
                     || hpRatio(unit) < 0.85) continue;
             result.add(unit);
         }

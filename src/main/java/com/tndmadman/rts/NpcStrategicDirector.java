@@ -304,7 +304,7 @@ final class NpcStrategicDirector {
         int threats = 0;
         for (Unit enemy : world.units.values()) {
             if (enemy.hp <= 0 || faction.id().equals(enemy.playerId)
-                    || !WeaponRules.armed(enemy.type())) continue;
+                    || !WeaponRules.armed(enemy)) continue;
             if (NpcRules.isNpcFaction(enemy.playerId) && !faction.attackNpcFactions()) continue;
             for (Base base : world.bases.values()) {
                 if (!faction.id().equals(base.playerId) || base.hp <= 0) continue;

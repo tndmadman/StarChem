@@ -514,7 +514,7 @@ public final class NpcResourceBudgetValidator {
     private static void removeCombatToOne(Fixture fixture) {
         for (Unit unit : List.copyOf(fixture.world.units.values())) {
             if (combatCount(fixture) <= 1) return;
-            if (fixture.faction.id().equals(unit.playerId) && WeaponRules.armed(unit.type())) {
+            if (fixture.faction.id().equals(unit.playerId) && WeaponRules.armed(unit)) {
                 fixture.world.units.remove(unit.key());
             }
         }
@@ -523,7 +523,7 @@ public final class NpcResourceBudgetValidator {
     private static int combatCount(Fixture fixture) {
         int count = 0;
         for (Unit unit : fixture.world.units.values()) {
-            if (fixture.faction.id().equals(unit.playerId) && unit.hp > 0 && WeaponRules.armed(unit.type())) count++;
+            if (fixture.faction.id().equals(unit.playerId) && unit.hp > 0 && WeaponRules.armed(unit)) count++;
         }
         return count;
     }

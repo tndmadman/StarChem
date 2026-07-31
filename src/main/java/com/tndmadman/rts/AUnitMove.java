@@ -6,7 +6,7 @@ final class AUnitMove {
     static boolean apply(World world, MoveCommand c) {
         if (world == null || c == null) return false;
         Unit u = world.units.get(Unit.key(c.playerId(), c.unitId()));
-        if (u == null) return false;
+        if (u == null || ProductionSystem.refitLocked(world, u.key())) return false;
         if (!GameplayCommandNumbers.worldCoordinate(world, c.x(), c.y())) return false;
         u.issueMove(c.x(), c.y());
         return true;

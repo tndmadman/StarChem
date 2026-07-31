@@ -7,6 +7,7 @@ final class Unit {
     final int unitId;
     final EnumMap<Material, Double> inventory = new EnumMap<>(Material.class);
     String shipTypeId;
+    String loadoutId;
     String basePackageType = "";
     String attackTarget = "";
     String logisticsTargetBaseId = "";
@@ -27,6 +28,7 @@ final class Unit {
         this.playerId = playerId;
         this.unitId = unitId;
         this.shipTypeId = shipTypeId;
+        this.loadoutId = WeaponRules.defaultLoadoutId(shipTypeId);
         this.x = Double.isFinite(x) ? x : 0;
         this.y = Double.isFinite(y) ? y : 0;
         this.targetX = this.x;
@@ -44,7 +46,7 @@ final class Unit {
     boolean contains(double wx, double wy) { return Calc.distance(wx, wy, x, y) <= 28 * type().size.scale; }
 
     void issueMove(double tx, double ty) {
-        if (!GameplayCommandNumbers.finite(tx, ty)) return;
+        if (refitLocked() || !GameplayCommandNumbers.finite(tx, ty)) return;
         clearOrder();
         if (canAutoMineLocally()) setMiningAnchor(tx, ty);
         moveTo(tx, ty);
@@ -60,6 +62,7 @@ final class Unit {
     }
 
     void issueAttack(String targetKey) {
+        if (refitLocked()) return;
         clearOrder();
         attack(targetKey);
     }
@@ -75,6 +78,7 @@ final class Unit {
     }
 
     void startAutoHarvest(int resourceId) {
+        if (refitLocked()) return;
         clearOrder();
         automationResourceId = resourceId;
         attackTarget = "";
@@ -82,6 +86,7 @@ final class Unit {
     }
 
     void setOrder(UnitOrderCommand command) {
+        if (refitLocked()) return;
         if (command == null || command.type() == UnitOrderType.NONE) {
             clearOrder();
             return;
@@ -131,6 +136,14 @@ final class Unit {
     private boolean canAutoMineLocally() {
         ShipType type = type();
         return type.scoutRange > 0 && !type.harvestKinds.isEmpty();
+    }
+
+    private boolean refitLocked() {
+        World world = PlayerRegistry.activeWorld();
+        if (world == null) return false;
+        if (!ProductionSystem.refitLocked(world, key())) return false;
+        if (PlayerRegistry.isLocal(playerId)) world.status = "Ship is reserved for refitting.";
+        return true;
     }
 
     double cargoUsed() {

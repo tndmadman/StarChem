@@ -93,7 +93,7 @@ final class SnapshotReader {
         for (int i = 0; i < rows.length; i++) {
             int rowIndex = i + 1;
             String[] c = columns(rows[i], "units", rowIndex);
-            requireColumns(c.length, "units", rowIndex, 12, 13, 14, 15, 16, 24);
+            requireColumns(c.length, "units", rowIndex, 12, 13, 14, 15, 16, 24, 25);
 
             String playerId = requiredText(c[0], 64, "units", rowIndex, "player ID");
             int unitId = integer(c[1], 0, Integer.MAX_VALUE, "units", rowIndex, "unit ID");
@@ -117,8 +117,8 @@ final class SnapshotReader {
             String cargo = CargoCodec.unsafed(c[11]);
             validateCargo(cargo, "units", rowIndex, "cargo");
 
-            boolean v2 = c.length == 16 || c.length == 24;
-            boolean v3 = c.length == 24;
+            boolean v2 = c.length == 16 || c.length == 24 || c.length == 25;
+            boolean v3 = c.length == 24 || c.length == 25;
             double hp = c.length >= 13 ? finite(c[12], 0, MAX_SCALAR, "units", rowIndex, "hp") : ship.maxHp;
             double shield = v2 ? finite(c[13], 0, MAX_SCALAR, "units", rowIndex, "shield") : ship.maxShield;
             String attackTarget = v2 ? CargoCodec.unsafed(c[14]) : c.length >= 14 ? CargoCodec.unsafed(c[13]) : "";
@@ -133,10 +133,17 @@ final class SnapshotReader {
             double orderRadius = v3 ? finite(c[21], 0, MAX_ABS_COORDINATE, "units", rowIndex, "order radius") : 0;
             String orderTarget = v3 ? text(CargoCodec.unsafed(c[22]), MAX_TEXT_LENGTH, "units", rowIndex, "order target") : "";
             int orderPhase = v3 ? integer(c[23], 0, 1_000_000, "units", rowIndex, "order phase") : 0;
+            String loadoutId = c.length == 25
+                    ? text(CargoCodec.unsafed(c[24]), 128, "units", rowIndex, "loadout ID")
+                    : WeaponRules.defaultLoadoutId(shipId);
+            ShipLoadoutDefinition loadout = WeaponRules.findLoadout(loadoutId);
+            if (loadout == null || !shipId.equals(loadout.hullId())) {
+                throw error("units", rowIndex, "loadout ID", "unknown or mismatched value " + printable(loadoutId));
+            }
 
             units.add(new UnitState(playerId, unitId, shipId, x, y, targetX, targetY, heading, task, resourceId,
                     packageType, cargo, hp, shield, attackTarget, flash, orderType, orderX1, orderY1, orderX2,
-                    orderY2, orderRadius, orderTarget, orderPhase));
+                    orderY2, orderRadius, orderTarget, orderPhase, loadoutId));
         }
         return units;
     }

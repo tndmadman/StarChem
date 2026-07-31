@@ -41,6 +41,14 @@ tasks.register('validateRules', JavaExec) {
     mainClass = 'com.tndmadman.rts.RulesValidator'
 }
 
+tasks.register('validateShipLoadouts', JavaExec) {
+    group = 'verification'
+    description = 'Validate authored ship loadouts, construction selection, refitting, and persistence.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.ShipLoadoutValidator'
+}
+
 tasks.register('validateProductionQueues', JavaExec) {
     group = 'verification'
     description = 'Validate station production queue behavior.'
@@ -401,6 +409,7 @@ tasks.register('verifyBuildMetadata') {
 
 tasks.named('check') {
     dependsOn tasks.named('validateRules')
+    dependsOn tasks.named('validateShipLoadouts')
     dependsOn tasks.named('validateProductionQueues')
     dependsOn tasks.named('validateDevAccess')
     dependsOn tasks.named('validateClientLaunch')

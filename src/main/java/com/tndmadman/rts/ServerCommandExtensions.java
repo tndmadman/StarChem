@@ -549,7 +549,7 @@ final class ServerCommandExtensions {
                         if ("player".equals(mode) && !unit.playerId.equalsIgnoreCase(playerId)) continue;
                         if ("asset".equals(mode) && !(unit.key().equalsIgnoreCase(selector) || String.valueOf(unit.unitId).equals(selector))) continue;
                         rows.add(systemId + " | ship " + unit.key() + " | owner " + unit.playerId + " | type " + unit.shipTypeId
-                                + " | hp " + fmt(unit.hp) + " | shield " + fmt(unit.shield) + " | task " + unit.task
+                                + " | loadout " + unit.loadoutId + " | hp " + fmt(unit.hp) + " | shield " + fmt(unit.shield) + " | task " + unit.task
                                 + " | order " + unit.orderType + " | cargo " + fmt(sum(unit.inventory)));
                     }
                 }

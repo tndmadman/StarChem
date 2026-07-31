@@ -17,7 +17,12 @@ final class ServerSaveMigration {
             ensureRuntime(runtime);
             version = 2;
             notes.add("v1->v2 normalized optional player/session/runtime sections");
-        } else if (version != ServerSaveStore.SAVE_FORMAT_VERSION) {
+        }
+        if (version == 2) {
+            version = 3;
+            notes.add("v2->v3 assigns default authored loadouts to legacy ships and queued builds");
+        }
+        if (version != ServerSaveStore.SAVE_FORMAT_VERSION) {
             throw new IllegalArgumentException("Unsupported save format " + sourceVersion + ".");
         }
         manifest.put("saveFormatVersion", ServerSaveStore.SAVE_FORMAT_VERSION);

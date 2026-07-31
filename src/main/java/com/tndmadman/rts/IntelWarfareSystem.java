@@ -367,7 +367,7 @@ final class IntelWarfareSystem {
             for (Unit unit : world.units.values()) {
                 if (assigned >= rule.responseShipLimit) break;
                 if (unit == null || unit.hp <= 0 || !allied(world, radar.playerId, unit.playerId)
-                        || !WeaponRules.armed(unit.type())) continue;
+                        || !WeaponRules.armed(unit)) continue;
                 boolean assignedGuard = unit.orderType == UnitOrderType.GUARD
                         && guardTarget.equals(unit.orderTarget);
                 if (!assignedGuard && !NpcRules.isNpcFaction(unit.playerId)) continue;
@@ -429,7 +429,7 @@ final class IntelWarfareSystem {
             double predictedX = newest.x + newest.vx * Math.min(5, now - newest.lastSeenTime);
             double predictedY = newest.y + newest.vy * Math.min(5, now - newest.lastSeenTime);
             for (Unit unit : world.units.values()) {
-                if (!owner.equals(unit.playerId) || unit.hp <= 0 || !WeaponRules.armed(unit.type())) continue;
+                if (!owner.equals(unit.playerId) || unit.hp <= 0 || !WeaponRules.armed(unit)) continue;
                 if (unit.task != UnitTask.IDLE || unit.orderType != UnitOrderType.NONE) continue;
                 unit.issueMove(predictedX, predictedY);
                 break;

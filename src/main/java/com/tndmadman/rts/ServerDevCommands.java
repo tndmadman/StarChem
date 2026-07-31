@@ -715,7 +715,7 @@ final class ServerDevCommands {
             visitSystems(host.world, (system, world) -> {
                 String target = firstEnemyTarget(world, faction.id());
                 if (target.isBlank()) return false;
-                for (Unit unit : world.units.values()) if (faction.id().equals(unit.playerId) && WeaponRules.armed(unit.type())) {
+                for (Unit unit : world.units.values()) if (faction.id().equals(unit.playerId) && WeaponRules.armed(unit)) {
                     unit.attack(target); count[0]++;
                 }
                 return count[0] > 0;
@@ -1037,9 +1037,11 @@ final class ServerDevCommands {
     private static List<Object> capturePlayerAssets(World world, String playerId) {
         ArrayList<Object> rows = new ArrayList<>();
         visitSystems(world, (system, active) -> {
-            for (Unit unit : active.units.values()) if (playerId.equals(unit.playerId)) rows.add(Map.of(
-                    "system", system, "kind", "ship", "id", unit.key(), "type", unit.shipTypeId,
-                    "hp", unit.hp, "shield", unit.shield, "x", unit.x, "y", unit.y));
+            for (Unit unit : active.units.values()) if (playerId.equals(unit.playerId)) rows.add(Map.ofEntries(
+                    Map.entry("system", system), Map.entry("kind", "ship"), Map.entry("id", unit.key()),
+                    Map.entry("type", unit.shipTypeId), Map.entry("loadout", unit.loadoutId),
+                    Map.entry("hp", unit.hp), Map.entry("shield", unit.shield),
+                    Map.entry("x", unit.x), Map.entry("y", unit.y)));
             for (Base base : active.bases.values()) if (playerId.equals(base.playerId)) rows.add(Map.of(
                     "system", system, "kind", "base", "id", base.id, "type", base.typeId,
                     "hp", base.hp, "shield", base.shield, "x", base.x, "y", base.y,
@@ -1057,7 +1059,8 @@ final class ServerDevCommands {
             root.put("systemId", systemId);
             root.put("systemName", world.systemName());
             root.put("systemTime", world.systemTime());
-            root.put("ships", world.units.values().stream().map(unit -> Map.of("id", unit.key(), "owner", unit.playerId, "type", unit.shipTypeId, "hp", unit.hp, "shield", unit.shield)).toList());
+            root.put("ships", world.units.values().stream().map(unit -> Map.of("id", unit.key(), "owner", unit.playerId, "type", unit.shipTypeId,
+                    "loadout", unit.loadoutId, "hp", unit.hp, "shield", unit.shield)).toList());
             root.put("bases", world.bases.values().stream().map(base -> Map.of("id", base.id, "owner", base.playerId, "type", base.typeId, "hp", base.hp, "shield", base.shield, "queue", base.productionQueue.size())).toList());
             root.put("resourceNodes", world.resources.size());
             root.put("worldItems", world.items.size());

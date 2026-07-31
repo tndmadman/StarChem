@@ -103,7 +103,7 @@ final class AiDevCommands {
         NpcFaction f = AiDevSnapshot.corsairs(); if (f == null) return;
         String target = nearestLocalTarget(world, world.width / 2.0, world.height / 2.0);
         int count = 0;
-        for (Unit u : world.units.values()) if (u.playerId.equals(f.id()) && WeaponRules.armed(u.type()) && !target.isBlank()) { u.attack(target); count++; }
+        for (Unit u : world.units.values()) if (u.playerId.equals(f.id()) && WeaponRules.armed(u) && !target.isBlank()) { u.attack(target); count++; }
         world.status = "Dev forced Corsair raid with " + count + " ship(s).";
         AiDevLog.add(world, f, "forced raid at " + target);
     }

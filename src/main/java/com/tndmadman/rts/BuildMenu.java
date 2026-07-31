@@ -157,21 +157,29 @@ final class BuildMenu {
 
         for (String shipId : def.buildableShips) {
             if (!ResearchRules.shipUnlocked(world, base.playerId, shipId)) continue;
-            ShipType ship = Rules.ship(shipId);
+            ShipType ship = Rules.findShip(shipId);
             if (ship == null) continue;
-            entries.add(new Entry(
-                    "Build " + ship.name,
-                    timeDetail("Build", ship.buildTimeSeconds, free),
-                    defenseLine(ship),
-                    new ShipPreviewIcon(ship),
-                    requirementTooltip("Build " + ship.name, ship.buildCost, free,
-                            defenseLine(ship), weaponText(weaponBadges(ship))),
-                    false,
-                    false,
-                    false,
-                    () -> sendProduction(world, network, base, "ENQUEUE",
-                            ProductionJobKind.SHIP.name(), shipId)));
+            List<ShipLoadoutDefinition> variants = WeaponRules.loadoutsForHull(shipId);
+            for (ShipLoadoutDefinition loadout : variants) {
+                if (!WeaponRules.unlocked(world, base.playerId, loadout)) continue;
+                List<Cost> cost = WeaponRules.buildCost(ship, loadout);
+                String variant = variants.size() > 1 ? " - " + loadout.displayName() : "";
+                entries.add(new Entry(
+                        "Build " + ship.name + variant,
+                        timeDetail("Build", ship.buildTimeSeconds, free),
+                        defenseLine(ship),
+                        new ShipPreviewIcon(ship),
+                        requirementTooltip("Build " + ship.name + variant, cost, free,
+                                defenseLine(ship), weaponText(weaponBadges(loadout))),
+                        false,
+                        false,
+                        false,
+                        () -> sendProduction(world, network, base, "ENQUEUE",
+                                ProductionJobKind.SHIP.name(), loadout.id())));
+            }
         }
+
+        addRefitEntries(world, network, base, free);
 
         for (String packageId : def.basePackages) {
             if (!StationPackageResearchRules.unlocked(world, base.playerId, packageId)) continue;
@@ -238,6 +246,34 @@ final class BuildMenu {
             }
         }
         openAt(sx, sy);
+    }
+
+    private void addRefitEntries(World world, PeerNetwork network, Base base, boolean free) {
+        if (!base.type().canRefitShips) return;
+        List<Unit> candidates = new ArrayList<>();
+        for (Unit unit : world.units.values()) {
+            if (base.canRefit(unit) && !ProductionSystem.refitLocked(world, unit.key())) candidates.add(unit);
+        }
+        candidates.sort(Comparator.comparing((Unit unit) -> unit.type().name).thenComparingInt(unit -> unit.unitId));
+        for (Unit unit : candidates) {
+            List<ShipLoadoutDefinition> variants = WeaponRules.loadoutsForHull(unit.shipTypeId);
+            if (variants.size() <= 1) continue;
+            for (ShipLoadoutDefinition loadout : variants) {
+                if (loadout.id().equals(unit.loadoutId) || !WeaponRules.unlocked(world, base.playerId, loadout)) continue;
+                String label = "Refit " + unit.type().name + " #" + unit.unitId + " - " + loadout.displayName();
+                entries.add(new Entry(
+                        label,
+                        timeDetail("Refit", loadout.refitTimeSeconds(), free),
+                        weaponText(weaponBadges(loadout)),
+                        new ShipPreviewIcon(unit.type()),
+                        requirementTooltip(label, WeaponRules.refitCost(loadout), free,
+                                "Ship must remain idle and inside refit range.", weaponText(weaponBadges(loadout))),
+                        false,
+                        false,
+                        false,
+                        () -> sendProduction(world, network, base, "REFIT", unit.key(), loadout.id())));
+            }
+        }
     }
 
     private void addCraftingEntries(World world, PeerNetwork network, Base base, boolean free) {
@@ -369,7 +405,8 @@ final class BuildMenu {
         return switch (job.kind) {
             case SHIP -> {
                 ShipType ship = Rules.findShip(job.itemId);
-                yield ship == null ? "" : defenseLine(ship);
+                ShipLoadoutDefinition loadout = WeaponRules.resolveForHull(job.itemId, job.loadoutId);
+                yield ship == null ? "" : defenseLine(ship) + (loadout == null ? "" : " | " + loadout.displayName());
             }
             case STATION_PACKAGE -> {
                 BaseType station = Rules.base(job.itemId);
@@ -382,6 +419,10 @@ final class BuildMenu {
             case RESEARCH -> {
                 ResearchTopic topic = ResearchRules.topic(job.itemId);
                 yield topic == null ? "" : topic.unlockLabel();
+            }
+            case REFIT -> {
+                ShipLoadoutDefinition loadout = WeaponRules.findLoadout(job.loadoutId);
+                yield loadout == null ? "" : weaponText(weaponBadges(loadout));
             }
         };
     }
@@ -405,6 +446,10 @@ final class BuildMenu {
                 ResearchTopic topic = ResearchRules.topic(job.itemId);
                 yield topic == null ? new NavigationPreviewIcon("•")
                         : new ResearchPreviewIcon(topic);
+            }
+            case REFIT -> {
+                ShipType ship = Rules.findShip(job.itemId);
+                yield ship == null ? new NavigationPreviewIcon("•") : new ShipPreviewIcon(ship);
             }
         };
     }
@@ -706,8 +751,12 @@ final class BuildMenu {
     }
 
     private List<WeaponBadge> weaponBadges(ShipType ship) {
+        return weaponBadges(WeaponRules.defaultLoadout(ship.id));
+    }
+
+    private List<WeaponBadge> weaponBadges(ShipLoadoutDefinition loadout) {
         Map<String, WeaponBadge> grouped = new LinkedHashMap<>();
-        for (WeaponType weapon : WeaponRules.loadout(ship)) {
+        for (WeaponType weapon : WeaponRules.loadout(loadout)) {
             String label = weaponLabel(weapon);
             WeaponBadge old = grouped.get(label);
             if (old == null) {

@@ -15,7 +15,7 @@ final class WorldNetAccess {
             if (realPlayerId(player.id()) || includeSolo && "SOLO".equals(player.id())) players.add(player);
         }
         List<UnitState> units = new ArrayList<>();
-        for (Unit u : world.units.values()) units.add(new UnitState(u.playerId, u.unitId, u.shipTypeId, u.x, u.y, u.targetX, u.targetY, u.heading, u.task.name(), u.automationResourceId, u.basePackageType, CargoCodec.write(u.inventory), u.hp, u.shield, u.attackTarget, u.weaponFlashTimer, u.orderType.name(), u.orderX1, u.orderY1, u.orderX2, u.orderY2, u.orderRadius, u.orderTarget, u.orderPhase));
+        for (Unit u : world.units.values()) units.add(new UnitState(u.playerId, u.unitId, u.shipTypeId, u.x, u.y, u.targetX, u.targetY, u.heading, u.task.name(), u.automationResourceId, u.basePackageType, CargoCodec.write(u.inventory), u.hp, u.shield, u.attackTarget, u.weaponFlashTimer, u.orderType.name(), u.orderX1, u.orderY1, u.orderX2, u.orderY2, u.orderRadius, u.orderTarget, u.orderPhase, u.loadoutId));
         List<ResourceState> resources = ResourceSync.snapshot(world);
         List<BaseState> bases = new ArrayList<>();
         for (Base b : world.bases.values()) bases.add(NetBaseSync.toState(b));
