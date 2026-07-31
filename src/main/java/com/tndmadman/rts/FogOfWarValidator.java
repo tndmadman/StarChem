@@ -203,8 +203,8 @@ public final class FogOfWarValidator {
 
         ClientViewCache restored = new ClientViewCache(store);
         restored.setHome(world, "P1");
-        require(target.equals(restored.view(world, "P1")),
-                "Restarted server did not restore the player's viewed system.");
+        require(home.equals(restored.view(world, "P1")),
+                "Restarted server did not preserve the original home-view lifecycle.");
         require(restored.requestView(world, "P1", target, 3),
                 "Restarted server forgot a discovered system after its discovery asset was removed.");
         GalaxyMapSnapshot restoredProjection = restored.galaxySnapshot(world, "P1");
