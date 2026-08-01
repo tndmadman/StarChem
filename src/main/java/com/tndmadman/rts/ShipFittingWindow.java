@@ -4,6 +4,8 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.KeyEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -28,8 +30,14 @@ final class ShipFittingWindow {
         if (parent == null || world == null || unit == null) return;
         close();
         Window owner = SwingUtilities.getWindowAncestor(parent);
-        dialog = new JDialog(owner, "Ship Fitting", Dialog.ModalityType.MODELESS);
+        dialog = new JDialog(owner, "Ship Fitting - " + unit.type().name + " #" + unit.unitId,
+                Dialog.ModalityType.MODELESS);
         dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        dialog.addWindowListener(new WindowAdapter() {
+            @Override public void windowClosed(WindowEvent event) {
+                if (dialog == event.getWindow()) dialog = null;
+            }
+        });
         dialog.setContentPane(content(world, network, unit));
         dialog.getRootPane().registerKeyboardAction(
                 event -> dialog.dispose(), KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
