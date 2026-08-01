@@ -1,0 +1,146 @@
+=== PeerNetwork declarations and production methods ===
+src/main/java/com/tndmadman/rts/StationControlMenu.java:193:        if (network != null) network.production(base.playerId, "CONTROL", base.id, action, value);
+src/main/java/com/tndmadman/rts/PeerClientSide.java:259:    void production(String playerId, String action, String baseId, String value, String extra) {
+src/main/java/com/tndmadman/rts/ServerCommandExtensions.java:55:            case "production" -> production(host.world, args);
+src/main/java/com/tndmadman/rts/ServerCommandExtensions.java:488:    private static List<String> production(World world, List<String> args) {
+src/main/java/com/tndmadman/rts/ShipFittingWindow.java:168:        else network.production(playerId, action, baseId, value, extra);
+src/main/java/com/tndmadman/rts/NetModels.java:174:    void production(String playerId, String action, String baseId, String value, String extra);
+src/main/java/com/tndmadman/rts/BuildMenu.java:433:            network.production(base.playerId, action, base.id, value, extra);
+src/main/java/com/tndmadman/rts/PeerNetworkFacade.java:13:final class PeerNetwork implements CommandSink {
+src/main/java/com/tndmadman/rts/PeerNetworkFacade.java:474:    @Override public void production(String playerId, String action, String baseId, String value, String extra) { if (server != null) serverCommand(() -> { if (CommandAuth.base(server.world, playerId, baseId)) ProductionCommands.apply(server.world, playerId, action, baseId, value, extra); }, playerId); else client.production(playerId, action, baseId, value, extra); }
+src/main/java/com/tndmadman/rts/ServerDevCommands.java:56:            case "production" -> production(host, args);
+src/main/java/com/tndmadman/rts/ServerDevCommands.java:493:    private static List<String> production(HeadlessGameServer host, List<String> args) {
+=== command and message declarations ===
+src/main/java/com/tndmadman/rts/GamePanel.java:497:        world.status = switch (type) {
+src/main/java/com/tndmadman/rts/StationControlMenu.java:48:                + " | NON-PRODUCTION", Font.PLAIN, 11, MUTED);
+src/main/java/com/tndmadman/rts/StationControlMenu.java:53:        switch (StationControls.role(base.typeId)) {
+src/main/java/com/tndmadman/rts/DevMenu.java:10:    private static final int PRODUCTION_TIMERS_Y = 84;
+src/main/java/com/tndmadman/rts/DevMenu.java:40:        if (hit(localY, PRODUCTION_TIMERS_Y)) {
+src/main/java/com/tndmadman/rts/DevMenu.java:113:        drawToggle(body, DevTimerSettings.disabled(world), "Disable production timers", x, y + PRODUCTION_TIMERS_Y);
+src/main/java/com/tndmadman/rts/GameNoticeCenter.java:107:    PRODUCTION,
+src/main/java/com/tndmadman/rts/ClientCredentialVault.java:474:    private record CommandResult(int exitCode, String output) { }
+src/main/java/com/tndmadman/rts/TutorialOverlay.java:619:        BUILD_COMPLETE("Production", "Wait for construction to finish", "Leave the job queued and watch the Outpost production progress.", "The active production indicator counting down toward completion.", "A second Prospector launches beside the Outpost.", "Additional miners increase income and let you split assignments.", ActionKind.WAIT, "", "PRODUCTION QUEUE"),
+src/main/java/com/tndmadman/rts/ServerCommandDispatcher.java:477:    private record Command(String usage, String description, CommandHandler handler) { }
+src/main/java/com/tndmadman/rts/Types.java:137:record MoveCommand(String playerId, int unitId, double x, double y) { }
+src/main/java/com/tndmadman/rts/Types.java:138:record HarvestCommand(String playerId, int unitId, int resourceId) { }
+src/main/java/com/tndmadman/rts/Types.java:139:record AttackCommand(String playerId, int unitId, String targetKey) { }
+src/main/java/com/tndmadman/rts/Types.java:140:record UnitOrderCommand(String playerId, int unitId, UnitOrderType type,
+src/main/java/com/tndmadman/rts/Base.java:74:        return switch (typeId) {
+src/main/java/com/tndmadman/rts/World.java:525:    private String orderLabel(UnitOrderType type) { return switch (type) { case PATROL -> "Patrol"; case GUARD -> "Guard"; case ESCORT -> "Escort"; case HOLD -> "Hold position"; case ATTACK_MOVE -> "Attack-move"; case NONE -> "No"; }; }
+src/main/java/com/tndmadman/rts/BuildMenu.java:151:        title = def.name.toUpperCase(Locale.ROOT) + " PRODUCTION | "
+src/main/java/com/tndmadman/rts/ProductionPlanner.java:92:                GameNoticeCenter.publish(world, plan.playerId, NoticeCategory.PRODUCTION,
+src/main/java/com/tndmadman/rts/ProductionPlanner.java:183:            GameNoticeCenter.publish(world, target.playerId, NoticeCategory.PRODUCTION,
+src/main/java/com/tndmadman/rts/ProductionPlanner.java:254:            GameNoticeCenter.publish(world, plan.playerId, NoticeCategory.PRODUCTION,
+src/main/java/com/tndmadman/rts/InboundCommandScheduler.java:270:        return switch (type) {
+src/main/java/com/tndmadman/rts/UnitOrders.java:13:        return switch (type) {
+src/main/java/com/tndmadman/rts/ObjectiveSystem.java:242:        return switch (definition.type()) {
+src/main/java/com/tndmadman/rts/ServerDevCommands.java:513:            changed(host, "PRODUCTION", located.base.id, action + " " + job.id);
+src/main/java/com/tndmadman/rts/ServerDevCommands.java:527:            changed(host, "PRODUCTION", located.base.id, "move " + args.get(3) + " to " + position);
+src/main/java/com/tndmadman/rts/ServerDevCommands.java:541:            changed(host, "PRODUCTION", located.base.id, "cleared " + count);
+=== JSON helpers ===
+src/main/java/com/tndmadman/rts/StationControls.java:142:            Map<String,Object> root = object(MiniJson.parse(Files.readString(path)));
+src/main/java/com/tndmadman/rts/StationControls.java:171:            Map<String,Object> root = object(MiniJson.parse(Files.readString(manifest)));
+src/main/java/com/tndmadman/rts/NpcRules.java:36:            Map<String,Object> root = readObject(path);
+src/main/java/com/tndmadman/rts/NpcRules.java:54:            Map<String,Object> root = readObject(manifest);
+src/main/java/com/tndmadman/rts/NpcRules.java:152:    private static Map<String,Object> readObject(Path path) throws IOException {
+src/main/java/com/tndmadman/rts/NpcRules.java:153:        return object(MiniJson.parse(Files.readString(path)));
+src/main/java/com/tndmadman/rts/MultiplayerCompatibility.java:153:            Object parsed = MiniJson.parse(new String(manifestBytes, StandardCharsets.UTF_8));
+src/main/java/com/tndmadman/rts/MaterialRules.java:34:                Map<String,Object> root = readObject(manifest);
+src/main/java/com/tndmadman/rts/MaterialRules.java:42:                Map<String,Object> document = readObject(path);
+src/main/java/com/tndmadman/rts/MaterialRules.java:79:    private static Map<String,Object> readObject(Path path) throws IOException {
+src/main/java/com/tndmadman/rts/MaterialRules.java:81:        Object parsed = MiniJson.parse(Files.readString(path));
+src/main/java/com/tndmadman/rts/DiplomacyStateWire.java:13:    private static final MiniJson.Limits LIMITS = new MiniJson.Limits(
+src/main/java/com/tndmadman/rts/DiplomacyStateWire.java:26:        String json = MiniJson.stringify(state);
+src/main/java/com/tndmadman/rts/DiplomacyStateWire.java:55:            parsed = MiniJson.parse(json, LIMITS);
+src/main/java/com/tndmadman/rts/MiniJson.java:5:final class MiniJson {
+src/main/java/com/tndmadman/rts/MiniJson.java:32:    private MiniJson(String text, Limits limits) {
+src/main/java/com/tndmadman/rts/MiniJson.java:45:        MiniJson parser = new MiniJson(text, limits);
+src/main/java/com/tndmadman/rts/NumericCommandValidationValidator.java:146:        expectReject(() -> MiniJson.stringify(Map.of("value", Double.NaN)),
+src/main/java/com/tndmadman/rts/NumericCommandValidationValidator.java:148:        expectReject(() -> MiniJson.stringify(Map.of("value", Double.POSITIVE_INFINITY)),
+src/main/java/com/tndmadman/rts/NumericCommandValidationValidator.java:150:        expectReject(() -> MiniJson.parse("{\"value\":1e309}"),
+src/main/java/com/tndmadman/rts/NumericCommandValidationValidator.java:152:        require(MiniJson.stringify(Map.of("value", -0.0)).contains("-0.0"),
+src/main/java/com/tndmadman/rts/IntelWarfareSystem.java:511:            Map<String,Object> root = object(MiniJson.parse(Files.readString(path)));
+src/main/java/com/tndmadman/rts/IntelWarfareSystem.java:538:            Map<String,Object> root = object(MiniJson.parse(Files.readString(manifest)));
+src/main/java/com/tndmadman/rts/ServerObservationStoreValidator.java:48:        Files.writeString(dir.resolve("server-observations.json"), MiniJson.stringify(legacy) + "\n",
+src/main/java/com/tndmadman/rts/ServerObservationStoreValidator.java:59:        Object parsed = MiniJson.parse(Files.readString(store.pathForTest(), StandardCharsets.UTF_8));
+src/main/java/com/tndmadman/rts/SavedCredentialReplayValidator.java:75:                Object parsed = MiniJson.parse(new String(input.readAllBytes(), StandardCharsets.UTF_8));
+src/main/java/com/tndmadman/rts/CompanionStateFiles.java:19:    private static final MiniJson.Limits TEXT_LIMITS = new MiniJson.Limits(
+src/main/java/com/tndmadman/rts/V160UpgradeValidator.java:28:        Map<String,Object> manifest = object(MiniJson.parse(Files.readString(fixture.resolve("fixture-manifest.json"))));
+src/main/java/com/tndmadman/rts/V160UpgradeValidator.java:205:                Map<String,Object> players = object(MiniJson.parse(new String(input.readAllBytes(), StandardCharsets.UTF_8)));
+src/main/java/com/tndmadman/rts/StationPackageResearchRules.java:34:            Map<String,Object> root = object(MiniJson.parse(Files.readString(stations)));
+src/main/java/com/tndmadman/rts/StationPackageResearchRules.java:58:            Map<String,Object> root = object(MiniJson.parse(Files.readString(manifest)));
+src/main/java/com/tndmadman/rts/ServerAdministration.java:140:        try { parsed = MiniJson.parse(text); }
+src/main/java/com/tndmadman/rts/ServerAdministration.java:165:        return MiniJson.stringify(map);
+src/main/java/com/tndmadman/rts/GalaxyTopologyRules.java:21:            Map<String,Object> root = object(MiniJson.parse(Files.readString(config)));
+src/main/java/com/tndmadman/rts/GalaxyTopologyRules.java:41:            Map<String,Object> root = object(MiniJson.parse(Files.readString(manifest)));
+src/main/java/com/tndmadman/rts/BoundedText.java:19:    static String readUtf8(Path path, int maxBytes, MiniJson.Limits limits, String label) throws IOException {
+src/main/java/com/tndmadman/rts/ResearchRules.java:57:                Map<String,Object> root = readObject(Path.of("config/starchem.json"));
+src/main/java/com/tndmadman/rts/ResearchRules.java:61:            else if (Files.exists(Path.of("config/research.json"))) parseTopics(readObject(Path.of("config/research.json")), out);
+src/main/java/com/tndmadman/rts/ResearchRules.java:94:            for (Object item : list) parseTopics(readObject(Path.of(String.valueOf(item))), out);
+src/main/java/com/tndmadman/rts/ResearchRules.java:96:            parseTopics(readObject(Path.of(String.valueOf(fileValue))), out);
+src/main/java/com/tndmadman/rts/ResearchRules.java:118:    private static Map<String,Object> readObject(Path path) throws IOException {
+src/main/java/com/tndmadman/rts/ResearchRules.java:119:        Object parsed = MiniJson.parse(Files.readString(path));
+src/main/java/com/tndmadman/rts/WeaponRules.java:164:            Map<String,Object> root = readObject(Path.of("config/starchem.json"));
+src/main/java/com/tndmadman/rts/WeaponRules.java:167:            parseWeapons(readObject(Path.of(string(files, "weapons", "config/weapons.json"))));
+src/main/java/com/tndmadman/rts/WeaponRules.java:173:            if (loadouts instanceof List<?> list) for (Object path : list) parseLoadouts(readObject(Path.of(String.valueOf(path))));
+src/main/java/com/tndmadman/rts/WeaponRules.java:174:            else parseLoadouts(readObject(Path.of(String.valueOf(loadouts))));
+src/main/java/com/tndmadman/rts/WeaponRules.java:331:    private static Map<String,Object> readObject(Path path) throws IOException {
+src/main/java/com/tndmadman/rts/WeaponRules.java:332:        return object(MiniJson.parse(Files.readString(path)));
+src/main/java/com/tndmadman/rts/ServerSaveSchemaValidator.java:258:        return (MiniJson.stringify(value) + "\n").getBytes(StandardCharsets.UTF_8);
+src/main/java/com/tndmadman/rts/RadarTowerRules.java:77:            Object parsed = MiniJson.parse(Files.readString(stations));
+src/main/java/com/tndmadman/rts/RadarTowerRules.java:114:            Map<String,Object> root = object(MiniJson.parse(Files.readString(manifest)));
+src/main/java/com/tndmadman/rts/Rules.java:30:            Map<String,Object> root = readObject(path);
+src/main/java/com/tndmadman/rts/Rules.java:33:            Map<String,BaseType> bases = parseBases(readObject(configFile(files, "stations", "config/stations.json")));
+src/main/java/com/tndmadman/rts/Rules.java:34:            Map<String,Object> resources = readObject(configFile(files, "resources", "config/resources.json"));
+src/main/java/com/tndmadman/rts/Rules.java:49:            Map<String,Object> root = readObject(path);
+src/main/java/com/tndmadman/rts/Rules.java:90:    private static Map<String,Object> readObject(Path path) throws IOException {
+src/main/java/com/tndmadman/rts/Rules.java:91:        Object parsed = MiniJson.parse(Files.readString(path));
+src/main/java/com/tndmadman/rts/Rules.java:98:            for (Object item : list) out.putAll(parseShips(readObject(Path.of(String.valueOf(item)))));
+src/main/java/com/tndmadman/rts/Rules.java:100:            out.putAll(parseShips(readObject(Path.of(String.valueOf(fileValue)))));
+src/main/java/com/tndmadman/rts/ServerSaveStore.java:121:        byte[] players = jsonBytes(snapshot.players());
+src/main/java/com/tndmadman/rts/ServerSaveStore.java:122:        byte[] galaxy = jsonBytes(snapshot.galaxy());
+src/main/java/com/tndmadman/rts/ServerSaveStore.java:123:        byte[] runtime = jsonBytes(snapshot.runtime());
+src/main/java/com/tndmadman/rts/ServerSaveStore.java:128:        byte[] manifest = jsonBytes(manifestMap);
+src/main/java/com/tndmadman/rts/ServerSaveStore.java:495:            MiniJson.Limits limits = jsonLimits(name);
+src/main/java/com/tndmadman/rts/ServerSaveStore.java:496:            parsed = MiniJson.parse(BoundedText.decodeUtf8(bytes, limits.maxDocumentChars(), name), limits);
+src/main/java/com/tndmadman/rts/ServerSaveStore.java:506:    private static MiniJson.Limits jsonLimits(String name) {
+src/main/java/com/tndmadman/rts/ServerSaveStore.java:508:        return new MiniJson.Limits(documentChars, 128, 20_000_000L, 4 * 1024 * 1024,
+src/main/java/com/tndmadman/rts/ServerSaveStore.java:512:    private static byte[] jsonBytes(Map<String,Object> data) {
+src/main/java/com/tndmadman/rts/ServerSaveStore.java:513:        return (MiniJson.stringify(data) + "\n").getBytes(StandardCharsets.UTF_8);
+src/main/java/com/tndmadman/rts/StationFuelRules.java:75:                parseStations(readObject(Path.of("config/stations.json")), out);
+src/main/java/com/tndmadman/rts/StationFuelRules.java:104:    private static Map<String,Object> readObject(Path path) throws IOException {
+src/main/java/com/tndmadman/rts/StationFuelRules.java:105:        Object parsed = MiniJson.parse(Files.readString(path));
+src/main/java/com/tndmadman/rts/CraftingRules.java:77:                Map<String,Object> root = readObject(Path.of("config/starchem.json"));
+src/main/java/com/tndmadman/rts/CraftingRules.java:82:                parseCraftables(readObject(Path.of("config/craftables/fuel.json")), out);
+src/main/java/com/tndmadman/rts/CraftingRules.java:107:            for (Object item : list) parseCraftables(readObject(Path.of(String.valueOf(item))), out);
+src/main/java/com/tndmadman/rts/CraftingRules.java:109:            parseCraftables(readObject(Path.of(String.valueOf(fileValue))), out);
+src/main/java/com/tndmadman/rts/CraftingRules.java:138:    private static Map<String,Object> readObject(Path path) throws IOException {
+src/main/java/com/tndmadman/rts/CraftingRules.java:139:        Object parsed = MiniJson.parse(Files.readString(path));
+src/main/java/com/tndmadman/rts/StarSystems.java:56:            Map<String,Object> root = object(MiniJson.parse(Files.readString(manifest)));
+src/main/java/com/tndmadman/rts/StarSystems.java:86:        Map<String,Object> root = object(MiniJson.parse(Files.readString(path)));
+src/main/java/com/tndmadman/rts/RulesValidator.java:52:            Map<String,Object> root = readObject(manifest, "manifest");
+src/main/java/com/tndmadman/rts/RulesValidator.java:92:                    readObject(Path.of(rawPath), "manifest.files." + entry.getKey());
+src/main/java/com/tndmadman/rts/RulesValidator.java:106:                Map<String,Object> doc = readObject(Path.of(rawPath), label + " config " + rawPath);
+src/main/java/com/tndmadman/rts/RulesValidator.java:216:                Map<String,Object> doc = readObject(Path.of(rawPath), "materials config " + rawPath);
+src/main/java/com/tndmadman/rts/RulesValidator.java:239:                Map<String,Object> resources = readObject(Path.of(rawPath), "resources config " + rawPath);
+src/main/java/com/tndmadman/rts/RulesValidator.java:251:                Map<String,Object> doc = readObject(Path.of(rawPath), "NPC config " + rawPath);
+src/main/java/com/tndmadman/rts/RulesValidator.java:299:                Map<String,Object> system = readObject(Path.of(rawPath), "system config " + rawPath);
+src/main/java/com/tndmadman/rts/RulesValidator.java:323:                Map<String,Object> galaxy = readObject(Path.of(rawPath), "galaxy config " + rawPath);
+src/main/java/com/tndmadman/rts/RulesValidator.java:477:        private Map<String,Object> readObject(Path path, String context) {
+src/main/java/com/tndmadman/rts/RulesValidator.java:489:                Object parsed = MiniJson.parse(Files.readString(normalized));
+src/main/java/com/tndmadman/rts/VictoryConditionRules.java:106:            Object parsed = MiniJson.parse(Files.readString(path));
+src/main/java/com/tndmadman/rts/VictoryConditionRules.java:130:            Object parsed = MiniJson.parse(Files.readString(manifest));
+src/main/java/com/tndmadman/rts/ServerPlayerObservationStore.java:171:            Object parsed = MiniJson.parse(Files.readString(path, StandardCharsets.UTF_8));
+src/main/java/com/tndmadman/rts/ServerPlayerObservationStore.java:235:            Files.writeString(temp, MiniJson.stringify(root) + "\n", StandardCharsets.UTF_8,
+src/main/java/com/tndmadman/rts/ServerIdentityStore.java:217:        try { parsed = MiniJson.parse(text); }
+src/main/java/com/tndmadman/rts/ServerIdentityStore.java:258:        return MiniJson.stringify(root);
+src/main/java/com/tndmadman/rts/ServerModerationStore.java:92:        try { parsed = MiniJson.parse(text); }
+src/main/java/com/tndmadman/rts/ServerModerationStore.java:152:        return MiniJson.stringify(root);
+src/main/java/com/tndmadman/rts/ServerSaveResourceLimitsValidator.java:65:        MiniJson.Limits small = new MiniJson.Limits(512, 4, 20, 8, 3, 6, true);
+src/main/java/com/tndmadman/rts/ServerSaveResourceLimitsValidator.java:66:        MiniJson.parse("{\"a\":[1,2]}", small);
+src/main/java/com/tndmadman/rts/ServerSaveResourceLimitsValidator.java:72:        expectInvalidJson("{\"a\":1,\"b\":2,\"c\":3}", new MiniJson.Limits(512, 8, 5, 32, 8, 16, true), "token limit");
+src/main/java/com/tndmadman/rts/ServerSaveResourceLimitsValidator.java:98:            parsed = MiniJson.parse(text);
+src/main/java/com/tndmadman/rts/ServerSaveResourceLimitsValidator.java:120:        byte[] manifestBytes = (MiniJson.stringify(manifest) + "\n").getBytes(StandardCharsets.UTF_8);
+src/main/java/com/tndmadman/rts/ServerSaveResourceLimitsValidator.java:148:    private static void expectInvalidJson(String text, MiniJson.Limits limits, String description) {
+src/main/java/com/tndmadman/rts/ServerSaveResourceLimitsValidator.java:150:            MiniJson.parse(text, limits);
+src/main/java/com/tndmadman/rts/ServerDevCommands.java:1032:            Files.writeString(path, MiniJson.stringify(root) + "\n", StandardCharsets.UTF_8,
