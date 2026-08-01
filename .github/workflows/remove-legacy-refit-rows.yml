@@ -1,0 +1,54 @@
+name: Remove legacy refit rows
+
+on:
+  push:
+    branches:
+      - agent/issue-289-loadouts
+    paths:
+      - .github/workflows/remove-legacy-refit-rows.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/issue-289-loadouts
+          fetch-depth: 0
+
+      - name: Remove duplicate shipyard refit rows
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("src/main/java/com/tndmadman/rts/BuildMenu.java")
+          text = path.read_text(encoding="utf-8")
+          call = "\n        addRefitEntries(world, network, base, free);\n"
+          if call in text:
+              text = text.replace(call, "\n", 1)
+          start_marker = "    private void addRefitEntries(World world, PeerNetwork network, Base base, boolean free) {\n"
+          end_marker = "    private void addCraftingEntries(World world, PeerNetwork network, Base base, boolean free) {\n"
+          if start_marker in text:
+              start = text.index(start_marker)
+              end = text.index(end_marker, start)
+              text = text[:start] + text[end:]
+          if "addRefitEntries(" in text:
+              raise SystemExit("Legacy refit menu integration remains")
+          path.write_text(text, encoding="utf-8")
+
+      - name: Compile integration
+        run: |
+          find src/main/java -name '*.java' -print0 | xargs -0 javac -encoding UTF-8 -d /tmp/starchem-fitting-classes
+
+      - name: Commit cleanup and remove temporary workflow
+        run: |
+          rm .github/workflows/remove-legacy-refit-rows.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main/java/com/tndmadman/rts/BuildMenu.java .github/workflows/remove-legacy-refit-rows.yml
+          git commit -m "Move refitting into dedicated fitting window"
+          git push origin HEAD:agent/issue-289-loadouts
