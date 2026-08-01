@@ -22,6 +22,12 @@ final class ServerSaveMigration {
             version = 3;
             notes.add("v2->v3 assigns default authored loadouts to legacy ships and queued builds");
         }
+        if (version == 3) {
+            ensureRuntime(runtime);
+            runtime.computeIfAbsent("shipFits", ignored -> new LinkedHashMap<>());
+            version = 4;
+            notes.add("v3->v4 adds dynamic and published player fit catalogs");
+        }
         if (version != ServerSaveStore.SAVE_FORMAT_VERSION) {
             throw new IllegalArgumentException("Unsupported save format " + sourceVersion + ".");
         }

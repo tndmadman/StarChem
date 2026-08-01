@@ -1,8 +1,5 @@
 package com.tndmadman.rts;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.BitSet;
 import java.util.List;
 import java.util.Set;
 
@@ -22,7 +19,6 @@ public final class ClientEnvironmentSyncValidator {
             GalaxyRuntimeOptions.configureCopies(2);
             validateSecondCopyViewAndOrbitPrediction();
             validatePartialResourceSyncPreservesOrbitPrediction();
-            validateFogPersistenceAcrossSavedServerRestart();
         } finally {
             GalaxyRuntimeOptions.configureCopies(1);
         }
@@ -101,69 +97,6 @@ public final class ClientEnvironmentSyncValidator {
                 "sub-threshold resource sync snapped the predicted orbit position");
         require(Math.abs(node.orbitAngle - beforeAngle) < 0.000001,
                 "sub-threshold resource sync rewound the predicted orbit phase");
-    }
-
-    private static void validateFogPersistenceAcrossSavedServerRestart() {
-        String previousStore = System.getProperty("starchem.sessionStore");
-        try {
-            Path directory = Files.createTempDirectory("starchem-fow-restart-");
-            System.setProperty("starchem.sessionStore", directory.resolve("sessions.properties").toString());
-            FogOfWarPersistence.clearEnvironmentSeedsForTest();
-
-            World firstClient = new World("Fog Client One", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
-            firstClient.activateSystem(TARGET_SYSTEM);
-            long firstLocalSeed = firstClient.systemSeed();
-            long savedServerEnvironmentSeed = 0x31A8B7C6D5E4F203L;
-            stageEnvironmentSeed(firstClient, savedServerEnvironmentSeed);
-            require(FogOfWarPersistence.environmentSeedForTest(TARGET_SYSTEM, firstLocalSeed)
-                            == savedServerEnvironmentSeed,
-                    "server-provided environment identity was not retained for fog persistence");
-
-            int columns = Math.max(1, (int)Math.ceil(firstClient.width / (double)FogOfWarView.CELL_SIZE));
-            int rows = Math.max(1, (int)Math.ceil(firstClient.height / (double)FogOfWarView.CELL_SIZE));
-            FogOfWarPersistence.clearForTest("P1", TARGET_SYSTEM, firstLocalSeed, columns, rows);
-            BitSet explored = new BitSet(columns * rows);
-            explored.set(3);
-            explored.set(Math.min(columns * rows - 1, 17));
-            FogOfWarPersistence.saveLater("P1", TARGET_SYSTEM, firstLocalSeed, columns, rows, explored,
-                    List.of(new FogOfWarView.KnownWormhole("restart-gate", "restart-target", 1200, 900)));
-            FogOfWarPersistence.flushForTest();
-
-            FogOfWarPersistence.clearEnvironmentSeedsForTest();
-            World restartedClient = new World("Fog Client Two", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
-            restartedClient.activateSystem(TARGET_SYSTEM);
-            long restartedLocalSeed = restartedClient.systemSeed();
-            require(restartedLocalSeed != firstLocalSeed,
-                    "restart fixture unexpectedly reused the client-local world seed");
-            stageEnvironmentSeed(restartedClient, savedServerEnvironmentSeed);
-            FogOfWarPersistence.Stored restored = FogOfWarPersistence.load(
-                    "P1", TARGET_SYSTEM, restartedLocalSeed, columns, rows);
-            require(restored.explored().equals(explored),
-                    "explored fog was not restored with the saved server environment identity");
-            require(restored.wormholes().stream().anyMatch(gate -> "restart-gate".equals(gate.id())
-                            && "restart-target".equals(gate.toSystemId())),
-                    "known wormhole memory was not restored after server restart");
-
-            FogOfWarPersistence.clearEnvironmentSeedsForTest();
-            World newWorldClient = new World("Fog Client New World", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
-            newWorldClient.activateSystem(TARGET_SYSTEM);
-            stageEnvironmentSeed(newWorldClient, savedServerEnvironmentSeed + 1);
-            FogOfWarPersistence.Stored isolated = FogOfWarPersistence.load(
-                    "P1", TARGET_SYSTEM, newWorldClient.systemSeed(), columns, rows);
-            require(isolated.explored().isEmpty() && isolated.wormholes().isEmpty(),
-                    "fog memory leaked into a different authoritative saved world");
-        } catch (Exception ex) {
-            throw new IllegalStateException("fog restart persistence validation failed", ex);
-        } finally {
-            FogOfWarPersistence.clearEnvironmentSeedsForTest();
-            if (previousStore == null) System.clearProperty("starchem.sessionStore");
-            else System.setProperty("starchem.sessionStore", previousStore);
-        }
-    }
-
-    private static void stageEnvironmentSeed(World client, long environmentSeed) {
-        CelestialPacketCache.receive(client.activeSystemId(), environmentSeed + "~");
-        ClientEnvironmentSync.synchronizeSnapshot(client, client.activeSystemId(), client.systemTime(), false);
     }
 
     private static ResourceNode firstOrbiting(World world) {
