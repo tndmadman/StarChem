@@ -41,9 +41,11 @@ final class FogOfWarPersistence {
 
     private FogOfWarPersistence() { }
 
-    static void noteEnvironment(String systemId, long environmentSeed) {
+    static boolean noteEnvironment(String systemId, long environmentSeed) {
         String system = clean(systemId, 256);
-        if (!system.isBlank()) AUTHORITATIVE_ENVIRONMENT_SEEDS.put(system, environmentSeed);
+        if (system.isBlank()) return false;
+        Long previous = AUTHORITATIVE_ENVIRONMENT_SEEDS.put(system, environmentSeed);
+        return previous != null && previous.longValue() != environmentSeed;
     }
 
     static Stored load(String playerId, String systemId, long environmentSeed, int columns, int rows) {
