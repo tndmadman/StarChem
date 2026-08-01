@@ -25,8 +25,9 @@ final class ClientEnvironmentSync {
 
         long firstEnvironmentSeed = CelestialPacketCache.seed(0L);
         long secondEnvironmentSeed = CelestialPacketCache.seed(1L);
-        if (firstEnvironmentSeed == secondEnvironmentSeed) {
-            FogOfWarPersistence.noteEnvironment(systemId, firstEnvironmentSeed);
+        if (firstEnvironmentSeed == secondEnvironmentSeed
+                && FogOfWarPersistence.noteEnvironment(systemId, firstEnvironmentSeed)) {
+            FogOfWarView.clearCachedStateForTest(world);
         }
 
         double drift = hostTime - world.systemTime();
