@@ -1,5 +1,6 @@
 package com.tndmadman.rts;
 
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -15,6 +16,9 @@ public final class ShipLoadoutValidator {
         validateDestroyedTargetRecovery();
         validateSnapshotAndSaveRoundTrip();
         validateActiveRefitPersistence();
+        validateNpcLoadoutAwareness();
+        validateDeveloperSpawnResolution();
+        validateBudgetFingerprint();
         validateStrictRejection();
         System.out.println("StarChem ship loadout and refit validation passed.");
     }
@@ -188,6 +192,71 @@ public final class ShipLoadoutValidator {
         ProductionSystem.update(restored, 1000);
         require(rail.id().equals(restoredShip.loadoutId),
                 "restored active refit did not complete with the selected loadout");
+    }
+
+    private static void validateNpcLoadoutAwareness() {
+        Unit balanced = new Unit("LOADOUT_NPC", 1, "destroyer", 500, 500);
+        Unit rail = new Unit("LOADOUT_NPC", 2, "destroyer", 500, 500);
+        rail.loadoutId = "destroyer_rail_escort";
+
+        double balancedThreat = NpcSquadCombatSystem.targetThreatScoreForTesting(balanced);
+        double railThreat = NpcSquadCombatSystem.targetThreatScoreForTesting(rail);
+        require(railThreat > balancedThreat + 0.001,
+                "NPC threat scoring ignored the selected unit loadout");
+    }
+
+    private static void validateDeveloperSpawnResolution() {
+        ShipLoadoutDefinition defaultFit = ServerDevCommands.resolveSpawnLoadout("destroyer");
+        ShipLoadoutDefinition selectedFit = ServerDevCommands.resolveSpawnLoadout("destroyer_rail_escort");
+        require(defaultFit != null && "destroyer".equals(defaultFit.id()),
+                "developer hull spawn did not resolve the default loadout");
+        require(selectedFit != null && "destroyer_rail_escort".equals(selectedFit.id()),
+                "developer loadout spawn did not preserve the selected variant");
+        require(ServerDevCommands.resolveSpawnLoadout("missing_loadout") == null,
+                "developer spawning accepted an unknown loadout ID");
+    }
+
+    private static void validateBudgetFingerprint() {
+        NpcFaction faction = null;
+        for (NpcFaction candidate : NpcRules.factions()) {
+            if (candidate.behavior() == NpcBehavior.FACTION) {
+                faction = candidate;
+                break;
+            }
+        }
+        require(faction != null, "no organized NPC faction is configured");
+
+        World world = new World("Loadout Budget Fingerprint", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        Unit unit = new Unit(faction.id(), 1, "destroyer", 500, 500);
+        world.units.put(unit.key(), unit);
+        Base yard = new Base(faction.id() + ":B1", faction.id(), "shipyard", 450, 450);
+        ProductionJob job = new ProductionJob("P1", ProductionJobKind.SHIP, "destroyer", 10, 10, true, "");
+        job.loadoutId = "destroyer";
+        yard.productionQueue.add(job);
+        world.bases.put(yard.id, yard);
+
+        long baseline = budgetFingerprint(world, faction);
+        unit.loadoutId = "destroyer_rail_escort";
+        long changedUnit = budgetFingerprint(world, faction);
+        require(baseline != changedUnit,
+                "NPC resource-budget fingerprint ignored a live unit loadout change");
+
+        unit.loadoutId = "destroyer";
+        job.loadoutId = "destroyer_rail_escort";
+        long changedJob = budgetFingerprint(world, faction);
+        require(baseline != changedJob,
+                "NPC resource-budget fingerprint ignored a queued loadout change");
+    }
+
+    private static long budgetFingerprint(World world, NpcFaction faction) {
+        try {
+            Method method = NpcResourceBudget.class.getDeclaredMethod(
+                    "localFingerprint", World.class, NpcFaction.class);
+            method.setAccessible(true);
+            return (long) method.invoke(null, world, faction);
+        } catch (ReflectiveOperationException ex) {
+            throw new IllegalStateException("could not inspect NPC resource-budget fingerprint", ex);
+        }
     }
 
     private static void validateStrictRejection() {
