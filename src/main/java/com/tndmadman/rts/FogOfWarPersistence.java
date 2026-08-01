@@ -19,7 +19,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
-/** Bounded, endpoint-isolated client persistence for explored tactical fog and known wormholes. */
+/** Bounded, saved-world-isolated client persistence for explored tactical fog and known wormholes. */
 final class FogOfWarPersistence {
     private static final String PREFIX = "fow-v1.";
     private static final int MAX_VALUE_LENGTH = 2 * 1024 * 1024;
@@ -29,6 +29,7 @@ final class FogOfWarPersistence {
             new DaemonThreadFactory());
     private static final Map<String, Pending> PENDING = new ConcurrentHashMap<>();
     private static final Map<String, ScheduledFuture<?>> SCHEDULED = new ConcurrentHashMap<>();
+    private static final Map<String, Long> AUTHORITATIVE_ENVIRONMENT_SEEDS = new ConcurrentHashMap<>();
     private static volatile boolean testEnabled;
 
     record Stored(BitSet explored, List<FogOfWarView.KnownWormhole> wormholes) {
@@ -40,12 +41,28 @@ final class FogOfWarPersistence {
 
     private FogOfWarPersistence() { }
 
+    static void noteEnvironment(String systemId, long environmentSeed) {
+        String system = clean(systemId, 256);
+        if (!system.isBlank()) AUTHORITATIVE_ENVIRONMENT_SEEDS.put(system, environmentSeed);
+    }
+
     static Stored load(String playerId, String systemId, long environmentSeed, int columns, int rows) {
         if (!enabled()) return new Stored(new BitSet(), List.of());
         String key = storageKey(playerId, systemId, environmentSeed, columns, rows);
+        String legacyKey = rawStorageKey(playerId, systemId, environmentSeed, columns, rows);
         if (key.isBlank()) return new Stored(new BitSet(), List.of());
-        return ClientSessionPropertiesStore.read(properties -> decode(
-                properties.getProperty(key, ""), columns, rows));
+        return ClientSessionPropertiesStore.update(properties -> {
+            String raw = properties.getProperty(key, "");
+            if (!legacyKey.isBlank() && !legacyKey.equals(key)) {
+                String legacy = properties.getProperty(legacyKey, "");
+                if (raw.isBlank() && !legacy.isBlank()) {
+                    raw = legacy;
+                    properties.setProperty(key, legacy);
+                }
+                if (!legacy.isBlank()) properties.remove(legacyKey);
+            }
+            return decode(raw, columns, rows);
+        });
     }
 
     static void saveLater(String playerId, String systemId, long environmentSeed, int columns, int rows,
@@ -53,6 +70,8 @@ final class FogOfWarPersistence {
         if (!enabled()) return;
         String key = storageKey(playerId, systemId, environmentSeed, columns, rows);
         if (key.isBlank() || explored == null) return;
+        String legacyKey = rawStorageKey(playerId, systemId, environmentSeed, columns, rows);
+        if (!legacyKey.isBlank() && !legacyKey.equals(key)) cancelPending(legacyKey);
         Pending snapshot = new Pending(columns, rows, (BitSet)explored.clone(), copyWormholes(wormholes));
         PENDING.put(key, snapshot);
         ScheduledFuture<?> previous = SCHEDULED.put(key,
@@ -67,19 +86,34 @@ final class FogOfWarPersistence {
     static void clearForTest(String playerId, String systemId, long environmentSeed, int columns, int rows) {
         testEnabled = true;
         String key = storageKey(playerId, systemId, environmentSeed, columns, rows);
+        String legacyKey = rawStorageKey(playerId, systemId, environmentSeed, columns, rows);
         if (key.isBlank()) return;
-        PENDING.remove(key);
-        ScheduledFuture<?> future = SCHEDULED.remove(key);
-        if (future != null) future.cancel(false);
+        cancelPending(key);
+        if (!legacyKey.isBlank() && !legacyKey.equals(key)) cancelPending(legacyKey);
         ClientSessionPropertiesStore.update(properties -> {
             properties.remove(key);
+            if (!legacyKey.isBlank()) properties.remove(legacyKey);
             return null;
         });
+    }
+
+    static void clearEnvironmentSeedsForTest() {
+        AUTHORITATIVE_ENVIRONMENT_SEEDS.clear();
+    }
+
+    static long environmentSeedForTest(String systemId, long fallback) {
+        return environmentSeed(systemId, fallback);
     }
 
     private static boolean enabled() {
         return testEnabled || !GraphicsEnvironment.isHeadless()
                 || Boolean.getBoolean("starchem.fowPersistenceHeadless");
+    }
+
+    private static void cancelPending(String key) {
+        PENDING.remove(key);
+        ScheduledFuture<?> future = SCHEDULED.remove(key);
+        if (future != null) future.cancel(false);
     }
 
     private static void flushKey(String key) {
@@ -175,6 +209,17 @@ final class FogOfWarPersistence {
 
     private static String storageKey(String playerId, String systemId, long environmentSeed,
                                      int columns, int rows) {
+        return rawStorageKey(playerId, systemId, environmentSeed(systemId, environmentSeed), columns, rows);
+    }
+
+    private static long environmentSeed(String systemId, long fallback) {
+        String system = clean(systemId, 256);
+        Long authoritative = system.isBlank() ? null : AUTHORITATIVE_ENVIRONMENT_SEEDS.get(system);
+        return authoritative == null ? fallback : authoritative;
+    }
+
+    private static String rawStorageKey(String playerId, String systemId, long environmentSeed,
+                                        int columns, int rows) {
         String player = clean(playerId, 64);
         String system = clean(systemId, 256);
         if (player.isBlank() || system.isBlank() || columns <= 0 || rows <= 0) return "";
