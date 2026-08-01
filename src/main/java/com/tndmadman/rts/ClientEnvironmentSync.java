@@ -23,6 +23,12 @@ final class ClientEnvironmentSync {
             return;
         }
 
+        long firstEnvironmentSeed = CelestialPacketCache.seed(0L);
+        long secondEnvironmentSeed = CelestialPacketCache.seed(1L);
+        if (firstEnvironmentSeed == secondEnvironmentSeed) {
+            FogOfWarPersistence.noteEnvironment(systemId, firstEnvironmentSeed);
+        }
+
         double drift = hostTime - world.systemTime();
         if (forceCorrection || Math.abs(drift) > HARD_DRIFT_SECONDS) {
             world.syncClientEnvironment(systemId, hostTime);
