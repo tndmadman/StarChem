@@ -179,7 +179,6 @@ final class BuildMenu {
             }
         }
 
-        addRefitEntries(world, network, base, free);
 
         for (String packageId : def.basePackages) {
             if (!StationPackageResearchRules.unlocked(world, base.playerId, packageId)) continue;
@@ -246,34 +245,6 @@ final class BuildMenu {
             }
         }
         openAt(sx, sy);
-    }
-
-    private void addRefitEntries(World world, PeerNetwork network, Base base, boolean free) {
-        if (!base.type().canRefitShips) return;
-        List<Unit> candidates = new ArrayList<>();
-        for (Unit unit : world.units.values()) {
-            if (base.canRefit(unit) && !ProductionSystem.refitLocked(world, unit.key())) candidates.add(unit);
-        }
-        candidates.sort(Comparator.comparing((Unit unit) -> unit.type().name).thenComparingInt(unit -> unit.unitId));
-        for (Unit unit : candidates) {
-            List<ShipLoadoutDefinition> variants = WeaponRules.loadoutsForHull(unit.shipTypeId);
-            if (variants.size() <= 1) continue;
-            for (ShipLoadoutDefinition loadout : variants) {
-                if (loadout.id().equals(unit.loadoutId) || !WeaponRules.unlocked(world, base.playerId, loadout)) continue;
-                String label = "Refit " + unit.type().name + " #" + unit.unitId + " - " + loadout.displayName();
-                entries.add(new Entry(
-                        label,
-                        timeDetail("Refit", loadout.refitTimeSeconds(), free),
-                        weaponText(weaponBadges(loadout)),
-                        new ShipPreviewIcon(unit.type()),
-                        requirementTooltip(label, WeaponRules.refitCost(loadout), free,
-                                "Ship must remain idle and inside refit range.", weaponText(weaponBadges(loadout))),
-                        false,
-                        false,
-                        false,
-                        () -> sendProduction(world, network, base, "REFIT", unit.key(), loadout.id())));
-            }
-        }
     }
 
     private void addCraftingEntries(World world, PeerNetwork network, Base base, boolean free) {
