@@ -1,0 +1,39 @@
+name: Index fit implementation source
+
+on:
+  push:
+    branches:
+      - agent/issue-289-loadouts
+    paths:
+      - .github/workflows/index-fit-source.yml
+
+permissions:
+  contents: write
+
+jobs:
+  index:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build source index
+        run: |
+          find src/main/java/com/tndmadman/rts -maxdepth 1 -type f -printf '%f\n' | sort > fit-source-tree.txt
+          {
+            echo '=== PeerNetwork declarations and production methods ==='
+            grep -R -n -E '(^|[[:space:]])(interface|class) PeerNetwork|void production\(|production\(' src/main/java/com/tndmadman/rts || true
+            echo '=== command and message declarations ==='
+            grep -R -n -E 'record .*Command|enum .*Message|switch \(.*type|case "PRODUCTION"|PRODUCTION' src/main/java/com/tndmadman/rts | head -1500 || true
+            echo '=== JSON helpers ==='
+            grep -R -n -E 'MiniJson|JsonWriter|JsonParser|readObject\(|jsonBytes\(' src/main/java/com/tndmadman/rts | head -1000 || true
+          } > fit-network-index.txt
+      - name: Commit source index and remove workflow
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add fit-source-tree.txt fit-network-index.txt
+          git rm .github/workflows/index-fit-source.yml
+          git commit -m "Add temporary fit source index"
+          git push
