@@ -11,7 +11,6 @@ permissions:
 
 jobs:
   patch:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,6 +31,9 @@ jobs:
 
           fitting_path = Path('src/main/java/com/tndmadman/rts/ShipFittingWindow.java')
           fitting = fitting_path.read_text()
+          if 'static boolean closeActive()' in fitting:
+              print('Issue 289 fitting UI hotfix is already applied.')
+              raise SystemExit(0)
 
           fitting = replace_once(
               fitting,
