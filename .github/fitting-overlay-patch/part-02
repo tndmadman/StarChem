@@ -1,0 +1,119 @@
+                    PrivateShipFit saved = ClientFitStore.save(commanderName(), "", fit.displayName() + " Copy",
+                            new ShipFitSpec(fit.hullId(), fit.weaponIds(), ShipModuleRules.moduleIds(fit)));
+                    selectedPrivateFitId = saved.id();
+                    draftName = saved.name();
+                    draftSpec = saved.spec();
+                    setNotice("Copied " + fit.displayName() + " into your private library.", GOOD, false);
+                    selectedTab = 1;
+                    rebuild();
+                } catch (RuntimeException ex) {
+                    setNotice(ex.getMessage(), BAD, false);
+                }
+            });
+            actions.add(refit);
+            actions.add(copy);
+            list.add(fitCard(fit.displayName(), fit,
+                    fit.defaultForHull() ? "BUILT-IN DEFAULT" : "BUILT-IN", actions));
+            list.add(Box.createVerticalStrut(8));
+        }
+        return scroll(list);
+    }
+
+    private JComponent myFitsTab() {
+        String commander = commanderName();
+        List<PrivateShipFit> fits = ClientFitStore.fits(commander, unit.shipTypeId);
+        PrivateShipFit standard = ClientFitStore.standard(commander, unit.shipTypeId);
+        normalizeDraft(fits);
+
+        JPanel body = verticalList();
+        JPanel editor = panel(new BorderLayout(8, 8), PANEL);
+        editor.setAlignmentX(Component.LEFT_ALIGNMENT);
+        editor.setMaximumSize(new Dimension(Integer.MAX_VALUE, 610));
+        editor.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(9, 10, 9, 10)));
+
+        JComboBox<PrivateChoice> fitChoice = new JComboBox<>();
+        fitChoice.addItem(new PrivateChoice(null));
+        for (PrivateShipFit fit : fits) fitChoice.addItem(new PrivateChoice(fit));
+        styleCombo(fitChoice);
+        selectPrivate(fitChoice, selectedPrivateFitId);
+        JTextField name = new JTextField(draftName, 22);
+        styleField(name);
+
+        JPanel top = panel(new GridBagLayout(), PANEL);
+        GridBagConstraints c = constraints();
+        top.add(label("SAVED FIT", 9, Font.BOLD, MUTED), c);
+        c.gridx++; c.weightx = 0.42; c.fill = GridBagConstraints.HORIZONTAL; top.add(fitChoice, c);
+        c.gridx++; c.weightx = 0; c.fill = GridBagConstraints.NONE; top.add(label("FIT NAME", 9, Font.BOLD, MUTED), c);
+        c.gridx++; c.weightx = 0.58; c.fill = GridBagConstraints.HORIZONTAL; top.add(name, c);
+        editor.add(top, BorderLayout.NORTH);
+
+        List<JComboBox<WeaponChoice>> weaponSlots = new ArrayList<>();
+        List<JComboBox<ModuleChoice>> moduleSlots = new ArrayList<>();
+        JPanel fittingGrid = panel(new GridLayout(1, 2, 10, 0), PANEL);
+        JPanel weaponRows = panel(new GridLayout(0, 1, 0, 6), FIELD);
+        List<WeaponType> allowedWeapons = PlayerFitRules.allowedWeapons(unit.shipTypeId);
+        int weaponSlotCount = PlayerFitRules.slotCount(unit.shipTypeId);
+        for (int i = 0; i < weaponSlotCount; i++) {
+            JComboBox<WeaponChoice> combo = new JComboBox<>();
+            combo.addItem(new WeaponChoice("", "Empty hardpoint"));
+            for (WeaponType weapon : allowedWeapons) combo.addItem(new WeaponChoice(weapon.id, weapon.name));
+            styleCombo(combo);
+            weaponSlots.add(combo);
+            weaponRows.add(slotRow("HARDPOINT " + (i + 1), combo));
+        }
+        fittingGrid.add(section("WEAPON HARDPOINTS", weaponSlotCount, weaponRows));
+
+        JPanel moduleRows = panel(new GridLayout(0, 1, 0, 7), FIELD);
+        int moduleSlotCount = ShipModuleRules.moduleSlotCount(unit.shipTypeId);
+        List<ShipModuleDefinition> allowedModules = ShipModuleRules.allowedModules(unit.shipTypeId);
+        for (int i = 0; i < moduleSlotCount; i++) {
+            JComboBox<ModuleChoice> combo = new JComboBox<>();
+            combo.addItem(ModuleChoice.empty());
+            for (ShipModuleDefinition module : allowedModules) combo.addItem(new ModuleChoice(module));
+            styleModuleCombo(combo);
+            moduleSlots.add(combo);
+            moduleRows.add(slotRow("UTILITY " + (i + 1), combo));
+        }
+        if (moduleSlotCount == 0) moduleRows.add(statusPanel("This hull has no configured utility sockets.", WARNING));
+        fittingGrid.add(section("UTILITY MODULES", moduleSlotCount, moduleRows));
+        editor.add(fittingGrid, BorderLayout.CENTER);
+
+        changingDraft = true;
+        loadSpec(weaponSlots, moduleSlots, draftSpec);
+        changingDraft = false;
+
+        JPanel liveModuleRack = panel(new FlowLayout(FlowLayout.LEFT, 7, 3), PANEL_ALT);
+        liveModuleRack.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(5, 7, 5, 7)));
+        JTextArea preview = new JTextArea(5, 58);
+        preview.setEditable(false);
+        preview.setFocusable(false);
+        preview.setLineWrap(true);
+        preview.setWrapStyleWord(true);
+        preview.setForeground(MUTED);
+        preview.setBackground(FIELD);
+        preview.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(7, 9, 7, 9)));
+
+        JPanel libraryActions = panel(new FlowLayout(FlowLayout.LEFT, 6, 0), PANEL);
+        JButton saveNew = button("SAVE NEW");
+        JButton saveChanges = button("SAVE CHANGES");
+        JButton delete = button("DELETE");
+        JButton setStandard = button("SET CLASS STANDARD");
+        JButton clearStandard = button("CLEAR STANDARD");
+        libraryActions.add(saveNew); libraryActions.add(saveChanges); libraryActions.add(delete);
+        libraryActions.add(setStandard); libraryActions.add(clearStandard);
+
+        JPanel applyActions = panel(new FlowLayout(FlowLayout.LEFT, 6, 0), PANEL);
+        JButton refit = button("RECALL + REFIT SELECTED");
+        JButton refitClass = button("RECALL + REFIT CLASS");
+        JButton publish = button("PUBLISH TO SERVER");
+        applyActions.add(refit); applyActions.add(refitClass); applyActions.add(publish);
+
+        Runnable updateEditor = () -> {
+            if (changingDraft) return;
+            draftName = name.getText();
+            draftSpec = specFrom(unit.shipTypeId, weaponSlots, moduleSlots);
+            refreshLiveModuleRack(liveModuleRack, draftSpec.moduleIds(), moduleSlotCount);
+            PlayerFitRules.Validation validation = PlayerFitRules.validate(draftSpec);
