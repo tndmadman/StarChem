@@ -356,7 +356,7 @@ final class World {
         SystemModifierRules.applyEnvironment(this, dt);
         resourceRespawnSystem.update(this, dt);
         StationFuelRules.consume(this, dt);
-        ProductionSystem.update(this, dt);
+        ProductionSystem.updateRefitRecalls(this);
         logisticsSystem.update(this, dt);
         itemPickupSystem.update(this);
         scoutSystem.update(this);

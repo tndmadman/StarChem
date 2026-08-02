@@ -154,6 +154,14 @@ final class ProductionSystem {
                 reservedUnitKey == null ? "" : reservedUnitKey);
     }
 
+    static void updateRefitRecalls(World world) {
+    if (world == null) return;
+    for (Base base : new ArrayList<>(world.bases.values())) {
+        cleanupInvalidRefits(world, base);
+        recallQueuedRefits(world, base);
+    }
+}
+
     static void update(World world, double dt) {
         if (world == null || dt < 0) return;
         for (Base base : new ArrayList<>(world.bases.values())) {
