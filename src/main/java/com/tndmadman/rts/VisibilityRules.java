@@ -15,29 +15,15 @@ final class VisibilityRules {
     }
 
     static IntelWarfareSystem.DetectionStage unitStage(World world, String playerId, Unit unit) {
-        return IntelWarfareSystem.unitStage(world, playerId, unit);
+        return frame(world, playerId).unitStage(unit);
     }
 
     static IntelWarfareSystem.DetectionStage baseStage(World world, String playerId, Base base) {
-        return IntelWarfareSystem.baseStage(world, playerId, base);
+        return frame(world, playerId).baseStage(base);
     }
 
     static IntelWarfareSystem.DetectionStage resourceStage(World world, String playerId, ResourceNode resource) {
-        IntelWarfareSystem.DetectionStage stage = IntelWarfareSystem.resourceStage(world, playerId, resource);
-        if (world == null || resource == null || !resource.active) return stage;
-        for (Unit unit : world.units.values()) {
-            if (unit == null || unit.hp <= 0 || !IntelWarfareSystem.allied(world, playerId, unit.playerId)
-                    || !unit.type().harvestKinds.contains(resource.kind)) continue;
-            double distance = Calc.distance(unit.x, unit.y, resource.x, resource.y);
-            double localSurveyRange = Math.max(unit.type().scoutRange,
-                    Math.max(unit.type().harvestRange * 3.0, 180.0)) * SystemModifierRules.sensorRange(world);
-            if (distance > localSurveyRange) continue;
-            IntelWarfareSystem.DetectionStage local = distance <= Math.max(40, unit.type().harvestRange * 1.25)
-                    ? IntelWarfareSystem.DetectionStage.DETAILED
-                    : IntelWarfareSystem.DetectionStage.IDENTIFIED;
-            if (local.ordinal() > stage.ordinal()) stage = local;
-        }
-        return stage;
+        return frame(world, playerId).resourceStage(resource);
     }
 
     static Frame frame(World world, String playerId) {
@@ -63,40 +49,67 @@ final class VisibilityRules {
     static final class Frame {
         private final World world;
         private final String playerId;
+        private final IntelWarfareSystem.DetectionFrame detection;
         private final List<Sensor> sensors;
+        private final List<Unit> resourceSurveyUnits;
 
         private Frame(World world, String playerId) {
             this.world = world;
             this.playerId = playerId == null ? "" : playerId;
-            List<Sensor> found = new ArrayList<>();
-            for (IntelWarfareSystem.IntelSensor sensor : IntelWarfareSystem.sensors(world, this.playerId)) {
+            detection = IntelWarfareSystem.frame(world, this.playerId);
+
+            List<Sensor> found = new ArrayList<>(detection.sensors().size());
+            for (IntelWarfareSystem.IntelSensor sensor : detection.sensors()) {
                 found.add(sensor(sensor.x(), sensor.y(), sensor.range()));
             }
             sensors = List.copyOf(found);
+
+            List<Unit> surveyUnits = new ArrayList<>();
+            if (world != null) {
+                for (Unit unit : world.units.values()) {
+                    if (unit == null || unit.hp <= 0
+                            || !IntelWarfareSystem.allied(world, this.playerId, unit.playerId)
+                            || unit.type().harvestKinds.isEmpty()) continue;
+                    surveyUnits.add(unit);
+                }
+            }
+            resourceSurveyUnits = List.copyOf(surveyUnits);
         }
 
         List<Sensor> sensors() { return sensors; }
 
         boolean pointVisible(double x, double y) {
-            if (!Double.isFinite(x) || !Double.isFinite(y)) return false;
-            for (Sensor sensor : sensors) {
-                double dx = x - sensor.x();
-                double dy = y - sensor.y();
-                if (dx * dx + dy * dy <= sensor.rangeSquared()) return true;
-            }
-            return false;
+            return IntelWarfareSystem.pointVisible(detection, x, y);
         }
 
         IntelWarfareSystem.DetectionStage unitStage(Unit unit) {
-            return VisibilityRules.unitStage(world, playerId, unit);
+            return IntelWarfareSystem.unitStage(detection, unit);
         }
 
         IntelWarfareSystem.DetectionStage baseStage(Base base) {
-            return VisibilityRules.baseStage(world, playerId, base);
+            return IntelWarfareSystem.baseStage(detection, base);
         }
 
         IntelWarfareSystem.DetectionStage resourceStage(ResourceNode resource) {
-            return VisibilityRules.resourceStage(world, playerId, resource);
+            IntelWarfareSystem.DetectionStage stage = IntelWarfareSystem.resourceStage(detection, resource);
+            if (world == null || resource == null || !resource.active) return stage;
+            for (Unit unit : resourceSurveyUnits) {
+                if (!unit.type().harvestKinds.contains(resource.kind)) continue;
+                double localSurveyRange = Math.max(unit.type().scoutRange,
+                        Math.max(unit.type().harvestRange * 3.0, 180.0))
+                        * SystemModifierRules.sensorRange(world);
+                double dx = unit.x - resource.x;
+                double dy = unit.y - resource.y;
+                double distanceSquared = dx * dx + dy * dy;
+                if (distanceSquared > localSurveyRange * localSurveyRange) continue;
+                double detailedRange = Math.max(40, unit.type().harvestRange * 1.25);
+                IntelWarfareSystem.DetectionStage local =
+                        distanceSquared <= detailedRange * detailedRange
+                                ? IntelWarfareSystem.DetectionStage.DETAILED
+                                : IntelWarfareSystem.DetectionStage.IDENTIFIED;
+                if (local.ordinal() > stage.ordinal()) stage = local;
+            }
+            return stage;
         }
 
         boolean unitVisible(Unit unit) {
