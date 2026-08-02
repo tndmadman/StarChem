@@ -1,5 +1,6 @@
 name: Issue 289 fitting UI hotfix
 
+# One-shot branch repair. The workflow is removed after the patch commit lands.
 on:
   push:
     branches:
