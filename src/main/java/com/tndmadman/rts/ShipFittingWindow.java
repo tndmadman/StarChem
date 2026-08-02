@@ -4,8 +4,6 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.KeyEvent;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -13,22 +11,41 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** Player fitting manager: built-in defaults, private commander fits, and server-published fits. */
+/** In-game fitting console for built-in, private, and server-published ship fits. */
 final class ShipFittingWindow {
-    private static final Color BACKGROUND = new Color(5, 12, 20);
-    private static final Color PANEL = new Color(10, 24, 36);
-    private static final Color BORDER = new Color(78, 173, 226);
+    private static final int WIDTH = 1040;
+    private static final int HEIGHT = 720;
+    private static final Color BACKGROUND = new Color(4, 11, 19);
+    private static final Color PANEL = new Color(5, 13, 22);
+    private static final Color FIELD = new Color(9, 25, 38);
+    private static final Color FIELD_HOVER = new Color(14, 42, 61);
+    private static final Color BORDER = new Color(90, 190, 245);
+    private static final Color BORDER_SOFT = new Color(43, 89, 119);
     private static final Color TEXT = Color.WHITE;
-    private static final Color MUTED = new Color(177, 207, 224);
+    private static final Color MUTED = new Color(185, 215, 232);
     private static final Color GOOD = new Color(125, 226, 166);
     private static final Color WARNING = new Color(255, 198, 104);
     private static final Color BAD = new Color(255, 126, 126);
 
-    private JDialog dialog;
+    private final JPopupMenu popup = new JPopupMenu();
     private Component parent;
     private World world;
     private PeerNetwork network;
     private Unit unit;
+    private int selectedTab;
+    private String notice = "";
+    private Color noticeColor = MUTED;
+
+    ShipFittingWindow() {
+        popup.setBorder(BorderFactory.createEmptyBorder());
+        popup.setLayout(new BorderLayout());
+        popup.setFocusable(true);
+        popup.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "close-fitting");
+        popup.getActionMap().put("close-fitting", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent event) { close(); }
+        });
+    }
 
     void showForUnit(Component parent, World world, PeerNetwork network, Unit unit) {
         if (parent == null || world == null || unit == null) return;
@@ -37,84 +54,108 @@ final class ShipFittingWindow {
         this.world = world;
         this.network = network;
         this.unit = unit;
-        Window owner = SwingUtilities.getWindowAncestor(parent);
-        dialog = new JDialog(owner, "Ship Fitting - " + unit.type().name + " #" + unit.unitId,
-                Dialog.ModalityType.MODELESS);
-        dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-        dialog.addWindowListener(new WindowAdapter() {
-            @Override public void windowClosed(WindowEvent event) {
-                if (dialog == event.getWindow()) dialog = null;
-            }
-        });
-        dialog.getRootPane().registerKeyboardAction(event -> dialog.dispose(),
-                KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), JComponent.WHEN_IN_FOCUSED_WINDOW);
+        selectedTab = 0;
+        notice = "Fits can be edited anywhere. Applying one automatically recalls the ship to the nearest owned shipyard.";
+        noticeColor = MUTED;
         rebuild();
-        dialog.setMinimumSize(new Dimension(860, 620));
-        dialog.setSize(980, 760);
-        dialog.setLocationRelativeTo(parent);
-        dialog.setVisible(true);
+        int x = Math.max(8, (parent.getWidth() - WIDTH) / 2);
+        int y = Math.max(8, (parent.getHeight() - HEIGHT) / 2);
+        popup.show(parent, x, y);
+        popup.requestFocusInWindow();
         FitNetworkBridge.refresh(network, world);
     }
 
     void close() {
-        if (dialog != null) dialog.dispose();
-        dialog = null;
+        popup.setVisible(false);
         parent = null;
         world = null;
         network = null;
         unit = null;
+        notice = "";
     }
 
-    boolean visible() { return dialog != null && dialog.isVisible(); }
+    boolean visible() { return popup.isVisible(); }
 
     private void rebuild() {
-        if (dialog == null || world == null || unit == null) return;
-        dialog.setContentPane(content());
-        dialog.revalidate();
-        dialog.repaint();
+        if (world == null || unit == null) return;
+        popup.removeAll();
+        popup.add(content(), BorderLayout.CENTER);
+        popup.setPopupSize(WIDTH, HEIGHT);
+        popup.revalidate();
+        popup.repaint();
     }
 
     private JComponent content() {
-        JPanel root = panel(new BorderLayout(0, 10), BACKGROUND);
-        root.setBorder(new EmptyBorder(12, 12, 12, 12));
+        JPanel root = panel(new BorderLayout(0, 8), BACKGROUND);
+        root.setPreferredSize(new Dimension(WIDTH, HEIGHT));
+        root.setBorder(BorderFactory.createLineBorder(BORDER, 2));
         root.add(header(), BorderLayout.NORTH);
 
-        JTabbedPane tabs = new JTabbedPane();
-        tabs.addTab("GAME FITS", gameFitsTab());
-        tabs.addTab("MY FITS", myFitsTab());
-        tabs.addTab("SERVER FITS", serverFitsTab());
-        root.add(tabs, BorderLayout.CENTER);
-        root.add(stationStatus(world, unit), BorderLayout.SOUTH);
+        JPanel center = panel(new BorderLayout(0, 8), BACKGROUND);
+        center.setBorder(new EmptyBorder(0, 10, 0, 10));
+        center.add(tabBar(), BorderLayout.NORTH);
+        center.add(switch (selectedTab) {
+            case 1 -> myFitsTab();
+            case 2 -> serverFitsTab();
+            default -> gameFitsTab();
+        }, BorderLayout.CENTER);
+        root.add(center, BorderLayout.CENTER);
+
+        JPanel footer = panel(new BorderLayout(8, 0), PANEL);
+        footer.setBorder(new EmptyBorder(7, 11, 8, 11));
+        footer.add(label(notice, 10, Font.BOLD, noticeColor), BorderLayout.CENTER);
+        footer.add(stationStatus(), BorderLayout.EAST);
+        root.add(footer, BorderLayout.SOUTH);
         return root;
     }
 
     private JComponent header() {
-        JPanel header = panel(new BorderLayout(12, 8), PANEL);
+        JPanel header = panel(new BorderLayout(12, 4), PANEL);
         header.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(BORDER), new EmptyBorder(10, 12, 10, 12)));
+                BorderFactory.createMatteBorder(0, 0, 1, 0, BORDER_SOFT),
+                new EmptyBorder(10, 13, 9, 9)));
         ShipLoadoutDefinition current = WeaponRules.resolveForHull(unit.shipTypeId, unit.loadoutId);
-        JPanel text = panel(new GridLayout(0, 1, 0, 3), PANEL);
-        text.add(label(unit.type().name + " #" + unit.unitId + "  |  FITTING MANAGER", 18, Font.BOLD, TEXT));
-        text.add(label("Installed: " + (current == null ? unit.loadoutId : current.displayName()), 12, Font.BOLD, GOOD));
-        text.add(label(current == null ? "Weapons unavailable" : weaponSummary(current), 11, Font.PLAIN, MUTED));
+        JPanel text = panel(new GridLayout(0, 1, 0, 2), PANEL);
+        text.add(label("STARSHIP FITTING CONSOLE", 11, Font.BOLD, BORDER));
+        text.add(label(unit.type().name.toUpperCase(Locale.ROOT) + "  //  HULL " + unit.unitId, 20, Font.BOLD, TEXT));
+        text.add(label("Installed: " + (current == null ? unit.loadoutId : current.displayName())
+                + "  •  Guns: " + (current == null ? "Unavailable" : weaponSummary(current))
+                + "  •  Utility: " + ShipModuleRules.summary(ShipModuleRules.moduleIds(current)),
+                10, Font.PLAIN, MUTED));
         header.add(text, BorderLayout.CENTER);
 
+        JPanel state = panel(new GridLayout(0, 1, 0, 3), PANEL);
         ActiveRefit active = activeRefit(world, unit);
-        JPanel state = panel(new GridLayout(0, 1, 0, 4), PANEL);
-        state.add(label("State: " + (active != null ? "REFITTING" : readyState(unit) ? "READY" : "NOT READY"),
-                11, Font.BOLD, active != null ? WARNING : readyState(unit) ? GOOD : WARNING));
+        state.add(label(active == null ? "STATUS // AVAILABLE" : "STATUS // RECALL OR REFIT ACTIVE",
+                10, Font.BOLD, active == null ? GOOD : WARNING));
         if (active != null) {
             ShipLoadoutDefinition target = WeaponRules.findLoadout(active.job.loadoutId);
-            state.add(label("Queued: " + (target == null ? active.job.loadoutId : target.displayName()), 11, Font.BOLD, WARNING));
+            state.add(label("Target: " + (target == null ? active.job.loadoutId : target.displayName()),
+                    10, Font.BOLD, WARNING));
             JButton cancel = button("CANCEL REFIT");
             cancel.addActionListener(event -> {
                 sendProduction(active.base.playerId, "CANCEL", active.base.id, active.job.id, "");
-                close();
+                setNotice("Refit cancellation submitted.", WARNING);
             });
             state.add(cancel);
         }
+        JButton close = button("CLOSE [ESC]");
+        close.addActionListener(event -> close());
+        state.add(close);
         header.add(state, BorderLayout.EAST);
         return header;
+    }
+
+    private JComponent tabBar() {
+        JPanel bar = panel(new GridLayout(1, 3, 5, 0), BACKGROUND);
+        String[] names = {"GAME FITS", "MY FITS", "SERVER FITS"};
+        for (int i = 0; i < names.length; i++) {
+            int index = i;
+            JButton button = tabButton(names[i], selectedTab == i);
+            button.addActionListener(event -> { selectedTab = index; rebuild(); });
+            bar.add(button);
+        }
+        return bar;
     }
 
     private JComponent gameFitsTab() {
@@ -122,23 +163,28 @@ final class ShipFittingWindow {
         List<ShipLoadoutDefinition> variants = new ArrayList<>(WeaponRules.loadoutsForHull(unit.shipTypeId));
         variants.sort(Comparator.comparing((ShipLoadoutDefinition fit) -> !fit.defaultForHull())
                 .thenComparing(ShipLoadoutDefinition::displayName));
+        if (variants.isEmpty()) list.add(statusPanel("No built-in fit definition exists for this hull.", BAD));
         for (ShipLoadoutDefinition fit : variants) {
-            JPanel actions = panel(new FlowLayout(FlowLayout.RIGHT, 7, 0), PANEL);
-            JButton refit = button("REFIT SELECTED");
+            JPanel actions = panel(new GridLayout(0, 1, 0, 6), PANEL);
+            JButton refit = button("RECALL + REFIT");
             FittingOption option = evaluate(world, unit, fit);
             refit.setEnabled(option.ready());
+            refit.setToolTipText(option.reason());
             refit.addActionListener(event -> {
-                Base base = refitBaseInRange(world, unit);
-                if (base == null) { showError("Move the selected ship into an owned shipyard's refit range first."); return; }
+                Base base = nearestRefitBase(world, unit);
+                if (base == null) { setNotice("No owned refit-capable shipyard exists in this system.", BAD); return; }
                 sendProduction(unit.playerId, "REFIT", base.id, unit.key(), fit.id());
-                close();
+                setNotice("Ship recalled to " + base.type().name + " for " + fit.displayName() + ".", GOOD);
             });
             JButton copy = button("COPY TO MY FITS");
             copy.addActionListener(event -> runAndRefresh(() -> ClientFitStore.save(commanderName(), "",
-                    fit.displayName() + " Copy", new ShipFitSpec(fit.hullId(), fit.weaponIds()))));
-            actions.add(copy);
+                    fit.displayName() + " Copy",
+                    new ShipFitSpec(fit.hullId(), fit.weaponIds(), ShipModuleRules.moduleIds(fit))),
+                    "Copied " + fit.displayName() + " into your private library."));
             actions.add(refit);
-            list.add(fitCard(fit.displayName(), fit, fit.defaultForHull() ? "BUILT-IN DEFAULT" : "BUILT-IN", actions));
+            actions.add(copy);
+            list.add(fitCard(fit.displayName(), fit,
+                    fit.defaultForHull() ? "BUILT-IN DEFAULT" : "BUILT-IN", actions));
             list.add(Box.createVerticalStrut(8));
         }
         return scroll(list);
@@ -148,123 +194,160 @@ final class ShipFittingWindow {
         String commander = commanderName();
         List<PrivateShipFit> fits = ClientFitStore.fits(commander, unit.shipTypeId);
         PrivateShipFit standard = ClientFitStore.standard(commander, unit.shipTypeId);
+        ShipLoadoutDefinition installed = WeaponRules.resolveForHull(unit.shipTypeId, unit.loadoutId);
 
-        JPanel root = panel(new BorderLayout(10, 10), BACKGROUND);
-        JPanel editor = panel(new BorderLayout(10, 10), PANEL);
-        editor.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(BORDER), new EmptyBorder(10, 10, 10, 10)));
+        JPanel root = panel(new BorderLayout(8, 8), BACKGROUND);
+        JPanel editor = panel(new BorderLayout(8, 8), PANEL);
+        editor.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(9, 10, 9, 10)));
 
         JComboBox<PrivateChoice> fitChoice = new JComboBox<>();
         fitChoice.addItem(new PrivateChoice(null));
         for (PrivateShipFit fit : fits) fitChoice.addItem(new PrivateChoice(fit));
-        JTextField name = new JTextField(28);
+        styleCombo(fitChoice);
+        JTextField name = new JTextField(22);
         styleField(name);
 
-        JPanel top = panel(new FlowLayout(FlowLayout.LEFT, 8, 0), PANEL);
-        top.add(label("Saved fit", 11, Font.BOLD, MUTED));
-        top.add(fitChoice);
-        top.add(label("Name", 11, Font.BOLD, MUTED));
-        top.add(name);
+        JPanel top = panel(new GridBagLayout(), PANEL);
+        GridBagConstraints c = constraints();
+        top.add(label("SAVED FIT", 9, Font.BOLD, MUTED), c);
+        c.gridx++; c.weightx = 0.42; c.fill = GridBagConstraints.HORIZONTAL; top.add(fitChoice, c);
+        c.gridx++; c.weightx = 0; c.fill = GridBagConstraints.NONE; top.add(label("FIT NAME", 9, Font.BOLD, MUTED), c);
+        c.gridx++; c.weightx = 0.58; c.fill = GridBagConstraints.HORIZONTAL; top.add(name, c);
         editor.add(top, BorderLayout.NORTH);
 
-        List<JComboBox<WeaponChoice>> slots = new ArrayList<>();
-        JPanel slotPanel = panel(new GridLayout(0, 2, 8, 7), PANEL);
-        int slotCount = PlayerFitRules.slotCount(unit.shipTypeId);
-        List<WeaponType> allowed = PlayerFitRules.allowedWeapons(unit.shipTypeId);
-        for (int i = 0; i < slotCount; i++) {
-            slotPanel.add(label("Weapon slot " + (i + 1), 11, Font.BOLD, TEXT));
+        List<JComboBox<WeaponChoice>> weaponSlots = new ArrayList<>();
+        List<JComboBox<ModuleChoice>> moduleSlots = new ArrayList<>();
+        JPanel fittingGrid = panel(new GridLayout(1, 2, 10, 0), PANEL);
+        JPanel weapons = titledGrid("WEAPON HARDPOINTS", PlayerFitRules.slotCount(unit.shipTypeId));
+        List<WeaponType> allowedWeapons = PlayerFitRules.allowedWeapons(unit.shipTypeId);
+        int weaponSlotCount = PlayerFitRules.slotCount(unit.shipTypeId);
+        for (int i = 0; i < weaponSlotCount; i++) {
+            weapons.add(label("HARDPOINT " + (i + 1), 9, Font.BOLD, MUTED));
             JComboBox<WeaponChoice> combo = new JComboBox<>();
-            combo.addItem(new WeaponChoice("", "Empty"));
-            for (WeaponType weapon : allowed) combo.addItem(new WeaponChoice(weapon.id, weapon.name));
-            slots.add(combo);
-            slotPanel.add(combo);
+            combo.addItem(new WeaponChoice("", "Empty hardpoint"));
+            for (WeaponType weapon : allowedWeapons) combo.addItem(new WeaponChoice(weapon.id, weapon.name));
+            styleCombo(combo);
+            weaponSlots.add(combo);
+            weapons.add(combo);
         }
-        editor.add(slotPanel, BorderLayout.CENTER);
+        fittingGrid.add(weapons);
 
-        JTextArea preview = new JTextArea(5, 54);
+        int moduleSlotCount = ShipModuleRules.moduleSlotCount(unit.shipTypeId);
+        JPanel modules = titledGrid("UTILITY MODULES", moduleSlotCount);
+        List<ShipModuleDefinition> allowedModules = ShipModuleRules.allowedModules(unit.shipTypeId);
+        for (int i = 0; i < moduleSlotCount; i++) {
+            modules.add(label("UTILITY " + (i + 1), 9, Font.BOLD, MUTED));
+            JComboBox<ModuleChoice> combo = new JComboBox<>();
+            combo.addItem(new ModuleChoice("", "Empty utility slot"));
+            for (ShipModuleDefinition module : allowedModules) combo.addItem(new ModuleChoice(module.id(), module.displayName()));
+            styleCombo(combo);
+            moduleSlots.add(combo);
+            modules.add(combo);
+        }
+        fittingGrid.add(modules);
+        editor.add(fittingGrid, BorderLayout.CENTER);
+
+        JTextArea preview = new JTextArea(5, 56);
         preview.setEditable(false);
         preview.setFocusable(false);
         preview.setLineWrap(true);
         preview.setWrapStyleWord(true);
         preview.setForeground(MUTED);
-        preview.setBackground(BACKGROUND);
-        preview.setBorder(new EmptyBorder(7, 7, 7, 7));
+        preview.setBackground(FIELD);
+        preview.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(7, 9, 7, 9)));
 
         Runnable updatePreview = () -> {
-            ShipFitSpec spec = specFrom(unit.shipTypeId, slots);
+            ShipFitSpec spec = specFrom(unit.shipTypeId, weaponSlots, moduleSlots);
             PlayerFitRules.Validation validation = PlayerFitRules.validate(spec);
-            if (!validation.valid()) {
-                preview.setText(validation.reason());
-                return;
-            }
+            if (!validation.valid()) { preview.setForeground(BAD); preview.setText(validation.reason()); return; }
             ShipLoadoutDefinition definition = PlayerFitRules.definition(name.getText(), spec);
-            preview.setText("Weapons: " + weaponSummary(definition) + "\nRange: " + whole(WeaponRules.maxRange(definition))
-                    + "  |  Refit time: " + whole(definition.refitTimeSeconds()) + "s\nRefit cost: "
-                    + (definition.refitCost().isEmpty() ? "None" : Rules.formatCost(definition.refitCost()))
-                    + (definition.requiredResearch().isEmpty() ? "" : "\nResearch: " + String.join(", ", definition.requiredResearch())));
+            preview.setForeground(MUTED);
+            preview.setText("GUNS // " + weaponSummary(definition)
+                    + "\nUTILITY // " + ShipModuleRules.summary(spec.moduleIds())
+                    + "\nCOMBAT // max range " + whole(WeaponRules.maxRange(definition))
+                    + "   |   refit " + whole(definition.refitTimeSeconds()) + "s"
+                    + "\nCOST // " + (definition.refitCost().isEmpty() ? "None" : Rules.formatCost(definition.refitCost()))
+                    + (definition.requiredResearch().isEmpty() ? "" : "\nRESEARCH // " + String.join(", ", definition.requiredResearch())));
         };
-        for (JComboBox<WeaponChoice> slot : slots) slot.addActionListener(event -> updatePreview.run());
+        for (JComboBox<WeaponChoice> slot : weaponSlots) slot.addActionListener(event -> updatePreview.run());
+        for (JComboBox<ModuleChoice> slot : moduleSlots) slot.addActionListener(event -> updatePreview.run());
         name.getDocument().addDocumentListener(new SimpleDocumentListener(updatePreview));
 
         fitChoice.addActionListener(event -> {
             PrivateChoice choice = (PrivateChoice) fitChoice.getSelectedItem();
             PrivateShipFit selected = choice == null ? null : choice.fit;
+            ShipFitSpec spec = selected == null
+                    ? installed == null ? new ShipFitSpec(unit.shipTypeId, List.of(), List.of())
+                    : new ShipFitSpec(unit.shipTypeId, installed.weaponIds(), ShipModuleRules.moduleIds(installed))
+                    : selected.spec();
             name.setText(selected == null ? "" : selected.name());
-            loadSpec(slots, selected == null ? new ShipFitSpec(unit.shipTypeId, List.of()) : selected.spec());
+            loadSpec(weaponSlots, moduleSlots, spec);
             updatePreview.run();
         });
 
-        JPanel buttons = panel(new FlowLayout(FlowLayout.LEFT, 7, 0), PANEL);
+        JPanel libraryActions = panel(new FlowLayout(FlowLayout.LEFT, 6, 0), PANEL);
         JButton saveNew = button("SAVE NEW");
-        saveNew.addActionListener(event -> runAndRefresh(() -> ClientFitStore.save(commander, "", name.getText(), specFrom(unit.shipTypeId, slots))));
+        saveNew.addActionListener(event -> runAndRefresh(() -> ClientFitStore.save(commander, "", name.getText(),
+                specFrom(unit.shipTypeId, weaponSlots, moduleSlots)), "Private fit saved."));
         JButton saveChanges = button("SAVE CHANGES");
         saveChanges.addActionListener(event -> {
             PrivateChoice choice = (PrivateChoice) fitChoice.getSelectedItem();
-            if (choice == null || choice.fit == null) { showError("Select a saved private fit first."); return; }
-            runAndRefresh(() -> ClientFitStore.save(commander, choice.fit.id(), name.getText(), specFrom(unit.shipTypeId, slots)));
+            if (choice == null || choice.fit == null) { setNotice("Select a saved private fit first.", BAD); return; }
+            runAndRefresh(() -> ClientFitStore.save(commander, choice.fit.id(), name.getText(),
+                    specFrom(unit.shipTypeId, weaponSlots, moduleSlots)), "Private fit updated.");
         });
         JButton delete = button("DELETE");
         delete.addActionListener(event -> {
             PrivateChoice choice = (PrivateChoice) fitChoice.getSelectedItem();
-            if (choice == null || choice.fit == null) { showError("Select a saved private fit first."); return; }
-            runAndRefresh(() -> ClientFitStore.delete(commander, choice.fit.id()));
+            if (choice == null || choice.fit == null) { setNotice("Select a saved private fit first.", BAD); return; }
+            runAndRefresh(() -> ClientFitStore.delete(commander, choice.fit.id()), "Private fit deleted.");
         });
         JButton setStandard = button("SET CLASS STANDARD");
         setStandard.addActionListener(event -> {
             PrivateChoice choice = (PrivateChoice) fitChoice.getSelectedItem();
-            if (choice == null || choice.fit == null) { showError("Save and select the fit first."); return; }
-            runAndRefresh(() -> ClientFitStore.setStandard(commander, unit.shipTypeId, choice.fit.id()));
+            if (choice == null || choice.fit == null) { setNotice("Save and select the fit first.", BAD); return; }
+            runAndRefresh(() -> ClientFitStore.setStandard(commander, unit.shipTypeId, choice.fit.id()),
+                    "Class standard updated.");
         });
         JButton clearStandard = button("CLEAR STANDARD");
         clearStandard.setEnabled(standard != null);
-        clearStandard.addActionListener(event -> runAndRefresh(() -> ClientFitStore.setStandard(commander, unit.shipTypeId, "")));
-        buttons.add(saveNew); buttons.add(saveChanges); buttons.add(delete); buttons.add(setStandard); buttons.add(clearStandard);
+        clearStandard.addActionListener(event -> runAndRefresh(
+                () -> ClientFitStore.setStandard(commander, unit.shipTypeId, ""), "Class standard cleared."));
+        libraryActions.add(saveNew); libraryActions.add(saveChanges); libraryActions.add(delete);
+        libraryActions.add(setStandard); libraryActions.add(clearStandard);
 
-        JPanel actions = panel(new FlowLayout(FlowLayout.LEFT, 7, 0), PANEL);
-        JButton refit = button("REFIT SELECTED");
-        refit.addActionListener(event -> submitRefit(name.getText(), specFrom(unit.shipTypeId, slots), false));
-        JButton refitClass = button("REFIT ALL ELIGIBLE " + unit.type().name.toUpperCase(Locale.ROOT) + "S");
-        refitClass.addActionListener(event -> submitRefit(name.getText(), specFrom(unit.shipTypeId, slots), true));
+        JPanel applyActions = panel(new FlowLayout(FlowLayout.LEFT, 6, 0), PANEL);
+        JButton refit = button("RECALL + REFIT SELECTED");
+        refit.addActionListener(event -> submitRefit(name.getText(),
+                specFrom(unit.shipTypeId, weaponSlots, moduleSlots), false));
+        JButton refitClass = button("RECALL + REFIT CLASS");
+        refitClass.addActionListener(event -> submitRefit(name.getText(),
+                specFrom(unit.shipTypeId, weaponSlots, moduleSlots), true));
         JButton publish = button("PUBLISH TO SERVER");
         publish.addActionListener(event -> {
-            ShipFitSpec spec = specFrom(unit.shipTypeId, slots);
+            ShipFitSpec spec = specFrom(unit.shipTypeId, weaponSlots, moduleSlots);
             PlayerFitRules.Validation validation = PlayerFitRules.validate(spec);
-            if (!validation.valid()) { showError(validation.reason()); return; }
-            FitNetworkBridge.submit(network, world, "PUBLISH", name.getText(), spec, null, null, null);
-            rebuild();
+            if (!validation.valid()) { setNotice(validation.reason(), BAD); return; }
+            if (FitNetworkBridge.submit(network, world, "PUBLISH", name.getText(), spec, null, null, null)) {
+                setNotice("Fit publication submitted to the server.", GOOD);
+            }
         });
-        actions.add(refit); actions.add(refitClass); actions.add(publish);
+        applyActions.add(refit); applyActions.add(refitClass); applyActions.add(publish);
 
         JPanel south = panel(new BorderLayout(0, 7), PANEL);
         south.add(preview, BorderLayout.CENTER);
-        JPanel row = panel(new GridLayout(0, 1, 0, 5), PANEL);
-        row.add(buttons);
-        row.add(actions);
-        south.add(row, BorderLayout.SOUTH);
+        JPanel actionRows = panel(new GridLayout(0, 1, 0, 5), PANEL);
+        actionRows.add(libraryActions);
+        actionRows.add(applyActions);
+        south.add(actionRows, BorderLayout.SOUTH);
         editor.add(south, BorderLayout.SOUTH);
         root.add(editor, BorderLayout.NORTH);
 
         JPanel saved = verticalList();
-        if (fits.isEmpty()) saved.add(statusPanel("No private fits saved for commander " + commander + ". Create one above or copy a game/server fit.", WARNING));
+        if (fits.isEmpty()) saved.add(statusPanel("No private fits saved for commander " + commander
+                + ". Build one above or copy a game/server fit.", WARNING));
         for (PrivateShipFit fit : fits) {
             ShipLoadoutDefinition definition = PlayerFitRules.definition(fit.name(), fit.spec());
             String badge = standard != null && standard.id().equals(fit.id()) ? "CLASS STANDARD" : "PRIVATE";
@@ -273,16 +356,24 @@ final class ShipFittingWindow {
         }
         root.add(scroll(saved), BorderLayout.CENTER);
         fitChoice.setSelectedIndex(0);
+        loadSpec(weaponSlots, moduleSlots, installed == null
+                ? new ShipFitSpec(unit.shipTypeId, List.of(), List.of())
+                : new ShipFitSpec(unit.shipTypeId, installed.weaponIds(), ShipModuleRules.moduleIds(installed)));
         updatePreview.run();
         return root;
     }
 
     private JComponent serverFitsTab() {
         JPanel root = panel(new BorderLayout(0, 8), BACKGROUND);
-        JButton refresh = button("REFRESH SERVER CATALOG");
-        refresh.addActionListener(event -> { FitNetworkBridge.refresh(network, world); rebuild(); });
-        JPanel top = panel(new FlowLayout(FlowLayout.RIGHT, 0, 0), BACKGROUND);
-        top.add(refresh);
+        JPanel top = panel(new BorderLayout(), BACKGROUND);
+        top.add(label("COMMUNITY FIT CATALOG // SAVING A COPY CREATES AN INDEPENDENT PRIVATE FIT",
+                9, Font.BOLD, MUTED), BorderLayout.WEST);
+        JButton refresh = button("REFRESH CATALOG");
+        refresh.addActionListener(event -> {
+            FitNetworkBridge.refresh(network, world);
+            setNotice("Server fit catalog refresh requested.", MUTED);
+        });
+        top.add(refresh, BorderLayout.EAST);
         root.add(top, BorderLayout.NORTH);
 
         JPanel list = verticalList();
@@ -290,20 +381,23 @@ final class ShipFittingWindow {
                 .filter(fit -> unit.shipTypeId.equals(fit.spec().hullId()))
                 .sorted(Comparator.comparing(PublishedFit::name, String.CASE_INSENSITIVE_ORDER))
                 .toList();
-        if (published.isEmpty()) list.add(statusPanel("No player-published fits exist for this ship class on the server.", WARNING));
+        if (published.isEmpty()) list.add(statusPanel(
+                "No player-published fits exist for this ship class on this server.", WARNING));
         for (PublishedFit fit : published) {
             ShipLoadoutDefinition definition = PlayerFitRules.definition(fit.name(), fit.spec());
-            JPanel actions = panel(new FlowLayout(FlowLayout.RIGHT, 7, 0), PANEL);
+            JPanel actions = panel(new GridLayout(0, 1, 0, 6), PANEL);
             JButton saveCopy = button("SAVE PRIVATE COPY");
-            saveCopy.addActionListener(event -> runAndRefresh(() -> ClientFitStore.importPublished(commanderName(), fit)));
-            JButton refit = button("REFIT SELECTED");
+            saveCopy.addActionListener(event -> runAndRefresh(
+                    () -> ClientFitStore.importPublished(commanderName(), fit), "Private copy saved."));
+            JButton refit = button("RECALL + REFIT");
             refit.addActionListener(event -> submitRefit(fit.name(), fit.spec(), false));
-            actions.add(saveCopy); actions.add(refit);
+            actions.add(refit);
+            actions.add(saveCopy);
             if (PlayerRegistry.localId().equals(fit.ownerPlayerId())) {
                 JButton remove = button("UNPUBLISH");
                 remove.addActionListener(event -> {
-                    FitNetworkBridge.submit(network, world, "UNPUBLISH", "", null, null, null, fit.id());
-                    rebuild();
+                    if (FitNetworkBridge.submit(network, world, "UNPUBLISH", "", null,
+                            null, null, fit.id())) setNotice("Unpublish request submitted.", WARNING);
                 });
                 actions.add(remove);
             }
@@ -315,14 +409,20 @@ final class ShipFittingWindow {
     }
 
     private JPanel fitCard(String title, ShipLoadoutDefinition fit, String badge, JComponent actions) {
-        JPanel card = panel(new BorderLayout(12, 8), PANEL);
-        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 175));
-        card.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(BORDER), new EmptyBorder(10, 12, 10, 12)));
-        JPanel details = panel(new GridLayout(0, 1, 0, 4), PANEL);
-        details.add(label(title + (badge == null || badge.isBlank() ? "" : "  [" + badge + "]"), 15, Font.BOLD, TEXT));
-        details.add(label("Weapons: " + weaponSummary(fit), 11, Font.PLAIN, MUTED));
-        details.add(label("Range: " + whole(WeaponRules.maxRange(fit)) + "  |  Refit: " + whole(fit.refitTimeSeconds()) + "s", 11, Font.PLAIN, MUTED));
-        details.add(label("Cost: " + (fit.refitCost().isEmpty() ? "None" : Rules.formatCost(fit.refitCost())), 11, Font.PLAIN, MUTED));
+        JPanel card = panel(new BorderLayout(12, 7), PANEL);
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 152));
+        card.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(9, 11, 9, 11)));
+        JPanel details = panel(new GridLayout(0, 1, 0, 3), PANEL);
+        details.add(label(title.toUpperCase(Locale.ROOT) + (badge == null || badge.isBlank() ? "" : "  //  " + badge),
+                14, Font.BOLD, TEXT));
+        details.add(label("GUNS  //  " + weaponSummary(fit), 10, Font.PLAIN, MUTED));
+        details.add(label("UTILITY  //  " + ShipModuleRules.summary(ShipModuleRules.moduleIds(fit)),
+                10, Font.PLAIN, MUTED));
+        details.add(label("RANGE " + whole(WeaponRules.maxRange(fit)) + "   •   REFIT "
+                + whole(fit.refitTimeSeconds()) + "s   •   COST "
+                + (fit.refitCost().isEmpty() ? "None" : Rules.formatCost(fit.refitCost())),
+                10, Font.PLAIN, MUTED));
         card.add(details, BorderLayout.CENTER);
         if (actions != null) card.add(actions, BorderLayout.EAST);
         return card;
@@ -330,22 +430,34 @@ final class ShipFittingWindow {
 
     private void submitRefit(String name, ShipFitSpec spec, boolean entireClass) {
         PlayerFitRules.Validation validation = PlayerFitRules.validate(spec);
-        if (!validation.valid()) { showError(validation.reason()); return; }
-        Base base = refitBaseInRange(world, unit);
-        if (base == null) { showError("Move the selected ship into an owned shipyard's refit range first."); return; }
+        if (!validation.valid()) { setNotice(validation.reason(), BAD); return; }
+        Base base = nearestRefitBase(world, unit);
+        if (base == null) { setNotice("No owned refit-capable shipyard exists in this system.", BAD); return; }
         String action = entireClass ? "REFIT_CLASS" : "REFIT";
-        if (FitNetworkBridge.submit(network, world, action, name, spec, base.id, entireClass ? null : unit.key(), null)) close();
+        if (FitNetworkBridge.submit(network, world, action, name, spec, base.id,
+                entireClass ? null : unit.key(), null)) {
+            setNotice(entireClass
+                    ? "Eligible ships are being recalled to the shipyard for class refitting."
+                    : "Selected ship is being recalled to the shipyard for refitting.", GOOD);
+        }
     }
 
-    private void runAndRefresh(Runnable action) {
-        try { action.run(); rebuild(); }
-        catch (RuntimeException ex) { showError(ex.getMessage()); }
+    private void runAndRefresh(Runnable action, String success) {
+        try {
+            action.run();
+            notice = success;
+            noticeColor = GOOD;
+            rebuild();
+        } catch (RuntimeException ex) {
+            setNotice(ex.getMessage(), BAD);
+        }
     }
 
-    private void showError(String message) {
-        String safe = message == null || message.isBlank() ? "The fitting action could not be completed." : message;
-        if (dialog != null) JOptionPane.showMessageDialog(dialog, safe, "Ship Fitting", JOptionPane.WARNING_MESSAGE);
-        if (world != null) world.status = safe;
+    private void setNotice(String message, Color color) {
+        notice = message == null || message.isBlank() ? "The fitting action could not be completed." : message;
+        noticeColor = color == null ? MUTED : color;
+        if (world != null) world.status = notice;
+        rebuild();
     }
 
     private String commanderName() {
@@ -362,23 +474,24 @@ final class ShipFittingWindow {
         if (world == null || unit == null || loadout == null || !unit.shipTypeId.equals(loadout.hullId())) {
             return new FittingOption(null, false, false, "Fit does not match this hull.");
         }
-        Base base = refitBaseInRange(world, unit);
+        Base base = nearestRefitBase(world, unit);
         if (loadout.id().equals(unit.loadoutId)) return new FittingOption(base, true, false, "Currently installed.");
         ActiveRefit active = activeRefit(world, unit);
         if (active != null) return new FittingOption(active.base, false, false, "A refit is already queued.");
-        if (base == null) return new FittingOption(nearestRefitBase(world, unit), false, false,
-                nearestRefitBase(world, unit) == null ? "Requires an owned shipyard." : "Move ship into shipyard refit range.");
+        if (base == null) return new FittingOption(null, false, false, "Requires an owned refit-capable shipyard in this system.");
         boolean free = world.devFreeBuildFor(unit.playerId);
         if (!free && !WeaponRules.unlocked(world, unit.playerId, loadout)) return new FittingOption(base, false, false,
                 "Research required: " + WeaponRules.missingResearchLabel(world, unit.playerId, loadout) + ".");
-        if (!readyState(unit)) return new FittingOption(base, false, false, "Ship must be idle, stationary, and out of combat.");
-        if (!free && !HangarStore.canAfford(base.inventory, WeaponRules.refitCost(loadout))) return new FittingOption(base, false, false, "Shipyard lacks required materials.");
-        return new FittingOption(base, false, true, "Ready to refit at " + base.type().name + ".");
+        if (!free && !HangarStore.canAfford(base.inventory, WeaponRules.refitCost(loadout))) {
+            return new FittingOption(base, false, false, "Shipyard lacks required materials.");
+        }
+        return new FittingOption(base, false, true, "Ship will be recalled automatically to " + base.type().name + ".");
     }
 
     static Base nearestRefitBase(World world, Unit unit) {
         if (world == null || unit == null) return null;
-        Base best = null; double distance = Double.MAX_VALUE;
+        Base best = null;
+        double distance = Double.MAX_VALUE;
         for (Base base : world.bases.values()) {
             if (base.hp <= 0 || !unit.playerId.equals(base.playerId) || !base.type().canRefitShips) continue;
             double candidate = Calc.distance(base.x, base.y, unit.x, unit.y);
@@ -389,7 +502,8 @@ final class ShipFittingWindow {
 
     static Base refitBaseInRange(World world, Unit unit) {
         if (world == null || unit == null) return null;
-        Base best = null; double distance = Double.MAX_VALUE;
+        Base best = null;
+        double distance = Double.MAX_VALUE;
         for (Base base : world.bases.values()) {
             if (!base.canRefit(unit)) continue;
             double candidate = Calc.distance(base.x, base.y, unit.x, unit.y);
@@ -412,47 +526,91 @@ final class ShipFittingWindow {
                 && unit.weaponFlashTimer <= 0 && unit.weaponCooldown <= 0 && unit.shieldDelayTimer <= 0;
     }
 
-    private JComponent stationStatus(World world, Unit unit) {
-        Base inRange = refitBaseInRange(world, unit);
-        if (inRange != null) return statusPanel("Connected to " + inRange.type().name + " " + inRange.id
-                + "  |  distance " + whole(Calc.distance(inRange.x, inRange.y, unit.x, unit.y)) + " / "
-                + whole(inRange.type().refitRange) + "  |  Private fits are saved under commander " + commanderName() + ".", GOOD);
+    private JComponent stationStatus() {
         Base nearest = nearestRefitBase(world, unit);
-        if (nearest == null) return statusPanel("No owned refit-capable shipyard exists in this system. Fits can still be created and saved.", BAD);
-        return statusPanel("Fit editing is available anywhere. Move within " + whole(nearest.type().refitRange) + " of "
-                + nearest.type().name + " " + nearest.id + " to apply a fit. Current distance: "
-                + whole(Calc.distance(nearest.x, nearest.y, unit.x, unit.y)) + ".", WARNING);
+        if (nearest == null) return label("NO SHIPYARD LINK", 9, Font.BOLD, BAD);
+        double distance = Calc.distance(nearest.x, nearest.y, unit.x, unit.y);
+        return label("SHIPYARD LINK // " + nearest.id + " // DIST " + whole(distance)
+                + " // AUTO-RECALL ENABLED", 9, Font.BOLD, GOOD);
     }
 
-    private static ShipFitSpec specFrom(String hullId, List<JComboBox<WeaponChoice>> slots) {
-        List<String> weapons = new ArrayList<>();
-        for (JComboBox<WeaponChoice> slot : slots) {
+    private static ShipFitSpec specFrom(String hullId, List<JComboBox<WeaponChoice>> weapons,
+                                        List<JComboBox<ModuleChoice>> modules) {
+        List<String> weaponIds = new ArrayList<>();
+        for (JComboBox<WeaponChoice> slot : weapons) {
             WeaponChoice choice = (WeaponChoice) slot.getSelectedItem();
-            if (choice != null && !choice.id.isBlank()) weapons.add(choice.id);
+            if (choice != null && !choice.id.isBlank()) weaponIds.add(choice.id);
         }
-        return new ShipFitSpec(hullId, weapons);
+        List<String> moduleIds = new ArrayList<>();
+        for (JComboBox<ModuleChoice> slot : modules) {
+            ModuleChoice choice = (ModuleChoice) slot.getSelectedItem();
+            if (choice != null && !choice.id.isBlank()) moduleIds.add(choice.id);
+        }
+        return new ShipFitSpec(hullId, weaponIds, moduleIds);
     }
 
-    private static void loadSpec(List<JComboBox<WeaponChoice>> slots, ShipFitSpec spec) {
-        for (int i = 0; i < slots.size(); i++) {
+    private static void loadSpec(List<JComboBox<WeaponChoice>> weapons,
+                                 List<JComboBox<ModuleChoice>> modules, ShipFitSpec spec) {
+        for (int i = 0; i < weapons.size(); i++) {
             String id = i < spec.weaponIds().size() ? spec.weaponIds().get(i) : "";
-            JComboBox<WeaponChoice> combo = slots.get(i);
-            for (int j = 0; j < combo.getItemCount(); j++) if (combo.getItemAt(j).id.equals(id)) { combo.setSelectedIndex(j); break; }
+            selectId(weapons.get(i), id);
         }
+        for (int i = 0; i < modules.size(); i++) {
+            String id = i < spec.moduleIds().size() ? spec.moduleIds().get(i) : "";
+            selectModuleId(modules.get(i), id);
+        }
+    }
+
+    private static void selectId(JComboBox<WeaponChoice> combo, String id) {
+        for (int i = 0; i < combo.getItemCount(); i++) {
+            if (combo.getItemAt(i).id.equals(id)) { combo.setSelectedIndex(i); return; }
+        }
+        combo.setSelectedIndex(0);
+    }
+
+    private static void selectModuleId(JComboBox<ModuleChoice> combo, String id) {
+        for (int i = 0; i < combo.getItemCount(); i++) {
+            if (combo.getItemAt(i).id.equals(id)) { combo.setSelectedIndex(i); return; }
+        }
+        combo.setSelectedIndex(0);
     }
 
     private static String weaponSummary(ShipLoadoutDefinition loadout) {
         Map<String,Integer> counts = new LinkedHashMap<>();
         Map<String,WeaponType> weapons = new LinkedHashMap<>();
-        for (WeaponType weapon : WeaponRules.loadout(loadout)) { counts.merge(weapon.id, 1, Integer::sum); weapons.put(weapon.id, weapon); }
+        for (WeaponType weapon : WeaponRules.loadout(loadout)) {
+            counts.merge(weapon.id, 1, Integer::sum);
+            weapons.put(weapon.id, weapon);
+        }
         if (counts.isEmpty()) return "Unarmed";
         List<String> labels = new ArrayList<>();
         for (Map.Entry<String,Integer> entry : counts.entrySet()) {
             WeaponType weapon = weapons.get(entry.getKey());
-            labels.add((entry.getValue() > 1 ? entry.getValue() + "× " : "") + weapon.name
-                    + " [" + whole(weapon.range) + " range, " + whole(weapon.damage) + " dmg]");
+            labels.add((entry.getValue() > 1 ? entry.getValue() + "× " : "") + weapon.name);
         }
         return String.join("  •  ", labels);
+    }
+
+    private static JPanel titledGrid(String title, int slots) {
+        JPanel wrapper = panel(new BorderLayout(0, 6), FIELD);
+        wrapper.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(7, 8, 8, 8)));
+        wrapper.add(label(title + "  //  " + slots + " SLOT" + (slots == 1 ? "" : "S"),
+                10, Font.BOLD, BORDER), BorderLayout.NORTH);
+        JPanel grid = panel(new GridLayout(Math.max(1, slots), 2, 7, 6), FIELD);
+        wrapper.add(grid, BorderLayout.CENTER);
+        return new ForwardingPanel(wrapper, grid);
+    }
+
+    private static final class ForwardingPanel extends JPanel {
+        private final JPanel target;
+        ForwardingPanel(JPanel wrapper, JPanel target) {
+            super(new BorderLayout());
+            this.target = target;
+            setOpaque(false);
+            add(wrapper, BorderLayout.CENTER);
+        }
+        @Override public Component add(Component component) { return target.add(component); }
     }
 
     private static JPanel verticalList() {
@@ -465,17 +623,20 @@ final class ShipFittingWindow {
 
     private static JScrollPane scroll(JComponent content) {
         JScrollPane scroll = new JScrollPane(content);
-        scroll.setBorder(BorderFactory.createLineBorder(new Color(42, 86, 116)));
+        scroll.setBorder(BorderFactory.createLineBorder(BORDER_SOFT));
         scroll.getViewport().setBackground(BACKGROUND);
         scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        scroll.getVerticalScrollBar().setUnitIncrement(26);
+        scroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
+        scroll.getVerticalScrollBar().setUnitIncrement(28);
+        scroll.getVerticalScrollBar().setPreferredSize(new Dimension(15, 0));
         return scroll;
     }
 
     private static JPanel statusPanel(String text, Color color) {
-        JPanel panel = panel(new BorderLayout(), PANEL);
-        panel.setBorder(new EmptyBorder(7, 9, 7, 9));
-        panel.add(label(text, 11, Font.BOLD, color));
+        JPanel panel = panel(new BorderLayout(), FIELD);
+        panel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(10, 11, 10, 11)));
+        panel.add(label(text, 10, Font.BOLD, color));
         return panel;
     }
 
@@ -488,21 +649,69 @@ final class ShipFittingWindow {
     private static JLabel label(String text, int size, int style, Color color) {
         JLabel label = new JLabel(text == null ? "" : text);
         label.setForeground(color);
-        label.setFont(label.getFont().deriveFont(style, (float) size));
+        label.setFont(label.getFont().deriveFont(style, (float)size));
         return label;
     }
 
     private static JButton button(String text) {
         JButton button = new JButton(text);
         button.setFocusable(false);
-        button.setMargin(new Insets(7, 12, 7, 12));
+        button.setForeground(TEXT);
+        button.setBackground(FIELD);
+        button.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(5, 9, 5, 9)));
+        button.setMargin(new Insets(0, 0, 0, 0));
+        button.setOpaque(true);
+        button.setContentAreaFilled(true);
+        button.addChangeListener(event -> button.setBackground(
+                button.getModel().isRollover() || button.getModel().isPressed() ? FIELD_HOVER : FIELD));
+        return button;
+    }
+
+    private static JButton tabButton(String text, boolean selected) {
+        JButton button = button(text);
+        button.setFont(button.getFont().deriveFont(Font.BOLD, 11f));
+        button.setForeground(selected ? Color.WHITE : MUTED);
+        button.setBackground(selected ? new Color(17, 65, 91) : FIELD);
+        button.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(selected ? BORDER : BORDER_SOFT, selected ? 2 : 1),
+                new EmptyBorder(7, 10, 7, 10)));
         return button;
     }
 
     private static void styleField(JTextField field) {
         field.setForeground(TEXT);
         field.setCaretColor(TEXT);
-        field.setBackground(BACKGROUND);
+        field.setBackground(FIELD);
+        field.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(5, 7, 5, 7)));
+    }
+
+    private static void styleCombo(JComboBox<?> combo) {
+        combo.setForeground(TEXT);
+        combo.setBackground(FIELD);
+        combo.setFocusable(false);
+        combo.setBorder(BorderFactory.createLineBorder(BORDER_SOFT));
+        combo.setRenderer(new DefaultListCellRenderer() {
+            @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                                    boolean selected, boolean focus) {
+                JLabel label = (JLabel)super.getListCellRendererComponent(list, value, index, selected, focus);
+                label.setForeground(TEXT);
+                label.setBackground(selected ? FIELD_HOVER : FIELD);
+                label.setBorder(new EmptyBorder(4, 7, 4, 7));
+                return label;
+            }
+        });
+    }
+
+    private static GridBagConstraints constraints() {
+        GridBagConstraints c = new GridBagConstraints();
+        c.gridx = 0;
+        c.gridy = 0;
+        c.weightx = 0;
+        c.insets = new Insets(0, 0, 0, 7);
+        c.anchor = GridBagConstraints.WEST;
+        return c;
     }
 
     private static String whole(double value) {
@@ -514,10 +723,11 @@ final class ShipFittingWindow {
     record FittingOption(Base base, boolean current, boolean ready, String reason) { }
     record ActiveRefit(Base base, ProductionJob job) { }
     private record WeaponChoice(String id, String label) { @Override public String toString() { return label; } }
+    private record ModuleChoice(String id, String label) { @Override public String toString() { return label; } }
     private static final class PrivateChoice {
         final PrivateShipFit fit;
         PrivateChoice(PrivateShipFit fit) { this.fit = fit; }
-        @Override public String toString() { return fit == null ? "New fit" : fit.name(); }
+        @Override public String toString() { return fit == null ? "New fit from installed setup" : fit.name(); }
     }
 
     private static final class SimpleDocumentListener implements javax.swing.event.DocumentListener {
