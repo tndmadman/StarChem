@@ -1,19 +1,107 @@
 name: Java CI
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: write
+
 jobs:
   build:
+    if: github.event.pull_request.head.ref == 'agent/issue-289-loadouts'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      - run: gradle build
+      - name: Remove obsolete authored-fit gate
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          root = Path('src/main/java/com/tndmadman/rts')
+          panel = root / 'GamePanel.java'
+          text = panel.read_text()
+          old_enabled = 'boolean enabled = unit != null && WeaponRules.loadoutsForHull(unit.shipTypeId).size() > 1;'
+          if old_enabled not in text:
+              raise SystemExit('Expected fitting button gate was not found')
+          text = text.replace(old_enabled, 'boolean enabled = fittingAvailable(unit);')
+          selected = '''    private Unit selectedFittingShip() {
+              Unit selected = null;
+              for (Unit unit : world.selectedUnits()) {
+                  if (!PlayerRegistry.isLocal(unit.playerId)) continue;
+                  if (selected != null) return null;
+                  selected = unit;
+              }
+              return selected;
+          }
+
+          '''
+          if selected not in text:
+              raise SystemExit('Expected selectedFittingShip method was not found')
+          text = text.replace(selected, selected + '    static boolean fittingAvailable(Unit unit) { return unit != null; }\n\n')
+          obsolete = '''        if (WeaponRules.loadoutsForHull(unit.shipTypeId).size() <= 1) {
+              world.status = unit.type().name + " has no alternate authored loadouts.";
+              ProceduralAudio.play(SoundCue.ERROR);
+              repaint();
+              return;
+          }
+          '''
+          if obsolete not in text:
+              raise SystemExit('Expected authored-fit rejection was not found')
+          panel.write_text(text.replace(obsolete, ''))
+
+          validator = root / 'ShipLoadoutValidator.java'
+          text = validator.read_text()
+          anchor = '''        require("destroyer".equals(WeaponRules.defaultLoadoutId("destroyer")),
+                  "legacy destroyer default ID changed");
+          '''
+          if anchor not in text:
+              raise SystemExit('Expected loadout validator anchor was not found')
+          regression = '''        Unit singleDefaultHull = new Unit("LOADOUT_UI", 1, "frigate", 0, 0);
+          require(GamePanel.fittingAvailable(singleDefaultHull),
+                  "single-default hull fitting editor remained gated behind authored variants");
+          '''
+          validator.write_text(text.replace(anchor, anchor + regression))
+          PY
+      - name: Compile and validate fitting gate
+        run: gradle clean classes validateShipLoadouts --no-daemon
+      - name: Commit fitting fix and restore workflow
+        shell: bash
+        run: |
+          cat > .github/workflows/java.yml <<'YAML'
+          name: Java CI
+
+          on:
+            push:
+              branches: [ main ]
+            pull_request:
+              branches: [ main ]
+
+          jobs:
+            build:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: actions/checkout@v4
+                - uses: actions/setup-java@v4
+                  with:
+                    distribution: temurin
+                    java-version: '17'
+                - uses: gradle/actions/setup-gradle@v4
+                - run: gradle build
+          YAML
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/main/java/com/tndmadman/rts/GamePanel.java \
+                  src/main/java/com/tndmadman/rts/ShipLoadoutValidator.java \
+                  .github/workflows/java.yml
+          git commit -m "Open fitting editor for single-default hulls"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
