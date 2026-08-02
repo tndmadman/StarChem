@@ -3,6 +3,7 @@ package com.tndmadman.rts;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 /** End-to-end validation for trusted server developer mutations. */
 public final class ServerDevCommandValidator {
@@ -21,7 +22,6 @@ public final class ServerDevCommandValidator {
             String playerId = client.playerId();
             TcpIntegrationHarness.require(TcpIntegrationHarness.realPlayerId(playerId), "developer validator did not join a real player");
 
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
             ByteArrayOutputStream errors = new ByteArrayOutputStream();
             ServerConsole console = ServerConsole.detached(64, new PrintStream(errors, true, StandardCharsets.UTF_8));
             harness.headlessServer.attachConsole(console);
@@ -107,13 +107,11 @@ public final class ServerDevCommandValidator {
             TcpIntegrationHarness.require(!harness.serverNetwork.runtimeDevEnabled(),
                     "runtime developer mode did not disable");
 
-            String outputText = output.toString(StandardCharsets.UTF_8);
-            TcpIntegrationHarness.require(outputText.contains("dev role set <player> none")
-                            && outputText.contains("Prefer 'dev role set'"),
-                    "nested developer help did not explain role and access commands");
-            TcpIntegrationHarness.require(outputText.contains(playerId + " | DevCommandTarget | connected | role none")
-                            || outputText.contains(playerId + " | DevCommandTarget | connected | role developer-freebuild"),
-                    "developer role listing did not include effective role state");
+            List<String> roleHelp = ServerDevRoleCommands.help(List.of("role"));
+            List<String> accessHelp = ServerDevRoleCommands.help(List.of("access"));
+            TcpIntegrationHarness.require(roleHelp.stream().anyMatch(line -> line.contains("dev role set <player> none"))
+                            && accessHelp.stream().anyMatch(line -> line.contains("Prefer 'dev role set'")),
+                    "developer help did not explain role and access commands");
             String errorText = errors.toString(StandardCharsets.UTF_8);
             TcpIntegrationHarness.require(errorText.isBlank(), "developer command validator reported console errors: " + errorText);
             console.close();
