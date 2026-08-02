@@ -27,10 +27,8 @@ jobs:
 
           production = Path('src/main/java/com/tndmadman/rts/ProductionSystem.java')
           text = production.read_text()
-          anchor = '''    static void update(World world, double dt) {
-              if (world == null || dt < 0) return;
-          '''
-          replacement = '''    static void updateRefitRecalls(World world) {
+          signature = '    static void update(World world, double dt) {'
+          method = '''    static void updateRefitRecalls(World world) {
               if (world == null) return;
               for (Base base : new ArrayList<>(world.bases.values())) {
                   cleanupInvalidRefits(world, base);
@@ -38,12 +36,10 @@ jobs:
               }
           }
 
-              static void update(World world, double dt) {
-              if (world == null || dt < 0) return;
           '''
-          if text.count(anchor) != 1:
-              raise SystemExit('ProductionSystem update anchor was not found exactly once')
-          production.write_text(text.replace(anchor, replacement, 1))
+          if text.count(signature) != 1:
+              raise SystemExit('ProductionSystem update signature was not found exactly once')
+          production.write_text(text.replace(signature, method + signature, 1))
 
           world = Path('src/main/java/com/tndmadman/rts/World.java')
           text = world.read_text()
