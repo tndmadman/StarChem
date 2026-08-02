@@ -21,7 +21,18 @@ jobs:
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
       - name: Apply fitting expansion
-        run: python .github/expand_fitting_patch.py
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('.github/expand_fitting_patch.py')
+          text = p.read_text()
+          text = text.replace("'        weaponSystem.draw(g2, this); for (ExplosionEffect explosion : explosions)'",
+                              "'weaponSystem.draw(g2, this); for (ExplosionEffect explosion : explosions)'")
+          text = text.replace("'        weaponSystem.draw(g2, this); ShipModuleRules.draw(g2, this); for (ExplosionEffect explosion : explosions)'",
+                              "'weaponSystem.draw(g2, this); ShipModuleRules.draw(g2, this); for (ExplosionEffect explosion : explosions)'")
+          p.write_text(text)
+          PY
+          python .github/expand_fitting_patch.py
       - name: Compile and validate fitting systems
         run: |
           gradle classes validateShipLoadouts
