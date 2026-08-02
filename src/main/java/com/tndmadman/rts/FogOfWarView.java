@@ -14,7 +14,6 @@ import java.awt.geom.Ellipse2D;
 import java.awt.geom.Point2D;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
-import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -148,17 +147,25 @@ final class FogOfWarView {
         }
         if (now - state.lastUpdateNanos < UPDATE_INTERVAL_NANOS) return state;
         state.lastUpdateNanos = now;
-        int exploredBefore = state.explored.cardinality();
-        int wormholesBefore = state.wormholes.hashCode();
-        state.visible.clear();
+
         VisibilityRules.Frame frame = VisibilityRules.frame(world, playerId);
-        state.sensors = frame.sensors();
-        for (VisibilityRules.Sensor sensor : state.sensors) reveal(state, sensor);
-        state.explored.or(state.visible);
-        paintExploration(state, state.sensors);
+        List<VisibilityRules.Sensor> nextSensors = frame.sensors();
+        boolean sensorsChanged = !nextSensors.equals(state.sensors);
+        boolean explorationChanged = false;
+        if (sensorsChanged) {
+            state.sensors = nextSensors;
+            state.visible.clear();
+            for (VisibilityRules.Sensor sensor : state.sensors) reveal(state, sensor);
+            int exploredBefore = state.explored.cardinality();
+            state.explored.or(state.visible);
+            explorationChanged = state.explored.cardinality() != exploredBefore;
+            if (explorationChanged) paintExploration(state, state.sensors);
+            state.fogRevision++;
+        }
+
         observeContacts(world, playerId, frame, state);
-        observeWormholes(world, frame, state);
-        if (state.explored.cardinality() != exploredBefore || state.wormholes.hashCode() != wormholesBefore) {
+        boolean wormholesChanged = observeWormholes(world, frame, state);
+        if (explorationChanged || wormholesChanged) {
             FogOfWarPersistence.saveLater(playerId, systemId, environmentSeed, columns, rows,
                     state.explored, state.wormholes.values());
         }
@@ -203,12 +210,30 @@ final class FogOfWarView {
     private static BufferedImage composeWorldFog(SystemState state, Rectangle2D view, double zoom) {
         int width = clampBufferSize((int)Math.ceil(view.getWidth() * zoom * WORLD_BUFFER_SCALE));
         int height = clampBufferSize((int)Math.ceil(view.getHeight() * zoom * WORLD_BUFFER_SCALE));
+        boolean resized = state.worldFogBuffer == null
+                || state.worldFogBuffer.getWidth() != width || state.worldFogBuffer.getHeight() != height;
+        if (!resized && state.worldFogRevision == state.fogRevision
+                && same(state.worldFogViewX, view.getX())
+                && same(state.worldFogViewY, view.getY())
+                && same(state.worldFogViewWidth, view.getWidth())
+                && same(state.worldFogViewHeight, view.getHeight())
+                && same(state.worldFogZoom, zoom)) {
+            return state.worldFogBuffer;
+        }
+
         state.worldFogBuffer = ensureBuffer(state.worldFogBuffer, width, height);
         Graphics2D g = state.worldFogBuffer.createGraphics();
         prepareBuffer(g, width, height);
         drawExplorationSlice(g, state, view, width, height);
         carveSensors(g, state.sensors, view, width, height);
         g.dispose();
+
+        state.worldFogRevision = state.fogRevision;
+        state.worldFogViewX = view.getX();
+        state.worldFogViewY = view.getY();
+        state.worldFogViewWidth = view.getWidth();
+        state.worldFogViewHeight = view.getHeight();
+        state.worldFogZoom = zoom;
         return state.worldFogBuffer;
     }
 
@@ -217,7 +242,10 @@ final class FogOfWarView {
         boolean resized = state.minimapFogBuffer == null
                 || state.minimapFogBuffer.getWidth() != width || state.minimapFogBuffer.getHeight() != height;
         state.minimapFogBuffer = ensureBuffer(state.minimapFogBuffer, width, height);
-        if (!resized && now - state.lastMinimapRefreshNanos < MINIMAP_REFRESH_NANOS) return state.minimapFogBuffer;
+        if (!resized && (state.minimapFogRevision == state.fogRevision
+                || now - state.lastMinimapRefreshNanos < MINIMAP_REFRESH_NANOS)) {
+            return state.minimapFogBuffer;
+        }
         state.lastMinimapRefreshNanos = now;
         Graphics2D g = state.minimapFogBuffer.createGraphics();
         prepareBuffer(g, width, height);
@@ -225,6 +253,7 @@ final class FogOfWarView {
         drawExplorationSlice(g, state, wholeWorld, width, height);
         carveSensors(g, state.sensors, wholeWorld, width, height);
         g.dispose();
+        state.minimapFogRevision = state.fogRevision;
         return state.minimapFogBuffer;
     }
 
@@ -322,6 +351,10 @@ final class FogOfWarView {
         return Double.isFinite(scale) && scale > 0 ? scale : 1.0;
     }
 
+    private static boolean same(double first, double second) {
+        return Double.doubleToLongBits(first) == Double.doubleToLongBits(second);
+    }
+
     private static int clampBufferSize(int value) {
         return Math.max(2, Math.min(2048, value));
     }
@@ -386,13 +419,16 @@ final class FogOfWarView {
         return "SHIP CONTACT";
     }
 
-    private static void observeWormholes(World world, VisibilityRules.Frame frame, SystemState state) {
+    private static boolean observeWormholes(World world, VisibilityRules.Frame frame, SystemState state) {
+        boolean changed = false;
         for (WormholeGate gate : world.wormholes) {
             if (gate == null || !frame.pointVisible(gate.x, gate.y)) continue;
             String key = gate.id == null || gate.id.isBlank()
                     ? gate.toSystemId + ':' + Math.round(gate.x) + ':' + Math.round(gate.y) : gate.id;
-            state.wormholes.put(key, new KnownWormhole(key, gate.toSystemId, gate.x, gate.y));
+            KnownWormhole observed = new KnownWormhole(key, gate.toSystemId, gate.x, gate.y);
+            changed |= !observed.equals(state.wormholes.put(key, observed));
         }
+        return changed;
     }
 
     private static void drawContacts(Graphics2D g, World world, SystemState state, double scaleX, double scaleY,
@@ -400,7 +436,7 @@ final class FogOfWarView {
         Stroke oldStroke = g.getStroke();
         Font oldFont = g.getFont();
         double now = world.systemTime();
-        for (LastKnownContact contact : new ArrayList<>(state.contacts.values())) {
+        for (LastKnownContact contact : state.contacts.values()) {
             if (state.liveContacts.contains(contact.key())) continue;
             double age = Math.max(0, now - contact.lastSeenSystemTime());
             double projectionSeconds = Math.min(6, age);
@@ -473,8 +509,16 @@ final class FogOfWarView {
         List<VisibilityRules.Sensor> sensors = List.of();
         BufferedImage worldFogBuffer;
         BufferedImage minimapFogBuffer;
+        long fogRevision;
+        long worldFogRevision = -1;
+        long minimapFogRevision = -1;
         long lastUpdateNanos;
         long lastMinimapRefreshNanos;
+        double worldFogViewX = Double.NaN;
+        double worldFogViewY = Double.NaN;
+        double worldFogViewWidth = Double.NaN;
+        double worldFogViewHeight = Double.NaN;
+        double worldFogZoom = Double.NaN;
 
         SystemState(String systemId, long environmentSeed, int columns, int rows, int worldWidth, int worldHeight) {
             this.systemId = systemId;
