@@ -27,7 +27,7 @@ final class ShipFittingWindow {
     private static final Color WARNING = new Color(255, 198, 104);
     private static final Color BAD = new Color(255, 126, 126);
 
-    private final JPopupMenu popup = new JPopupMenu();
+    private final StickyPopupMenu popup = new StickyPopupMenu();
     private Component parent;
     private World world;
     private PeerNetwork network;
@@ -40,7 +40,7 @@ final class ShipFittingWindow {
         popup.setBorder(BorderFactory.createEmptyBorder());
         popup.setLayout(new BorderLayout());
         popup.setFocusable(true);
-        popup.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
+        popup.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
                 .put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "close-fitting");
         popup.getActionMap().put("close-fitting", new AbstractAction() {
             @Override public void actionPerformed(java.awt.event.ActionEvent event) { close(); }
@@ -66,7 +66,7 @@ final class ShipFittingWindow {
     }
 
     void close() {
-        popup.setVisible(false);
+        popup.hideExplicitly();
         parent = null;
         world = null;
         network = null;
@@ -139,9 +139,7 @@ final class ShipFittingWindow {
             });
             state.add(cancel);
         }
-        JButton close = button("CLOSE [ESC]");
-        close.addActionListener(event -> close());
-        state.add(close);
+        state.add(label("ESC // CLOSE", 10, Font.BOLD, MUTED));
         header.add(state, BorderLayout.EAST);
         return header;
     }
@@ -736,5 +734,24 @@ final class ShipFittingWindow {
         @Override public void insertUpdate(javax.swing.event.DocumentEvent event) { action.run(); }
         @Override public void removeUpdate(javax.swing.event.DocumentEvent event) { action.run(); }
         @Override public void changedUpdate(javax.swing.event.DocumentEvent event) { action.run(); }
+    }
+
+    /** Prevents Swing menu-selection changes and outside clicks from dismissing the fitting console. */
+    private static final class StickyPopupMenu extends JPopupMenu {
+        private boolean explicitClose;
+
+        @Override public void setVisible(boolean visible) {
+            if (!visible && !explicitClose) return;
+            super.setVisible(visible);
+        }
+
+        void hideExplicitly() {
+            explicitClose = true;
+            try {
+                super.setVisible(false);
+            } finally {
+                explicitClose = false;
+            }
+        }
     }
 }
