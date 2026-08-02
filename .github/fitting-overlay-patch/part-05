@@ -1,0 +1,132 @@
+        if (showNotice) {
+            String message = pendingServerRequest ? "Fit request submitted; awaiting authoritative server response." : world.status;
+            setNotice(message, pendingServerRequest ? WARNING : GOOD, false);
+        }
+        return true;
+    }
+
+    private void setNotice(String message, Color color, boolean updateWorld) {
+        notice = message == null || message.isBlank() ? "The fitting action could not be completed." : message;
+        noticeColor = color == null ? MUTED : color;
+        if (updateWorld && world != null) world.status = notice;
+        if (noticeLabel != null) {
+            noticeLabel.setText(notice);
+            noticeLabel.setForeground(noticeColor);
+        }
+        if (stationLabel != null) updateStationLabel();
+        glass.repaint();
+    }
+
+    private void pollAuthoritativeState() {
+        if (!visible() || world == null || unit == null) return;
+        Unit live = world.units.get(unit.key());
+        if (live == null || live.hp <= 0 || !PlayerRegistry.isLocal(live.playerId)) {
+            close();
+            return;
+        }
+        unit = live;
+        String status = world.status == null ? "" : world.status;
+        if (pendingServerRequest && !status.equals(observedWorldStatus)
+                && !status.startsWith("Fit request submitted")) {
+            pendingServerRequest = false;
+            setNotice(status, resultColor(status), false);
+        }
+        observedWorldStatus = status;
+        long revision = WorldFitCatalog.revision(world);
+        String state = unitState();
+        if (revision != observedCatalogRevision || !state.equals(observedUnitState)) {
+            observedCatalogRevision = revision;
+            observedUnitState = state;
+            rebuild();
+        } else if (stationLabel != null) {
+            updateStationLabel();
+        }
+    }
+
+    private Color resultColor(String message) {
+        String lower = message == null ? "" : message.toLowerCase(Locale.ROOT);
+        if (lower.contains("reject") || lower.contains("could not") || lower.contains("invalid")
+                || lower.contains("not found") || lower.contains("requires") || lower.startsWith("need ")
+                || lower.startsWith("no available") || lower.startsWith("no owned")) return BAD;
+        return GOOD;
+    }
+
+    private String unitState() {
+        ActiveRefit active = activeRefit(world, unit);
+        return unit.loadoutId + '|' + (active == null ? "" : active.base.id + '|' + active.job.id + '|' + active.job.loadoutId);
+    }
+
+    private void loadInstalledDraft() {
+        if (unit == null) return;
+        ShipLoadoutDefinition installed = WeaponRules.resolveForHull(unit.shipTypeId, unit.loadoutId);
+        draftName = "";
+        draftSpec = installed == null
+                ? new ShipFitSpec(unit.shipTypeId, List.of(), List.of())
+                : new ShipFitSpec(unit.shipTypeId, installed.weaponIds(), ShipModuleRules.moduleIds(installed));
+    }
+
+    private void normalizeDraft(List<PrivateShipFit> fits) {
+        if (!unit.shipTypeId.equals(draftSpec.hullId())) loadInstalledDraft();
+        if (selectedPrivateFitId.isBlank()) return;
+        boolean exists = fits.stream().anyMatch(fit -> selectedPrivateFitId.equals(fit.id()));
+        if (!exists) {
+            selectedPrivateFitId = "";
+            loadInstalledDraft();
+        }
+    }
+
+    private String commanderName() {
+        String name = PlayerRegistry.baseName(PlayerRegistry.localId());
+        return name == null || name.isBlank() ? world.localPlayerName : name;
+    }
+
+    private void sendProduction(String playerId, String action, String baseId, String value, String extra) {
+        if (network == null) ProductionCommands.apply(world, playerId, action, baseId, value, extra);
+        else network.production(playerId, action, baseId, value, extra);
+    }
+
+    static FittingOption evaluate(World world, Unit unit, ShipLoadoutDefinition loadout) {
+        if (world == null || unit == null || loadout == null || !unit.shipTypeId.equals(loadout.hullId())) {
+            return new FittingOption(null, false, false, "Fit does not match this hull.");
+        }
+        Base base = nearestRefitBase(world, unit);
+        if (loadout.id().equals(unit.loadoutId)) return new FittingOption(base, true, false, "Currently installed.");
+        ActiveRefit active = activeRefit(world, unit);
+        if (active != null) return new FittingOption(active.base, false, false, "A refit is already queued.");
+        if (base == null) return new FittingOption(null, false, false, "Requires an owned refit-capable shipyard in this system.");
+        boolean free = world.devFreeBuildFor(unit.playerId);
+        if (!free && !WeaponRules.unlocked(world, unit.playerId, loadout)) return new FittingOption(base, false, false,
+                "Research required: " + WeaponRules.missingResearchLabel(world, unit.playerId, loadout) + ".");
+        if (!free && !HangarStore.canAfford(base.inventory, WeaponRules.refitCost(loadout))) {
+            return new FittingOption(base, false, false, "Shipyard lacks required materials.");
+        }
+        return new FittingOption(base, false, true, "Ship will be recalled automatically to " + base.type().name + ".");
+    }
+
+    static Base nearestRefitBase(World world, Unit unit) {
+        if (world == null || unit == null) return null;
+        Base best = null;
+        double distance = Double.MAX_VALUE;
+        for (Base base : world.bases.values()) {
+            if (base.hp <= 0 || !unit.playerId.equals(base.playerId) || !base.type().canRefitShips) continue;
+            double candidate = Calc.distance(base.x, base.y, unit.x, unit.y);
+            if (candidate < distance) { best = base; distance = candidate; }
+        }
+        return best;
+    }
+
+    static Base refitBaseInRange(World world, Unit unit) {
+        if (world == null || unit == null) return null;
+        Base best = null;
+        double distance = Double.MAX_VALUE;
+        for (Base base : world.bases.values()) {
+            if (!base.canRefit(unit)) continue;
+            double candidate = Calc.distance(base.x, base.y, unit.x, unit.y);
+            if (candidate < distance) { best = base; distance = candidate; }
+        }
+        return best;
+    }
+
+    static ActiveRefit activeRefit(World world, Unit unit) {
+        if (world == null || unit == null) return null;
+        for (Base base : world.bases.values()) for (ProductionJob job : base.productionQueue) {
