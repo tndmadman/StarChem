@@ -1,1 +1,1 @@
-Temporary CI trigger for the fitting expansion. Remove after validation.
+Run the validated fitting expansion through the repository CI workflow.
