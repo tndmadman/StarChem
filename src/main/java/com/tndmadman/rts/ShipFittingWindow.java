@@ -15,6 +15,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JSeparator;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.KeyStroke;
 import javax.swing.ScrollPaneConstants;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
@@ -36,6 +37,7 @@ import java.awt.Insets;
 import java.awt.KeyboardFocusManager;
 import java.awt.LayoutManager;
 import java.awt.RenderingHints;
+import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -65,7 +67,7 @@ final class ShipFittingWindow {
     private static final Color WARNING = new Color(255, 198, 104);
     private static final Color BAD = new Color(255, 126, 126);
 
-    /* Installed when this class is initialized from GamePanel construction, before GameFrame's menu dispatcher. */
+    /* Fallback dispatcher for unusual focus states. GameFrame owns the normal modal Escape path. */
     private static volatile ShipFittingWindow activeWindow;
     static {
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(event -> {
@@ -120,6 +122,12 @@ final class ShipFittingWindow {
             @Override public void mouseMoved(MouseEvent event) { }
         });
         glass.addMouseWheelListener((MouseWheelEvent event) -> { });
+        String closeAction = "close-fitting";
+        glass.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), closeAction);
+        glass.getActionMap().put(closeAction, new javax.swing.AbstractAction() {
+            @Override public void actionPerformed(ActionEvent event) { close(); }
+        });
         refreshTimer.setCoalesce(true);
     }
 
@@ -138,7 +146,7 @@ final class ShipFittingWindow {
         this.network = network;
         this.unit = unit;
         this.selectedTab = 0;
-        this.notice = "Configure the fit, then recall it to an owned shipyard. Escape is the only close action.";
+        this.notice = "Configure the fit, then recall it to an owned shipyard. Close with ESC or the CLOSE button.";
         this.noticeColor = MUTED;
         this.selectedPrivateFitId = "";
         loadInstalledDraft();
@@ -183,6 +191,18 @@ final class ShipFittingWindow {
     }
 
     boolean visible() { return glass.isVisible() && activeWindow == this; }
+
+    static boolean active() {
+        ShipFittingWindow active = activeWindow;
+        return active != null && active.visible();
+    }
+
+    static boolean closeActive() {
+        ShipFittingWindow active = activeWindow;
+        if (active == null || !active.visible()) return false;
+        active.close();
+        return true;
+    }
 
     private void rebuild() {
         if (world == null || unit == null || !visibleOrOpening()) return;
@@ -261,7 +281,10 @@ final class ShipFittingWindow {
             });
             state.add(cancel);
         }
-        state.add(label("ESC // CLOSE", 10, Font.BOLD, MUTED));
+        JButton close = button("CLOSE [ESC]");
+        close.setToolTipText("Close fitting and return to the game.");
+        close.addActionListener(event -> close());
+        state.add(close);
         right.add(state, BorderLayout.CENTER);
         header.add(right, BorderLayout.EAST);
         return header;
@@ -518,6 +541,13 @@ final class ShipFittingWindow {
             ShipLoadoutDefinition definition = PlayerFitRules.definition(fit.name(), fit.spec());
             String badge = standard != null && standard.id().equals(fit.id()) ? "CLASS STANDARD" : "PRIVATE";
             JPanel actions = panel(new GridLayout(0, 1, 0, 5), PANEL);
+
+            JButton refitSaved = button("RECALL + REFIT");
+            FittingOption savedOption = evaluate(world, unit, definition);
+            refitSaved.setEnabled(savedOption.ready());
+            refitSaved.setToolTipText(savedOption.reason());
+            refitSaved.addActionListener(event -> submitRefit(fit.name(), fit.spec(), false));
+
             JButton edit = button("LOAD IN EDITOR");
             edit.addActionListener(event -> {
                 selectedPrivateFitId = fit.id();
@@ -525,7 +555,43 @@ final class ShipFittingWindow {
                 draftSpec = fit.spec();
                 rebuild();
             });
+
+            boolean isStandard = standard != null && standard.id().equals(fit.id());
+            JButton makeStandard = button(isStandard ? "CLASS STANDARD" : "SET CLASS STANDARD");
+            makeStandard.setEnabled(!isStandard);
+            makeStandard.addActionListener(event -> {
+                try {
+                    ClientFitStore.setStandard(commander, unit.shipTypeId, fit.id());
+                    setNotice("Class standard updated.", GOOD, false);
+                    rebuild();
+                } catch (RuntimeException ex) { setNotice(ex.getMessage(), BAD, false); }
+            });
+
+            JButton publishSaved = button("PUBLISH TO SERVER");
+            publishSaved.addActionListener(event -> submitNetwork("PUBLISH", fit.name(), fit.spec(),
+                    null, null, null, true));
+
+            JButton deleteSaved = button("DELETE");
+            deleteSaved.addActionListener(event -> {
+                try {
+                    if (!ClientFitStore.delete(commander, fit.id())) {
+                        setNotice("Private fit no longer exists.", BAD, false);
+                        return;
+                    }
+                    if (fit.id().equals(selectedPrivateFitId)) {
+                        selectedPrivateFitId = "";
+                        loadInstalledDraft();
+                    }
+                    setNotice("Private fit deleted.", GOOD, false);
+                    rebuild();
+                } catch (RuntimeException ex) { setNotice(ex.getMessage(), BAD, false); }
+            });
+
+            actions.add(refitSaved);
             actions.add(edit);
+            actions.add(makeStandard);
+            actions.add(publishSaved);
+            actions.add(deleteSaved);
             body.add(fitCard(fit.name(), definition, badge, actions));
             body.add(Box.createVerticalStrut(8));
         }
@@ -587,7 +653,7 @@ final class ShipFittingWindow {
     private JPanel fitCard(String title, ShipLoadoutDefinition fit, String badge, JComponent actions) {
         JPanel card = panel(new BorderLayout(12, 7), PANEL);
         card.setAlignmentX(Component.LEFT_ALIGNMENT);
-        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 176));
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 224));
         card.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(9, 11, 9, 11)));
         List<String> moduleIds = ShipModuleRules.moduleIds(fit);
