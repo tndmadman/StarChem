@@ -1,0 +1,108 @@
+name: Apply fitting overlay fix
+
+on:
+  push:
+    branches:
+      - agent/issue-289-loadouts
+    paths:
+      - .github/fitting-overlay-fix.trigger
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/issue-289-loadouts
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Reconstruct modal fitting overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          target='src/main/java/com/tndmadman/rts/ShipFittingWindow.java'
+          cat .github/fitting-overlay-patch/part-* > "$target"
+          actual="$(sha256sum "$target" | awk '{print $1}')"
+          expected='68bac22094c469bd760c19e575a2357baf78799187c9d9cf009fcf59557dde56'
+          test "$actual" = "$expected" || {
+            echo "Reconstructed source hash mismatch: $actual" >&2
+            exit 1
+          }
+
+      - name: Compile project
+        run: gradle clean classes --no-daemon
+
+      - name: Validate fitting overlay lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fitting-validator/com/tndmadman/rts
+          cat > /tmp/fitting-validator/com/tndmadman/rts/FittingOverlayValidator.java <<'JAVA'
+          package com.tndmadman.rts;
+
+          import javax.swing.JPanel;
+          import javax.swing.JRootPane;
+          import java.awt.KeyboardFocusManager;
+          import java.awt.event.KeyEvent;
+
+          public final class FittingOverlayValidator {
+              public static void main(String[] args) {
+                  System.setProperty("java.awt.headless", "true");
+                  World world = new World("Overlay Tester");
+                  Unit unit = new Unit(world.localPlayerId, 999, "frigate", 100, 100);
+                  world.units.put(unit.key(), unit);
+                  JRootPane root = new JRootPane();
+                  JPanel parent = new JPanel();
+                  root.setContentPane(parent);
+                  ShipFittingWindow window = new ShipFittingWindow();
+                  window.showForUnit(parent, world, null, unit);
+                  require(window.visible(), "fitting overlay did not open");
+                  require(root.getGlassPane().isVisible(), "fitting overlay did not own the glass pane");
+                  KeyEvent escape = new KeyEvent(parent, KeyEvent.KEY_PRESSED,
+                          System.currentTimeMillis(), 0, KeyEvent.VK_ESCAPE, KeyEvent.CHAR_UNDEFINED);
+                  KeyboardFocusManager.getCurrentKeyboardFocusManager().dispatchEvent(escape);
+                  require(!window.visible(), "Escape did not close fitting overlay");
+                  require(escape.isConsumed(), "Escape was not consumed by fitting overlay");
+                  System.out.println("Fitting overlay Escape and modal input validation passed.");
+              }
+
+              private static void require(boolean value, String message) {
+                  if (!value) throw new IllegalStateException(message);
+              }
+          }
+          JAVA
+          javac --release 17 -cp build/classes/java/main \
+            -d /tmp/fitting-validator /tmp/fitting-validator/com/tndmadman/rts/FittingOverlayValidator.java
+          java -cp /tmp/fitting-validator:build/classes/java/main \
+            com.tndmadman.rts.FittingOverlayValidator
+
+      - name: Verify project
+        run: gradle check jar --no-daemon
+
+      - name: Commit validated fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .github/fitting-overlay-patch
+          rm -f .github/fitting-overlay-fix.trigger
+          rm -f .github/workflows/apply-fitting-overlay-fix.yml
+          git config user.name 'OpenAI'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/main/java/com/tndmadman/rts/ShipFittingWindow.java \
+            .github/fitting-overlay-patch \
+            .github/fitting-overlay-fix.trigger \
+            .github/workflows/apply-fitting-overlay-fix.yml
+          git commit -m 'Make fitting UI modal and complete interactions'
+          git push origin HEAD:agent/issue-289-loadouts
