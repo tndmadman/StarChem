@@ -1,0 +1,1 @@
+Apply and validate the ESC-only fitting popup behavior.
