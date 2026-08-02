@@ -183,7 +183,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private void drawFittingButton(Graphics2D g2) {
         Rectangle bounds = fittingButtonBounds();
         Unit unit = selectedFittingShip();
-        boolean enabled = unit != null && WeaponRules.loadoutsForHull(unit.shipTypeId).size() > 1;
+        boolean enabled = fittingAvailable(unit);
         g2.setColor(enabled ? new Color(18, 70, 104, 235) : new Color(35, 45, 54, 210));
         g2.fillRoundRect(bounds.x, bounds.y, bounds.width, bounds.height, 10, 10);
         g2.setColor(enabled ? new Color(110, 215, 255) : new Color(105, 120, 130));
@@ -207,18 +207,14 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         return selected;
     }
 
+    static boolean fittingAvailable(Unit unit) { return unit != null; }
+
     private void openSelectedFitting() {
         Unit unit = selectedFittingShip();
         if (unit == null) {
             world.status = world.selectedCount() > 1
                     ? "Select exactly one ship to open fitting."
                     : "Select a ship to open fitting.";
-            ProceduralAudio.play(SoundCue.ERROR);
-            repaint();
-            return;
-        }
-        if (WeaponRules.loadoutsForHull(unit.shipTypeId).size() <= 1) {
-            world.status = unit.type().name + " has no alternate authored loadouts.";
             ProceduralAudio.play(SoundCue.ERROR);
             repaint();
             return;

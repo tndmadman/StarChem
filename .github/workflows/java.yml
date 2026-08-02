@@ -1,99 +1,19 @@
 name: Java CI
 
 on:
+  push:
+    branches: [ main ]
   pull_request:
     branches: [ main ]
 
-permissions:
-  contents: write
-
 jobs:
   build:
-    if: github.event.pull_request.head.ref == 'agent/issue-289-loadouts'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Remove obsolete authored-fit gate
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          root = Path('src/main/java/com/tndmadman/rts')
-          panel = root / 'GamePanel.java'
-          text = panel.read_text()
-
-          old_enabled = 'boolean enabled = unit != null && WeaponRules.loadoutsForHull(unit.shipTypeId).size() > 1;'
-          if old_enabled not in text:
-              raise SystemExit('Expected fitting button gate was not found')
-          text = text.replace(old_enabled, 'boolean enabled = fittingAvailable(unit);', 1)
-
-          method_marker = '    private void openSelectedFitting() {'
-          if method_marker not in text:
-              raise SystemExit('Expected openSelectedFitting method was not found')
-          text = text.replace(method_marker,
-                  '    static boolean fittingAvailable(Unit unit) { return unit != null; }\n\n' + method_marker, 1)
-
-          gate_start = '        if (WeaponRules.loadoutsForHull(unit.shipTypeId).size() <= 1) {'
-          start = text.find(gate_start)
-          if start < 0:
-              raise SystemExit('Expected authored-fit rejection was not found')
-          resume = text.find('        shipFittingWindow.showForUnit', start)
-          if resume < 0:
-              raise SystemExit('Expected fitting window call was not found')
-          text = text[:start] + text[resume:]
-          panel.write_text(text)
-
-          validator = root / 'ShipLoadoutValidator.java'
-          text = validator.read_text()
-          marker = '                "legacy destroyer default ID changed");\n'
-          if marker not in text:
-              raise SystemExit('Expected loadout validator anchor was not found')
-          regression = (
-              '        Unit singleDefaultHull = new Unit("LOADOUT_UI", 1, "frigate", 0, 0);\n'
-              '        require(GamePanel.fittingAvailable(singleDefaultHull),\n'
-              '                "single-default hull fitting editor remained gated behind authored variants");\n'
-          )
-          validator.write_text(text.replace(marker, marker + regression, 1))
-          PY
-      - name: Compile and validate fitting gate
-        run: gradle clean classes validateShipLoadouts --no-daemon
-      - name: Commit fitting fix and restore workflow
-        shell: bash
-        run: |
-          cat > .github/workflows/java.yml <<'YAML'
-          name: Java CI
-
-          on:
-            push:
-              branches: [ main ]
-            pull_request:
-              branches: [ main ]
-
-          jobs:
-            build:
-              runs-on: ubuntu-latest
-              steps:
-                - uses: actions/checkout@v4
-                - uses: actions/setup-java@v4
-                  with:
-                    distribution: temurin
-                    java-version: '17'
-                - uses: gradle/actions/setup-gradle@v4
-                - run: gradle build
-          YAML
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/main/java/com/tndmadman/rts/GamePanel.java \
-                  src/main/java/com/tndmadman/rts/ShipLoadoutValidator.java \
-                  .github/workflows/java.yml
-          git commit -m "Open fitting editor for single-default hulls"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+      - run: gradle build

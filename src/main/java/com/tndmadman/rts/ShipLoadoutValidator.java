@@ -32,6 +32,9 @@ public final class ShipLoadoutValidator {
                 "dreadnought variants were not loaded");
         require("destroyer".equals(WeaponRules.defaultLoadoutId("destroyer")),
                 "legacy destroyer default ID changed");
+        Unit singleDefaultHull = new Unit("LOADOUT_UI", 1, "frigate", 0, 0);
+        require(GamePanel.fittingAvailable(singleDefaultHull),
+                "single-default hull fitting editor remained gated behind authored variants");
     }
 
     private static void validateConstructionAndCombatResolution() {
