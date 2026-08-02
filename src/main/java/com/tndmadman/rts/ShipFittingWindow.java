@@ -1,8 +1,43 @@
 package com.tndmadman.rts;
 
-import javax.swing.*;
+import javax.swing.AbstractAction;
+import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.DefaultListCellRenderer;
+import javax.swing.JButton;
+import javax.swing.JComponent;
+import javax.swing.JComboBox;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
+import javax.swing.JScrollPane;
+import javax.swing.JSeparator;
+import javax.swing.JTextArea;
+import javax.swing.JTextField;
+import javax.swing.KeyStroke;
+import javax.swing.ScrollPaneConstants;
+import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
-import java.awt.*;
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.Font;
+import java.awt.GradientPaint;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.GridLayout;
+import java.awt.Insets;
+import java.awt.KeyboardFocusManager;
+import java.awt.KeyEventDispatcher;
+import java.awt.LayoutManager;
+import java.awt.RenderingHints;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -13,10 +48,11 @@ import java.util.Map;
 
 /** In-game fitting console for built-in, private, and server-published ship fits. */
 final class ShipFittingWindow {
-    private static final int WIDTH = 1040;
-    private static final int HEIGHT = 720;
-    private static final Color BACKGROUND = new Color(4, 11, 19);
-    private static final Color PANEL = new Color(5, 13, 22);
+    private static final int WIDTH = 1120;
+    private static final int HEIGHT = 760;
+    private static final Color BACKGROUND = new Color(3, 9, 16);
+    private static final Color PANEL = new Color(7, 17, 28);
+    private static final Color PANEL_ALT = new Color(10, 25, 39);
     private static final Color FIELD = new Color(9, 25, 38);
     private static final Color FIELD_HOVER = new Color(14, 42, 61);
     private static final Color BORDER = new Color(90, 190, 245);
@@ -28,6 +64,8 @@ final class ShipFittingWindow {
     private static final Color BAD = new Color(255, 126, 126);
 
     private final StickyPopupMenu popup = new StickyPopupMenu();
+    private final KeyEventDispatcher escapeDispatcher = this::dispatchEscape;
+    private boolean escapeDispatcherInstalled;
     private Component parent;
     private World world;
     private PeerNetwork network;
@@ -55,26 +93,57 @@ final class ShipFittingWindow {
         this.network = network;
         this.unit = unit;
         selectedTab = 0;
-        notice = "Fits can be edited anywhere. Applying one automatically recalls the ship to the nearest owned shipyard.";
+        notice = "Fit editing is local. Applying a fit recalls the ship to the nearest owned shipyard.";
         noticeColor = MUTED;
         rebuild();
         int x = Math.max(8, (parent.getWidth() - WIDTH) / 2);
         int y = Math.max(8, (parent.getHeight() - HEIGHT) / 2);
         popup.show(parent, x, y);
+        installEscapeDispatcher();
         popup.requestFocusInWindow();
         FitNetworkBridge.refresh(network, world);
     }
 
     void close() {
+        if (!popup.isVisible() && parent == null) return;
+        Component returnFocus = parent;
         popup.hideExplicitly();
+        uninstallEscapeDispatcher();
         parent = null;
         world = null;
         network = null;
         unit = null;
         notice = "";
+        if (returnFocus != null) {
+            SwingUtilities.invokeLater(() -> {
+                returnFocus.requestFocusInWindow();
+                returnFocus.repaint();
+            });
+        }
     }
 
     boolean visible() { return popup.isVisible(); }
+
+    private boolean dispatchEscape(KeyEvent event) {
+        if (!visible() || event.getID() != KeyEvent.KEY_PRESSED
+                || event.getKeyCode() != KeyEvent.VK_ESCAPE
+                || event.isControlDown() || event.isAltDown() || event.isMetaDown()) return false;
+        close();
+        event.consume();
+        return true;
+    }
+
+    private void installEscapeDispatcher() {
+        if (escapeDispatcherInstalled) return;
+        KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(escapeDispatcher);
+        escapeDispatcherInstalled = true;
+    }
+
+    private void uninstallEscapeDispatcher() {
+        if (!escapeDispatcherInstalled) return;
+        KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(escapeDispatcher);
+        escapeDispatcherInstalled = false;
+    }
 
     private void rebuild() {
         if (world == null || unit == null) return;
@@ -86,7 +155,7 @@ final class ShipFittingWindow {
     }
 
     private JComponent content() {
-        JPanel root = panel(new BorderLayout(0, 8), BACKGROUND);
+        JPanel root = new ConsoleSurface(new BorderLayout(0, 8));
         root.setPreferredSize(new Dimension(WIDTH, HEIGHT));
         root.setBorder(BorderFactory.createLineBorder(BORDER, 2));
         root.add(header(), BorderLayout.NORTH);
@@ -113,10 +182,10 @@ final class ShipFittingWindow {
         JPanel header = panel(new BorderLayout(12, 4), PANEL);
         header.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(0, 0, 1, 0, BORDER_SOFT),
-                new EmptyBorder(10, 13, 9, 9)));
+                new EmptyBorder(10, 13, 9, 12)));
         ShipLoadoutDefinition current = WeaponRules.resolveForHull(unit.shipTypeId, unit.loadoutId);
         JPanel text = panel(new GridLayout(0, 1, 0, 2), PANEL);
-        text.add(label("STARSHIP FITTING CONSOLE", 11, Font.BOLD, BORDER));
+        text.add(label("STARSHIP FITTING ARRAY", 11, Font.BOLD, BORDER));
         text.add(label(unit.type().name.toUpperCase(Locale.ROOT) + "  //  HULL " + unit.unitId, 20, Font.BOLD, TEXT));
         text.add(label("Installed: " + (current == null ? unit.loadoutId : current.displayName())
                 + "  •  Guns: " + (current == null ? "Unavailable" : weaponSummary(current))
@@ -124,6 +193,9 @@ final class ShipFittingWindow {
                 10, Font.PLAIN, MUTED));
         header.add(text, BorderLayout.CENTER);
 
+        JPanel right = panel(new BorderLayout(8, 0), PANEL);
+        right.add(moduleStrip(current == null ? List.of() : ShipModuleRules.moduleIds(current),
+                ShipModuleRules.moduleSlotCount(unit.shipTypeId), 46, false), BorderLayout.WEST);
         JPanel state = panel(new GridLayout(0, 1, 0, 3), PANEL);
         ActiveRefit active = activeRefit(world, unit);
         state.add(label(active == null ? "STATUS // AVAILABLE" : "STATUS // RECALL OR REFIT ACTIVE",
@@ -140,7 +212,8 @@ final class ShipFittingWindow {
             state.add(cancel);
         }
         state.add(label("ESC // CLOSE", 10, Font.BOLD, MUTED));
-        header.add(state, BorderLayout.EAST);
+        right.add(state, BorderLayout.CENTER);
+        header.add(right, BorderLayout.EAST);
         return header;
     }
 
@@ -217,36 +290,40 @@ final class ShipFittingWindow {
         List<JComboBox<WeaponChoice>> weaponSlots = new ArrayList<>();
         List<JComboBox<ModuleChoice>> moduleSlots = new ArrayList<>();
         JPanel fittingGrid = panel(new GridLayout(1, 2, 10, 0), PANEL);
-        JPanel weapons = titledGrid("WEAPON HARDPOINTS", PlayerFitRules.slotCount(unit.shipTypeId));
+
+        JPanel weaponRows = panel(new GridLayout(0, 1, 0, 6), FIELD);
         List<WeaponType> allowedWeapons = PlayerFitRules.allowedWeapons(unit.shipTypeId);
         int weaponSlotCount = PlayerFitRules.slotCount(unit.shipTypeId);
         for (int i = 0; i < weaponSlotCount; i++) {
-            weapons.add(label("HARDPOINT " + (i + 1), 9, Font.BOLD, MUTED));
             JComboBox<WeaponChoice> combo = new JComboBox<>();
             combo.addItem(new WeaponChoice("", "Empty hardpoint"));
             for (WeaponType weapon : allowedWeapons) combo.addItem(new WeaponChoice(weapon.id, weapon.name));
             styleCombo(combo);
             weaponSlots.add(combo);
-            weapons.add(combo);
+            weaponRows.add(slotRow("HARDPOINT " + (i + 1), combo));
         }
-        fittingGrid.add(weapons);
+        fittingGrid.add(section("WEAPON HARDPOINTS", weaponSlotCount, weaponRows));
 
+        JPanel moduleRows = panel(new GridLayout(0, 1, 0, 7), FIELD);
         int moduleSlotCount = ShipModuleRules.moduleSlotCount(unit.shipTypeId);
-        JPanel modules = titledGrid("UTILITY MODULES", moduleSlotCount);
         List<ShipModuleDefinition> allowedModules = ShipModuleRules.allowedModules(unit.shipTypeId);
         for (int i = 0; i < moduleSlotCount; i++) {
-            modules.add(label("UTILITY " + (i + 1), 9, Font.BOLD, MUTED));
             JComboBox<ModuleChoice> combo = new JComboBox<>();
-            combo.addItem(new ModuleChoice("", "Empty utility slot"));
-            for (ShipModuleDefinition module : allowedModules) combo.addItem(new ModuleChoice(module.id(), module.displayName()));
-            styleCombo(combo);
+            combo.addItem(ModuleChoice.empty());
+            for (ShipModuleDefinition module : allowedModules) combo.addItem(new ModuleChoice(module));
+            styleModuleCombo(combo);
             moduleSlots.add(combo);
-            modules.add(combo);
+            moduleRows.add(slotRow("UTILITY " + (i + 1), combo));
         }
-        fittingGrid.add(modules);
+        if (moduleSlotCount == 0) moduleRows.add(statusPanel("This hull has no configured utility sockets.", WARNING));
+        fittingGrid.add(section("UTILITY MODULES", moduleSlotCount, moduleRows));
         editor.add(fittingGrid, BorderLayout.CENTER);
 
-        JTextArea preview = new JTextArea(5, 56);
+        JPanel liveModuleRack = panel(new FlowLayout(FlowLayout.LEFT, 7, 3), PANEL_ALT);
+        liveModuleRack.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(5, 7, 5, 7)));
+
+        JTextArea preview = new JTextArea(5, 58);
         preview.setEditable(false);
         preview.setFocusable(false);
         preview.setLineWrap(true);
@@ -258,6 +335,7 @@ final class ShipFittingWindow {
 
         Runnable updatePreview = () -> {
             ShipFitSpec spec = specFrom(unit.shipTypeId, weaponSlots, moduleSlots);
+            refreshLiveModuleRack(liveModuleRack, spec.moduleIds(), moduleSlotCount);
             PlayerFitRules.Validation validation = PlayerFitRules.validate(spec);
             if (!validation.valid()) { preview.setForeground(BAD); preview.setText(validation.reason()); return; }
             ShipLoadoutDefinition definition = PlayerFitRules.definition(name.getText(), spec);
@@ -335,6 +413,7 @@ final class ShipFittingWindow {
         applyActions.add(refit); applyActions.add(refitClass); applyActions.add(publish);
 
         JPanel south = panel(new BorderLayout(0, 7), PANEL);
+        south.add(liveModuleRack, BorderLayout.NORTH);
         south.add(preview, BorderLayout.CENTER);
         JPanel actionRows = panel(new GridLayout(0, 1, 0, 5), PANEL);
         actionRows.add(libraryActions);
@@ -408,15 +487,23 @@ final class ShipFittingWindow {
 
     private JPanel fitCard(String title, ShipLoadoutDefinition fit, String badge, JComponent actions) {
         JPanel card = panel(new BorderLayout(12, 7), PANEL);
-        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 152));
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 176));
         card.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(9, 11, 9, 11)));
+
+        List<String> moduleIds = ShipModuleRules.moduleIds(fit);
+        JPanel visual = panel(new BorderLayout(0, 4), PANEL_ALT);
+        visual.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(6, 7, 6, 7)));
+        visual.add(label("UTILITY RACK", 8, Font.BOLD, BORDER), BorderLayout.NORTH);
+        visual.add(moduleStrip(moduleIds, ShipModuleRules.moduleSlotCount(fit.hullId()), 48, true), BorderLayout.CENTER);
+        card.add(visual, BorderLayout.WEST);
+
         JPanel details = panel(new GridLayout(0, 1, 0, 3), PANEL);
         details.add(label(title.toUpperCase(Locale.ROOT) + (badge == null || badge.isBlank() ? "" : "  //  " + badge),
                 14, Font.BOLD, TEXT));
         details.add(label("GUNS  //  " + weaponSummary(fit), 10, Font.PLAIN, MUTED));
-        details.add(label("UTILITY  //  " + ShipModuleRules.summary(ShipModuleRules.moduleIds(fit)),
-                10, Font.PLAIN, MUTED));
+        details.add(label("UTILITY  //  " + ShipModuleRules.summary(moduleIds), 10, Font.PLAIN, MUTED));
         details.add(label("RANGE " + whole(WeaponRules.maxRange(fit)) + "   •   REFIT "
                 + whole(fit.refitTimeSeconds()) + "s   •   COST "
                 + (fit.refitCost().isEmpty() ? "None" : Rules.formatCost(fit.refitCost())),
@@ -542,7 +629,7 @@ final class ShipFittingWindow {
         List<String> moduleIds = new ArrayList<>();
         for (JComboBox<ModuleChoice> slot : modules) {
             ModuleChoice choice = (ModuleChoice) slot.getSelectedItem();
-            if (choice != null && !choice.id.isBlank()) moduleIds.add(choice.id);
+            if (choice != null && !choice.id().isBlank()) moduleIds.add(choice.id());
         }
         return new ShipFitSpec(hullId, weaponIds, moduleIds);
     }
@@ -568,7 +655,7 @@ final class ShipFittingWindow {
 
     private static void selectModuleId(JComboBox<ModuleChoice> combo, String id) {
         for (int i = 0; i < combo.getItemCount(); i++) {
-            if (combo.getItemAt(i).id.equals(id)) { combo.setSelectedIndex(i); return; }
+            if (combo.getItemAt(i).id().equals(id)) { combo.setSelectedIndex(i); return; }
         }
         combo.setSelectedIndex(0);
     }
@@ -589,26 +676,64 @@ final class ShipFittingWindow {
         return String.join("  •  ", labels);
     }
 
-    private static JPanel titledGrid(String title, int slots) {
+    private static JPanel section(String title, int slots, JComponent body) {
         JPanel wrapper = panel(new BorderLayout(0, 6), FIELD);
         wrapper.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(7, 8, 8, 8)));
         wrapper.add(label(title + "  //  " + slots + " SLOT" + (slots == 1 ? "" : "S"),
                 10, Font.BOLD, BORDER), BorderLayout.NORTH);
-        JPanel grid = panel(new GridLayout(Math.max(1, slots), 2, 7, 6), FIELD);
-        wrapper.add(grid, BorderLayout.CENTER);
-        return new ForwardingPanel(wrapper, grid);
+        wrapper.add(body, BorderLayout.CENTER);
+        return wrapper;
     }
 
-    private static final class ForwardingPanel extends JPanel {
-        private final JPanel target;
-        ForwardingPanel(JPanel wrapper, JPanel target) {
-            super(new BorderLayout());
-            this.target = target;
-            setOpaque(false);
-            add(wrapper, BorderLayout.CENTER);
+    private static JPanel slotRow(String title, JComponent control) {
+        JPanel row = panel(new BorderLayout(8, 0), FIELD);
+        JLabel label = label(title, 9, Font.BOLD, MUTED);
+        label.setPreferredSize(new Dimension(88, 26));
+        row.add(label, BorderLayout.WEST);
+        row.add(control, BorderLayout.CENTER);
+        return row;
+    }
+
+    private static JPanel moduleStrip(List<String> moduleIds, int slotCount, int iconSize, boolean labels) {
+        JPanel strip = panel(new FlowLayout(FlowLayout.LEFT, 6, 0), labels ? PANEL_ALT : PANEL);
+        List<ShipModuleDefinition> modules = ShipModuleRules.modules(moduleIds);
+        int shown = Math.max(slotCount, modules.size());
+        for (int i = 0; i < shown; i++) {
+            ShipModuleDefinition module = i < modules.size() ? modules.get(i) : null;
+            strip.add(moduleTile(module, iconSize, labels));
         }
-        @Override public Component add(Component component) { return target.add(component); }
+        if (shown == 0) strip.add(label("NO UTILITY SOCKETS", 8, Font.BOLD, MUTED));
+        return strip;
+    }
+
+    private static JComponent moduleTile(ShipModuleDefinition module, int iconSize, boolean showLabel) {
+        JLabel icon = new JLabel(module == null ? ShipModuleVisuals.emptyIcon(iconSize) : ShipModuleVisuals.icon(module, iconSize));
+        icon.setToolTipText(module == null ? "Empty utility socket"
+                : module.displayName() + " — " + module.description() + " — " + ShipModuleRules.effectSummary(module));
+        if (!showLabel) return icon;
+        JPanel tile = panel(new BorderLayout(0, 3), PANEL_ALT);
+        tile.setBorder(new EmptyBorder(1, 2, 1, 2));
+        tile.add(icon, BorderLayout.CENTER);
+        JLabel text = label(module == null ? "EMPTY" : module.displayName().toUpperCase(Locale.ROOT), 8, Font.BOLD,
+                module == null ? MUTED : module.color());
+        text.setHorizontalAlignment(SwingConstants.CENTER);
+        tile.add(text, BorderLayout.SOUTH);
+        return tile;
+    }
+
+    private static void refreshLiveModuleRack(JPanel rack, List<String> moduleIds, int slotCount) {
+        rack.removeAll();
+        rack.add(label("LIVE MODULE RACK", 8, Font.BOLD, BORDER));
+        rack.add(new JSeparator(SwingConstants.VERTICAL));
+        JPanel strip = moduleStrip(moduleIds, slotCount, 42, true);
+        strip.setBackground(PANEL_ALT);
+        rack.add(strip);
+        for (ShipModuleDefinition module : ShipModuleRules.modules(moduleIds)) {
+            rack.add(label(ShipModuleRules.effectSummary(module), 9, Font.PLAIN, MUTED));
+        }
+        rack.revalidate();
+        rack.repaint();
     }
 
     private static JPanel verticalList() {
@@ -702,6 +827,16 @@ final class ShipFittingWindow {
         });
     }
 
+    private static void styleModuleCombo(JComboBox<ModuleChoice> combo) {
+        combo.setForeground(TEXT);
+        combo.setBackground(FIELD);
+        combo.setFocusable(false);
+        combo.setBorder(BorderFactory.createLineBorder(BORDER_SOFT));
+        combo.setMaximumRowCount(8);
+        combo.setRenderer(new ModuleChoiceRenderer());
+        combo.setPreferredSize(new Dimension(280, 58));
+    }
+
     private static GridBagConstraints constraints() {
         GridBagConstraints c = new GridBagConstraints();
         c.gridx = 0;
@@ -721,7 +856,33 @@ final class ShipFittingWindow {
     record FittingOption(Base base, boolean current, boolean ready, String reason) { }
     record ActiveRefit(Base base, ProductionJob job) { }
     private record WeaponChoice(String id, String label) { @Override public String toString() { return label; } }
-    private record ModuleChoice(String id, String label) { @Override public String toString() { return label; } }
+
+    private record ModuleChoice(String id, ShipModuleDefinition module) {
+        ModuleChoice(ShipModuleDefinition module) { this(module == null ? "" : module.id(), module); }
+        static ModuleChoice empty() { return new ModuleChoice("", null); }
+        @Override public String toString() { return module == null ? "Empty utility socket" : module.displayName(); }
+    }
+
+    private static final class ModuleChoiceRenderer extends DefaultListCellRenderer {
+        @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                                 boolean selected, boolean focus) {
+            JLabel label = (JLabel)super.getListCellRendererComponent(list, value, index, selected, focus);
+            ModuleChoice choice = value instanceof ModuleChoice moduleChoice ? moduleChoice : ModuleChoice.empty();
+            ShipModuleDefinition module = choice.module();
+            label.setIcon(module == null ? ShipModuleVisuals.emptyIcon(42) : ShipModuleVisuals.icon(module, 42));
+            label.setIconTextGap(10);
+            label.setText(module == null
+                    ? "<html><b>EMPTY UTILITY SOCKET</b><br><span style='font-size:9px'>No module installed</span></html>"
+                    : "<html><b>" + escape(module.displayName()) + "</b><br><span style='font-size:9px'>"
+                    + escape(ShipModuleRules.effectSummary(module)) + "</span></html>");
+            label.setForeground(TEXT);
+            label.setBackground(selected ? FIELD_HOVER : FIELD);
+            label.setBorder(new EmptyBorder(5, 7, 5, 7));
+            label.setToolTipText(module == null ? "Empty utility socket" : module.description());
+            return label;
+        }
+    }
+
     private static final class PrivateChoice {
         final PrivateShipFit fit;
         PrivateChoice(PrivateShipFit fit) { this.fit = fit; }
@@ -753,5 +914,29 @@ final class ShipFittingWindow {
                 explicitClose = false;
             }
         }
+    }
+
+    private static final class ConsoleSurface extends JPanel {
+        ConsoleSurface(LayoutManager layout) {
+            super(layout);
+            setOpaque(true);
+            setBackground(BACKGROUND);
+        }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            Graphics2D g = (Graphics2D)graphics.create();
+            g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            g.setPaint(new GradientPaint(0, 0, new Color(8, 22, 35), 0, getHeight(), BACKGROUND));
+            g.fillRect(0, 0, getWidth(), getHeight());
+            g.setColor(new Color(35, 94, 126, 32));
+            for (int y = 18; y < getHeight(); y += 22) g.drawLine(0, y, getWidth(), y);
+            for (int x = 20; x < getWidth(); x += 48) g.drawLine(x, 0, x, getHeight());
+            g.dispose();
+        }
+    }
+
+    private static String escape(String value) {
+        if (value == null) return "";
+        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 }
