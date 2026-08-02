@@ -3,11 +3,16 @@ package com.tndmadman.rts;
 import java.awt.*;
 import java.awt.geom.Line2D;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 
 final class WeaponSystem {
+    private final Map<String, VisibilityRules.Frame> visibilityFrames = new HashMap<>();
+
     void update(World world, double dt) {
+        visibilityFrames.clear();
         ShieldSystem.update(world, dt);
         for (Unit unit : world.units.values()) {
             unit.weaponCooldown = Math.max(0, unit.weaponCooldown - dt);
@@ -58,9 +63,10 @@ final class WeaponSystem {
         String best = "";
         double bestScore = Double.MAX_VALUE;
         double range = UnitOrderSystem.acquisitionRange(unit) * SystemModifierRules.sensorRange(world);
+        VisibilityRules.Frame visibility = visibility(world, unit.playerId);
         for (Unit target : world.units.values()) {
             if (target.hp <= 0 || !DiplomacySystem.hostile(world, unit.playerId, target.playerId)
-                    || !VisibilityRules.targetVisible(world, unit.playerId, CombatTarget.unit(target))) continue;
+                    || !visibility.targetVisible(world, CombatTarget.unit(target))) continue;
             double distance = Calc.distance(unit.x, unit.y, target.x, target.y);
             if (distance > range || !UnitOrderSystem.canEngage(world, unit, target.x, target.y)) continue;
             double score = distance;
@@ -72,7 +78,7 @@ final class WeaponSystem {
         }
         for (Base target : world.bases.values()) {
             if (target.hp <= 0 || !DiplomacySystem.hostile(world, unit.playerId, target.playerId)
-                    || !VisibilityRules.targetVisible(world, unit.playerId, CombatTarget.base(target))) continue;
+                    || !visibility.targetVisible(world, CombatTarget.base(target))) continue;
             double distance = Calc.distance(unit.x, unit.y, target.x, target.y);
             if (distance > range || !UnitOrderSystem.canEngage(world, unit, target.x, target.y)) continue;
             double priority = IntelWarfareSystem.isJammer(target.typeId) ? 0.45
@@ -90,8 +96,9 @@ final class WeaponSystem {
     }
 
     private void updateAttack(World world, Unit unit) {
+        VisibilityRules.Frame visibility = visibility(world, unit.playerId);
         if (unit.attackTarget.isBlank() || !CombatTarget.enemy(world, unit, unit.attackTarget)
-                || !VisibilityRules.targetVisible(world, unit.playerId, unit.attackTarget)) {
+                || !visibility.targetVisible(world, unit.attackTarget)) {
             unit.attackTarget = "";
             unit.task = UnitTask.IDLE;
             return;
@@ -189,6 +196,11 @@ final class WeaponSystem {
         unit.weaponCooldown = screen.cooldownSeconds;
         unit.weaponFlashTimer = 0.12;
         unit.heading = Math.atan2(best.y - unit.y, best.x - unit.x);
+    }
+
+    private VisibilityRules.Frame visibility(World world, String playerId) {
+        return visibilityFrames.computeIfAbsent(playerId == null ? "" : playerId,
+                key -> VisibilityRules.frame(world, key));
     }
 
     private double hitScale(World world, String key, WeaponType weapon) {
