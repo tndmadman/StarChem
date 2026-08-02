@@ -32,7 +32,26 @@ jobs:
                               "'weaponSystem.draw(g2, this); for (ExplosionEffect explosion : explosions)'")
           text = text.replace("'        weaponSystem.draw(g2, this); ShipModuleRules.draw(g2, this); for (ExplosionEffect explosion : explosions)'",
                               "'weaponSystem.draw(g2, this); ShipModuleRules.draw(g2, this); for (ExplosionEffect explosion : explosions)'")
-          p.write_text(text)
+          old = '''        ShipModuleRules.update(world, mover, 0.1);
+        require(mover.afterburnerActive, "afterburner did not activate for a distant objective");
+        require(ShipModuleRules.speedMultiplier(mover) > 1.0,
+                "afterburner did not increase fitted ship speed");
+        require(ShipModuleRules.agilityMultiplier(mover) < 0.5,
+                "afterburner did not impose a severe agility penalty");
+        double beforeJump = mover.x;
+        ShipModuleRules.update(world, mover, 0.1);
+        require(mover.x > beforeJump + 400, "micro jump drive did not jump toward a distant objective");'''
+          new = '''        double beforeJump = mover.x;
+        ShipModuleRules.update(world, mover, 0.1);
+        require(mover.afterburnerActive, "afterburner did not activate for a distant objective");
+        require(ShipModuleRules.speedMultiplier(mover) > 1.0,
+                "afterburner did not increase fitted ship speed");
+        require(ShipModuleRules.agilityMultiplier(mover) < 0.5,
+                "afterburner did not impose a severe agility penalty");
+        require(mover.x > beforeJump + 400, "micro jump drive did not jump toward a distant objective");'''
+          if old not in text:
+              raise SystemExit('Expected MJD validation sequence was not found')
+          p.write_text(text.replace(old, new, 1))
           PY
           python .github/expand_fitting_patch.py
       - name: Compile and validate fitting systems
