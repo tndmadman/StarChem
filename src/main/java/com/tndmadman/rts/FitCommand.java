@@ -99,19 +99,15 @@ final class FitCommand {
         Base base = ownedBase(world, actorId, ServerSaveStore.string(payload, "baseId", ""));
         ShipLoadoutDefinition loadout = register(world, payload);
         List<Unit> eligible = new ArrayList<>();
-        int already = 0, unavailable = 0;
+        int already = 0, reserved = 0;
         for (Unit unit : world.units.values()) {
-            if (!actorId.equals(unit.playerId) || !loadout.hullId().equals(unit.shipTypeId)) continue;
+            if (!actorId.equals(unit.playerId) || unit.hp <= 0 || !loadout.hullId().equals(unit.shipTypeId)) continue;
             if (loadout.id().equals(unit.loadoutId)) { already++; continue; }
-            if (!base.canRefit(unit) || ProductionSystem.refitLocked(world, unit.key()) || !ShipFittingWindow.readyState(unit)) {
-                unavailable++;
-                continue;
-            }
+            if (ProductionSystem.refitReserved(world, unit.key())) { reserved++; continue; }
             eligible.add(unit);
         }
-        if (eligible.isEmpty()) return Result.fail("No eligible " + Rules.ship(loadout.hullId()).name
-                + " ships are ready in this shipyard's refit range. Already fitted: " + already
-                + "; unavailable: " + unavailable + ".");
+        if (eligible.isEmpty()) return Result.fail("No available " + Rules.ship(loadout.hullId()).name
+                + " ships can be recalled. Already fitted: " + already + "; already reserved: " + reserved + ".");
         boolean free = world.devFreeBuildFor(actorId);
         if (!free && !WeaponRules.unlocked(world, actorId, loadout)) {
             return Result.fail(loadout.displayName() + " requires research: "
@@ -126,8 +122,9 @@ final class FitCommand {
         int queued = 0;
         for (Unit unit : eligible) if (ProductionSystem.enqueueRefit(world, base, unit, loadout, free)) queued++;
         if (queued != eligible.size()) return Result.fail("Only " + queued + " of " + eligible.size() + " refits could be queued.");
-        world.status = "Queued " + queued + " " + Rules.ship(loadout.hullId()).name + " class refits to "
-                + loadout.displayName() + ". Already fitted: " + already + "; skipped: " + unavailable + ".";
+        world.status = "Recalling " + queued + " " + Rules.ship(loadout.hullId()).name + " ships to "
+                + base.type().name + " for class refit: " + loadout.displayName()
+                + ". Already fitted: " + already + "; already reserved: " + reserved + ".";
         AlertCenter.push(world, world.status);
         return Result.ok(world.status, true, true);
     }

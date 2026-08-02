@@ -23,6 +23,8 @@ final class ShipModuleRules {
 
     private ShipModuleRules() { }
 
+    static void clearLoadouts() { LOADOUT_MODULES.clear(); }
+
     static void registerLoadout(String loadoutId, List<String> moduleIds) {
         if (loadoutId == null || loadoutId.isBlank()) return;
         List<String> clean = normalized(moduleIds);
@@ -253,7 +255,7 @@ final class ShipModuleRules {
 
     private static Unit targetUnit(World world, String targetKey) {
         if (world == null || targetKey == null || targetKey.isBlank()) return null;
-        return world.units.get(targetKey.startsWith("U:") ? targetKey.substring(2) : targetKey);
+        return CombatTarget.unit(world, targetKey);
     }
 
     private static boolean loadExternal() {

@@ -354,7 +354,8 @@ final class GalaxyCoordinator {
         boolean allPlayers = playerId == null || playerId.isBlank();
         for (Unit unit : unitsToMove) {
             if (!allPlayers && !playerId.equals(unit.playerId)) continue;
-            if (unit.wormholeCooldown > 0 || ProductionSystem.refitLocked(world, unit.key())) continue;
+            if (unit.wormholeCooldown > 0 || ProductionSystem.refitReserved(world, unit.key())
+                    || ShipModuleRules.tackled(world, unit)) continue;
             WormholeGate gate = touchingGate(world, unit);
             if (gate == null) continue;
             moved |= transferUnit(world, gate, unit);

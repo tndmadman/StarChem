@@ -188,6 +188,7 @@ final class WeaponRules {
         SHIP_LOADOUTS.clear();
         BY_HULL.clear();
         DEFAULT_BY_HULL.clear();
+        ShipModuleRules.clearLoadouts();
     }
 
     private static void parseWeapons(Map<String,Object> doc) {
@@ -220,6 +221,7 @@ final class WeaponRules {
             if (raw instanceof List<?>) {
                 register(new ShipLoadoutDefinition(id, title(id), id, stringList(raw), Set.of(),
                         List.of(), List.of(), 12, true));
+                ShipModuleRules.registerLoadout(id, List.of());
                 continue;
             }
             Map<String,Object> row = object(raw);
@@ -235,6 +237,7 @@ final class WeaponRules {
                     costs(row.get("refitCost")),
                     number(row, "refitTimeSeconds", 12),
                     bool(row, "default", id.equals(hullId))));
+            ShipModuleRules.registerLoadout(id, stringList(row.get("modules")));
         }
     }
 
@@ -268,6 +271,7 @@ final class WeaponRules {
                 ShipLoadoutDefinition empty = new ShipLoadoutDefinition(hullId, title(hullId), hullId,
                         List.of(), Set.of(), List.of(), List.of(), 12, true);
                 SHIP_LOADOUTS.put(hullId, empty);
+                ShipModuleRules.registerLoadout(hullId, List.of());
                 BY_HULL.put(hullId, new ArrayList<>(List.of(empty)));
                 DEFAULT_BY_HULL.put(hullId, hullId);
                 variants = BY_HULL.get(hullId);
@@ -320,6 +324,7 @@ final class WeaponRules {
     private static void defaultDefinition(String hullId, List<String> weapons) {
         register(new ShipLoadoutDefinition(hullId, title(hullId), hullId, weapons, Set.of(),
                 List.of(), List.of(), 12, true));
+        ShipModuleRules.registerLoadout(hullId, List.of());
     }
 
     @SuppressWarnings("unchecked")

@@ -10,6 +10,7 @@ public final class ShipLoadoutValidator {
 
     public static void main(String[] args) {
         validateDefinitions();
+        validateUtilityModules();
         validateConstructionAndCombatResolution();
         validateLogisticsPreservesSelection();
         validateRefittingAndCancellation();
@@ -35,6 +36,44 @@ public final class ShipLoadoutValidator {
         Unit singleDefaultHull = new Unit("LOADOUT_UI", 1, "frigate", 0, 0);
         require(GamePanel.fittingAvailable(singleDefaultHull),
                 "single-default hull fitting editor remained gated behind authored variants");
+    }
+
+    private static void validateUtilityModules() {
+        ShipFitSpec spec = new ShipFitSpec("destroyer", List.of("light_railgun"),
+                List.of("afterburner", "micro_jump_drive"));
+        require(ShipFitSpec.from(spec.toMap()).equals(spec), "utility modules did not survive fit serialization");
+        ShipLoadoutDefinition fit = PlayerFitRules.register("Mobility Test", spec);
+        require(ShipModuleRules.moduleIds(fit).equals(spec.moduleIds()),
+                "runtime fit lost its utility module layout");
+
+        World world = new World("Module Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        Unit mover = new Unit("MODULE", 1, "destroyer", 100, 100);
+        mover.loadoutId = fit.id();
+        mover.moveTo(2000, 100);
+        world.units.put(mover.key(), mover);
+        ShipModuleRules.update(world, mover, 0.1);
+        require(mover.afterburnerActive, "afterburner did not activate for a distant objective");
+        require(ShipModuleRules.speedMultiplier(mover) > 1.0,
+                "afterburner did not increase fitted ship speed");
+        require(ShipModuleRules.agilityMultiplier(mover) < 0.5,
+                "afterburner did not impose a severe agility penalty");
+        double beforeJump = mover.x;
+        ShipModuleRules.update(world, mover, 0.1);
+        require(mover.x > beforeJump + 400, "micro jump drive did not jump toward a distant objective");
+
+        ShipFitSpec tackleSpec = new ShipFitSpec("destroyer", List.of("light_railgun"), List.of("warp_scrambler"));
+        ShipLoadoutDefinition tackleFit = PlayerFitRules.register("Tackle Test", tackleSpec);
+        Unit tackler = new Unit("TACKLER", 2, "destroyer", mover.x - 100, mover.y);
+        tackler.loadoutId = tackleFit.id();
+        tackler.attackTarget = CombatTarget.unit(mover);
+        world.units.put(tackler.key(), tackler);
+        require(ShipModuleRules.tackled(world, mover), "scrambler did not tackle its targeted enemy");
+        mover.afterburnerActive = true;
+        mover.microJumpCooldown = 0;
+        double tackledX = mover.x;
+        ShipModuleRules.update(world, mover, 0.1);
+        require(!mover.afterburnerActive && close(mover.x, tackledX),
+                "tackle did not suppress afterburner and micro jump activation");
     }
 
     private static void validateConstructionAndCombatResolution() {
@@ -107,13 +146,19 @@ public final class ShipLoadoutValidator {
         require(!ProductionSystem.refitLocked(fixture.world, ship.key()), "cancelled refit left the ship locked");
 
         ship.task = UnitTask.ATTACK;
-        require(!ProductionSystem.enqueueRefit(fixture.world, fixture.yard, ship, rail, false),
-                "combat-active ship refit was accepted");
-        ship.task = UnitTask.IDLE;
-        ship.x = fixture.yard.x + fixture.yard.type().refitRange + 5;
+        ship.attackTarget = "B:enemy";
+        ship.x = fixture.yard.x + fixture.yard.type().refitRange + 500;
+        ship.y = fixture.yard.y;
         ship.targetX = ship.x;
-        require(!ProductionSystem.enqueueRefit(fixture.world, fixture.yard, ship, rail, false),
-                "remote refit request was accepted");
+        ship.targetY = ship.y;
+        double remoteDistance = Calc.distance(ship.x, ship.y, fixture.yard.x, fixture.yard.y);
+        require(ProductionSystem.enqueueRefit(fixture.world, fixture.yard, ship, rail, false),
+                "remote refit request was rejected instead of recalling the ship");
+        require(ProductionSystem.refitReserved(fixture.world, ship.key())
+                        && !ProductionSystem.refitLocked(fixture.world, ship.key()),
+                "remote refit did not reserve a traveling ship separately from the service lock");
+        require(Calc.distance(ship.targetX, ship.targetY, fixture.yard.x, fixture.yard.y) < remoteDistance,
+                "remote refit did not issue a shipyard recall destination");
     }
 
     private static void validateDestroyedTargetRecovery() {

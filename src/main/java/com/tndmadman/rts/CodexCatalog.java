@@ -68,7 +68,8 @@ final class CodexCatalog {
                 List<String> weapons = new ArrayList<>();
                 for (WeaponType weapon : WeaponRules.loadout(loadout)) weapons.add(weapon.name);
                 String detail = loadout.displayName() + (loadout.defaultForHull() ? " [default]" : "")
-                        + ": " + (weapons.isEmpty() ? "unarmed" : String.join(", ", weapons));
+                        + ": " + (weapons.isEmpty() ? "unarmed" : String.join(", ", weapons))
+                        + " | utility " + ShipModuleRules.summary(ShipModuleRules.moduleIds(loadout));
                 if (!loadout.buildCost().isEmpty()) detail += " | build premium " + Rules.formatCost(loadout.buildCost());
                 if (!loadout.refitCost().isEmpty()) detail += " | refit " + Rules.formatCost(loadout.refitCost())
                         + " in " + seconds(loadout.refitTimeSeconds());

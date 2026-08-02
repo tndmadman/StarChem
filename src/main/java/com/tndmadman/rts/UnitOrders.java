@@ -194,7 +194,7 @@ final class AUnitOrder {
         if (world == null || command == null || command.type() == null || command.type() == UnitOrderType.NONE) return false;
         Unit unit = world.units.get(Unit.key(command.playerId(), command.unitId()));
         if (unit == null || !unit.playerId.equals(command.playerId())
-                || ProductionSystem.refitLocked(world, unit.key())) return false;
+                || ProductionSystem.refitReserved(world, unit.key())) return false;
         if (!finite(command.x1(), command.y1(), command.x2(), command.y2(), command.radius())) return false;
 
         String target = command.targetKey() == null ? "" : command.targetKey().trim();

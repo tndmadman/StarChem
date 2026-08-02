@@ -9,6 +9,7 @@ final class ClientPrediction {
         for (Unit unit : world.units.values()) {
             unit.wormholeCooldown = Math.max(0, unit.wormholeCooldown - dt);
             if (PlayerRegistry.isLocal(unit.playerId)) predictTarget(world, unit, dt);
+            ShipModuleRules.update(world, unit, dt);
             unit.updatePosition(dt * SystemModifierRules.movementSpeed(world), world.width, world.height);
         }
         updateExplosions(world, dt);

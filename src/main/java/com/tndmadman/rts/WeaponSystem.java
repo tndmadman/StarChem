@@ -17,12 +17,12 @@ final class WeaponSystem {
         if (settings.disableAttacks) return;
         for (Unit unit : new ArrayList<>(world.units.values())) {
             if (settings.freezeNpcCombat && NpcRules.isNpcFaction(unit.playerId)) continue;
-            if (ProductionSystem.refitLocked(world, unit.key())) continue;
+            if (ProductionSystem.refitReserved(world, unit.key())) continue;
             if (!WeaponRules.screenWeapons(unit).isEmpty()) screenShots(world, unit);
         }
         for (Unit unit : new ArrayList<>(world.units.values())) {
             if (settings.freezeNpcCombat && NpcRules.isNpcFaction(unit.playerId)) continue;
-            if (ProductionSystem.refitLocked(world, unit.key())) {
+            if (ProductionSystem.refitReserved(world, unit.key())) {
                 clearIllegalAttack(unit);
                 continue;
             }
@@ -116,14 +116,15 @@ final class WeaponSystem {
             unit.task = UnitTask.IDLE;
             return;
         }
-        double approachRange = UnitOrderSystem.mayChase(unit) ? range * 0.92 : range;
+        double fittedRange = ShipModuleRules.preferredApproachRange(unit, range);
+        double approachRange = UnitOrderSystem.mayChase(unit) ? fittedRange * 0.92 : fittedRange;
         if (dist > approachRange) {
             if (!UnitOrderSystem.mayChase(unit)) {
                 unit.attackTarget = "";
                 unit.task = UnitTask.IDLE;
                 return;
             }
-            world.moveTowardOrbit(unit, tx, ty, range * 0.82);
+            world.moveTowardOrbit(unit, tx, ty, fittedRange * 0.82);
             return;
         }
         if (unit.weaponCooldown > 0) return;
