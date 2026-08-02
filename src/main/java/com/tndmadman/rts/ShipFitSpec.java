@@ -10,27 +10,33 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-/** Immutable, player-authored weapon arrangement. Names and visibility live outside the gameplay spec. */
-record ShipFitSpec(String hullId, List<String> weaponIds) {
+/** Immutable player-authored weapon and utility-module arrangement. */
+record ShipFitSpec(String hullId, List<String> weaponIds, List<String> moduleIds) {
     ShipFitSpec {
         hullId = hullId == null ? "" : hullId.trim();
-        List<String> normalized = new ArrayList<>();
-        if (weaponIds != null) for (String weaponId : weaponIds) {
-            String clean = weaponId == null ? "" : weaponId.trim();
-            if (!clean.isBlank()) normalized.add(clean);
-        }
-        weaponIds = List.copyOf(normalized);
+        weaponIds = normalized(weaponIds);
+        moduleIds = normalized(moduleIds);
+    }
+
+    ShipFitSpec(String hullId, List<String> weaponIds) {
+        this(hullId, weaponIds, List.of());
     }
 
     String runtimeId() {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            digest.update("StarChemShipFit/v1".getBytes(StandardCharsets.UTF_8));
-            digest.update((byte) 0);
+            digest.update("StarChemShipFit/v2".getBytes(StandardCharsets.UTF_8));
+            digest.update((byte)0);
             digest.update(hullId.getBytes(StandardCharsets.UTF_8));
+            digest.update((byte)1);
             for (String weaponId : weaponIds) {
-                digest.update((byte) 0);
+                digest.update((byte)0);
                 digest.update(weaponId.getBytes(StandardCharsets.UTF_8));
+            }
+            digest.update((byte)2);
+            for (String moduleId : moduleIds) {
+                digest.update((byte)0);
+                digest.update(moduleId.getBytes(StandardCharsets.UTF_8));
             }
             StringBuilder out = new StringBuilder("custom_");
             for (byte value : digest.digest()) out.append(String.format(Locale.ROOT, "%02x", value & 0xff));
@@ -41,17 +47,31 @@ record ShipFitSpec(String hullId, List<String> weaponIds) {
     }
 
     Map<String,Object> toMap() {
-        return Map.of("hullId", hullId, "weapons", weaponIds);
+        return Map.of("hullId", hullId, "weapons", weaponIds, "modules", moduleIds);
     }
 
     static ShipFitSpec from(Object value) {
         Map<String,Object> row = ServerSaveStore.object(value);
-        List<String> weapons = new ArrayList<>();
-        for (Object item : ServerSaveStore.list(row.get("weapons"))) {
-            String id = String.valueOf(item).trim();
-            if (!id.isBlank()) weapons.add(id);
+        return new ShipFitSpec(ServerSaveStore.string(row, "hullId", ""),
+                strings(row.get("weapons")), strings(row.get("modules")));
+    }
+
+    private static List<String> normalized(List<String> values) {
+        List<String> out = new ArrayList<>();
+        if (values != null) for (String value : values) {
+            String clean = value == null ? "" : value.trim();
+            if (!clean.isBlank()) out.add(clean);
         }
-        return new ShipFitSpec(ServerSaveStore.string(row, "hullId", ""), weapons);
+        return List.copyOf(out);
+    }
+
+    private static List<String> strings(Object value) {
+        List<String> out = new ArrayList<>();
+        for (Object item : ServerSaveStore.list(value)) {
+            String id = String.valueOf(item).trim();
+            if (!id.isBlank()) out.add(id);
+        }
+        return List.copyOf(out);
     }
 }
 
@@ -64,15 +84,16 @@ final class PlayerFitRules {
     static Validation validate(ShipFitSpec spec) {
         if (spec == null || Rules.findShip(spec.hullId()) == null) return Validation.reject("Unknown ship hull.");
         int slots = slotCount(spec.hullId());
-        if (slots <= 0) return Validation.reject("This hull has no configurable weapon slots.");
         if (spec.weaponIds().size() > slots) {
-            return Validation.reject("Fit uses " + spec.weaponIds().size() + " weapons but the hull has " + slots + " slots.");
+            return Validation.reject("Fit uses " + spec.weaponIds().size() + " weapons but the hull has " + slots + " hardpoints.");
         }
         Set<String> allowed = allowedWeaponIds(spec.hullId());
         for (String weaponId : spec.weaponIds()) {
             if (WeaponRules.WEAPONS.get(weaponId) == null) return Validation.reject("Unknown weapon: " + weaponId + ".");
             if (!allowed.contains(weaponId)) return Validation.reject("Weapon " + weaponId + " is not compatible with this hull.");
         }
+        ShipModuleRules.Validation moduleValidation = ShipModuleRules.validate(spec.hullId(), spec.moduleIds());
+        if (!moduleValidation.valid()) return Validation.reject(moduleValidation.reason());
         return Validation.accept();
     }
 
@@ -81,9 +102,10 @@ final class PlayerFitRules {
         if (!validation.valid()) throw new IllegalArgumentException(validation.reason());
         String name = cleanName(requestedName);
         if (name.isBlank()) name = Rules.ship(spec.hullId()).name + " Custom Fit";
-        return new ShipLoadoutDefinition(spec.runtimeId(), name, spec.hullId(), spec.weaponIds(),
-                requiredResearch(spec), buildPremium(spec), installationCost(spec),
-                refitTimeSeconds(spec), false);
+        ShipLoadoutDefinition definition = new ShipLoadoutDefinition(spec.runtimeId(), name, spec.hullId(), spec.weaponIds(),
+                requiredResearch(spec), buildPremium(spec), installationCost(spec), refitTimeSeconds(spec), false);
+        ShipModuleRules.registerLoadout(definition.id(), spec.moduleIds());
+        return definition;
     }
 
     static ShipLoadoutDefinition register(String requestedName, ShipFitSpec spec) {
@@ -92,7 +114,8 @@ final class PlayerFitRules {
             ShipLoadoutDefinition existing = WeaponRules.SHIP_LOADOUTS.get(definition.id());
             if (existing != null) {
                 if (!existing.hullId().equals(definition.hullId())
-                        || !existing.weaponIds().equals(definition.weaponIds())) {
+                        || !existing.weaponIds().equals(definition.weaponIds())
+                        || !ShipModuleRules.moduleIds(existing).equals(spec.moduleIds())) {
                     throw new IllegalArgumentException("Runtime fit ID conflicts with a different definition.");
                 }
                 return existing;
@@ -134,14 +157,16 @@ final class PlayerFitRules {
                 if (loadout.weaponIds().contains(weaponId)) out.addAll(loadout.requiredResearch());
             }
         }
+        out.addAll(ShipModuleRules.requiredResearch(spec.moduleIds()));
         return Set.copyOf(out);
     }
 
     static List<Cost> buildPremium(ShipFitSpec spec) {
         EnumMap<Material,Double> target = totals(installationCost(spec));
         ShipLoadoutDefinition defaultFit = spec == null ? null : WeaponRules.defaultLoadout(spec.hullId());
-        EnumMap<Material,Double> baseline = totals(defaultFit == null
-                ? List.of() : installationCost(new ShipFitSpec(defaultFit.hullId(), defaultFit.weaponIds())));
+        EnumMap<Material,Double> baseline = totals(defaultFit == null ? List.of()
+                : installationCost(new ShipFitSpec(defaultFit.hullId(), defaultFit.weaponIds(),
+                ShipModuleRules.moduleIds(defaultFit))));
         List<Cost> out = new ArrayList<>();
         for (Map.Entry<Material,Double> entry : target.entrySet()) {
             double extra = entry.getValue() - baseline.getOrDefault(entry.getKey(), 0.0);
@@ -158,8 +183,13 @@ final class PlayerFitRules {
 
     static List<Cost> installationCost(ShipFitSpec spec) {
         EnumMap<Material,Double> total = new EnumMap<>(Material.class);
-        if (spec != null) for (String weaponId : spec.weaponIds()) {
-            for (Cost cost : componentCost(weaponId)) total.merge(cost.material(), cost.amount(), Double::sum);
+        if (spec != null) {
+            for (String weaponId : spec.weaponIds()) {
+                for (Cost cost : componentCost(weaponId)) total.merge(cost.material(), cost.amount(), Double::sum);
+            }
+            for (Cost cost : ShipModuleRules.installationCost(spec.moduleIds())) {
+                total.merge(cost.material(), cost.amount(), Double::sum);
+            }
         }
         List<Cost> out = new ArrayList<>();
         for (Map.Entry<Material,Double> entry : total.entrySet()) {
