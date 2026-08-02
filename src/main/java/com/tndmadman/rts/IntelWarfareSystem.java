@@ -5,6 +5,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -73,6 +74,26 @@ final class IntelWarfareSystem {
                        double x, double y, double vx, double vy, double lastSeenTime, double uncertainty,
                        boolean decoySuspected) { }
 
+    /**
+     * Immutable visibility inputs for one viewer. Building this once and reusing it avoids rebuilding
+     * the full allied sensor network and re-evaluating jammer effects for every target.
+     */
+    static final class DetectionFrame {
+        private final World world;
+        private final String viewerId;
+        private final List<IntelSensor> sensors;
+
+        private DetectionFrame(World world, String viewerId, List<IntelSensor> sensors) {
+            this.world = world;
+            this.viewerId = viewerId == null ? "" : viewerId;
+            this.sensors = sensors == null ? List.of() : sensors;
+        }
+
+        World world() { return world; }
+        String viewerId() { return viewerId; }
+        List<IntelSensor> sensors() { return sensors; }
+    }
+
     static void update(World world, double dt) {
         if (world == null || !Double.isFinite(dt) || dt <= 0) return;
         SystemRuntime runtime = systemRuntime(world);
@@ -126,6 +147,11 @@ final class IntelWarfareSystem {
         return state != null && state.allies.getOrDefault(firstPlayerId, Set.of()).contains(secondPlayerId);
     }
 
+    static DetectionFrame frame(World world, String viewerId) {
+        if (world == null || invalid(viewerId)) return new DetectionFrame(world, viewerId, List.of());
+        return new DetectionFrame(world, viewerId, sensors(world, viewerId));
+    }
+
     static List<IntelSensor> sensors(World world, String viewerId) {
         if (world == null || invalid(viewerId)) return List.of();
         List<IntelSensor> out = new ArrayList<>();
@@ -146,8 +172,12 @@ final class IntelWarfareSystem {
     }
 
     static boolean pointVisible(World world, String viewerId, double x, double y) {
-        if (!Double.isFinite(x) || !Double.isFinite(y)) return false;
-        for (IntelSensor sensor : sensors(world, viewerId)) {
+        return pointVisible(frame(world, viewerId), x, y);
+    }
+
+    static boolean pointVisible(DetectionFrame frame, double x, double y) {
+        if (frame == null || !Double.isFinite(x) || !Double.isFinite(y)) return false;
+        for (IntelSensor sensor : frame.sensors) {
             double dx = x - sensor.x;
             double dy = y - sensor.y;
             if (dx * dx + dy * dy <= sensor.rangeSquared()) return true;
@@ -156,29 +186,44 @@ final class IntelWarfareSystem {
     }
 
     static DetectionStage unitStage(World world, String viewerId, Unit target) {
-        if (target == null || target.hp <= 0) return DetectionStage.NONE;
-        if (allied(world, viewerId, target.playerId)) return DetectionStage.DETAILED;
-        return stageFor(world, viewerId, target.x, target.y, unitSignature(target), false);
+        return unitStage(frame(world, viewerId), target);
+    }
+
+    static DetectionStage unitStage(DetectionFrame frame, Unit target) {
+        if (frame == null || target == null || target.hp <= 0) return DetectionStage.NONE;
+        if (allied(frame.world, frame.viewerId, target.playerId)) return DetectionStage.DETAILED;
+        return stageFor(frame, target.x, target.y, unitSignature(target), false);
     }
 
     static DetectionStage baseStage(World world, String viewerId, Base target) {
-        if (target == null || target.hp <= 0) return DetectionStage.NONE;
-        if (allied(world, viewerId, target.playerId)) return DetectionStage.DETAILED;
-        DetectionStage stage = stageFor(world, viewerId, target.x, target.y, baseSignature(world, target), true);
+        return baseStage(frame(world, viewerId), target);
+    }
+
+    static DetectionStage baseStage(DetectionFrame frame, Base target) {
+        if (frame == null || target == null || target.hp <= 0) return DetectionStage.NONE;
+        if (allied(frame.world, frame.viewerId, target.playerId)) return DetectionStage.DETAILED;
+        DetectionStage stage = stageFor(frame, target.x, target.y, baseSignature(frame.world, target), true);
         if (isDecoy(target.typeId) && stage == DetectionStage.IDENTIFIED) return DetectionStage.CLASSIFIED;
         return stage;
     }
 
     static DetectionStage resourceStage(World world, String viewerId, ResourceNode node) {
-        if (world == null || node == null || !node.active) return DetectionStage.NONE;
-        DetectionStage best = pointVisible(world, viewerId, node.x, node.y)
+        return resourceStage(frame(world, viewerId), node);
+    }
+
+    static DetectionStage resourceStage(DetectionFrame frame, ResourceNode node) {
+        if (frame == null || frame.world == null || node == null || !node.active) return DetectionStage.NONE;
+        DetectionStage best = pointVisible(frame, node.x, node.y)
                 ? DetectionStage.CONTACT : DetectionStage.NONE;
-        for (Base base : world.bases.values()) {
-            if (base == null || base.hp <= 0 || !allied(world, viewerId, base.playerId)
-                    || !isRadar(base.typeId)) continue;
-            double range = baseSensorRange(world, base);
-            double distance = Calc.distance(base.x, base.y, node.x, node.y);
-            if (distance > range) continue;
+        for (IntelSensor sensor : frame.sensors) {
+            String source = sensor.sourceKey;
+            if (source == null || !source.startsWith("B:")) continue;
+            Base base = frame.world.bases.get(source.substring(2));
+            if (base == null || base.hp <= 0 || !isRadar(base.typeId)) continue;
+            double dx = base.x - node.x;
+            double dy = base.y - node.y;
+            double distanceSquared = dx * dx + dy * dy;
+            if (distanceSquared > sensor.rangeSquared()) continue;
             int power = surveyPower(base.typeId);
             DetectionStage stage = switch (power) {
                 case 0 -> DetectionStage.CONTACT;
@@ -186,7 +231,9 @@ final class IntelWarfareSystem {
                 case 2 -> DetectionStage.IDENTIFIED;
                 default -> DetectionStage.DETAILED;
             };
-            if (distance > range * 0.82 && stage.ordinal() > DetectionStage.CONTACT.ordinal()) {
+            double detailRange = sensor.range * 0.82;
+            if (distanceSquared > detailRange * detailRange
+                    && stage.ordinal() > DetectionStage.CONTACT.ordinal()) {
                 stage = DetectionStage.values()[stage.ordinal() - 1];
             }
             if (stage.ordinal() > best.ordinal()) best = stage;
@@ -255,11 +302,11 @@ final class IntelWarfareSystem {
         return rule == null ? StructureIntelRule.EMPTY : rule;
     }
 
-    private static DetectionStage stageFor(World world, String viewerId, double x, double y,
+    private static DetectionStage stageFor(DetectionFrame frame, double x, double y,
                                            double signature, boolean station) {
-        if (world == null || invalid(viewerId)) return DetectionStage.NONE;
+        if (frame == null || frame.world == null || invalid(frame.viewerId)) return DetectionStage.NONE;
         double best = 0;
-        for (IntelSensor sensor : sensors(world, viewerId)) {
+        for (IntelSensor sensor : frame.sensors) {
             double distance = Math.max(1, Calc.distance(sensor.x, sensor.y, x, y));
             double quality = sensor.range / distance * Math.max(0.15, signature)
                     + sensor.identificationBonus + (station ? 0.04 : 0);
@@ -302,8 +349,12 @@ final class IntelWarfareSystem {
             if (jammer == null || jammer.hp <= 0 || allied(world, sensorOwner, jammer.playerId)
                     || !isJammer(jammer.typeId)) continue;
             StructureIntelRule rule = rule(jammer.typeId);
-            double distance = Calc.distance(x, y, jammer.x, jammer.y);
-            if (rule.jamRange <= 0 || distance > rule.jamRange) continue;
+            if (rule.jamRange <= 0) continue;
+            double dx = x - jammer.x;
+            double dy = y - jammer.y;
+            double distanceSquared = dx * dx + dy * dy;
+            if (distanceSquared > rule.jamRange * rule.jamRange) continue;
+            double distance = Math.sqrt(distanceSquared);
             double falloff = 1.0 - distance / Math.max(1, rule.jamRange);
             jam += Math.max(0, rule.jamStrength) * (0.35 + 0.65 * falloff);
         }
@@ -316,11 +367,12 @@ final class IntelWarfareSystem {
         viewers.addAll(state(world).allies.keySet());
         double now = world.systemTime();
         for (String viewer : viewers) {
+            DetectionFrame visibility = frame(world, viewer);
             Map<String, IntelMemory> memory = runtime.memoryByViewer.computeIfAbsent(viewer,
                     ignored -> new LinkedHashMap<>());
             for (Unit target : world.units.values()) {
                 if (target == null || target.hp <= 0 || allied(world, viewer, target.playerId)) continue;
-                DetectionStage stage = unitStage(world, viewer, target);
+                DetectionStage stage = unitStage(visibility, target);
                 if (stage == DetectionStage.NONE) continue;
                 String key = "U:" + target.key();
                 IntelMemory previous = memory.get(key);
@@ -332,22 +384,24 @@ final class IntelWarfareSystem {
             }
             for (Base target : world.bases.values()) {
                 if (target == null || target.hp <= 0 || allied(world, viewer, target.playerId)) continue;
-                DetectionStage stage = baseStage(world, viewer, target);
+                DetectionStage stage = baseStage(visibility, target);
                 if (stage == DetectionStage.NONE) continue;
                 String key = "B:" + target.id;
                 memory.put(key, new IntelMemory(key, target.playerId, target.typeId, true, stage,
                         target.x, target.y, 0, 0, now, uncertainty(stage, 0),
                         isDecoy(target.typeId) && !stage.atLeast(DetectionStage.DETAILED)));
             }
-            for (Map.Entry<String, IntelMemory> entry : new ArrayList<>(memory.entrySet())) {
+            Iterator<Map.Entry<String, IntelMemory>> iterator = memory.entrySet().iterator();
+            while (iterator.hasNext()) {
+                Map.Entry<String, IntelMemory> entry = iterator.next();
                 IntelMemory old = entry.getValue();
                 double age = Math.max(0, now - old.lastSeenTime);
                 if (age > MEMORY_SECONDS) {
-                    memory.remove(entry.getKey());
+                    iterator.remove();
                     continue;
                 }
                 if (age > 0.05) {
-                    memory.put(entry.getKey(), new IntelMemory(old.key, old.ownerId, old.typeId, old.station,
+                    entry.setValue(new IntelMemory(old.key, old.ownerId, old.typeId, old.station,
                             old.stage, old.x, old.y, old.vx, old.vy, old.lastSeenTime,
                             uncertainty(old.stage, age), old.decoySuspected));
                 }
@@ -356,14 +410,18 @@ final class IntelWarfareSystem {
     }
 
     private static void dispatchRadarResponses(World world) {
+        Map<String, DetectionFrame> visibilityByOwner = new LinkedHashMap<>();
         for (Base radar : world.bases.values()) {
             if (radar == null || radar.hp <= 0 || !isRadar(radar.typeId)) continue;
             StructureIntelRule rule = rule(radar.typeId);
             if (rule.responseShipLimit <= 0 || "observe".equals(rule.responseMode)) continue;
-            TargetChoice target = bestResponseTarget(world, radar);
+            DetectionFrame visibility = visibilityByOwner.computeIfAbsent(radar.playerId,
+                    owner -> frame(world, owner));
+            TargetChoice target = bestResponseTarget(world, radar, visibility);
             if (target == null) continue;
             int assigned = 0;
             String guardTarget = CombatTarget.base(radar);
+            double responseRadiusSquared = rule.responseRadius * rule.responseRadius;
             for (Unit unit : world.units.values()) {
                 if (assigned >= rule.responseShipLimit) break;
                 if (unit == null || unit.hp <= 0 || !allied(world, radar.playerId, unit.playerId)
@@ -371,7 +429,9 @@ final class IntelWarfareSystem {
                 boolean assignedGuard = unit.orderType == UnitOrderType.GUARD
                         && guardTarget.equals(unit.orderTarget);
                 if (!assignedGuard && !NpcRules.isNpcFaction(unit.playerId)) continue;
-                if (Calc.distance(unit.x, unit.y, radar.x, radar.y) > rule.responseRadius) continue;
+                double dx = unit.x - radar.x;
+                double dy = unit.y - radar.y;
+                if (dx * dx + dy * dy > responseRadiusSquared) continue;
                 if (target.stage.atLeast(DetectionStage.IDENTIFIED) && !target.key.isBlank()) {
                     unit.issueAttack(target.key);
                 } else {
@@ -382,15 +442,16 @@ final class IntelWarfareSystem {
         }
     }
 
-    private static TargetChoice bestResponseTarget(World world, Base radar) {
+    private static TargetChoice bestResponseTarget(World world, Base radar, DetectionFrame visibility) {
         TargetChoice best = null;
         double bestScore = Double.MAX_VALUE;
+        double responseRange = baseSensorRange(world, radar) * 1.15;
         for (Unit enemy : world.units.values()) {
             if (enemy == null || enemy.hp <= 0 || allied(world, radar.playerId, enemy.playerId)) continue;
-            DetectionStage stage = unitStage(world, radar.playerId, enemy);
+            DetectionStage stage = unitStage(visibility, enemy);
             if (!stage.atLeast(DetectionStage.CLASSIFIED)) continue;
             double distance = Calc.distance(radar.x, radar.y, enemy.x, enemy.y);
-            if (distance > baseSensorRange(world, radar) * 1.15) continue;
+            if (distance > responseRange) continue;
             double score = distance / (stage.atLeast(DetectionStage.IDENTIFIED) ? 1.2 : 1.0);
             if (score < bestScore) {
                 bestScore = score;
@@ -399,10 +460,10 @@ final class IntelWarfareSystem {
         }
         for (Base enemy : world.bases.values()) {
             if (enemy == null || enemy.hp <= 0 || allied(world, radar.playerId, enemy.playerId)) continue;
-            DetectionStage stage = baseStage(world, radar.playerId, enemy);
+            DetectionStage stage = baseStage(visibility, enemy);
             if (!stage.atLeast(DetectionStage.IDENTIFIED)) continue;
             double distance = Calc.distance(radar.x, radar.y, enemy.x, enemy.y);
-            if (distance > baseSensorRange(world, radar) * 1.15) continue;
+            if (distance > responseRange) continue;
             double priority = isRadar(enemy.typeId) || isJammer(enemy.typeId) ? 0.55 : 1.0;
             double score = distance * priority;
             if (score < bestScore) {
@@ -438,9 +499,7 @@ final class IntelWarfareSystem {
     }
 
     private static void prune(World world, SystemRuntime runtime) {
-        Set<String> liveBases = new LinkedHashSet<>();
-        for (Base base : world.bases.values()) liveBases.add(base.id);
-        runtime.radarModes.keySet().removeIf(id -> !liveBases.contains(id));
+        runtime.radarModes.keySet().removeIf(id -> !world.bases.containsKey(id));
     }
 
     private static Set<String> sensorOwners(World world, String viewerId) {
