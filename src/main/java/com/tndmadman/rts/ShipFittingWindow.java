@@ -1,6 +1,5 @@
 package com.tndmadman.rts;
 
-import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -11,15 +10,15 @@ import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JPanel;
-import javax.swing.JPopupMenu;
+import javax.swing.JRootPane;
 import javax.swing.JScrollPane;
 import javax.swing.JSeparator;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
-import javax.swing.KeyStroke;
 import javax.swing.ScrollPaneConstants;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 import javax.swing.border.EmptyBorder;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -35,10 +34,13 @@ import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.KeyboardFocusManager;
-import java.awt.KeyEventDispatcher;
 import java.awt.LayoutManager;
 import java.awt.RenderingHints;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
+import java.awt.event.MouseWheelEvent;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -46,7 +48,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** In-game fitting console for built-in, private, and server-published ship fits. */
+/** Full-screen, input-blocking fitting console for built-in, private, and server-published fits. */
 final class ShipFittingWindow {
     private static final int WIDTH = 1120;
     private static final int HEIGHT = 760;
@@ -63,100 +65,146 @@ final class ShipFittingWindow {
     private static final Color WARNING = new Color(255, 198, 104);
     private static final Color BAD = new Color(255, 126, 126);
 
-    private final StickyPopupMenu popup = new StickyPopupMenu();
-    private final KeyEventDispatcher escapeDispatcher = this::dispatchEscape;
-    private boolean escapeDispatcherInstalled;
+    /* Installed when this class is initialized from GamePanel construction, before GameFrame's menu dispatcher. */
+    private static volatile ShipFittingWindow activeWindow;
+    static {
+        KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(event -> {
+            ShipFittingWindow active = activeWindow;
+            if (active == null || !active.visible()
+                    || event.getID() != KeyEvent.KEY_PRESSED
+                    || event.getKeyCode() != KeyEvent.VK_ESCAPE
+                    || event.isControlDown() || event.isAltDown() || event.isMetaDown()) return false;
+            active.close();
+            event.consume();
+            return true;
+        });
+    }
+
+    private final JPanel glass = new GlassSurface();
+    private final Timer refreshTimer = new Timer(150, event -> pollAuthoritativeState());
     private Component parent;
+    private JRootPane rootPane;
+    private Component previousGlass;
+    private boolean previousGlassVisible;
     private World world;
     private PeerNetwork network;
     private Unit unit;
     private int selectedTab;
     private String notice = "";
     private Color noticeColor = MUTED;
+    private JLabel noticeLabel;
+    private JLabel stationLabel;
+
+    private String draftName = "";
+    private ShipFitSpec draftSpec = new ShipFitSpec("", List.of(), List.of());
+    private String selectedPrivateFitId = "";
+    private boolean changingDraft;
+
+    private long observedCatalogRevision = -1;
+    private String observedUnitState = "";
+    private String observedWorldStatus = "";
+    private boolean pendingServerRequest;
 
     ShipFittingWindow() {
-        popup.setBorder(BorderFactory.createEmptyBorder());
-        popup.setLayout(new BorderLayout());
-        popup.setFocusable(true);
-        popup.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
-                .put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "close-fitting");
-        popup.getActionMap().put("close-fitting", new AbstractAction() {
-            @Override public void actionPerformed(java.awt.event.ActionEvent event) { close(); }
+        glass.setOpaque(false);
+        glass.setVisible(false);
+        glass.setFocusable(true);
+        MouseAdapter blocker = new MouseAdapter() {
+            @Override public void mousePressed(MouseEvent event) { glass.requestFocusInWindow(); }
+            @Override public void mouseReleased(MouseEvent event) { }
+            @Override public void mouseClicked(MouseEvent event) { }
+        };
+        glass.addMouseListener(blocker);
+        glass.addMouseMotionListener(new MouseMotionAdapter() {
+            @Override public void mouseDragged(MouseEvent event) { }
+            @Override public void mouseMoved(MouseEvent event) { }
         });
+        glass.addMouseWheelListener((MouseWheelEvent event) -> { });
+        refreshTimer.setCoalesce(true);
     }
 
     void showForUnit(Component parent, World world, PeerNetwork network, Unit unit) {
         if (parent == null || world == null || unit == null) return;
+        if (activeWindow != null && activeWindow != this) activeWindow.close();
         close();
+        JRootPane foundRoot = SwingUtilities.getRootPane(parent);
+        if (foundRoot == null) return;
+
         this.parent = parent;
+        this.rootPane = foundRoot;
+        this.previousGlass = foundRoot.getGlassPane();
+        this.previousGlassVisible = previousGlass != null && previousGlass.isVisible();
         this.world = world;
         this.network = network;
         this.unit = unit;
-        selectedTab = 0;
-        notice = "Fit editing is local. Applying a fit recalls the ship to the nearest owned shipyard.";
-        noticeColor = MUTED;
+        this.selectedTab = 0;
+        this.notice = "Configure the fit, then recall it to an owned shipyard. Escape is the only close action.";
+        this.noticeColor = MUTED;
+        this.selectedPrivateFitId = "";
+        loadInstalledDraft();
+        observedCatalogRevision = WorldFitCatalog.revision(world);
+        observedUnitState = unitState();
+        observedWorldStatus = world.status;
+        pendingServerRequest = false;
+
+        foundRoot.setGlassPane(glass);
+        activeWindow = this;
         rebuild();
-        int x = Math.max(8, (parent.getWidth() - WIDTH) / 2);
-        int y = Math.max(8, (parent.getHeight() - HEIGHT) / 2);
-        popup.show(parent, x, y);
-        installEscapeDispatcher();
-        popup.requestFocusInWindow();
-        FitNetworkBridge.refresh(network, world);
+        glass.setVisible(true);
+        glass.requestFocusInWindow();
+        refreshTimer.start();
+        submitNetwork("REFRESH", "", null, null, null, null, false);
     }
 
     void close() {
-        if (!popup.isVisible() && parent == null) return;
+        if (!visible() && parent == null) return;
         Component returnFocus = parent;
-        popup.hideExplicitly();
-        uninstallEscapeDispatcher();
+        refreshTimer.stop();
+        glass.setVisible(false);
+        glass.removeAll();
+        if (rootPane != null && rootPane.getGlassPane() == glass && previousGlass != null) {
+            rootPane.setGlassPane(previousGlass);
+            previousGlass.setVisible(previousGlassVisible);
+        }
+        if (activeWindow == this) activeWindow = null;
         parent = null;
+        rootPane = null;
+        previousGlass = null;
         world = null;
         network = null;
         unit = null;
-        notice = "";
-        if (returnFocus != null) {
-            SwingUtilities.invokeLater(() -> {
-                returnFocus.requestFocusInWindow();
-                returnFocus.repaint();
-            });
-        }
+        noticeLabel = null;
+        stationLabel = null;
+        pendingServerRequest = false;
+        if (returnFocus != null) SwingUtilities.invokeLater(() -> {
+            returnFocus.requestFocusInWindow();
+            returnFocus.repaint();
+        });
     }
 
-    boolean visible() { return popup.isVisible(); }
-
-    private boolean dispatchEscape(KeyEvent event) {
-        if (!visible() || event.getID() != KeyEvent.KEY_PRESSED
-                || event.getKeyCode() != KeyEvent.VK_ESCAPE
-                || event.isControlDown() || event.isAltDown() || event.isMetaDown()) return false;
-        close();
-        event.consume();
-        return true;
-    }
-
-    private void installEscapeDispatcher() {
-        if (escapeDispatcherInstalled) return;
-        KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(escapeDispatcher);
-        escapeDispatcherInstalled = true;
-    }
-
-    private void uninstallEscapeDispatcher() {
-        if (!escapeDispatcherInstalled) return;
-        KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(escapeDispatcher);
-        escapeDispatcherInstalled = false;
-    }
+    boolean visible() { return glass.isVisible() && activeWindow == this; }
 
     private void rebuild() {
-        if (world == null || unit == null) return;
-        popup.removeAll();
-        popup.add(content(), BorderLayout.CENTER);
-        popup.setPopupSize(WIDTH, HEIGHT);
-        popup.revalidate();
-        popup.repaint();
+        if (world == null || unit == null || !visibleOrOpening()) return;
+        glass.removeAll();
+        GridBagConstraints c = new GridBagConstraints();
+        c.gridx = 0;
+        c.gridy = 0;
+        c.weightx = 1;
+        c.weighty = 1;
+        c.fill = GridBagConstraints.BOTH;
+        c.insets = new Insets(16, 18, 16, 18);
+        glass.add(content(), c);
+        glass.revalidate();
+        glass.repaint();
     }
+
+    private boolean visibleOrOpening() { return activeWindow == this && rootPane != null; }
 
     private JComponent content() {
         JPanel root = new ConsoleSurface(new BorderLayout(0, 8));
         root.setPreferredSize(new Dimension(WIDTH, HEIGHT));
+        root.setMinimumSize(new Dimension(760, 540));
         root.setBorder(BorderFactory.createLineBorder(BORDER, 2));
         root.add(header(), BorderLayout.NORTH);
 
@@ -172,8 +220,10 @@ final class ShipFittingWindow {
 
         JPanel footer = panel(new BorderLayout(8, 0), PANEL);
         footer.setBorder(new EmptyBorder(7, 11, 8, 11));
-        footer.add(label(notice, 10, Font.BOLD, noticeColor), BorderLayout.CENTER);
-        footer.add(stationStatus(), BorderLayout.EAST);
+        noticeLabel = label(notice, 10, Font.BOLD, noticeColor);
+        footer.add(noticeLabel, BorderLayout.CENTER);
+        stationLabel = stationStatusLabel();
+        footer.add(stationLabel, BorderLayout.EAST);
         root.add(footer, BorderLayout.SOUTH);
         return root;
     }
@@ -207,7 +257,7 @@ final class ShipFittingWindow {
             JButton cancel = button("CANCEL REFIT");
             cancel.addActionListener(event -> {
                 sendProduction(active.base.playerId, "CANCEL", active.base.id, active.job.id, "");
-                setNotice("Refit cancellation submitted.", WARNING);
+                setNotice("Refit cancellation submitted.", WARNING, false);
             });
             state.add(cancel);
         }
@@ -222,9 +272,12 @@ final class ShipFittingWindow {
         String[] names = {"GAME FITS", "MY FITS", "SERVER FITS"};
         for (int i = 0; i < names.length; i++) {
             int index = i;
-            JButton button = tabButton(names[i], selectedTab == i);
-            button.addActionListener(event -> { selectedTab = index; rebuild(); });
-            bar.add(button);
+            JButton tab = tabButton(names[i], selectedTab == i);
+            tab.addActionListener(event -> {
+                selectedTab = index;
+                rebuild();
+            });
+            bar.add(tab);
         }
         return bar;
     }
@@ -241,17 +294,23 @@ final class ShipFittingWindow {
             FittingOption option = evaluate(world, unit, fit);
             refit.setEnabled(option.ready());
             refit.setToolTipText(option.reason());
-            refit.addActionListener(event -> {
-                Base base = nearestRefitBase(world, unit);
-                if (base == null) { setNotice("No owned refit-capable shipyard exists in this system.", BAD); return; }
-                sendProduction(unit.playerId, "REFIT", base.id, unit.key(), fit.id());
-                setNotice("Ship recalled to " + base.type().name + " for " + fit.displayName() + ".", GOOD);
-            });
+            refit.addActionListener(event -> submitRefit(fit.displayName(),
+                    new ShipFitSpec(fit.hullId(), fit.weaponIds(), ShipModuleRules.moduleIds(fit)), false));
             JButton copy = button("COPY TO MY FITS");
-            copy.addActionListener(event -> runAndRefresh(() -> ClientFitStore.save(commanderName(), "",
-                    fit.displayName() + " Copy",
-                    new ShipFitSpec(fit.hullId(), fit.weaponIds(), ShipModuleRules.moduleIds(fit))),
-                    "Copied " + fit.displayName() + " into your private library."));
+            copy.addActionListener(event -> {
+                try {
+                    PrivateShipFit saved = ClientFitStore.save(commanderName(), "", fit.displayName() + " Copy",
+                            new ShipFitSpec(fit.hullId(), fit.weaponIds(), ShipModuleRules.moduleIds(fit)));
+                    selectedPrivateFitId = saved.id();
+                    draftName = saved.name();
+                    draftSpec = saved.spec();
+                    setNotice("Copied " + fit.displayName() + " into your private library.", GOOD, false);
+                    selectedTab = 1;
+                    rebuild();
+                } catch (RuntimeException ex) {
+                    setNotice(ex.getMessage(), BAD, false);
+                }
+            });
             actions.add(refit);
             actions.add(copy);
             list.add(fitCard(fit.displayName(), fit,
@@ -265,10 +324,12 @@ final class ShipFittingWindow {
         String commander = commanderName();
         List<PrivateShipFit> fits = ClientFitStore.fits(commander, unit.shipTypeId);
         PrivateShipFit standard = ClientFitStore.standard(commander, unit.shipTypeId);
-        ShipLoadoutDefinition installed = WeaponRules.resolveForHull(unit.shipTypeId, unit.loadoutId);
+        normalizeDraft(fits);
 
-        JPanel root = panel(new BorderLayout(8, 8), BACKGROUND);
+        JPanel body = verticalList();
         JPanel editor = panel(new BorderLayout(8, 8), PANEL);
+        editor.setAlignmentX(Component.LEFT_ALIGNMENT);
+        editor.setMaximumSize(new Dimension(Integer.MAX_VALUE, 610));
         editor.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(9, 10, 9, 10)));
 
@@ -276,7 +337,8 @@ final class ShipFittingWindow {
         fitChoice.addItem(new PrivateChoice(null));
         for (PrivateShipFit fit : fits) fitChoice.addItem(new PrivateChoice(fit));
         styleCombo(fitChoice);
-        JTextField name = new JTextField(22);
+        selectPrivate(fitChoice, selectedPrivateFitId);
+        JTextField name = new JTextField(draftName, 22);
         styleField(name);
 
         JPanel top = panel(new GridBagLayout(), PANEL);
@@ -290,7 +352,6 @@ final class ShipFittingWindow {
         List<JComboBox<WeaponChoice>> weaponSlots = new ArrayList<>();
         List<JComboBox<ModuleChoice>> moduleSlots = new ArrayList<>();
         JPanel fittingGrid = panel(new GridLayout(1, 2, 10, 0), PANEL);
-
         JPanel weaponRows = panel(new GridLayout(0, 1, 0, 6), FIELD);
         List<WeaponType> allowedWeapons = PlayerFitRules.allowedWeapons(unit.shipTypeId);
         int weaponSlotCount = PlayerFitRules.slotCount(unit.shipTypeId);
@@ -319,10 +380,13 @@ final class ShipFittingWindow {
         fittingGrid.add(section("UTILITY MODULES", moduleSlotCount, moduleRows));
         editor.add(fittingGrid, BorderLayout.CENTER);
 
+        changingDraft = true;
+        loadSpec(weaponSlots, moduleSlots, draftSpec);
+        changingDraft = false;
+
         JPanel liveModuleRack = panel(new FlowLayout(FlowLayout.LEFT, 7, 3), PANEL_ALT);
         liveModuleRack.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(5, 7, 5, 7)));
-
         JTextArea preview = new JTextArea(5, 58);
         preview.setEditable(false);
         preview.setFocusable(false);
@@ -333,123 +397,148 @@ final class ShipFittingWindow {
         preview.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(7, 9, 7, 9)));
 
-        Runnable updatePreview = () -> {
-            ShipFitSpec spec = specFrom(unit.shipTypeId, weaponSlots, moduleSlots);
-            refreshLiveModuleRack(liveModuleRack, spec.moduleIds(), moduleSlotCount);
-            PlayerFitRules.Validation validation = PlayerFitRules.validate(spec);
-            if (!validation.valid()) { preview.setForeground(BAD); preview.setText(validation.reason()); return; }
-            ShipLoadoutDefinition definition = PlayerFitRules.definition(name.getText(), spec);
-            preview.setForeground(MUTED);
-            preview.setText("GUNS // " + weaponSummary(definition)
-                    + "\nUTILITY // " + ShipModuleRules.summary(spec.moduleIds())
-                    + "\nCOMBAT // max range " + whole(WeaponRules.maxRange(definition))
-                    + "   |   refit " + whole(definition.refitTimeSeconds()) + "s"
-                    + "\nCOST // " + (definition.refitCost().isEmpty() ? "None" : Rules.formatCost(definition.refitCost()))
-                    + (definition.requiredResearch().isEmpty() ? "" : "\nRESEARCH // " + String.join(", ", definition.requiredResearch())));
-        };
-        for (JComboBox<WeaponChoice> slot : weaponSlots) slot.addActionListener(event -> updatePreview.run());
-        for (JComboBox<ModuleChoice> slot : moduleSlots) slot.addActionListener(event -> updatePreview.run());
-        name.getDocument().addDocumentListener(new SimpleDocumentListener(updatePreview));
-
-        fitChoice.addActionListener(event -> {
-            PrivateChoice choice = (PrivateChoice) fitChoice.getSelectedItem();
-            PrivateShipFit selected = choice == null ? null : choice.fit;
-            ShipFitSpec spec = selected == null
-                    ? installed == null ? new ShipFitSpec(unit.shipTypeId, List.of(), List.of())
-                    : new ShipFitSpec(unit.shipTypeId, installed.weaponIds(), ShipModuleRules.moduleIds(installed))
-                    : selected.spec();
-            name.setText(selected == null ? "" : selected.name());
-            loadSpec(weaponSlots, moduleSlots, spec);
-            updatePreview.run();
-        });
-
         JPanel libraryActions = panel(new FlowLayout(FlowLayout.LEFT, 6, 0), PANEL);
         JButton saveNew = button("SAVE NEW");
-        saveNew.addActionListener(event -> runAndRefresh(() -> ClientFitStore.save(commander, "", name.getText(),
-                specFrom(unit.shipTypeId, weaponSlots, moduleSlots)), "Private fit saved."));
         JButton saveChanges = button("SAVE CHANGES");
-        saveChanges.addActionListener(event -> {
-            PrivateChoice choice = (PrivateChoice) fitChoice.getSelectedItem();
-            if (choice == null || choice.fit == null) { setNotice("Select a saved private fit first.", BAD); return; }
-            runAndRefresh(() -> ClientFitStore.save(commander, choice.fit.id(), name.getText(),
-                    specFrom(unit.shipTypeId, weaponSlots, moduleSlots)), "Private fit updated.");
-        });
         JButton delete = button("DELETE");
-        delete.addActionListener(event -> {
-            PrivateChoice choice = (PrivateChoice) fitChoice.getSelectedItem();
-            if (choice == null || choice.fit == null) { setNotice("Select a saved private fit first.", BAD); return; }
-            runAndRefresh(() -> ClientFitStore.delete(commander, choice.fit.id()), "Private fit deleted.");
-        });
         JButton setStandard = button("SET CLASS STANDARD");
-        setStandard.addActionListener(event -> {
-            PrivateChoice choice = (PrivateChoice) fitChoice.getSelectedItem();
-            if (choice == null || choice.fit == null) { setNotice("Save and select the fit first.", BAD); return; }
-            runAndRefresh(() -> ClientFitStore.setStandard(commander, unit.shipTypeId, choice.fit.id()),
-                    "Class standard updated.");
-        });
         JButton clearStandard = button("CLEAR STANDARD");
-        clearStandard.setEnabled(standard != null);
-        clearStandard.addActionListener(event -> runAndRefresh(
-                () -> ClientFitStore.setStandard(commander, unit.shipTypeId, ""), "Class standard cleared."));
         libraryActions.add(saveNew); libraryActions.add(saveChanges); libraryActions.add(delete);
         libraryActions.add(setStandard); libraryActions.add(clearStandard);
 
         JPanel applyActions = panel(new FlowLayout(FlowLayout.LEFT, 6, 0), PANEL);
         JButton refit = button("RECALL + REFIT SELECTED");
+        JButton refitClass = button("RECALL + REFIT CLASS");
+        JButton publish = button("PUBLISH TO SERVER");
+        applyActions.add(refit); applyActions.add(refitClass); applyActions.add(publish);
+
+        Runnable updateEditor = () -> {
+            if (changingDraft) return;
+            draftName = name.getText();
+            draftSpec = specFrom(unit.shipTypeId, weaponSlots, moduleSlots);
+            refreshLiveModuleRack(liveModuleRack, draftSpec.moduleIds(), moduleSlotCount);
+            PlayerFitRules.Validation validation = PlayerFitRules.validate(draftSpec);
+            boolean named = !PlayerFitRules.cleanName(draftName).isBlank();
+            saveNew.setEnabled(validation.valid() && named);
+            saveChanges.setEnabled(validation.valid() && named && !selectedPrivateFitId.isBlank());
+            delete.setEnabled(!selectedPrivateFitId.isBlank());
+            setStandard.setEnabled(!selectedPrivateFitId.isBlank());
+            clearStandard.setEnabled(standard != null);
+            publish.setEnabled(validation.valid() && named);
+            refitClass.setEnabled(validation.valid() && nearestRefitBase(world, unit) != null);
+            if (!validation.valid()) {
+                refit.setEnabled(false);
+                preview.setForeground(BAD);
+                preview.setText(validation.reason());
+                return;
+            }
+            ShipLoadoutDefinition definition = PlayerFitRules.definition(draftName, draftSpec);
+            FittingOption option = evaluate(world, unit, definition);
+            refit.setEnabled(option.ready());
+            refit.setToolTipText(option.reason());
+            preview.setForeground(option.ready() || option.current() ? MUTED : WARNING);
+            preview.setText("GUNS // " + weaponSummary(definition)
+                    + "\nUTILITY // " + ShipModuleRules.summary(draftSpec.moduleIds())
+                    + "\nCOMBAT // max range " + whole(WeaponRules.maxRange(definition))
+                    + "   |   refit " + whole(definition.refitTimeSeconds()) + "s"
+                    + "\nCOST // " + (definition.refitCost().isEmpty() ? "None" : Rules.formatCost(definition.refitCost()))
+                    + (definition.requiredResearch().isEmpty() ? "" : "\nRESEARCH // " + String.join(", ", definition.requiredResearch()))
+                    + "\nSTATUS // " + option.reason());
+        };
+
+        fitChoice.addActionListener(event -> {
+            if (changingDraft) return;
+            PrivateChoice choice = (PrivateChoice)fitChoice.getSelectedItem();
+            PrivateShipFit selected = choice == null ? null : choice.fit;
+            selectedPrivateFitId = selected == null ? "" : selected.id();
+            if (selected == null) loadInstalledDraft();
+            else {
+                draftName = selected.name();
+                draftSpec = selected.spec();
+            }
+            rebuild();
+        });
+        for (JComboBox<WeaponChoice> slot : weaponSlots) slot.addActionListener(event -> updateEditor.run());
+        for (JComboBox<ModuleChoice> slot : moduleSlots) slot.addActionListener(event -> updateEditor.run());
+        name.getDocument().addDocumentListener(new SimpleDocumentListener(updateEditor));
+
+        saveNew.addActionListener(event -> savePrivate(commander, "", name.getText(),
+                specFrom(unit.shipTypeId, weaponSlots, moduleSlots)));
+        saveChanges.addActionListener(event -> savePrivate(commander, selectedPrivateFitId, name.getText(),
+                specFrom(unit.shipTypeId, weaponSlots, moduleSlots)));
+        delete.addActionListener(event -> {
+            try {
+                if (selectedPrivateFitId.isBlank() || !ClientFitStore.delete(commander, selectedPrivateFitId)) {
+                    setNotice("Select a saved private fit first.", BAD, false);
+                    return;
+                }
+                selectedPrivateFitId = "";
+                loadInstalledDraft();
+                setNotice("Private fit deleted.", GOOD, false);
+                rebuild();
+            } catch (RuntimeException ex) { setNotice(ex.getMessage(), BAD, false); }
+        });
+        setStandard.addActionListener(event -> {
+            try {
+                if (selectedPrivateFitId.isBlank()) throw new IllegalArgumentException("Save and select the fit first.");
+                ClientFitStore.setStandard(commander, unit.shipTypeId, selectedPrivateFitId);
+                setNotice("Class standard updated.", GOOD, false);
+                rebuild();
+            } catch (RuntimeException ex) { setNotice(ex.getMessage(), BAD, false); }
+        });
+        clearStandard.addActionListener(event -> {
+            try {
+                ClientFitStore.setStandard(commander, unit.shipTypeId, "");
+                setNotice("Class standard cleared.", GOOD, false);
+                rebuild();
+            } catch (RuntimeException ex) { setNotice(ex.getMessage(), BAD, false); }
+        });
         refit.addActionListener(event -> submitRefit(name.getText(),
                 specFrom(unit.shipTypeId, weaponSlots, moduleSlots), false));
-        JButton refitClass = button("RECALL + REFIT CLASS");
         refitClass.addActionListener(event -> submitRefit(name.getText(),
                 specFrom(unit.shipTypeId, weaponSlots, moduleSlots), true));
-        JButton publish = button("PUBLISH TO SERVER");
-        publish.addActionListener(event -> {
-            ShipFitSpec spec = specFrom(unit.shipTypeId, weaponSlots, moduleSlots);
-            PlayerFitRules.Validation validation = PlayerFitRules.validate(spec);
-            if (!validation.valid()) { setNotice(validation.reason(), BAD); return; }
-            if (FitNetworkBridge.submit(network, world, "PUBLISH", name.getText(), spec, null, null, null)) {
-                setNotice("Fit publication submitted to the server.", GOOD);
-            }
-        });
-        applyActions.add(refit); applyActions.add(refitClass); applyActions.add(publish);
+        publish.addActionListener(event -> submitNetwork("PUBLISH", name.getText(),
+                specFrom(unit.shipTypeId, weaponSlots, moduleSlots), null, null, null, true));
 
         JPanel south = panel(new BorderLayout(0, 7), PANEL);
         south.add(liveModuleRack, BorderLayout.NORTH);
         south.add(preview, BorderLayout.CENTER);
-        JPanel actionRows = panel(new GridLayout(0, 1, 0, 5), PANEL);
-        actionRows.add(libraryActions);
-        actionRows.add(applyActions);
-        south.add(actionRows, BorderLayout.SOUTH);
+        JPanel rows = panel(new GridLayout(0, 1, 0, 5), PANEL);
+        rows.add(libraryActions);
+        rows.add(applyActions);
+        south.add(rows, BorderLayout.SOUTH);
         editor.add(south, BorderLayout.SOUTH);
-        root.add(editor, BorderLayout.NORTH);
+        updateEditor.run();
+        body.add(editor);
+        body.add(Box.createVerticalStrut(10));
 
-        JPanel saved = verticalList();
-        if (fits.isEmpty()) saved.add(statusPanel("No private fits saved for commander " + commander
+        if (fits.isEmpty()) body.add(statusPanel("No private fits saved for commander " + commander
                 + ". Build one above or copy a game/server fit.", WARNING));
         for (PrivateShipFit fit : fits) {
             ShipLoadoutDefinition definition = PlayerFitRules.definition(fit.name(), fit.spec());
             String badge = standard != null && standard.id().equals(fit.id()) ? "CLASS STANDARD" : "PRIVATE";
-            saved.add(fitCard(fit.name(), definition, badge, null));
-            saved.add(Box.createVerticalStrut(8));
+            JPanel actions = panel(new GridLayout(0, 1, 0, 5), PANEL);
+            JButton edit = button("LOAD IN EDITOR");
+            edit.addActionListener(event -> {
+                selectedPrivateFitId = fit.id();
+                draftName = fit.name();
+                draftSpec = fit.spec();
+                rebuild();
+            });
+            actions.add(edit);
+            body.add(fitCard(fit.name(), definition, badge, actions));
+            body.add(Box.createVerticalStrut(8));
         }
-        root.add(scroll(saved), BorderLayout.CENTER);
-        fitChoice.setSelectedIndex(0);
-        loadSpec(weaponSlots, moduleSlots, installed == null
-                ? new ShipFitSpec(unit.shipTypeId, List.of(), List.of())
-                : new ShipFitSpec(unit.shipTypeId, installed.weaponIds(), ShipModuleRules.moduleIds(installed)));
-        updatePreview.run();
-        return root;
+        return scroll(body);
     }
 
     private JComponent serverFitsTab() {
         JPanel root = panel(new BorderLayout(0, 8), BACKGROUND);
         JPanel top = panel(new BorderLayout(), BACKGROUND);
-        top.add(label("COMMUNITY FIT CATALOG // SAVING A COPY CREATES AN INDEPENDENT PRIVATE FIT",
+        top.add(label("COMMUNITY FIT CATALOG // SERVER-AUTHORIZED SHARED FITS",
                 9, Font.BOLD, MUTED), BorderLayout.WEST);
         JButton refresh = button("REFRESH CATALOG");
-        refresh.addActionListener(event -> {
-            FitNetworkBridge.refresh(network, world);
-            setNotice("Server fit catalog refresh requested.", MUTED);
-        });
+        refresh.addActionListener(event -> submitNetwork("REFRESH", "", null, null, null, null, true));
         top.add(refresh, BorderLayout.EAST);
         root.add(top, BorderLayout.NORTH);
 
@@ -463,19 +552,29 @@ final class ShipFittingWindow {
         for (PublishedFit fit : published) {
             ShipLoadoutDefinition definition = PlayerFitRules.definition(fit.name(), fit.spec());
             JPanel actions = panel(new GridLayout(0, 1, 0, 6), PANEL);
-            JButton saveCopy = button("SAVE PRIVATE COPY");
-            saveCopy.addActionListener(event -> runAndRefresh(
-                    () -> ClientFitStore.importPublished(commanderName(), fit), "Private copy saved."));
             JButton refit = button("RECALL + REFIT");
+            FittingOption option = evaluate(world, unit, definition);
+            refit.setEnabled(option.ready());
+            refit.setToolTipText(option.reason());
             refit.addActionListener(event -> submitRefit(fit.name(), fit.spec(), false));
+            JButton saveCopy = button("SAVE PRIVATE COPY");
+            saveCopy.addActionListener(event -> {
+                try {
+                    PrivateShipFit saved = ClientFitStore.importPublished(commanderName(), fit);
+                    selectedPrivateFitId = saved.id();
+                    draftName = saved.name();
+                    draftSpec = saved.spec();
+                    selectedTab = 1;
+                    setNotice("Private copy saved.", GOOD, false);
+                    rebuild();
+                } catch (RuntimeException ex) { setNotice(ex.getMessage(), BAD, false); }
+            });
             actions.add(refit);
             actions.add(saveCopy);
             if (PlayerRegistry.localId().equals(fit.ownerPlayerId())) {
                 JButton remove = button("UNPUBLISH");
-                remove.addActionListener(event -> {
-                    if (FitNetworkBridge.submit(network, world, "UNPUBLISH", "", null,
-                            null, null, fit.id())) setNotice("Unpublish request submitted.", WARNING);
-                });
+                remove.addActionListener(event -> submitNetwork("UNPUBLISH", "", null,
+                        null, null, fit.id(), true));
                 actions.add(remove);
             }
             list.add(fitCard(fit.name(), definition, "BY " + fit.ownerName(), actions));
@@ -487,10 +586,10 @@ final class ShipFittingWindow {
 
     private JPanel fitCard(String title, ShipLoadoutDefinition fit, String badge, JComponent actions) {
         JPanel card = panel(new BorderLayout(12, 7), PANEL);
+        card.setAlignmentX(Component.LEFT_ALIGNMENT);
         card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 176));
         card.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(9, 11, 9, 11)));
-
         List<String> moduleIds = ShipModuleRules.moduleIds(fit);
         JPanel visual = panel(new BorderLayout(0, 4), PANEL_ALT);
         visual.setBorder(BorderFactory.createCompoundBorder(
@@ -513,36 +612,115 @@ final class ShipFittingWindow {
         return card;
     }
 
+    private void savePrivate(String commander, String existingId, String name, ShipFitSpec spec) {
+        try {
+            PrivateShipFit saved = ClientFitStore.save(commander, existingId, name, spec);
+            selectedPrivateFitId = saved.id();
+            draftName = saved.name();
+            draftSpec = saved.spec();
+            setNotice(existingId == null || existingId.isBlank() ? "Private fit saved." : "Private fit updated.", GOOD, false);
+            rebuild();
+        } catch (RuntimeException ex) { setNotice(ex.getMessage(), BAD, false); }
+    }
+
     private void submitRefit(String name, ShipFitSpec spec, boolean entireClass) {
         PlayerFitRules.Validation validation = PlayerFitRules.validate(spec);
-        if (!validation.valid()) { setNotice(validation.reason(), BAD); return; }
+        if (!validation.valid()) { setNotice(validation.reason(), BAD, false); return; }
+        ShipLoadoutDefinition definition = PlayerFitRules.definition(name, spec);
+        if (!entireClass) {
+            FittingOption option = evaluate(world, unit, definition);
+            if (!option.ready()) { setNotice(option.reason(), option.current() ? MUTED : BAD, false); return; }
+        }
         Base base = nearestRefitBase(world, unit);
-        if (base == null) { setNotice("No owned refit-capable shipyard exists in this system.", BAD); return; }
-        String action = entireClass ? "REFIT_CLASS" : "REFIT";
-        if (FitNetworkBridge.submit(network, world, action, name, spec, base.id,
-                entireClass ? null : unit.key(), null)) {
-            setNotice(entireClass
-                    ? "Eligible ships are being recalled to the shipyard for class refitting."
-                    : "Selected ship is being recalled to the shipyard for refitting.", GOOD);
-        }
+        if (base == null) { setNotice("No owned refit-capable shipyard exists in this system.", BAD, false); return; }
+        submitNetwork(entireClass ? "REFIT_CLASS" : "REFIT", name, spec, base.id,
+                entireClass ? null : unit.key(), null, true);
     }
 
-    private void runAndRefresh(Runnable action, String success) {
-        try {
-            action.run();
-            notice = success;
-            noticeColor = GOOD;
-            rebuild();
-        } catch (RuntimeException ex) {
-            setNotice(ex.getMessage(), BAD);
+    private boolean submitNetwork(String action, String name, ShipFitSpec spec,
+                                  String baseId, String unitKey, String publishedId, boolean showNotice) {
+        boolean submitted = FitNetworkBridge.submit(network, world, action, name, spec, baseId, unitKey, publishedId);
+        if (!submitted) {
+            if (showNotice) setNotice(world == null ? "Could not submit the fit request." : world.status, BAD, false);
+            return false;
         }
+        observedWorldStatus = world.status;
+        pendingServerRequest = network != null && network.clientMode();
+        if (showNotice) {
+            String message = pendingServerRequest ? "Fit request submitted; awaiting authoritative server response." : world.status;
+            setNotice(message, pendingServerRequest ? WARNING : GOOD, false);
+        }
+        return true;
     }
 
-    private void setNotice(String message, Color color) {
+    private void setNotice(String message, Color color, boolean updateWorld) {
         notice = message == null || message.isBlank() ? "The fitting action could not be completed." : message;
         noticeColor = color == null ? MUTED : color;
-        if (world != null) world.status = notice;
-        rebuild();
+        if (updateWorld && world != null) world.status = notice;
+        if (noticeLabel != null) {
+            noticeLabel.setText(notice);
+            noticeLabel.setForeground(noticeColor);
+        }
+        if (stationLabel != null) updateStationLabel();
+        glass.repaint();
+    }
+
+    private void pollAuthoritativeState() {
+        if (!visible() || world == null || unit == null) return;
+        Unit live = world.units.get(unit.key());
+        if (live == null || live.hp <= 0 || !PlayerRegistry.isLocal(live.playerId)) {
+            close();
+            return;
+        }
+        unit = live;
+        String status = world.status == null ? "" : world.status;
+        if (pendingServerRequest && !status.equals(observedWorldStatus)
+                && !status.startsWith("Fit request submitted")) {
+            pendingServerRequest = false;
+            setNotice(status, resultColor(status), false);
+        }
+        observedWorldStatus = status;
+        long revision = WorldFitCatalog.revision(world);
+        String state = unitState();
+        if (revision != observedCatalogRevision || !state.equals(observedUnitState)) {
+            observedCatalogRevision = revision;
+            observedUnitState = state;
+            rebuild();
+        } else if (stationLabel != null) {
+            updateStationLabel();
+        }
+    }
+
+    private Color resultColor(String message) {
+        String lower = message == null ? "" : message.toLowerCase(Locale.ROOT);
+        if (lower.contains("reject") || lower.contains("could not") || lower.contains("invalid")
+                || lower.contains("not found") || lower.contains("requires") || lower.startsWith("need ")
+                || lower.startsWith("no available") || lower.startsWith("no owned")) return BAD;
+        return GOOD;
+    }
+
+    private String unitState() {
+        ActiveRefit active = activeRefit(world, unit);
+        return unit.loadoutId + '|' + (active == null ? "" : active.base.id + '|' + active.job.id + '|' + active.job.loadoutId);
+    }
+
+    private void loadInstalledDraft() {
+        if (unit == null) return;
+        ShipLoadoutDefinition installed = WeaponRules.resolveForHull(unit.shipTypeId, unit.loadoutId);
+        draftName = "";
+        draftSpec = installed == null
+                ? new ShipFitSpec(unit.shipTypeId, List.of(), List.of())
+                : new ShipFitSpec(unit.shipTypeId, installed.weaponIds(), ShipModuleRules.moduleIds(installed));
+    }
+
+    private void normalizeDraft(List<PrivateShipFit> fits) {
+        if (!unit.shipTypeId.equals(draftSpec.hullId())) loadInstalledDraft();
+        if (selectedPrivateFitId.isBlank()) return;
+        boolean exists = fits.stream().anyMatch(fit -> selectedPrivateFitId.equals(fit.id()));
+        if (!exists) {
+            selectedPrivateFitId = "";
+            loadInstalledDraft();
+        }
     }
 
     private String commanderName() {
@@ -611,24 +789,37 @@ final class ShipFittingWindow {
                 && unit.weaponFlashTimer <= 0 && unit.weaponCooldown <= 0 && unit.shieldDelayTimer <= 0;
     }
 
-    private JComponent stationStatus() {
+    private JLabel stationStatusLabel() {
+        JLabel label = label("", 9, Font.BOLD, MUTED);
+        updateStationLabel(label);
+        return label;
+    }
+
+    private void updateStationLabel() { updateStationLabel(stationLabel); }
+
+    private void updateStationLabel(JLabel label) {
+        if (label == null || world == null || unit == null) return;
         Base nearest = nearestRefitBase(world, unit);
-        if (nearest == null) return label("NO SHIPYARD LINK", 9, Font.BOLD, BAD);
+        if (nearest == null) {
+            label.setText("NO SHIPYARD LINK");
+            label.setForeground(BAD);
+            return;
+        }
         double distance = Calc.distance(nearest.x, nearest.y, unit.x, unit.y);
-        return label("SHIPYARD LINK // " + nearest.id + " // DIST " + whole(distance)
-                + " // AUTO-RECALL ENABLED", 9, Font.BOLD, GOOD);
+        label.setText("SHIPYARD LINK // " + nearest.id + " // DIST " + whole(distance) + " // AUTO-RECALL ENABLED");
+        label.setForeground(GOOD);
     }
 
     private static ShipFitSpec specFrom(String hullId, List<JComboBox<WeaponChoice>> weapons,
                                         List<JComboBox<ModuleChoice>> modules) {
         List<String> weaponIds = new ArrayList<>();
         for (JComboBox<WeaponChoice> slot : weapons) {
-            WeaponChoice choice = (WeaponChoice) slot.getSelectedItem();
+            WeaponChoice choice = (WeaponChoice)slot.getSelectedItem();
             if (choice != null && !choice.id.isBlank()) weaponIds.add(choice.id);
         }
         List<String> moduleIds = new ArrayList<>();
         for (JComboBox<ModuleChoice> slot : modules) {
-            ModuleChoice choice = (ModuleChoice) slot.getSelectedItem();
+            ModuleChoice choice = (ModuleChoice)slot.getSelectedItem();
             if (choice != null && !choice.id().isBlank()) moduleIds.add(choice.id());
         }
         return new ShipFitSpec(hullId, weaponIds, moduleIds);
@@ -636,26 +827,31 @@ final class ShipFittingWindow {
 
     private static void loadSpec(List<JComboBox<WeaponChoice>> weapons,
                                  List<JComboBox<ModuleChoice>> modules, ShipFitSpec spec) {
-        for (int i = 0; i < weapons.size(); i++) {
-            String id = i < spec.weaponIds().size() ? spec.weaponIds().get(i) : "";
-            selectId(weapons.get(i), id);
-        }
-        for (int i = 0; i < modules.size(); i++) {
-            String id = i < spec.moduleIds().size() ? spec.moduleIds().get(i) : "";
-            selectModuleId(modules.get(i), id);
-        }
+        for (int i = 0; i < weapons.size(); i++) selectId(weapons.get(i), i < spec.weaponIds().size() ? spec.weaponIds().get(i) : "");
+        for (int i = 0; i < modules.size(); i++) selectModuleId(modules.get(i), i < spec.moduleIds().size() ? spec.moduleIds().get(i) : "");
     }
 
     private static void selectId(JComboBox<WeaponChoice> combo, String id) {
-        for (int i = 0; i < combo.getItemCount(); i++) {
-            if (combo.getItemAt(i).id.equals(id)) { combo.setSelectedIndex(i); return; }
+        for (int i = 0; i < combo.getItemCount(); i++) if (combo.getItemAt(i).id.equals(id)) {
+            combo.setSelectedIndex(i);
+            return;
         }
         combo.setSelectedIndex(0);
     }
 
     private static void selectModuleId(JComboBox<ModuleChoice> combo, String id) {
+        for (int i = 0; i < combo.getItemCount(); i++) if (combo.getItemAt(i).id().equals(id)) {
+            combo.setSelectedIndex(i);
+            return;
+        }
+        combo.setSelectedIndex(0);
+    }
+
+    private static void selectPrivate(JComboBox<PrivateChoice> combo, String id) {
+        if (id == null || id.isBlank()) { combo.setSelectedIndex(0); return; }
         for (int i = 0; i < combo.getItemCount(); i++) {
-            if (combo.getItemAt(i).id().equals(id)) { combo.setSelectedIndex(i); return; }
+            PrivateShipFit fit = combo.getItemAt(i).fit;
+            if (fit != null && id.equals(fit.id())) { combo.setSelectedIndex(i); return; }
         }
         combo.setSelectedIndex(0);
     }
@@ -699,10 +895,7 @@ final class ShipFittingWindow {
         JPanel strip = panel(new FlowLayout(FlowLayout.LEFT, 6, 0), labels ? PANEL_ALT : PANEL);
         List<ShipModuleDefinition> modules = ShipModuleRules.modules(moduleIds);
         int shown = Math.max(slotCount, modules.size());
-        for (int i = 0; i < shown; i++) {
-            ShipModuleDefinition module = i < modules.size() ? modules.get(i) : null;
-            strip.add(moduleTile(module, iconSize, labels));
-        }
+        for (int i = 0; i < shown; i++) strip.add(moduleTile(i < modules.size() ? modules.get(i) : null, iconSize, labels));
         if (shown == 0) strip.add(label("NO UTILITY SOCKETS", 8, Font.BOLD, MUTED));
         return strip;
     }
@@ -757,6 +950,8 @@ final class ShipFittingWindow {
 
     private static JPanel statusPanel(String text, Color color) {
         JPanel panel = panel(new BorderLayout(), FIELD);
+        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 60));
         panel.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(10, 11, 10, 11)));
         panel.add(label(text, 10, Font.BOLD, color));
@@ -856,7 +1051,6 @@ final class ShipFittingWindow {
     record FittingOption(Base base, boolean current, boolean ready, String reason) { }
     record ActiveRefit(Base base, ProductionJob job) { }
     private record WeaponChoice(String id, String label) { @Override public String toString() { return label; } }
-
     private record ModuleChoice(String id, ShipModuleDefinition module) {
         ModuleChoice(ShipModuleDefinition module) { this(module == null ? "" : module.id(), module); }
         static ModuleChoice empty() { return new ModuleChoice("", null); }
@@ -897,22 +1091,13 @@ final class ShipFittingWindow {
         @Override public void changedUpdate(javax.swing.event.DocumentEvent event) { action.run(); }
     }
 
-    /** Prevents Swing menu-selection changes and outside clicks from dismissing the fitting console. */
-    private static final class StickyPopupMenu extends JPopupMenu {
-        private boolean explicitClose;
-
-        @Override public void setVisible(boolean visible) {
-            if (!visible && !explicitClose) return;
-            super.setVisible(visible);
-        }
-
-        void hideExplicitly() {
-            explicitClose = true;
-            try {
-                super.setVisible(false);
-            } finally {
-                explicitClose = false;
-            }
+    private static final class GlassSurface extends JPanel {
+        GlassSurface() { super(new GridBagLayout()); }
+        @Override protected void paintComponent(Graphics graphics) {
+            Graphics2D g = (Graphics2D)graphics.create();
+            g.setColor(new Color(0, 0, 0, 185));
+            g.fillRect(0, 0, getWidth(), getHeight());
+            g.dispose();
         }
     }
 
@@ -922,7 +1107,6 @@ final class ShipFittingWindow {
             setOpaque(true);
             setBackground(BACKGROUND);
         }
-
         @Override protected void paintComponent(Graphics graphics) {
             Graphics2D g = (Graphics2D)graphics.create();
             g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
