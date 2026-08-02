@@ -9,7 +9,7 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -17,14 +17,12 @@ concurrency:
 
 jobs:
   verify:
-    name: Fix and validate fitting popup
+    name: Compile, validate, and package
     runs-on: ubuntu-latest
+
     steps:
-      - name: Check out source branch
+      - name: Check out source
         uses: actions/checkout@v4
-        with:
-          ref: agent/issue-289-loadouts
-          fetch-depth: 0
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -32,82 +30,123 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle
+      - name: Set up Gradle 8.10.2
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
 
-      - name: Make fitting popup ESC-only
+      - name: Compile project
+        run: gradle clean classes --no-daemon
+
+      - name: Validate authoritative fog of war
+        run: java -cp build/classes/java/main com.tndmadman.rts.FogOfWarValidator
+
+      - name: Validate radar tower progression
+        run: java -cp build/classes/java/main com.tndmadman.rts.RadarTowerValidator
+
+      - name: Validate intel and counterintel warfare
+        run: java -cp build/classes/java/main com.tndmadman.rts.IntelWarfareValidator
+
+      - name: Validate station control menus
+        run: java -cp build/classes/java/main com.tndmadman.rts.StationControlValidator
+
+      - name: Validate shipyard scroll hotfix
+        run: java -cp build/classes/java/main com.tndmadman.rts.ShipyardScrollHotfixValidator
+
+      - name: Verify project
+        run: gradle check jar --no-daemon
+
+      - name: Validate canonical endpoint identity
+        run: java -cp build/classes/java/main com.tndmadman.rts.SessionEndpointIdentityValidator
+
+      - name: Validate authenticated numeric commands
+        run: java -cp build/classes/java/main com.tndmadman.rts.NumericCommandValidationValidator authenticated
+
+      - name: Validate authoritative numeric repair
+        run: java -cp build/classes/java/main com.tndmadman.rts.NumericCommandValidationValidator repair
+
+      - name: Validate numeric serialization boundaries
+        run: java -cp build/classes/java/main com.tndmadman.rts.NumericCommandValidationValidator serialization
+
+      - name: Validate authoritative mining commands
+        run: java -cp build/classes/java/main com.tndmadman.rts.MiningCommandValidationValidator
+
+      - name: Smoke-test Linux headless server
+        shell: bash
         run: |
-          python - <<'PY'
-          from pathlib import Path
+          set -euo pipefail
+          PORT=50080
+          LOG=build/headless-server.log
+          SAVE_DIR=build/headless-smoke-saves
+          rm -rf "$SAVE_DIR"
 
-          path = Path('src/main/java/com/tndmadman/rts/ShipFittingWindow.java')
-          text = path.read_text()
+          java -Djava.awt.headless=true -jar build/libs/StarChem.jar \
+            --server "$PORT" \
+            --name CI-Server \
+            --save-dir "$SAVE_DIR" \
+            --save-name smoke \
+            --new-world >"$LOG" 2>&1 &
+          SERVER_PID=$!
 
-          replacements = [
-              ('private final JPopupMenu popup = new JPopupMenu();',
-               'private final StickyPopupMenu popup = new StickyPopupMenu();'),
-              ('popup.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)',
-               'popup.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)'),
-              ('        popup.setVisible(false);\n',
-               '        popup.hideExplicitly();\n'),
-              ('        JButton close = button("CLOSE [ESC]");\n'
-               '        close.addActionListener(event -> close());\n'
-               '        state.add(close);\n',
-               '        state.add(label("ESC // CLOSE", 10, Font.BOLD, MUTED));\n'),
-          ]
+          cleanup() {
+            kill -TERM "$SERVER_PID" 2>/dev/null || true
+            wait "$SERVER_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
 
-          for old, new in replacements:
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'Expected exactly one match for {old!r}, found {count}')
-              text = text.replace(old, new, 1)
+          READY=0
+          for _ in {1..100}; do
+            if grep -Fq 'Dedicated server ready.' "$LOG"; then
+              READY=1
+              break
+            fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              cat "$LOG"
+              echo 'Headless server exited before becoming ready.' >&2
+              exit 1
+            fi
+            sleep 0.1
+          done
 
-          sticky = '''
+          if [[ "$READY" -ne 1 ]]; then
+            cat "$LOG"
+            echo 'Headless server did not become ready.' >&2
+            exit 1
+          fi
+          grep -Fq "TCP $PORT" "$LOG"
 
-    /** Prevents Swing menu-selection changes and outside clicks from dismissing the fitting console. */
-    private static final class StickyPopupMenu extends JPopupMenu {
-        private boolean explicitClose;
+          kill -TERM "$SERVER_PID"
+          (
+            sleep 10
+            kill -KILL "$SERVER_PID" 2>/dev/null || true
+          ) &
+          WATCHDOG_PID=$!
 
-        @Override public void setVisible(boolean visible) {
-            if (!visible && !explicitClose) return;
-            super.setVisible(visible);
-        }
+          set +e
+          wait "$SERVER_PID"
+          SERVER_STATUS=$?
+          set -e
+          kill "$WATCHDOG_PID" 2>/dev/null || true
+          wait "$WATCHDOG_PID" 2>/dev/null || true
+          trap - EXIT
 
-        void hideExplicitly() {
-            explicitClose = true;
-            try {
-                super.setVisible(false);
-            } finally {
-                explicitClose = false;
-            }
-        }
-    }
-'''
-          if 'private static final class StickyPopupMenu' in text:
-              raise SystemExit('StickyPopupMenu already exists')
-          head, tail = text.rsplit('\n}', 1)
-          path.write_text(head + sticky + '\n}' + tail)
-          PY
+          cat "$LOG"
+          if [[ "$SERVER_STATUS" -ne 0 && "$SERVER_STATUS" -ne 143 ]]; then
+            echo "Unexpected headless server exit status: $SERVER_STATUS" >&2
+            exit 1
+          fi
+          grep -Fq 'Dedicated server stopped.' "$LOG"
 
-          grep -q 'StickyPopupMenu popup' src/main/java/com/tndmadman/rts/ShipFittingWindow.java
-          grep -q 'WHEN_IN_FOCUSED_WINDOW' src/main/java/com/tndmadman/rts/ShipFittingWindow.java
-          grep -q 'ESC // CLOSE' src/main/java/com/tndmadman/rts/ShipFittingWindow.java
-          ! grep -q 'button("CLOSE \[ESC\]")' src/main/java/com/tndmadman/rts/ShipFittingWindow.java
-
-      - name: Build and validate
-        run: gradle build --no-daemon
-
-      - name: Commit source and restore workflows
+      - name: Verify overridden release identity
+        shell: bash
         run: |
-          git show origin/main:.github/workflows/ci.yml > .github/workflows/ci.yml
-          git show origin/main:.github/workflows/java.yml > .github/workflows/java.yml
-          rm -f .github/workflows/fix-fitting-sticky.yml
-          rm -f .github/fitting-sticky-trigger.txt
-          rm -f .github/java-fitting-trigger.txt
-          rm -f .github/ci-fitting-trigger.txt
-          git config user.name "OpenAI"
-          git config user.email "openai@users.noreply.github.com"
-          git add src/main/java/com/tndmadman/rts/ShipFittingWindow.java .github/workflows/ci.yml .github/workflows/java.yml
-          git add -u .github
-          git commit -m "Keep fitting window open until Escape"
-          git push origin HEAD:agent/issue-289-loadouts
+          SAMPLE_VERSION="9.8.7-ci"
+          SAMPLE_COMMIT="0123456789abcdef0123456789abcdef01234567"
+
+          gradle clean verifyBuildMetadata --no-daemon \
+            -PreleaseVersion="$SAMPLE_VERSION" \
+            -PbuildCommit="$SAMPLE_COMMIT"
+          test -f build/libs/StarChem.jar
+          VERSION_OUTPUT="$(java -jar build/libs/StarChem.jar --version)"
+          echo "$VERSION_OUTPUT"
+          [[ "$VERSION_OUTPUT" == "StarChem ${SAMPLE_VERSION} (${SAMPLE_COMMIT:0:12})" ]]
