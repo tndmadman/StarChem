@@ -1,0 +1,238 @@
+name: Issue 289 fitting UI hotfix
+
+on:
+  push:
+    branches:
+      - agent/issue-289-loadouts
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/issue-289-loadouts
+          fetch-depth: 0
+      - name: Patch fitting modal and saved-fit actions
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one match, found {count}")
+              return text.replace(old, new, 1)
+
+          fitting_path = Path('src/main/java/com/tndmadman/rts/ShipFittingWindow.java')
+          fitting = fitting_path.read_text()
+
+          fitting = replace_once(
+              fitting,
+              '        glass.addMouseWheelListener((MouseWheelEvent event) -> { });\n        refreshTimer.setCoalesce(true);',
+              '''        glass.addMouseWheelListener((MouseWheelEvent event) -> { });
+        String closeAction = "close-fitting";
+        glass.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+                .put(javax.swing.KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), closeAction);
+        glass.getActionMap().put(closeAction, new javax.swing.AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent event) { close(); }
+        });
+        refreshTimer.setCoalesce(true);''',
+              'install local ESC binding')
+
+          fitting = replace_once(
+              fitting,
+              '        this.notice = "Configure the fit, then recall it to an owned shipyard. Escape is the only close action.";',
+              '        this.notice = "Configure the fit, then recall it to an owned shipyard. Close with ESC or the CLOSE button.";',
+              'replace trapped-modal notice')
+
+          fitting = replace_once(
+              fitting,
+              '    boolean visible() { return glass.isVisible() && activeWindow == this; }',
+              '''    boolean visible() { return glass.isVisible() && activeWindow == this; }
+
+    static boolean active() {
+        ShipFittingWindow active = activeWindow;
+        return active != null && active.visible();
+    }
+
+    static boolean closeActive() {
+        ShipFittingWindow active = activeWindow;
+        if (active == null || !active.visible()) return false;
+        active.close();
+        return true;
+    }''',
+              'add frame-owned modal hooks')
+
+          fitting = replace_once(
+              fitting,
+              '        state.add(label("ESC // CLOSE", 10, Font.BOLD, MUTED));',
+              '''        JButton close = button("CLOSE [ESC]");
+        close.setToolTipText("Close fitting and return to the game.");
+        close.addActionListener(event -> close());
+        state.add(close);''',
+              'add visible close button')
+
+          old_private = '''            JPanel actions = panel(new GridLayout(0, 1, 0, 5), PANEL);
+            JButton edit = button("LOAD IN EDITOR");
+            edit.addActionListener(event -> {
+                selectedPrivateFitId = fit.id();
+                draftName = fit.name();
+                draftSpec = fit.spec();
+                rebuild();
+            });
+            actions.add(edit);
+            body.add(fitCard(fit.name(), definition, badge, actions));'''
+          new_private = '''            JPanel actions = panel(new GridLayout(0, 1, 0, 5), PANEL);
+            JButton refitSaved = button("RECALL + REFIT");
+            FittingOption savedOption = evaluate(world, unit, definition);
+            refitSaved.setEnabled(savedOption.ready());
+            refitSaved.setToolTipText(savedOption.reason());
+            refitSaved.addActionListener(event -> submitRefit(fit.name(), fit.spec(), false));
+
+            JButton edit = button("LOAD IN EDITOR");
+            edit.addActionListener(event -> {
+                selectedPrivateFitId = fit.id();
+                draftName = fit.name();
+                draftSpec = fit.spec();
+                rebuild();
+            });
+
+            boolean isStandard = standard != null && standard.id().equals(fit.id());
+            JButton makeStandard = button(isStandard ? "CLASS STANDARD" : "SET CLASS STANDARD");
+            makeStandard.setEnabled(!isStandard);
+            makeStandard.addActionListener(event -> {
+                try {
+                    ClientFitStore.setStandard(commander, unit.shipTypeId, fit.id());
+                    setNotice("Class standard updated.", GOOD, false);
+                    rebuild();
+                } catch (RuntimeException ex) { setNotice(ex.getMessage(), BAD, false); }
+            });
+
+            JButton publishSaved = button("PUBLISH TO SERVER");
+            publishSaved.addActionListener(event -> submitNetwork("PUBLISH", fit.name(), fit.spec(),
+                    null, null, null, true));
+
+            JButton deleteSaved = button("DELETE");
+            deleteSaved.addActionListener(event -> {
+                try {
+                    if (!ClientFitStore.delete(commander, fit.id())) {
+                        setNotice("Private fit no longer exists.", BAD, false);
+                        return;
+                    }
+                    if (fit.id().equals(selectedPrivateFitId)) {
+                        selectedPrivateFitId = "";
+                        loadInstalledDraft();
+                    }
+                    setNotice("Private fit deleted.", GOOD, false);
+                    rebuild();
+                } catch (RuntimeException ex) { setNotice(ex.getMessage(), BAD, false); }
+            });
+
+            actions.add(refitSaved);
+            actions.add(edit);
+            actions.add(makeStandard);
+            actions.add(publishSaved);
+            actions.add(deleteSaved);
+            body.add(fitCard(fit.name(), definition, badge, actions));'''
+          fitting = replace_once(fitting, old_private, new_private, 'complete private-fit card actions')
+          fitting = replace_once(
+              fitting,
+              '        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 176));',
+              '        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 224));',
+              'expand fit card for complete actions')
+          fitting_path.write_text(fitting)
+
+          frame_path = Path('src/main/java/com/tndmadman/rts/GameFrame.java')
+          frame = frame_path.read_text()
+          frame = replace_once(
+              frame,
+              '''        if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) {
+            resourceCatalogOverlay.close();''',
+              '''        if (ShipFittingWindow.closeActive()) return true;
+        if (gamePanel.handleEscapeBeforeMenu()) return true;
+        if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) {
+            resourceCatalogOverlay.close();''',
+              'route ESC through fitting and game modal state')
+          frame = replace_once(
+              frame,
+              '        return menuVisible() || settingsPanel.isOpen();',
+              '        return menuVisible() || settingsPanel.isOpen() || ShipFittingWindow.active();',
+              'include fitting in modal state')
+          frame = replace_once(
+              frame,
+              '''        if (inGameMenuOverlay != null) inGameMenuOverlay.close();
+        soloPausedByMenu = false;''',
+              '''        if (inGameMenuOverlay != null) inGameMenuOverlay.close();
+        ShipFittingWindow.closeActive();
+        soloPausedByMenu = false;''',
+              'close fitting during session shutdown')
+          frame_path.write_text(frame)
+
+          validator_path = Path('src/main/java/com/tndmadman/rts/ShipLoadoutValidator.java')
+          validator = validator_path.read_text()
+          validator = replace_once(
+              validator,
+              '        validateDefinitions();\n        validateUtilityModules();',
+              '        validateDefinitions();\n        validateFittingModalUi();\n        validateUtilityModules();',
+              'invoke fitting UI regression')
+          marker = '    private static void validateUtilityModules() {'
+          ui_test = '''    private static void validateFittingModalUi() {
+        Fixture fixture = fixture("LOADOUT_UI_MODAL");
+        Unit ship = spawn(fixture, "destroyer", "destroyer");
+        javax.swing.JRootPane root = new javax.swing.JRootPane();
+        javax.swing.JPanel parent = new javax.swing.JPanel();
+        root.setContentPane(parent);
+
+        ShipFittingWindow window = new ShipFittingWindow();
+        window.showForUnit(parent, fixture.world, null, ship);
+        require(window.visible() && ShipFittingWindow.active(),
+                "fitting modal did not become active");
+        require(ShipFittingWindow.closeActive() && !window.visible(),
+                "central Escape path did not close fitting");
+
+        window.showForUnit(parent, fixture.world, null, ship);
+        javax.swing.JButton close = findButton(root.getGlassPane(), "CLOSE [ESC]");
+        require(close != null, "fitting modal has no visible close button");
+        close.doClick();
+        require(!window.visible(), "visible close button did not close fitting");
+    }
+
+    private static javax.swing.JButton findButton(java.awt.Component component, String text) {
+        if (component instanceof javax.swing.JButton button && text.equals(button.getText())) return button;
+        if (component instanceof java.awt.Container container) {
+            for (java.awt.Component child : container.getComponents()) {
+                javax.swing.JButton found = findButton(child, text);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+'''
+          if marker not in validator:
+              raise SystemExit('insert fitting UI regression: marker missing')
+          validator = validator.replace(marker, ui_test + marker, 1)
+          validator_path.write_text(validator)
+          PY
+      - name: Compile and validate focused loadout suite
+        run: ./gradlew --no-daemon compileJava validateShipLoadouts
+      - name: Commit hotfix
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No patch changes were needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main/java/com/tndmadman/rts/ShipFittingWindow.java \
+                  src/main/java/com/tndmadman/rts/GameFrame.java \
+                  src/main/java/com/tndmadman/rts/ShipLoadoutValidator.java
+          git commit -m "Complete ship fitting modal controls"
+          git push origin HEAD:agent/issue-289-loadouts
