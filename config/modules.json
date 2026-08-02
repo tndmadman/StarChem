@@ -1,0 +1,35 @@
+{
+  "shipModules": {
+    "afterburner": {
+      "displayName": "Afterburner",
+      "description": "Automatically activates on long approaches. Greatly increases speed but sharply reduces turning agility.",
+      "kind": "AFTERBURNER",
+      "activationDistance": 420,
+      "speedMultiplier": 1.85,
+      "agilityMultiplier": 0.22,
+      "requiresResearch": ["combat_doctrine"],
+      "installationCost": {"TARGETING_COMPUTER": 1},
+      "color": "#62D8FF"
+    },
+    "micro_jump_drive": {
+      "displayName": "Micro Jump Drive",
+      "description": "Automatically jumps toward distant objectives. Hostile tackle prevents activation.",
+      "kind": "MICRO_JUMP_DRIVE",
+      "activationDistance": 1250,
+      "jumpDistance": 700,
+      "cooldownSeconds": 14,
+      "requiresResearch": ["battlefleet_engineering"],
+      "installationCost": {"TARGETING_COMPUTER": 2, "LANCE_FOCUSING_ARRAY": 1},
+      "color": "#9BEAFF"
+    },
+    "warp_scrambler": {
+      "displayName": "Jump Scrambler",
+      "description": "Tackles the targeted enemy at close range, disabling afterburners, micro jumps, and wormhole escape.",
+      "kind": "TACKLE",
+      "range": 360,
+      "requiresResearch": ["combat_doctrine"],
+      "installationCost": {"TARGETING_COMPUTER": 1, "POINT_DEFENSE_LASER_ASSEMBLY": 1},
+      "color": "#FF7E48"
+    }
+  }
+}
