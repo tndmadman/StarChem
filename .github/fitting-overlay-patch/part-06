@@ -1,0 +1,131 @@
+            if (job.kind == ProductionJobKind.REFIT && unit.key().equals(job.subjectUnitKey)) return new ActiveRefit(base, job);
+        }
+        return null;
+    }
+
+    static boolean readyState(Unit unit) {
+        return unit != null && unit.task == UnitTask.IDLE && unit.attackTarget.isBlank()
+                && Calc.distance(unit.x, unit.y, unit.targetX, unit.targetY) <= 2
+                && unit.weaponFlashTimer <= 0 && unit.weaponCooldown <= 0 && unit.shieldDelayTimer <= 0;
+    }
+
+    private JLabel stationStatusLabel() {
+        JLabel label = label("", 9, Font.BOLD, MUTED);
+        updateStationLabel(label);
+        return label;
+    }
+
+    private void updateStationLabel() { updateStationLabel(stationLabel); }
+
+    private void updateStationLabel(JLabel label) {
+        if (label == null || world == null || unit == null) return;
+        Base nearest = nearestRefitBase(world, unit);
+        if (nearest == null) {
+            label.setText("NO SHIPYARD LINK");
+            label.setForeground(BAD);
+            return;
+        }
+        double distance = Calc.distance(nearest.x, nearest.y, unit.x, unit.y);
+        label.setText("SHIPYARD LINK // " + nearest.id + " // DIST " + whole(distance) + " // AUTO-RECALL ENABLED");
+        label.setForeground(GOOD);
+    }
+
+    private static ShipFitSpec specFrom(String hullId, List<JComboBox<WeaponChoice>> weapons,
+                                        List<JComboBox<ModuleChoice>> modules) {
+        List<String> weaponIds = new ArrayList<>();
+        for (JComboBox<WeaponChoice> slot : weapons) {
+            WeaponChoice choice = (WeaponChoice)slot.getSelectedItem();
+            if (choice != null && !choice.id.isBlank()) weaponIds.add(choice.id);
+        }
+        List<String> moduleIds = new ArrayList<>();
+        for (JComboBox<ModuleChoice> slot : modules) {
+            ModuleChoice choice = (ModuleChoice)slot.getSelectedItem();
+            if (choice != null && !choice.id().isBlank()) moduleIds.add(choice.id());
+        }
+        return new ShipFitSpec(hullId, weaponIds, moduleIds);
+    }
+
+    private static void loadSpec(List<JComboBox<WeaponChoice>> weapons,
+                                 List<JComboBox<ModuleChoice>> modules, ShipFitSpec spec) {
+        for (int i = 0; i < weapons.size(); i++) selectId(weapons.get(i), i < spec.weaponIds().size() ? spec.weaponIds().get(i) : "");
+        for (int i = 0; i < modules.size(); i++) selectModuleId(modules.get(i), i < spec.moduleIds().size() ? spec.moduleIds().get(i) : "");
+    }
+
+    private static void selectId(JComboBox<WeaponChoice> combo, String id) {
+        for (int i = 0; i < combo.getItemCount(); i++) if (combo.getItemAt(i).id.equals(id)) {
+            combo.setSelectedIndex(i);
+            return;
+        }
+        combo.setSelectedIndex(0);
+    }
+
+    private static void selectModuleId(JComboBox<ModuleChoice> combo, String id) {
+        for (int i = 0; i < combo.getItemCount(); i++) if (combo.getItemAt(i).id().equals(id)) {
+            combo.setSelectedIndex(i);
+            return;
+        }
+        combo.setSelectedIndex(0);
+    }
+
+    private static void selectPrivate(JComboBox<PrivateChoice> combo, String id) {
+        if (id == null || id.isBlank()) { combo.setSelectedIndex(0); return; }
+        for (int i = 0; i < combo.getItemCount(); i++) {
+            PrivateShipFit fit = combo.getItemAt(i).fit;
+            if (fit != null && id.equals(fit.id())) { combo.setSelectedIndex(i); return; }
+        }
+        combo.setSelectedIndex(0);
+    }
+
+    private static String weaponSummary(ShipLoadoutDefinition loadout) {
+        Map<String,Integer> counts = new LinkedHashMap<>();
+        Map<String,WeaponType> weapons = new LinkedHashMap<>();
+        for (WeaponType weapon : WeaponRules.loadout(loadout)) {
+            counts.merge(weapon.id, 1, Integer::sum);
+            weapons.put(weapon.id, weapon);
+        }
+        if (counts.isEmpty()) return "Unarmed";
+        List<String> labels = new ArrayList<>();
+        for (Map.Entry<String,Integer> entry : counts.entrySet()) {
+            WeaponType weapon = weapons.get(entry.getKey());
+            labels.add((entry.getValue() > 1 ? entry.getValue() + "× " : "") + weapon.name);
+        }
+        return String.join("  •  ", labels);
+    }
+
+    private static JPanel section(String title, int slots, JComponent body) {
+        JPanel wrapper = panel(new BorderLayout(0, 6), FIELD);
+        wrapper.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(7, 8, 8, 8)));
+        wrapper.add(label(title + "  //  " + slots + " SLOT" + (slots == 1 ? "" : "S"),
+                10, Font.BOLD, BORDER), BorderLayout.NORTH);
+        wrapper.add(body, BorderLayout.CENTER);
+        return wrapper;
+    }
+
+    private static JPanel slotRow(String title, JComponent control) {
+        JPanel row = panel(new BorderLayout(8, 0), FIELD);
+        JLabel label = label(title, 9, Font.BOLD, MUTED);
+        label.setPreferredSize(new Dimension(88, 26));
+        row.add(label, BorderLayout.WEST);
+        row.add(control, BorderLayout.CENTER);
+        return row;
+    }
+
+    private static JPanel moduleStrip(List<String> moduleIds, int slotCount, int iconSize, boolean labels) {
+        JPanel strip = panel(new FlowLayout(FlowLayout.LEFT, 6, 0), labels ? PANEL_ALT : PANEL);
+        List<ShipModuleDefinition> modules = ShipModuleRules.modules(moduleIds);
+        int shown = Math.max(slotCount, modules.size());
+        for (int i = 0; i < shown; i++) strip.add(moduleTile(i < modules.size() ? modules.get(i) : null, iconSize, labels));
+        if (shown == 0) strip.add(label("NO UTILITY SOCKETS", 8, Font.BOLD, MUTED));
+        return strip;
+    }
+
+    private static JComponent moduleTile(ShipModuleDefinition module, int iconSize, boolean showLabel) {
+        JLabel icon = new JLabel(module == null ? ShipModuleVisuals.emptyIcon(iconSize) : ShipModuleVisuals.icon(module, iconSize));
+        icon.setToolTipText(module == null ? "Empty utility socket"
+                : module.displayName() + " — " + module.description() + " — " + ShipModuleRules.effectSummary(module));
+        if (!showLabel) return icon;
+        JPanel tile = panel(new BorderLayout(0, 3), PANEL_ALT);
+        tile.setBorder(new EmptyBorder(1, 2, 1, 2));
+        tile.add(icon, BorderLayout.CENTER);
+        JLabel text = label(module == null ? "EMPTY" : module.displayName().toUpperCase(Locale.ROOT), 8, Font.BOLD,
