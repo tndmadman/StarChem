@@ -1,6 +1,9 @@
 package com.tndmadman.rts;
 
-import java.awt.*;
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.Stroke;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -15,13 +18,22 @@ import java.util.Set;
 /** Configured non-weapon ship fittings and their authoritative simulation behavior. */
 final class ShipModuleRules {
     static final Map<String, ShipModuleDefinition> MODULES = new LinkedHashMap<>();
+    private static final Map<String, Integer> HULL_SLOTS = new LinkedHashMap<>();
     private static final Map<String, List<String>> LOADOUT_MODULES = new LinkedHashMap<>();
 
     static {
-        if (!loadExternal()) loadDefaults();
+        loadExternal();
     }
 
     private ShipModuleRules() { }
+
+    static ShipModuleDefinition find(String id) {
+        return id == null ? null : MODULES.get(id);
+    }
+
+    static Map<String, Integer> configuredHullSlots() {
+        return Map.copyOf(HULL_SLOTS);
+    }
 
     static void clearLoadouts() { LOADOUT_MODULES.clear(); }
 
@@ -62,7 +74,7 @@ final class ShipModuleRules {
     }
 
     static List<ShipModuleDefinition> allowedModules(String hullId) {
-        if (Rules.findShip(hullId) == null) return List.of();
+        if (Rules.findShip(hullId) == null || moduleSlotCount(hullId) <= 0) return List.of();
         return MODULES.values().stream()
                 .sorted(java.util.Comparator.comparing(ShipModuleDefinition::displayName, String.CASE_INSENSITIVE_ORDER))
                 .toList();
@@ -70,13 +82,7 @@ final class ShipModuleRules {
 
     static int moduleSlotCount(String hullId) {
         if (Rules.findShip(hullId) == null) return 0;
-        int weaponSlots = 0;
-        for (ShipLoadoutDefinition fit : WeaponRules.loadoutsForHull(hullId)) {
-            weaponSlots = Math.max(weaponSlots, fit.weaponIds().size());
-        }
-        if (weaponSlots <= 1) return 1;
-        if (weaponSlots <= 4) return 2;
-        return 3;
+        return HULL_SLOTS.getOrDefault(hullId, 0);
     }
 
     static Validation validate(String hullId, List<String> moduleIds) {
@@ -223,7 +229,7 @@ final class ShipModuleRules {
             if (tackle != null && target != null
                     && Calc.distance(unit.x, unit.y, target.x, target.y) <= tackle.range()) {
                 g2.setStroke(new BasicStroke(2f));
-                g2.setColor(new Color(255, 126, 72, 175));
+                g2.setColor(moduleColor(tackle, 175));
                 g2.drawLine((int)Math.round(unit.x), (int)Math.round(unit.y),
                         (int)Math.round(target.x), (int)Math.round(target.y));
             }
@@ -235,6 +241,24 @@ final class ShipModuleRules {
         List<String> names = new ArrayList<>();
         for (ShipModuleDefinition module : modules(moduleIds)) names.add(module.displayName());
         return names.isEmpty() ? "None" : String.join(", ", names);
+    }
+
+    static String effectSummary(ShipModuleDefinition module) {
+        if (module == null) return "Empty utility socket";
+        return switch (module.kind()) {
+            case AFTERBURNER -> "Speed ×" + decimal(module.speedMultiplier())
+                    + " / agility ×" + decimal(module.agilityMultiplier())
+                    + " / auto at " + whole(module.activationDistance()) + "u";
+            case MICRO_JUMP_DRIVE -> "Jump " + whole(module.jumpDistance()) + "u"
+                    + " / auto at " + whole(module.activationDistance()) + "u"
+                    + " / cooldown " + decimal(module.cooldownSeconds()) + "s";
+            case TACKLE -> "Suppress propulsion and jumps inside " + whole(module.range()) + "u";
+        };
+    }
+
+    private static Color moduleColor(ShipModuleDefinition module, int alpha) {
+        Color color = module == null ? new Color(0x72D8FF) : module.color();
+        return new Color(color.getRed(), color.getGreen(), color.getBlue(), Math.max(0, Math.min(255, alpha)));
     }
 
     private static ShipModuleDefinition first(Unit unit, ShipModuleKind kind) {
@@ -258,23 +282,55 @@ final class ShipModuleRules {
         return CombatTarget.unit(world, targetKey);
     }
 
-    private static boolean loadExternal() {
+    private static void loadExternal() {
+        Path path = configuredModulePath();
+        if (!Files.isRegularFile(path)) {
+            throw new RuleConfigurationException("Missing configured ship module file: " + path);
+        }
         try {
-            Path path = Path.of("config/modules.json");
-            if (!Files.isRegularFile(path)) return false;
             Object parsed = MiniJson.parse(Files.readString(path));
             Map<String,Object> root = ServerSaveStore.object(parsed);
-            Map<String,Object> source = ServerSaveStore.object(root.getOrDefault("shipModules", root));
-            MODULES.clear();
+            Map<String,Object> source = ServerSaveStore.object(root.get("shipModules"));
+            if (source.isEmpty()) throw new RuleConfigurationException("No shipModules configured in " + path);
+
+            int defaultSlots = strictInteger(root.get("defaultUtilitySlots"), "defaultUtilitySlots");
+            if (defaultSlots < 0 || defaultSlots > 8) {
+                throw new RuleConfigurationException("defaultUtilitySlots must be between 0 and 8.");
+            }
+            Map<String,Object> configuredSlots = ServerSaveStore.object(root.get("hullUtilitySlots"));
+            Map<String,Integer> slots = new LinkedHashMap<>();
+            for (String hullId : Rules.SHIPS.keySet()) slots.put(hullId, defaultSlots);
+            for (Map.Entry<String,Object> entry : configuredSlots.entrySet()) {
+                if (Rules.findShip(entry.getKey()) == null) {
+                    throw new RuleConfigurationException("Unknown hull in hullUtilitySlots: " + entry.getKey());
+                }
+                int count = strictInteger(entry.getValue(), "utility slots for " + entry.getKey());
+                if (count < 0 || count > 8) {
+                    throw new RuleConfigurationException("Utility slot count for " + entry.getKey() + " must be between 0 and 8.");
+                }
+                slots.put(entry.getKey(), count);
+            }
+
+            Map<String,ShipModuleDefinition> modules = new LinkedHashMap<>();
             for (Map.Entry<String,Object> entry : source.entrySet()) {
+                String id = entry.getKey();
                 Map<String,Object> row = ServerSaveStore.object(entry.getValue());
+                String displayName = requiredString(row, "displayName", id);
+                String description = requiredString(row, "description", id);
                 ShipModuleKind kind;
-                try { kind = ShipModuleKind.valueOf(ServerSaveStore.string(row, "kind", "").toUpperCase(Locale.ROOT)); }
-                catch (RuntimeException ex) { throw new RuleConfigurationException("Unknown ship module kind for " + entry.getKey()); }
+                ShipModuleVisualStyle visualStyle;
+                try { kind = ShipModuleKind.valueOf(requiredString(row, "kind", id).toUpperCase(Locale.ROOT)); }
+                catch (RuntimeException ex) { throw new RuleConfigurationException("Unknown ship module kind for " + id); }
+                try { visualStyle = ShipModuleVisualStyle.valueOf(requiredString(row, "visualStyle", id).toUpperCase(Locale.ROOT)); }
+                catch (RuntimeException ex) { throw new RuleConfigurationException("Unknown module visualStyle for " + id); }
+                int seed = strictInteger(row.get("seed"), "seed for " + id);
+                if (seed == 0) throw new RuleConfigurationException("Module seed must be non-zero for " + id);
+                Color color = color(requiredString(row, "color", id));
+
                 ShipModuleDefinition definition = new ShipModuleDefinition(
-                        entry.getKey(),
-                        ServerSaveStore.string(row, "displayName", title(entry.getKey())),
-                        ServerSaveStore.string(row, "description", ""),
+                        id,
+                        displayName,
+                        description,
                         kind,
                         ServerSaveStore.doubleValue(row, "activationDistance", 0),
                         ServerSaveStore.doubleValue(row, "range", 0),
@@ -284,36 +340,66 @@ final class ShipModuleRules {
                         ServerSaveStore.doubleValue(row, "cooldownSeconds", 0),
                         new LinkedHashSet<>(strings(row.get("requiresResearch"))),
                         costs(row.get("installationCost")),
-                        color(ServerSaveStore.string(row, "color", "#72D8FF")));
-                if (MODULES.putIfAbsent(definition.id(), definition) != null) {
+                        seed,
+                        visualStyle,
+                        color);
+                validateDefinition(definition);
+                if (modules.putIfAbsent(definition.id(), definition) != null) {
                     throw new RuleConfigurationException("Duplicate ship module ID: " + definition.id());
                 }
             }
-            return !MODULES.isEmpty();
+
+            MODULES.clear();
+            MODULES.putAll(modules);
+            HULL_SLOTS.clear();
+            HULL_SLOTS.putAll(slots);
         } catch (RuleConfigurationException ex) {
             throw ex;
         } catch (Exception ex) {
-            System.err.println("Could not load ship module config: " + ex.getMessage());
-            return false;
+            throw new RuleConfigurationException("Could not load ship module config " + path + ": " + ex.getMessage());
         }
     }
 
-    private static void loadDefaults() {
-        MODULES.clear();
-        MODULES.put("afterburner", new ShipModuleDefinition("afterburner", "Afterburner",
-                "Automatically burns on long approaches: much higher speed, sharply reduced turning agility.",
-                ShipModuleKind.AFTERBURNER, 420, 0, 1.85, 0.22, 0, 0,
-                Set.of("combat_doctrine"), List.of(new Cost(Material.TARGETING_COMPUTER, 1)), new Color(0x62D8FF)));
-        MODULES.put("micro_jump_drive", new ShipModuleDefinition("micro_jump_drive", "Micro Jump Drive",
-                "Automatically jumps toward distant objectives; disabled by hostile tackle.",
-                ShipModuleKind.MICRO_JUMP_DRIVE, 1250, 0, 1, 1, 700, 14,
-                Set.of("battlefleet_engineering"), List.of(new Cost(Material.TARGETING_COMPUTER, 2),
-                new Cost(Material.LANCE_FOCUSING_ARRAY, 1)), new Color(0x9BEAFF)));
-        MODULES.put("warp_scrambler", new ShipModuleDefinition("warp_scrambler", "Jump Scrambler",
-                "Tackles the targeted enemy ship in close range, shutting down afterburners, micro jumps, and wormhole escape.",
-                ShipModuleKind.TACKLE, 0, 360, 1, 1, 0, 0,
-                Set.of("combat_doctrine"), List.of(new Cost(Material.TARGETING_COMPUTER, 1),
-                new Cost(Material.POINT_DEFENSE_LASER_ASSEMBLY, 1)), new Color(0xFF7E48)));
+    private static void validateDefinition(ShipModuleDefinition module) {
+        if (module.kind() == ShipModuleKind.AFTERBURNER) {
+            if (module.activationDistance() <= 0 || module.speedMultiplier() <= 1 || module.agilityMultiplier() >= 1) {
+                throw new RuleConfigurationException("Afterburner module " + module.id() + " has invalid propulsion values.");
+            }
+        } else if (module.kind() == ShipModuleKind.MICRO_JUMP_DRIVE) {
+            if (module.activationDistance() <= 0 || module.jumpDistance() <= 0 || module.cooldownSeconds() <= 0) {
+                throw new RuleConfigurationException("Micro jump module " + module.id() + " has invalid jump values.");
+            }
+        } else if (module.kind() == ShipModuleKind.TACKLE && module.range() <= 0) {
+            throw new RuleConfigurationException("Tackle module " + module.id() + " must configure a positive range.");
+        }
+    }
+
+    private static Path configuredModulePath() {
+        Path manifest = Path.of("config/starchem.json");
+        if (!Files.isRegularFile(manifest)) return Path.of("config/modules.json");
+        try {
+            Map<String,Object> root = ServerSaveStore.object(MiniJson.parse(Files.readString(manifest)));
+            Map<String,Object> files = ServerSaveStore.object(root.get("files"));
+            return Path.of(ServerSaveStore.string(files, "modules", "config/modules.json"));
+        } catch (Exception ex) {
+            throw new RuleConfigurationException("Could not resolve modules file from " + manifest + ": " + ex.getMessage());
+        }
+    }
+
+    private static String requiredString(Map<String,Object> row, String key, String moduleId) {
+        String value = ServerSaveStore.string(row, key, "").trim();
+        if (value.isBlank()) throw new RuleConfigurationException("Missing " + key + " for ship module " + moduleId);
+        return value;
+    }
+
+    private static int strictInteger(Object value, String label) {
+        if (!(value instanceof Number number)) throw new RuleConfigurationException("Missing or invalid " + label + ".");
+        double raw = number.doubleValue();
+        int result = number.intValue();
+        if (!Double.isFinite(raw) || Math.abs(raw - result) > 0.000001) {
+            throw new RuleConfigurationException("Expected an integer for " + label + ".");
+        }
+        return result;
     }
 
     private static List<String> normalized(List<String> values) {
@@ -347,19 +433,20 @@ final class ShipModuleRules {
         return List.copyOf(out);
     }
 
-    private static String title(String value) {
-        StringBuilder out = new StringBuilder();
-        for (String word : value.split("[_-]")) {
-            if (word.isBlank()) continue;
-            if (!out.isEmpty()) out.append(' ');
-            out.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1));
-        }
-        return out.isEmpty() ? "Module" : out.toString();
-    }
-
     private static Color color(String value) {
         try { return Color.decode(value); }
-        catch (RuntimeException ex) { return new Color(0x72D8FF); }
+        catch (RuntimeException ex) { throw new RuleConfigurationException("Invalid ship module color: " + value); }
+    }
+
+    private static String whole(double value) {
+        if (!Double.isFinite(value)) return "0";
+        return Long.toString(Math.round(value));
+    }
+
+    private static String decimal(double value) {
+        if (!Double.isFinite(value)) return "0";
+        if (Math.abs(value - Math.rint(value)) < 0.001) return Long.toString(Math.round(value));
+        return String.format(Locale.ROOT, "%.2f", value).replaceAll("0+$", "").replaceAll("\\.$", "");
     }
 
     record Validation(boolean valid, String reason) {
@@ -372,10 +459,27 @@ final class ShipModuleRules {
 
 enum ShipModuleKind { AFTERBURNER, MICRO_JUMP_DRIVE, TACKLE }
 
+enum ShipModuleVisualStyle { THRUSTER, JUMP_CORE, DISRUPTOR }
+
 record ShipModuleDefinition(String id, String displayName, String description, ShipModuleKind kind,
                             double activationDistance, double range, double speedMultiplier,
                             double agilityMultiplier, double jumpDistance, double cooldownSeconds,
-                            Set<String> requiredResearch, List<Cost> installationCost, Color color) {
+                            Set<String> requiredResearch, List<Cost> installationCost,
+                            int seed, ShipModuleVisualStyle visualStyle, Color color) {
+    ShipModuleDefinition(String id, String displayName, String description, ShipModuleKind kind,
+                         double activationDistance, double range, double speedMultiplier,
+                         double agilityMultiplier, double jumpDistance, double cooldownSeconds,
+                         Set<String> requiredResearch, List<Cost> installationCost, Color color) {
+        this(id, displayName, description, kind, activationDistance, range, speedMultiplier,
+                agilityMultiplier, jumpDistance, cooldownSeconds, requiredResearch, installationCost,
+                id == null ? 1 : (id.hashCode() == 0 ? 1 : id.hashCode()),
+                switch (kind == null ? ShipModuleKind.MICRO_JUMP_DRIVE : kind) {
+                    case AFTERBURNER -> ShipModuleVisualStyle.THRUSTER;
+                    case MICRO_JUMP_DRIVE -> ShipModuleVisualStyle.JUMP_CORE;
+                    case TACKLE -> ShipModuleVisualStyle.DISRUPTOR;
+                }, color);
+    }
+
     ShipModuleDefinition {
         id = id == null ? "" : id.trim();
         displayName = displayName == null || displayName.isBlank() ? id : displayName.trim();
@@ -388,6 +492,8 @@ record ShipModuleDefinition(String id, String displayName, String description, S
         cooldownSeconds = Math.max(0, cooldownSeconds);
         requiredResearch = requiredResearch == null ? Set.of() : Set.copyOf(requiredResearch);
         installationCost = installationCost == null ? List.of() : List.copyOf(installationCost);
+        if (seed == 0) throw new IllegalArgumentException("Module seed must be non-zero.");
+        visualStyle = visualStyle == null ? ShipModuleVisualStyle.JUMP_CORE : visualStyle;
         color = color == null ? new Color(0x72D8FF) : color;
     }
 }
