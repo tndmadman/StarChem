@@ -1,0 +1,145 @@
+                module == null ? MUTED : module.color());
+        text.setHorizontalAlignment(SwingConstants.CENTER);
+        tile.add(text, BorderLayout.SOUTH);
+        return tile;
+    }
+
+    private static void refreshLiveModuleRack(JPanel rack, List<String> moduleIds, int slotCount) {
+        rack.removeAll();
+        rack.add(label("LIVE MODULE RACK", 8, Font.BOLD, BORDER));
+        rack.add(new JSeparator(SwingConstants.VERTICAL));
+        JPanel strip = moduleStrip(moduleIds, slotCount, 42, true);
+        strip.setBackground(PANEL_ALT);
+        rack.add(strip);
+        for (ShipModuleDefinition module : ShipModuleRules.modules(moduleIds)) {
+            rack.add(label(ShipModuleRules.effectSummary(module), 9, Font.PLAIN, MUTED));
+        }
+        rack.revalidate();
+        rack.repaint();
+    }
+
+    private static JPanel verticalList() {
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setBackground(BACKGROUND);
+        panel.setBorder(new EmptyBorder(5, 5, 5, 5));
+        return panel;
+    }
+
+    private static JScrollPane scroll(JComponent content) {
+        JScrollPane scroll = new JScrollPane(content);
+        scroll.setBorder(BorderFactory.createLineBorder(BORDER_SOFT));
+        scroll.getViewport().setBackground(BACKGROUND);
+        scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
+        scroll.getVerticalScrollBar().setUnitIncrement(28);
+        scroll.getVerticalScrollBar().setPreferredSize(new Dimension(15, 0));
+        return scroll;
+    }
+
+    private static JPanel statusPanel(String text, Color color) {
+        JPanel panel = panel(new BorderLayout(), FIELD);
+        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 60));
+        panel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(10, 11, 10, 11)));
+        panel.add(label(text, 10, Font.BOLD, color));
+        return panel;
+    }
+
+    private static JPanel panel(LayoutManager layout, Color color) {
+        JPanel panel = new JPanel(layout);
+        panel.setBackground(color);
+        return panel;
+    }
+
+    private static JLabel label(String text, int size, int style, Color color) {
+        JLabel label = new JLabel(text == null ? "" : text);
+        label.setForeground(color);
+        label.setFont(label.getFont().deriveFont(style, (float)size));
+        return label;
+    }
+
+    private static JButton button(String text) {
+        JButton button = new JButton(text);
+        button.setFocusable(false);
+        button.setForeground(TEXT);
+        button.setBackground(FIELD);
+        button.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(5, 9, 5, 9)));
+        button.setMargin(new Insets(0, 0, 0, 0));
+        button.setOpaque(true);
+        button.setContentAreaFilled(true);
+        button.addChangeListener(event -> button.setBackground(
+                button.getModel().isRollover() || button.getModel().isPressed() ? FIELD_HOVER : FIELD));
+        return button;
+    }
+
+    private static JButton tabButton(String text, boolean selected) {
+        JButton button = button(text);
+        button.setFont(button.getFont().deriveFont(Font.BOLD, 11f));
+        button.setForeground(selected ? Color.WHITE : MUTED);
+        button.setBackground(selected ? new Color(17, 65, 91) : FIELD);
+        button.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(selected ? BORDER : BORDER_SOFT, selected ? 2 : 1),
+                new EmptyBorder(7, 10, 7, 10)));
+        return button;
+    }
+
+    private static void styleField(JTextField field) {
+        field.setForeground(TEXT);
+        field.setCaretColor(TEXT);
+        field.setBackground(FIELD);
+        field.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER_SOFT), new EmptyBorder(5, 7, 5, 7)));
+    }
+
+    private static void styleCombo(JComboBox<?> combo) {
+        combo.setForeground(TEXT);
+        combo.setBackground(FIELD);
+        combo.setFocusable(false);
+        combo.setBorder(BorderFactory.createLineBorder(BORDER_SOFT));
+        combo.setRenderer(new DefaultListCellRenderer() {
+            @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                                    boolean selected, boolean focus) {
+                JLabel label = (JLabel)super.getListCellRendererComponent(list, value, index, selected, focus);
+                label.setForeground(TEXT);
+                label.setBackground(selected ? FIELD_HOVER : FIELD);
+                label.setBorder(new EmptyBorder(4, 7, 4, 7));
+                return label;
+            }
+        });
+    }
+
+    private static void styleModuleCombo(JComboBox<ModuleChoice> combo) {
+        combo.setForeground(TEXT);
+        combo.setBackground(FIELD);
+        combo.setFocusable(false);
+        combo.setBorder(BorderFactory.createLineBorder(BORDER_SOFT));
+        combo.setMaximumRowCount(8);
+        combo.setRenderer(new ModuleChoiceRenderer());
+        combo.setPreferredSize(new Dimension(280, 58));
+    }
+
+    private static GridBagConstraints constraints() {
+        GridBagConstraints c = new GridBagConstraints();
+        c.gridx = 0;
+        c.gridy = 0;
+        c.weightx = 0;
+        c.insets = new Insets(0, 0, 0, 7);
+        c.anchor = GridBagConstraints.WEST;
+        return c;
+    }
+
+    private static String whole(double value) {
+        if (!Double.isFinite(value)) return "0";
+        if (Math.abs(value - Math.rint(value)) < 0.001) return Long.toString(Math.round(value));
+        return String.format(Locale.ROOT, "%.1f", value);
+    }
+
+    record FittingOption(Base base, boolean current, boolean ready, String reason) { }
+    record ActiveRefit(Base base, ProductionJob job) { }
+    private record WeaponChoice(String id, String label) { @Override public String toString() { return label; } }
+    private record ModuleChoice(String id, ShipModuleDefinition module) {
+        ModuleChoice(ShipModuleDefinition module) { this(module == null ? "" : module.id(), module); }
+        static ModuleChoice empty() { return new ModuleChoice("", null); }
