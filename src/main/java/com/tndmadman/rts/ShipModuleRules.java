@@ -137,31 +137,45 @@ final class ShipModuleRules {
 
     static void update(World world, Unit unit, double dt) {
         if (world == null || unit == null || !Double.isFinite(dt) || dt <= 0) return;
-        unit.microJumpCooldown = Math.max(0, unit.microJumpCooldown - dt);
+        if (unit.microJumpCooldown > 0) unit.microJumpCooldown = Math.max(0, unit.microJumpCooldown - dt);
         unit.microJumpFlashTimer = Math.max(0, unit.microJumpFlashTimer - dt);
         unit.afterburnerActive = false;
 
         Objective objective = objective(world, unit);
-        if (!objective.valid()) return;
+        if (!objective.valid()) {
+            if (unit.microJumpCooldown < 0) unit.microJumpCooldown = 0;
+            return;
+        }
         double dx = objective.x() - unit.x;
         double dy = objective.y() - unit.y;
         double distance = Math.hypot(dx, dy);
-        if (!Double.isFinite(distance) || distance <= 2) return;
+        if (!Double.isFinite(distance) || distance <= 2) {
+            if (unit.microJumpCooldown < 0) unit.microJumpCooldown = 0;
+            return;
+        }
 
         boolean scrambled = tackled(world, unit);
         ShipModuleDefinition jump = first(unit, ShipModuleKind.MICRO_JUMP_DRIVE);
-        if (!scrambled && jump != null && unit.microJumpCooldown <= 0
-                && distance >= jump.activationDistance()) {
-            double amount = Math.min(jump.jumpDistance(), Math.max(0, distance - 180));
-            if (amount > 1) {
-                unit.heading = Math.atan2(dy, dx);
-                unit.x = Calc.clamp(unit.x + dx / distance * amount, 0, world.width);
-                unit.y = Calc.clamp(unit.y + dy / distance * amount, 0, world.height);
-                unit.microJumpCooldown = jump.cooldownSeconds();
-                unit.microJumpFlashTimer = 0.55;
-                dx = objective.x() - unit.x;
-                dy = objective.y() - unit.y;
-                distance = Math.hypot(dx, dy);
+        if (scrambled || jump == null || distance < jump.activationDistance()) {
+            if (unit.microJumpCooldown < 0) unit.microJumpCooldown = 0;
+        } else if (unit.microJumpCooldown <= 0) {
+            if (unit.microJumpCooldown == 0) {
+                // Negative cooldown is an internal one-tick spool marker. Tackle or a lost objective cancels it.
+                unit.microJumpCooldown = -1;
+            } else {
+                double amount = Math.min(jump.jumpDistance(), Math.max(0, distance - 180));
+                if (amount > 1) {
+                    unit.heading = Math.atan2(dy, dx);
+                    unit.x = Calc.clamp(unit.x + dx / distance * amount, 0, world.width);
+                    unit.y = Calc.clamp(unit.y + dy / distance * amount, 0, world.height);
+                    unit.microJumpCooldown = jump.cooldownSeconds();
+                    unit.microJumpFlashTimer = 0.55;
+                    dx = objective.x() - unit.x;
+                    dy = objective.y() - unit.y;
+                    distance = Math.hypot(dx, dy);
+                } else {
+                    unit.microJumpCooldown = 0;
+                }
             }
         }
 
