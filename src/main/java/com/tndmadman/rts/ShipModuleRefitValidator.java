@@ -16,57 +16,88 @@ public final class ShipModuleRefitValidator {
 
         Base yard = new Base(playerId + ":B1", playerId, "shipyard", 1000, 1000);
         world.bases.put(yard.id, yard);
-        Unit ship = new Unit(playerId, 1, "destroyer", 1050, 1000);
+        Unit ship = new Unit(playerId, 1, "prospector", 1050, 1000);
         world.units.put(ship.key(), ship);
 
-        ShipFitSpec mobilitySpec = new ShipFitSpec("destroyer", List.of("light_railgun"),
-                List.of("afterburner", "micro_jump_drive"));
-        ShipLoadoutDefinition mobility = refit(world, playerId, yard, ship, "Mobility Refit", mobilitySpec);
-        require(mobility.id().equals(ship.loadoutId), "completed refit did not install the runtime fit ID");
-        require(ShipModuleRules.moduleIds(ship).equals(mobilitySpec.moduleIds()),
-                "completed refit did not install the authored module layout");
-        require(ShipModuleRules.has(ship, ShipModuleKind.AFTERBURNER),
-                "completed refit did not expose the afterburner effect");
-        require(ShipModuleRules.has(ship, ShipModuleKind.MICRO_JUMP_DRIVE),
-                "completed refit did not expose the micro jump effect");
+        validateAfterburnerRefit(world, playerId, yard, ship);
+        ShipLoadoutDefinition jumpFit = validateMicroJumpRefit(world, playerId, yard, ship);
+        validateAuthoritativeJumpCorrection(ship, jumpFit);
+        validateScramblerRefit(world, playerId, yard, ship);
+
+        System.out.println("StarChem module refit and runtime-effect validation passed.");
+    }
+
+    private static void validateAfterburnerRefit(World world, String playerId, Base yard, Unit ship) {
+        ShipFitSpec spec = new ShipFitSpec("prospector", List.of(), List.of("afterburner"));
+        ShipLoadoutDefinition fit = refit(world, playerId, yard, ship, "Prospector Afterburner", spec);
+        require(fit.id().equals(ship.loadoutId), "completed refit did not install the afterburner fit ID");
+        require(ShipModuleRules.moduleIds(ship).equals(spec.moduleIds()),
+                "completed refit did not install the authored afterburner layout");
 
         ship.moveTo(ship.x + 1800, ship.y);
-        double startX = ship.x;
         ShipModuleRules.update(world, ship, 0.1);
         require(ship.afterburnerActive, "refitted afterburner did not activate on a distant move");
         require(ShipModuleRules.speedMultiplier(ship) > 1.0,
                 "refitted afterburner did not increase movement speed");
+        require(ShipModuleRules.agilityMultiplier(ship) < 1.0,
+                "refitted afterburner did not reduce turning agility");
+    }
+
+    private static ShipLoadoutDefinition validateMicroJumpRefit(World world, String playerId,
+                                                                 Base yard, Unit ship) {
+        resetAtYard(yard, ship);
+        ShipFitSpec spec = new ShipFitSpec("prospector", List.of(), List.of("micro_jump_drive"));
+        ShipLoadoutDefinition fit = refit(world, playerId, yard, ship, "Prospector Jump Drive", spec);
+        require(fit.id().equals(ship.loadoutId), "completed refit did not install the jump fit ID");
+        require(ShipModuleRules.moduleIds(ship).equals(spec.moduleIds()),
+                "completed refit retained stale modules from the afterburner fit");
+        require(ShipModuleRules.has(ship, ShipModuleKind.MICRO_JUMP_DRIVE),
+                "completed refit did not expose the micro jump effect");
+
+        ship.moveTo(ship.x + 4000, ship.y);
+        double startX = ship.x;
+        double initialDistance = ship.targetX - ship.x;
         ShipModuleRules.update(world, ship, 0.1);
-        require(ship.x > startX + 400, "refitted micro jump drive did not move the ship");
-        require(ship.microJumpCooldown > 0 && ship.microJumpFlashTimer > 0,
-                "micro jump did not enter cooldown and visual feedback state");
+        require(ship.microJumpCooldown < 0,
+                "micro jump drive did not enter its visible charge state");
+        require(Math.abs(ship.x - startX) < 0.001,
+                "micro jump moved before the charge completed");
 
-        validateAuthoritativeJumpCorrection(world, ship, mobility);
+        ShipModuleRules.update(world, ship, 0.8);
+        require(ShipModuleRules.microJumpChargeProgress(ship) > 0.35,
+                "micro jump charge did not advance over time");
+        require(Math.abs(ship.x - startX) < 0.001,
+                "micro jump moved during the charge-up period");
 
-        ship.x = yard.x + 40;
-        ship.y = yard.y;
-        ship.targetX = ship.x;
-        ship.targetY = ship.y;
-        ship.task = UnitTask.IDLE;
-        ship.microJumpCooldown = 0;
-        ship.microJumpFlashTimer = 0;
-        ship.afterburnerActive = false;
+        int guard = 0;
+        while (ship.microJumpCooldown < 0 && guard++ < 30) ShipModuleRules.update(world, ship, 0.1);
+        require(ship.microJumpCooldown > 0, "micro jump charge completed without entering cooldown");
+        double remaining = ship.targetX - ship.x;
+        require(Math.abs(remaining - initialDistance * 0.05) < 2.0,
+                "micro jump did not cover 95 percent of the remaining route");
+        require(ship.microJumpFlashTimer > 0,
+                "micro jump did not enter visual feedback state");
+        require(ShipModuleRules.jumpVisualActiveForTest(ship),
+                "micro jump did not create the source-to-destination tunnel visual");
+        require(ShipModuleRules.effectSummary(ShipModuleRules.find("micro_jump_drive")).contains("95%"),
+                "micro jump UI summary does not advertise the percentage jump distance");
+        return fit;
+    }
 
-        ShipFitSpec tackleSpec = new ShipFitSpec("destroyer", List.of("light_railgun"),
-                List.of("warp_scrambler"));
-        ShipLoadoutDefinition tackle = refit(world, playerId, yard, ship, "Tackle Refit", tackleSpec);
-        require(tackle.id().equals(ship.loadoutId), "second refit did not install the tackle fit");
-        require(ShipModuleRules.moduleIds(ship).equals(tackleSpec.moduleIds()),
-                "second refit retained stale modules from the previous fit");
+    private static void validateScramblerRefit(World world, String playerId, Base yard, Unit ship) {
+        resetAtYard(yard, ship);
+        ShipFitSpec spec = new ShipFitSpec("prospector", List.of(), List.of("warp_scrambler"));
+        ShipLoadoutDefinition fit = refit(world, playerId, yard, ship, "Prospector Scrambler", spec);
+        require(fit.id().equals(ship.loadoutId), "third refit did not install the tackle fit");
+        require(ShipModuleRules.moduleIds(ship).equals(spec.moduleIds()),
+                "third refit retained stale modules from the jump fit");
 
-        Unit enemy = new Unit("MODULE_TARGET", 1, "destroyer", ship.x + 120, ship.y);
+        Unit enemy = new Unit("MODULE_TARGET", 1, "prospector", ship.x + 120, ship.y);
         world.units.put(enemy.key(), enemy);
         ship.attackTarget = CombatTarget.unit(enemy);
         ship.task = UnitTask.ATTACK;
         require(ShipModuleRules.tackled(world, enemy),
                 "refitted jump scrambler did not suppress its targeted enemy");
-
-        System.out.println("StarChem module refit and runtime-effect validation passed.");
     }
 
     private static ShipLoadoutDefinition refit(World world, String playerId, Base yard, Unit ship,
@@ -87,20 +118,34 @@ public final class ShipModuleRefitValidator {
         return installed;
     }
 
-    private static void validateAuthoritativeJumpCorrection(World world, Unit source,
-                                                            ShipLoadoutDefinition mobility) {
+    private static void resetAtYard(Base yard, Unit ship) {
+        ship.x = yard.x + 40;
+        ship.y = yard.y;
+        ship.targetX = ship.x;
+        ship.targetY = ship.y;
+        ship.task = UnitTask.IDLE;
+        ship.attackTarget = "";
+        ship.microJumpCooldown = 0;
+        ship.microJumpFlashTimer = 0;
+        ship.afterburnerActive = false;
+    }
+
+    private static void validateAuthoritativeJumpCorrection(Unit source,
+                                                            ShipLoadoutDefinition jumpFit) {
         Unit replica = new Unit(source.playerId, 99, source.shipTypeId, 100, 100);
-        replica.loadoutId = mobility.id();
+        replica.loadoutId = jumpFit.id();
         replica.moveTo(1900, 100);
         UnitState state = new UnitState(replica.playerId, replica.unitId, replica.shipTypeId,
-                780, 100, 1900, 100, 0, UnitTask.MOVE.name(), -1, "", "",
+                1810, 100, 1900, 100, 0, UnitTask.MOVE.name(), -1, "", "",
                 replica.hp, replica.shield, "", 0, UnitOrderType.NONE.name(),
-                0, 0, 0, 0, 0, "", 0, mobility.id());
+                0, 0, 0, 0, 0, "", 0, jumpFit.id());
         SnapshotSmoother.apply(replica, state);
         require(Math.abs(replica.x - state.x()) < 0.001,
                 "authoritative micro jump was blended instead of snapped on the client");
         require(replica.microJumpFlashTimer > 0 && replica.microJumpCooldown > 0,
                 "authoritative micro jump did not synchronize client feedback and cooldown");
+        require(ShipModuleRules.jumpVisualActiveForTest(replica),
+                "authoritative micro jump did not recreate the A-to-B tunnel on the client");
     }
 
     private static void require(boolean condition, String message) {
