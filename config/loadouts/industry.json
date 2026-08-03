@@ -1,7 +1,53 @@
 {
   "shipLoadouts": {
-    "hauler": ["point_defense_laser"],
-    "freighter": ["point_defense_laser", "point_defense_laser"],
-    "salvager": []
+    "prospector": {
+      "displayName": "Prospector",
+      "hullId": "prospector",
+      "default": true,
+      "weapons": [],
+      "refitTimeSeconds": 1.5
+    },
+    "station_builder": {
+      "displayName": "Deployer",
+      "hullId": "station_builder",
+      "default": true,
+      "weapons": [],
+      "refitTimeSeconds": 1.5
+    },
+    "hauler": {
+      "displayName": "Hauler",
+      "hullId": "hauler",
+      "default": true,
+      "weapons": ["point_defense_laser"],
+      "refitTimeSeconds": 1.5
+    },
+    "deep_miner": {
+      "displayName": "Deep Miner",
+      "hullId": "deep_miner",
+      "default": true,
+      "weapons": [],
+      "refitTimeSeconds": 1.5
+    },
+    "gas_harvester": {
+      "displayName": "Gas Harvester",
+      "hullId": "gas_harvester",
+      "default": true,
+      "weapons": [],
+      "refitTimeSeconds": 1.5
+    },
+    "freighter": {
+      "displayName": "Freighter",
+      "hullId": "freighter",
+      "default": true,
+      "weapons": ["point_defense_laser", "point_defense_laser"],
+      "refitTimeSeconds": 1.5
+    },
+    "salvager": {
+      "displayName": "Salvager",
+      "hullId": "salvager",
+      "default": true,
+      "weapons": [],
+      "refitTimeSeconds": 1.5
+    }
   }
 }
