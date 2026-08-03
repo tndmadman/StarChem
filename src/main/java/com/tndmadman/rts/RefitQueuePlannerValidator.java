@@ -75,7 +75,8 @@ public final class RefitQueuePlannerValidator {
                 "station hangars were not charged for their assigned refits");
 
         validateBusyStationAvoidance(spec);
-        System.out.println("StarChem distributed refit queue validation passed.");
+        FitBootstrapValidator.validateOrThrow();
+        System.out.println("StarChem distributed refit queue and custom-fit bootstrap validation passed.");
     }
 
     private static void validateBusyStationAvoidance(ShipFitSpec spec) {
