@@ -24,7 +24,9 @@
         "manufacturing"
       ],
       "role": "production",
-      "nonProduction": false
+      "nonProduction": false,
+      "canRefitShips": true,
+      "refitRange": 118
     },
     "shipyard": {
       "displayName": "Shipyard",
