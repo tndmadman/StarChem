@@ -42,11 +42,22 @@ final class FittingAccessController {
     static void install() {
         if (!INSTALLED.compareAndSet(false, true)) return;
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(event -> {
-            if (event.getID() != KeyEvent.KEY_PRESSED
-                    || event.getKeyCode() != KeyEvent.VK_L
+            if (event.getID() != KeyEvent.KEY_PRESSED) return false;
+            if (ShipFitStudioWindow.active()) {
+                if (event.getKeyCode() == KeyEvent.VK_ESCAPE) {
+                    STUDIO.close();
+                    event.consume();
+                    return true;
+                }
+                if (!(event.getSource() instanceof JTextComponent) && blockedGameHotkey(event.getKeyCode())) {
+                    event.consume();
+                    return true;
+                }
+                return false;
+            }
+            if (event.getKeyCode() != KeyEvent.VK_L
                     || event.isControlDown() || event.isAltDown() || event.isMetaDown()
-                    || event.getSource() instanceof JTextComponent
-                    || ShipFitStudioWindow.active()) return false;
+                    || event.getSource() instanceof JTextComponent) return false;
             GamePanel panel = gamePanelFor(event.getSource());
             if (panel == null || !panel.isShowing() || foreignGlassVisible(panel)) return false;
             event.consume();
@@ -56,6 +67,11 @@ final class FittingAccessController {
         scanTimer = new Timer(350, event -> refreshLaunchers());
         scanTimer.setCoalesce(true);
         scanTimer.start();
+    }
+
+    private static boolean blockedGameHotkey(int keyCode) {
+        return keyCode == KeyEvent.VK_I || keyCode == KeyEvent.VK_L
+                || keyCode >= KeyEvent.VK_F1 && keyCode <= KeyEvent.VK_F12;
     }
 
     private static void refreshLaunchers() {
