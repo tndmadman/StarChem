@@ -57,18 +57,18 @@ public final class RefitQueuePlannerValidator {
             require(active != null, "ship was not reserved in a station refit queue: " + ship.key());
             require(active.base() == outpost || active.base() == shipyard,
                     "ship was assigned to a non-refit station");
-            require(ship.task == UnitTask.MOVE,
-                    "queued ship was not recalled toward its assigned station");
+            require(ship.task == UnitTask.MOVE || ProductionSystem.refitLocked(world, ship.key()),
+                    "queued ship was neither recalling nor docked for refit");
         }
 
         require(!canAffordAnother(outpost, cost) && !canAffordAnother(shipyard, cost),
                 "station hangars were not charged for their assigned refits");
 
-        validateBusyStationAvoidance(loadout, spec);
+        validateBusyStationAvoidance(spec);
         System.out.println("StarChem distributed refit queue validation passed.");
     }
 
-    private static void validateBusyStationAvoidance(ShipLoadoutDefinition ignored, ShipFitSpec spec) {
+    private static void validateBusyStationAvoidance(ShipFitSpec spec) {
         String playerId = "REFIT_BALANCE";
         World world = new World("Refit Balance Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
         PlayerRegistry.activate(world);
