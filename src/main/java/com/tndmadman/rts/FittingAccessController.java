@@ -11,6 +11,7 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.GradientPaint;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
@@ -23,6 +24,7 @@ import java.awt.event.KeyEvent;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.WeakHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -105,6 +107,8 @@ final class FittingAccessController {
             layered.add(button, Integer.valueOf(50));
             BUTTONS.put(panel, button);
         }
+        World world = world(panel);
+        button.updateSelection(selectedContext(world));
         Rectangle bounds = fittingBounds(panel);
         Point position = SwingUtilities.convertPoint(panel, bounds.x, bounds.y, layered);
         button.setBounds(position.x, position.y, bounds.width, bounds.height);
@@ -114,14 +118,23 @@ final class FittingAccessController {
 
     private static void open(GamePanel panel) {
         if (panel == null || !panel.isShowing()) return;
+        World world = world(panel);
+        if (world == null) return;
         try {
-            World world = (World)WORLD.get(panel);
             PeerNetwork network = (PeerNetwork)NETWORK.get(panel);
-            if (world == null) return;
             ShipFittingWindow.closeActive();
             STUDIO.show(panel, world, network, selectedContext(world));
         } catch (IllegalAccessException ex) {
             throw new IllegalStateException("Could not open the fitting studio.", ex);
+        }
+    }
+
+    private static World world(GamePanel panel) {
+        if (panel == null) return null;
+        try {
+            return (World)WORLD.get(panel);
+        } catch (IllegalAccessException ex) {
+            return null;
         }
     }
 
@@ -131,6 +144,33 @@ final class FittingAccessController {
                 .filter(unit -> unit.hp > 0 && PlayerRegistry.isLocal(unit.playerId))
                 .toList();
         return local.size() == 1 ? local.get(0) : null;
+    }
+
+    private static String currentFitName(Unit unit) {
+        if (unit == null) return "";
+        ShipLoadoutDefinition definition = WeaponRules.findLoadout(unit.loadoutId);
+        if (definition != null && unit.shipTypeId.equals(definition.hullId())
+                && definition.displayName() != null && !definition.displayName().isBlank()) {
+            return definition.displayName();
+        }
+        String id = unit.loadoutId == null ? "" : unit.loadoutId.trim();
+        if (id.isBlank()) {
+            ShipLoadoutDefinition fallback = WeaponRules.defaultLoadout(unit.shipTypeId);
+            return fallback == null ? "Default Fit" : fallback.displayName();
+        }
+        if (id.startsWith("custom_")) return "Custom Fit";
+        return readableId(id);
+    }
+
+    private static String readableId(String id) {
+        String[] words = id.split("[_-]");
+        StringBuilder out = new StringBuilder();
+        for (String word : words) {
+            if (word.isBlank()) continue;
+            if (!out.isEmpty()) out.append(' ');
+            out.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1));
+        }
+        return out.isEmpty() ? "Unknown Fit" : out.toString();
     }
 
     private static GamePanel gamePanelFor(Object source) {
@@ -194,20 +234,38 @@ final class FittingAccessController {
     }
 
     private static final class StudioButton extends JButton {
+        private String currentFit = "";
+        private String selectedShip = "";
+
         StudioButton() {
-            super("FIT STUDIO [L]");
             setFocusable(false);
             setForeground(Color.WHITE);
-            setFont(getFont().deriveFont(Font.BOLD, 10.5f));
             setBorder(BorderFactory.createLineBorder(new Color(105, 221, 255), 1));
             setOpaque(false);
             setContentAreaFilled(false);
-            setToolTipText("Open the fitting studio. A selected ship is optional.");
+            updateSelection(null);
+        }
+
+        void updateSelection(Unit unit) {
+            String nextFit = currentFitName(unit);
+            String nextShip = unit == null ? "" : unit.type().name + " #" + unit.unitId;
+            if (nextFit.equals(currentFit) && nextShip.equals(selectedShip)) return;
+            currentFit = nextFit;
+            selectedShip = nextShip;
+            if (unit == null) {
+                setToolTipText("Open the fitting studio. Select one friendly ship to show its current fit here.");
+                getAccessibleContext().setAccessibleName("Fit Studio");
+            } else {
+                setToolTipText(selectedShip + " — Current fit: " + currentFit);
+                getAccessibleContext().setAccessibleName("Fit Studio. " + selectedShip + " current fit " + currentFit);
+            }
+            repaint();
         }
 
         @Override protected void paintComponent(Graphics graphics) {
             Graphics2D g = (Graphics2D)graphics.create();
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
             Color top = getModel().isRollover() || getModel().isPressed()
                     ? new Color(71, 56, 132) : new Color(18, 79, 112);
             Color bottom = getModel().isRollover() || getModel().isPressed()
@@ -216,8 +274,30 @@ final class FittingAccessController {
             g.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 10, 10);
             g.setColor(new Color(196, 111, 255, 170));
             g.drawLine(7, getHeight() - 3, getWidth() - 8, getHeight() - 3);
+
+            g.setColor(Color.WHITE);
+            g.setFont(getFont().deriveFont(Font.BOLD, 9.2f));
+            drawCentered(g, "FIT STUDIO [L]", 10);
+            g.setColor(currentFit.isBlank() ? new Color(163, 197, 215) : new Color(137, 232, 185));
+            g.setFont(getFont().deriveFont(Font.BOLD, 7.8f));
+            String detail = currentFit.isBlank() ? "NO SHIP LINKED" : "FIT // " + currentFit.toUpperCase(Locale.ROOT);
+            drawCentered(g, detail, 21);
             g.dispose();
-            super.paintComponent(graphics);
+        }
+
+        private void drawCentered(Graphics2D g, String text, int baseline) {
+            FontMetrics metrics = g.getFontMetrics();
+            String shown = clipped(metrics, text, Math.max(12, getWidth() - 12));
+            int x = Math.max(5, (getWidth() - metrics.stringWidth(shown)) / 2);
+            g.drawString(shown, x, baseline);
+        }
+
+        private static String clipped(FontMetrics metrics, String text, int available) {
+            if (metrics.stringWidth(text) <= available) return text;
+            String ellipsis = "…";
+            int length = text.length();
+            while (length > 1 && metrics.stringWidth(text.substring(0, length) + ellipsis) > available) length--;
+            return text.substring(0, Math.max(1, length)) + ellipsis;
         }
     }
 }
