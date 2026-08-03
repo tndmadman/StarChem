@@ -44,12 +44,12 @@
     },
     "micro_jump_drive": {
       "displayName": "Micro Jump Drive",
-      "description": "Spools and jumps toward distant movement or attack objectives. Hostile tackle interrupts and prevents activation.",
+      "description": "Charges, then jumps 95% of the remaining route toward distant movement or attack objectives. Hostile tackle interrupts and prevents activation.",
       "kind": "MICRO_JUMP_DRIVE",
       "seed": 52037,
       "visualStyle": "JUMP_CORE",
       "activationDistance": 850,
-      "jumpDistance": 700,
+      "jumpDistance": 0.95,
       "cooldownSeconds": 14,
       "requiresResearch": [
         "battlefleet_engineering"
