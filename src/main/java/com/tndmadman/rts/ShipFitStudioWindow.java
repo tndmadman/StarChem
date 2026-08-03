@@ -3,6 +3,7 @@ package com.tndmadman.rts;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
+import javax.swing.DefaultListCellRenderer;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JComboBox;
@@ -15,7 +16,6 @@ import javax.swing.JSeparator;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.KeyStroke;
-import javax.swing.ListCellRenderer;
 import javax.swing.ScrollPaneConstants;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
@@ -46,8 +46,9 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
-/** Standalone fitting library and class designer. A live ship is optional apply context. */
+/** Standalone visual fitting editor. A live ship is optional apply context. */
 final class ShipFitStudioWindow {
     private static final int WIDTH = 1180;
     private static final int HEIGHT = 790;
@@ -132,8 +133,7 @@ final class ShipFitStudioWindow {
         this.world = world;
         this.network = network;
         this.contextUnitKey = validLocalUnit(selectedUnit) ? selectedUnit.key() : "";
-        this.hullId = selectedUnit != null && validLocalUnit(selectedUnit)
-                ? selectedUnit.shipTypeId : initialHullId();
+        this.hullId = validLocalUnit(selectedUnit) ? selectedUnit.shipTypeId : initialHullId();
         this.selectedTab = 0;
         this.selectedPrivateFitId = "";
         this.notice = contextUnit().isPresent()
@@ -207,9 +207,8 @@ final class ShipFitStudioWindow {
         center.setBorder(new EmptyBorder(0, 10, 0, 10));
         center.add(tabBar(), BorderLayout.NORTH);
         center.add(switch (selectedTab) {
-            case 1 -> gameFitsTab();
-            case 2 -> myFitsTab();
-            case 3 -> serverFitsTab();
+            case 1 -> libraryTab();
+            case 2 -> serverFitsTab();
             default -> editorTab();
         }, BorderLayout.CENTER);
         root.add(center, BorderLayout.CENTER);
@@ -236,20 +235,18 @@ final class ShipFitStudioWindow {
         hullArt.setBorder(BorderFactory.createLineBorder(new Color(76, 155, 198)));
         header.add(hullArt, BorderLayout.WEST);
 
-        JPanel identity = panel(new BorderLayout(9, 4), PANEL);
         JPanel titles = panel(new GridLayout(0, 1, 0, 1), PANEL);
         titles.add(label("STARCHEM // FITTING STUDIO", 11, Font.BOLD, PURPLE));
         titles.add(label(hull == null ? "UNKNOWN HULL" : hull.name.toUpperCase(Locale.ROOT), 22, Font.BOLD, TEXT));
         titles.add(label(contextUnit().isPresent()
-                ? "LIVE SHIP CONTEXT // " + contextUnit().get().unitId + " // apply controls enabled"
-                : "CLASS DESIGN MODE // build fits without selecting or owning a live ship",
+                ? "LIVE SHIP CONTEXT // apply controls enabled"
+                : "CLASS DESIGN MODE // no live ship required",
                 10, Font.BOLD, contextUnit().isPresent() ? GREEN : ORANGE));
-        identity.add(titles, BorderLayout.CENTER);
+        header.add(titles, BorderLayout.CENTER);
 
         JComboBox<HullChoice> hullChoice = new JComboBox<>();
-        List<ShipType> hulls = fittingHulls();
-        for (ShipType candidate : hulls) hullChoice.addItem(new HullChoice(candidate));
-        styleCombo(hullChoice, new HullChoiceRenderer(), 270, 54);
+        for (ShipType candidate : fittingHulls()) hullChoice.addItem(new HullChoice(candidate));
+        styleCombo(hullChoice, new HullRenderer(), 280, 56);
         selectHull(hullChoice, hullId);
         hullChoice.addActionListener(event -> {
             HullChoice choice = (HullChoice)hullChoice.getSelectedItem();
@@ -258,30 +255,31 @@ final class ShipFitStudioWindow {
             selectedPrivateFitId = "";
             loadStartingDraft();
             selectedTab = 0;
-            setNotice("Switched to " + choice.ship.name + " class design.", CYAN, false);
+            setNotice("Switched to " + choice.ship.name + " class design.", CYAN);
             rebuild();
         });
+
+        JPanel right = panel(new BorderLayout(7, 0), PANEL);
         JPanel chooser = panel(new BorderLayout(0, 3), PANEL);
         chooser.add(label("ACTIVE HULL CLASS", 8, Font.BOLD, MUTED), BorderLayout.NORTH);
         chooser.add(hullChoice, BorderLayout.CENTER);
-        identity.add(chooser, BorderLayout.EAST);
-        header.add(identity, BorderLayout.CENTER);
-
+        right.add(chooser, BorderLayout.CENTER);
         JPanel controls = panel(new GridLayout(0, 1, 0, 5), PANEL);
-        JButton refresh = button("SYNC SERVER FITS", BLUE);
-        refresh.addActionListener(event -> submit("REFRESH", "", null, null, null, null));
+        JButton sync = button("SYNC SERVER", BLUE);
+        sync.addActionListener(event -> submit("REFRESH", "", null, null, null, null));
         JButton close = button("CLOSE [ESC]", RED);
         close.addActionListener(event -> close());
-        controls.add(refresh);
+        controls.add(sync);
         controls.add(close);
-        header.add(controls, BorderLayout.EAST);
+        right.add(controls, BorderLayout.EAST);
+        header.add(right, BorderLayout.EAST);
         return header;
     }
 
     private JComponent tabBar() {
-        JPanel bar = panel(new GridLayout(1, 4, 6, 0), BACKGROUND);
-        String[] names = {"FIT EDITOR", "GAME FITS", "MY FITS", "SERVER FITS"};
-        Color[] colors = {CYAN, BLUE, PURPLE, ORANGE};
+        JPanel bar = panel(new GridLayout(1, 3, 6, 0), BACKGROUND);
+        String[] names = {"FIT EDITOR", "GAME + MY FITS", "SERVER FITS"};
+        Color[] colors = {CYAN, PURPLE, ORANGE};
         for (int i = 0; i < names.length; i++) {
             int tab = i;
             JButton button = tabButton(names[i], selectedTab == i, colors[i]);
@@ -307,7 +305,7 @@ final class ShipFitStudioWindow {
         JComboBox<PrivateChoice> savedChoice = new JComboBox<>();
         savedChoice.addItem(new PrivateChoice(null));
         for (PrivateShipFit fit : fits) savedChoice.addItem(new PrivateChoice(fit));
-        styleCombo(savedChoice, new PrivateChoiceRenderer(), 330, 46);
+        styleCombo(savedChoice, new PrivateRenderer(), 330, 46);
         selectPrivate(savedChoice, selectedPrivateFitId);
         JTextField name = new JTextField(draftName, 24);
         styleField(name);
@@ -331,7 +329,7 @@ final class ShipFitStudioWindow {
             JComboBox<WeaponChoice> combo = new JComboBox<>();
             combo.addItem(WeaponChoice.empty());
             for (WeaponType weapon : allowedWeapons) combo.addItem(new WeaponChoice(weapon));
-            styleCombo(combo, new WeaponChoiceRenderer(), 330, 54);
+            styleCombo(combo, new WeaponRenderer(), 330, 54);
             weaponSlots.add(combo);
             weaponRows.add(slotRow("HARDPOINT " + (i + 1), combo, CYAN));
             weaponRows.add(Box.createVerticalStrut(5));
@@ -346,7 +344,7 @@ final class ShipFitStudioWindow {
             JComboBox<ModuleChoice> combo = new JComboBox<>();
             combo.addItem(ModuleChoice.empty());
             for (ShipModuleDefinition module : allowedModules) combo.addItem(new ModuleChoice(module));
-            styleCombo(combo, new ModuleChoiceRenderer(), 330, 58);
+            styleCombo(combo, new ModuleRenderer(), 330, 58);
             moduleSlots.add(combo);
             moduleRows.add(slotRow("UTILITY " + (i + 1), combo, PURPLE));
             moduleRows.add(Box.createVerticalStrut(5));
@@ -396,8 +394,7 @@ final class ShipFitStudioWindow {
             standardButton.setEnabled(!selectedPrivateFitId.isBlank());
             clearStandard.setEnabled(standard != null);
             publish.setEnabled(validation.valid() && named);
-            Base classBase = classRefitBase();
-            applyClass.setEnabled(validation.valid() && named && classBase != null);
+            applyClass.setEnabled(validation.valid() && named && classRefitBase() != null);
             Unit live = contextUnit().orElse(null);
             ShipFittingWindow.FittingOption option = definition == null || live == null
                     ? null : ShipFittingWindow.evaluate(world, live, definition);
@@ -462,62 +459,45 @@ final class ShipFitStudioWindow {
         return editor;
     }
 
-    private JComponent gameFitsTab() {
+    private JComponent libraryTab() {
         JPanel list = verticalPanel(BACKGROUND);
-        List<ShipLoadoutDefinition> variants = new ArrayList<>(WeaponRules.loadoutsForHull(hullId));
-        variants.sort(Comparator.comparing((ShipLoadoutDefinition fit) -> !fit.defaultForHull())
+        List<ShipLoadoutDefinition> builtIns = new ArrayList<>(WeaponRules.loadoutsForHull(hullId));
+        builtIns.sort(Comparator.comparing((ShipLoadoutDefinition fit) -> !fit.defaultForHull())
                 .thenComparing(ShipLoadoutDefinition::displayName));
-        if (variants.isEmpty()) list.add(statusPanel("No authored game fits exist for this hull.", RED));
-        for (ShipLoadoutDefinition fit : variants) {
+        list.add(sectionLabel("GAME FITS", BLUE));
+        for (ShipLoadoutDefinition fit : builtIns) {
             JPanel actions = cardActions();
             JButton edit = button("LOAD IN EDITOR", CYAN);
-            edit.addActionListener(event -> loadInEditor(fit.displayName(), spec(fit)));
-            JButton copy = button("SAVE PRIVATE COPY", PURPLE);
-            copy.addActionListener(event -> savePrivate("", fit.displayName() + " Copy", spec(fit)));
-            JButton apply = button("REFIT SELECTED", GREEN);
-            Unit live = contextUnit().orElse(null);
-            ShipFittingWindow.FittingOption option = live == null ? null : ShipFittingWindow.evaluate(world, live, fit);
-            apply.setEnabled(option != null && option.ready());
-            apply.setToolTipText(option == null ? "No matching live ship selected." : option.reason());
-            apply.addActionListener(event -> applyFit(fit.displayName(), spec(fit), false));
-            actions.add(edit); actions.add(copy); actions.add(apply);
+            edit.addActionListener(event -> loadInEditor(fit.displayName() + " Copy", spec(fit), ""));
+            JButton save = button("SAVE PRIVATE COPY", PURPLE);
+            save.addActionListener(event -> savePrivate("", fit.displayName() + " Copy", spec(fit)));
+            JButton apply = applyButton(fit.displayName(), spec(fit), fit);
+            actions.add(edit); actions.add(save); actions.add(apply);
             list.add(fitCard(fit.displayName(), fit, fit.defaultForHull() ? "GAME DEFAULT" : "GAME FIT", actions));
             list.add(Box.createVerticalStrut(8));
         }
-        return scroll(list);
-    }
 
-    private JComponent myFitsTab() {
-        JPanel list = verticalPanel(BACKGROUND);
+        list.add(sectionLabel("MY FITS", PURPLE));
         String commander = commanderName();
-        List<PrivateShipFit> fits = ClientFitStore.fits(commander, hullId);
+        List<PrivateShipFit> privateFits = ClientFitStore.fits(commander, hullId);
         PrivateShipFit standard = ClientFitStore.standard(commander, hullId);
-        if (fits.isEmpty()) list.add(statusPanel("No private fits saved for this hull. Use FIT EDITOR to create one.", ORANGE));
-        for (PrivateShipFit fit : fits) {
+        if (privateFits.isEmpty()) list.add(statusPanel("No private fits saved for this hull.", ORANGE));
+        for (PrivateShipFit fit : privateFits) {
             ShipLoadoutDefinition definition = PlayerFitRules.definition(fit.name(), fit.spec());
             JPanel actions = cardActions();
             JButton edit = button("EDIT", CYAN);
-            edit.addActionListener(event -> {
-                selectedPrivateFitId = fit.id();
-                loadInEditor(fit.name(), fit.spec());
-            });
-            JButton makeStandard = button(standard != null && standard.id().equals(fit.id())
-                    ? "CLASS STANDARD" : "SET STANDARD", PURPLE);
-            makeStandard.setEnabled(standard == null || !standard.id().equals(fit.id()));
+            edit.addActionListener(event -> loadInEditor(fit.name(), fit.spec(), fit.id()));
+            boolean isStandard = standard != null && standard.id().equals(fit.id());
+            JButton makeStandard = button(isStandard ? "CLASS STANDARD" : "SET STANDARD", PURPLE);
+            makeStandard.setEnabled(!isStandard);
             makeStandard.addActionListener(event -> setClassStandard(fit.id()));
             JButton publish = button("PUBLISH", ORANGE);
             publish.addActionListener(event -> publish(fit.name(), fit.spec()));
-            JButton apply = button("REFIT SELECTED", GREEN);
-            Unit live = contextUnit().orElse(null);
-            ShipFittingWindow.FittingOption option = live == null ? null : ShipFittingWindow.evaluate(world, live, definition);
-            apply.setEnabled(option != null && option.ready());
-            apply.setToolTipText(option == null ? "No matching live ship selected." : option.reason());
-            apply.addActionListener(event -> applyFit(fit.name(), fit.spec(), false));
+            JButton apply = applyButton(fit.name(), fit.spec(), definition);
             JButton delete = button("DELETE", RED);
             delete.addActionListener(event -> deletePrivate(fit.id()));
             actions.add(edit); actions.add(makeStandard); actions.add(publish); actions.add(apply); actions.add(delete);
-            String badge = standard != null && standard.id().equals(fit.id()) ? "PRIVATE // CLASS STANDARD" : "PRIVATE";
-            list.add(fitCard(fit.name(), definition, badge, actions));
+            list.add(fitCard(fit.name(), definition, isStandard ? "PRIVATE // CLASS STANDARD" : "PRIVATE", actions));
             list.add(Box.createVerticalStrut(8));
         }
         return scroll(list);
@@ -542,23 +522,16 @@ final class ShipFitStudioWindow {
             ShipLoadoutDefinition definition = PlayerFitRules.definition(fit.name(), fit.spec());
             JPanel actions = cardActions();
             JButton edit = button("LOAD IN EDITOR", CYAN);
-            edit.addActionListener(event -> loadInEditor(fit.name() + " Copy", fit.spec()));
+            edit.addActionListener(event -> loadInEditor(fit.name() + " Copy", fit.spec(), ""));
             JButton copy = button("SAVE PRIVATE COPY", PURPLE);
             copy.addActionListener(event -> {
                 try {
                     PrivateShipFit saved = ClientFitStore.importPublished(commanderName(), fit);
-                    selectedPrivateFitId = saved.id();
-                    setNotice("Imported " + fit.name() + " into your private library.", GREEN, false);
-                    selectedTab = 2;
-                    rebuild();
-                } catch (RuntimeException ex) { setNotice(ex.getMessage(), RED, false); }
+                    setNotice("Imported " + fit.name() + " into your private library.", GREEN);
+                    loadInEditor(saved.name(), saved.spec(), saved.id());
+                } catch (RuntimeException ex) { setNotice(ex.getMessage(), RED); }
             });
-            JButton apply = button("REFIT SELECTED", GREEN);
-            Unit live = contextUnit().orElse(null);
-            ShipFittingWindow.FittingOption option = live == null ? null : ShipFittingWindow.evaluate(world, live, definition);
-            apply.setEnabled(option != null && option.ready());
-            apply.setToolTipText(option == null ? "No matching live ship selected." : option.reason());
-            apply.addActionListener(event -> applyFit(fit.name(), fit.spec(), false));
+            JButton apply = applyButton(fit.name(), fit.spec(), definition);
             actions.add(edit); actions.add(copy); actions.add(apply);
             if (PlayerRegistry.localId().equals(fit.ownerPlayerId())) {
                 JButton remove = button("UNPUBLISH", RED);
@@ -570,6 +543,16 @@ final class ShipFitStudioWindow {
         }
         root.add(scroll(list), BorderLayout.CENTER);
         return root;
+    }
+
+    private JButton applyButton(String name, ShipFitSpec fitSpec, ShipLoadoutDefinition definition) {
+        JButton apply = button("REFIT SELECTED", GREEN);
+        Unit live = contextUnit().orElse(null);
+        ShipFittingWindow.FittingOption option = live == null ? null : ShipFittingWindow.evaluate(world, live, definition);
+        apply.setEnabled(option != null && option.ready());
+        apply.setToolTipText(option == null ? "No matching live ship selected." : option.reason());
+        apply.addActionListener(event -> applyFit(name, fitSpec, false));
+        return apply;
     }
 
     private JPanel fitCard(String title, ShipLoadoutDefinition fit, String badge, JComponent actions) {
@@ -615,7 +598,7 @@ final class ShipFitStudioWindow {
             rack.add(icon);
         }
         for (String moduleId : spec.moduleIds()) {
-            ShipModuleDefinition module = ShipModuleRules.module(moduleId);
+            ShipModuleDefinition module = ShipModuleRules.find(moduleId);
             JLabel icon = new JLabel(module == null ? ShipModuleVisuals.emptyIcon(48) : ShipModuleVisuals.icon(module, 48));
             icon.setToolTipText(module == null ? moduleId : module.displayName() + " // seed " + module.seed());
             rack.add(icon);
@@ -647,12 +630,12 @@ final class ShipFitStudioWindow {
         return strip;
     }
 
-    private void loadInEditor(String name, ShipFitSpec spec) {
-        selectedPrivateFitId = "";
+    private void loadInEditor(String name, ShipFitSpec spec, String privateId) {
+        selectedPrivateFitId = privateId == null ? "" : privateId;
         draftName = name == null ? "" : name;
         draftSpec = spec == null ? new ShipFitSpec(hullId, List.of(), List.of()) : spec;
         selectedTab = 0;
-        setNotice("Loaded fit into the editor.", CYAN, false);
+        setNotice("Loaded fit into the editor.", CYAN);
         rebuild();
     }
 
@@ -662,67 +645,67 @@ final class ShipFitStudioWindow {
             selectedPrivateFitId = saved.id();
             draftName = saved.name();
             draftSpec = saved.spec();
-            setNotice(existingId == null || existingId.isBlank() ? "Private fit saved." : "Private fit updated.", GREEN, false);
+            setNotice(existingId == null || existingId.isBlank() ? "Private fit saved." : "Private fit updated.", GREEN);
             rebuild();
-        } catch (RuntimeException ex) { setNotice(ex.getMessage(), RED, false); }
+        } catch (RuntimeException ex) { setNotice(ex.getMessage(), RED); }
     }
 
     private void deletePrivate(String id) {
         try {
             if (id == null || id.isBlank() || !ClientFitStore.delete(commanderName(), id)) {
-                setNotice("Select a saved private fit first.", RED, false);
+                setNotice("Select a saved private fit first.", RED);
                 return;
             }
             if (id.equals(selectedPrivateFitId)) selectedPrivateFitId = "";
             loadStartingDraft();
-            setNotice("Private fit deleted.", GREEN, false);
+            setNotice("Private fit deleted.", GREEN);
             rebuild();
-        } catch (RuntimeException ex) { setNotice(ex.getMessage(), RED, false); }
+        } catch (RuntimeException ex) { setNotice(ex.getMessage(), RED); }
     }
 
     private void setClassStandard(String id) {
         try {
             ClientFitStore.setStandard(commanderName(), hullId, id == null ? "" : id);
-            setNotice(id == null || id.isBlank() ? "Class standard cleared." : "Class standard updated.", GREEN, false);
+            setNotice(id == null || id.isBlank() ? "Class standard cleared." : "Class standard updated.", GREEN);
             rebuild();
-        } catch (RuntimeException ex) { setNotice(ex.getMessage(), RED, false); }
+        } catch (RuntimeException ex) { setNotice(ex.getMessage(), RED); }
     }
 
     private void publish(String name, ShipFitSpec spec) {
         PlayerFitRules.Validation validation = PlayerFitRules.validate(spec);
-        if (!validation.valid()) { setNotice(validation.reason(), RED, false); return; }
-        if (PlayerFitRules.cleanName(name).isBlank()) { setNotice("Fit name is required before publishing.", RED, false); return; }
+        if (!validation.valid()) { setNotice(validation.reason(), RED); return; }
+        if (PlayerFitRules.cleanName(name).isBlank()) { setNotice("Fit name is required before publishing.", RED); return; }
         submit("PUBLISH", name, spec, null, null, null);
     }
 
     private void applyFit(String name, ShipFitSpec spec, boolean classWide) {
         PlayerFitRules.Validation validation = PlayerFitRules.validate(spec);
-        if (!validation.valid()) { setNotice(validation.reason(), RED, false); return; }
+        if (!validation.valid()) { setNotice(validation.reason(), RED); return; }
         String cleanName = PlayerFitRules.cleanName(name);
         if (cleanName.isBlank()) cleanName = "Custom Fit";
         if (classWide) {
             Base base = classRefitBase();
-            if (base == null) { setNotice("No owned refit-capable shipyard exists in this system.", RED, false); return; }
+            if (base == null) { setNotice("No owned refit-capable shipyard exists in this system.", RED); return; }
             submit("REFIT_CLASS", cleanName, spec, base.id, null, null);
             return;
         }
         Unit live = contextUnit().orElse(null);
         if (live == null || !hullId.equals(live.shipTypeId)) {
-            setNotice("Select exactly one live " + hullName() + " ship to apply this fit directly.", RED, false);
+            setNotice("Select exactly one live " + hullName() + " ship to apply this fit directly.", RED);
             return;
         }
         ShipLoadoutDefinition definition = PlayerFitRules.definition(cleanName, spec);
         ShipFittingWindow.FittingOption option = ShipFittingWindow.evaluate(world, live, definition);
-        if (!option.ready()) { setNotice(option.reason(), option.current() ? MUTED : RED, false); return; }
+        if (!option.ready()) { setNotice(option.reason(), option.current() ? MUTED : RED); return; }
         Base base = ShipFittingWindow.nearestRefitBase(world, live);
-        if (base == null) { setNotice("No owned refit-capable shipyard exists in this system.", RED, false); return; }
+        if (base == null) { setNotice("No owned refit-capable shipyard exists in this system.", RED); return; }
         submit("REFIT", cleanName, spec, base.id, live.key(), null);
     }
 
     private boolean submit(String action, String name, ShipFitSpec spec,
                            String baseId, String unitKey, String publishedId) {
         boolean ok = FitNetworkBridge.submit(network, world, action, name, spec, baseId, unitKey, publishedId);
-        setNotice(ok ? world.status : "Could not submit the fit request.", ok ? GREEN : RED, false);
+        setNotice(ok ? world.status : "Could not submit the fit request.", ok ? GREEN : RED);
         observedCatalogRevision = WorldFitCatalog.revision(world);
         return ok;
     }
@@ -739,7 +722,7 @@ final class ShipFitStudioWindow {
         if (!visible() || world == null) return;
         if (!contextUnitKey.isBlank() && contextUnit().isEmpty()) {
             contextUnitKey = "";
-            setNotice("The selected ship is no longer available. Continuing in class design mode.", ORANGE, false);
+            setNotice("The selected ship is no longer available. Continuing in class design mode.", ORANGE);
             if (linkLabel != null) {
                 linkLabel.setText(contextLabel());
                 linkLabel.setForeground(ORANGE);
@@ -748,15 +731,15 @@ final class ShipFitStudioWindow {
         long revision = WorldFitCatalog.revision(world);
         if (revision != observedCatalogRevision) {
             observedCatalogRevision = revision;
-            if (selectedTab == 3) rebuild();
+            if (selectedTab == 2) rebuild();
         }
     }
 
-    private java.util.Optional<Unit> contextUnit() {
-        if (world == null || contextUnitKey.isBlank()) return java.util.Optional.empty();
+    private Optional<Unit> contextUnit() {
+        if (world == null || contextUnitKey.isBlank()) return Optional.empty();
         Unit unit = world.units.get(contextUnitKey);
-        if (!validLocalUnit(unit) || !hullId.equals(unit.shipTypeId)) return java.util.Optional.empty();
-        return java.util.Optional.of(unit);
+        if (!validLocalUnit(unit) || !hullId.equals(unit.shipTypeId)) return Optional.empty();
+        return Optional.of(unit);
     }
 
     private static boolean validLocalUnit(Unit unit) {
@@ -764,8 +747,9 @@ final class ShipFitStudioWindow {
     }
 
     private String initialHullId() {
-        for (ShipType ship : fittingHulls()) if (PlayerFitRules.slotCount(ship.id) > 0) return ship.id;
-        return fittingHulls().isEmpty() ? Rules.STARTING_SHIP : fittingHulls().get(0).id;
+        List<ShipType> hulls = fittingHulls();
+        for (ShipType ship : hulls) if (PlayerFitRules.slotCount(ship.id) > 0) return ship.id;
+        return hulls.isEmpty() ? Rules.STARTING_SHIP : hulls.get(0).id;
     }
 
     private List<ShipType> fittingHulls() {
@@ -825,10 +809,9 @@ final class ShipFitStudioWindow {
                 : "DESIGN MODE // CLASS SHIPYARD " + base.id;
     }
 
-    private void setNotice(String message, Color color, boolean updateWorld) {
+    private void setNotice(String message, Color color) {
         notice = message == null || message.isBlank() ? "Fitting action complete." : message;
         noticeColor = color == null ? MUTED : color;
-        if (updateWorld && world != null) world.status = notice;
         if (noticeLabel != null) {
             noticeLabel.setText(notice);
             noticeLabel.setForeground(noticeColor);
@@ -934,6 +917,15 @@ final class ShipFitStudioWindow {
         return row;
     }
 
+    private static JPanel sectionLabel(String text, Color accent) {
+        JPanel panel = panel(new BorderLayout(), BACKGROUND);
+        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 34));
+        panel.setBorder(new EmptyBorder(5, 4, 6, 4));
+        panel.add(label(text, 12, Font.BOLD, accent), BorderLayout.WEST);
+        return panel;
+    }
+
     private static JPanel cardActions() {
         return panel(new GridLayout(0, 1, 0, 5), PANEL);
     }
@@ -1014,8 +1006,8 @@ final class ShipFitStudioWindow {
                 BorderFactory.createLineBorder(CYAN), new EmptyBorder(6, 8, 6, 8)));
     }
 
-    private static <T> void styleCombo(JComboBox<T> combo, ListCellRenderer<? super T> renderer,
-                                       int width, int height) {
+    private static void styleCombo(JComboBox<?> combo, DefaultListCellRenderer renderer,
+                                   int width, int height) {
         combo.setForeground(TEXT);
         combo.setBackground(FIELD);
         combo.setFocusable(true);
@@ -1065,69 +1057,75 @@ final class ShipFitStudioWindow {
         @Override public String toString() { return fit == null ? "New fit / current class setup" : fit.name(); }
     }
 
-    private static final class HullChoiceRenderer extends JLabel implements ListCellRenderer<HullChoice> {
-        HullChoiceRenderer() { setOpaque(true); setBorder(new EmptyBorder(4, 7, 4, 7)); }
-        @Override public Component getListCellRendererComponent(JList<? extends HullChoice> list, HullChoice value,
-                                                                int index, boolean selected, boolean focus) {
-            ShipType ship = value == null ? null : value.ship;
-            setIcon(FittingItemVisuals.hullIcon(ship, 42));
-            setIconTextGap(9);
-            setText(ship == null ? "UNKNOWN HULL" : "<html><b>" + escape(ship.name) + "</b><br><span style='font-size:9px'>seed "
-                    + ship.seed + " // " + PlayerFitRules.slotCount(ship.id) + " weapons // "
+    private static final class HullRenderer extends DefaultListCellRenderer {
+        @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                                 boolean selected, boolean focus) {
+            JLabel label = (JLabel)super.getListCellRendererComponent(list, value, index, selected, focus);
+            HullChoice choice = value instanceof HullChoice item ? item : new HullChoice(null);
+            ShipType ship = choice.ship;
+            label.setIcon(FittingItemVisuals.hullIcon(ship, 42));
+            label.setIconTextGap(9);
+            label.setText(ship == null ? "UNKNOWN HULL" : "<html><b>" + escape(ship.name)
+                    + "</b><br><span style='font-size:9px'>seed " + ship.seed + " // "
+                    + PlayerFitRules.slotCount(ship.id) + " weapons // "
                     + ShipModuleRules.moduleSlotCount(ship.id) + " utility</span></html>");
-            setForeground(TEXT);
-            setBackground(selected ? FIELD_HOVER : FIELD);
-            return this;
+            label.setForeground(TEXT);
+            label.setBackground(selected ? FIELD_HOVER : FIELD);
+            label.setBorder(new EmptyBorder(4, 7, 4, 7));
+            return label;
         }
     }
 
-    private static final class WeaponChoiceRenderer extends JLabel implements ListCellRenderer<WeaponChoice> {
-        WeaponChoiceRenderer() { setOpaque(true); setBorder(new EmptyBorder(4, 7, 4, 7)); }
-        @Override public Component getListCellRendererComponent(JList<? extends WeaponChoice> list, WeaponChoice value,
-                                                                int index, boolean selected, boolean focus) {
-            WeaponType weapon = value == null ? null : value.weapon;
-            setIcon(FittingItemVisuals.weaponIcon(weapon, 42));
-            setIconTextGap(9);
-            setText(weapon == null ? "<html><b>EMPTY HARDPOINT</b><br><span style='font-size:9px'>No weapon installed</span></html>"
+    private static final class WeaponRenderer extends DefaultListCellRenderer {
+        @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                                 boolean selected, boolean focus) {
+            JLabel label = (JLabel)super.getListCellRendererComponent(list, value, index, selected, focus);
+            WeaponChoice choice = value instanceof WeaponChoice item ? item : WeaponChoice.empty();
+            WeaponType weapon = choice.weapon;
+            label.setIcon(FittingItemVisuals.weaponIcon(weapon, 42));
+            label.setIconTextGap(9);
+            label.setText(weapon == null ? "<html><b>EMPTY HARDPOINT</b><br><span style='font-size:9px'>No weapon installed</span></html>"
                     : "<html><b>" + escape(weapon.name) + "</b><br><span style='font-size:9px'>seed "
                     + FittingItemVisuals.weaponSeed(weapon.id) + " // range " + whole(weapon.range)
                     + " // damage " + whole(weapon.damage) + "</span></html>");
-            setForeground(TEXT);
-            setBackground(selected ? FIELD_HOVER : FIELD);
-            setToolTipText(weapon == null ? "Empty hardpoint" : weapon.name);
-            return this;
+            label.setForeground(TEXT);
+            label.setBackground(selected ? FIELD_HOVER : FIELD);
+            label.setBorder(new EmptyBorder(4, 7, 4, 7));
+            return label;
         }
     }
 
-    private static final class ModuleChoiceRenderer extends JLabel implements ListCellRenderer<ModuleChoice> {
-        ModuleChoiceRenderer() { setOpaque(true); setBorder(new EmptyBorder(4, 7, 4, 7)); }
-        @Override public Component getListCellRendererComponent(JList<? extends ModuleChoice> list, ModuleChoice value,
-                                                                int index, boolean selected, boolean focus) {
-            ShipModuleDefinition module = value == null ? null : value.module;
-            setIcon(module == null ? ShipModuleVisuals.emptyIcon(42) : ShipModuleVisuals.icon(module, 42));
-            setIconTextGap(9);
-            setText(module == null ? "<html><b>EMPTY UTILITY SOCKET</b><br><span style='font-size:9px'>No module installed</span></html>"
+    private static final class ModuleRenderer extends DefaultListCellRenderer {
+        @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                                 boolean selected, boolean focus) {
+            JLabel label = (JLabel)super.getListCellRendererComponent(list, value, index, selected, focus);
+            ModuleChoice choice = value instanceof ModuleChoice item ? item : ModuleChoice.empty();
+            ShipModuleDefinition module = choice.module;
+            label.setIcon(module == null ? ShipModuleVisuals.emptyIcon(42) : ShipModuleVisuals.icon(module, 42));
+            label.setIconTextGap(9);
+            label.setText(module == null ? "<html><b>EMPTY UTILITY SOCKET</b><br><span style='font-size:9px'>No module installed</span></html>"
                     : "<html><b>" + escape(module.displayName()) + "</b><br><span style='font-size:9px'>seed "
                     + module.seed() + " // " + escape(ShipModuleRules.effectSummary(module)) + "</span></html>");
-            setForeground(TEXT);
-            setBackground(selected ? FIELD_HOVER : FIELD);
-            setToolTipText(module == null ? "Empty utility socket" : module.description());
-            return this;
+            label.setForeground(TEXT);
+            label.setBackground(selected ? FIELD_HOVER : FIELD);
+            label.setBorder(new EmptyBorder(4, 7, 4, 7));
+            return label;
         }
     }
 
-    private static final class PrivateChoiceRenderer extends JLabel implements ListCellRenderer<PrivateChoice> {
-        PrivateChoiceRenderer() { setOpaque(true); setBorder(new EmptyBorder(5, 7, 5, 7)); }
-        @Override public Component getListCellRendererComponent(JList<? extends PrivateChoice> list, PrivateChoice value,
-                                                                int index, boolean selected, boolean focus) {
-            PrivateShipFit fit = value == null ? null : value.fit;
-            ShipType hull = fit == null ? null : Rules.findShip(fit.spec().hullId());
-            setIcon(FittingItemVisuals.hullIcon(hull, 34));
-            setIconTextGap(8);
-            setText(fit == null ? "New fit / current class setup" : fit.name());
-            setForeground(TEXT);
-            setBackground(selected ? FIELD_HOVER : FIELD);
-            return this;
+    private static final class PrivateRenderer extends DefaultListCellRenderer {
+        @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                                 boolean selected, boolean focus) {
+            JLabel label = (JLabel)super.getListCellRendererComponent(list, value, index, selected, focus);
+            PrivateChoice choice = value instanceof PrivateChoice item ? item : new PrivateChoice(null);
+            PrivateShipFit fit = choice.fit;
+            label.setIcon(FittingItemVisuals.hullIcon(fit == null ? null : Rules.findShip(fit.spec().hullId()), 34));
+            label.setIconTextGap(8);
+            label.setText(fit == null ? "New fit / current class setup" : fit.name());
+            label.setForeground(TEXT);
+            label.setBackground(selected ? FIELD_HOVER : FIELD);
+            label.setBorder(new EmptyBorder(5, 7, 5, 7));
+            return label;
         }
     }
 
