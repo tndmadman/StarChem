@@ -47,19 +47,34 @@ public final class ShipLoadoutValidator {
                 "runtime fit lost its utility module layout");
 
         World world = new World("Module Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        ShipLoadoutDefinition burnerFit = PlayerFitRules.register("Afterburner Test",
+                new ShipFitSpec("destroyer", List.of("light_railgun"), List.of("afterburner")));
+        Unit burner = new Unit("BURNER", 1, "destroyer", 100, 180);
+        burner.loadoutId = burnerFit.id();
+        burner.moveTo(2000, 180);
+        world.units.put(burner.key(), burner);
+        ShipModuleRules.update(world, burner, 0.1);
+        require(burner.afterburnerActive, "afterburner did not activate for a distant objective");
+        require(ShipModuleRules.speedMultiplier(burner) > 1.0,
+                "afterburner did not increase fitted ship speed");
+        require(ShipModuleRules.agilityMultiplier(burner) < 0.5,
+                "afterburner did not impose a severe agility penalty");
+
         Unit mover = new Unit("MODULE", 1, "destroyer", 100, 100);
         mover.loadoutId = fit.id();
         mover.moveTo(2000, 100);
         world.units.put(mover.key(), mover);
-        ShipModuleRules.update(world, mover, 0.1);
-        require(mover.afterburnerActive, "afterburner did not activate for a distant objective");
-        require(ShipModuleRules.speedMultiplier(mover) > 1.0,
-                "afterburner did not increase fitted ship speed");
-        require(ShipModuleRules.agilityMultiplier(mover) < 0.5,
-                "afterburner did not impose a severe agility penalty");
         double beforeJump = mover.x;
         ShipModuleRules.update(world, mover, 0.1);
-        require(mover.x > beforeJump + 400, "micro jump drive did not jump toward a distant objective");
+        require(mover.microJumpCooldown < 0,
+                "micro jump drive did not begin charging for a distant objective");
+        require(close(mover.x, beforeJump), "micro jump moved before its charge completed");
+        int guard = 0;
+        while (mover.microJumpCooldown < 0 && guard++ < 30) ShipModuleRules.update(world, mover, 0.1);
+        require(mover.x > beforeJump + 1400,
+                "micro jump drive did not jump 95 percent toward a distant objective");
+        require(ShipModuleRules.jumpVisualActiveForTest(mover),
+                "micro jump drive did not create its tunnel visual");
 
         ShipFitSpec tackleSpec = new ShipFitSpec("destroyer", List.of("light_railgun"), List.of("warp_scrambler"));
         ShipLoadoutDefinition tackleFit = PlayerFitRules.register("Tackle Test", tackleSpec);
