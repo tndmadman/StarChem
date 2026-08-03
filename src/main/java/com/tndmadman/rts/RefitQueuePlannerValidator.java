@@ -7,6 +7,8 @@ import java.util.Set;
 
 /** Focused validation for multi-station refit queue assignment and aggregate hangar capacity. */
 public final class RefitQueuePlannerValidator {
+    private static final double EXPECTED_REFIT_SECONDS = 1.5;
+
     private RefitQueuePlannerValidator() { }
 
     public static void main(String[] args) {
@@ -14,6 +16,10 @@ public final class RefitQueuePlannerValidator {
                 "configured Outpost is not refit-capable");
         require(Rules.base("shipyard").canRefitShips,
                 "configured Shipyard is not refit-capable");
+        require(close(WeaponRules.findLoadout("prospector").refitTimeSeconds(), EXPECTED_REFIT_SECONDS),
+                "Prospector refit duration is not 1.5 seconds");
+        require(close(WeaponRules.findLoadout("dreadnought").refitTimeSeconds(), EXPECTED_REFIT_SECONDS),
+                "capital refit duration is not 1.5 seconds");
 
         String playerId = "REFIT_NETWORK";
         PlayerRegistry.reset("SOLO", "Refit Queue Validator", 0x50BEFF);
@@ -30,6 +36,8 @@ public final class RefitQueuePlannerValidator {
         ShipFitSpec spec = new ShipFitSpec("destroyer", List.of("light_railgun"),
                 List.of("afterburner", "micro_jump_drive"));
         ShipLoadoutDefinition loadout = WorldFitCatalog.registerRuntime(world, "Distributed Mobility", spec);
+        require(close(loadout.refitTimeSeconds(), EXPECTED_REFIT_SECONDS),
+                "player-created fit did not inherit the 1.5-second refit duration");
         List<Cost> cost = WeaponRules.refitCost(loadout);
         fund(outpost, cost, 2);
         fund(shipyard, cost, 2);
@@ -57,6 +65,8 @@ public final class RefitQueuePlannerValidator {
             require(active != null, "ship was not reserved in a station refit queue: " + ship.key());
             require(active.base() == outpost || active.base() == shipyard,
                     "ship was assigned to a non-refit station");
+            require(close(active.job().duration, EXPECTED_REFIT_SECONDS),
+                    "queued refit job did not use the 1.5-second duration");
             require(ship.task == UnitTask.MOVE || ProductionSystem.refitLocked(world, ship.key()),
                     "queued ship was neither recalling nor docked for refit");
         }
@@ -117,6 +127,10 @@ public final class RefitQueuePlannerValidator {
 
     private static boolean canAffordAnother(Base base, List<Cost> cost) {
         return HangarStore.canAfford(base.inventory, cost);
+    }
+
+    private static boolean close(double first, double second) {
+        return Math.abs(first - second) < 0.001;
     }
 
     private static void require(boolean condition, String message) {
