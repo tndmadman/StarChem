@@ -43,6 +43,7 @@ public final class App {
         // Fitting is hosted on the root glass pane. Heavyweight popups keep combo lists above it.
         JPopupMenu.setDefaultLightWeightPopupEnabled(false);
         GameSwingUi.install();
+        FittingAccessController.install();
         SwingUtilities.invokeLater(() -> new GameFrame(config).setVisible(true));
     }
 
