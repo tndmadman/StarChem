@@ -7,6 +7,7 @@ import java.awt.Stroke;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -14,12 +15,17 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.WeakHashMap;
 
 /** Configured non-weapon ship fittings and their authoritative simulation behavior. */
 final class ShipModuleRules {
     static final Map<String, ShipModuleDefinition> MODULES = new LinkedHashMap<>();
     private static final Map<String, Integer> HULL_SLOTS = new LinkedHashMap<>();
     private static final Map<String, List<String>> LOADOUT_MODULES = new LinkedHashMap<>();
+    private static final double MICRO_JUMP_CHARGE_SECONDS = 1.6;
+    private static final double MICRO_JUMP_TUNNEL_SECONDS = 1.15;
+    private static final Map<Unit, JumpVisual> JUMP_VISUALS =
+            Collections.synchronizedMap(new WeakHashMap<>());
 
     static {
         loadExternal();
@@ -145,51 +151,106 @@ final class ShipModuleRules {
 
     static void update(World world, Unit unit, double dt) {
         if (world == null || unit == null || !Double.isFinite(dt) || dt <= 0) return;
+        updateJumpVisual(unit, dt);
         if (unit.microJumpCooldown > 0) unit.microJumpCooldown = Math.max(0, unit.microJumpCooldown - dt);
         unit.microJumpFlashTimer = Math.max(0, unit.microJumpFlashTimer - dt);
         unit.afterburnerActive = false;
 
         Objective objective = objective(world, unit);
         if (!objective.valid()) {
-            if (unit.microJumpCooldown < 0) unit.microJumpCooldown = 0;
+            cancelCharge(unit);
             return;
         }
         double dx = objective.x() - unit.x;
         double dy = objective.y() - unit.y;
         double distance = Math.hypot(dx, dy);
         if (!Double.isFinite(distance) || distance <= 2) {
-            if (unit.microJumpCooldown < 0) unit.microJumpCooldown = 0;
+            cancelCharge(unit);
             return;
         }
 
         boolean scrambled = tackled(world, unit);
         ShipModuleDefinition jump = first(unit, ShipModuleKind.MICRO_JUMP_DRIVE);
         if (scrambled || jump == null || distance < jump.activationDistance()) {
-            if (unit.microJumpCooldown < 0) unit.microJumpCooldown = 0;
+            cancelCharge(unit);
         } else if (unit.microJumpCooldown <= 0) {
             if (unit.microJumpCooldown == 0) {
-                // Negative cooldown is an internal one-tick spool marker. Tackle or a lost objective cancels it.
-                unit.microJumpCooldown = -1;
+                unit.microJumpCooldown = -MICRO_JUMP_CHARGE_SECONDS;
+                playAuthoritativeCue(world, unit, SoundCue.MICRO_JUMP_CHARGE);
             } else {
-                double amount = Math.min(jump.jumpDistance(), Math.max(0, distance - 180));
-                if (amount > 1) {
-                    unit.heading = Math.atan2(dy, dx);
-                    unit.x = Calc.clamp(unit.x + dx / distance * amount, 0, world.width);
-                    unit.y = Calc.clamp(unit.y + dy / distance * amount, 0, world.height);
-                    unit.microJumpCooldown = jump.cooldownSeconds();
-                    unit.microJumpFlashTimer = 0.55;
-                    dx = objective.x() - unit.x;
-                    dy = objective.y() - unit.y;
-                    distance = Math.hypot(dx, dy);
-                } else {
-                    unit.microJumpCooldown = 0;
+                unit.microJumpCooldown = Math.min(0, unit.microJumpCooldown + dt);
+                if (unit.microJumpCooldown >= -0.0001) {
+                    double amount = jumpAmount(jump, distance);
+                    if (amount > 1) {
+                        double startX = unit.x;
+                        double startY = unit.y;
+                        unit.heading = Math.atan2(dy, dx);
+                        unit.x = Calc.clamp(unit.x + dx / distance * amount, 0, world.width);
+                        unit.y = Calc.clamp(unit.y + dy / distance * amount, 0, world.height);
+                        unit.microJumpCooldown = jump.cooldownSeconds();
+                        unit.microJumpFlashTimer = 0.72;
+                        showJumpTrail(unit, startX, startY, unit.x, unit.y);
+                        playAuthoritativeCue(world, unit, SoundCue.MICRO_JUMP);
+                        dx = objective.x() - unit.x;
+                        dy = objective.y() - unit.y;
+                        distance = Math.hypot(dx, dy);
+                    } else {
+                        unit.microJumpCooldown = 0;
+                    }
                 }
             }
         }
 
         ShipModuleDefinition afterburner = first(unit, ShipModuleKind.AFTERBURNER);
         unit.afterburnerActive = !scrambled && afterburner != null
+                && unit.microJumpCooldown >= 0
                 && distance >= afterburner.activationDistance();
+    }
+
+    private static void cancelCharge(Unit unit) {
+        if (unit != null && unit.microJumpCooldown < 0) unit.microJumpCooldown = 0;
+    }
+
+    private static double jumpAmount(ShipModuleDefinition jump, double distance) {
+        if (jump == null || !Double.isFinite(distance) || distance <= 0) return 0;
+        double configured = jump.jumpDistance();
+        if (configured > 0 && configured <= 1) {
+            return distance * Calc.clamp(configured, 0.05, 0.99);
+        }
+        return Math.min(configured, Math.max(0, distance - 180));
+    }
+
+    static double microJumpChargeProgress(Unit unit) {
+        if (unit == null || unit.microJumpCooldown >= 0) return 0;
+        return Calc.clamp(1.0 + unit.microJumpCooldown / MICRO_JUMP_CHARGE_SECONDS, 0, 1);
+    }
+
+    static void showJumpTrail(Unit unit, double startX, double startY, double endX, double endY) {
+        if (unit == null || !GameplayCommandNumbers.finite(startX, startY, endX, endY)) return;
+        if (Calc.distance(startX, startY, endX, endY) <= 1) return;
+        JUMP_VISUALS.put(unit, new JumpVisual(startX, startY, endX, endY, MICRO_JUMP_TUNNEL_SECONDS));
+    }
+
+    static boolean jumpVisualActiveForTest(Unit unit) {
+        JumpVisual visual = unit == null ? null : JUMP_VISUALS.get(unit);
+        return visual != null && visual.remaining > 0;
+    }
+
+    private static void updateJumpVisual(Unit unit, double dt) {
+        if (unit == null) return;
+        synchronized (JUMP_VISUALS) {
+            JumpVisual visual = JUMP_VISUALS.get(unit);
+            if (visual == null) return;
+            visual.remaining = Math.max(0, visual.remaining - dt);
+            if (visual.remaining <= 0) JUMP_VISUALS.remove(unit);
+        }
+    }
+
+    private static void playAuthoritativeCue(World world, Unit unit, SoundCue cue) {
+        if (world == null || unit == null || cue == null) return;
+        if (SystemAudio.nonRendered(world) || "SOLO".equals(unit.playerId)) {
+            SystemAudio.play(world, cue);
+        }
     }
 
     static double speedMultiplier(Unit unit) {
@@ -208,6 +269,7 @@ final class ShipModuleRules {
         if (g2 == null || world == null) return;
         Stroke oldStroke = g2.getStroke();
         for (Unit unit : world.units.values()) {
+            drawJumpTunnel(g2, unit);
             if (unit.afterburnerActive) {
                 double length = 34 * unit.type().size.scale;
                 double bx = unit.x - Math.cos(unit.heading) * length;
@@ -216,9 +278,10 @@ final class ShipModuleRules {
                 g2.setColor(new Color(80, 205, 255, 190));
                 g2.drawLine((int)Math.round(unit.x), (int)Math.round(unit.y), (int)Math.round(bx), (int)Math.round(by));
             }
+            drawJumpCharge(g2, world, unit);
             if (unit.microJumpFlashTimer > 0) {
-                int alpha = (int)Calc.clamp(70 + unit.microJumpFlashTimer * 300, 0, 230);
-                double radius = (1.0 - Math.min(1.0, unit.microJumpFlashTimer / 0.55)) * 90 + 26;
+                int alpha = (int)Calc.clamp(70 + unit.microJumpFlashTimer * 260, 0, 235);
+                double radius = (1.0 - Math.min(1.0, unit.microJumpFlashTimer / 0.72)) * 118 + 28;
                 g2.setStroke(new BasicStroke(3f));
                 g2.setColor(new Color(115, 225, 255, alpha));
                 g2.drawOval((int)Math.round(unit.x - radius), (int)Math.round(unit.y - radius),
@@ -237,6 +300,86 @@ final class ShipModuleRules {
         g2.setStroke(oldStroke);
     }
 
+    private static void drawJumpCharge(Graphics2D g2, World world, Unit unit) {
+        double progress = microJumpChargeProgress(unit);
+        if (progress <= 0) return;
+        ShipModuleDefinition jump = first(unit, ShipModuleKind.MICRO_JUMP_DRIVE);
+        Color color = jump == null ? new Color(0x9BEAFF) : jump.color();
+        double pulse = 0.5 + 0.5 * Math.sin((world.systemTime() + progress * 2.5) * Math.PI * 5.0);
+        double radius = 28 + progress * 58;
+        int alpha = (int)Calc.clamp(80 + progress * 150, 0, 235);
+        for (int i = 0; i < 3; i++) {
+            double ring = radius - i * 12 * (0.4 + progress);
+            if (ring <= 4) continue;
+            g2.setStroke(new BasicStroke((float)(1.5 + progress * 2.2 - i * 0.25)));
+            g2.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), Math.max(20, alpha - i * 48)));
+            g2.drawOval((int)Math.round(unit.x - ring), (int)Math.round(unit.y - ring),
+                    (int)Math.round(ring * 2), (int)Math.round(ring * 2));
+        }
+        double aimX = unit.targetX;
+        double aimY = unit.targetY;
+        double distance = Calc.distance(unit.x, unit.y, aimX, aimY);
+        if (distance > 1) {
+            double nx = (aimX - unit.x) / distance;
+            double ny = (aimY - unit.y) / distance;
+            double beam = Math.min(distance, 180 + progress * 260);
+            g2.setStroke(new BasicStroke((float)(2 + progress * 3), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g2.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), (int)(55 + pulse * 90)));
+            g2.drawLine((int)Math.round(unit.x), (int)Math.round(unit.y),
+                    (int)Math.round(unit.x + nx * beam), (int)Math.round(unit.y + ny * beam));
+            for (int i = 1; i <= 5; i++) {
+                double t = (i / 6.0 + progress * 0.8) % 1.0;
+                double px = unit.x + nx * beam * t;
+                double py = unit.y + ny * beam * t;
+                double r = 2 + progress * 4;
+                g2.fillOval((int)Math.round(px - r), (int)Math.round(py - r),
+                        (int)Math.round(r * 2), (int)Math.round(r * 2));
+            }
+        }
+    }
+
+    private static void drawJumpTunnel(Graphics2D g2, Unit unit) {
+        JumpVisual visual = JUMP_VISUALS.get(unit);
+        if (visual == null || visual.remaining <= 0) return;
+        double fade = Calc.clamp(visual.remaining / MICRO_JUMP_TUNNEL_SECONDS, 0, 1);
+        double dx = visual.endX - visual.startX;
+        double dy = visual.endY - visual.startY;
+        double distance = Math.hypot(dx, dy);
+        if (distance <= 1) return;
+        double nx = dx / distance;
+        double ny = dy / distance;
+        double px = -ny;
+        double py = nx;
+        Color color = new Color(155, 234, 255);
+
+        g2.setStroke(new BasicStroke((float)(22 * fade + 3), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g2.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), (int)(22 + fade * 35)));
+        g2.drawLine((int)Math.round(visual.startX), (int)Math.round(visual.startY),
+                (int)Math.round(visual.endX), (int)Math.round(visual.endY));
+        g2.setStroke(new BasicStroke((float)(7 * fade + 2), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g2.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), (int)(75 + fade * 95)));
+        g2.drawLine((int)Math.round(visual.startX), (int)Math.round(visual.startY),
+                (int)Math.round(visual.endX), (int)Math.round(visual.endY));
+        g2.setStroke(new BasicStroke(2f));
+        for (int i = 0; i <= 12; i++) {
+            double t = i / 12.0;
+            double centerX = visual.startX + dx * t;
+            double centerY = visual.startY + dy * t;
+            double half = (8 + Math.sin(Math.PI * t) * 34) * fade;
+            int alpha = (int)(35 + fade * 120 * (0.45 + 0.55 * Math.sin(Math.PI * t)));
+            g2.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), Math.max(0, Math.min(230, alpha))));
+            g2.drawLine((int)Math.round(centerX - px * half), (int)Math.round(centerY - py * half),
+                    (int)Math.round(centerX + px * half), (int)Math.round(centerY + py * half));
+        }
+        double endRadius = 30 + fade * 72;
+        g2.setStroke(new BasicStroke((float)(2 + fade * 3)));
+        g2.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), (int)(70 + fade * 150)));
+        g2.drawOval((int)Math.round(visual.startX - endRadius), (int)Math.round(visual.startY - endRadius),
+                (int)Math.round(endRadius * 2), (int)Math.round(endRadius * 2));
+        g2.drawOval((int)Math.round(visual.endX - endRadius), (int)Math.round(visual.endY - endRadius),
+                (int)Math.round(endRadius * 2), (int)Math.round(endRadius * 2));
+    }
+
     static String summary(List<String> moduleIds) {
         List<String> names = new ArrayList<>();
         for (ShipModuleDefinition module : modules(moduleIds)) names.add(module.displayName());
@@ -249,7 +392,10 @@ final class ShipModuleRules {
             case AFTERBURNER -> "Speed ×" + decimal(module.speedMultiplier())
                     + " / agility ×" + decimal(module.agilityMultiplier())
                     + " / auto at " + whole(module.activationDistance()) + "u";
-            case MICRO_JUMP_DRIVE -> "Jump " + whole(module.jumpDistance()) + "u"
+            case MICRO_JUMP_DRIVE -> (module.jumpDistance() <= 1
+                    ? "Jump " + whole(module.jumpDistance() * 100) + "% of route"
+                    : "Jump " + whole(module.jumpDistance()) + "u")
+                    + " / charge " + decimal(MICRO_JUMP_CHARGE_SECONDS) + "s"
                     + " / auto at " + whole(module.activationDistance()) + "u"
                     + " / cooldown " + decimal(module.cooldownSeconds()) + "s";
             case TACKLE -> "Suppress propulsion and jumps inside " + whole(module.range()) + "u";
@@ -455,6 +601,22 @@ final class ShipModuleRules {
     }
 
     private record Objective(double x, double y, boolean valid) { }
+
+    private static final class JumpVisual {
+        final double startX;
+        final double startY;
+        final double endX;
+        final double endY;
+        double remaining;
+
+        JumpVisual(double startX, double startY, double endX, double endY, double remaining) {
+            this.startX = startX;
+            this.startY = startY;
+            this.endX = endX;
+            this.endY = endY;
+            this.remaining = remaining;
+        }
+    }
 }
 
 enum ShipModuleKind { AFTERBURNER, MICRO_JUMP_DRIVE, TACKLE }
