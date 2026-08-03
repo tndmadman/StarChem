@@ -24,6 +24,7 @@ final class Unit {
     int automationResourceId = -1;
     int orderPhase;
     boolean selected, unloadingThisFrame, miningAnchorSet, afterburnerActive;
+    private boolean afterburnerAudioActive;
 
     Unit(String playerId, int unitId, String shipTypeId, double x, double y) {
         this.playerId = playerId;
@@ -190,6 +191,7 @@ final class Unit {
             clearOrder();
         }
         if (!Double.isFinite(dt) || dt <= 0) return;
+        syncAfterburnerAudio();
 
         double dx = targetX - x;
         double dy = targetY - y;
@@ -215,6 +217,16 @@ final class Unit {
         }
         x = GameplayCommandNumbers.repairedCoordinate(x, targetX, width);
         y = GameplayCommandNumbers.repairedCoordinate(y, targetY, height);
+    }
+
+    private void syncAfterburnerAudio() {
+        if (afterburnerAudioActive == afterburnerActive) return;
+        afterburnerAudioActive = afterburnerActive;
+        World world = PlayerRegistry.activeWorld();
+        if (world == null || !SystemAudio.nonRendered(world) && !"SOLO".equals(playerId)) return;
+        SystemAudio.play(world, afterburnerActive
+                ? SoundCue.AFTERBURNER_IGNITE
+                : SoundCue.AFTERBURNER_CUTOFF);
     }
 
     private static double angleDelta(double from, double to) {
