@@ -112,6 +112,15 @@ final class ProceduralAudio {
                     voice(Wave.TRIANGLE, 360, 760, 0.075, 0.085, 0.0, 0.003, 0.050),
                     voice(Wave.SINE, 920, 1240, 0.060, 0.052, 0.0, 0.004, 0.042),
                     voice(Wave.NOISE, 640, 260, 0.045, 0.030, 0.55, 0.001, 0.038));
+            case MICRO_JUMP_CHARGE -> add(
+                    voice(Wave.SINE, 110, 760, 1.55, 0.085, 0.02, 0.025, 0.18),
+                    voice(Wave.SAW, 220, 1320, 1.42, 0.038, 0.08, 0.04, 0.16),
+                    voice(Wave.TRIANGLE, 70, 155, 1.58, 0.065, 0.0, 0.02, 0.22));
+            case MICRO_JUMP -> add(
+                    voice(Wave.NOISE, 980, 70, 0.34, 0.16, 0.72, 0.001, 0.30),
+                    voice(Wave.SAW, 1640, 115, 0.42, 0.12, 0.08, 0.001, 0.36),
+                    voice(Wave.SINE, 82, 42, 0.56, 0.17, 0.0, 0.002, 0.50),
+                    voice(Wave.TRIANGLE, 480, 1040, 0.19, 0.07, 0.0, 0.001, 0.16));
             case MUTE_OFF -> add(voice(Wave.SINE, 360, 720, 0.080, 0.10, 0.0, 0.004, 0.065));
         }
     }
