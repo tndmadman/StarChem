@@ -48,7 +48,7 @@
       "kind": "MICRO_JUMP_DRIVE",
       "seed": 52037,
       "visualStyle": "JUMP_CORE",
-      "activationDistance": 1250,
+      "activationDistance": 850,
       "jumpDistance": 700,
       "cooldownSeconds": 14,
       "requiresResearch": [
