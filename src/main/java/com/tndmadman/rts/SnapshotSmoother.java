@@ -16,6 +16,8 @@ final class SnapshotSmoother {
         unit.shipTypeId = state.shipTypeId();
         unit.loadoutId = state.loadoutId();
         ShipModuleDefinition jump = fittedJumpDrive(unit);
+        double previousX = unit.x;
+        double previousY = unit.y;
         boolean authoritativeJump = authoritativeModuleJump(unit, state, jump);
 
         boolean snapped = correctPosition(unit, state, local, forceLocalAuthority, authoritativeJump);
@@ -39,8 +41,9 @@ final class SnapshotSmoother {
         CargoCodec.readInto(state.cargo(), unit.inventory);
 
         if (authoritativeJump && jump != null) {
-            // The server owns the jump. Snap instead of blending it away, show the jump ring,
-            // and synchronize enough cooldown to prevent client prediction from double-jumping.
+            // The server owns the jump. Snap instead of blending it away, show the complete
+            // source-to-destination tunnel, and prevent client prediction from double-jumping.
+            ShipModuleRules.showJumpTrail(unit, previousX, previousY, state.x(), state.y());
             unit.microJumpCooldown = Math.max(unit.microJumpCooldown, jump.cooldownSeconds());
             unit.microJumpFlashTimer = Math.max(unit.microJumpFlashTimer, 0.72);
         }
@@ -83,7 +86,10 @@ final class SnapshotSmoother {
                 || task == UnitTask.RETURN_TO_STATION || task == UnitTask.AUTO_HARVEST;
         if (!hasObjective) return false;
         double displacement = Calc.distance(unit.x, unit.y, state.x(), state.y());
-        double minimum = Math.max(180, jump.jumpDistance() * 0.45);
+        double routeDistance = Calc.distance(unit.x, unit.y, state.targetX(), state.targetY());
+        double minimum = jump.jumpDistance() <= 1
+                ? Math.max(220, Math.min(900, routeDistance * jump.jumpDistance() * 0.35))
+                : Math.max(180, jump.jumpDistance() * 0.45);
         return Double.isFinite(displacement) && displacement >= minimum;
     }
 
