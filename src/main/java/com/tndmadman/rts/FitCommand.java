@@ -3,7 +3,6 @@ package com.tndmadman.rts;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 
@@ -86,17 +85,18 @@ final class FitCommand {
     }
 
     private static Result refit(World world, String actorId, Map<String,Object> payload) {
-        Base base = ownedBase(world, actorId, ServerSaveStore.string(payload, "baseId", ""));
+        Base preferred = ownedBase(world, actorId, ServerSaveStore.string(payload, "baseId", ""));
         String unitKey = ServerSaveStore.string(payload, "unitKey", "");
         Unit unit = world.units.get(unitKey);
         if (unit == null || !actorId.equals(unit.playerId)) return Result.fail("Selected ship was not found.");
         ShipLoadoutDefinition loadout = register(world, payload);
-        boolean success = ProductionSystem.enqueueRefit(world, base, unit, loadout, world.devFreeBuildFor(actorId));
-        return success ? Result.ok(world.status, true, true) : Result.fail(world.status);
+        RefitQueuePlanner.Result queued = RefitQueuePlanner.enqueue(world, actorId, List.of(unit), loadout,
+                world.devFreeBuildFor(actorId), preferred);
+        return queued.success() ? Result.ok(queued.message(), true, true) : Result.fail(queued.message());
     }
 
     private static Result refitClass(World world, String actorId, Map<String,Object> payload) {
-        Base base = ownedBase(world, actorId, ServerSaveStore.string(payload, "baseId", ""));
+        Base preferred = ownedBase(world, actorId, ServerSaveStore.string(payload, "baseId", ""));
         ShipLoadoutDefinition loadout = register(world, payload);
         List<Unit> eligible = new ArrayList<>();
         int already = 0, reserved = 0;
@@ -108,24 +108,11 @@ final class FitCommand {
         }
         if (eligible.isEmpty()) return Result.fail("No available " + Rules.ship(loadout.hullId()).name
                 + " ships can be recalled. Already fitted: " + already + "; already reserved: " + reserved + ".");
-        boolean free = world.devFreeBuildFor(actorId);
-        if (!free && !WeaponRules.unlocked(world, actorId, loadout)) {
-            return Result.fail(loadout.displayName() + " requires research: "
-                    + WeaponRules.missingResearchLabel(world, actorId, loadout) + ".");
-        }
-        if (!free) {
-            List<Cost> total = multiply(WeaponRules.refitCost(loadout), eligible.size());
-            if (!HangarStore.canAfford(base.inventory, total)) {
-                return Result.fail("Need " + Rules.formatCost(total) + " for " + eligible.size() + " class refits.");
-            }
-        }
-        int queued = 0;
-        for (Unit unit : eligible) if (ProductionSystem.enqueueRefit(world, base, unit, loadout, free)) queued++;
-        if (queued != eligible.size()) return Result.fail("Only " + queued + " of " + eligible.size() + " refits could be queued.");
-        world.status = "Recalling " + queued + " " + Rules.ship(loadout.hullId()).name + " ships to "
-                + base.type().name + " for class refit: " + loadout.displayName()
-                + ". Already fitted: " + already + "; already reserved: " + reserved + ".";
-        AlertCenter.push(world, world.status);
+
+        RefitQueuePlanner.Result queued = RefitQueuePlanner.enqueue(world, actorId, eligible, loadout,
+                world.devFreeBuildFor(actorId), preferred);
+        if (!queued.success()) return Result.fail(queued.message());
+        world.status = queued.message() + " Already fitted: " + already + "; already reserved: " + reserved + ".";
         return Result.ok(world.status, true, true);
     }
 
@@ -143,16 +130,8 @@ final class FitCommand {
 
     private static Base ownedBase(World world, String actorId, String baseId) {
         Base base = world.bases.get(baseId);
-        if (base == null || !actorId.equals(base.playerId)) throw new IllegalArgumentException("Owned shipyard was not found.");
+        if (base == null || !actorId.equals(base.playerId)) throw new IllegalArgumentException("Owned station was not found.");
         return base;
-    }
-
-    private static List<Cost> multiply(List<Cost> costs, int count) {
-        EnumMap<Material,Double> totals = new EnumMap<>(Material.class);
-        for (Cost cost : costs) totals.merge(cost.material(), cost.amount() * count, Double::sum);
-        List<Cost> out = new ArrayList<>();
-        for (Map.Entry<Material,Double> entry : totals.entrySet()) if (entry.getValue() > 0) out.add(new Cost(entry.getKey(), entry.getValue()));
-        return List.copyOf(out);
     }
 
     static void sendCatalog(PeerServerSide server, ConnectionId connectionId) {
