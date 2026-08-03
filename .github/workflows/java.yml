@@ -19,3 +19,5 @@ jobs:
       - run: gradle build
       - name: Validate refitted module effects
         run: java -cp build/classes/java/main com.tndmadman.rts.ShipModuleRefitValidator
+      - name: Validate distributed refit queues
+        run: java -cp build/classes/java/main com.tndmadman.rts.RefitQueuePlannerValidator
