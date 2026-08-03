@@ -18,5 +18,7 @@ enum SoundCue {
     RESOURCE_DEPLETED,
     TRACTOR_BEAM,
     ITEM_PICKUP,
+    MICRO_JUMP_CHARGE,
+    MICRO_JUMP,
     MUTE_OFF
 }
