@@ -1,0 +1,1 @@
+Trigger the final issue 289 hardening materialization after all patch segments are present.
