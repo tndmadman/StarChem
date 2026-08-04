@@ -17,54 +17,20 @@ final class RefitQueuePlanner {
 
     private RefitQueuePlanner() { }
 
+    /** Pure validation/planning pass used before a runtime fit is registered. */
+    static Result preflight(World world, String playerId, List<Unit> requested,
+                            ShipLoadoutDefinition loadout, boolean free, Base preferredBase) {
+        Plan plan = plan(world, playerId, requested, loadout, free, preferredBase);
+        return plan.success() ? resultFor(plan, loadout) : Result.fail(plan.failure());
+    }
+
     static Result enqueue(World world, String playerId, List<Unit> requested,
                           ShipLoadoutDefinition loadout, boolean free, Base preferredBase) {
-        if (world == null || playerId == null || playerId.isBlank() || loadout == null) {
-            return Result.fail("Refit request is incomplete.");
-        }
-
-        List<Unit> units = cleanUnits(world, playerId, requested, loadout);
-        if (units.isEmpty()) return Result.fail("No available ships can be queued for this refit.");
-        if (!free && !WeaponRules.unlocked(world, playerId, loadout)) {
-            return Result.fail(loadout.displayName() + " requires research: "
-                    + WeaponRules.missingResearchLabel(world, playerId, loadout) + ".");
-        }
-
-        List<Base> stations = stations(world, playerId);
-        if (stations.isEmpty()) return Result.fail("No owned refit-capable station exists in this system.");
-
-        List<Cost> cost = WeaponRules.refitCost(loadout);
-        Map<Base,Integer> remainingCapacity = new LinkedHashMap<>();
-        int totalCapacity = 0;
-        for (Base station : stations) {
-            int capacity = capacity(station, cost, free);
-            remainingCapacity.put(station, capacity);
-            totalCapacity = Math.min(UNLIMITED_CAPACITY, totalCapacity + capacity);
-        }
-        if (totalCapacity < units.size()) {
-            return Result.fail("Refit network can fund only " + totalCapacity + " of " + units.size()
-                    + " jobs. Distribute " + Rules.formatCost(cost)
-                    + " among the Outpost and Shipyard hangars.");
-        }
-
-        Map<Base,Double> availableAt = new LinkedHashMap<>();
-        for (Base station : stations) availableAt.put(station, queueAvailableAt(world, station));
-
-        List<Assignment> plan = new ArrayList<>();
-        Map<Base,Integer> distribution = new LinkedHashMap<>();
-        for (Unit unit : units) {
-            Base station = chooseStation(unit, loadout, preferredBase, stations,
-                    remainingCapacity, availableAt);
-            if (station == null) return Result.fail("No refit station can accept every requested job.");
-            double ready = Math.max(availableAt.getOrDefault(station, 0.0), travelSeconds(unit, station));
-            availableAt.put(station, ready + loadout.refitTimeSeconds());
-            remainingCapacity.put(station, Math.max(0, remainingCapacity.get(station) - 1));
-            distribution.merge(station, 1, Integer::sum);
-            plan.add(new Assignment(station, unit));
-        }
+        Plan plan = plan(world, playerId, requested, loadout, free, preferredBase);
+        if (!plan.success()) return Result.fail(plan.failure());
 
         List<Queued> committed = new ArrayList<>();
-        for (Assignment assignment : plan) {
+        for (Assignment assignment : plan.assignments()) {
             Base station = assignment.station();
             Unit unit = assignment.unit();
             int before = station.productionQueue.size();
@@ -76,13 +42,67 @@ final class RefitQueuePlanner {
             if (job != null) committed.add(new Queued(station, job.id));
         }
 
-        String message = "Queued " + plan.size() + " " + Rules.ship(loadout.hullId()).name
-                + " refit" + (plan.size() == 1 ? "" : "s") + " across " + distribution.size()
-                + " station" + (distribution.size() == 1 ? "" : "s") + ": "
-                + distributionLabel(distribution) + ".";
-        world.status = message;
-        AlertCenter.push(world, message);
-        return Result.ok(plan.size(), distribution, plan.get(0).station(), message);
+        Result result = resultFor(plan, loadout);
+        world.status = result.message();
+        AlertCenter.push(world, result.message());
+        return result;
+    }
+
+    private static Plan plan(World world, String playerId, List<Unit> requested,
+                             ShipLoadoutDefinition loadout, boolean free, Base preferredBase) {
+        if (world == null || playerId == null || playerId.isBlank() || loadout == null) {
+            return Plan.fail("Refit request is incomplete.");
+        }
+
+        List<Unit> units = cleanUnits(world, playerId, requested, loadout);
+        if (units.isEmpty()) return Plan.fail("No available ships can be queued for this refit.");
+        if (!free && !WeaponRules.unlocked(world, playerId, loadout)) {
+            return Plan.fail(loadout.displayName() + " requires research: "
+                    + WeaponRules.missingResearchLabel(world, playerId, loadout) + ".");
+        }
+
+        List<Base> stations = stations(world, playerId);
+        if (stations.isEmpty()) return Plan.fail("No owned refit-capable station exists in this system.");
+
+        List<Cost> cost = WeaponRules.refitCost(loadout);
+        Map<Base,Integer> remainingCapacity = new LinkedHashMap<>();
+        int totalCapacity = 0;
+        for (Base station : stations) {
+            int capacity = capacity(station, cost, free);
+            remainingCapacity.put(station, capacity);
+            totalCapacity = Math.min(UNLIMITED_CAPACITY, totalCapacity + capacity);
+        }
+        if (totalCapacity < units.size()) {
+            return Plan.fail("Refit network can fund only " + totalCapacity + " of " + units.size()
+                    + " jobs. Distribute " + Rules.formatCost(cost)
+                    + " among the Outpost and Shipyard hangars.");
+        }
+
+        Map<Base,Double> availableAt = new LinkedHashMap<>();
+        for (Base station : stations) availableAt.put(station, queueAvailableAt(world, station));
+
+        List<Assignment> assignments = new ArrayList<>();
+        Map<Base,Integer> distribution = new LinkedHashMap<>();
+        for (Unit unit : units) {
+            Base station = chooseStation(unit, loadout, preferredBase, stations,
+                    remainingCapacity, availableAt);
+            if (station == null) return Plan.fail("No refit station can accept every requested job.");
+            double ready = Math.max(availableAt.getOrDefault(station, 0.0), travelSeconds(unit, station));
+            availableAt.put(station, ready + loadout.refitTimeSeconds());
+            remainingCapacity.put(station, Math.max(0, remainingCapacity.get(station) - 1));
+            distribution.merge(station, 1, Integer::sum);
+            assignments.add(new Assignment(station, unit));
+        }
+        return Plan.ok(assignments, distribution);
+    }
+
+    private static Result resultFor(Plan plan, ShipLoadoutDefinition loadout) {
+        String message = "Queued " + plan.assignments().size() + " " + Rules.ship(loadout.hullId()).name
+                + " refit" + (plan.assignments().size() == 1 ? "" : "s") + " across "
+                + plan.distribution().size() + " station" + (plan.distribution().size() == 1 ? "" : "s") + ": "
+                + distributionLabel(plan.distribution()) + ".";
+        return Result.ok(plan.assignments().size(), plan.distribution(),
+                plan.assignments().get(0).station(), message);
     }
 
     static Base bestStation(World world, Unit unit, ShipLoadoutDefinition loadout, boolean free) {
@@ -214,6 +234,17 @@ final class RefitQueuePlanner {
         static Result fail(String message) {
             return new Result(false, 0, 0, null, Map.of(),
                     message == null || message.isBlank() ? "Refit queue request was rejected." : message);
+        }
+    }
+
+    private record Plan(boolean success, String failure, List<Assignment> assignments,
+                        Map<Base,Integer> distribution) {
+        static Plan ok(List<Assignment> assignments, Map<Base,Integer> distribution) {
+            return new Plan(true, "", List.copyOf(assignments), Map.copyOf(distribution));
+        }
+        static Plan fail(String failure) {
+            return new Plan(false, failure == null ? "Refit request was rejected." : failure,
+                    List.of(), Map.of());
         }
     }
 
