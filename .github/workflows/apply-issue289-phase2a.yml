@@ -23,6 +23,18 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Apply conversion refit persistence
         run: python3 tools/apply_issue289_phase2a.py
+      - name: Preserve compatible strict-codec diagnostic
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('src/main/java/com/tndmadman/rts/StrictProductionQueueCodec.java')
+          text = path.read_text(encoding='utf-8')
+          old = 'expected 7 or 8 legacy columns, 10 loadout columns, or 13 quote columns, but found '
+          new = 'expected 7 or 8 columns for legacy rows, 10 columns for loadout rows, or 13 columns for quote rows, but found '
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one strict-codec diagnostic, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
       - name: Compile
         run: gradle compileJava
       - name: Validate conversion quotes
