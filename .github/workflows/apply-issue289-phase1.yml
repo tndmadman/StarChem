@@ -3,6 +3,8 @@ name: Apply Issue 289 Phase 1
 on:
   push:
     branches: [ agent/issue-289-final-hardening ]
+  pull_request:
+    branches: [ agent/issue-289-loadouts ]
 
 permissions:
   contents: write
