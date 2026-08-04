@@ -12,10 +12,55 @@ dependencyResolutionManagement {
     }
 }
 
+// Temporary issue #289 completion gate. Generate the final source exactly once
+// per checkout before any project compilation, then include it in normal checks.
+def phaseThreeMarker = file('.issue289-phase3-generated')
+if (!phaseThreeMarker.isFile()) {
+    def result = providers.exec {
+        commandLine 'python3', file('tools/apply_issue289_phase3.py').absolutePath
+        workingDir rootDir
+        ignoreExitValue = true
+    }.result.get()
+    if (result.exitValue != 0) {
+        throw new GradleException('Could not generate the final issue #289 source.')
+    }
+    phaseThreeMarker.text = 'generated\n'
+}
+
 gradle.beforeProject { project ->
     project.tasks.withType(org.gradle.api.tasks.bundling.AbstractArchiveTask).configureEach {
         preserveFileTimestamps = false
         reproducibleFileOrder = true
+    }
+}
+
+gradle.projectsEvaluated {
+    def validators = [
+            validateConfiguredFitRules: 'com.tndmadman.rts.ConfiguredFitRuleValidator',
+            validateRefitQuotePersistence: 'com.tndmadman.rts.RefitQuotePersistenceValidator',
+            validateAtomicDistributedRefits: 'com.tndmadman.rts.AtomicRefitTransactionValidator',
+            validateCustomFitConstruction: 'com.tndmadman.rts.CustomFitConstructionValidator',
+            validateIssue289Completion: 'com.tndmadman.rts.Issue289CompletionValidator'
+    ]
+    validators.each { taskName, mainClassName ->
+        def validator = rootProject.tasks.register(taskName, JavaExec) {
+            group = 'verification'
+            dependsOn rootProject.tasks.named('classes')
+            classpath = rootProject.sourceSets.main.runtimeClasspath
+            mainClass = mainClassName
+            if (taskName in ['validateCustomFitConstruction', 'validateIssue289Completion']) {
+                jvmArgs '-Djava.awt.headless=true'
+            }
+        }
+        rootProject.tasks.named('check').configure { dependsOn validator }
+    }
+
+    // The temporary release JAR carries the exact generated sources so the
+    // validated output can be extracted and committed without reconstruction.
+    rootProject.tasks.named('jar').configure {
+        from(rootProject.file('src/main/java')) {
+            into 'META-INF/issue289-tested-source'
+        }
     }
 }
 
