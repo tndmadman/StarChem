@@ -3,7 +3,7 @@ name: Apply Issue 289 Phase 2B
 on:
   pull_request:
     types: [opened, reopened, synchronize]
-    branches: [ agent/issue-289-loadouts ]
+    branches: [ main ]
 
 permissions:
   contents: write
