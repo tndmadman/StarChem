@@ -448,7 +448,11 @@ final class ShipFittingWindow {
             setStandard.setEnabled(!selectedPrivateFitId.isBlank());
             clearStandard.setEnabled(standard != null);
             publish.setEnabled(validation.valid() && named);
-            refitClass.setEnabled(validation.valid() && nearestRefitBase(world, unit) != null);
+            ShipLoadoutDefinition previewDefinition = validation.valid()
+                    ? PlayerFitRules.definition(named ? draftName : "Unsaved Fit", draftSpec) : null;
+            refitClass.setEnabled(previewDefinition != null
+                    && RefitQueuePlanner.bestStation(world, unit, previewDefinition,
+                    world.devFreeBuildFor(unit.playerId)) != null);
             if (!validation.valid()) {
                 refit.setEnabled(false);
                 preview.setForeground(BAD);
@@ -464,7 +468,7 @@ final class ShipFittingWindow {
                     + "\nUTILITY // " + ShipModuleRules.summary(draftSpec.moduleIds())
                     + "\nCOMBAT // max range " + whole(WeaponRules.maxRange(definition))
                     + "   |   refit " + whole(definition.refitTimeSeconds()) + "s"
-                    + "\nCOST // " + (definition.refitCost().isEmpty() ? "None" : Rules.formatCost(definition.refitCost()))
+                    + "\nCONVERSION // " + refitCostSummary(unit, definition)
                     + (definition.requiredResearch().isEmpty() ? "" : "\nRESEARCH // " + String.join(", ", definition.requiredResearch()))
                     + "\nSTATUS // " + option.reason());
         };
@@ -670,8 +674,8 @@ final class ShipFittingWindow {
         details.add(label("GUNS  //  " + weaponSummary(fit), 10, Font.PLAIN, MUTED));
         details.add(label("UTILITY  //  " + ShipModuleRules.summary(moduleIds), 10, Font.PLAIN, MUTED));
         details.add(label("RANGE " + whole(WeaponRules.maxRange(fit)) + "   •   REFIT "
-                + whole(fit.refitTimeSeconds()) + "s   •   COST "
-                + (fit.refitCost().isEmpty() ? "None" : Rules.formatCost(fit.refitCost())),
+                + whole(fit.refitTimeSeconds()) + "s", 10, Font.PLAIN, MUTED));
+        details.add(label("CONVERSION  //  " + refitCostSummary(unit, fit),
                 10, Font.PLAIN, MUTED));
         card.add(details, BorderLayout.CENTER);
         if (actions != null) card.add(actions, BorderLayout.EAST);
@@ -693,12 +697,20 @@ final class ShipFittingWindow {
         PlayerFitRules.Validation validation = PlayerFitRules.validate(spec);
         if (!validation.valid()) { setNotice(validation.reason(), BAD, false); return; }
         ShipLoadoutDefinition definition = PlayerFitRules.definition(name, spec);
-        if (!entireClass) {
-            FittingOption option = evaluate(world, unit, definition);
-            if (!option.ready()) { setNotice(option.reason(), option.current() ? MUTED : BAD, false); return; }
+        FittingOption option = evaluate(world, unit, definition);
+        if (!entireClass && !option.ready()) {
+            setNotice(option.reason(), option.current() ? MUTED : BAD, false);
+            return;
         }
-        Base base = nearestRefitBase(world, unit);
-        if (base == null) { setNotice("No owned refit-capable shipyard exists in this system.", BAD, false); return; }
+        Base base = option.base();
+        if (base == null) {
+            base = RefitQueuePlanner.bestStation(world, unit, definition,
+                    world.devFreeBuildFor(unit.playerId));
+        }
+        if (base == null) {
+            setNotice("No owned refit-capable station can service this fit.", BAD, false);
+            return;
+        }
         submitNetwork(entireClass ? "REFIT_CLASS" : "REFIT", name, spec, base.id,
                 entireClass ? null : unit.key(), null, true);
     }
@@ -799,22 +811,54 @@ final class ShipFittingWindow {
         else network.production(playerId, action, baseId, value, extra);
     }
 
+    static String refitCostSummary(Unit unit, ShipLoadoutDefinition fit) {
+        if (fit == null) return "Unavailable";
+        if (unit == null || !fit.hullId().equals(unit.shipTypeId)) {
+            List<Cost> installation = RefitQuote.fullInstallationCost(fit);
+            return (installation.isEmpty() ? "No installation materials"
+                    : "Install " + Rules.formatCost(installation))
+                    + " • source conversion varies";
+        }
+        try {
+            RefitQuote quote = RefitQuote.between(unit, fit);
+            String required = quote.requiredMaterials().isEmpty()
+                    ? "No added materials"
+                    : "Add " + Rules.formatCost(quote.requiredMaterials());
+            String removed = quote.removedComponents().isEmpty()
+                    ? "Nothing removed"
+                    : "Scrap " + String.join(", ", quote.removedComponents());
+            return required + " • " + removed;
+        } catch (RuntimeException ex) {
+            return "Conversion unavailable";
+        }
+    }
+
     static FittingOption evaluate(World world, Unit unit, ShipLoadoutDefinition loadout) {
-        if (world == null || unit == null || loadout == null || !unit.shipTypeId.equals(loadout.hullId())) {
+        if (world == null || unit == null || loadout == null
+                || !unit.shipTypeId.equals(loadout.hullId())) {
             return new FittingOption(null, false, false, "Fit does not match this hull.");
         }
-        Base base = nearestRefitBase(world, unit);
-        if (loadout.id().equals(unit.loadoutId)) return new FittingOption(base, true, false, "Currently installed.");
-        ActiveRefit active = activeRefit(world, unit);
-        if (active != null) return new FittingOption(active.base, false, false, "A refit is already queued.");
-        if (base == null) return new FittingOption(null, false, false, "Requires an owned refit-capable shipyard in this system.");
         boolean free = world.devFreeBuildFor(unit.playerId);
-        if (!free && !WeaponRules.unlocked(world, unit.playerId, loadout)) return new FittingOption(base, false, false,
-                "Research required: " + WeaponRules.missingResearchLabel(world, unit.playerId, loadout) + ".");
-        if (!free && !HangarStore.canAfford(base.inventory, WeaponRules.refitCost(loadout))) {
-            return new FittingOption(base, false, false, "Shipyard lacks required materials.");
+        Base currentStation = nearestRefitBase(world, unit);
+        if (loadout.id().equals(unit.loadoutId)) {
+            return new FittingOption(currentStation, true, false, "Currently installed.");
         }
-        return new FittingOption(base, false, true, "Ship will be recalled automatically to " + base.type().name + ".");
+        ActiveRefit active = activeRefit(world, unit);
+        if (active != null) {
+            return new FittingOption(active.base, false, false, "A refit is already queued.");
+        }
+        if (!free && !WeaponRules.unlocked(world, unit.playerId, loadout)) {
+            return new FittingOption(null, false, false,
+                    "Research required: "
+                            + WeaponRules.missingResearchLabel(world, unit.playerId, loadout) + ".");
+        }
+        Base base = RefitQueuePlanner.bestStation(world, unit, loadout, free);
+        if (base == null) {
+            return new FittingOption(null, false, false,
+                    "No owned refit-capable station can fund this conversion.");
+        }
+        return new FittingOption(base, false, true,
+                "Ship will be recalled automatically to " + base.type().name + ".");
     }
 
     static Base nearestRefitBase(World world, Unit unit) {

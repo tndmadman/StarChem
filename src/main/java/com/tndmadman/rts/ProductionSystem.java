@@ -18,6 +18,18 @@ final class ProductionSystem {
                 ship.buildTimeSeconds, free, "", loadout.id(), "");
     }
 
+    static ProductionJob enqueueShipPrepaid(Base base, ShipType ship,
+                                            ShipLoadoutDefinition loadout,
+                                            boolean resourcesReserved) {
+        if (base == null || ship == null || loadout == null
+                || !ship.id.equals(loadout.hullId())) return null;
+        ProductionJob job = newJob(base, ProductionJobKind.SHIP, ship.id,
+                ship.buildTimeSeconds, resourcesReserved, "");
+        job.loadoutId = loadout.id();
+        base.productionQueue.add(job);
+        return job;
+    }
+
     static boolean enqueueRefit(World world, Base base, Unit unit, ShipLoadoutDefinition loadout, boolean free) {
         if (world == null || base == null || unit == null || loadout == null) return false;
         if (base.hp <= 0 || !base.type().canRefitShips || !unit.playerId.equals(base.playerId)) {

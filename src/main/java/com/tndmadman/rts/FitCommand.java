@@ -3,6 +3,7 @@ package com.tndmadman.rts;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 
@@ -157,11 +158,69 @@ final class FitCommand {
                                 Map<String,Object> payload) {
         Base base = ownedBase(world, actorId,
                 ServerSaveStore.string(payload, "baseId", ""));
-        ShipLoadoutDefinition loadout = register(world, payload);
-        boolean success = world.buildShip(base.id, loadout.id());
-        return success
-                ? Result.ok(world.status, true, true)
-                : Result.fail(world.status);
+        Candidate candidate = candidate(payload);
+        ShipLoadoutDefinition preview = candidate.definition();
+        ShipType ship = Rules.findShip(preview.hullId());
+        if (ship == null) return Result.fail("Unknown ship hull.");
+        if (base.hp <= 0 || !base.type().buildableShips.contains(ship.id)) {
+            return Result.fail(base.type().name + " cannot build " + ship.name + ".");
+        }
+
+        boolean free = world.devFreeBuildFor(actorId);
+        if (!free && !ResearchRules.shipUnlocked(world, actorId, ship.id)) {
+            ResearchTopic topic = ResearchRules.firstTopicUnlockingShip(ship.id);
+            return Result.fail(ship.name + " requires research"
+                    + (topic == null ? "." : ": " + topic.name + "."));
+        }
+        if (!free && !WeaponRules.unlocked(world, actorId, preview)) {
+            return Result.fail(preview.displayName() + " requires research: "
+                    + WeaponRules.missingResearchLabel(world, actorId, preview) + ".");
+        }
+
+        List<Cost> cost = WeaponRules.buildCost(ship, preview);
+        if (!free && !HangarStore.canAfford(base.inventory, cost)) {
+            return Result.fail("Need " + Rules.formatCost(cost) + " in "
+                    + base.type().name + " hangar.");
+        }
+
+        EnumMap<Material,Double> inventoryBefore = new EnumMap<>(base.inventory);
+        int queueSizeBefore = base.productionQueue.size();
+        long nextJobBefore = base.nextProductionJobId;
+        if (!free) HangarStore.spend(base.inventory, cost);
+        ProductionJob job = ProductionSystem.enqueueShipPrepaid(base, ship, preview, !free);
+        if (job == null) {
+            restoreBuildState(base, inventoryBefore, queueSizeBefore, nextJobBefore);
+            return Result.fail("Could not queue the custom-fit ship.");
+        }
+
+        ShipLoadoutDefinition installed;
+        try {
+            installed = WorldFitCatalog.registerRuntime(world, candidate.name(), candidate.spec());
+            if (!installed.id().equals(preview.id())) {
+                throw new IllegalStateException("Runtime fit registration changed the planned fit ID.");
+            }
+        } catch (RuntimeException ex) {
+            restoreBuildState(base, inventoryBefore, queueSizeBefore, nextJobBefore);
+            throw ex;
+        }
+
+        int position = base.productionQueue.size();
+        world.status = "Queued " + ship.name + " - " + installed.displayName()
+                + (position > 1 ? " at position " + position : "") + ".";
+        AlertCenter.push(world, "Production queued: " + ship.name + " - "
+                + installed.displayName() + ".");
+        return Result.ok(world.status, true, true);
+    }
+
+    private static void restoreBuildState(Base base,
+                                          EnumMap<Material,Double> inventoryBefore,
+                                          int queueSizeBefore, long nextJobBefore) {
+        while (base.productionQueue.size() > queueSizeBefore) {
+            base.productionQueue.remove(base.productionQueue.size() - 1);
+        }
+        base.nextProductionJobId = nextJobBefore;
+        base.inventory.clear();
+        base.inventory.putAll(inventoryBefore);
     }
 
     private static Candidate candidate(Map<String,Object> payload) {

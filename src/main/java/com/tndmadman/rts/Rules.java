@@ -430,7 +430,18 @@ final class BaseType {
              double maxShield, double shieldRegen, double shieldRegenDelay,
              List<String> buildableShips, List<String> basePackages, List<Cost> buildCost, double buildTimeSeconds) {
         this(id, name, maxHp, unloadRange, unloadRate, buildRadius, maxShield, shieldRegen, shieldRegenDelay,
-                buildableShips, basePackages, buildCost, buildTimeSeconds, "shipyard".equals(id), unloadRange);
+                buildableShips, basePackages, buildCost, buildTimeSeconds,
+                fallbackCanRefit(id), fallbackRefitRange(id, unloadRange));
+    }
+
+    static boolean fallbackCanRefit(String id) {
+        return "shipyard".equals(id) || "outpost".equals(id);
+    }
+
+    static double fallbackRefitRange(String id, double unloadRange) {
+        if ("shipyard".equals(id)) return 520;
+        if ("outpost".equals(id)) return 420;
+        return unloadRange;
     }
 
     BaseType(String id, String name, double maxHp, double unloadRange, double unloadRate, double buildRadius,

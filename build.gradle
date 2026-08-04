@@ -49,6 +49,64 @@ tasks.register('validateShipLoadouts', JavaExec) {
     mainClass = 'com.tndmadman.rts.ShipLoadoutValidator'
 }
 
+tasks.register('validateConfiguredFitRules', JavaExec) {
+    group = 'verification'
+    description = 'Validate explicit configurable fit compatibility, research, and economics.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.ConfiguredFitRuleValidator'
+}
+
+tasks.register('validateRefitQuotePersistence', JavaExec) {
+    group = 'verification'
+    description = 'Validate conversion quotes, exact reservations, refunds, and legacy migration.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.RefitQuotePersistenceValidator'
+}
+
+tasks.register('validateAtomicRefitTransactions', JavaExec) {
+    group = 'verification'
+    description = 'Validate all-or-nothing distributed refit commits and rollback.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.AtomicRefitTransactionValidator'
+}
+
+tasks.register('validateCustomFitConstruction', JavaExec) {
+    group = 'verification'
+    description = 'Validate private and published custom-fit construction and station routing.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.CustomFitConstructionValidator'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
+tasks.register('validateShipModuleRefits', JavaExec) {
+    group = 'verification'
+    description = 'Validate fitted module behavior, visuals, audio, and authoritative correction.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.ShipModuleRefitValidator'
+}
+
+tasks.register('validateDistributedRefitQueues', JavaExec) {
+    group = 'verification'
+    description = 'Validate distributed refit planning across Outposts and Shipyards.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.RefitQueuePlannerValidator'
+}
+
+tasks.register('validateIssue289Completion', JavaExec) {
+    group = 'verification'
+    description = 'Validate issue 289 dedicated lifecycle, authority, persistence, and recovery.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.Issue289CompletionValidator'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
 tasks.register('validateProductionQueues', JavaExec) {
     group = 'verification'
     description = 'Validate station production queue behavior.'
@@ -410,6 +468,13 @@ tasks.register('verifyBuildMetadata') {
 tasks.named('check') {
     dependsOn tasks.named('validateRules')
     dependsOn tasks.named('validateShipLoadouts')
+    dependsOn tasks.named('validateConfiguredFitRules')
+    dependsOn tasks.named('validateRefitQuotePersistence')
+    dependsOn tasks.named('validateAtomicRefitTransactions')
+    dependsOn tasks.named('validateCustomFitConstruction')
+    dependsOn tasks.named('validateShipModuleRefits')
+    dependsOn tasks.named('validateDistributedRefitQueues')
+    dependsOn tasks.named('validateIssue289Completion')
     dependsOn tasks.named('validateProductionQueues')
     dependsOn tasks.named('validateDevAccess')
     dependsOn tasks.named('validateClientLaunch')
