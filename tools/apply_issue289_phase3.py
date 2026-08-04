@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Runs the phase-three implementation and normalizes its generated test fixture.
 from pathlib import Path
 import runpy
 
