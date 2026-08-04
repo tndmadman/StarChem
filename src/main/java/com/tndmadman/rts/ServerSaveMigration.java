@@ -28,6 +28,10 @@ final class ServerSaveMigration {
             version = 4;
             notes.add("v3->v4 adds dynamic and published player fit catalogs");
         }
+        if (version == 4) {
+            version = 5;
+            notes.add("v4->v5 persists exact source-to-destination refit reservations");
+        }
         if (version != ServerSaveStore.SAVE_FORMAT_VERSION) {
             throw new IllegalArgumentException("Unsupported save format " + sourceVersion + ".");
         }
