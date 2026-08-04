@@ -23,17 +23,30 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Apply atomic refit transactions
         run: python3 tools/apply_issue289_phase2b.py
-      - name: Include planner response in validation failures
+      - name: Align focused validator with configured research
         run: |
           python3 - <<'PY'
           from pathlib import Path
           path = Path('src/main/java/com/tndmadman/rts/AtomicRefitTransactionValidator.java')
           text = path.read_text(encoding='utf-8')
-          old = '"atomic class refit did not queue every ship");'
-          new = '"atomic class refit did not queue every ship: " + success.message());'
-          if text.count(old) != 1:
-              raise SystemExit(f'expected one atomic success assertion, found {text.count(old)}')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          old_research = '        world.completeResearch(player, "advanced_industry");\n'
+          new_research = '''        ShipFitSpec spec = new ShipFitSpec("prospector", List.of(), List.of("afterburner"));
+        for (String topic : PlayerFitRules.requiredResearch(spec)) world.completeResearch(player, topic);
+'''
+          if text.count(old_research) != 1:
+              raise SystemExit(f'expected one research setup, found {text.count(old_research)}')
+          text = text.replace(old_research, new_research, 1)
+          old_spec = '        ShipFitSpec spec = new ShipFitSpec("prospector", List.of(), List.of("afterburner"));\n'
+          if text.count(old_spec) != 2:
+              raise SystemExit(f'expected duplicated spec after insertion, found {text.count(old_spec)}')
+          first = text.find(old_spec)
+          second = text.find(old_spec, first + 1)
+          text = text[:second] + text[second + len(old_spec):]
+          old_message = '"atomic class refit did not queue every ship");'
+          new_message = '"atomic class refit did not queue every ship: " + success.message());'
+          if text.count(old_message) != 1:
+              raise SystemExit(f'expected one atomic success assertion, found {text.count(old_message)}')
+          path.write_text(text.replace(old_message, new_message, 1), encoding='utf-8')
           PY
       - name: Compile
         run: gradle compileJava
