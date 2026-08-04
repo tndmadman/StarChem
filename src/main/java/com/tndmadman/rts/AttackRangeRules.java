@@ -7,19 +7,34 @@ final class AttackRangeRules {
 
     private AttackRangeRules() { }
 
+    static double systemRangeMultiplier(World world) {
+        double modifier = SystemModifierRules.weaponRange(world);
+        return Double.isFinite(modifier) && modifier > 0 ? modifier : 0;
+    }
+
+    static double effectiveRange(World world, double configuredRange) {
+        double modifier = systemRangeMultiplier(world);
+        if (!Double.isFinite(configuredRange) || configuredRange <= 0 || modifier <= 0) return 0;
+        return configuredRange * modifier;
+    }
+
+    static double definitionDistance(World world, double effectiveDistance) {
+        double modifier = systemRangeMultiplier(world);
+        if (!Double.isFinite(effectiveDistance) || effectiveDistance < 0 || modifier <= 0) {
+            return Double.POSITIVE_INFINITY;
+        }
+        return effectiveDistance / modifier;
+    }
+
     static double effectiveWeaponRange(World world, Unit unit) {
         if (unit == null || unit.hp <= 0) return 0;
-        double fitted = WeaponRules.maxRange(unit);
-        double modifier = SystemModifierRules.weaponRange(world);
-        if (!Double.isFinite(fitted) || fitted <= 0
-                || !Double.isFinite(modifier) || modifier <= 0) return 0;
-        return fitted * modifier;
+        return effectiveRange(world, WeaponRules.maxRange(world, unit));
     }
 
     static double preferredAttackRange(World world, Unit unit) {
         double effective = effectiveWeaponRange(world, unit);
         if (effective <= 0) return 0;
-        double preferred = ShipModuleRules.preferredApproachRange(unit, effective);
+        double preferred = ShipModuleRules.preferredApproachRange(world, unit, effective);
         return Double.isFinite(preferred) && preferred > 0 ? preferred : 0;
     }
 

@@ -27,7 +27,8 @@
         "PLATINUM": 50,
         "POINT_DEFENSE_LASER_ASSEMBLY": 2
       },
-      "canHarvest": []
+      "canHarvest": [],
+      "weaponHardpoints": 3
     },
     "dreadnought": {
       "displayName": "Dreadnought",
@@ -55,7 +56,8 @@
         "SHIELD_GENERATOR": 8,
         "URANIUM": 60
       },
-      "canHarvest": []
+      "canHarvest": [],
+      "weaponHardpoints": 4
     },
     "supercarrier": {
       "displayName": "Supercarrier",
@@ -83,7 +85,8 @@
         "PLATINUM": 180,
         "POINT_DEFENSE_LASER_ASSEMBLY": 2
       },
-      "canHarvest": []
+      "canHarvest": [],
+      "weaponHardpoints": 4
     },
     "titan": {
       "displayName": "Titan",
@@ -114,7 +117,8 @@
         "NEON": 120,
         "POINT_DEFENSE_LASER_ASSEMBLY": 2
       },
-      "canHarvest": []
+      "canHarvest": [],
+      "weaponHardpoints": 5
     }
   }
 }

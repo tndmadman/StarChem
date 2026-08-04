@@ -152,6 +152,16 @@ public final class RulesValidator {
                 validateNonNegative(ship.data, "tractorBeams", ship.source);
                 validateNonNegative(ship.data, "tractorRange", ship.source);
                 validateNonNegative(ship.data, "buildTimeSeconds", ship.source);
+                if (!ship.data.containsKey("weaponHardpoints")) {
+                    errors.add(ship.source + ".weaponHardpoints is missing.");
+                } else {
+                    Object value = ship.data.get("weaponHardpoints");
+                    if (!(value instanceof Number number) || !Double.isFinite(number.doubleValue())
+                            || Math.abs(number.doubleValue() - number.intValue()) > 0.000001
+                            || number.intValue() < 0 || number.intValue() > 64) {
+                        errors.add(ship.source + ".weaponHardpoints must be an integer between 0 and 64.");
+                    }
+                }
             }
         }
 

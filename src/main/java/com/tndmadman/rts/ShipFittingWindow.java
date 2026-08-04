@@ -811,7 +811,7 @@ final class ShipFittingWindow {
         else network.production(playerId, action, baseId, value, extra);
     }
 
-    static String refitCostSummary(Unit unit, ShipLoadoutDefinition fit) {
+    static String refitCostSummary(World world, Unit unit, ShipLoadoutDefinition fit) {
         if (fit == null) return "Unavailable";
         if (unit == null || !fit.hullId().equals(unit.shipTypeId)) {
             List<Cost> installation = RefitQuote.fullInstallationCost(fit);
@@ -820,7 +820,7 @@ final class ShipFittingWindow {
                     + " • source conversion varies";
         }
         try {
-            RefitQuote quote = RefitQuote.between(unit, fit);
+            RefitQuote quote = RefitQuote.between(world, unit, fit);
             String required = quote.requiredMaterials().isEmpty()
                     ? "No added materials"
                     : "Add " + Rules.formatCost(quote.requiredMaterials());
@@ -831,6 +831,10 @@ final class ShipFittingWindow {
         } catch (RuntimeException ex) {
             return "Conversion unavailable";
         }
+    }
+
+    static String refitCostSummary(Unit unit, ShipLoadoutDefinition fit) {
+        return refitCostSummary(PlayerRegistry.activeWorld(), unit, fit);
     }
 
     static FittingOption evaluate(World world, Unit unit, ShipLoadoutDefinition loadout) {

@@ -21,15 +21,20 @@ record RefitQuote(String sourceLoadoutId, String destinationLoadoutId, List<Cost
         version = Math.max(0, version);
     }
 
-    static RefitQuote between(Unit unit, ShipLoadoutDefinition destination) {
-        return between(unit, destination, ShipModuleRules.moduleIds(destination));
+    static RefitQuote between(World world, Unit unit, ShipLoadoutDefinition destination) {
+        return between(world, unit, destination, ShipModuleRules.moduleIds(destination));
     }
 
-    static RefitQuote between(Unit unit, ShipLoadoutDefinition destination, List<String> destinationModules) {
+    static RefitQuote between(Unit unit, ShipLoadoutDefinition destination) {
+        return between(PlayerRegistry.activeWorld(), unit, destination);
+    }
+
+    static RefitQuote between(World world, Unit unit, ShipLoadoutDefinition destination,
+                              List<String> destinationModules) {
         if (unit == null || destination == null || !unit.shipTypeId.equals(destination.hullId())) {
             throw new IllegalArgumentException("A matching source ship and destination fit are required.");
         }
-        ShipLoadoutDefinition source = WeaponRules.resolveForHull(unit.shipTypeId, unit.loadoutId);
+        ShipLoadoutDefinition source = WeaponRules.resolveForHull(world, unit.shipTypeId, unit.loadoutId);
         if (source == null) throw new IllegalArgumentException("The source ship fit is unavailable.");
 
         List<String> sourceWeapons = source.weaponIds();
@@ -44,21 +49,34 @@ record RefitQuote(String sourceLoadoutId, String destinationLoadoutId, List<Cost
                 destination.refitTimeSeconds(), CURRENT_VERSION);
     }
 
+    static RefitQuote between(Unit unit, ShipLoadoutDefinition destination,
+                              List<String> destinationModules) {
+        return between(PlayerRegistry.activeWorld(), unit, destination, destinationModules);
+    }
+
     static List<Cost> fullInstallationCost(ShipLoadoutDefinition loadout) {
         if (loadout == null) return List.of();
         return PlayerFitRules.installationCost(new ShipFitSpec(loadout.hullId(), loadout.weaponIds(),
                 ShipModuleRules.moduleIds(loadout)));
     }
 
-    static List<Cost> legacyReservedCost(ProductionJob job) {
+    static List<Cost> legacyReservedCost(World world, ProductionJob job) {
         if (job == null || job.kind != ProductionJobKind.REFIT || !job.resourcesReserved) return List.of();
-        ShipLoadoutDefinition destination = WeaponRules.findLoadout(job.loadoutId);
+        ShipLoadoutDefinition destination = WeaponRules.findLoadout(world, job.loadoutId);
         return destination == null ? List.of() : WeaponRules.refitCost(destination);
     }
 
-    static void migrateLegacy(ProductionJob job) {
+    static List<Cost> legacyReservedCost(ProductionJob job) {
+        return legacyReservedCost(PlayerRegistry.activeWorld(), job);
+    }
+
+    static void migrateLegacy(World world, ProductionJob job) {
         if (job == null || job.kind != ProductionJobKind.REFIT || job.refitQuoteVersion > 0) return;
-        job.reservedCost = legacyReservedCost(job);
+        job.reservedCost = legacyReservedCost(world, job);
+    }
+
+    static void migrateLegacy(ProductionJob job) {
+        migrateLegacy(PlayerRegistry.activeWorld(), job);
     }
 
     static String encodeCosts(List<Cost> costs) {

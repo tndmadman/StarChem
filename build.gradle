@@ -57,6 +57,22 @@ tasks.register('validateConfiguredFitRules', JavaExec) {
     mainClass = 'com.tndmadman.rts.ConfiguredFitRuleValidator'
 }
 
+tasks.register('validateAttackRangeParity', JavaExec) {
+    group = 'verification'
+    description = 'Validate authoritative, predicted, and displayed fitted attack ranges.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.AttackRangeParityValidator'
+}
+
+tasks.register('validateWorldFitCatalogIsolation', JavaExec) {
+    group = 'verification'
+    description = 'Validate world-scoped runtime fit definition and module isolation.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.WorldFitCatalogIsolationValidator'
+}
+
 tasks.register('validateRefitQuotePersistence', JavaExec) {
     group = 'verification'
     description = 'Validate conversion quotes, exact reservations, refunds, and legacy migration.'
@@ -469,6 +485,8 @@ tasks.named('check') {
     dependsOn tasks.named('validateRules')
     dependsOn tasks.named('validateShipLoadouts')
     dependsOn tasks.named('validateConfiguredFitRules')
+    dependsOn tasks.named('validateAttackRangeParity')
+    dependsOn tasks.named('validateWorldFitCatalogIsolation')
     dependsOn tasks.named('validateRefitQuotePersistence')
     dependsOn tasks.named('validateAtomicRefitTransactions')
     dependsOn tasks.named('validateCustomFitConstruction')

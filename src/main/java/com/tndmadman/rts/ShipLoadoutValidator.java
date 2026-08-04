@@ -39,6 +39,8 @@ public final class ShipLoadoutValidator {
     }
 
     private static void validateUtilityModules() {
+        World world = new World("Module Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        PlayerRegistry.activate(world);
         ShipFitSpec spec = new ShipFitSpec("destroyer", List.of("light_railgun"),
                 List.of("afterburner", "micro_jump_drive"));
         require(ShipFitSpec.from(spec.toMap()).equals(spec), "utility modules did not survive fit serialization");
@@ -46,7 +48,6 @@ public final class ShipLoadoutValidator {
         require(ShipModuleRules.moduleIds(fit).equals(spec.moduleIds()),
                 "runtime fit lost its utility module layout");
 
-        World world = new World("Module Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
         ShipLoadoutDefinition burnerFit = PlayerFitRules.register("Afterburner Test",
                 new ShipFitSpec("destroyer", List.of("light_railgun"), List.of("afterburner")));
         Unit burner = new Unit("BURNER", 1, "destroyer", 100, 180);

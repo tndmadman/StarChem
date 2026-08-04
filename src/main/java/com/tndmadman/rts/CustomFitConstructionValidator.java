@@ -133,7 +133,7 @@ public final class CustomFitConstructionValidator {
         ShipFitSpec afterburnerSpec = new ShipFitSpec("prospector", List.of(),
                 List.of("afterburner"));
         grant(world, player, afterburnerSpec);
-        ShipLoadoutDefinition afterburner = PlayerFitRules.definition(
+        ShipLoadoutDefinition afterburner = PlayerFitRules.register(
                 "Quote Burner", afterburnerSpec);
         String add = ShipFittingWindow.refitCostSummary(unit, afterburner);
         require(add.startsWith("Add ") && add.contains("Nothing removed"),

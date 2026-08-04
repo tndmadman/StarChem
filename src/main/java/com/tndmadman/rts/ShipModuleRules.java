@@ -58,12 +58,18 @@ final class ShipModuleRules {
     }
 
     static List<String> moduleIds(ShipLoadoutDefinition loadout) {
-        return loadout == null ? List.of() : LOADOUT_MODULES.getOrDefault(loadout.id(), List.of());
+        if (loadout == null) return List.of();
+        if (!loadout.moduleIds().isEmpty()) return loadout.moduleIds();
+        return LOADOUT_MODULES.getOrDefault(loadout.id(), List.of());
+    }
+
+    static List<String> moduleIds(World world, Unit unit) {
+        if (unit == null) return List.of();
+        return moduleIds(WeaponRules.resolveForHull(world, unit.shipTypeId, unit.loadoutId));
     }
 
     static List<String> moduleIds(Unit unit) {
-        if (unit == null) return List.of();
-        return moduleIds(WeaponRules.resolveForHull(unit.shipTypeId, unit.loadoutId));
+        return moduleIds(PlayerRegistry.activeWorld(), unit);
     }
 
     static List<ShipModuleDefinition> modules(ShipLoadoutDefinition loadout) {
@@ -131,10 +137,14 @@ final class ShipModuleRules {
         return List.copyOf(out);
     }
 
-    static boolean has(Unit unit, ShipModuleKind kind) {
+    static boolean has(World world, Unit unit, ShipModuleKind kind) {
         if (unit == null || kind == null) return false;
-        for (ShipModuleDefinition module : modules(moduleIds(unit))) if (module.kind() == kind) return true;
+        for (ShipModuleDefinition module : modules(moduleIds(world, unit))) if (module.kind() == kind) return true;
         return false;
+    }
+
+    static boolean has(Unit unit, ShipModuleKind kind) {
+        return has(PlayerRegistry.activeWorld(), unit, kind);
     }
 
     static boolean tackled(World world, Unit target) {
@@ -144,16 +154,20 @@ final class ShipModuleRules {
             if (tackler == null || tackler.hp <= 0 || tackler == target
                     || !targetKey.equals(tackler.attackTarget)
                     || !CombatTarget.enemy(world, tackler, targetKey)) continue;
-            ShipModuleDefinition module = first(tackler, ShipModuleKind.TACKLE);
+            ShipModuleDefinition module = first(world, tackler, ShipModuleKind.TACKLE);
             if (module != null && Calc.distance(tackler.x, tackler.y, target.x, target.y) <= module.range()) return true;
         }
         return false;
     }
 
-    static double preferredApproachRange(Unit unit, double weaponRange) {
-        ShipModuleDefinition tackle = first(unit, ShipModuleKind.TACKLE);
+    static double preferredApproachRange(World world, Unit unit, double weaponRange) {
+        ShipModuleDefinition tackle = first(world, unit, ShipModuleKind.TACKLE);
         if (tackle == null) return weaponRange;
         return Math.min(weaponRange, Math.max(80, tackle.range() * 0.82));
+    }
+
+    static double preferredApproachRange(Unit unit, double weaponRange) {
+        return preferredApproachRange(PlayerRegistry.activeWorld(), unit, weaponRange);
     }
 
     static void update(World world, Unit unit, double dt) {
@@ -177,7 +191,7 @@ final class ShipModuleRules {
         }
 
         boolean scrambled = tackled(world, unit);
-        ShipModuleDefinition jump = first(unit, ShipModuleKind.MICRO_JUMP_DRIVE);
+        ShipModuleDefinition jump = first(world, unit, ShipModuleKind.MICRO_JUMP_DRIVE);
         if (scrambled || jump == null || distance < jump.activationDistance()) {
             cancelCharge(unit);
         } else if (unit.microJumpCooldown <= 0) {
@@ -208,7 +222,7 @@ final class ShipModuleRules {
             }
         }
 
-        ShipModuleDefinition afterburner = first(unit, ShipModuleKind.AFTERBURNER);
+        ShipModuleDefinition afterburner = first(world, unit, ShipModuleKind.AFTERBURNER);
         unit.afterburnerActive = !scrambled && afterburner != null
                 && unit.microJumpCooldown >= 0
                 && distance >= afterburner.activationDistance();
@@ -294,7 +308,7 @@ final class ShipModuleRules {
                 g2.drawOval((int)Math.round(unit.x - radius), (int)Math.round(unit.y - radius),
                         (int)Math.round(radius * 2), (int)Math.round(radius * 2));
             }
-            ShipModuleDefinition tackle = first(unit, ShipModuleKind.TACKLE);
+            ShipModuleDefinition tackle = first(world, unit, ShipModuleKind.TACKLE);
             Unit target = targetUnit(world, unit.attackTarget);
             if (tackle != null && target != null
                     && Calc.distance(unit.x, unit.y, target.x, target.y) <= tackle.range()) {
@@ -310,7 +324,7 @@ final class ShipModuleRules {
     private static void drawJumpCharge(Graphics2D g2, World world, Unit unit) {
         double progress = microJumpChargeProgress(unit);
         if (progress <= 0) return;
-        ShipModuleDefinition jump = first(unit, ShipModuleKind.MICRO_JUMP_DRIVE);
+        ShipModuleDefinition jump = first(world, unit, ShipModuleKind.MICRO_JUMP_DRIVE);
         Color color = jump == null ? new Color(0x9BEAFF) : jump.color();
         double pulse = 0.5 + 0.5 * Math.sin((world.systemTime() + progress * 2.5) * Math.PI * 5.0);
         double radius = 28 + progress * 58;
@@ -414,10 +428,14 @@ final class ShipModuleRules {
         return new Color(color.getRed(), color.getGreen(), color.getBlue(), Math.max(0, Math.min(255, alpha)));
     }
 
-    private static ShipModuleDefinition first(Unit unit, ShipModuleKind kind) {
+    private static ShipModuleDefinition first(World world, Unit unit, ShipModuleKind kind) {
         if (unit == null) return null;
-        for (ShipModuleDefinition module : modules(moduleIds(unit))) if (module.kind() == kind) return module;
+        for (ShipModuleDefinition module : modules(moduleIds(world, unit))) if (module.kind() == kind) return module;
         return null;
+    }
+
+    private static ShipModuleDefinition first(Unit unit, ShipModuleKind kind) {
+        return first(PlayerRegistry.activeWorld(), unit, kind);
     }
 
     private static Objective objective(World world, Unit unit) {

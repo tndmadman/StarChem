@@ -53,7 +53,7 @@ final class ProductionSystem {
             world.status = "That ship is already reserved for refitting.";
             return false;
         }
-        RefitQuote quote = RefitQuote.between(unit, loadout);
+        RefitQuote quote = RefitQuote.between(world, unit, loadout);
         List<Cost> cost = free ? List.of() : quote.requiredMaterials();
         if (!free && !HangarStore.canAfford(base.inventory, cost)) {
             world.status = "Need " + Rules.formatCost(cost) + " in " + base.type().name + " hangar.";
@@ -211,7 +211,7 @@ final class ProductionSystem {
             if (job.kind != ProductionJobKind.REFIT) continue;
             Unit unit = world.units.get(job.subjectUnitKey);
             if (unit != null && unit.hp > 0) continue;
-            if (job.resourcesReserved) refund(base, costFor(job));
+            if (job.resourcesReserved) refund(base, costFor(world, job));
             job.resourcesReserved = false;
             iterator.remove();
             world.status = "Refit cancelled because the target ship was destroyed; reserved resources were refunded.";
@@ -286,15 +286,15 @@ final class ProductionSystem {
     static boolean fundWaitingJob(World world, Base base, String jobId) {
         ProductionJob job = findJob(base, jobId);
         if (world == null || base == null || !waitingForResources(job)) return false;
-        List<Cost> cost = costFor(job);
+        List<Cost> cost = costFor(world, job);
         if (!HangarStore.canAfford(base.inventory, cost)) return false;
         HangarStore.spend(base.inventory, cost);
         job.resourcesReserved = true;
         job.blockedReason = "";
         int position = base.productionQueue.indexOf(job) + 1;
-        world.status = "Logistics delivered resources. Funded " + displayName(job)
+        world.status = "Logistics delivered resources. Funded " + displayName(world, job)
                 + (position > 1 ? " at queue position " + position : "") + ".";
-        AlertCenter.push(world, "Resources delivered: " + displayName(job) + ".");
+        AlertCenter.push(world, "Resources delivered: " + displayName(world, job) + ".");
         processBase(world, base, 0);
         return true;
     }
@@ -340,10 +340,10 @@ final class ProductionSystem {
         Unit unit = new Unit(base.playerId, n, job.itemId,
                 base.x + Math.cos(a) * (base.type().buildRadius + 40),
                 base.y + Math.sin(a) * (base.type().buildRadius + 40));
-        unit.loadoutId = WeaponRules.resolveForHull(ship.id, job.loadoutId).id();
+        unit.loadoutId = WeaponRules.resolveForHull(world, ship.id, job.loadoutId).id();
         world.units.put(unit.key(), unit);
         completed(world, base, job, "Built " + ship.name + " - "
-                + WeaponRules.resolveForHull(ship.id, unit.loadoutId).displayName() + ".", SoundCue.BUILD_SHIP);
+                + WeaponRules.resolveForHull(world, ship.id, unit.loadoutId).displayName() + ".", SoundCue.BUILD_SHIP);
         return true;
     }
 
@@ -376,13 +376,13 @@ final class ProductionSystem {
     private static boolean prepareRefit(World world, Base base, ProductionJob job) {
         Unit unit = world.units.get(job.subjectUnitKey);
         if (unit == null || unit.hp <= 0) {
-            if (job.resourcesReserved) refund(base, costFor(job));
+            if (job.resourcesReserved) refund(base, costFor(world, job));
             job.resourcesReserved = false;
             job.blockedReason = "refit target destroyed";
             world.status = "Refit cancelled because the target ship was destroyed; reserved resources were refunded.";
             return false;
         }
-        ShipLoadoutDefinition loadout = WeaponRules.findLoadout(job.loadoutId);
+        ShipLoadoutDefinition loadout = WeaponRules.findLoadout(world, job.loadoutId);
         if (loadout == null || !unit.shipTypeId.equals(loadout.hullId())) {
             job.blockedReason = "invalid refit target";
             return false;
@@ -404,7 +404,7 @@ final class ProductionSystem {
 
     private static boolean completeRefit(World world, Base base, ProductionJob job) {
         Unit unit = world.units.get(job.subjectUnitKey);
-        ShipLoadoutDefinition loadout = WeaponRules.findLoadout(job.loadoutId);
+        ShipLoadoutDefinition loadout = WeaponRules.findLoadout(world, job.loadoutId);
         if (unit == null || loadout == null || !unit.shipTypeId.equals(loadout.hullId())) return failUnknown(world, job);
         unit.loadoutId = loadout.id();
         unit.attackTarget = "";
@@ -414,7 +414,7 @@ final class ProductionSystem {
         unit.targetX = unit.x;
         unit.targetY = unit.y;
         unit.weaponFlashTimer = 0;
-        unit.weaponCooldown = WeaponRules.maxCooldown(unit);
+        unit.weaponCooldown = WeaponRules.maxCooldown(world, unit);
         unit.microJumpCooldown = 0;
         unit.microJumpFlashTimer = 0;
         unit.afterburnerActive = false;
@@ -467,7 +467,7 @@ final class ProductionSystem {
             }
             world.logisticsSystem.cancelJob(base, job.id);
             boolean refunded = job.resourcesReserved;
-            if (refunded) refund(base, costFor(job));
+            if (refunded) refund(base, costFor(world, job));
             if (job.kind == ProductionJobKind.REFIT) {
                 Unit unit = world.units.get(job.subjectUnitKey);
                 if (unit != null) {
@@ -477,7 +477,7 @@ final class ProductionSystem {
                     unit.afterburnerActive = false;
                 }
             }
-            world.status = "Cancelled " + displayName(job) + (refunded ? " and refunded reserved resources." : ".");
+            world.status = "Cancelled " + displayName(world, job) + (refunded ? " and refunded reserved resources." : ".");
             processBase(world, base, 0);
             return true;
         }
@@ -555,7 +555,7 @@ final class ProductionSystem {
         return base == null || base.productionQueue.isEmpty() ? null : base.productionQueue.get(0);
     }
 
-    static String displayName(ProductionJob job) {
+    static String displayName(World world, ProductionJob job) {
         if (job == null) return "Production";
         return switch (job.kind) {
             case SHIP -> Rules.ship(job.itemId).name;
@@ -569,12 +569,16 @@ final class ProductionSystem {
                 yield topic == null ? job.itemId : topic.name + " research";
             }
             case REFIT -> {
-                ShipLoadoutDefinition loadout = WeaponRules.findLoadout(job.loadoutId);
+                ShipLoadoutDefinition loadout = WeaponRules.findLoadout(world, job.loadoutId);
                 ShipType ship = Rules.findShip(job.itemId);
                 yield "Refit " + (ship == null ? job.itemId : ship.name) + " - "
                         + (loadout == null ? job.loadoutId : loadout.displayName());
             }
         };
+    }
+
+    static String displayName(ProductionJob job) {
+        return displayName(PlayerRegistry.activeWorld(), job);
     }
 
     static String detail(Base base, ProductionJob job) {
@@ -591,11 +595,11 @@ final class ProductionSystem {
         return state;
     }
 
-    static List<Cost> costFor(ProductionJob job) {
+    static List<Cost> costFor(World world, ProductionJob job) {
         if (job == null) return List.of();
         return switch (job.kind) {
             case SHIP -> WeaponRules.buildCost(Rules.findShip(job.itemId),
-                    WeaponRules.resolveForHull(job.itemId, job.loadoutId));
+                    WeaponRules.resolveForHull(world, job.itemId, job.loadoutId));
             case STATION_PACKAGE -> Rules.base(job.itemId).buildCost;
             case CRAFTABLE -> {
                 CraftableItem item = CraftingRules.item(job.itemId);
@@ -607,8 +611,12 @@ final class ProductionSystem {
             }
             case REFIT -> job.refitQuoteVersion > 0
                     ? job.reservedCost
-                    : RefitQuote.legacyReservedCost(job);
+                    : RefitQuote.legacyReservedCost(world, job);
         };
+    }
+
+    static List<Cost> costFor(ProductionJob job) {
+        return costFor(PlayerRegistry.activeWorld(), job);
     }
 
     private static void refund(Base base, List<Cost> cost) {
@@ -779,7 +787,7 @@ final class ProductionCommands {
 
     private static boolean refit(World world, Base base, String unitKey, String loadoutId) {
         Unit unit = world.units.get(unitKey);
-        ShipLoadoutDefinition loadout = WeaponRules.findLoadout(loadoutId);
+        ShipLoadoutDefinition loadout = WeaponRules.findLoadout(world, loadoutId);
         boolean free = world.devFreeBuildFor(base.playerId);
         return ProductionSystem.enqueueRefit(world, base, unit, loadout, free);
     }

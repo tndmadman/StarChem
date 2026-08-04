@@ -22,7 +22,8 @@
         "RAILGUN_ASSEMBLY": 1,
         "NICKEL": 20
       },
-      "canHarvest": []
+      "canHarvest": [],
+      "weaponHardpoints": 1
     },
     "destroyer": {
       "displayName": "Destroyer",
@@ -48,7 +49,8 @@
         "MISSILE_WARHEAD": 2,
         "POINT_DEFENSE_LASER_ASSEMBLY": 1
       },
-      "canHarvest": []
+      "canHarvest": [],
+      "weaponHardpoints": 3
     },
     "cruiser": {
       "displayName": "Cruiser",
@@ -75,7 +77,8 @@
         "HEAVY_CANNON_ASSEMBLY": 1,
         "TORPEDO_ASSEMBLY": 1
       },
-      "canHarvest": []
+      "canHarvest": [],
+      "weaponHardpoints": 4
     },
     "battle_cruiser": {
       "displayName": "Battle Cruiser",
@@ -103,7 +106,8 @@
         "TORPEDO_ASSEMBLY": 2,
         "TARGETING_COMPUTER": 2
       },
-      "canHarvest": []
+      "canHarvest": [],
+      "weaponHardpoints": 3
     },
     "battleship": {
       "displayName": "Battleship",
@@ -133,7 +137,8 @@
         "PLATINUM": 20,
         "POINT_DEFENSE_LASER_ASSEMBLY": 2
       },
-      "canHarvest": []
+      "canHarvest": [],
+      "weaponHardpoints": 6
     }
   }
 }
