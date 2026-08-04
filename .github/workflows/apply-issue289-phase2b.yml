@@ -2,7 +2,7 @@ name: Apply Issue 289 Phase 2B
 
 on:
   pull_request:
-    branches: [ agent/issue-289-loadouts ]
+    branches: [ main ]
 
 permissions:
   contents: write
@@ -23,12 +23,41 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Apply atomic refit transactions
         run: python3 tools/apply_issue289_phase2b.py
+      - name: Align focused validator with configured research
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('src/main/java/com/tndmadman/rts/AtomicRefitTransactionValidator.java')
+          text = path.read_text(encoding='utf-8')
+          old_research = '        world.completeResearch(player, "advanced_industry");\n'
+          new_research = '''        ShipFitSpec spec = new ShipFitSpec("prospector", List.of(), List.of("afterburner"));
+        for (String topic : PlayerFitRules.requiredResearch(spec)) world.completeResearch(player, topic);
+'''
+          if text.count(old_research) != 1:
+              raise SystemExit(f'expected one hard-coded research setup, found {text.count(old_research)}')
+          text = text.replace(old_research, new_research, 1)
+          declaration = '        ShipFitSpec spec = new ShipFitSpec("prospector", List.of(), List.of("afterburner"));\n'
+          if text.count(declaration) != 2:
+              raise SystemExit(f'expected two spec declarations after insertion, found {text.count(declaration)}')
+          first = text.find(declaration)
+          second = text.find(declaration, first + 1)
+          text = text[:second] + text[second + len(declaration):]
+          old_message = '"atomic class refit did not queue every ship");'
+          new_message = '"atomic class refit did not queue every ship: " + success.message());'
+          if text.count(old_message) != 1:
+              raise SystemExit(f'expected one success assertion, found {text.count(old_message)}')
+          path.write_text(text.replace(old_message, new_message, 1), encoding='utf-8')
+          PY
       - name: Compile
         run: gradle compileJava
       - name: Validate atomic refits
         run: java -cp build/classes/java/main com.tndmadman.rts.AtomicRefitTransactionValidator
       - name: Validate existing distributed refits
         run: java -cp build/classes/java/main com.tndmadman.rts.RefitQueuePlannerValidator
+      - name: Validate configured rules
+        run: java -cp build/classes/java/main com.tndmadman.rts.ConfiguredFitRuleValidator
+      - name: Validate conversion quote persistence
+        run: java -cp build/classes/java/main com.tndmadman.rts.RefitQuotePersistenceValidator
       - name: Build and run all validators
         run: gradle build
       - name: Commit validated phase
@@ -39,6 +68,4 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
           git commit -m "Make distributed refits transactional"
-          git fetch origin agent/issue-289-final-hardening
-          git rebase origin/agent/issue-289-final-hardening
           git push origin HEAD:agent/issue-289-final-hardening
