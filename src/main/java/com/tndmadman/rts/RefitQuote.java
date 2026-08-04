@@ -22,6 +22,10 @@ record RefitQuote(String sourceLoadoutId, String destinationLoadoutId, List<Cost
     }
 
     static RefitQuote between(Unit unit, ShipLoadoutDefinition destination) {
+        return between(unit, destination, ShipModuleRules.moduleIds(destination));
+    }
+
+    static RefitQuote between(Unit unit, ShipLoadoutDefinition destination, List<String> destinationModules) {
         if (unit == null || destination == null || !unit.shipTypeId.equals(destination.hullId())) {
             throw new IllegalArgumentException("A matching source ship and destination fit are required.");
         }
@@ -31,7 +35,7 @@ record RefitQuote(String sourceLoadoutId, String destinationLoadoutId, List<Cost
         List<String> sourceWeapons = source.weaponIds();
         List<String> targetWeapons = destination.weaponIds();
         List<String> sourceModules = ShipModuleRules.moduleIds(source);
-        List<String> targetModules = ShipModuleRules.moduleIds(destination);
+        List<String> targetModules = destinationModules == null ? List.of() : List.copyOf(destinationModules);
         EnumMap<Material,Double> required = new EnumMap<>(Material.class);
         List<String> removed = new ArrayList<>();
         addWeaponDelta(sourceWeapons, targetWeapons, required, removed);
