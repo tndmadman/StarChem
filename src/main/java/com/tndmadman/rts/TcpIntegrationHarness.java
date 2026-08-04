@@ -13,14 +13,30 @@ final class TcpIntegrationHarness implements AutoCloseable {
     final List<TestClient> clients = new ArrayList<>();
     private final Path sessionStore;
     final Path serverSaveDir;
+    private final boolean deleteStorageOnClose;
 
     private TcpIntegrationHarness(boolean dedicated) throws Exception {
-        sessionStore = Files.createTempFile("starchem-tcp-harness-", ".properties");
-        Files.deleteIfExists(sessionStore);
+        this(dedicated, null, null, true);
+    }
+
+    private TcpIntegrationHarness(boolean dedicated, Path existingSaveDir, Path existingSessionStore,
+                                  boolean deleteStorageOnClose) throws Exception {
+        this.deleteStorageOnClose = deleteStorageOnClose;
+        if (existingSessionStore == null) {
+            sessionStore = Files.createTempFile("starchem-tcp-harness-", ".properties");
+            Files.deleteIfExists(sessionStore);
+        } else {
+            sessionStore = existingSessionStore.toAbsolutePath().normalize();
+            Path parent = sessionStore.getParent();
+            if (parent != null) Files.createDirectories(parent);
+        }
         System.setProperty("starchem.sessionStore", sessionStore.toString());
         int port = freePort();
         if (dedicated) {
-            serverSaveDir = Files.createTempDirectory("starchem-tcp-dedicated-saves-");
+            serverSaveDir = existingSaveDir == null
+                    ? Files.createTempDirectory("starchem-tcp-dedicated-saves-")
+                    : existingSaveDir.toAbsolutePath().normalize();
+            Files.createDirectories(serverSaveDir);
             serverConfig = Config.dedicatedServer("TCP Dedicated Validator", port, false, false,
                     Set.of(), StarSystems.DEFAULT_SYSTEM_ID, "", 1, serverSaveDir,
                     "validation", 0, 3, false);
@@ -38,6 +54,13 @@ final class TcpIntegrationHarness implements AutoCloseable {
 
     static TcpIntegrationHarness host() throws Exception { return new TcpIntegrationHarness(false); }
     static TcpIntegrationHarness dedicated() throws Exception { return new TcpIntegrationHarness(true); }
+
+    /** Starts a dedicated harness against caller-owned persistent storage for restart tests. */
+    static TcpIntegrationHarness dedicated(Path saveDir, Path sessionStore) throws Exception {
+        return new TcpIntegrationHarness(true, saveDir, sessionStore, false);
+    }
+
+    Path sessionStorePath() { return sessionStore; }
 
     TestClient addClient(String name) throws Exception { return addClient(name, null); }
 
@@ -163,8 +186,10 @@ final class TcpIntegrationHarness implements AutoCloseable {
             else serverNetwork.shutdown();
         } catch (Exception ignored) { }
         System.clearProperty("starchem.sessionStore");
-        try { Files.deleteIfExists(sessionStore); } catch (Exception ignored) { }
-        deleteTree(serverSaveDir);
+        if (deleteStorageOnClose) {
+            try { Files.deleteIfExists(sessionStore); } catch (Exception ignored) { }
+            deleteTree(serverSaveDir);
+        }
     }
 
     private Unit findAcrossSystems(World world, String playerId, int unitId) {
