@@ -197,6 +197,24 @@ final class WeaponRules {
             Map<String,Object> w = object(e.getValue());
             if (w.isEmpty()) continue;
             String id = e.getKey();
+            if (!w.containsKey("compatibleHulls")) {
+                throw new RuleConfigurationException("Missing compatibleHulls for configurable weapon " + id + ".");
+            }
+            if (!w.containsKey("requiresResearch")) {
+                throw new RuleConfigurationException("Missing requiresResearch for configurable weapon " + id + ".");
+            }
+            if (!w.containsKey("installationCost")) {
+                throw new RuleConfigurationException("Missing installationCost for configurable weapon " + id + ".");
+            }
+            Set<String> compatibleHulls = new LinkedHashSet<>(stringList(w.get("compatibleHulls")));
+            Set<String> requiredResearch = new LinkedHashSet<>(stringList(w.get("requiresResearch")));
+            List<Cost> installationCost = costs(w.get("installationCost"));
+            if (compatibleHulls.isEmpty()) {
+                throw new RuleConfigurationException("Configurable weapon " + id + " must declare at least one compatible hull.");
+            }
+            if (installationCost.isEmpty()) {
+                throw new RuleConfigurationException("Configurable weapon " + id + " must declare a positive installation cost.");
+            }
             WEAPONS.put(id, new WeaponType(
                     id,
                     string(w, "displayName", id),
@@ -209,7 +227,10 @@ final class WeaponRules {
                     bool(w, "screenWeapon", false),
                     bool(w, "stoppable", false),
                     number(w, "shotSpeed", 0),
-                    number(w, "tracking", 0.5)));
+                    number(w, "tracking", 0.5),
+                    compatibleHulls,
+                    requiredResearch,
+                    installationCost));
         }
     }
 
@@ -249,12 +270,33 @@ final class WeaponRules {
     }
 
     private static void validateAndIndex() {
+        for (WeaponType weapon : WEAPONS.values()) {
+            if (weapon.compatibleHulls.isEmpty()) {
+                throw new RuleConfigurationException("Configurable weapon " + weapon.id + " has no compatible hulls.");
+            }
+            if (weapon.installationCost.isEmpty()) {
+                throw new RuleConfigurationException("Configurable weapon " + weapon.id + " has no installation cost.");
+            }
+            for (String hullId : weapon.compatibleHulls) if (Rules.findShip(hullId) == null) {
+                throw new RuleConfigurationException("Unknown compatible hull " + hullId + " for weapon " + weapon.id);
+            }
+            for (String topicId : weapon.requiredResearch) if (ResearchRules.topic(topicId) == null) {
+                throw new RuleConfigurationException("Unknown research ID " + topicId + " for weapon " + weapon.id);
+            }
+        }
         for (ShipLoadoutDefinition definition : SHIP_LOADOUTS.values()) {
             if (Rules.findShip(definition.hullId()) == null) {
                 throw new RuleConfigurationException("Unknown hull ID " + definition.hullId() + " for loadout " + definition.id());
             }
-            for (String weaponId : definition.weaponIds()) if (!WEAPONS.containsKey(weaponId)) {
-                throw new RuleConfigurationException("Unknown weapon ID " + weaponId + " for loadout " + definition.id());
+            for (String weaponId : definition.weaponIds()) {
+                WeaponType weapon = WEAPONS.get(weaponId);
+                if (weapon == null) {
+                    throw new RuleConfigurationException("Unknown weapon ID " + weaponId + " for loadout " + definition.id());
+                }
+                if (!weapon.compatibleWith(definition.hullId())) {
+                    throw new RuleConfigurationException("Weapon " + weaponId + " is not compatible with hull "
+                            + definition.hullId() + " in loadout " + definition.id());
+                }
             }
             for (String topicId : definition.requiredResearch()) if (ResearchRules.topic(topicId) == null) {
                 throw new RuleConfigurationException("Unknown research ID " + topicId + " for loadout " + definition.id());
@@ -299,15 +341,24 @@ final class WeaponRules {
 
     private static void loadDefaults() {
         clear();
-        WEAPONS.put("point_defense_laser", new WeaponType("point_defense_laser", "Point Defense Laser", 360, 6, 0.25, true, color("#66e8ff"), false, true, false, 0, 1.0));
-        WEAPONS.put("light_railgun", new WeaponType("light_railgun", "Light Railgun", 620, 18, 0.85, false, color("#9fdcff")));
-        WEAPONS.put("heavy_cannon", new WeaponType("heavy_cannon", "Heavy Cannon", 780, 55, 1.6, false, color("#ffd17a")));
-        WEAPONS.put("fighter_strike", new WeaponType("fighter_strike", "Fighter Strike", 920, 80, 2.4, false, color("#c77dff")));
-        WEAPONS.put("capital_lance", new WeaponType("capital_lance", "Capital Lance", 1150, 220, 4.0, true, color("#ff5f55")));
-        WEAPONS.put("siege_lance", new WeaponType("siege_lance", "Siege Lance", 1400, 420, 5.5, true, color("#ff9f1c")));
-        WEAPONS.put("light_missile", new WeaponType("light_missile", "Light Missile", 820, 36, 1.8, false, color("#d7f7ff"), true, false, true, 430, 0.75));
-        WEAPONS.put("torpedo", new WeaponType("torpedo", "Torpedo", 980, 115, 3.2, false, color("#ffb86b"), true, false, true, 310, 0.45));
-        WEAPONS.put("capital_torpedo", new WeaponType("capital_torpedo", "Capital Torpedo", 1300, 260, 4.8, false, color("#ff6b35"), true, false, true, 250, 0.30));
+        fallbackWeapon("point_defense_laser", "Point Defense Laser", 360, 6, 0.25, true, color("#66e8ff"), false, true, false, 0, 1.0,
+                Set.of("destroyer", "cruiser", "battleship", "carrier", "dreadnought", "supercarrier", "titan", "monolith"), Set.of(), List.of(new Cost(Material.POINT_DEFENSE_LASER_ASSEMBLY, 1)));
+        fallbackWeapon("light_railgun", "Light Railgun", 620, 18, 0.85, false, color("#9fdcff"), false, false, false, 0, 0.5,
+                Set.of("frigate", "destroyer", "cruiser", "battle_cruiser", "battleship"), Set.of(), List.of(new Cost(Material.RAILGUN_ASSEMBLY, 1)));
+        fallbackWeapon("heavy_cannon", "Heavy Cannon", 780, 55, 1.6, false, color("#ffd17a"), false, false, false, 0, 0.5,
+                Set.of("cruiser", "battle_cruiser", "battleship", "dreadnought", "titan", "monolith"), Set.of(), List.of(new Cost(Material.HEAVY_CANNON_ASSEMBLY, 1)));
+        fallbackWeapon("fighter_strike", "Fighter Strike", 920, 80, 2.4, false, color("#c77dff"), false, false, false, 0, 0.5,
+                Set.of("carrier", "supercarrier"), Set.of(), List.of(new Cost(Material.FIGHTER_CONTROL_MODULE, 1)));
+        fallbackWeapon("capital_lance", "Capital Lance", 1150, 220, 4.0, true, color("#ff5f55"), false, false, false, 0, 0.5,
+                Set.of("dreadnought", "titan", "monolith"), Set.of(), List.of(new Cost(Material.LANCE_FOCUSING_ARRAY, 1), new Cost(Material.TARGETING_COMPUTER, 1)));
+        fallbackWeapon("siege_lance", "Siege Lance", 1400, 420, 5.5, true, color("#ff9f1c"), false, false, false, 0, 0.5,
+                Set.of("monolith"), Set.of(), List.of(new Cost(Material.LANCE_FOCUSING_ARRAY, 2), new Cost(Material.TARGETING_COMPUTER, 2)));
+        fallbackWeapon("light_missile", "Light Missile", 820, 36, 1.8, false, color("#d7f7ff"), true, false, true, 430, 0.75,
+                Set.of("destroyer", "cruiser", "battle_cruiser", "battleship"), Set.of("combat_doctrine"), List.of(new Cost(Material.MISSILE_GUIDANCE_PACKAGE, 1), new Cost(Material.MISSILE_WARHEAD, 2)));
+        fallbackWeapon("torpedo", "Torpedo", 980, 115, 3.2, false, color("#ffb86b"), true, false, true, 310, 0.45,
+                Set.of("cruiser", "battle_cruiser", "battleship"), Set.of(), List.of(new Cost(Material.TORPEDO_ASSEMBLY, 1), new Cost(Material.MISSILE_GUIDANCE_PACKAGE, 1), new Cost(Material.MISSILE_WARHEAD, 2)));
+        fallbackWeapon("capital_torpedo", "Capital Torpedo", 1300, 260, 4.8, false, color("#ff6b35"), true, false, true, 250, 0.30,
+                Set.of("dreadnought"), Set.of("battlefleet_engineering"), List.of(new Cost(Material.TORPEDO_ASSEMBLY, 2), new Cost(Material.MISSILE_GUIDANCE_PACKAGE, 1), new Cost(Material.MISSILE_WARHEAD, 3)));
         defaultDefinition("frigate", List.of("light_railgun"));
         defaultDefinition("destroyer", List.of("light_railgun", "light_missile", "point_defense_laser"));
         defaultDefinition("cruiser", List.of("light_railgun", "heavy_cannon", "light_missile", "torpedo"));
@@ -319,6 +370,16 @@ final class WeaponRules {
         defaultDefinition("titan", List.of("capital_lance", "heavy_cannon", "heavy_cannon", "point_defense_laser", "point_defense_laser"));
         defaultDefinition("monolith", List.of("siege_lance", "capital_lance", "capital_lance", "point_defense_laser", "point_defense_laser", "point_defense_laser"));
         validateAndIndex();
+    }
+
+    private static void fallbackWeapon(String id, String name, double range, double damage,
+                                       double cooldown, boolean beam, Color color, boolean movingShot,
+                                       boolean screenWeapon, boolean stoppable, double shotSpeed, double tracking,
+                                       Set<String> compatibleHulls, Set<String> requiredResearch,
+                                       List<Cost> installationCost) {
+        WEAPONS.put(id, new WeaponType(id, name, range, damage, cooldown, beam, color,
+                movingShot, screenWeapon, stoppable, shotSpeed, tracking,
+                compatibleHulls, requiredResearch, installationCost));
     }
 
     private static void defaultDefinition(String hullId, List<String> weapons) {

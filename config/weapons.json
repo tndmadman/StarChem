@@ -7,7 +7,23 @@
       "cooldownSeconds": 0.25,
       "beam": true,
       "screenWeapon": true,
-      "color": "#66e8ff"
+      "color": "#66e8ff",
+      "compatibleHulls": [
+        "battleship",
+        "carrier",
+        "cruiser",
+        "destroyer",
+        "dreadnought",
+        "freighter",
+        "hauler",
+        "monolith",
+        "supercarrier",
+        "titan"
+      ],
+      "requiresResearch": [],
+      "installationCost": {
+        "POINT_DEFENSE_LASER_ASSEMBLY": 1
+      }
     },
     "light_railgun": {
       "displayName": "Light Railgun",
@@ -15,7 +31,18 @@
       "damage": 18,
       "cooldownSeconds": 0.85,
       "beam": false,
-      "color": "#9fdcff"
+      "color": "#9fdcff",
+      "compatibleHulls": [
+        "battle_cruiser",
+        "battleship",
+        "cruiser",
+        "destroyer",
+        "frigate"
+      ],
+      "requiresResearch": [],
+      "installationCost": {
+        "RAILGUN_ASSEMBLY": 1
+      }
     },
     "heavy_cannon": {
       "displayName": "Heavy Cannon",
@@ -23,7 +50,19 @@
       "damage": 55,
       "cooldownSeconds": 1.6,
       "beam": false,
-      "color": "#ffd17a"
+      "color": "#ffd17a",
+      "compatibleHulls": [
+        "battle_cruiser",
+        "battleship",
+        "cruiser",
+        "dreadnought",
+        "monolith",
+        "titan"
+      ],
+      "requiresResearch": [],
+      "installationCost": {
+        "HEAVY_CANNON_ASSEMBLY": 1
+      }
     },
     "fighter_strike": {
       "displayName": "Fighter Strike",
@@ -31,7 +70,15 @@
       "damage": 80,
       "cooldownSeconds": 2.4,
       "beam": false,
-      "color": "#c77dff"
+      "color": "#c77dff",
+      "compatibleHulls": [
+        "carrier",
+        "supercarrier"
+      ],
+      "requiresResearch": [],
+      "installationCost": {
+        "FIGHTER_CONTROL_MODULE": 1
+      }
     },
     "capital_lance": {
       "displayName": "Capital Lance",
@@ -39,7 +86,17 @@
       "damage": 220,
       "cooldownSeconds": 4.0,
       "beam": true,
-      "color": "#ff5f55"
+      "color": "#ff5f55",
+      "compatibleHulls": [
+        "dreadnought",
+        "monolith",
+        "titan"
+      ],
+      "requiresResearch": [],
+      "installationCost": {
+        "LANCE_FOCUSING_ARRAY": 1,
+        "TARGETING_COMPUTER": 1
+      }
     },
     "siege_lance": {
       "displayName": "Siege Lance",
@@ -47,7 +104,15 @@
       "damage": 420,
       "cooldownSeconds": 5.5,
       "beam": true,
-      "color": "#ff9f1c"
+      "color": "#ff9f1c",
+      "compatibleHulls": [
+        "monolith"
+      ],
+      "requiresResearch": [],
+      "installationCost": {
+        "LANCE_FOCUSING_ARRAY": 2,
+        "TARGETING_COMPUTER": 2
+      }
     },
     "light_missile": {
       "displayName": "Light Missile",
@@ -59,7 +124,20 @@
       "stoppable": true,
       "shotSpeed": 430,
       "tracking": 0.75,
-      "color": "#d7f7ff"
+      "color": "#d7f7ff",
+      "compatibleHulls": [
+        "battle_cruiser",
+        "battleship",
+        "cruiser",
+        "destroyer"
+      ],
+      "requiresResearch": [
+        "combat_doctrine"
+      ],
+      "installationCost": {
+        "MISSILE_GUIDANCE_PACKAGE": 1,
+        "MISSILE_WARHEAD": 2
+      }
     },
     "torpedo": {
       "displayName": "Torpedo",
@@ -71,7 +149,18 @@
       "stoppable": true,
       "shotSpeed": 310,
       "tracking": 0.45,
-      "color": "#ffb86b"
+      "color": "#ffb86b",
+      "compatibleHulls": [
+        "battle_cruiser",
+        "battleship",
+        "cruiser"
+      ],
+      "requiresResearch": [],
+      "installationCost": {
+        "TORPEDO_ASSEMBLY": 1,
+        "MISSILE_GUIDANCE_PACKAGE": 1,
+        "MISSILE_WARHEAD": 2
+      }
     },
     "capital_torpedo": {
       "displayName": "Capital Torpedo",
@@ -82,8 +171,19 @@
       "movingShot": true,
       "stoppable": true,
       "shotSpeed": 250,
-      "tracking": 0.30,
-      "color": "#ff6b35"
+      "tracking": 0.3,
+      "color": "#ff6b35",
+      "compatibleHulls": [
+        "dreadnought"
+      ],
+      "requiresResearch": [
+        "battlefleet_engineering"
+      ],
+      "installationCost": {
+        "TORPEDO_ASSEMBLY": 2,
+        "MISSILE_GUIDANCE_PACKAGE": 1,
+        "MISSILE_WARHEAD": 3
+      }
     }
   }
 }
