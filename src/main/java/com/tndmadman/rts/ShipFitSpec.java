@@ -97,13 +97,18 @@ final class PlayerFitRules {
         return Validation.accept();
     }
 
-    static ShipLoadoutDefinition definition(String requestedName, ShipFitSpec spec) {
+    /** Builds an authoritative candidate without registering it in global or world catalogs. */
+    static ShipLoadoutDefinition previewDefinition(String requestedName, ShipFitSpec spec) {
         Validation validation = validate(spec);
         if (!validation.valid()) throw new IllegalArgumentException(validation.reason());
         String name = cleanName(requestedName);
         if (name.isBlank()) name = Rules.ship(spec.hullId()).name + " Custom Fit";
-        ShipLoadoutDefinition definition = new ShipLoadoutDefinition(spec.runtimeId(), name, spec.hullId(), spec.weaponIds(),
+        return new ShipLoadoutDefinition(spec.runtimeId(), name, spec.hullId(), spec.weaponIds(),
                 requiredResearch(spec), buildPremium(spec), installationCost(spec), refitTimeSeconds(spec), false);
+    }
+
+    static ShipLoadoutDefinition definition(String requestedName, ShipFitSpec spec) {
+        ShipLoadoutDefinition definition = previewDefinition(requestedName, spec);
         ShipModuleRules.registerLoadout(definition.id(), spec.moduleIds());
         return definition;
     }
