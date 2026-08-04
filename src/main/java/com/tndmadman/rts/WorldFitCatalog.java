@@ -17,15 +17,40 @@ final class WorldFitCatalog {
 
     static ShipLoadoutDefinition registerRuntime(World world, String name, ShipFitSpec spec) {
         if (world == null) throw new IllegalArgumentException("World is required.");
-        ShipLoadoutDefinition definition = PlayerFitRules.register(name, spec);
+        ShipLoadoutDefinition candidate = PlayerFitRules.previewDefinition(name, spec);
         State state = state(world);
-        ShipFitSpec existing = state.runtime.get(definition.id());
-        if (existing != null && !existing.equals(spec)) throw new IllegalArgumentException("Runtime fit ID conflict.");
-        if (existing == null) {
-            state.runtime.put(definition.id(), spec);
-            state.revision++;
+        ShipFitSpec existingSpec = state.runtime.get(candidate.id());
+        ShipLoadoutDefinition existingDefinition = state.definitions.get(candidate.id());
+        if (existingSpec != null && !existingSpec.equals(spec)) {
+            throw new IllegalArgumentException("Runtime fit ID conflict.");
         }
-        return definition;
+        if (existingSpec == null) {
+            state.runtime.put(candidate.id(), spec);
+            state.definitions.put(candidate.id(), candidate);
+            state.revision++;
+            return candidate;
+        }
+        if (existingDefinition == null) {
+            state.definitions.put(candidate.id(), candidate);
+            return candidate;
+        }
+        return existingDefinition;
+    }
+
+    static ShipLoadoutDefinition runtimeDefinition(World world, String id) {
+        if (world == null || id == null || id.isBlank()) return null;
+        State state = STATES.get(world);
+        return state == null ? null : state.definitions.get(id);
+    }
+
+    static ShipFitSpec runtimeSpec(World world, String id) {
+        if (world == null || id == null || id.isBlank()) return null;
+        State state = STATES.get(world);
+        return state == null ? null : state.runtime.get(id);
+    }
+
+    static boolean containsRuntime(World world, String id) {
+        return runtimeDefinition(world, id) != null;
     }
 
     static PublishedFit publish(World world, String ownerId, String ownerName, String name, ShipFitSpec spec) {
@@ -75,19 +100,9 @@ final class WorldFitCatalog {
         if (world == null) return;
         Map<String,Object> root = ServerSaveStore.object(saved);
         State state = state(world);
-        state.runtime.clear();
-        state.published.clear();
+        clear(state);
         restoreDefinitions(state, root.get("definitions"));
-        for (Object item : ServerSaveStore.list(root.get("published"))) {
-            PublishedFit fit = PublishedFit.from(item);
-            if (!fit.valid()) continue;
-            try {
-                ShipLoadoutDefinition definition = PlayerFitRules.register(fit.name(), fit.spec());
-                if (!definition.id().equals(fit.runtimeFitId())) continue;
-                state.runtime.put(definition.id(), fit.spec());
-                state.published.put(fit.id(), fit);
-            } catch (RuntimeException ignored) { }
-        }
+        restorePublished(state, root.get("published"));
         state.revision = Math.max(0, ServerSaveStore.longValue(root, "revision", 0));
     }
 
@@ -108,21 +123,17 @@ final class WorldFitCatalog {
         if (world == null) return;
         Map<String,Object> root = ServerSaveStore.object(saved);
         State state = state(world);
-        state.runtime.clear();
-        state.published.clear();
+        clear(state);
         restoreDefinitions(state, root.get("definitions"));
-        for (Object item : ServerSaveStore.list(root.get("published"))) {
-            PublishedFit fit = PublishedFit.from(item);
-            if (!fit.valid()) continue;
-            try {
-                ShipLoadoutDefinition definition = PlayerFitRules.register(fit.name(), fit.spec());
-                if (!definition.id().equals(fit.runtimeFitId())) continue;
-                state.runtime.put(definition.id(), fit.spec());
-                state.published.put(fit.id(), fit);
-            } catch (RuntimeException ignored) { }
-        }
+        restorePublished(state, root.get("published"));
         state.revision = Math.max(0, ServerSaveStore.longValue(root, "revision", 0));
         state.nextPublishedId = Math.max(1, ServerSaveStore.longValue(root, "nextPublishedId", 1));
+    }
+
+    private static void clear(State state) {
+        state.runtime.clear();
+        state.definitions.clear();
+        state.published.clear();
     }
 
     private static List<Object> definitionRows(State state) {
@@ -141,9 +152,28 @@ final class WorldFitCatalog {
             Map<String,Object> row = ServerSaveStore.object(item);
             ShipFitSpec spec = ShipFitSpec.from(row.get("spec"));
             try {
-                ShipLoadoutDefinition definition = PlayerFitRules.register("Custom Fit", spec);
+                ShipLoadoutDefinition definition = PlayerFitRules.previewDefinition("Custom Fit", spec);
                 String savedId = ServerSaveStore.string(row, "id", definition.id());
-                if (definition.id().equals(savedId)) state.runtime.put(definition.id(), spec);
+                if (!definition.id().equals(savedId)) continue;
+                ShipFitSpec previous = state.runtime.putIfAbsent(definition.id(), spec);
+                if (previous == null || previous.equals(spec)) {
+                    state.definitions.putIfAbsent(definition.id(), definition);
+                }
+            } catch (RuntimeException ignored) { }
+        }
+    }
+
+    private static void restorePublished(State state, Object saved) {
+        for (Object item : ServerSaveStore.list(saved)) {
+            PublishedFit fit = PublishedFit.from(item);
+            if (!fit.valid()) continue;
+            try {
+                ShipLoadoutDefinition definition = PlayerFitRules.previewDefinition(fit.name(), fit.spec());
+                if (!definition.id().equals(fit.runtimeFitId())) continue;
+                ShipFitSpec previous = state.runtime.putIfAbsent(definition.id(), fit.spec());
+                if (previous != null && !previous.equals(fit.spec())) continue;
+                state.definitions.putIfAbsent(definition.id(), definition);
+                state.published.put(fit.id(), fit);
             } catch (RuntimeException ignored) { }
         }
     }
@@ -155,6 +185,7 @@ final class WorldFitCatalog {
 
     private static final class State {
         final Map<String,ShipFitSpec> runtime = new LinkedHashMap<>();
+        final Map<String,ShipLoadoutDefinition> definitions = new LinkedHashMap<>();
         final Map<String,PublishedFit> published = new LinkedHashMap<>();
         long revision;
         long nextPublishedId = 1;

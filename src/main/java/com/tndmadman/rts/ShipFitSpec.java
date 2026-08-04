@@ -104,38 +104,23 @@ final class PlayerFitRules {
         String name = cleanName(requestedName);
         if (name.isBlank()) name = Rules.ship(spec.hullId()).name + " Custom Fit";
         return new ShipLoadoutDefinition(spec.runtimeId(), name, spec.hullId(), spec.weaponIds(),
-                requiredResearch(spec), buildPremium(spec), installationCost(spec), refitTimeSeconds(spec), false);
+                spec.moduleIds(), requiredResearch(spec), buildPremium(spec), installationCost(spec),
+                refitTimeSeconds(spec), false);
     }
 
     static ShipLoadoutDefinition definition(String requestedName, ShipFitSpec spec) {
-        ShipLoadoutDefinition definition = previewDefinition(requestedName, spec);
-        ShipModuleRules.registerLoadout(definition.id(), spec.moduleIds());
-        return definition;
+        return previewDefinition(requestedName, spec);
     }
 
     static ShipLoadoutDefinition register(String requestedName, ShipFitSpec spec) {
-        ShipLoadoutDefinition definition = definition(requestedName, spec);
-        synchronized (WeaponRules.class) {
-            ShipLoadoutDefinition existing = WeaponRules.SHIP_LOADOUTS.get(definition.id());
-            if (existing != null) {
-                if (!existing.hullId().equals(definition.hullId())
-                        || !existing.weaponIds().equals(definition.weaponIds())
-                        || !ShipModuleRules.moduleIds(existing).equals(spec.moduleIds())) {
-                    throw new IllegalArgumentException("Runtime fit ID conflicts with a different definition.");
-                }
-                return existing;
-            }
-            WeaponRules.SHIP_LOADOUTS.put(definition.id(), definition);
-            return definition;
-        }
+        World world = PlayerRegistry.activeWorld();
+        return world == null ? previewDefinition(requestedName, spec)
+                : WorldFitCatalog.registerRuntime(world, requestedName, spec);
     }
 
     static int slotCount(String hullId) {
-        int slots = 0;
-        for (ShipLoadoutDefinition loadout : WeaponRules.loadoutsForHull(hullId)) {
-            slots = Math.max(slots, loadout.weaponIds().size());
-        }
-        return slots;
+        ShipType hull = Rules.findShip(hullId);
+        return hull == null ? 0 : hull.weaponHardpoints;
     }
 
     static List<WeaponType> allowedWeapons(String hullId) {

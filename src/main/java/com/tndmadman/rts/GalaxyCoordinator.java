@@ -75,7 +75,7 @@ final class GalaxyCoordinator {
         nextResourceId = Math.max(1, ServerSaveStore.intValue(save, "nextResourceId", 1));
         Map<String,Object> homes = ServerSaveStore.object(save.get("playerHomes"));
         for (Map.Entry<String,Object> entry : homes.entrySet()) playerHomes.put(entry.getKey(), ServerSaveStore.asString(entry.getValue(), ""));
-        for (Object item : ServerSaveStore.list(save.get("systems"))) restoreSystem(ServerSaveStore.object(item));
+        for (Object item : ServerSaveStore.list(save.get("systems"))) restoreSystem(world, ServerSaveStore.object(item));
         if (activeSystemId == null || activeSystemId.isBlank() || !systems.containsKey(activeSystemId)) activeSystemId = fallbackActiveSystemId();
         if (entrySystemId == null || entrySystemId.isBlank()) entrySystemId = activeSystemId;
         loadActive(world);
@@ -667,7 +667,7 @@ final class GalaxyCoordinator {
         return out;
     }
 
-    private void restoreSystem(Map<String,Object> data) {
+    private void restoreSystem(World world, Map<String,Object> data) {
         String id = ServerSaveStore.string(data, "systemId", "");
         if (id.isBlank()) return;
         String templateId = SaveContentResolver.systemTemplateId(ServerSaveStore.string(data, "templateId", id));
@@ -679,8 +679,8 @@ final class GalaxyCoordinator {
         restoreControl(state.control, ServerSaveStore.object(data.get("control")));
         state.wormholes.addAll(restoreWormholes(ServerSaveStore.list(data.get("wormholes"))));
         state.resources.addAll(restoreResources(ServerSaveStore.list(data.get("resources"))));
-        state.units.putAll(restoreUnits(ServerSaveStore.list(data.get("units"))));
-        state.bases.putAll(restoreBases(ServerSaveStore.list(data.get("bases"))));
+        state.units.putAll(restoreUnits(world, ServerSaveStore.list(data.get("units"))));
+        state.bases.putAll(restoreBases(world, ServerSaveStore.list(data.get("bases"))));
         state.shots.addAll(restoreShots(ServerSaveStore.list(data.get("projectiles"))));
         state.items.addAll(restoreItems(ServerSaveStore.list(data.get("worldItems"))));
         systems.put(id, state);
@@ -790,7 +790,7 @@ final class GalaxyCoordinator {
         return out;
     }
 
-    private Map<String,Unit> restoreUnits(List<Object> rows) {
+    private Map<String,Unit> restoreUnits(World world, List<Object> rows) {
         Map<String,Unit> out = new LinkedHashMap<>();
         for (Object item : rows) {
             Map<String,Object> row = ServerSaveStore.object(item);
@@ -798,7 +798,7 @@ final class GalaxyCoordinator {
                     SaveContentResolver.shipId(ServerSaveStore.string(row, "shipTypeId", Rules.STARTING_SHIP)), ServerSaveStore.doubleValue(row, "x", 0),
                     ServerSaveStore.doubleValue(row, "y", 0));
             String savedLoadoutId = ServerSaveStore.string(row, "loadoutId", WeaponRules.defaultLoadoutId(unit.shipTypeId));
-            ShipLoadoutDefinition savedLoadout = WeaponRules.findLoadout(savedLoadoutId);
+            ShipLoadoutDefinition savedLoadout = WeaponRules.findLoadout(world, savedLoadoutId);
             unit.loadoutId = savedLoadout != null && unit.shipTypeId.equals(savedLoadout.hullId())
                     ? savedLoadout.id() : WeaponRules.defaultLoadoutId(unit.shipTypeId);
             unit.basePackageType = SaveContentResolver.optionalBaseId(ServerSaveStore.string(row, "basePackageType", ""));
@@ -839,7 +839,7 @@ final class GalaxyCoordinator {
         return out;
     }
 
-    private Map<String,Base> restoreBases(List<Object> rows) {
+    private Map<String,Base> restoreBases(World world, List<Object> rows) {
         Map<String,Base> out = new LinkedHashMap<>();
         for (Object item : rows) {
             Map<String,Object> row = ServerSaveStore.object(item);
@@ -851,7 +851,7 @@ final class GalaxyCoordinator {
             base.nextProductionJobId = Math.max(1, ServerSaveStore.longValue(row, "nextProductionJobId", 1));
             base.logisticsStatus = ServerSaveStore.string(row, "logisticsStatus", "");
             base.inventory.putAll(ServerSaveStore.restoreMaterialMap(row.get("inventory")));
-            base.productionQueue.addAll(restoreProduction(ServerSaveStore.list(row.get("productionQueue"))));
+            base.productionQueue.addAll(restoreProduction(world, ServerSaveStore.list(row.get("productionQueue"))));
             out.put(base.id, base);
         }
         return out;
@@ -873,7 +873,7 @@ final class GalaxyCoordinator {
         return out;
     }
 
-    private List<ProductionJob> restoreProduction(List<Object> rows) {
+    private List<ProductionJob> restoreProduction(World world, List<Object> rows) {
         List<ProductionJob> out = new ArrayList<>();
         for (Object item : rows) {
             Map<String,Object> row = ServerSaveStore.object(item);
@@ -891,9 +891,9 @@ final class GalaxyCoordinator {
             job.sourceLoadoutId = ServerSaveStore.string(row, "sourceLoadoutId", "");
             job.refitQuoteVersion = Math.max(0, ServerSaveStore.intValue(row, "refitQuoteVersion", 0));
             job.reservedCost = RefitQuote.costsFromMap(row.get("reservedCost"));
-            if (job.refitQuoteVersion == 0) RefitQuote.migrateLegacy(job);
+            if (job.refitQuoteVersion == 0) RefitQuote.migrateLegacy(world, job);
             if ((kind == ProductionJobKind.SHIP || kind == ProductionJobKind.REFIT)) {
-                ShipLoadoutDefinition loadout = WeaponRules.findLoadout(job.loadoutId);
+                ShipLoadoutDefinition loadout = WeaponRules.findLoadout(world, job.loadoutId);
                 if (loadout == null || !itemId.equals(loadout.hullId())
                         || kind == ProductionJobKind.REFIT && job.subjectUnitKey.isBlank()) continue;
             }

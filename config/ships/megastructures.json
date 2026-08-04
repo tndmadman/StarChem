@@ -27,7 +27,8 @@
         "GOLD": 1200,
         "POINT_DEFENSE_LASER_ASSEMBLY": 3
       },
-      "canHarvest": []
+      "canHarvest": [],
+      "weaponHardpoints": 6
     }
   }
 }

@@ -27,14 +27,13 @@ public final class FitBootstrapValidator {
         authoredShip.loadoutId = authoredFit.id();
         Map<String,Object> savedCatalog = WorldFitCatalog.capture(authored);
 
-        // Simulate a new server process loading the save: static runtime definitions start empty,
-        // then the persisted world catalog must restore them before units resolve their loadout IDs.
-        WeaponRules.SHIP_LOADOUTS.remove(authoredFit.id());
+        // Simulate a new server process loading the save. The persisted world catalog must restore
+        // its runtime definitions before units resolve their loadout IDs.
         PlayerRegistry.reset("SOLO", "Fit Bootstrap Server", 0x50BEFF);
         World restoredServer = new World("Fit Bootstrap Server");
         PlayerRegistry.activate(restoredServer);
         WorldFitCatalog.restore(restoredServer, savedCatalog);
-        require(WeaponRules.findLoadout(authoredFit.id()) != null,
+        require(WeaponRules.findLoadout(restoredServer, authoredFit.id()) != null,
                 "saved custom fit was not restored before server unit state");
         Unit restoredShip = firstShip(restoredServer);
         restoredShip.loadoutId = authoredFit.id();
@@ -59,7 +58,10 @@ public final class FitBootstrapValidator {
         String snapshotPacket = frames.get(snapshotIndex).message();
 
         // Simulate a fresh client process. The exact snapshot must fail before bootstrap and pass after it.
-        WeaponRules.SHIP_LOADOUTS.remove(authoredFit.id());
+        World client = new World("Fit Bootstrap Client", java.util.Set.of(),
+                StarSystems.DEFAULT_SYSTEM_ID, false);
+        PlayerRegistry.activate(client);
+        PlayerRegistry.reset("SOLO", "Fit Bootstrap Client", 0x50BEFF);
         boolean rejectedBeforeCatalog = false;
         try {
             readSnapshot(snapshotPacket);
@@ -69,14 +71,10 @@ public final class FitBootstrapValidator {
         require(rejectedBeforeCatalog,
                 "fresh-client simulation did not reproduce the unknown custom loadout rejection");
 
-        PlayerRegistry.reset("SOLO", "Fit Bootstrap Client", 0x50BEFF);
-        World client = new World("Fit Bootstrap Client", java.util.Set.of(),
-                StarSystems.DEFAULT_SYSTEM_ID, false);
-        PlayerRegistry.activate(client);
         String catalogPacket = frames.get(catalogIndex).message();
         WorldFitCatalog.applyNetworkView(client,
                 FitStateWire.decode(catalogPacket.substring(CATALOG_PREFIX.length())));
-        require(WeaponRules.findLoadout(authoredFit.id()) != null,
+        require(WeaponRules.findLoadout(client, authoredFit.id()) != null,
                 "client did not register the restored custom fit from bootstrap");
 
         Snapshot accepted = readSnapshot(snapshotPacket);

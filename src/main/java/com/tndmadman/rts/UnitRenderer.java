@@ -38,7 +38,7 @@ final class UnitRenderer {
             double weaponRange = displayedWeaponRange(world, unit);
             if (weaponRange > 0) {
                 boolean fill = world == null || world.selectedCount() <= 1;
-                drawWeaponRangeCircle(g2, unit, weaponRange, weaponRangeColor(unit), fill);
+                drawWeaponRangeCircle(g2, unit, weaponRange, weaponRangeColor(world, unit), fill);
             }
         }
         if (owner && unit.type().scoutRange > 0 && shouldDrawScoutCircle(unit)) {
@@ -49,12 +49,7 @@ final class UnitRenderer {
     }
 
     static double displayedWeaponRange(World world, Unit unit) {
-        if (unit == null || unit.hp <= 0) return 0;
-        double range = WeaponRules.maxRange(unit);
-        if (!Double.isFinite(range) || range <= 0) return 0;
-        double modifier = world == null ? 1.0 : SystemModifierRules.weaponRange(world);
-        if (!Double.isFinite(modifier) || modifier <= 0) return 0;
-        return range * modifier;
+        return AttackRangeRules.effectiveWeaponRange(world, unit);
     }
 
     static void drawRoute(Graphics2D g2, Unit unit, Color ignoredColor) {
@@ -86,9 +81,9 @@ final class UnitRenderer {
         return miningRangeOverlayVisible && unit.type().tractorBeamCount > 0 && unit.type().tractorRange > 0;
     }
 
-    private static Color weaponRangeColor(Unit unit) {
+    private static Color weaponRangeColor(World world, Unit unit) {
         WeaponType longest = null;
-        for (WeaponType weapon : WeaponRules.loadout(unit)) {
+        for (WeaponType weapon : WeaponRules.loadout(world, unit)) {
             if (weapon.screenWeapon) continue;
             if (longest == null || weapon.range > longest.range) longest = weapon;
         }

@@ -263,7 +263,7 @@ public final class Issue289CompletionValidator {
                 }, 10_000, "client did not receive the fitted runtime ID");
 
                 Unit fitted = first.unit(first.serverWorld, playerId, unitId);
-                require(fitted != null && ShipModuleRules.has(fitted, ShipModuleKind.AFTERBURNER),
+                require(fitted != null && ShipModuleRules.has(first.serverWorld, fitted, ShipModuleKind.AFTERBURNER),
                         "dedicated fitted ship lost its afterburner mechanics");
                 require(catalogContains(first.serverWorld, runtimeId) && catalogContains(client.world(), runtimeId),
                         "runtime fit catalog did not synchronize before the fitted snapshot");
@@ -285,7 +285,7 @@ public final class Issue289CompletionValidator {
                         "fitted ship did not transfer through the wormhole");
                 Unit transferred = first.unit(first.serverWorld, playerId, unitId);
                 require(transferred != null && runtimeId.equals(transferred.loadoutId)
-                                && ShipModuleRules.has(transferred, ShipModuleKind.AFTERBURNER),
+                                && ShipModuleRules.has(first.serverWorld, transferred, ShipModuleKind.AFTERBURNER),
                         "wormhole travel lost the fitted loadout or module behavior");
             }
 
@@ -297,7 +297,7 @@ public final class Issue289CompletionValidator {
                 Unit restored = restarted.unit(restarted.serverWorld, playerId, unitId);
                 require(restored != null && runtimeId.equals(restored.loadoutId),
                         "dedicated restart lost the custom fitted ship");
-                require(ShipModuleRules.has(restored, ShipModuleKind.AFTERBURNER),
+                require(ShipModuleRules.has(restarted.serverWorld, restored, ShipModuleKind.AFTERBURNER),
                         "dedicated restart lost the custom module definition");
                 require(catalogContains(restarted.serverWorld, runtimeId),
                         "dedicated restart did not restore the runtime fit catalog");

@@ -21,6 +21,7 @@ public final class ConfiguredFitRuleValidator {
             require(!module.compatibleHulls().isEmpty(), module.id() + " lacks compatible hulls");
             require(!module.installationCost().isEmpty(), module.id() + " lacks installation cost");
         }
+        validateExplicitHardpoints();
 
         ShipFitSpec mixed = new ShipFitSpec("destroyer",
                 List.of("light_railgun", "light_missile", "point_defense_laser"),
@@ -53,7 +54,33 @@ public final class ConfiguredFitRuleValidator {
         require(missileCost.stream().anyMatch(cost -> cost.material() == Material.MISSILE_WARHEAD),
                 "configured missile cost missing warheads");
 
-        System.out.println("StarChem configured ship-fit compatibility, research, and cost validation passed.");
+        require(MultiplayerCompatibility.local().rulesVersion() == 27,
+                "world-scoped fit and explicit-hardpoint rules version was not bumped");
+        System.out.println("StarChem configured ship-fit compatibility, research, cost, and hardpoint validation passed.");
+    }
+
+    private static void validateExplicitHardpoints() {
+        for (ShipType ship : Rules.SHIPS.values()) {
+            require(ship.weaponHardpoints >= 0 && ship.weaponHardpoints <= 64,
+                    ship.id + " has invalid configured weapon hardpoints");
+            require(PlayerFitRules.slotCount(ship.id) == ship.weaponHardpoints,
+                    ship.id + " custom-fit capacity is not sourced from ship configuration");
+            for (ShipLoadoutDefinition loadout : WeaponRules.loadoutsForHull(ship.id)) {
+                require(loadout.weaponIds().size() <= ship.weaponHardpoints,
+                        loadout.id() + " exceeds configured weapon hardpoints for " + ship.id);
+            }
+        }
+
+        ShipType destroyer = Rules.ship("destroyer");
+        require(destroyer.weaponHardpoints == 3,
+                "destroyer hardpoint fixture changed unexpectedly");
+        PlayerFitRules.Validation exact = PlayerFitRules.validate(new ShipFitSpec("destroyer",
+                List.of("light_railgun", "light_missile", "point_defense_laser"), List.of()));
+        require(exact.valid(), "fit at exact configured hardpoint capacity was rejected: " + exact.reason());
+        PlayerFitRules.Validation excessive = PlayerFitRules.validate(new ShipFitSpec("destroyer",
+                List.of("light_railgun", "light_missile", "point_defense_laser", "light_railgun"), List.of()));
+        require(!excessive.valid() && excessive.reason().contains("hardpoints"),
+                "fit above configured hardpoint capacity was not rejected precisely");
     }
 
     private static void require(boolean condition, String message) {

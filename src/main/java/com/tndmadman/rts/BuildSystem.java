@@ -4,7 +4,7 @@ final class BuildSystem {
     boolean buildShip(World world, String baseId, String requestedId) {
         Base base = world.bases.get(baseId);
         if (base == null) return false;
-        ShipLoadoutDefinition requestedLoadout = WeaponRules.findLoadout(requestedId);
+        ShipLoadoutDefinition requestedLoadout = WeaponRules.findLoadout(world, requestedId);
         ShipType shipType = requestedLoadout == null ? Rules.findShip(requestedId) : Rules.findShip(requestedLoadout.hullId());
         if (shipType == null) {
             world.status = "Unknown ship or loadout ID: " + requestedId + ".";

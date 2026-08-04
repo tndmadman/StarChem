@@ -21,6 +21,8 @@ jobs:
         run: java -cp build/classes/java/main com.tndmadman.rts.AttackRangeParityValidator
       - name: Validate configured fit rules
         run: java -cp build/classes/java/main com.tndmadman.rts.ConfiguredFitRuleValidator
+      - name: Validate world-scoped runtime fit catalogs
+        run: java -cp build/classes/java/main com.tndmadman.rts.WorldFitCatalogIsolationValidator
       - name: Validate refit quote persistence
         run: java -cp build/classes/java/main com.tndmadman.rts.RefitQuotePersistenceValidator
       - name: Validate atomic distributed refits

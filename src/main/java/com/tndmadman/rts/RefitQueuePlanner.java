@@ -182,7 +182,7 @@ final class RefitQueuePlanner {
         for (Unit unit : units) {
             RefitQuote quote;
             try {
-                quote = RefitQuote.between(unit, loadout, destinationModules);
+                quote = RefitQuote.between(world, unit, loadout, destinationModules);
             } catch (IllegalArgumentException ex) {
                 return Plan.fail(ex.getMessage());
             }
@@ -227,7 +227,7 @@ final class RefitQueuePlanner {
         if (world == null || unit == null || loadout == null) return null;
         RefitQuote quote;
         try {
-            quote = RefitQuote.between(unit, loadout);
+            quote = RefitQuote.between(world, unit, loadout);
         } catch (RuntimeException ex) {
             return null;
         }

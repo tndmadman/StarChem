@@ -110,6 +110,13 @@ final class Rules {
             if (s.isEmpty()) continue;
             String id = e.getKey();
             double hp = number(s, "maxHp", 100);
+            if (!s.containsKey("weaponHardpoints")) {
+                throw new RuleConfigurationException("Missing weaponHardpoints for ship " + id + ".");
+            }
+            int weaponHardpoints = integer(s, "weaponHardpoints", -1);
+            if (weaponHardpoints < 0 || weaponHardpoints > 64) {
+                throw new RuleConfigurationException("weaponHardpoints for ship " + id + " must be between 0 and 64.");
+            }
             out.put(id, new ShipType(
                     id,
                     string(s, "displayName", id),
@@ -131,7 +138,8 @@ final class Rules {
                     bool(s, "baseBuilder", false),
                     nodeKinds(s.get("canHarvest")),
                     costs(s.get("buildCost")),
-                    number(s, "buildTimeSeconds", 0)));
+                    number(s, "buildTimeSeconds", 0),
+                    weaponHardpoints));
         }
         return out;
     }
@@ -358,7 +366,7 @@ final class ShipType {
     final int seed;
     final double maxHp, speed, cargoCapacity, harvestRange, orbitRadius, idleOrbitRadius, scoutRange;
     final double maxShield, shieldRegen, shieldRegenDelay, tractorRange, buildTimeSeconds;
-    final int scoutDispatchLimit, tractorBeamCount;
+    final int scoutDispatchLimit, tractorBeamCount, weaponHardpoints;
     final boolean baseBuilder;
     final EnumSet<NodeKind> harvestKinds;
     final List<Cost> buildCost;
@@ -394,6 +402,17 @@ final class ShipType {
              double maxShield, double shieldRegen, double shieldRegenDelay,
              int tractorBeamCount, double tractorRange,
              boolean baseBuilder, EnumSet<NodeKind> harvestKinds, List<Cost> buildCost, double buildTimeSeconds) {
+        this(id, name, size, seed, maxHp, speed, cargoCapacity, harvestRange, orbitRadius, idleOrbitRadius, scoutRange,
+                scoutDispatchLimit, maxShield, shieldRegen, shieldRegenDelay, tractorBeamCount, tractorRange,
+                baseBuilder, harvestKinds, buildCost, buildTimeSeconds, 0);
+    }
+
+    ShipType(String id, String name, ShipSize size, int seed, double maxHp, double speed, double cargoCapacity,
+             double harvestRange, double orbitRadius, double idleOrbitRadius, double scoutRange, int scoutDispatchLimit,
+             double maxShield, double shieldRegen, double shieldRegenDelay,
+             int tractorBeamCount, double tractorRange,
+             boolean baseBuilder, EnumSet<NodeKind> harvestKinds, List<Cost> buildCost, double buildTimeSeconds,
+             int weaponHardpoints) {
         this.id = id; this.name = name; this.size = size; this.seed = seed; this.maxHp = maxHp; this.speed = speed;
         this.cargoCapacity = cargoCapacity; this.harvestRange = harvestRange; this.orbitRadius = orbitRadius;
         this.idleOrbitRadius = idleOrbitRadius; this.scoutRange = scoutRange; this.scoutDispatchLimit = scoutDispatchLimit;
@@ -401,6 +420,7 @@ final class ShipType {
         this.tractorBeamCount = Math.max(0, tractorBeamCount); this.tractorRange = Math.max(0, tractorRange);
         this.baseBuilder = baseBuilder; this.harvestKinds = harvestKinds; this.buildCost = buildCost;
         this.buildTimeSeconds = Math.max(0, buildTimeSeconds);
+        this.weaponHardpoints = Math.max(0, weaponHardpoints);
     }
 }
 

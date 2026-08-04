@@ -20,8 +20,17 @@ final class WeaponRules {
 
     private WeaponRules() { }
 
-    static ShipLoadoutDefinition findLoadout(String id) {
+    static ShipLoadoutDefinition findAuthoredLoadout(String id) {
         return id == null ? null : SHIP_LOADOUTS.get(id);
+    }
+
+    static ShipLoadoutDefinition findLoadout(World world, String id) {
+        ShipLoadoutDefinition authored = findAuthoredLoadout(id);
+        return authored != null ? authored : WorldFitCatalog.runtimeDefinition(world, id);
+    }
+
+    static ShipLoadoutDefinition findLoadout(String id) {
+        return findLoadout(PlayerRegistry.activeWorld(), id);
     }
 
     static ShipLoadoutDefinition defaultLoadout(String hullId) {
@@ -42,10 +51,14 @@ final class WeaponRules {
         return BY_HULL.getOrDefault(hullId, List.of());
     }
 
-    static ShipLoadoutDefinition resolveForHull(String hullId, String requestedId) {
-        ShipLoadoutDefinition requested = findLoadout(requestedId);
+    static ShipLoadoutDefinition resolveForHull(World world, String hullId, String requestedId) {
+        ShipLoadoutDefinition requested = findLoadout(world, requestedId);
         if (requested != null && requested.hullId().equals(hullId)) return requested;
         return defaultLoadout(hullId);
+    }
+
+    static ShipLoadoutDefinition resolveForHull(String hullId, String requestedId) {
+        return resolveForHull(PlayerRegistry.activeWorld(), hullId, requestedId);
     }
 
     static boolean unlocked(World world, String playerId, ShipLoadoutDefinition loadout) {
@@ -79,9 +92,13 @@ final class WeaponRules {
         return ship == null ? List.of() : loadout(defaultLoadout(ship.id));
     }
 
-    static List<WeaponType> loadout(Unit unit) {
+    static List<WeaponType> loadout(World world, Unit unit) {
         if (unit == null) return List.of();
-        return loadout(resolveForHull(unit.shipTypeId, unit.loadoutId));
+        return loadout(resolveForHull(world, unit.shipTypeId, unit.loadoutId));
+    }
+
+    static List<WeaponType> loadout(Unit unit) {
+        return loadout(PlayerRegistry.activeWorld(), unit);
     }
 
     static List<WeaponType> loadout(ShipLoadoutDefinition loadout) {
@@ -94,7 +111,8 @@ final class WeaponRules {
         return List.copyOf(out);
     }
 
-    static boolean armed(Unit unit) { return armed(loadout(unit)); }
+    static boolean armed(World world, Unit unit) { return armed(loadout(world, unit)); }
+    static boolean armed(Unit unit) { return armed(PlayerRegistry.activeWorld(), unit); }
     static boolean armed(ShipType ship) { return armed(loadout(ship)); }
     static boolean armed(ShipLoadoutDefinition loadout) { return armed(loadout(loadout)); }
 
@@ -103,7 +121,8 @@ final class WeaponRules {
         return false;
     }
 
-    static double maxRange(Unit unit) { return maxRange(loadout(unit)); }
+    static double maxRange(World world, Unit unit) { return maxRange(loadout(world, unit)); }
+    static double maxRange(Unit unit) { return maxRange(PlayerRegistry.activeWorld(), unit); }
     static double maxRange(ShipType ship) { return maxRange(loadout(ship)); }
     static double maxRange(ShipLoadoutDefinition loadout) { return maxRange(loadout(loadout)); }
 
@@ -116,18 +135,23 @@ final class WeaponRules {
         return max;
     }
 
-    static double maxCooldown(Unit unit) {
+    static double maxCooldown(World world, Unit unit) {
         double max = 0;
-        for (WeaponType weapon : loadout(unit)) max = Math.max(max, weapon.cooldownSeconds);
+        for (WeaponType weapon : loadout(world, unit)) max = Math.max(max, weapon.cooldownSeconds);
         return max;
     }
 
-    static WeaponVolley volley(Unit unit, double distance) { return volley(loadout(unit), distance, false); }
+    static double maxCooldown(Unit unit) { return maxCooldown(PlayerRegistry.activeWorld(), unit); }
+
+    static WeaponVolley volley(World world, Unit unit, double distance) { return volley(loadout(world, unit), distance, false); }
+    static WeaponVolley volley(Unit unit, double distance) { return volley(PlayerRegistry.activeWorld(), unit, distance); }
     static WeaponVolley volley(ShipType ship, double distance) { return volley(loadout(ship), distance, false); }
-    static WeaponVolley directVolley(Unit unit, double distance) { return volley(loadout(unit), distance, true); }
+    static WeaponVolley directVolley(World world, Unit unit, double distance) { return volley(loadout(world, unit), distance, true); }
+    static WeaponVolley directVolley(Unit unit, double distance) { return directVolley(PlayerRegistry.activeWorld(), unit, distance); }
     static WeaponVolley directVolley(ShipType ship, double distance) { return volley(loadout(ship), distance, true); }
 
-    static List<WeaponType> movingWeapons(Unit unit, double distance) { return movingWeapons(loadout(unit), distance); }
+    static List<WeaponType> movingWeapons(World world, Unit unit, double distance) { return movingWeapons(loadout(world, unit), distance); }
+    static List<WeaponType> movingWeapons(Unit unit, double distance) { return movingWeapons(PlayerRegistry.activeWorld(), unit, distance); }
     static List<WeaponType> movingWeapons(ShipType ship, double distance) { return movingWeapons(loadout(ship), distance); }
 
     private static List<WeaponType> movingWeapons(List<WeaponType> weapons, double distance) {
@@ -136,7 +160,8 @@ final class WeaponRules {
         return List.copyOf(out);
     }
 
-    static List<WeaponType> screenWeapons(Unit unit) { return screenWeapons(loadout(unit)); }
+    static List<WeaponType> screenWeapons(World world, Unit unit) { return screenWeapons(loadout(world, unit)); }
+    static List<WeaponType> screenWeapons(Unit unit) { return screenWeapons(PlayerRegistry.activeWorld(), unit); }
     static List<WeaponType> screenWeapons(ShipType ship) { return screenWeapons(loadout(ship)); }
 
     private static List<WeaponType> screenWeapons(List<WeaponType> weapons) {
@@ -285,8 +310,14 @@ final class WeaponRules {
             }
         }
         for (ShipLoadoutDefinition definition : SHIP_LOADOUTS.values()) {
-            if (Rules.findShip(definition.hullId()) == null) {
+            ShipType hull = Rules.findShip(definition.hullId());
+            if (hull == null) {
                 throw new RuleConfigurationException("Unknown hull ID " + definition.hullId() + " for loadout " + definition.id());
+            }
+            if (definition.weaponIds().size() > hull.weaponHardpoints) {
+                throw new RuleConfigurationException("Loadout " + definition.id() + " uses "
+                        + definition.weaponIds().size() + " weapons but hull " + definition.hullId()
+                        + " declares " + hull.weaponHardpoints + " hardpoints.");
             }
             for (String weaponId : definition.weaponIds()) {
                 WeaponType weapon = WEAPONS.get(weaponId);
@@ -457,13 +488,22 @@ final class WeaponRules {
 }
 
 record ShipLoadoutDefinition(String id, String displayName, String hullId, List<String> weaponIds,
-                             Set<String> requiredResearch, List<Cost> buildCost, List<Cost> refitCost,
+                             List<String> moduleIds, Set<String> requiredResearch,
+                             List<Cost> buildCost, List<Cost> refitCost,
                              double refitTimeSeconds, boolean defaultForHull) {
+    ShipLoadoutDefinition(String id, String displayName, String hullId, List<String> weaponIds,
+                          Set<String> requiredResearch, List<Cost> buildCost, List<Cost> refitCost,
+                          double refitTimeSeconds, boolean defaultForHull) {
+        this(id, displayName, hullId, weaponIds, List.of(), requiredResearch, buildCost, refitCost,
+                refitTimeSeconds, defaultForHull);
+    }
+
     ShipLoadoutDefinition {
         id = id == null ? "" : id.trim();
         displayName = displayName == null || displayName.isBlank() ? id : displayName.trim();
         hullId = hullId == null ? "" : hullId.trim();
         weaponIds = weaponIds == null ? List.of() : List.copyOf(weaponIds);
+        moduleIds = moduleIds == null ? List.of() : List.copyOf(moduleIds);
         requiredResearch = requiredResearch == null ? Set.of() : Set.copyOf(requiredResearch);
         buildCost = buildCost == null ? List.of() : List.copyOf(buildCost);
         refitCost = refitCost == null ? List.of() : List.copyOf(refitCost);

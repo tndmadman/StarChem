@@ -17,7 +17,8 @@
       "automatedOnly": true,
       "craftable": false,
       "buildCost": {},
-      "canHarvest": []
+      "canHarvest": [],
+      "weaponHardpoints": 0
     },
     "logistics_shuttle": {
       "displayName": "Logistics Shuttle",
@@ -36,7 +37,8 @@
       "automatedOnly": true,
       "craftable": false,
       "buildCost": {},
-      "canHarvest": []
+      "canHarvest": [],
+      "weaponHardpoints": 0
     }
   }
 }
