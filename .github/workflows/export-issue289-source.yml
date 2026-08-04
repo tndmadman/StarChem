@@ -26,7 +26,7 @@ jobs:
             echo "No source patch remains; nothing to materialize."
             exit 0
           fi
-          cat "${chunks[@]}" > /tmp/issue289-final.patch
+          cat "${chunks[@]}" | base64 --decode | gzip --decompress > /tmp/issue289-final.patch
           git apply --check /tmp/issue289-final.patch
           git apply /tmp/issue289-final.patch
           rm "${chunks[@]}"
