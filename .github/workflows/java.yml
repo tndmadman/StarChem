@@ -1,8 +1,8 @@
 name: Java CI
 
 on:
-  pull_request:
-    branches: [ main ]
+  push:
+    branches: [ agent/issue-289-final-hardening ]
 
 permissions:
   contents: write
@@ -75,7 +75,8 @@ jobs:
         run: gradle build
       - name: Commit validated final fixes
         run: |
-          rm tools/apply_issue289_phase3.py
+          rm -f tools/apply_issue289_phase3.py
+          rm -f tools/sitecustomize.py
           cat > .github/workflows/java.yml <<'YAML'
           name: Java CI
 
