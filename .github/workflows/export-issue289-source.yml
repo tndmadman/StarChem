@@ -1,0 +1,27 @@
+name: Export issue 289 source
+
+on:
+  pull_request:
+    branches: [ agent/issue-289-source-export-base ]
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+      - name: Archive exact source tree
+        run: |
+          tar --exclude=.git --exclude=build --exclude=.gradle -czf /tmp/starchem-issue289-source.tar.gz .
+      - name: Upload source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: starchem-issue289-source
+          path: /tmp/starchem-issue289-source.tar.gz
+          retention-days: 1
