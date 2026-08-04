@@ -23,38 +23,6 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Apply final issue 289 fixes
         run: python3 tools/apply_issue289_phase3.py
-      - name: Correct validator world registry setup
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('src/main/java/com/tndmadman/rts/CustomFitConstructionValidator.java')
-          text = path.read_text(encoding='utf-8')
-          replacements = {
-              '''        PlayerRegistry.reset(player, "Custom Builder", 0x50BEFF);
-        World world = new World("Custom Builder", Set.of(),
-                StarSystems.DEFAULT_SYSTEM_ID, false);
-        PlayerRegistry.activate(world);
-''': '''        World world = new World("Custom Builder", Set.of(),
-                StarSystems.DEFAULT_SYSTEM_ID, false);
-        PlayerRegistry.activate(world);
-        PlayerRegistry.reset(player, "Custom Builder", 0x50BEFF);
-''',
-              '''        PlayerRegistry.reset(player, "Station Select", 0x50BEFF);
-        World world = new World("Station Select", Set.of(),
-                StarSystems.DEFAULT_SYSTEM_ID, false);
-        PlayerRegistry.activate(world);
-''': '''        World world = new World("Station Select", Set.of(),
-                StarSystems.DEFAULT_SYSTEM_ID, false);
-        PlayerRegistry.activate(world);
-        PlayerRegistry.reset(player, "Station Select", 0x50BEFF);
-'''
-          }
-          for old, new in replacements.items():
-              if text.count(old) != 1:
-                  raise SystemExit(f'expected one validator registry fixture, found {text.count(old)}')
-              text = text.replace(old, new, 1)
-          path.write_text(text, encoding='utf-8')
-          PY
       - name: Compile
         run: gradle compileJava
       - name: Validate custom fit construction
@@ -76,6 +44,7 @@ jobs:
       - name: Commit validated final fixes
         run: |
           rm -f tools/apply_issue289_phase3.py
+          rm -f tools/apply_issue289_phase3_impl.py
           rm -f tools/sitecustomize.py
           cat > .github/workflows/java.yml <<'YAML'
           name: Java CI
