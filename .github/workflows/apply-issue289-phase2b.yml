@@ -23,6 +23,18 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Apply atomic refit transactions
         run: python3 tools/apply_issue289_phase2b.py
+      - name: Include planner response in validation failures
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('src/main/java/com/tndmadman/rts/AtomicRefitTransactionValidator.java')
+          text = path.read_text(encoding='utf-8')
+          old = '"atomic class refit did not queue every ship");'
+          new = '"atomic class refit did not queue every ship: " + success.message());'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one atomic success assertion, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
       - name: Compile
         run: gradle compileJava
       - name: Validate atomic refits
