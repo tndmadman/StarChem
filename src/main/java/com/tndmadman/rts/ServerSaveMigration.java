@@ -31,6 +31,7 @@ final class ServerSaveMigration {
         if (version != ServerSaveStore.SAVE_FORMAT_VERSION) {
             throw new IllegalArgumentException("Unsupported save format " + sourceVersion + ".");
         }
+        SavedFitReferenceValidator.validate(sourceVersion, galaxy, runtime);
         manifest.put("saveFormatVersion", ServerSaveStore.SAVE_FORMAT_VERSION);
         manifest.put("loadedSaveFormatVersion", sourceVersion);
         manifest.put("contentCompatibilityPolicy", SaveContentResolver.migrationPolicy());
