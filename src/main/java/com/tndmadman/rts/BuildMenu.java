@@ -179,6 +179,7 @@ final class BuildMenu {
             }
         }
 
+        addCustomFitBuildEntries(world, network, base, free);
 
         for (String packageId : def.basePackages) {
             if (!StationPackageResearchRules.unlocked(world, base.playerId, packageId)) continue;
@@ -245,6 +246,57 @@ final class BuildMenu {
             }
         }
         openAt(sx, sy);
+    }
+
+    private void addCustomFitBuildEntries(World world, PeerNetwork network,
+                                          Base base, boolean free) {
+        if (world == null || base == null || !PlayerRegistry.isLocal(base.playerId)) return;
+        String commander = PlayerRegistry.baseName(PlayerRegistry.localId());
+        if (commander == null || commander.isBlank()) commander = world.localPlayerName;
+
+        for (String shipId : base.type().buildableShips) {
+            ShipType ship = Rules.findShip(shipId);
+            if (ship == null) continue;
+            for (PrivateShipFit fit : ClientFitStore.fits(commander, shipId)) {
+                addCustomFitBuildEntry(world, network, base, ship, fit.name(), fit.spec(),
+                        "MY FIT", free);
+            }
+            for (PublishedFit fit : WorldFitCatalog.published(world)) {
+                if (!shipId.equals(fit.spec().hullId())) continue;
+                addCustomFitBuildEntry(world, network, base, ship, fit.name(), fit.spec(),
+                        "SERVER FIT BY " + fit.ownerName(), free);
+            }
+        }
+    }
+
+    private void addCustomFitBuildEntry(World world, PeerNetwork network, Base base,
+                                        ShipType ship, String name, ShipFitSpec spec,
+                                        String source, boolean free) {
+        PlayerFitRules.Validation validation = PlayerFitRules.validate(spec);
+        if (!validation.valid() || !ship.id.equals(spec.hullId())) return;
+        ShipLoadoutDefinition preview;
+        try { preview = PlayerFitRules.previewDefinition(name, spec); }
+        catch (RuntimeException ex) { return; }
+
+        boolean hullUnlocked = ResearchRules.shipUnlocked(world, base.playerId, ship.id);
+        boolean fitUnlocked = WeaponRules.unlocked(world, base.playerId, preview);
+        boolean available = free || hullUnlocked && fitUnlocked;
+        List<Cost> cost = WeaponRules.buildCost(ship, preview);
+        String weapons = weaponText(weaponBadges(preview));
+        String modules = "Utility: " + ShipModuleRules.summary(spec.moduleIds());
+        String research = available ? source : "Research required before construction";
+        entries.add(new Entry(
+                "Build " + ship.name + " - " + source + ": " + preview.displayName(),
+                timeDetail("Build", ship.buildTimeSeconds, free),
+                modules,
+                new ShipPreviewIcon(ship),
+                requirementTooltip("Build " + ship.name + " - " + preview.displayName(),
+                        cost, free, weapons, modules, research),
+                !available,
+                false,
+                false,
+                () -> FitNetworkBridge.submit(network, world, "BUILD", preview.displayName(),
+                        spec, base.id, null, null)));
     }
 
     private void addCraftingEntries(World world, PeerNetwork network, Base base, boolean free) {

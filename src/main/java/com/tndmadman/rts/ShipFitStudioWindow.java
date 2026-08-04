@@ -411,7 +411,8 @@ final class ShipFitStudioWindow {
                         + "\nUTILITY // " + ShipModuleRules.summary(draftSpec.moduleIds())
                         + "\nCOMBAT // max range " + whole(WeaponRules.maxRange(definition))
                         + "   |   refit " + whole(definition.refitTimeSeconds()) + "s"
-                        + "\nCOST // " + (definition.refitCost().isEmpty() ? "None" : Rules.formatCost(definition.refitCost()))
+                        + "\nCONVERSION // "
+                        + ShipFittingWindow.refitCostSummary(live, definition)
                         + "\nCONTEXT // " + (option == null ? "Class design; no matching live ship selected." : option.reason()));
             }
         };
@@ -578,8 +579,9 @@ final class ShipFitStudioWindow {
         details.add(label("GUNS  //  " + weaponSummary(fit), 10, Font.PLAIN, MUTED));
         details.add(label("UTILITY  //  " + ShipModuleRules.summary(ShipModuleRules.moduleIds(fit)), 10, Font.PLAIN, MUTED));
         details.add(label("RANGE " + whole(WeaponRules.maxRange(fit)) + "   •   REFIT "
-                + whole(fit.refitTimeSeconds()) + "s   •   COST "
-                + (fit.refitCost().isEmpty() ? "None" : Rules.formatCost(fit.refitCost())),
+                + whole(fit.refitTimeSeconds()) + "s", 10, Font.PLAIN, accent));
+        details.add(label("CONVERSION  //  "
+                + ShipFittingWindow.refitCostSummary(contextUnit().orElse(null), fit),
                 10, Font.PLAIN, accent));
         card.add(details, BorderLayout.CENTER);
         if (actions != null) card.add(actions, BorderLayout.EAST);
@@ -685,7 +687,7 @@ final class ShipFitStudioWindow {
         if (cleanName.isBlank()) cleanName = "Custom Fit";
         if (classWide) {
             Base base = classRefitBase();
-            if (base == null) { setNotice("No owned refit-capable shipyard exists in this system.", RED); return; }
+            if (base == null) { setNotice("No owned refit-capable station exists in this system.", RED); return; }
             submit("REFIT_CLASS", cleanName, spec, base.id, null, null);
             return;
         }
@@ -697,8 +699,12 @@ final class ShipFitStudioWindow {
         ShipLoadoutDefinition definition = PlayerFitRules.definition(cleanName, spec);
         ShipFittingWindow.FittingOption option = ShipFittingWindow.evaluate(world, live, definition);
         if (!option.ready()) { setNotice(option.reason(), option.current() ? MUTED : RED); return; }
-        Base base = ShipFittingWindow.nearestRefitBase(world, live);
-        if (base == null) { setNotice("No owned refit-capable shipyard exists in this system.", RED); return; }
+        Base base = option.base();
+        if (base == null) {
+            base = RefitQueuePlanner.bestStation(world, live, definition,
+                    world.devFreeBuildFor(live.playerId));
+        }
+        if (base == null) { setNotice("No owned refit-capable station can service this fit.", RED); return; }
         submit("REFIT", cleanName, spec, base.id, live.key(), null);
     }
 

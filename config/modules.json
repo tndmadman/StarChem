@@ -40,7 +40,27 @@
       "installationCost": {
         "TARGETING_COMPUTER": 1
       },
-      "color": "#62D8FF"
+      "color": "#62D8FF",
+      "compatibleHulls": [
+        "prospector",
+        "station_builder",
+        "hauler",
+        "deep_miner",
+        "gas_harvester",
+        "freighter",
+        "salvager",
+        "frigate",
+        "destroyer",
+        "cruiser",
+        "battle_cruiser",
+        "battleship",
+        "carrier",
+        "dreadnought",
+        "supercarrier",
+        "titan",
+        "monolith"
+      ],
+      "allowDuplicates": false
     },
     "micro_jump_drive": {
       "displayName": "Micro Jump Drive",
@@ -58,7 +78,27 @@
         "TARGETING_COMPUTER": 2,
         "LANCE_FOCUSING_ARRAY": 1
       },
-      "color": "#9BEAFF"
+      "color": "#9BEAFF",
+      "compatibleHulls": [
+        "prospector",
+        "station_builder",
+        "hauler",
+        "deep_miner",
+        "gas_harvester",
+        "freighter",
+        "salvager",
+        "frigate",
+        "destroyer",
+        "cruiser",
+        "battle_cruiser",
+        "battleship",
+        "carrier",
+        "dreadnought",
+        "supercarrier",
+        "titan",
+        "monolith"
+      ],
+      "allowDuplicates": false
     },
     "warp_scrambler": {
       "displayName": "Jump Scrambler",
@@ -74,7 +114,27 @@
         "TARGETING_COMPUTER": 1,
         "POINT_DEFENSE_LASER_ASSEMBLY": 1
       },
-      "color": "#FF7E48"
+      "color": "#FF7E48",
+      "compatibleHulls": [
+        "prospector",
+        "station_builder",
+        "hauler",
+        "deep_miner",
+        "gas_harvester",
+        "freighter",
+        "salvager",
+        "frigate",
+        "destroyer",
+        "cruiser",
+        "battle_cruiser",
+        "battleship",
+        "carrier",
+        "dreadnought",
+        "supercarrier",
+        "titan",
+        "monolith"
+      ],
+      "allowDuplicates": false
     }
   }
 }

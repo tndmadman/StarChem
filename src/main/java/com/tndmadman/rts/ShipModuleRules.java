@@ -82,6 +82,7 @@ final class ShipModuleRules {
     static List<ShipModuleDefinition> allowedModules(String hullId) {
         if (Rules.findShip(hullId) == null || moduleSlotCount(hullId) <= 0) return List.of();
         return MODULES.values().stream()
+                .filter(module -> module.compatibleHulls().contains(hullId))
                 .sorted(java.util.Comparator.comparing(ShipModuleDefinition::displayName, String.CASE_INSENSITIVE_ORDER))
                 .toList();
     }
@@ -100,8 +101,14 @@ final class ShipModuleRules {
         }
         Set<String> unique = new LinkedHashSet<>();
         for (String moduleId : clean) {
-            if (!MODULES.containsKey(moduleId)) return Validation.reject("Unknown ship module: " + moduleId + ".");
-            if (!unique.add(moduleId)) return Validation.reject("A ship cannot fit the same utility module twice.");
+            ShipModuleDefinition module = MODULES.get(moduleId);
+            if (module == null) return Validation.reject("Unknown ship module: " + moduleId + ".");
+            if (!module.compatibleHulls().contains(hullId)) {
+                return Validation.reject("Ship module " + moduleId + " is not compatible with this hull.");
+            }
+            if (!module.allowDuplicates() && !unique.add(moduleId)) {
+                return Validation.reject("A ship cannot fit the same utility module twice.");
+            }
         }
         return Validation.accept();
     }
@@ -484,8 +491,10 @@ final class ShipModuleRules {
                         ServerSaveStore.doubleValue(row, "agilityMultiplier", 1),
                         ServerSaveStore.doubleValue(row, "jumpDistance", 0),
                         ServerSaveStore.doubleValue(row, "cooldownSeconds", 0),
-                        new LinkedHashSet<>(strings(row.get("requiresResearch"))),
-                        costs(row.get("installationCost")),
+                        declaredSet(row, "compatibleHulls", id, false),
+                        declaredSet(row, "requiresResearch", id, true),
+                        costsRequired(row, "installationCost", id),
+                        requiredBoolean(row, "allowDuplicates", id),
                         seed,
                         visualStyle,
                         color);
@@ -507,6 +516,18 @@ final class ShipModuleRules {
     }
 
     private static void validateDefinition(ShipModuleDefinition module) {
+        if (module.compatibleHulls().isEmpty()) {
+            throw new RuleConfigurationException("Ship module " + module.id() + " has no compatible hulls.");
+        }
+        for (String hullId : module.compatibleHulls()) if (Rules.findShip(hullId) == null) {
+            throw new RuleConfigurationException("Unknown compatible hull " + hullId + " for module " + module.id());
+        }
+        for (String topicId : module.requiredResearch()) if (ResearchRules.topic(topicId) == null) {
+            throw new RuleConfigurationException("Unknown research ID " + topicId + " for module " + module.id());
+        }
+        if (module.installationCost().isEmpty()) {
+            throw new RuleConfigurationException("Ship module " + module.id() + " must declare a positive installation cost.");
+        }
         if (module.kind() == ShipModuleKind.AFTERBURNER) {
             if (module.activationDistance() <= 0 || module.speedMultiplier() <= 1 || module.agilityMultiplier() >= 1) {
                 throw new RuleConfigurationException("Afterburner module " + module.id() + " has invalid propulsion values.");
@@ -536,6 +557,37 @@ final class ShipModuleRules {
         String value = ServerSaveStore.string(row, key, "").trim();
         if (value.isBlank()) throw new RuleConfigurationException("Missing " + key + " for ship module " + moduleId);
         return value;
+    }
+
+    private static Set<String> declaredSet(Map<String,Object> row, String key, String moduleId,
+                                           boolean allowEmpty) {
+        if (!row.containsKey(key)) {
+            throw new RuleConfigurationException("Missing " + key + " for ship module " + moduleId + ".");
+        }
+        Set<String> result = new LinkedHashSet<>(strings(row.get(key)));
+        if (!allowEmpty && result.isEmpty()) {
+            throw new RuleConfigurationException("Ship module " + moduleId + " must declare " + key + ".");
+        }
+        return Set.copyOf(result);
+    }
+
+    private static List<Cost> costsRequired(Map<String,Object> row, String key, String moduleId) {
+        if (!row.containsKey(key)) {
+            throw new RuleConfigurationException("Missing " + key + " for ship module " + moduleId + ".");
+        }
+        List<Cost> result = costs(row.get(key));
+        if (result.isEmpty()) {
+            throw new RuleConfigurationException("Ship module " + moduleId + " must declare a positive " + key + ".");
+        }
+        return result;
+    }
+
+    private static boolean requiredBoolean(Map<String,Object> row, String key, String moduleId) {
+        Object value = row.get(key);
+        if (!(value instanceof Boolean flag)) {
+            throw new RuleConfigurationException("Missing or invalid " + key + " for ship module " + moduleId + ".");
+        }
+        return flag;
     }
 
     private static int strictInteger(Object value, String label) {
@@ -626,22 +678,9 @@ enum ShipModuleVisualStyle { THRUSTER, JUMP_CORE, DISRUPTOR }
 record ShipModuleDefinition(String id, String displayName, String description, ShipModuleKind kind,
                             double activationDistance, double range, double speedMultiplier,
                             double agilityMultiplier, double jumpDistance, double cooldownSeconds,
-                            Set<String> requiredResearch, List<Cost> installationCost,
+                            Set<String> compatibleHulls, Set<String> requiredResearch,
+                            List<Cost> installationCost, boolean allowDuplicates,
                             int seed, ShipModuleVisualStyle visualStyle, Color color) {
-    ShipModuleDefinition(String id, String displayName, String description, ShipModuleKind kind,
-                         double activationDistance, double range, double speedMultiplier,
-                         double agilityMultiplier, double jumpDistance, double cooldownSeconds,
-                         Set<String> requiredResearch, List<Cost> installationCost, Color color) {
-        this(id, displayName, description, kind, activationDistance, range, speedMultiplier,
-                agilityMultiplier, jumpDistance, cooldownSeconds, requiredResearch, installationCost,
-                id == null ? 1 : (id.hashCode() == 0 ? 1 : id.hashCode()),
-                switch (kind == null ? ShipModuleKind.MICRO_JUMP_DRIVE : kind) {
-                    case AFTERBURNER -> ShipModuleVisualStyle.THRUSTER;
-                    case MICRO_JUMP_DRIVE -> ShipModuleVisualStyle.JUMP_CORE;
-                    case TACKLE -> ShipModuleVisualStyle.DISRUPTOR;
-                }, color);
-    }
-
     ShipModuleDefinition {
         id = id == null ? "" : id.trim();
         displayName = displayName == null || displayName.isBlank() ? id : displayName.trim();
@@ -652,6 +691,7 @@ record ShipModuleDefinition(String id, String displayName, String description, S
         agilityMultiplier = Calc.clamp(agilityMultiplier, 0.05, 1.0);
         jumpDistance = Math.max(0, jumpDistance);
         cooldownSeconds = Math.max(0, cooldownSeconds);
+        compatibleHulls = compatibleHulls == null ? Set.of() : Set.copyOf(compatibleHulls);
         requiredResearch = requiredResearch == null ? Set.of() : Set.copyOf(requiredResearch);
         installationCost = installationCost == null ? List.of() : List.copyOf(installationCost);
         if (seed == 0) throw new IllegalArgumentException("Module seed must be non-zero.");

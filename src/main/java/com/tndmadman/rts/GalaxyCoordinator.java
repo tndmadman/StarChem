@@ -864,7 +864,10 @@ final class GalaxyCoordinator {
             row.put("id", job.id); row.put("kind", job.kind.name()); row.put("itemId", job.itemId);
             row.put("duration", job.duration); row.put("remaining", job.remaining); row.put("resourcesReserved", job.resourcesReserved);
             row.put("reservedUnitKey", job.reservedUnitKey); row.put("loadoutId", job.loadoutId);
-            row.put("subjectUnitKey", job.subjectUnitKey); row.put("blockedReason", job.blockedReason);
+            row.put("subjectUnitKey", job.subjectUnitKey); row.put("sourceLoadoutId", job.sourceLoadoutId);
+            row.put("refitQuoteVersion", job.refitQuoteVersion);
+            row.put("reservedCost", RefitQuote.costMap(job.reservedCost));
+            row.put("blockedReason", job.blockedReason);
             out.add(row);
         }
         return out;
@@ -885,6 +888,10 @@ final class GalaxyCoordinator {
             job.loadoutId = ServerSaveStore.string(row, "loadoutId",
                     kind == ProductionJobKind.SHIP ? WeaponRules.defaultLoadoutId(itemId) : "");
             job.subjectUnitKey = ServerSaveStore.string(row, "subjectUnitKey", "");
+            job.sourceLoadoutId = ServerSaveStore.string(row, "sourceLoadoutId", "");
+            job.refitQuoteVersion = Math.max(0, ServerSaveStore.intValue(row, "refitQuoteVersion", 0));
+            job.reservedCost = RefitQuote.costsFromMap(row.get("reservedCost"));
+            if (job.refitQuoteVersion == 0) RefitQuote.migrateLegacy(job);
             if ((kind == ProductionJobKind.SHIP || kind == ProductionJobKind.REFIT)) {
                 ShipLoadoutDefinition loadout = WeaponRules.findLoadout(job.loadoutId);
                 if (loadout == null || !itemId.equals(loadout.hullId())

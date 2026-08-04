@@ -150,17 +150,18 @@ final class PlayerFitRules {
 
     static Set<String> allowedWeaponIds(String hullId) {
         LinkedHashSet<String> out = new LinkedHashSet<>();
-        for (ShipLoadoutDefinition loadout : WeaponRules.loadoutsForHull(hullId)) out.addAll(loadout.weaponIds());
+        for (WeaponType weapon : WeaponRules.WEAPONS.values()) {
+            if (weapon.compatibleWith(hullId)) out.add(weapon.id);
+        }
         return Set.copyOf(out);
     }
 
     static Set<String> requiredResearch(ShipFitSpec spec) {
         LinkedHashSet<String> out = new LinkedHashSet<>();
         if (spec == null) return Set.of();
-        for (ShipLoadoutDefinition loadout : WeaponRules.loadoutsForHull(spec.hullId())) {
-            for (String weaponId : spec.weaponIds()) {
-                if (loadout.weaponIds().contains(weaponId)) out.addAll(loadout.requiredResearch());
-            }
+        for (String weaponId : spec.weaponIds()) {
+            WeaponType weapon = WeaponRules.WEAPONS.get(weaponId);
+            if (weapon != null) out.addAll(weapon.requiredResearch);
         }
         out.addAll(ShipModuleRules.requiredResearch(spec.moduleIds()));
         return Set.copyOf(out);
@@ -190,7 +191,11 @@ final class PlayerFitRules {
         EnumMap<Material,Double> total = new EnumMap<>(Material.class);
         if (spec != null) {
             for (String weaponId : spec.weaponIds()) {
-                for (Cost cost : componentCost(weaponId)) total.merge(cost.material(), cost.amount(), Double::sum);
+                WeaponType weapon = WeaponRules.WEAPONS.get(weaponId);
+                if (weapon == null) continue;
+                for (Cost cost : weapon.installationCost) {
+                    total.merge(cost.material(), cost.amount(), Double::sum);
+                }
             }
             for (Cost cost : ShipModuleRules.installationCost(spec.moduleIds())) {
                 total.merge(cost.material(), cost.amount(), Double::sum);
@@ -201,26 +206,6 @@ final class PlayerFitRules {
             if (entry.getValue() > 0) out.add(new Cost(entry.getKey(), entry.getValue()));
         }
         return List.copyOf(out);
-    }
-
-    private static List<Cost> componentCost(String weaponId) {
-        return switch (weaponId) {
-            case "point_defense_laser" -> List.of(new Cost(Material.POINT_DEFENSE_LASER_ASSEMBLY, 1));
-            case "light_railgun" -> List.of(new Cost(Material.RAILGUN_ASSEMBLY, 1));
-            case "heavy_cannon" -> List.of(new Cost(Material.HEAVY_CANNON_ASSEMBLY, 1));
-            case "light_missile" -> List.of(new Cost(Material.MISSILE_GUIDANCE_PACKAGE, 1),
-                    new Cost(Material.MISSILE_WARHEAD, 2));
-            case "torpedo" -> List.of(new Cost(Material.TORPEDO_ASSEMBLY, 1),
-                    new Cost(Material.MISSILE_GUIDANCE_PACKAGE, 1), new Cost(Material.MISSILE_WARHEAD, 2));
-            case "capital_torpedo" -> List.of(new Cost(Material.TORPEDO_ASSEMBLY, 2),
-                    new Cost(Material.MISSILE_GUIDANCE_PACKAGE, 1), new Cost(Material.MISSILE_WARHEAD, 3));
-            case "fighter_strike" -> List.of(new Cost(Material.FIGHTER_CONTROL_MODULE, 1));
-            case "capital_lance" -> List.of(new Cost(Material.LANCE_FOCUSING_ARRAY, 1),
-                    new Cost(Material.TARGETING_COMPUTER, 1));
-            case "siege_lance" -> List.of(new Cost(Material.LANCE_FOCUSING_ARRAY, 2),
-                    new Cost(Material.TARGETING_COMPUTER, 2));
-            default -> List.of();
-        };
     }
 
     static double refitTimeSeconds(ShipFitSpec spec) {

@@ -29,7 +29,7 @@ import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 
 final class ServerSaveStore {
-    static final int SAVE_FORMAT_VERSION = 4;
+    static final int SAVE_FORMAT_VERSION = 5;
     private static final String EXTENSION = ".starchem-save";
     private static final DateTimeFormatter BACKUP_TIMESTAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS")
             .withZone(java.time.ZoneOffset.UTC);

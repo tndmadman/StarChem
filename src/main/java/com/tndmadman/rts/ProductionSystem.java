@@ -18,10 +18,22 @@ final class ProductionSystem {
                 ship.buildTimeSeconds, free, "", loadout.id(), "");
     }
 
+    static ProductionJob enqueueShipPrepaid(Base base, ShipType ship,
+                                            ShipLoadoutDefinition loadout,
+                                            boolean resourcesReserved) {
+        if (base == null || ship == null || loadout == null
+                || !ship.id.equals(loadout.hullId())) return null;
+        ProductionJob job = newJob(base, ProductionJobKind.SHIP, ship.id,
+                ship.buildTimeSeconds, resourcesReserved, "");
+        job.loadoutId = loadout.id();
+        base.productionQueue.add(job);
+        return job;
+    }
+
     static boolean enqueueRefit(World world, Base base, Unit unit, ShipLoadoutDefinition loadout, boolean free) {
         if (world == null || base == null || unit == null || loadout == null) return false;
         if (base.hp <= 0 || !base.type().canRefitShips || !unit.playerId.equals(base.playerId)) {
-            world.status = "An owned refit-capable shipyard is required.";
+            world.status = "An owned refit-capable station is required.";
             return false;
         }
         if (unit.hp <= 0 || !unit.shipTypeId.equals(loadout.hullId())) {
@@ -41,24 +53,44 @@ final class ProductionSystem {
             world.status = "That ship is already reserved for refitting.";
             return false;
         }
-        List<Cost> cost = WeaponRules.refitCost(loadout);
+        RefitQuote quote = RefitQuote.between(unit, loadout);
+        List<Cost> cost = free ? List.of() : quote.requiredMaterials();
         if (!free && !HangarStore.canAfford(base.inventory, cost)) {
             world.status = "Need " + Rules.formatCost(cost) + " in " + base.type().name + " hangar.";
             return false;
         }
         if (!free) HangarStore.spend(base.inventory, cost);
-        ProductionJob job = newJob(base, ProductionJobKind.REFIT, unit.shipTypeId,
-                loadout.refitTimeSeconds(), !free, "");
-        job.loadoutId = loadout.id();
-        job.subjectUnitKey = unit.key();
-        job.blockedReason = "recalling ship to refit";
-        base.productionQueue.add(job);
-        recall(base, unit, job);
+        ProductionJob job = enqueueRefitPrepaid(base, unit, loadout, quote, !free);
+        beginRefit(world, base, unit, job);
         world.status = "Recalling " + unit.type().name + " to " + base.type().name
                 + " for refit: " + loadout.displayName() + ".";
         AlertCenter.push(world, world.status);
         processBase(world, base, 0);
         return true;
+    }
+
+    static ProductionJob enqueueRefitPrepaid(Base base, Unit unit, ShipLoadoutDefinition loadout,
+                                             RefitQuote quote, boolean resourcesReserved) {
+        if (base == null || unit == null || loadout == null || quote == null) return null;
+        ProductionJob job = newJob(base, ProductionJobKind.REFIT, unit.shipTypeId,
+                quote.durationSeconds(), resourcesReserved, "");
+        job.loadoutId = loadout.id();
+        job.subjectUnitKey = unit.key();
+        job.sourceLoadoutId = quote.sourceLoadoutId();
+        job.reservedCost = resourcesReserved ? quote.requiredMaterials() : List.of();
+        job.refitQuoteVersion = quote.version();
+        job.blockedReason = "recalling ship to refit";
+        base.productionQueue.add(job);
+        return job;
+    }
+
+    static void beginRefit(World world, Base base, Unit unit, ProductionJob job) {
+        if (world == null || base == null || unit == null || job == null) return;
+        recall(base, unit, job);
+    }
+
+    static void processBaseAfterTransaction(World world, Base base) {
+        processBase(world, base, 0);
     }
 
     static boolean enqueuePackage(World world, Base base, BaseType station, boolean free) {
@@ -573,7 +605,9 @@ final class ProductionSystem {
                 ResearchTopic topic = ResearchRules.topic(job.itemId);
                 yield topic == null ? List.of() : topic.requiredResources;
             }
-            case REFIT -> WeaponRules.refitCost(WeaponRules.findLoadout(job.loadoutId));
+            case REFIT -> job.refitQuoteVersion > 0
+                    ? job.reservedCost
+                    : RefitQuote.legacyReservedCost(job);
         };
     }
 
@@ -626,6 +660,9 @@ final class ProductionJob {
     String reservedUnitKey;
     String loadoutId = "";
     String subjectUnitKey = "";
+    String sourceLoadoutId = "";
+    List<Cost> reservedCost = List.of();
+    int refitQuoteVersion;
     String blockedReason = "";
 
     ProductionJob(String id, ProductionJobKind kind, String itemId, double duration, double remaining,
@@ -657,7 +694,8 @@ final class ProductionQueueCodec {
                     .append(job.duration).append('^').append(job.remaining).append('^')
                     .append(job.resourcesReserved ? '1' : '0').append('^').append(clean(job.reservedUnitKey)).append('^')
                     .append(clean(job.blockedReason)).append('^').append(clean(job.loadoutId)).append('^')
-                    .append(clean(job.subjectUnitKey));
+                    .append(clean(job.subjectUnitKey)).append('^').append(clean(job.sourceLoadoutId)).append('^')
+                    .append(job.refitQuoteVersion).append('^').append(RefitQuote.encodeCosts(job.reservedCost));
         }
         return out.toString();
     }
@@ -677,6 +715,11 @@ final class ProductionQueueCodec {
                 if (c.length >= 8) job.blockedReason = unclean(c[7]);
                 if (c.length >= 9) job.loadoutId = unclean(c[8]);
                 if (c.length >= 10) job.subjectUnitKey = unclean(c[9]);
+                if (c.length >= 13) {
+                    job.sourceLoadoutId = unclean(c[10]);
+                    job.refitQuoteVersion = Integer.parseInt(c[11]);
+                    job.reservedCost = RefitQuote.decodeCosts(c[12]);
+                } else RefitQuote.migrateLegacy(job);
                 base.productionQueue.add(job);
                 base.nextProductionJobId = Math.max(base.nextProductionJobId, numericSuffix(id) + 1);
             } catch (RuntimeException ignored) { }
