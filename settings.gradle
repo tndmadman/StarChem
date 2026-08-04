@@ -35,6 +35,7 @@ gradle.beforeProject { project ->
 }
 
 gradle.projectsEvaluated {
+    def root = gradle.rootProject
     def validators = [
             validateConfiguredFitRules: 'com.tndmadman.rts.ConfiguredFitRuleValidator',
             validateRefitQuotePersistence: 'com.tndmadman.rts.RefitQuotePersistenceValidator',
@@ -43,22 +44,22 @@ gradle.projectsEvaluated {
             validateIssue289Completion: 'com.tndmadman.rts.Issue289CompletionValidator'
     ]
     validators.each { taskName, mainClassName ->
-        def validator = rootProject.tasks.register(taskName, JavaExec) {
+        def validator = root.tasks.register(taskName, JavaExec) {
             group = 'verification'
-            dependsOn rootProject.tasks.named('classes')
-            classpath = rootProject.sourceSets.main.runtimeClasspath
+            dependsOn root.tasks.named('classes')
+            classpath = root.sourceSets.main.runtimeClasspath
             mainClass = mainClassName
             if (taskName in ['validateCustomFitConstruction', 'validateIssue289Completion']) {
                 jvmArgs '-Djava.awt.headless=true'
             }
         }
-        rootProject.tasks.named('check').configure { dependsOn validator }
+        root.tasks.named('check').configure { dependsOn validator }
     }
 
     // The temporary release JAR carries the exact generated sources so the
     // validated output can be extracted and committed without reconstruction.
-    rootProject.tasks.named('jar').configure {
-        from(rootProject.file('src/main/java')) {
+    root.tasks.named('jar').configure {
+        from(root.file('src/main/java')) {
             into 'META-INF/issue289-tested-source'
         }
     }
