@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
   pull_request:
-    branches: [ main, agent/issue-289-loadouts ]
+    branches: [ main ]
 
 jobs:
   build:
