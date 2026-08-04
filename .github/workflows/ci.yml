@@ -17,6 +17,8 @@ jobs:
     name: Validate and commit atomic refits
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
+    env:
+      ISSUE289_ATOMIC_GATE: 'true'
     steps:
       - name: Check out staging branch
         uses: actions/checkout@v4
