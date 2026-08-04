@@ -17,15 +17,16 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 1
-      - name: Apply validated source payload
+      - name: Apply validated source patch
         shell: bash
         run: |
-          if [[ ! -f .issue289-final-source.tar.gz ]]; then
-            echo "No source payload remains; nothing to materialize."
+          if [[ ! -f .issue289-final.patch ]]; then
+            echo "No source patch remains; nothing to materialize."
             exit 0
           fi
-          tar -xzf .issue289-final-source.tar.gz
-          rm .issue289-final-source.tar.gz
+          git apply --check .issue289-final.patch
+          git apply .issue289-final.patch
+          rm .issue289-final.patch
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
