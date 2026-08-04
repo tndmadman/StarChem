@@ -89,28 +89,42 @@ final class FitCommand {
         String unitKey = ServerSaveStore.string(payload, "unitKey", "");
         Unit unit = world.units.get(unitKey);
         if (unit == null || !actorId.equals(unit.playerId)) return Result.fail("Selected ship was not found.");
-        ShipLoadoutDefinition loadout = register(world, payload);
+
+        Candidate candidate = candidate(payload);
+        boolean free = world.devFreeBuildFor(actorId);
+        RefitQueuePlanner.Result preflight = RefitQueuePlanner.preflight(world, actorId, List.of(unit),
+                candidate.definition(), free, preferred);
+        if (!preflight.success()) return Result.fail(preflight.message());
+
+        ShipLoadoutDefinition loadout = WorldFitCatalog.registerRuntime(world, candidate.name(), candidate.spec());
         RefitQueuePlanner.Result queued = RefitQueuePlanner.enqueue(world, actorId, List.of(unit), loadout,
-                world.devFreeBuildFor(actorId), preferred);
+                free, preferred);
         return queued.success() ? Result.ok(queued.message(), true, true) : Result.fail(queued.message());
     }
 
     private static Result refitClass(World world, String actorId, Map<String,Object> payload) {
         Base preferred = ownedBase(world, actorId, ServerSaveStore.string(payload, "baseId", ""));
-        ShipLoadoutDefinition loadout = register(world, payload);
+        Candidate candidate = candidate(payload);
+        ShipLoadoutDefinition preview = candidate.definition();
         List<Unit> eligible = new ArrayList<>();
         int already = 0, reserved = 0;
         for (Unit unit : world.units.values()) {
-            if (!actorId.equals(unit.playerId) || unit.hp <= 0 || !loadout.hullId().equals(unit.shipTypeId)) continue;
-            if (loadout.id().equals(unit.loadoutId)) { already++; continue; }
+            if (!actorId.equals(unit.playerId) || unit.hp <= 0 || !preview.hullId().equals(unit.shipTypeId)) continue;
+            if (preview.id().equals(unit.loadoutId)) { already++; continue; }
             if (ProductionSystem.refitReserved(world, unit.key())) { reserved++; continue; }
             eligible.add(unit);
         }
-        if (eligible.isEmpty()) return Result.fail("No available " + Rules.ship(loadout.hullId()).name
+        if (eligible.isEmpty()) return Result.fail("No available " + Rules.ship(preview.hullId()).name
                 + " ships can be recalled. Already fitted: " + already + "; already reserved: " + reserved + ".");
 
+        boolean free = world.devFreeBuildFor(actorId);
+        RefitQueuePlanner.Result preflight = RefitQueuePlanner.preflight(world, actorId, eligible, preview,
+                free, preferred);
+        if (!preflight.success()) return Result.fail(preflight.message());
+
+        ShipLoadoutDefinition loadout = WorldFitCatalog.registerRuntime(world, candidate.name(), candidate.spec());
         RefitQueuePlanner.Result queued = RefitQueuePlanner.enqueue(world, actorId, eligible, loadout,
-                world.devFreeBuildFor(actorId), preferred);
+                free, preferred);
         if (!queued.success()) return Result.fail(queued.message());
         world.status = queued.message() + " Already fitted: " + already + "; already reserved: " + reserved + ".";
         return Result.ok(world.status, true, true);
@@ -123,9 +137,15 @@ final class FitCommand {
         return success ? Result.ok(world.status, true, true) : Result.fail(world.status);
     }
 
-    private static ShipLoadoutDefinition register(World world, Map<String,Object> payload) {
+    private static Candidate candidate(Map<String,Object> payload) {
         String name = PlayerFitRules.cleanName(ServerSaveStore.string(payload, "name", "Custom Fit"));
-        return WorldFitCatalog.registerRuntime(world, name, ShipFitSpec.from(payload.get("spec")));
+        ShipFitSpec spec = ShipFitSpec.from(payload.get("spec"));
+        return new Candidate(name, spec, PlayerFitRules.previewDefinition(name, spec));
+    }
+
+    private static ShipLoadoutDefinition register(World world, Map<String,Object> payload) {
+        Candidate candidate = candidate(payload);
+        return WorldFitCatalog.registerRuntime(world, candidate.name(), candidate.spec());
     }
 
     private static Base ownedBase(World world, String actorId, String baseId) {
@@ -177,6 +197,8 @@ final class FitCommand {
         if (clean.length() > 512) clean = clean.substring(0, 512);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(clean.getBytes(StandardCharsets.UTF_8));
     }
+
+    private record Candidate(String name, ShipFitSpec spec, ShipLoadoutDefinition definition) { }
 
     record Result(boolean success, boolean catalogChanged, boolean worldChanged, String message) {
         static Result ok(String message, boolean catalogChanged, boolean worldChanged) {
