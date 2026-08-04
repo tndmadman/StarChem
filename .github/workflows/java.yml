@@ -17,6 +17,12 @@ jobs:
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
       - run: gradle build
+      - name: Validate configured fit rules
+        run: java -cp build/classes/java/main com.tndmadman.rts.ConfiguredFitRuleValidator
+      - name: Validate refit quote persistence
+        run: java -cp build/classes/java/main com.tndmadman.rts.RefitQuotePersistenceValidator
+      - name: Validate atomic distributed refits
+        run: java -cp build/classes/java/main com.tndmadman.rts.AtomicRefitTransactionValidator
       - name: Validate refitted module effects
         run: java -cp build/classes/java/main com.tndmadman.rts.ShipModuleRefitValidator
       - name: Validate distributed refit queues
