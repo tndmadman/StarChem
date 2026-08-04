@@ -1,8 +1,8 @@
 name: Apply Issue 289 Phase 2B
 
 on:
-  pull_request:
-    branches: [ agent/issue-289-loadouts ]
+  push:
+    branches: [ agent/issue-289-final-hardening ]
 
 permissions:
   contents: write
