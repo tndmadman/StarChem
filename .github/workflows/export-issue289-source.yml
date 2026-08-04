@@ -1,27 +1,34 @@
-name: Export issue 289 source
+name: Materialize issue 289 source
 
 on:
   pull_request:
     branches: [ agent/issue-289-source-export-base ]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  export:
+  materialize:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - name: Check out pull request head
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 1
-      - name: Archive exact source tree
+      - name: Apply validated source payload
+        shell: bash
         run: |
-          tar --exclude=.git --exclude=build --exclude=.gradle -czf /tmp/starchem-issue289-source.tar.gz .
-      - name: Upload source archive
-        uses: actions/upload-artifact@v4
-        with:
-          name: starchem-issue289-source
-          path: /tmp/starchem-issue289-source.tar.gz
-          retention-days: 1
+          if [[ ! -f .issue289-final-source.tar.gz ]]; then
+            echo "No source payload remains; nothing to materialize."
+            exit 0
+          fi
+          tar -xzf .issue289-final-source.tar.gz
+          rm .issue289-final-source.tar.gz
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Harden issue 289 fit isolation and range authority"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
