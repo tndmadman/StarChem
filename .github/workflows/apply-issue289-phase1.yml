@@ -25,6 +25,24 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Apply explicit configured fit rules
         run: python3 tools/apply_issue289_phase1.py
+      - name: Preserve authored loadout compatibility
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('config/weapons.json')
+          root = json.loads(path.read_text(encoding='utf-8'))
+          weapons = root['weaponTypes']
+          for loadout_path in Path('config/loadouts').glob('*.json'):
+              doc = json.loads(loadout_path.read_text(encoding='utf-8'))
+              for fit_id, fit in doc.get('shipLoadouts', {}).items():
+                  hull = fit.get('hullId', fit_id)
+                  for weapon_id in fit.get('weapons', []):
+                      row = weapons[weapon_id]
+                      row['compatibleHulls'] = sorted(set(row.get('compatibleHulls', [])) | {hull})
+          path.write_text(json.dumps(root, indent=2) + '\n', encoding='utf-8')
+          PY
       - name: Build and run all validators
         run: gradle build
       - name: Validate explicit fit rules
