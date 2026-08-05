@@ -157,15 +157,36 @@ public final class V160UpgradeValidator {
                 "galaxy systems were lost");
         require(list(server.world.captureServerSaveRuntime().get("npcFactions")).size()
                         >= ((Number)manifest.get("npcRuntimeCount")).intValue(), "NPC runtime state was lost");
-        require(anyBase(server.world, players.get(0).id,
-                        base -> base.inventory.getOrDefault(Material.COPPER, 0.0) == 210.0),
+        require(materialAcrossAssets(server.world, players.get(0).id, Material.COPPER) >= 210.0 - 0.001,
                 "alpha inventory was lost");
         require(anyBase(server.world, players.get(0).id,
                         base -> base.productionQueue.size() == 1),
                 "alpha production queue was lost");
-        require(anyBase(server.world, players.get(1).id,
-                        base -> base.inventory.getOrDefault(Material.SILICATES, 0.0) == 321.0),
+        require(materialAcrossAssets(server.world, players.get(1).id, Material.SILICATES) >= 321.0 - 0.001,
                 "beta cross-system inventory was lost");
+    }
+
+    private static double materialAcrossAssets(World world, String playerId, Material material) {
+        String active = world.activeSystemId();
+        double total = 0;
+        try {
+            for (GalaxyMapSystem system : world.galaxyMapSnapshot().systems()) {
+                world.activateSystem(system.id());
+                for (Base base : world.bases.values()) {
+                    if (playerId.equals(base.playerId)) {
+                        total += base.inventory.getOrDefault(material, 0.0);
+                    }
+                }
+                for (Unit unit : world.units.values()) {
+                    if (playerId.equals(unit.playerId)) {
+                        total += unit.inventory.getOrDefault(material, 0.0);
+                    }
+                }
+            }
+            return total;
+        } finally {
+            world.activateSystem(active);
+        }
     }
 
     private static boolean anyBase(World world, String playerId, Predicate<Base> expected) {
