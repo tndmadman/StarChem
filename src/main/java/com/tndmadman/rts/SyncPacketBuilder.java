@@ -22,11 +22,14 @@ final class SyncPacketBuilder {
 
     private static String buildOnce(World world, ClientViewCache views, String playerId, long sequence,
                                     SyncKind kind, boolean fullResources) {
-        Snapshot snapshot = views.makeSnapshot(world, playerId, sequence);
-        ResourceNetDebug.sendSnapshot(kind.name(), playerId, snapshot, world);
-        if (kind == SyncKind.INITIAL) return SyncFrame.writeView(snapshot, views.viewRevision(playerId));
-        if (fullResources) return SyncFrame.writeResourceCorrection(snapshot);
-        return SnapshotWriter.write(snapshot);
+        boolean replaceResources = kind == SyncKind.INITIAL || fullResources;
+        return ResourceSync.withPlayerContext(playerId, replaceResources, () -> {
+            Snapshot snapshot = views.makeSnapshot(world, playerId, sequence);
+            ResourceNetDebug.sendSnapshot(kind.name(), playerId, snapshot, world);
+            if (kind == SyncKind.INITIAL) return SyncFrame.writeView(snapshot, views.viewRevision(playerId));
+            if (fullResources) return SyncFrame.writeResourceCorrection(snapshot);
+            return SnapshotWriter.write(snapshot);
+        });
     }
 
     private static void prepareResources(SyncKind kind, boolean fullResources) {
