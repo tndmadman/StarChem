@@ -17,14 +17,13 @@ public final class TcpSlowClientIsolationValidator {
             Unit slowUnit = harness.firstUnit(harness.serverWorld, slow.playerId());
             Unit healthyUnit = harness.firstUnit(harness.serverWorld, healthy.playerId());
             TcpIntegrationHarness.require(slowUnit != null && healthyUnit != null, "test units were not created");
-            long healthySequenceBefore = healthy.network().clientSnapshotSequence();
             ConnectionId slowConnection = harness.serverNetwork.connectionIdForPlayer(slow.playerId());
             TcpIntegrationHarness.require(slowConnection.valid(), "slow client connection ID was not registered");
 
             proxy.pauseServerToClient();
-            TcpIntegrationHarness.require(proxy.awaitServerToClientPaused(3_000),
-                    "fault proxy did not acknowledge the downstream pause");
+            awaitPauseAcknowledgement(harness, proxy, 3_000);
             long slowSequenceBefore = awaitSnapshotQuiescence(slow, 3_000, 250);
+            long healthySequenceBefore = healthy.network().clientSnapshotSequence();
             for (int i = 0; i < 450; i++) {
                 harness.setAuthoritativePosition(slow.playerId(), slowUnit.unitId, 1800 + i, 2100 + Math.sin(i / 10.0) * 120);
                 harness.setAuthoritativePosition(healthy.playerId(), healthyUnit.unitId, 3200 + i, 3500 + Math.cos(i / 12.0) * 120);
@@ -53,6 +52,18 @@ public final class TcpSlowClientIsolationValidator {
             TcpIntegrationHarness.require(healthy.network().clientConnected(), "healthy client did not remain connected after slow client recovery");
             System.out.println("StarChem TCP slow-client isolation validation passed.");
         }
+    }
+
+    private static void awaitPauseAcknowledgement(TcpIntegrationHarness harness,
+                                                   TcpFaultProxy proxy,
+                                                   long timeoutMillis) throws Exception {
+        long deadline = System.nanoTime() + Math.max(0, timeoutMillis) * 1_000_000L;
+        while (!proxy.serverToClientPaused() && System.nanoTime() < deadline) {
+            harness.tick();
+            Thread.sleep(5);
+        }
+        TcpIntegrationHarness.require(proxy.serverToClientPaused(),
+                "fault proxy did not acknowledge the downstream pause");
     }
 
     private static long awaitSnapshotQuiescence(TcpIntegrationHarness.TestClient client,
