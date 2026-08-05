@@ -4,9 +4,12 @@ import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -20,6 +23,14 @@ final class ClientFitStore {
     private static final AtomicLong IDS = new AtomicLong();
     private static final MiniJson.Limits LIMITS = new MiniJson.Limits(
             2 * 1024 * 1024, 12, 100_000, 2_048, 65_536, 128, true);
+    private static final Object CACHE_LOCK = new Object();
+
+    private static Path cachedPath;
+    private static StoreState cachedState;
+    private static FileStamp cachedStamp = FileStamp.missing();
+    private static Path preparedPath;
+    private static long loadCountForTest;
+    private static long securitySetupCountForTest;
 
     private ClientFitStore() { }
 
@@ -97,37 +108,88 @@ final class ClientFitStore {
 
     static Path pathForTest() { return storePath(); }
 
+    static long loadCountForTest() {
+        synchronized (CACHE_LOCK) { return loadCountForTest; }
+    }
+
+    static long securitySetupCountForTest() {
+        synchronized (CACHE_LOCK) { return securitySetupCountForTest; }
+    }
+
+    static void resetCacheForTest() {
+        synchronized (CACHE_LOCK) {
+            cachedPath = null;
+            cachedState = null;
+            cachedStamp = FileStamp.missing();
+            preparedPath = null;
+            loadCountForTest = 0;
+            securitySetupCountForTest = 0;
+        }
+    }
+
     private static String nextId() {
         long value = System.currentTimeMillis() ^ IDS.incrementAndGet();
         return "local_" + Long.toUnsignedString(value, 36);
     }
 
     private static <T> T read(StateOperation<T> operation) {
-        return withLock(false, state -> operation.apply(state));
+        synchronized (CACHE_LOCK) {
+            Path current = storePath();
+            prepareStorage(current);
+            refreshCache(current);
+            return operation.apply(cachedState);
+        }
     }
 
     private static <T> T update(StateOperation<T> operation) {
-        return withLock(true, operation);
-    }
-
-    private static <T> T withLock(boolean save, StateOperation<T> operation) {
-        Path current = storePath();
-        Path parent = current.getParent();
-        Path lockPath = current.resolveSibling(current.getFileName() + ".lock");
-        try {
-            PrivateFileSecurity.ensurePrivateDirectory(parent);
-            if (!Files.exists(lockPath)) Files.createFile(lockPath);
-            PrivateFileSecurity.secureFile(lockPath);
+        synchronized (CACHE_LOCK) {
+            Path current = storePath();
+            prepareStorage(current);
+            Path lockPath = lockPath(current);
             try (FileChannel channel = FileChannel.open(lockPath, StandardOpenOption.WRITE);
                  FileLock ignored = channel.lock()) {
                 StoreState state = load(current);
+                loadCountForTest++;
                 T result = operation.apply(state);
-                if (save) persist(current, state);
+                persist(current, state);
+                cachedPath = current;
+                cachedState = state;
+                cachedStamp = FileStamp.capture(current);
                 return result;
+            } catch (IOException ex) {
+                throw new IllegalStateException("Could not access private fit library: " + current, ex);
             }
-        } catch (IOException ex) {
-            throw new IllegalStateException("Could not access private fit library: " + current, ex);
         }
+    }
+
+    private static void prepareStorage(Path current) {
+        Path parent = current.getParent();
+        if (parent == null) throw new IllegalStateException("Private fit library has no parent directory: " + current);
+        Path lockPath = lockPath(current);
+        if (current.equals(preparedPath) && Files.isDirectory(parent) && Files.isRegularFile(lockPath)) return;
+        try {
+            PrivateFileSecurity.ensurePrivateDirectory(parent);
+            try { Files.createFile(lockPath); }
+            catch (FileAlreadyExistsException ignored) { }
+            PrivateFileSecurity.secureFile(lockPath);
+            preparedPath = current;
+            securitySetupCountForTest++;
+        } catch (IOException ex) {
+            throw new IllegalStateException("Could not prepare private fit library: " + current, ex);
+        }
+    }
+
+    private static void refreshCache(Path current) {
+        FileStamp stamp;
+        try { stamp = FileStamp.capture(current); }
+        catch (IOException ex) {
+            throw new IllegalStateException("Could not inspect private fit library: " + current, ex);
+        }
+        if (current.equals(cachedPath) && cachedState != null && stamp.equals(cachedStamp)) return;
+        cachedState = load(current);
+        cachedPath = current;
+        cachedStamp = stamp;
+        loadCountForTest++;
     }
 
     private static StoreState load(Path current) {
@@ -238,12 +300,33 @@ final class ClientFitStore {
     }
 
     private static Path previous(Path current) { return current.resolveSibling(current.getFileName() + ".previous"); }
+    private static Path lockPath(Path current) { return current.resolveSibling(current.getFileName() + ".lock"); }
 
     private static String commanderKey(String commanderName) {
         return Config.clean(commanderName == null ? "" : commanderName).toLowerCase(Locale.ROOT);
     }
 
     private interface StateOperation<T> { T apply(StoreState state); }
+
+    private record FilePart(boolean exists, long size, long modifiedMillis) {
+        static FilePart capture(Path path) throws IOException {
+            if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return missing();
+            BasicFileAttributes attributes = Files.readAttributes(path, BasicFileAttributes.class,
+                    LinkOption.NOFOLLOW_LINKS);
+            if (!attributes.isRegularFile()) return new FilePart(true, -1, attributes.lastModifiedTime().toMillis());
+            return new FilePart(true, attributes.size(), attributes.lastModifiedTime().toMillis());
+        }
+
+        static FilePart missing() { return new FilePart(false, 0, 0); }
+    }
+
+    private record FileStamp(FilePart current, FilePart previous) {
+        static FileStamp capture(Path current) throws IOException {
+            return new FileStamp(FilePart.capture(current), FilePart.capture(previous(current)));
+        }
+
+        static FileStamp missing() { return new FileStamp(FilePart.missing(), FilePart.missing()); }
+    }
 
     private static final class StoreState {
         final Map<String,Library> commanders = new LinkedHashMap<>();
