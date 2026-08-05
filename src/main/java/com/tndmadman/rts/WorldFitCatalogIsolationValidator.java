@@ -68,24 +68,57 @@ public final class WorldFitCatalogIsolationValidator {
                 "world B unit inherited foreign runtime modules");
 
         Map<String,Object> capturedA = WorldFitCatalog.capture(worldA);
+        require(ServerSaveStore.longValue(capturedA, "version", 0) == 2,
+                "runtime fit catalog schema version was not advanced for persisted names");
+        List<Object> capturedDefinitions = ServerSaveStore.list(capturedA.get("definitions"));
+        require(capturedDefinitions.size() == 1,
+                "captured world A runtime definition count was unexpected");
+        require("World A Fit".equals(ServerSaveStore.string(
+                        ServerSaveStore.object(capturedDefinitions.get(0)), "displayName", "")),
+                "captured runtime definition omitted its authoritative display name");
+
         World restoredA = world("Restored Fit World A", playerA + "_RESTORED");
         WorldFitCatalog.restore(restoredA, capturedA);
-        require(WeaponRules.findLoadout(restoredA, fitA.id()) != null,
-                "restored world A lost its runtime fit");
+        ShipLoadoutDefinition restoredFitA = WeaponRules.findLoadout(restoredA, fitA.id());
+        require(fitA.equals(restoredFitA),
+                "restored world A changed its runtime fit name or derived definition");
         require(WeaponRules.findLoadout(restoredA, fitB.id()) == null,
                 "restored world A imported world B's runtime fit");
 
         World clientA = world("Client Fit World A", playerA + "_CLIENT");
         WorldFitCatalog.applyNetworkView(clientA, WorldFitCatalog.networkView(worldA));
-        require(WeaponRules.findLoadout(clientA, fitA.id()) != null,
-                "client catalog bootstrap lost world A's runtime fit");
+        ShipLoadoutDefinition clientFitA = WeaponRules.findLoadout(clientA, fitA.id());
+        require(fitA.equals(clientFitA),
+                "client catalog bootstrap changed the runtime fit name or derived definition");
         require(WeaponRules.findLoadout(clientA, fitB.id()) == null,
                 "client catalog bootstrap imported a foreign runtime fit");
         require(WorldFitCatalog.revision(worldB) == revisionB,
                 "capture, restore, or network bootstrap changed world B's revision");
 
+        validateLegacyNameFallback(specA, fitA.id());
         validateForeignSaveReferenceRejected(fitA);
         System.out.println("StarChem world-scoped runtime fit catalog isolation validation passed.");
+    }
+
+    private static void validateLegacyNameFallback(ShipFitSpec spec, String runtimeId) {
+        Map<String,Object> definition = new LinkedHashMap<>();
+        definition.put("id", runtimeId);
+        definition.put("spec", spec.toMap());
+        Map<String,Object> legacy = new LinkedHashMap<>();
+        legacy.put("revision", 7);
+        legacy.put("definitions", List.of(definition));
+        legacy.put("published", List.of());
+
+        World legacyWorld = world("Legacy Runtime Name", "FIT_WORLD_LEGACY");
+        WorldFitCatalog.applyNetworkView(legacyWorld, legacy);
+        ShipLoadoutDefinition restored = WeaponRules.findLoadout(legacyWorld, runtimeId);
+        require(restored != null, "legacy name-less runtime definition was not restored");
+        require("Custom Fit".equals(restored.displayName()),
+                "legacy name-less runtime definition did not receive the compatibility fallback name");
+        require(spec.equals(WorldFitCatalog.runtimeSpec(legacyWorld, runtimeId)),
+                "legacy name migration changed the runtime fit component specification");
+        require(WorldFitCatalog.revision(legacyWorld) == 7,
+                "legacy catalog restore changed its authoritative revision");
     }
 
     private static void validateForeignSaveReferenceRejected(ShipLoadoutDefinition foreignFit) {
