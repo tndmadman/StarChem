@@ -109,7 +109,7 @@ final class WorldFitCatalog {
     static Map<String,Object> capture(World world) {
         State state = state(world);
         Map<String,Object> out = new LinkedHashMap<>();
-        out.put("version", 1);
+        out.put("version", 2);
         out.put("revision", state.revision);
         out.put("nextPublishedId", state.nextPublishedId);
         out.put("definitions", definitionRows(state));
@@ -141,6 +141,9 @@ final class WorldFitCatalog {
         for (Map.Entry<String,ShipFitSpec> entry : state.runtime.entrySet()) {
             Map<String,Object> row = new LinkedHashMap<>();
             row.put("id", entry.getKey());
+            ShipLoadoutDefinition definition = state.definitions.get(entry.getKey());
+            String displayName = definition == null ? "" : PlayerFitRules.cleanName(definition.displayName());
+            row.put("displayName", displayName.isBlank() ? "Custom Fit" : displayName);
             row.put("spec", entry.getValue().toMap());
             definitions.add(row);
         }
@@ -152,7 +155,10 @@ final class WorldFitCatalog {
             Map<String,Object> row = ServerSaveStore.object(item);
             ShipFitSpec spec = ShipFitSpec.from(row.get("spec"));
             try {
-                ShipLoadoutDefinition definition = PlayerFitRules.previewDefinition("Custom Fit", spec);
+                String displayName = PlayerFitRules.cleanName(ServerSaveStore.string(row, "displayName",
+                        ServerSaveStore.string(row, "name", "Custom Fit")));
+                if (displayName.isBlank()) displayName = "Custom Fit";
+                ShipLoadoutDefinition definition = PlayerFitRules.previewDefinition(displayName, spec);
                 String savedId = ServerSaveStore.string(row, "id", definition.id());
                 if (!definition.id().equals(savedId)) continue;
                 ShipFitSpec previous = state.runtime.putIfAbsent(definition.id(), spec);
