@@ -322,7 +322,7 @@ final class ClientFitStore {
 
     private record FileStamp(FilePart current, FilePart previous) {
         static FileStamp capture(Path current) throws IOException {
-            return new FileStamp(FilePart.capture(current), FilePart.capture(previous(current)));
+            return new FileStamp(FilePart.capture(current), FilePart.capture(ClientFitStore.previous(current)));
         }
 
         static FileStamp missing() { return new FileStamp(FilePart.missing(), FilePart.missing()); }
