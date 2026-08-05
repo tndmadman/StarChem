@@ -32,11 +32,36 @@ final class TcpFaultProxy implements AutoCloseable {
     long serverToClientBytes() { return serverToClientBytes.get(); }
     boolean activeConnection() { Bridge bridge = active; return bridge != null && bridge.open.get(); }
 
-    void pauseServerToClient() { downstreamPaused = true; }
+    void pauseServerToClient() {
+        synchronized (downstreamGate) {
+            downstreamPaused = true;
+            downstreamGate.notifyAll();
+        }
+    }
+
+    boolean awaitServerToClientPaused(long timeoutMillis) throws InterruptedException {
+        long timeoutNanos = Math.max(0, timeoutMillis) * 1_000_000L;
+        long deadline = System.nanoTime() + timeoutNanos;
+        synchronized (downstreamGate) {
+            while (running.get()) {
+                Bridge bridge = active;
+                if (downstreamPaused && bridge != null && bridge.open.get() && bridge.downstreamAtPauseGate) {
+                    return true;
+                }
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) return false;
+                long millis = Math.max(1, Math.min(100, remaining / 1_000_000L));
+                downstreamGate.wait(millis);
+            }
+            return false;
+        }
+    }
 
     void resumeServerToClient() {
-        downstreamPaused = false;
-        synchronized (downstreamGate) { downstreamGate.notifyAll(); }
+        synchronized (downstreamGate) {
+            downstreamPaused = false;
+            downstreamGate.notifyAll();
+        }
     }
 
     void throttleServerToClient(long bytesPerSecond) {
@@ -86,9 +111,17 @@ final class TcpFaultProxy implements AutoCloseable {
         socket.setSendBufferSize(32 * 1024);
     }
 
-    private void awaitDownstream() throws InterruptedException {
+    private void awaitDownstream(Bridge bridge) throws InterruptedException {
         synchronized (downstreamGate) {
-            while (running.get() && downstreamPaused) downstreamGate.wait(100);
+            while (running.get() && bridge.open.get() && downstreamPaused) {
+                bridge.downstreamAtPauseGate = true;
+                downstreamGate.notifyAll();
+                downstreamGate.wait(100);
+            }
+            if (bridge.downstreamAtPauseGate) {
+                bridge.downstreamAtPauseGate = false;
+                downstreamGate.notifyAll();
+            }
         }
     }
 
@@ -112,6 +145,7 @@ final class TcpFaultProxy implements AutoCloseable {
         private final Socket client;
         private final Socket upstream;
         private final AtomicBoolean open = new AtomicBoolean(true);
+        private volatile boolean downstreamAtPauseGate;
 
         Bridge(Socket client, Socket upstream) {
             this.client = client;
@@ -127,7 +161,10 @@ final class TcpFaultProxy implements AutoCloseable {
             if (!open.compareAndSet(true, false)) return;
             closeQuietly(client);
             closeQuietly(upstream);
-            synchronized (downstreamGate) { downstreamGate.notifyAll(); }
+            synchronized (downstreamGate) {
+                downstreamAtPauseGate = false;
+                downstreamGate.notifyAll();
+            }
         }
 
         private void startPump(Socket from, Socket to, boolean downstream, String suffix) {
@@ -141,11 +178,11 @@ final class TcpFaultProxy implements AutoCloseable {
             byte[] buffer = new byte[16 * 1024];
             try (InputStream input = from.getInputStream(); OutputStream output = to.getOutputStream()) {
                 while (running.get() && open.get()) {
-                    if (downstream) awaitDownstream();
+                    if (downstream) awaitDownstream(this);
                     if (!running.get() || !open.get()) break;
                     int read = input.read(buffer);
                     if (read < 0) break;
-                    if (downstream) awaitDownstream();
+                    if (downstream) awaitDownstream(this);
                     if (!running.get() || !open.get()) break;
                     long started = System.nanoTime();
                     output.write(buffer, 0, read);
