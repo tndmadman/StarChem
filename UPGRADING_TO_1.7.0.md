@@ -1,6 +1,6 @@
 # Upgrading StarChem v1.6.0 to v1.7.0
 
-StarChem v1.7.0 changes multiplayer protocol, authentication material, remembered client credentials, TLS identity protection, persistence scheduling, retained identity state, and several server companion files. Treat the upgrade as a server-data migration.
+StarChem v1.7.0 changes multiplayer protocol, authentication material, remembered client credentials, TLS identity protection, persistence scheduling, retained identity state, authoritative ship fits, and several server companion files. Treat the upgrade as a server-data migration to multiplayer protocol 13, rules version 27, and save format 5.
 
 ## Before upgrading
 
@@ -40,7 +40,7 @@ The release directory must keep these items together:
 
 ## Server upgrade
 
-Start v1.7.0 with the same server-data directory and save name used by v1.6.0.
+Start v1.7.0 with the same server-data directory and save name used by v1.6.0. The first successful load migrates supported legacy state to save format 5. Current saves preserve authoritative runtime fit definitions, installed loadout IDs, production selections, and exact active-refit reservations.
 
 ### Windows packaged launcher
 
@@ -74,7 +74,7 @@ Confirm all of the following before allowing normal remote joins:
 - The server reports `StarChem 1.7.0` and the expected build commit.
 - The expected galaxy and system count loaded.
 - Retained identities, names, archive state, and last-seen state are present.
-- Player ships, bases, inventories, research, production queues, ownership, and controlled systems are present.
+- Player ships, installed loadouts, bases, inventories, research, production queues, active refits, ownership, and controlled systems are present.
 - NPC faction runtime and cross-system state are present.
 - Administration, moderation, whitelist, bans, observations, and activity history loaded as expected.
 - The TLS fingerprint exactly matches the recorded v1.6.0 fingerprint.
@@ -99,18 +99,19 @@ A player may be asked to enter the password again when a remembered sign-in cann
 
 ## Multiplayer compatibility
 
-v1.7.0 uses multiplayer protocol 8. v1.6.0 uses protocol 7.
+v1.7.0 uses multiplayer protocol 13 and rules version 27. v1.6.0 uses protocol 7.
 
 - A v1.6.0 client cannot join a v1.7.0 server.
 - A v1.7.0 client cannot join a v1.6.0 server.
 - Update clients and servers together.
 - Matching build commits are not required when application version, protocol, rules version, and packaged configuration fingerprint match.
+- Save format 5 is a persistence contract and is not readable by v1.6.0.
 
 ## Rollback
 
 The only supported rollback starting point is the untouched full-directory backup made before v1.7.0 was started.
 
-Do not point a v1.6.0 binary at a server directory after v1.7.0 has migrated or written it. v1.7.0 may create or update authentication, TLS-password, identity-lifecycle, moderation-observation, recovery, and persistence companion state that v1.6.0 does not understand.
+Do not point a v1.6.0 binary at a server directory after v1.7.0 has migrated or written it. v1.7.0 may create or update authentication, TLS-password, identity-lifecycle, moderation-observation, recovery, persistence, and runtime-fit state that v1.6.0 does not understand.
 
 To roll back:
 
