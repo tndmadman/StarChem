@@ -17,6 +17,8 @@ jobs:
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
       - run: gradle build
+      - name: Validate per-client resource replication
+        run: java -cp build/classes/java/main com.tndmadman.rts.ResourceReplicationValidator
       - name: Validate authoritative client attack ranges
         run: java -cp build/classes/java/main com.tndmadman.rts.AttackRangeParityValidator
       - name: Validate configured fit rules
