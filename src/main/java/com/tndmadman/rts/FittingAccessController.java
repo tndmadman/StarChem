@@ -42,6 +42,7 @@ final class FittingAccessController {
     private FittingAccessController() { }
 
     static void install() {
+        FittingUiPolicy.install();
         if (!INSTALLED.compareAndSet(false, true)) return;
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(event -> {
             if (event.getID() != KeyEvent.KEY_PRESSED) return false;
