@@ -132,16 +132,31 @@ final class ClientFitStore {
 
     private static StoreState load(Path current) {
         Path previous = previous(current);
+        boolean currentExists = Files.isRegularFile(current);
+        boolean previousExists = Files.isRegularFile(previous);
         RuntimeException currentFailure = null;
-        if (Files.isRegularFile(current)) {
+        if (currentExists) {
             try { return parse(read(current)); }
             catch (RuntimeException ex) { currentFailure = ex; }
         }
-        if (Files.isRegularFile(previous)) {
+        RuntimeException previousFailure = null;
+        if (previousExists) {
             try { return parse(read(previous)); }
-            catch (RuntimeException ex) { if (currentFailure != null) ex.addSuppressed(currentFailure); }
+            catch (RuntimeException ex) { previousFailure = ex; }
         }
-        return new StoreState();
+        if (!currentExists && !previousExists) return new StoreState();
+
+        RuntimeException primary = currentFailure != null ? currentFailure : previousFailure;
+        String recovery = previousExists
+                ? " Recovery copy is also invalid: " + previous + "."
+                : " No recovery copy exists at " + previous + ".";
+        IllegalStateException failure = new IllegalStateException(
+                "Private fit library is corrupt and no valid recovery copy is available: " + current + "."
+                        + recovery,
+                primary);
+        if (currentFailure != null && currentFailure != primary) failure.addSuppressed(currentFailure);
+        if (previousFailure != null && previousFailure != primary) failure.addSuppressed(previousFailure);
+        throw failure;
     }
 
     private static void persist(Path current, StoreState state) throws IOException {
