@@ -3,7 +3,6 @@ package com.tndmadman.rts;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.LockSupport;
-import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
 
 public final class App {
@@ -40,8 +39,7 @@ public final class App {
             if (exitCode != 0) System.exit(exitCode);
             return;
         }
-        // Fitting is hosted on the root glass pane. Heavyweight popups keep combo lists above it.
-        JPopupMenu.setDefaultLightWeightPopupEnabled(false);
+        FittingUiPolicy.install();
         GameSwingUi.install();
         FittingAccessController.install();
         SwingUtilities.invokeLater(() -> new GameFrame(config).setVisible(true));
