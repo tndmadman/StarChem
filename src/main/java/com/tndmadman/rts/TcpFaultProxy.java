@@ -39,15 +39,18 @@ final class TcpFaultProxy implements AutoCloseable {
         }
     }
 
+    boolean serverToClientPaused() {
+        synchronized (downstreamGate) {
+            return pauseAcknowledged();
+        }
+    }
+
     boolean awaitServerToClientPaused(long timeoutMillis) throws InterruptedException {
         long timeoutNanos = Math.max(0, timeoutMillis) * 1_000_000L;
         long deadline = System.nanoTime() + timeoutNanos;
         synchronized (downstreamGate) {
             while (running.get()) {
-                Bridge bridge = active;
-                if (downstreamPaused && bridge != null && bridge.open.get() && bridge.downstreamAtPauseGate) {
-                    return true;
-                }
+                if (pauseAcknowledged()) return true;
                 long remaining = deadline - System.nanoTime();
                 if (remaining <= 0) return false;
                 long millis = Math.max(1, Math.min(100, remaining / 1_000_000L));
@@ -81,6 +84,11 @@ final class TcpFaultProxy implements AutoCloseable {
         closeQuietly(listener);
         Bridge bridge = active;
         if (bridge != null) bridge.close();
+    }
+
+    private boolean pauseAcknowledged() {
+        Bridge bridge = active;
+        return downstreamPaused && bridge != null && bridge.open.get() && bridge.downstreamAtPauseGate;
     }
 
     private void acceptLoop() {
