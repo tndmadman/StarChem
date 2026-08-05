@@ -68,6 +68,7 @@ final class WorldFitCatalog {
         PublishedFit published = new PublishedFit(id, ownerId, Config.clean(ownerName), displayName,
                 definition.id(), spec, System.currentTimeMillis(), System.currentTimeMillis());
         state.published.put(id, published);
+        state.publishedChanged();
         state.revision++;
         return published;
     }
@@ -77,12 +78,16 @@ final class WorldFitCatalog {
         PublishedFit fit = state.published.get(publishedId);
         if (fit == null || !fit.ownerPlayerId().equals(ownerId)) return false;
         state.published.remove(publishedId);
+        state.publishedChanged();
         state.revision++;
         return true;
     }
 
     static PublishedFit published(World world, String id) { return state(world).published.get(id); }
-    static List<PublishedFit> published(World world) { return List.copyOf(state(world).published.values()); }
+    static List<PublishedFit> published(World world) { return state(world).publishedSnapshot(); }
+    static List<PublishedFit> publishedForHull(World world, String hullId) {
+        return state(world).publishedForHull(hullId);
+    }
     static long revision(World world) { return state(world).revision; }
 
     static Map<String,Object> networkView(World world) {
@@ -134,6 +139,7 @@ final class WorldFitCatalog {
         state.runtime.clear();
         state.definitions.clear();
         state.published.clear();
+        state.publishedChanged();
     }
 
     private static List<Object> definitionRows(State state) {
@@ -182,6 +188,7 @@ final class WorldFitCatalog {
                 state.published.put(fit.id(), fit);
             } catch (RuntimeException ignored) { }
         }
+        state.publishedChanged();
     }
 
     private static State state(World world) {
@@ -193,8 +200,39 @@ final class WorldFitCatalog {
         final Map<String,ShipFitSpec> runtime = new LinkedHashMap<>();
         final Map<String,ShipLoadoutDefinition> definitions = new LinkedHashMap<>();
         final Map<String,PublishedFit> published = new LinkedHashMap<>();
+        private List<PublishedFit> publishedSnapshot = List.of();
+        private Map<String,List<PublishedFit>> publishedByHull = Map.of();
+        private boolean publishedDirty = true;
         long revision;
         long nextPublishedId = 1;
+
+        void publishedChanged() { publishedDirty = true; }
+
+        List<PublishedFit> publishedSnapshot() {
+            rebuildPublishedSnapshots();
+            return publishedSnapshot;
+        }
+
+        List<PublishedFit> publishedForHull(String hullId) {
+            if (hullId == null || hullId.isBlank()) return List.of();
+            rebuildPublishedSnapshots();
+            return publishedByHull.getOrDefault(hullId, List.of());
+        }
+
+        private void rebuildPublishedSnapshots() {
+            if (!publishedDirty) return;
+            publishedSnapshot = List.copyOf(published.values());
+            Map<String,List<PublishedFit>> grouped = new LinkedHashMap<>();
+            for (PublishedFit fit : publishedSnapshot) {
+                grouped.computeIfAbsent(fit.spec().hullId(), ignored -> new ArrayList<>()).add(fit);
+            }
+            Map<String,List<PublishedFit>> immutable = new LinkedHashMap<>();
+            for (Map.Entry<String,List<PublishedFit>> entry : grouped.entrySet()) {
+                immutable.put(entry.getKey(), List.copyOf(entry.getValue()));
+            }
+            publishedByHull = Map.copyOf(immutable);
+            publishedDirty = false;
+        }
     }
 }
 
