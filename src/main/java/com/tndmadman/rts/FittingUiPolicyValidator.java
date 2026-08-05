@@ -6,7 +6,7 @@ import javax.swing.JComboBox;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 
-/** Verifies fitting combos stay above glass panes and remain keyboard-accessible. */
+/** Verifies fitting combos stay above glass panes without changing unrelated popup policy. */
 public final class FittingUiPolicyValidator {
     private FittingUiPolicyValidator() { }
 
@@ -19,15 +19,15 @@ public final class FittingUiPolicyValidator {
         System.setProperty("java.awt.headless", "true");
         JPopupMenu.setDefaultLightWeightPopupEnabled(true);
         FittingUiPolicy.install();
-        require(!JPopupMenu.getDefaultLightWeightPopupEnabled(),
-                "fitting popup policy left lightweight popups enabled");
+        require(JPopupMenu.getDefaultLightWeightPopupEnabled(),
+                "fitting popup policy changed the global Swing popup mode");
 
-        JComboBox<String> inherited = new JComboBox<>(new String[] { "First", "Second" });
-        require(!inherited.isLightWeightPopupEnabled(),
-                "a combo created after policy installation did not inherit heavyweight popups");
-        inherited.setSelectedIndex(1);
-        require("Second".equals(inherited.getSelectedItem()),
-                "heavyweight popup policy interfered with combo selection state");
+        JComboBox<String> unrelated = new JComboBox<>(new String[] { "First", "Second" });
+        require(unrelated.isLightWeightPopupEnabled(),
+                "an unrelated combo inherited the fitting-only heavyweight popup policy");
+        unrelated.setSelectedIndex(1);
+        require("Second".equals(unrelated.getSelectedItem()),
+                "popup policy interfered with combo selection state");
 
         JComboBox<String> explicit = new JComboBox<>(new String[] { "A", "B" });
         explicit.setFocusable(false);
