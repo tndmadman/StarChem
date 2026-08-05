@@ -13,6 +13,10 @@ final class ClientPackets {
         if (p[0].equals("ENV")) { c.readEnv(p); return; }
         if (p[0].equals("SEED") && p.length >= 2) { c.readSeed(p[1]); return; }
         if (p[0].equals("WELCOME")) { c.readWelcome(p); return; }
+        if (p[0].equals("FOG_STATE") && p.length == 2) {
+            ServerFogOfWarState.applyClient(c.world, c.localPlayerId(), p[1]);
+            return;
+        }
         if (p[0].equals("DIPLOMACY_VIEW") && p.length == 2) {
             Map<String,Object> view = DiplomacyStateWire.decode(p[1]);
             DiplomacySystem.restore(c.world, view.get("state"));
