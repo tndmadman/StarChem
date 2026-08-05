@@ -36,6 +36,10 @@ final class ServerFogOfWarState {
     static void observeSystem(World world, String playerId, String systemId) {
         if (world == null || !realPlayerId(playerId) || invalidSystemId(systemId)) return;
         String previous = world.activeSystemId();
+        if (systemId.equals(previous)) {
+            observeActive(world, playerId);
+            return;
+        }
         try {
             world.activateSystem(systemId);
             if (!systemId.equals(world.activeSystemId())) return;
