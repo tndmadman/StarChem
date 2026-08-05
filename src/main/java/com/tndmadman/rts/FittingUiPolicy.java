@@ -7,7 +7,6 @@ import java.awt.Toolkit;
 import java.awt.event.ContainerEvent;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.swing.JComboBox;
-import javax.swing.JPopupMenu;
 
 /** Keeps fitting combo popups above glass-pane overlays and keyboard-accessible. */
 final class FittingUiPolicy {
@@ -18,7 +17,6 @@ final class FittingUiPolicy {
     private FittingUiPolicy() { }
 
     static void install() {
-        JPopupMenu.setDefaultLightWeightPopupEnabled(false);
         if (!LISTENER_INSTALLED.compareAndSet(false, true)) return;
         Toolkit.getDefaultToolkit().addAWTEventListener(event -> {
             if (!(event instanceof ContainerEvent containerEvent)
