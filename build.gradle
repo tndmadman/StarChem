@@ -555,3 +555,59 @@ tasks.named('check') {
     dependsOn tasks.named('verifyLegalNotices')
     dependsOn tasks.named('verifyBuildMetadata')
 }
+
+distributions {
+    main {
+        contents {
+            from('config') {
+                into 'config'
+            }
+            from('README.md')
+            from('LICENSE')
+            from('THIRD_PARTY_NOTICES.md')
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+
+tasks.register('validatePrunePersistence', JavaExec) {
+    group = 'verification'
+    description = 'Validate durable system-prune persistence, recovery, and publication ordering.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.ServerPruneTransactionValidator'
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('validatePrunePersistence')
+}
+
+
+tasks.register('validateObservationRetention', JavaExec) {
+    group = 'verification'
+    description = 'Validate player observation expiry, deletion, moderation age filtering, and protected persistence.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.ServerObservationStoreValidator'
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('validateObservationRetention')
+}
+
+
+tasks.register('validateSavedCredentialReplay', JavaExec) {
+    group = 'verification'
+    description = 'Validate that authentication fields copied from a server save cannot authenticate.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.SavedCredentialReplayValidator'
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('validateSavedCredentialReplay')
+}
