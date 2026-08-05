@@ -2,6 +2,7 @@ package com.tndmadman.rts;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 final class VisibilityRules {
     private VisibilityRules() { }
@@ -23,21 +24,7 @@ final class VisibilityRules {
     }
 
     static IntelWarfareSystem.DetectionStage resourceStage(World world, String playerId, ResourceNode resource) {
-        IntelWarfareSystem.DetectionStage stage = IntelWarfareSystem.resourceStage(world, playerId, resource);
-        if (world == null || resource == null || !resource.active) return stage;
-        for (Unit unit : world.units.values()) {
-            if (unit == null || unit.hp <= 0 || !IntelWarfareSystem.allied(world, playerId, unit.playerId)
-                    || !unit.type().harvestKinds.contains(resource.kind)) continue;
-            double distance = Calc.distance(unit.x, unit.y, resource.x, resource.y);
-            double localSurveyRange = Math.max(unit.type().scoutRange,
-                    Math.max(unit.type().harvestRange * 3.0, 180.0)) * SystemModifierRules.sensorRange(world);
-            if (distance > localSurveyRange) continue;
-            IntelWarfareSystem.DetectionStage local = distance <= Math.max(40, unit.type().harvestRange * 1.25)
-                    ? IntelWarfareSystem.DetectionStage.DETAILED
-                    : IntelWarfareSystem.DetectionStage.IDENTIFIED;
-            if (local.ordinal() > stage.ordinal()) stage = local;
-        }
-        return stage;
+        return frame(world, playerId).resourceStage(resource);
     }
 
     static Frame frame(World world, String playerId) {
@@ -64,6 +51,8 @@ final class VisibilityRules {
         private final World world;
         private final String playerId;
         private final List<Sensor> sensors;
+        private final List<ResourceRadar> resourceRadars;
+        private final List<ResourceHarvester> resourceHarvesters;
 
         private Frame(World world, String playerId) {
             this.world = world;
@@ -73,6 +62,34 @@ final class VisibilityRules {
                 found.add(sensor(sensor.x(), sensor.y(), sensor.range()));
             }
             sensors = List.copyOf(found);
+
+            List<ResourceRadar> radars = new ArrayList<>();
+            List<ResourceHarvester> harvesters = new ArrayList<>();
+            if (world != null) {
+                for (Base base : world.bases.values()) {
+                    if (base == null || base.hp <= 0
+                            || !IntelWarfareSystem.allied(world, this.playerId, base.playerId)
+                            || !IntelWarfareSystem.isRadar(base.typeId)) continue;
+                    double range = baseSensorRange(world, base);
+                    if (range > 0) {
+                        radars.add(new ResourceRadar(base.x, base.y, range,
+                                IntelWarfareSystem.surveyPower(base.typeId)));
+                    }
+                }
+                for (Unit unit : world.units.values()) {
+                    if (unit == null || unit.hp <= 0
+                            || !IntelWarfareSystem.allied(world, this.playerId, unit.playerId)
+                            || unit.type().harvestKinds.isEmpty()) continue;
+                    double identifiedRange = Math.max(unit.type().scoutRange,
+                            Math.max(unit.type().harvestRange * 3.0, 180.0))
+                            * SystemModifierRules.sensorRange(world);
+                    double detailedRange = Math.max(40, unit.type().harvestRange * 1.25);
+                    harvesters.add(new ResourceHarvester(unit.x, unit.y, identifiedRange, detailedRange,
+                            Set.copyOf(unit.type().harvestKinds)));
+                }
+            }
+            resourceRadars = List.copyOf(radars);
+            resourceHarvesters = List.copyOf(harvesters);
         }
 
         List<Sensor> sensors() { return sensors; }
@@ -96,7 +113,39 @@ final class VisibilityRules {
         }
 
         IntelWarfareSystem.DetectionStage resourceStage(ResourceNode resource) {
-            return VisibilityRules.resourceStage(world, playerId, resource);
+            if (world == null || resource == null || !resource.active) {
+                return IntelWarfareSystem.DetectionStage.NONE;
+            }
+            IntelWarfareSystem.DetectionStage stage = pointVisible(resource.x, resource.y)
+                    ? IntelWarfareSystem.DetectionStage.CONTACT
+                    : IntelWarfareSystem.DetectionStage.NONE;
+
+            for (ResourceRadar radar : resourceRadars) {
+                double distance = Calc.distance(radar.x, radar.y, resource.x, resource.y);
+                if (distance > radar.range) continue;
+                IntelWarfareSystem.DetectionStage radarStage = switch (radar.surveyPower) {
+                    case 0 -> IntelWarfareSystem.DetectionStage.CONTACT;
+                    case 1 -> IntelWarfareSystem.DetectionStage.CLASSIFIED;
+                    case 2 -> IntelWarfareSystem.DetectionStage.IDENTIFIED;
+                    default -> IntelWarfareSystem.DetectionStage.DETAILED;
+                };
+                if (distance > radar.range * 0.82
+                        && radarStage.ordinal() > IntelWarfareSystem.DetectionStage.CONTACT.ordinal()) {
+                    radarStage = IntelWarfareSystem.DetectionStage.values()[radarStage.ordinal() - 1];
+                }
+                if (radarStage.ordinal() > stage.ordinal()) stage = radarStage;
+            }
+
+            for (ResourceHarvester harvester : resourceHarvesters) {
+                if (!harvester.harvestKinds.contains(resource.kind)) continue;
+                double distance = Calc.distance(harvester.x, harvester.y, resource.x, resource.y);
+                if (distance > harvester.identifiedRange) continue;
+                IntelWarfareSystem.DetectionStage local = distance <= harvester.detailedRange
+                        ? IntelWarfareSystem.DetectionStage.DETAILED
+                        : IntelWarfareSystem.DetectionStage.IDENTIFIED;
+                if (local.ordinal() > stage.ordinal()) stage = local;
+            }
+            return stage;
         }
 
         boolean unitVisible(Unit unit) {
@@ -129,4 +178,7 @@ final class VisibilityRules {
     }
 
     record Sensor(double x, double y, double range, double rangeSquared) { }
+    private record ResourceRadar(double x, double y, double range, int surveyPower) { }
+    private record ResourceHarvester(double x, double y, double identifiedRange, double detailedRange,
+                                     Set<NodeKind> harvestKinds) { }
 }
