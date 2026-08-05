@@ -170,7 +170,17 @@ final class ClientFitStore {
             Files.writeString(temp, json, StandardCharsets.UTF_8, StandardOpenOption.TRUNCATE_EXISTING);
             try (FileChannel channel = FileChannel.open(temp, StandardOpenOption.WRITE)) { channel.force(true); }
             parse(read(temp));
+
+            boolean rotateCurrent = false;
             if (Files.isRegularFile(current)) {
+                try {
+                    parse(read(current));
+                    rotateCurrent = true;
+                } catch (RuntimeException ignored) {
+                    // load() already recovered from the verified previous copy. Do not replace it with corrupt data.
+                }
+            }
+            if (rotateCurrent) {
                 previousTemp = PrivateFileSecurity.createPrivateTempFile(parent, "fits-previous-", ".tmp");
                 Files.copy(current, previousTemp, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                 parse(read(previousTemp));
