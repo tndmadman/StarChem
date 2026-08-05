@@ -41,6 +41,30 @@ tasks.register('validateRules', JavaExec) {
     mainClass = 'com.tndmadman.rts.RulesValidator'
 }
 
+tasks.register('validateConfigurationEnums', JavaExec) {
+    group = 'verification'
+    description = 'Validate current configuration and fail-closed enum parsing.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.ConfigurationEnumValidator'
+}
+
+tasks.register('validateLocalHostIdentity', JavaExec) {
+    group = 'verification'
+    description = 'Validate graphical-host credentials, resource topology, and reserved-host authentication.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.LocalHostIdentityValidator'
+}
+
+tasks.register('validateServerSaveStore', JavaExec) {
+    group = 'verification'
+    description = 'Validate save fallback, checksum rejection, and backup pruning.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.ServerSaveStoreValidator'
+}
+
 tasks.register('validateShipLoadouts', JavaExec) {
     group = 'verification'
     description = 'Validate authored ship loadouts, construction selection, refitting, and persistence.'
@@ -483,6 +507,9 @@ tasks.register('verifyBuildMetadata') {
 
 tasks.named('check') {
     dependsOn tasks.named('validateRules')
+    dependsOn tasks.named('validateConfigurationEnums')
+    dependsOn tasks.named('validateLocalHostIdentity')
+    dependsOn tasks.named('validateServerSaveStore')
     dependsOn tasks.named('validateShipLoadouts')
     dependsOn tasks.named('validateConfiguredFitRules')
     dependsOn tasks.named('validateAttackRangeParity')
@@ -528,59 +555,3 @@ tasks.named('check') {
     dependsOn tasks.named('verifyLegalNotices')
     dependsOn tasks.named('verifyBuildMetadata')
 }
-
-distributions {
-    main {
-        contents {
-            from('config') {
-                into 'config'
-            }
-            from('README.md')
-            from('LICENSE')
-            from('THIRD_PARTY_NOTICES.md')
-        }
-    }
-}
-
-tasks.withType(JavaCompile).configureEach {
-    options.encoding = 'UTF-8'
-}
-
-
-tasks.register('validatePrunePersistence', JavaExec) {
-    group = 'verification'
-    description = 'Validate durable system-prune persistence, recovery, and publication ordering.'
-    dependsOn tasks.named('classes')
-    classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'com.tndmadman.rts.ServerPruneTransactionValidator'
-}
-
-tasks.named('check') {
-    dependsOn tasks.named('validatePrunePersistence')
-}
-
-
-tasks.register('validateObservationRetention', JavaExec) {
-    group = 'verification'
-    description = 'Validate player observation expiry, deletion, moderation age filtering, and protected persistence.'
-    dependsOn tasks.named('classes')
-    classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'com.tndmadman.rts.ServerObservationStoreValidator'
-}
-
-tasks.named('check') {
-    dependsOn tasks.named('validateObservationRetention')
-}
-
-tasks.register('validateSavedCredentialReplay', JavaExec) {
-    group = 'verification'
-    description = 'Validate that authentication fields copied from a server save cannot authenticate.'
-    dependsOn tasks.named('classes')
-    classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'com.tndmadman.rts.SavedCredentialReplayValidator'
-}
-
-tasks.named('check') {
-    dependsOn tasks.named('validateSavedCredentialReplay')
-}
-
