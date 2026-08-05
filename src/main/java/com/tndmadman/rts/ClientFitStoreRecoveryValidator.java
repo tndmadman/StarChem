@@ -7,7 +7,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
 
-/** Verifies private fit libraries recover safely and fail closed when every copy is corrupt. */
+/** Verifies private fit libraries recover safely, cache reads, and fail closed when corrupt. */
 public final class ClientFitStoreRecoveryValidator {
     private static final String STORE_PROPERTY = "starchem.fitStore";
 
@@ -27,9 +27,11 @@ public final class ClientFitStoreRecoveryValidator {
             Path current = root.resolve("fits.json");
             Path previous = current.resolveSibling(current.getFileName() + ".previous");
             System.setProperty(STORE_PROPERTY, current.toString());
+            ClientFitStore.resetCacheForTest();
 
             require(ClientFitStore.fits("Alic", "").isEmpty(),
                     "a new private fit library did not start empty");
+            validateReadCache();
 
             writePrivate(current, "{broken-current");
             expectCorruptFailure("a corrupt current library without a backup was silently accepted");
@@ -58,10 +60,30 @@ public final class ClientFitStoreRecoveryValidator {
         } catch (IOException ex) {
             throw new IllegalStateException("Could not validate private fit store recovery.", ex);
         } finally {
+            ClientFitStore.resetCacheForTest();
             if (original == null) System.clearProperty(STORE_PROPERTY);
             else System.setProperty(STORE_PROPERTY, original);
             deleteTree(root);
         }
+    }
+
+    private static void validateReadCache() {
+        long loads = ClientFitStore.loadCountForTest();
+        long securitySetups = ClientFitStore.securitySetupCountForTest();
+        String[] hulls = {"prospector", "station_builder", "hauler", "deep_miner",
+                "gas_harvester", "freighter", "salvager", "frigate", "destroyer",
+                "cruiser", "battle_cruiser", "battleship", "carrier", "dreadnought",
+                "supercarrier", "titan", "monolith"};
+        for (int pass = 0; pass < 4; pass++) {
+            for (String hull : hulls) {
+                require(ClientFitStore.fits("Alic", hull).isEmpty(),
+                        "cached empty fit library returned an unexpected fit");
+            }
+        }
+        require(ClientFitStore.loadCountForTest() == loads,
+                "repeated hull lookups reloaded and reparsed the private fit store");
+        require(ClientFitStore.securitySetupCountForTest() == securitySetups,
+                "repeated hull lookups repeated private-file security setup");
     }
 
     private static void expectCorruptFailure(String failureMessage) {
