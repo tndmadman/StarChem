@@ -22,7 +22,8 @@ public final class ConfigurationEnumValidator {
         expectRejected(Material.class, "UNOBTAINIUM", "material");
         expectRejected(NodeKind.class, "GAS_CLODU", "node kind");
 
-        System.out.println("StarChem strict configuration enum validation passed.");
+        FittingUiPolicyValidator.validate();
+        System.out.println("StarChem strict configuration enum and fitting popup validation passed.");
     }
 
     private static <E extends Enum<E>> void expectRejected(Class<E> type, String value, String label) {
