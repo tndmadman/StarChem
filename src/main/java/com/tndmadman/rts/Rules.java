@@ -39,8 +39,7 @@ final class Rules {
         } catch (RuleConfigurationException ex) {
             throw ex;
         } catch (Exception ex) {
-            System.err.println("Could not load split StarChem config: " + ex.getMessage());
-            return false;
+            throw new RuleConfigurationException("Could not load split StarChem config: " + ex.getMessage());
         }
     }
 
@@ -56,15 +55,14 @@ final class Rules {
         } catch (RuleConfigurationException ex) {
             throw ex;
         } catch (Exception ex) {
-            System.err.println("Could not load legacy StarChem rules config: " + ex.getMessage());
-            return false;
+            throw new RuleConfigurationException("Could not load legacy StarChem rules config: " + ex.getMessage());
         }
     }
 
     private static void apply(String startShip, String defaultBase, Map<String,ShipType> ships, Map<String,BaseType> bases,
                               List<ResourceBelt> belts, ResourceRespawnRules respawn) {
-        if (ships.isEmpty()) throw new IllegalArgumentException("No ship types loaded.");
-        if (bases.isEmpty()) throw new IllegalArgumentException("No station types loaded.");
+        if (ships.isEmpty()) throw new RuleConfigurationException("No ship types loaded.");
+        if (bases.isEmpty()) throw new RuleConfigurationException("No station types loaded.");
         if (!ships.containsKey(startShip)) {
             throw new RuleConfigurationException("Unknown starting ship type ID: " + startShip);
         }
@@ -337,18 +335,15 @@ final class Rules {
     }
 
     private static ShipSize shipSize(String value) {
-        try { return ShipSize.valueOf(value.trim().toUpperCase(Locale.ROOT)); }
-        catch (Exception ex) { return ShipSize.SMALL; }
+        return StrictConfigEnums.parse(ShipSize.class, value, "ship size");
     }
 
     private static NodeKind nodeKind(String value) {
-        try { return NodeKind.valueOf(value.trim().toUpperCase(Locale.ROOT)); }
-        catch (Exception ex) { return NodeKind.SILICATE_ROCK; }
+        return StrictConfigEnums.parse(NodeKind.class, value, "resource node kind");
     }
 
     private static Material material(String value) {
-        try { return Material.valueOf(value.trim().toUpperCase(Locale.ROOT)); }
-        catch (Exception ex) { throw new IllegalArgumentException("Unknown material: " + value); }
+        return StrictConfigEnums.parse(Material.class, value, "material");
     }
 }
 
