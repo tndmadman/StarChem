@@ -26,7 +26,7 @@ public final class ClientEnvironmentSyncValidator {
     }
 
     private static void validateOrbitNormalization() {
-        ResourceNode node = new ResourceNode(1, "Orbit normalization", NodeKind.ASTEROID,
+        ResourceNode node = new ResourceNode(1, "Orbit normalization", NodeKind.SILICATE_ROCK,
                 Material.IRON, 0, 0, 100, 1, 10);
         node.orbit(100, 80, -25, 0, 0.2);
         require(Math.abs(node.orbitRadius - 25) < 0.000001,
