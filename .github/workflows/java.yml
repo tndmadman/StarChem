@@ -19,6 +19,8 @@ jobs:
       - run: gradle build
       - name: Validate per-client resource replication
         run: java -cp build/classes/java/main com.tndmadman.rts.ResourceReplicationValidator
+      - name: Validate authoritative fog persistence
+        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.AuthoritativeFogOfWarValidator
       - name: Validate authoritative client attack ranges
         run: java -cp build/classes/java/main com.tndmadman.rts.AttackRangeParityValidator
       - name: Validate configured fit rules
