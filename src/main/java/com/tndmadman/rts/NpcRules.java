@@ -42,9 +42,10 @@ final class NpcRules {
                 if (!faction.id().isBlank()) out.add(faction);
             }
             return List.copyOf(out);
+        } catch (RuleConfigurationException ex) {
+            throw ex;
         } catch (Exception ex) {
-            System.err.println("Could not load NPC config: " + ex.getMessage());
-            return List.of();
+            throw new RuleConfigurationException("Could not load NPC config: " + ex.getMessage());
         }
     }
 
@@ -189,8 +190,7 @@ final class NpcRules {
     private static EnumSet<Material> materialSet(Object value) {
         EnumSet<Material> out = EnumSet.noneOf(Material.class);
         for (String item : stringList(value)) {
-            try { out.add(Material.valueOf(item.trim().toUpperCase(Locale.ROOT))); }
-            catch (Exception ignored) { }
+            out.add(StrictConfigEnums.parse(Material.class, item, "NPC target material"));
         }
         return out;
     }
@@ -198,15 +198,13 @@ final class NpcRules {
     private static EnumSet<NodeKind> nodeKindSet(Object value) {
         EnumSet<NodeKind> out = EnumSet.noneOf(NodeKind.class);
         for (String item : stringList(value)) {
-            try { out.add(NodeKind.valueOf(item.trim().toUpperCase(Locale.ROOT))); }
-            catch (Exception ignored) { }
+            out.add(StrictConfigEnums.parse(NodeKind.class, item, "NPC harvest node kind"));
         }
         return out;
     }
 
     private static NpcBehavior behavior(String value) {
-        try { return NpcBehavior.valueOf(value.trim().toUpperCase(Locale.ROOT)); }
-        catch (Exception ignored) { return NpcBehavior.RAIDER; }
+        return StrictConfigEnums.parse(NpcBehavior.class, value, "NPC behavior");
     }
 
     private static int color(Object value, int fallback) {
