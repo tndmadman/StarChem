@@ -25,6 +25,7 @@ final class SyncPacketBuilder {
         boolean replaceResources = kind == SyncKind.INITIAL || fullResources;
         return ResourceSync.withPlayerContext(playerId, replaceResources, () -> {
             Snapshot snapshot = views.makeSnapshot(world, playerId, sequence);
+            ServerFogOfWarState.observeSystem(world, playerId, snapshot.systemId());
             ResourceNetDebug.sendSnapshot(kind.name(), playerId, snapshot, world);
             if (kind == SyncKind.INITIAL) return SyncFrame.writeView(snapshot, views.viewRevision(playerId));
             if (fullResources) return SyncFrame.writeResourceCorrection(snapshot);
