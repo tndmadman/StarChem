@@ -29,8 +29,9 @@ public final class AuthoritativeFogOfWarValidator {
         require(packet.startsWith("FOG_STATE|"), "Initial authoritative fog packet was not produced.");
         ServerFogOfWarState.flushForTest(server);
 
-        radar.x = 2_400;
-        radar.y = 2_100;
+        server.bases.remove(radar.id);
+        Base movedRadar = new Base("P1:FOG-RADAR-MOVED", "P1", RadarTowerRules.TIER_ONE, 2_400, 2_100);
+        server.bases.put(movedRadar.id, movedRadar);
         ServerFogOfWarState.observeSystem(server, "P1", systemId);
         ServerFogOfWarState.flushForTest(server);
         int expanded = ServerFogOfWarState.exploredCellCountForTest(server, "P1", systemId);
