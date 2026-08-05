@@ -13,23 +13,40 @@ import java.awt.image.BufferedImage;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 
-/** Guards scrolling, compact presentation, previews, and hover-only costs. */
+/** Guards scrolling, compact presentation, previews, hover-only costs, and bounded fit-store access. */
 public final class ShipyardScrollHotfixValidator {
     private static final int VIEWPORT_WIDTH = 800;
     private static final int VIEWPORT_HEIGHT = 480;
     private static final Path BUILD_MENU = Path.of(
             "src/main/java/com/tndmadman/rts/BuildMenu.java");
+    private static final String FIT_STORE_PROPERTY = "starchem.fitStore";
 
     private ShipyardScrollHotfixValidator() { }
 
     public static void main(String[] args) throws Exception {
-        String source = Files.readString(BUILD_MENU, StandardCharsets.UTF_8);
-        validateIntegration(source);
-        SwingUtilities.invokeAndWait(ShipyardScrollHotfixValidator::validateRealStationMenus);
-        System.out.println("Compact native production-menu previews, hover costs, and scrolling validation passed.");
+        String originalStore = System.getProperty(FIT_STORE_PROPERTY);
+        Path root = Files.createTempDirectory("starchem-menu-fit-cache-");
+        try {
+            System.setProperty(FIT_STORE_PROPERTY, root.resolve("fits.json").toString());
+            ClientFitStore.resetCacheForTest();
+            String source = Files.readString(BUILD_MENU, StandardCharsets.UTF_8);
+            validateIntegration(source);
+            SwingUtilities.invokeAndWait(ShipyardScrollHotfixValidator::validateRealStationMenus);
+            require(ClientFitStore.loadCountForTest() <= 1,
+                    "Opening production menus repeatedly reloaded the private fit library.");
+            require(ClientFitStore.securitySetupCountForTest() <= 1,
+                    "Opening production menus repeatedly reran private-file security setup.");
+            System.out.println("Compact native production-menu previews, hover costs, scrolling, and fit caching validation passed.");
+        } finally {
+            ClientFitStore.resetCacheForTest();
+            if (originalStore == null) System.clearProperty(FIT_STORE_PROPERTY);
+            else System.setProperty(FIT_STORE_PROPERTY, originalStore);
+            deleteTree(root);
+        }
     }
 
     private static void validateIntegration(String source) {
@@ -325,6 +342,16 @@ public final class ShipyardScrollHotfixValidator {
         for (Material material : Material.values()) {
             base.inventory.put(material, 100_000.0);
         }
+    }
+
+    private static void deleteTree(Path root) {
+        if (root == null || !Files.exists(root)) return;
+        try (var paths = Files.walk(root)) {
+            paths.sorted(Comparator.reverseOrder()).forEach(path -> {
+                try { Files.deleteIfExists(path); }
+                catch (Exception ignored) { }
+            });
+        } catch (Exception ignored) { }
     }
 
     private static void require(boolean condition, String message) {
