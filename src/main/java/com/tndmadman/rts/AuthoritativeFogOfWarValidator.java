@@ -10,11 +10,11 @@ public final class AuthoritativeFogOfWarValidator {
 
     public static void main(String[] args) throws Exception {
         Path directory = Files.createTempDirectory("starchem-authoritative-fog-");
-        ServerFogOfWarStore store = ServerFogOfWarStore.forTest(directory, "fog-authority");
+        Config config = dedicatedConfig(directory, false);
         World server = fixture("Authoritative fog server");
         String systemId = server.activeSystemId();
         long seed = server.systemSeed();
-        ServerFogOfWarState.configureForTest(server, store);
+        ServerFogOfWarPersistence.attach(server, config);
 
         Base radar = new Base("P1:FOG-RADAR", "P1", RadarTowerRules.TIER_ONE, 1_000, 1_000);
         server.bases.put(radar.id, radar);
@@ -27,25 +27,40 @@ public final class AuthoritativeFogOfWarValidator {
                 "Fog state leaked between players.");
         String packet = ServerFogOfWarState.packet(server, "P1", systemId);
         require(packet.startsWith("FOG_STATE|"), "Initial authoritative fog packet was not produced.");
-        ServerFogOfWarState.flushForTest(server);
+        ServerFogOfWarPersistence.flushNow(server);
 
         server.bases.remove(radar.id);
         Base movedRadar = new Base("P1:FOG-RADAR-MOVED", "P1", RadarTowerRules.TIER_ONE, 2_400, 2_100);
         server.bases.put(movedRadar.id, movedRadar);
         ServerFogOfWarState.observeSystem(server, "P1", systemId);
-        ServerFogOfWarState.flushForTest(server);
         int expanded = ServerFogOfWarState.exploredCellCountForTest(server, "P1", systemId);
         require(expanded > explored, "Authoritative exploration did not grow monotonically.");
+        ServerFogOfWarPersistence.close(server);
+
+        Path current = directory.resolve("fog-authority-fog.properties");
+        require(Files.isRegularFile(current), "Clean server shutdown did not write the fog sidecar.");
 
         World restarted = fixture("Authoritative fog restart");
         restarted.useSystemSeed(seed);
-        ServerFogOfWarState.configureForTest(restarted, store);
+        ServerFogOfWarPersistence.attach(restarted, config);
         require(ServerFogOfWarState.exploredCellCountForTest(restarted, "P1", systemId) == expanded,
                 "Dedicated-server restart did not restore explored cells.");
 
         validateClientBootstrap(directory, restarted, packet, systemId);
-        validatePreviousFileRecovery(directory, seed, systemId, explored);
+        ServerFogOfWarPersistence.close(restarted);
+        validatePreviousFileRecovery(directory, config, seed, systemId, explored);
+        validateNewWorldReset(directory, seed, systemId);
         System.out.println("Authoritative fog-of-war validator passed.");
+    }
+
+    private static Config dedicatedConfig(Path directory, boolean newWorld) {
+        java.util.List<String> arguments = new java.util.ArrayList<>(java.util.List.of(
+                "--server", "50000",
+                "--save-dir", directory.toString(),
+                "--save-name", "fog-authority",
+                "--autosave-seconds", "0"));
+        if (newWorld) arguments.add("--new-world");
+        return Config.parse(arguments.toArray(String[]::new));
     }
 
     private static void validateClientBootstrap(Path directory, World client, String packet, String systemId) {
@@ -75,15 +90,26 @@ public final class AuthoritativeFogOfWarValidator {
         }
     }
 
-    private static void validatePreviousFileRecovery(Path directory, long seed, String systemId, int minimum) throws Exception {
+    private static void validatePreviousFileRecovery(Path directory, Config config, long seed,
+                                                     String systemId, int minimum) throws Exception {
         Path current = directory.resolve("fog-authority-fog.properties");
         require(Files.isRegularFile(current), "Server fog sidecar was not written.");
         Files.writeString(current, "corrupt fog file");
         World recovered = fixture("Authoritative fog recovery");
         recovered.useSystemSeed(seed);
-        ServerFogOfWarState.configureForTest(recovered, ServerFogOfWarStore.forTest(directory, "fog-authority"));
+        ServerFogOfWarPersistence.attach(recovered, config);
         require(ServerFogOfWarState.exploredCellCountForTest(recovered, "P1", systemId) >= minimum,
                 "Previous server fog sidecar was not used after current-file corruption.");
+        ServerFogOfWarPersistence.close(recovered);
+    }
+
+    private static void validateNewWorldReset(Path directory, long seed, String systemId) {
+        World reset = fixture("Authoritative fog reset");
+        reset.useSystemSeed(seed);
+        ServerFogOfWarPersistence.attach(reset, dedicatedConfig(directory, true));
+        require(ServerFogOfWarState.exploredCellCountForTest(reset, "P1", systemId) == 0,
+                "A requested new world retained fog state from the previous world.");
+        ServerFogOfWarPersistence.close(reset);
     }
 
     private static World fixture(String name) {
