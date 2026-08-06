@@ -69,6 +69,8 @@ final class ServerFogOfWarPersistence {
                 ServerFogOfWarState.flushForTest(world);
             } catch (RuntimeException ex) {
                 System.err.println("Could not flush server fog state during shutdown: " + ex.getMessage());
+            } finally {
+                ServerFogOfWarState.configureForTest(world, ServerFogOfWarStore.disabled());
             }
             if (shutdownHook != null) {
                 try {
