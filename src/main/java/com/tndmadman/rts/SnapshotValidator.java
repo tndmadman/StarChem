@@ -52,6 +52,12 @@ final class SnapshotValidator {
             if (!ids.add(key)) throw SnapshotReader.error("units", row, "unit ID", "duplicate unit " + SnapshotReader.printable(key));
             String shipType = SnapshotReader.requiredText(state.shipTypeId(), 128, "units", row, "ship type ID");
             if (Rules.findShip(shipType) == null) throw SnapshotReader.error("units", row, "ship type ID", "unknown value " + SnapshotReader.printable(shipType));
+            String loadoutId = SnapshotReader.requiredText(state.loadoutId(), 128, "units", row, "loadout ID");
+            ShipLoadoutDefinition loadout = WeaponRules.findLoadout(loadoutId);
+            if (loadout == null || !shipType.equals(loadout.hullId())) {
+                throw SnapshotReader.error("units", row, "loadout ID", "unknown or mismatched value "
+                        + SnapshotReader.printable(loadoutId) + " for hull " + SnapshotReader.printable(shipType));
+            }
             coordinate(state.x(), "units", row, "x");
             coordinate(state.y(), "units", row, "y");
             coordinate(state.targetX(), "units", row, "target x");

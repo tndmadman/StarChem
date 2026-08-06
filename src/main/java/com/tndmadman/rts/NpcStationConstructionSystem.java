@@ -545,7 +545,7 @@ final class NpcStationConstructionSystem {
             if (NpcRules.isNpcFaction(unit.playerId)
                     && !faction.attackNpcFactions()) continue;
             double distance = Calc.distance(x, y, unit.x, unit.y);
-            double threat = WeaponRules.armed(unit.type()) ? 1.8 : 0.65;
+            double threat = WeaponRules.armed(unit) ? 1.8 : 0.65;
             score -= threat * Math.max(0.0, 2200.0 - distance) / 18.0;
         }
         for (Base base : world.bases.values()) {

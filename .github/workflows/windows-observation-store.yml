@@ -38,3 +38,6 @@ jobs:
 
       - name: Validate observation persistence and ACLs
         run: gradle validateObservationRetention --no-daemon
+
+      - name: Validate private fit cache and ACL setup
+        run: java -cp build/classes/java/main com.tndmadman.rts.ClientFitStoreRecoveryValidator

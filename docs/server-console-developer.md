@@ -10,20 +10,61 @@ dev mode off confirm
 
 Runtime mode is process-local. Disabling it revokes remote developer grants and free-build permissions, restores normal AI flags, resets the AI difficulty preset, and restores the startup production-timer setting.
 
-## Access and free-build
+## Help and role management
 
-Remote developer authorization and free construction are separate:
+The console exposes nested developer help instead of requiring operators to know hidden subcommands:
 
 ```text
-dev access requests
-dev access grant P2
-dev freebuild P2 on
-dev freebuild P2 off
-dev access revoke P2
-dev access revoke-all
+help dev
+help dev role
+help dev access
+help dev freebuild
+help dev mode
+
+dev help
+dev help role
 ```
 
-Remote developer packets are accepted only while runtime developer mode is enabled and the connected player has an active grant.
+The preferred interface assigns one explicit effective role:
+
+```text
+dev role list
+dev role list connected
+dev role list granted
+dev role show P2
+
+dev role set P2 developer
+dev role set P2 developer-freebuild
+dev role set P2 none
+```
+
+Role meanings:
+
+- `none` revokes developer access and free-build.
+- `developer` grants developer access without free-build.
+- `developer-freebuild` grants both permissions.
+
+Role listing includes retained/offline identities, not only connected peers. A retained player can be changed or revoked while offline, and the selected state is applied if that identity reconnects during the same server process.
+
+## Access and free-build compatibility commands
+
+The older access and free-build commands remain supported:
+
+```text
+dev access list
+dev access requests
+dev access grant P2
+dev access revoke P2
+dev access revoke-all
+
+dev freebuild status P2
+dev freebuild P2 on
+dev freebuild P2 off
+```
+
+`dev access grant` changes developer access without automatically enabling free-build. `dev access revoke` clears both access and free-build and can target a retained/offline identity. Prefer `dev role set` when assigning the complete intended role.
+
+Remote developer packets are accepted only while runtime developer mode is enabled and the player identity has an active developer grant.
 
 ## Resources and research
 
@@ -102,4 +143,4 @@ observations P2
 
 The bounded operator journal persists in `<save-name>-activity.log`. Last-seen player IP and StarChem client-device signals persist in `<save-name>-observations.json` for moderation use. These files contain sensitive operational data and should be protected with the same care as server saves.
 
-`ServerDevCommandValidator` exercises trusted developer mutations against a real connected TCP client, including runtime authorization, free-build separation, resources, production, research, spawning, healing, notices, resynchronization, and runtime-mode shutdown.
+`ServerDevCommandValidator` exercises nested developer help, explicit role transitions, compatibility grant/revoke commands, free-build separation, resources, production, research, spawning, healing, notices, resynchronization, and runtime-mode shutdown against a real connected TCP client.

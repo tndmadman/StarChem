@@ -39,7 +39,9 @@ public final class App {
             if (exitCode != 0) System.exit(exitCode);
             return;
         }
+        FittingUiPolicy.install();
         GameSwingUi.install();
+        FittingAccessController.install();
         SwingUtilities.invokeLater(() -> new GameFrame(config).setVisible(true));
     }
 
@@ -105,11 +107,14 @@ public final class App {
         int exitCode = 0;
         try {
             server = HeadlessGameServer.start(config);
+            ServerFogOfWarPersistence.attach(server.world, config);
             HeadlessGameServer activeServer = server;
             shutdownHook = new Thread(() -> {
                 if (running.getAndSet(false)) {
                     System.out.println("Server shutdown requested.");
+                    ServerFogOfWarPersistence.flushNow(activeServer.world);
                     printServerShutdownResult(activeServer.forceStop());
+                    ServerFogOfWarPersistence.flushNow(activeServer.world);
                 }
             }, "starchem-server-shutdown");
             Runtime.getRuntime().addShutdownHook(shutdownHook);
@@ -160,12 +165,15 @@ public final class App {
         } finally {
             running.set(false);
             if (server != null && server.running()) {
+                ServerFogOfWarPersistence.flushNow(server.world);
                 ServerShutdownResult result = server.forceStop();
+                ServerFogOfWarPersistence.flushNow(server.world);
                 printServerShutdownResult(result);
                 if (!result.clean()) exitCode = 3;
             } else if (server != null && exitCode == 0) {
                 exitCode = server.shutdownExitCode();
             }
+            if (server != null) ServerFogOfWarPersistence.close(server.world);
             removeShutdownHook(shutdownHook);
         }
         return exitCode;

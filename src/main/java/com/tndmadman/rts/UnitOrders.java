@@ -49,10 +49,14 @@ final class UnitOrderSystem {
         return unit.task == UnitTask.IDLE || unit.task == UnitTask.MOVE;
     }
 
-    static double acquisitionRange(Unit unit) {
-        double weaponRange = WeaponRules.maxRange(unit.type());
+    static double acquisitionRange(World world, Unit unit) {
+        double weaponRange = AttackRangeRules.effectiveWeaponRange(world, unit);
         if (unit.orderType == UnitOrderType.NONE || unit.orderType == UnitOrderType.HOLD) return weaponRange;
         return Math.max(weaponRange * 1.25, Math.min(700, Math.max(220, unit.orderRadius)));
+    }
+
+    static double acquisitionRange(Unit unit) {
+        return acquisitionRange(PlayerRegistry.activeWorld(), unit);
     }
 
     static boolean mayChase(Unit unit) {
@@ -64,7 +68,8 @@ final class UnitOrderSystem {
         double radius = Math.max(40, unit.orderRadius);
         return switch (unit.orderType) {
             case NONE -> true;
-            case HOLD -> Calc.distance(unit.orderX1, unit.orderY1, targetX, targetY) <= Math.max(1, WeaponRules.maxRange(unit.type()));
+            case HOLD -> Calc.distance(unit.orderX1, unit.orderY1, targetX, targetY)
+                    <= Math.max(1, AttackRangeRules.effectiveWeaponRange(world, unit));
             case GUARD -> Calc.distance(anchorX(world, unit), anchorY(world, unit), targetX, targetY) <= radius;
             case ESCORT -> Calc.distance(anchorX(world, unit), anchorY(world, unit), targetX, targetY) <= radius;
             case PATROL, ATTACK_MOVE -> distanceToSegment(targetX, targetY, unit.orderX1, unit.orderY1, unit.orderX2, unit.orderY2) <= radius;
@@ -193,7 +198,8 @@ final class AUnitOrder {
     static boolean apply(World world, UnitOrderCommand command) {
         if (world == null || command == null || command.type() == null || command.type() == UnitOrderType.NONE) return false;
         Unit unit = world.units.get(Unit.key(command.playerId(), command.unitId()));
-        if (unit == null || !unit.playerId.equals(command.playerId())) return false;
+        if (unit == null || !unit.playerId.equals(command.playerId())
+                || ProductionSystem.refitReserved(world, unit.key())) return false;
         if (!finite(command.x1(), command.y1(), command.x2(), command.y2(), command.radius())) return false;
 
         String target = command.targetKey() == null ? "" : command.targetKey().trim();

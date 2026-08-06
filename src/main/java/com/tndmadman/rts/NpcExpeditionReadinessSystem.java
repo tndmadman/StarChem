@@ -190,7 +190,7 @@ final class NpcExpeditionReadinessSystem {
                 worker = true;
                 continue;
             }
-            if (WeaponRules.armed(unit.type())) combat++;
+            if (WeaponRules.armed(unit)) combat++;
         }
         return new RosterReadiness(builder, worker, combat);
     }

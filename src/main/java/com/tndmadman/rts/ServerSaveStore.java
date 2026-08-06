@@ -29,7 +29,7 @@ import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 
 final class ServerSaveStore {
-    static final int SAVE_FORMAT_VERSION = 2;
+    static final int SAVE_FORMAT_VERSION = 5;
     private static final String EXTENSION = ".starchem-save";
     private static final DateTimeFormatter BACKUP_TIMESTAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS")
             .withZone(java.time.ZoneOffset.UTC);
@@ -203,6 +203,8 @@ final class ServerSaveStore {
             }
             world.completedResearch.put(entry.getKey(), topics);
         }
+        // Dynamic fit definitions must exist before galaxy units and production queues resolve their fit IDs.
+        WorldFitCatalog.restore(world, runtime.get("shipFits"));
         world.restoreServerSaveGalaxy(galaxy);
         world.restoreServerSaveRuntime(runtime);
         return world;
@@ -249,7 +251,9 @@ final class ServerSaveStore {
         players.put("sessions", capturePlayerSessions(sessions));
         save.put("players", players);
         save.put("galaxy", world.captureServerSaveGalaxy());
-        save.put("runtime", world.captureServerSaveRuntime());
+        Map<String,Object> runtime = new LinkedHashMap<>(world.captureServerSaveRuntime());
+        runtime.put("shipFits", WorldFitCatalog.capture(world));
+        save.put("runtime", runtime);
         return save;
     }
 
@@ -367,7 +371,7 @@ final class ServerSaveStore {
         Map<String,Object> players = parseObject(entries.get("players.json"), "players.json");
         Map<String,Object> galaxy = parseObject(entries.get("galaxy.json"), "galaxy.json");
         Map<String,Object> runtime;
-        if (version == SAVE_FORMAT_VERSION) {
+        if (version >= 2 && version <= SAVE_FORMAT_VERSION) {
             runtime = parseObject(entries.get("runtime.json"), "runtime.json");
             verifyRequiredChecksum(entries, manifest, "players.json", "playersSha256");
             verifyRequiredChecksum(entries, manifest, "galaxy.json", "galaxySha256");

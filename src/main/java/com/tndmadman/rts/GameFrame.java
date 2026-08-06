@@ -354,6 +354,8 @@ final class GameFrame extends JFrame {
                 || event.getKeyCode() != KeyEvent.VK_ESCAPE
                 || event.isControlDown() || event.isAltDown() || event.isMetaDown()
                 || event.getSource() instanceof JTextComponent) return false;
+        if (ShipFittingWindow.closeActive()) return true;
+        if (gamePanel.handleEscapeBeforeMenu()) return true;
         if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) {
             resourceCatalogOverlay.close();
             return true;
@@ -376,7 +378,7 @@ final class GameFrame extends JFrame {
     }
 
     private boolean modalMenuVisible() {
-        return menuVisible() || settingsPanel.isOpen();
+        return menuVisible() || settingsPanel.isOpen() || ShipFittingWindow.active();
     }
 
     private void openInGameMenu() {
@@ -430,6 +432,7 @@ final class GameFrame extends JFrame {
             if (settingsPanel.handleEscapePressed() == SettingsPanel.Result.BACK) break;
         }
         if (inGameMenuOverlay != null) inGameMenuOverlay.close();
+        ShipFittingWindow.closeActive();
         soloPausedByMenu = false;
         if (gamePanel != null) gamePanel.stop();
         if (tutorialOverlay != null) tutorialOverlay.stop();

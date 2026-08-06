@@ -41,6 +41,112 @@ tasks.register('validateRules', JavaExec) {
     mainClass = 'com.tndmadman.rts.RulesValidator'
 }
 
+tasks.register('validateConfigurationEnums', JavaExec) {
+    group = 'verification'
+    description = 'Validate current configuration and fail-closed enum parsing.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.ConfigurationEnumValidator'
+}
+
+tasks.register('validateLocalHostIdentity', JavaExec) {
+    group = 'verification'
+    description = 'Validate graphical-host credentials, resource topology, and reserved-host authentication.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.LocalHostIdentityValidator'
+}
+
+tasks.register('validateServerSaveStore', JavaExec) {
+    group = 'verification'
+    description = 'Validate save fallback, checksum rejection, and backup pruning.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.ServerSaveStoreValidator'
+}
+
+tasks.register('validateShipLoadouts', JavaExec) {
+    group = 'verification'
+    description = 'Validate authored ship loadouts, construction selection, refitting, and persistence.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.ShipLoadoutValidator'
+}
+
+tasks.register('validateConfiguredFitRules', JavaExec) {
+    group = 'verification'
+    description = 'Validate explicit configurable fit compatibility, research, and economics.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.ConfiguredFitRuleValidator'
+}
+
+tasks.register('validateAttackRangeParity', JavaExec) {
+    group = 'verification'
+    description = 'Validate authoritative, predicted, and displayed fitted attack ranges.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.AttackRangeParityValidator'
+}
+
+tasks.register('validateWorldFitCatalogIsolation', JavaExec) {
+    group = 'verification'
+    description = 'Validate world-scoped runtime fit definition and module isolation.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.WorldFitCatalogIsolationValidator'
+}
+
+tasks.register('validateRefitQuotePersistence', JavaExec) {
+    group = 'verification'
+    description = 'Validate conversion quotes, exact reservations, refunds, and legacy migration.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.RefitQuotePersistenceValidator'
+}
+
+tasks.register('validateAtomicRefitTransactions', JavaExec) {
+    group = 'verification'
+    description = 'Validate all-or-nothing distributed refit commits and rollback.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.AtomicRefitTransactionValidator'
+}
+
+tasks.register('validateCustomFitConstruction', JavaExec) {
+    group = 'verification'
+    description = 'Validate private and published custom-fit construction and station routing.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.CustomFitConstructionValidator'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
+tasks.register('validateShipModuleRefits', JavaExec) {
+    group = 'verification'
+    description = 'Validate fitted module behavior, visuals, audio, and authoritative correction.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.ShipModuleRefitValidator'
+}
+
+tasks.register('validateDistributedRefitQueues', JavaExec) {
+    group = 'verification'
+    description = 'Validate distributed refit planning across Outposts and Shipyards.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.RefitQueuePlannerValidator'
+}
+
+tasks.register('validateIssue289Completion', JavaExec) {
+    group = 'verification'
+    description = 'Validate issue 289 dedicated lifecycle, authority, persistence, and recovery.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.Issue289CompletionValidator'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
 tasks.register('validateProductionQueues', JavaExec) {
     group = 'verification'
     description = 'Validate station production queue behavior.'
@@ -401,6 +507,19 @@ tasks.register('verifyBuildMetadata') {
 
 tasks.named('check') {
     dependsOn tasks.named('validateRules')
+    dependsOn tasks.named('validateConfigurationEnums')
+    dependsOn tasks.named('validateLocalHostIdentity')
+    dependsOn tasks.named('validateServerSaveStore')
+    dependsOn tasks.named('validateShipLoadouts')
+    dependsOn tasks.named('validateConfiguredFitRules')
+    dependsOn tasks.named('validateAttackRangeParity')
+    dependsOn tasks.named('validateWorldFitCatalogIsolation')
+    dependsOn tasks.named('validateRefitQuotePersistence')
+    dependsOn tasks.named('validateAtomicRefitTransactions')
+    dependsOn tasks.named('validateCustomFitConstruction')
+    dependsOn tasks.named('validateShipModuleRefits')
+    dependsOn tasks.named('validateDistributedRefitQueues')
+    dependsOn tasks.named('validateIssue289Completion')
     dependsOn tasks.named('validateProductionQueues')
     dependsOn tasks.named('validateDevAccess')
     dependsOn tasks.named('validateClientLaunch')
@@ -480,6 +599,7 @@ tasks.named('check') {
     dependsOn tasks.named('validateObservationRetention')
 }
 
+
 tasks.register('validateSavedCredentialReplay', JavaExec) {
     group = 'verification'
     description = 'Validate that authentication fields copied from a server save cannot authenticate.'
@@ -491,4 +611,3 @@ tasks.register('validateSavedCredentialReplay', JavaExec) {
 tasks.named('check') {
     dependsOn tasks.named('validateSavedCredentialReplay')
 }
-

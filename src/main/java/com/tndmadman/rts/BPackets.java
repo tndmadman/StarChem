@@ -13,6 +13,10 @@ final class ClientPackets {
         if (p[0].equals("ENV")) { c.readEnv(p); return; }
         if (p[0].equals("SEED") && p.length >= 2) { c.readSeed(p[1]); return; }
         if (p[0].equals("WELCOME")) { c.readWelcome(p); return; }
+        if (p[0].equals("FOG_STATE") && p.length == 2) {
+            ServerFogOfWarState.applyClient(c.world, c.localPlayerId(), p[1]);
+            return;
+        }
         if (p[0].equals("DIPLOMACY_VIEW") && p.length == 2) {
             Map<String,Object> view = DiplomacyStateWire.decode(p[1]);
             DiplomacySystem.restore(c.world, view.get("state"));
@@ -31,6 +35,18 @@ final class ClientPackets {
             if (notice.isBlank()) notice = "The server processed the diplomacy request.";
             AlertCenter.push(c.world, notice);
             System.out.println("DIPLOMACY " + p[2] + ": " + notice);
+            return;
+        }
+        if (p[0].equals("FIT_CATALOG") && p.length == 2) {
+            WorldFitCatalog.applyNetworkView(c.world, FitStateWire.decode(p[1]));
+            return;
+        }
+        if (p[0].equals("FIT_RESULT") && p.length == 4) {
+            String notice = decodeText(p[3]);
+            if (notice.isBlank()) notice = "The server processed the fit request.";
+            AlertCenter.push(c.world, notice);
+            c.world.status = notice;
+            System.out.println("FIT " + p[2] + ": " + notice);
             return;
         }
         if (p[0].equals("SERVER_NOTICE")) {

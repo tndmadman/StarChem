@@ -27,6 +27,12 @@ final class Base {
 
     BaseType type() { return Rules.base(typeId); }
 
+    boolean canRefit(Unit unit) {
+        if (unit == null || !type().canRefitShips || hp <= 0) return false;
+        return playerId.equals(unit.playerId) && unit.hp > 0
+                && Calc.distance(x, y, unit.x, unit.y) <= type().refitRange;
+    }
+
     boolean contains(double wx, double wy) {
         return Calc.distance(wx, wy, x, y) <= radius();
     }

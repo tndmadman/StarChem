@@ -3,6 +3,7 @@ package com.tndmadman.rts;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 /** End-to-end validation for trusted server developer mutations. */
 public final class ServerDevCommandValidator {
@@ -21,7 +22,6 @@ public final class ServerDevCommandValidator {
             String playerId = client.playerId();
             TcpIntegrationHarness.require(TcpIntegrationHarness.realPlayerId(playerId), "developer validator did not join a real player");
 
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
             ByteArrayOutputStream errors = new ByteArrayOutputStream();
             ServerConsole console = ServerConsole.detached(64, new PrintStream(errors, true, StandardCharsets.UTF_8));
             harness.headlessServer.attachConsole(console);
@@ -39,8 +39,11 @@ public final class ServerDevCommandValidator {
             TcpIntegrationHarness.require(queued != null, "could not create a waiting production job for validation");
 
             submit(console, "dev mode on");
-            submit(console, "dev access grant " + playerId);
-            submit(console, "dev freebuild " + playerId + " on");
+            submit(console, "help dev role");
+            submit(console, "dev help access");
+            submit(console, "dev role list");
+            submit(console, "dev role show " + playerId);
+            submit(console, "dev role set " + playerId + " developer-freebuild");
             submit(console, "dev resource set " + playerId + " " + base.base.id + " FUEL 500");
             submit(console, "dev resource fill " + playerId + " " + base.base.id + " 1000");
             submit(console, "dev production fund " + base.base.id + " " + queued.id);
@@ -51,13 +54,6 @@ public final class ServerDevCommandValidator {
             submit(console, "dev player heal-all " + playerId);
             submit(console, "tell " + playerId + " Developer command validation");
             harness.runTicks(80);
-
-            client.network().devSetFreeCrafting(playerId, false);
-            harness.runTicks(20);
-            TcpIntegrationHarness.require(!harness.serverWorld.devFreeBuildFor(playerId),
-                    "runtime developer packet did not disable free-build");
-            client.network().devSetFreeCrafting(playerId, true);
-            harness.runTicks(20);
 
             base = firstBase(harness.serverWorld, playerId);
             TcpIntegrationHarness.require(base != null, "player base disappeared during developer commands");
@@ -70,24 +66,52 @@ public final class ServerDevCommandValidator {
             TcpIntegrationHarness.require(harness.serverWorld.hasResearch(playerId, "combat_doctrine"),
                     "research grant did not complete requested topic");
             TcpIntegrationHarness.require(harness.serverNetwork.runtimeDevAccessGranted(playerId),
-                    "runtime developer access was not granted");
+                    "developer role did not grant runtime access");
             TcpIntegrationHarness.require(harness.serverNetwork.runtimeFreeBuildEnabled(playerId),
-                    "free-build was not independently enabled");
+                    "developer-freebuild role did not enable free-build");
             TcpIntegrationHarness.require(countShips(harness.serverWorld, playerId) >= shipsBefore + 2,
                     "ship spawn command did not add the requested ships");
 
+            submit(console, "dev access revoke " + playerId);
+            harness.runTicks(20);
+            TcpIntegrationHarness.require(!harness.serverNetwork.runtimeDevAccessGranted(playerId)
+                            && !harness.serverNetwork.runtimeFreeBuildEnabled(playerId),
+                    "legacy access revoke did not clear access and free-build");
+
+            submit(console, "dev access grant " + playerId);
+            harness.runTicks(20);
+            TcpIntegrationHarness.require(harness.serverNetwork.runtimeDevAccessGranted(playerId)
+                            && !harness.serverNetwork.runtimeFreeBuildEnabled(playerId),
+                    "legacy access grant did not preserve separate free-build state");
+
+            submit(console, "dev role set " + playerId + " developer-freebuild");
+            harness.runTicks(20);
+            client.network().devSetFreeCrafting(playerId, false);
+            harness.runTicks(20);
+            TcpIntegrationHarness.require(!harness.serverWorld.devFreeBuildFor(playerId),
+                    "runtime developer packet did not disable free-build");
+            client.network().devSetFreeCrafting(playerId, true);
+            harness.runTicks(20);
+
             submit(console, "dev research revoke " + playerId + " advanced_industry cascade");
-            submit(console, "dev mode off confirm");
+            submit(console, "dev role set " + playerId + " none");
+            harness.runTicks(20);
+            TcpIntegrationHarness.require(!harness.serverNetwork.runtimeDevAccessGranted(playerId)
+                            && !harness.serverNetwork.runtimeFreeBuildEnabled(playerId),
+                    "none role did not revoke access and free-build");
+            submit(console, "dev mode off");
             harness.runTicks(40);
             TcpIntegrationHarness.require(!harness.serverWorld.hasResearch(playerId, "advanced_industry")
                             && !harness.serverWorld.hasResearch(playerId, "combat_doctrine"),
                     "cascade research revoke did not remove dependent topics");
             TcpIntegrationHarness.require(!harness.serverNetwork.runtimeDevEnabled(),
                     "runtime developer mode did not disable");
-            TcpIntegrationHarness.require(!harness.serverNetwork.runtimeDevAccessGranted(playerId)
-                            && !harness.serverNetwork.runtimeFreeBuildEnabled(playerId),
-                    "developer shutdown did not revoke grants and free-build");
 
+            List<String> roleHelp = ServerDevRoleCommands.help(List.of("role"));
+            List<String> accessHelp = ServerDevRoleCommands.help(List.of("access"));
+            TcpIntegrationHarness.require(roleHelp.stream().anyMatch(line -> line.contains("dev role set <player> none"))
+                            && accessHelp.stream().anyMatch(line -> line.contains("Prefer 'dev role set'")),
+                    "developer help did not explain role and access commands");
             String errorText = errors.toString(StandardCharsets.UTF_8);
             TcpIntegrationHarness.require(errorText.isBlank(), "developer command validator reported console errors: " + errorText);
             console.close();

@@ -6,7 +6,7 @@ final class AUnitMove {
     static boolean apply(World world, MoveCommand c) {
         if (world == null || c == null) return false;
         Unit u = world.units.get(Unit.key(c.playerId(), c.unitId()));
-        if (u == null) return false;
+        if (u == null || ProductionSystem.refitReserved(world, u.key())) return false;
         if (!GameplayCommandNumbers.worldCoordinate(world, c.x(), c.y())) return false;
         u.issueMove(c.x(), c.y());
         return true;
@@ -32,6 +32,7 @@ final class SideAOrders {
             }
             case "WHTOUCH" -> { s.touch(connectionId); if (s.owns(connectionId, id)) { s.change(id, () -> applyWormholeTouch(s.world, id, p)); s.sendInitialTo(connectionId); } }
             case "DIPLOMACY" -> DiplomacyCommand.handle(s, p, connectionId);
+            case "FIT" -> FitCommand.handle(s, p, connectionId);
         }
     }
 
@@ -119,7 +120,8 @@ final class SideAOrders {
             try {
                 Unit unit = world.units.get(Unit.key(playerId, unitId));
                 WormholeGate gate = WormholeTouchRequest.gateById(world, gateId);
-                if (unit == null || !playerId.equals(unit.playerId) || unit.wormholeCooldown > 0 || gate == null || !gate.contains(unit.x, unit.y)) return;
+                if (unit == null || !playerId.equals(unit.playerId) || unit.wormholeCooldown > 0
+                        || ProductionSystem.refitReserved(world, unit.key()) || ShipModuleRules.tackled(world, unit) || gate == null || !gate.contains(unit.x, unit.y)) return;
                 if (!fromSystemId.equals(gate.fromSystemId) || !WormholeTouchRequest.validSystemId(gate.toSystemId)) return;
                 world.transferTouchingShips(playerId);
             } finally {

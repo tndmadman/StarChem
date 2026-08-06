@@ -1,8 +1,52 @@
 {
   "shipLoadouts": {
-    "carrier": ["fighter_strike", "point_defense_laser", "point_defense_laser"],
-    "dreadnought": ["capital_lance", "capital_torpedo", "heavy_cannon"],
-    "supercarrier": ["fighter_strike", "fighter_strike", "point_defense_laser", "point_defense_laser"],
-    "titan": ["capital_lance", "heavy_cannon", "heavy_cannon", "point_defense_laser", "point_defense_laser"]
+    "carrier": {
+      "displayName": "Carrier",
+      "hullId": "carrier",
+      "default": true,
+      "weapons": ["fighter_strike", "point_defense_laser", "point_defense_laser"],
+      "refitTimeSeconds": 1.5
+    },
+    "dreadnought": {
+      "displayName": "Balanced Siege",
+      "hullId": "dreadnought",
+      "default": true,
+      "weapons": ["capital_lance", "capital_torpedo", "heavy_cannon"],
+      "requiresResearch": ["battlefleet_engineering"],
+      "refitCost": {"LANCE_FOCUSING_ARRAY": 1, "TORPEDO_ASSEMBLY": 2, "HEAVY_CANNON_ASSEMBLY": 1},
+      "refitTimeSeconds": 1.5
+    },
+    "dreadnought_lance_battery": {
+      "displayName": "Lance Battery",
+      "hullId": "dreadnought",
+      "weapons": ["capital_lance", "capital_lance", "heavy_cannon"],
+      "requiresResearch": ["battlefleet_engineering"],
+      "buildCost": {"LANCE_FOCUSING_ARRAY": 2},
+      "refitCost": {"LANCE_FOCUSING_ARRAY": 4, "HEAVY_CANNON_ASSEMBLY": 1, "TARGETING_COMPUTER": 3},
+      "refitTimeSeconds": 1.5
+    },
+    "dreadnought_torpedo_siege": {
+      "displayName": "Torpedo Siege",
+      "hullId": "dreadnought",
+      "weapons": ["capital_torpedo", "capital_torpedo", "heavy_cannon", "point_defense_laser"],
+      "requiresResearch": ["battlefleet_engineering"],
+      "buildCost": {"TORPEDO_ASSEMBLY": 3, "POINT_DEFENSE_LASER_ASSEMBLY": 1},
+      "refitCost": {"TORPEDO_ASSEMBLY": 6, "MISSILE_GUIDANCE_PACKAGE": 3, "POINT_DEFENSE_LASER_ASSEMBLY": 1},
+      "refitTimeSeconds": 1.5
+    },
+    "supercarrier": {
+      "displayName": "Supercarrier",
+      "hullId": "supercarrier",
+      "default": true,
+      "weapons": ["fighter_strike", "fighter_strike", "point_defense_laser", "point_defense_laser"],
+      "refitTimeSeconds": 1.5
+    },
+    "titan": {
+      "displayName": "Titan",
+      "hullId": "titan",
+      "default": true,
+      "weapons": ["capital_lance", "heavy_cannon", "heavy_cannon", "point_defense_laser", "point_defense_laser"],
+      "refitTimeSeconds": 1.5
+    }
   }
 }

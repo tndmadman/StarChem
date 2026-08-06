@@ -20,7 +20,8 @@
         "CARBON": 20,
         "POINT_DEFENSE_LASER_ASSEMBLY": 1
       },
-      "canHarvest": []
+      "canHarvest": [],
+      "weaponHardpoints": 1
     },
     "deep_miner": {
       "displayName": "Deep Miner",
@@ -44,7 +45,8 @@
       },
       "canHarvest": [
         "SILICATE_ROCK"
-      ]
+      ],
+      "weaponHardpoints": 0
     },
     "gas_harvester": {
       "displayName": "Gas Harvester",
@@ -68,7 +70,8 @@
       },
       "canHarvest": [
         "GAS_CLOUD"
-      ]
+      ],
+      "weaponHardpoints": 0
     },
     "freighter": {
       "displayName": "Freighter",
@@ -90,7 +93,8 @@
         "FUEL_CELL_STACK": 4,
         "POINT_DEFENSE_LASER_ASSEMBLY": 2
       },
-      "canHarvest": []
+      "canHarvest": [],
+      "weaponHardpoints": 2
     },
     "salvager": {
       "displayName": "Salvager",
@@ -116,7 +120,8 @@
         "SENSOR_ARRAY": 2,
         "ION_THRUSTER": 1
       },
-      "canHarvest": []
+      "canHarvest": [],
+      "weaponHardpoints": 0
     }
   }
 }

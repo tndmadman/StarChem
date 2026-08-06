@@ -39,8 +39,7 @@ final class Rules {
         } catch (RuleConfigurationException ex) {
             throw ex;
         } catch (Exception ex) {
-            System.err.println("Could not load split StarChem config: " + ex.getMessage());
-            return false;
+            throw new RuleConfigurationException("Could not load split StarChem config: " + ex.getMessage());
         }
     }
 
@@ -56,15 +55,14 @@ final class Rules {
         } catch (RuleConfigurationException ex) {
             throw ex;
         } catch (Exception ex) {
-            System.err.println("Could not load legacy StarChem rules config: " + ex.getMessage());
-            return false;
+            throw new RuleConfigurationException("Could not load legacy StarChem rules config: " + ex.getMessage());
         }
     }
 
     private static void apply(String startShip, String defaultBase, Map<String,ShipType> ships, Map<String,BaseType> bases,
                               List<ResourceBelt> belts, ResourceRespawnRules respawn) {
-        if (ships.isEmpty()) throw new IllegalArgumentException("No ship types loaded.");
-        if (bases.isEmpty()) throw new IllegalArgumentException("No station types loaded.");
+        if (ships.isEmpty()) throw new RuleConfigurationException("No ship types loaded.");
+        if (bases.isEmpty()) throw new RuleConfigurationException("No station types loaded.");
         if (!ships.containsKey(startShip)) {
             throw new RuleConfigurationException("Unknown starting ship type ID: " + startShip);
         }
@@ -110,6 +108,13 @@ final class Rules {
             if (s.isEmpty()) continue;
             String id = e.getKey();
             double hp = number(s, "maxHp", 100);
+            if (!s.containsKey("weaponHardpoints")) {
+                throw new RuleConfigurationException("Missing weaponHardpoints for ship " + id + ".");
+            }
+            int weaponHardpoints = integer(s, "weaponHardpoints", -1);
+            if (weaponHardpoints < 0 || weaponHardpoints > 64) {
+                throw new RuleConfigurationException("weaponHardpoints for ship " + id + " must be between 0 and 64.");
+            }
             out.put(id, new ShipType(
                     id,
                     string(s, "displayName", id),
@@ -131,7 +136,8 @@ final class Rules {
                     bool(s, "baseBuilder", false),
                     nodeKinds(s.get("canHarvest")),
                     costs(s.get("buildCost")),
-                    number(s, "buildTimeSeconds", 0)));
+                    number(s, "buildTimeSeconds", 0),
+                    weaponHardpoints));
         }
         return out;
     }
@@ -157,7 +163,9 @@ final class Rules {
                     stringList(s.get("canBuildShips")),
                     stringList(s.get("canBuildStationPackages")),
                     costs(s.get("buildCost")),
-                    number(s, "buildTimeSeconds", 0)));
+                    number(s, "buildTimeSeconds", 0),
+                    bool(s, "canRefitShips", false),
+                    number(s, "refitRange", number(s, "unloadRange", 120))));
         }
         return out;
     }
@@ -327,18 +335,15 @@ final class Rules {
     }
 
     private static ShipSize shipSize(String value) {
-        try { return ShipSize.valueOf(value.trim().toUpperCase(Locale.ROOT)); }
-        catch (Exception ex) { return ShipSize.SMALL; }
+        return StrictConfigEnums.parse(ShipSize.class, value, "ship size");
     }
 
     private static NodeKind nodeKind(String value) {
-        try { return NodeKind.valueOf(value.trim().toUpperCase(Locale.ROOT)); }
-        catch (Exception ex) { return NodeKind.SILICATE_ROCK; }
+        return StrictConfigEnums.parse(NodeKind.class, value, "resource node kind");
     }
 
     private static Material material(String value) {
-        try { return Material.valueOf(value.trim().toUpperCase(Locale.ROOT)); }
-        catch (Exception ex) { throw new IllegalArgumentException("Unknown material: " + value); }
+        return StrictConfigEnums.parse(Material.class, value, "material");
     }
 }
 
@@ -356,7 +361,7 @@ final class ShipType {
     final int seed;
     final double maxHp, speed, cargoCapacity, harvestRange, orbitRadius, idleOrbitRadius, scoutRange;
     final double maxShield, shieldRegen, shieldRegenDelay, tractorRange, buildTimeSeconds;
-    final int scoutDispatchLimit, tractorBeamCount;
+    final int scoutDispatchLimit, tractorBeamCount, weaponHardpoints;
     final boolean baseBuilder;
     final EnumSet<NodeKind> harvestKinds;
     final List<Cost> buildCost;
@@ -392,6 +397,17 @@ final class ShipType {
              double maxShield, double shieldRegen, double shieldRegenDelay,
              int tractorBeamCount, double tractorRange,
              boolean baseBuilder, EnumSet<NodeKind> harvestKinds, List<Cost> buildCost, double buildTimeSeconds) {
+        this(id, name, size, seed, maxHp, speed, cargoCapacity, harvestRange, orbitRadius, idleOrbitRadius, scoutRange,
+                scoutDispatchLimit, maxShield, shieldRegen, shieldRegenDelay, tractorBeamCount, tractorRange,
+                baseBuilder, harvestKinds, buildCost, buildTimeSeconds, 0);
+    }
+
+    ShipType(String id, String name, ShipSize size, int seed, double maxHp, double speed, double cargoCapacity,
+             double harvestRange, double orbitRadius, double idleOrbitRadius, double scoutRange, int scoutDispatchLimit,
+             double maxShield, double shieldRegen, double shieldRegenDelay,
+             int tractorBeamCount, double tractorRange,
+             boolean baseBuilder, EnumSet<NodeKind> harvestKinds, List<Cost> buildCost, double buildTimeSeconds,
+             int weaponHardpoints) {
         this.id = id; this.name = name; this.size = size; this.seed = seed; this.maxHp = maxHp; this.speed = speed;
         this.cargoCapacity = cargoCapacity; this.harvestRange = harvestRange; this.orbitRadius = orbitRadius;
         this.idleOrbitRadius = idleOrbitRadius; this.scoutRange = scoutRange; this.scoutDispatchLimit = scoutDispatchLimit;
@@ -399,6 +415,7 @@ final class ShipType {
         this.tractorBeamCount = Math.max(0, tractorBeamCount); this.tractorRange = Math.max(0, tractorRange);
         this.baseBuilder = baseBuilder; this.harvestKinds = harvestKinds; this.buildCost = buildCost;
         this.buildTimeSeconds = Math.max(0, buildTimeSeconds);
+        this.weaponHardpoints = Math.max(0, weaponHardpoints);
     }
 }
 
@@ -406,6 +423,8 @@ final class BaseType {
     final String id, name;
     final double maxHp, unloadRange, unloadRate, buildRadius;
     final double maxShield, shieldRegen, shieldRegenDelay, buildTimeSeconds;
+    final double refitRange;
+    final boolean canRefitShips;
     final List<String> buildableShips, basePackages;
     final List<Cost> buildCost;
 
@@ -425,10 +444,31 @@ final class BaseType {
     BaseType(String id, String name, double maxHp, double unloadRange, double unloadRate, double buildRadius,
              double maxShield, double shieldRegen, double shieldRegenDelay,
              List<String> buildableShips, List<String> basePackages, List<Cost> buildCost, double buildTimeSeconds) {
+        this(id, name, maxHp, unloadRange, unloadRate, buildRadius, maxShield, shieldRegen, shieldRegenDelay,
+                buildableShips, basePackages, buildCost, buildTimeSeconds,
+                fallbackCanRefit(id), fallbackRefitRange(id, unloadRange));
+    }
+
+    static boolean fallbackCanRefit(String id) {
+        return "shipyard".equals(id) || "outpost".equals(id);
+    }
+
+    static double fallbackRefitRange(String id, double unloadRange) {
+        if ("shipyard".equals(id)) return 520;
+        if ("outpost".equals(id)) return 420;
+        return unloadRange;
+    }
+
+    BaseType(String id, String name, double maxHp, double unloadRange, double unloadRate, double buildRadius,
+             double maxShield, double shieldRegen, double shieldRegenDelay,
+             List<String> buildableShips, List<String> basePackages, List<Cost> buildCost, double buildTimeSeconds,
+             boolean canRefitShips, double refitRange) {
         this.id = id; this.name = name; this.maxHp = maxHp; this.unloadRange = unloadRange; this.unloadRate = unloadRate;
         this.buildRadius = buildRadius; this.maxShield = maxShield; this.shieldRegen = shieldRegen; this.shieldRegenDelay = shieldRegenDelay;
         this.buildableShips = buildableShips; this.basePackages = basePackages; this.buildCost = buildCost;
         this.buildTimeSeconds = Math.max(0, buildTimeSeconds);
+        this.canRefitShips = canRefitShips;
+        this.refitRange = Math.max(0, refitRange);
     }
 }
 

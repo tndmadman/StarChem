@@ -10,10 +10,19 @@ final class SnapshotSmoother {
     static void apply(Unit unit, UnitState state, boolean forceLocalAuthority) {
         boolean local = PlayerRegistry.isLocal(unit.playerId);
         UnitTask serverTask = safeTask(state.task(), unit.task);
-        boolean snapped = correctPosition(unit, state, local, forceLocalAuthority);
+
+        // Install identity before position correction so a newly fitted runtime module can
+        // classify the same authoritative snapshot that first delivers its loadout ID.
+        unit.shipTypeId = state.shipTypeId();
+        unit.loadoutId = state.loadoutId();
+        ShipModuleDefinition jump = fittedJumpDrive(unit);
+        double previousX = unit.x;
+        double previousY = unit.y;
+        boolean authoritativeJump = authoritativeModuleJump(unit, state, jump);
+
+        boolean snapped = correctPosition(unit, state, local, forceLocalAuthority, authoritativeJump);
         applyTarget(unit, state, serverTask, local, forceLocalAuthority);
         if (!local || snapped || forceLocalAuthority) unit.heading = state.heading();
-        unit.shipTypeId = state.shipTypeId();
         unit.task = serverTask;
         unit.automationResourceId = state.resourceId();
         unit.basePackageType = state.packageType();
@@ -30,10 +39,19 @@ final class SnapshotSmoother {
         unit.orderTarget = state.orderTarget();
         unit.orderPhase = state.orderPhase();
         CargoCodec.readInto(state.cargo(), unit.inventory);
+
+        if (authoritativeJump && jump != null) {
+            // The server owns the jump. Snap instead of blending it away, show the complete
+            // source-to-destination tunnel, and prevent client prediction from double-jumping.
+            ShipModuleRules.showJumpTrail(unit, previousX, previousY, state.x(), state.y());
+            unit.microJumpCooldown = Math.max(unit.microJumpCooldown, jump.cooldownSeconds());
+            unit.microJumpFlashTimer = Math.max(unit.microJumpFlashTimer, 0.72);
+        }
     }
 
-    private static boolean correctPosition(Unit unit, UnitState state, boolean local, boolean forceLocalAuthority) {
-        if (local && forceLocalAuthority) {
+    private static boolean correctPosition(Unit unit, UnitState state, boolean local,
+                                           boolean forceLocalAuthority, boolean authoritativeJump) {
+        if (local && forceLocalAuthority || authoritativeJump) {
             unit.x = state.x();
             unit.y = state.y();
             return true;
@@ -51,6 +69,28 @@ final class SnapshotSmoother {
         unit.x = Calc.lerp(unit.x, state.x(), blend);
         unit.y = Calc.lerp(unit.y, state.y(), blend);
         return false;
+    }
+
+    private static ShipModuleDefinition fittedJumpDrive(Unit unit) {
+        if (unit == null || !ShipModuleRules.has(unit, ShipModuleKind.MICRO_JUMP_DRIVE)) return null;
+        for (ShipModuleDefinition module : ShipModuleRules.modules(ShipModuleRules.moduleIds(unit))) {
+            if (module.kind() == ShipModuleKind.MICRO_JUMP_DRIVE) return module;
+        }
+        return null;
+    }
+
+    private static boolean authoritativeModuleJump(Unit unit, UnitState state, ShipModuleDefinition jump) {
+        if (unit == null || state == null || jump == null) return false;
+        UnitTask task = safeTask(state.task(), unit.task);
+        boolean hasObjective = task == UnitTask.MOVE || task == UnitTask.ATTACK
+                || task == UnitTask.RETURN_TO_STATION || task == UnitTask.AUTO_HARVEST;
+        if (!hasObjective) return false;
+        double displacement = Calc.distance(unit.x, unit.y, state.x(), state.y());
+        double routeDistance = Calc.distance(unit.x, unit.y, state.targetX(), state.targetY());
+        double minimum = jump.jumpDistance() <= 1
+                ? Math.max(220, Math.min(900, routeDistance * jump.jumpDistance() * 0.35))
+                : Math.max(180, jump.jumpDistance() * 0.45);
+        return Double.isFinite(displacement) && displacement >= minimum;
     }
 
     private static void applyTarget(Unit unit, UnitState state, UnitTask serverTask, boolean local, boolean forceLocalAuthority) {

@@ -157,21 +157,29 @@ final class BuildMenu {
 
         for (String shipId : def.buildableShips) {
             if (!ResearchRules.shipUnlocked(world, base.playerId, shipId)) continue;
-            ShipType ship = Rules.ship(shipId);
+            ShipType ship = Rules.findShip(shipId);
             if (ship == null) continue;
-            entries.add(new Entry(
-                    "Build " + ship.name,
-                    timeDetail("Build", ship.buildTimeSeconds, free),
-                    defenseLine(ship),
-                    new ShipPreviewIcon(ship),
-                    requirementTooltip("Build " + ship.name, ship.buildCost, free,
-                            defenseLine(ship), weaponText(weaponBadges(ship))),
-                    false,
-                    false,
-                    false,
-                    () -> sendProduction(world, network, base, "ENQUEUE",
-                            ProductionJobKind.SHIP.name(), shipId)));
+            List<ShipLoadoutDefinition> variants = WeaponRules.loadoutsForHull(shipId);
+            for (ShipLoadoutDefinition loadout : variants) {
+                if (!WeaponRules.unlocked(world, base.playerId, loadout)) continue;
+                List<Cost> cost = WeaponRules.buildCost(ship, loadout);
+                String variant = variants.size() > 1 ? " - " + loadout.displayName() : "";
+                entries.add(new Entry(
+                        "Build " + ship.name + variant,
+                        timeDetail("Build", ship.buildTimeSeconds, free),
+                        defenseLine(ship),
+                        new ShipPreviewIcon(ship),
+                        requirementTooltip("Build " + ship.name + variant, cost, free,
+                                defenseLine(ship), weaponText(weaponBadges(loadout))),
+                        false,
+                        false,
+                        false,
+                        () -> sendProduction(world, network, base, "ENQUEUE",
+                                ProductionJobKind.SHIP.name(), loadout.id())));
+            }
         }
+
+        addCustomFitBuildEntries(world, network, base, free);
 
         for (String packageId : def.basePackages) {
             if (!StationPackageResearchRules.unlocked(world, base.playerId, packageId)) continue;
@@ -238,6 +246,57 @@ final class BuildMenu {
             }
         }
         openAt(sx, sy);
+    }
+
+    private void addCustomFitBuildEntries(World world, PeerNetwork network,
+                                          Base base, boolean free) {
+        if (world == null || base == null || !PlayerRegistry.isLocal(base.playerId)) return;
+        String commander = PlayerRegistry.baseName(PlayerRegistry.localId());
+        if (commander == null || commander.isBlank()) commander = world.localPlayerName;
+
+        for (String shipId : base.type().buildableShips) {
+            ShipType ship = Rules.findShip(shipId);
+            if (ship == null) continue;
+            for (PrivateShipFit fit : ClientFitStore.fits(commander, shipId)) {
+                addCustomFitBuildEntry(world, network, base, ship, fit.name(), fit.spec(),
+                        "MY FIT", free);
+            }
+            for (PublishedFit fit : WorldFitCatalog.published(world)) {
+                if (!shipId.equals(fit.spec().hullId())) continue;
+                addCustomFitBuildEntry(world, network, base, ship, fit.name(), fit.spec(),
+                        "SERVER FIT BY " + fit.ownerName(), free);
+            }
+        }
+    }
+
+    private void addCustomFitBuildEntry(World world, PeerNetwork network, Base base,
+                                        ShipType ship, String name, ShipFitSpec spec,
+                                        String source, boolean free) {
+        PlayerFitRules.Validation validation = PlayerFitRules.validate(spec);
+        if (!validation.valid() || !ship.id.equals(spec.hullId())) return;
+        ShipLoadoutDefinition preview;
+        try { preview = PlayerFitRules.previewDefinition(name, spec); }
+        catch (RuntimeException ex) { return; }
+
+        boolean hullUnlocked = ResearchRules.shipUnlocked(world, base.playerId, ship.id);
+        boolean fitUnlocked = WeaponRules.unlocked(world, base.playerId, preview);
+        boolean available = free || hullUnlocked && fitUnlocked;
+        List<Cost> cost = WeaponRules.buildCost(ship, preview);
+        String weapons = weaponText(weaponBadges(preview));
+        String modules = "Utility: " + ShipModuleRules.summary(spec.moduleIds());
+        String research = available ? source : "Research required before construction";
+        entries.add(new Entry(
+                "Build " + ship.name + " - " + source + ": " + preview.displayName(),
+                timeDetail("Build", ship.buildTimeSeconds, free),
+                modules,
+                new ShipPreviewIcon(ship),
+                requirementTooltip("Build " + ship.name + " - " + preview.displayName(),
+                        cost, free, weapons, modules, research),
+                !available,
+                false,
+                false,
+                () -> FitNetworkBridge.submit(network, world, "BUILD", preview.displayName(),
+                        spec, base.id, null, null)));
     }
 
     private void addCraftingEntries(World world, PeerNetwork network, Base base, boolean free) {
@@ -369,7 +428,8 @@ final class BuildMenu {
         return switch (job.kind) {
             case SHIP -> {
                 ShipType ship = Rules.findShip(job.itemId);
-                yield ship == null ? "" : defenseLine(ship);
+                ShipLoadoutDefinition loadout = WeaponRules.resolveForHull(job.itemId, job.loadoutId);
+                yield ship == null ? "" : defenseLine(ship) + (loadout == null ? "" : " | " + loadout.displayName());
             }
             case STATION_PACKAGE -> {
                 BaseType station = Rules.base(job.itemId);
@@ -382,6 +442,10 @@ final class BuildMenu {
             case RESEARCH -> {
                 ResearchTopic topic = ResearchRules.topic(job.itemId);
                 yield topic == null ? "" : topic.unlockLabel();
+            }
+            case REFIT -> {
+                ShipLoadoutDefinition loadout = WeaponRules.findLoadout(job.loadoutId);
+                yield loadout == null ? "" : weaponText(weaponBadges(loadout));
             }
         };
     }
@@ -405,6 +469,10 @@ final class BuildMenu {
                 ResearchTopic topic = ResearchRules.topic(job.itemId);
                 yield topic == null ? new NavigationPreviewIcon("•")
                         : new ResearchPreviewIcon(topic);
+            }
+            case REFIT -> {
+                ShipType ship = Rules.findShip(job.itemId);
+                yield ship == null ? new NavigationPreviewIcon("•") : new ShipPreviewIcon(ship);
             }
         };
     }
@@ -706,8 +774,12 @@ final class BuildMenu {
     }
 
     private List<WeaponBadge> weaponBadges(ShipType ship) {
+        return weaponBadges(WeaponRules.defaultLoadout(ship.id));
+    }
+
+    private List<WeaponBadge> weaponBadges(ShipLoadoutDefinition loadout) {
         Map<String, WeaponBadge> grouped = new LinkedHashMap<>();
-        for (WeaponType weapon : WeaponRules.loadout(ship)) {
+        for (WeaponType weapon : WeaponRules.loadout(loadout)) {
             String label = weaponLabel(weapon);
             WeaponBadge old = grouped.get(label);
             if (old == null) {

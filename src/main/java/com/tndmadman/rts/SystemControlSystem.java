@@ -49,7 +49,7 @@ final class SystemControlSystem {
         }
         for (Unit unit : world.units.values()) {
             if (unit.hp <= 0 || invalidOwner(unit.playerId) || !state.controlPoint.contains(unit.x, unit.y)) continue;
-            double score = WeaponRules.armed(unit.type()) ? 1.5 : unit.type().harvestKinds.isEmpty() ? 0.75 : 0.5;
+            double score = WeaponRules.armed(unit) ? 1.5 : unit.type().harvestKinds.isEmpty() ? 0.75 : 0.5;
             scores.merge(unit.playerId, score, Double::sum);
         }
 

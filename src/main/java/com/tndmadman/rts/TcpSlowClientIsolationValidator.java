@@ -17,13 +17,13 @@ public final class TcpSlowClientIsolationValidator {
             Unit slowUnit = harness.firstUnit(harness.serverWorld, slow.playerId());
             Unit healthyUnit = harness.firstUnit(harness.serverWorld, healthy.playerId());
             TcpIntegrationHarness.require(slowUnit != null && healthyUnit != null, "test units were not created");
-            long healthySequenceBefore = healthy.network().clientSnapshotSequence();
-            long slowSequenceBefore = slow.network().clientSnapshotSequence();
             ConnectionId slowConnection = harness.serverNetwork.connectionIdForPlayer(slow.playerId());
             TcpIntegrationHarness.require(slowConnection.valid(), "slow client connection ID was not registered");
 
             proxy.pauseServerToClient();
-            Thread.sleep(100);
+            awaitPauseAcknowledgement(harness, proxy, 3_000);
+            long slowSequenceBefore = awaitSnapshotQuiescence(slow, 3_000, 250);
+            long healthySequenceBefore = healthy.network().clientSnapshotSequence();
             for (int i = 0; i < 450; i++) {
                 harness.setAuthoritativePosition(slow.playerId(), slowUnit.unitId, 1800 + i, 2100 + Math.sin(i / 10.0) * 120);
                 harness.setAuthoritativePosition(healthy.playerId(), healthyUnit.unitId, 3200 + i, 3500 + Math.cos(i / 12.0) * 120);
@@ -39,18 +39,51 @@ public final class TcpSlowClientIsolationValidator {
 
             TcpIntegrationHarness.require(healthy.network().clientSnapshotSequence() > healthySequenceBefore,
                     "healthy client stopped receiving snapshots while another client was slow");
-            TcpIntegrationHarness.require(slow.network().clientSnapshotSequence() <= slowSequenceBefore + 2,
-                    "paused proxy unexpectedly continued delivering sustained snapshot traffic");
+            TcpIntegrationHarness.require(slow.network().clientSnapshotSequence() == slowSequenceBefore,
+                    "paused proxy delivered snapshot traffic after its pause barrier");
             ConnectionDiagnostics diagnostics = harness.serverNetwork.connectionDiagnostics(slowConnection);
             TcpIntegrationHarness.require(diagnostics.queuedFrames() <= 3,
                     "slow client's replaceable state queue grew without bound: " + diagnostics);
             TcpIntegrationHarness.require(healthy.network().clientConnected(), "healthy client was disconnected by another client's backpressure");
 
             proxy.resumeServerToClient();
-            harness.await(() -> slow.network().clientSnapshotSequence() > slowSequenceBefore + 2,
+            harness.await(() -> slow.network().clientSnapshotSequence() > slowSequenceBefore,
                     10_000, "slow client did not resume receiving snapshots after proxy recovery");
             TcpIntegrationHarness.require(healthy.network().clientConnected(), "healthy client did not remain connected after slow client recovery");
             System.out.println("StarChem TCP slow-client isolation validation passed.");
         }
+    }
+
+    private static void awaitPauseAcknowledgement(TcpIntegrationHarness harness,
+                                                   TcpFaultProxy proxy,
+                                                   long timeoutMillis) throws Exception {
+        long deadline = System.nanoTime() + Math.max(0, timeoutMillis) * 1_000_000L;
+        while (!proxy.serverToClientPaused() && System.nanoTime() < deadline) {
+            harness.tick();
+            Thread.sleep(5);
+        }
+        TcpIntegrationHarness.require(proxy.serverToClientPaused(),
+                "fault proxy did not acknowledge the downstream pause");
+    }
+
+    private static long awaitSnapshotQuiescence(TcpIntegrationHarness.TestClient client,
+                                                long timeoutMillis,
+                                                long quietMillis) throws Exception {
+        long deadline = System.nanoTime() + Math.max(0, timeoutMillis) * 1_000_000L;
+        long quietNanos = Math.max(0, quietMillis) * 1_000_000L;
+        long observed = client.network().clientSnapshotSequence();
+        long quietSince = System.nanoTime();
+        while (System.nanoTime() < deadline) {
+            Thread.sleep(10);
+            long now = System.nanoTime();
+            long current = client.network().clientSnapshotSequence();
+            if (current != observed) {
+                observed = current;
+                quietSince = now;
+            } else if (now - quietSince >= quietNanos) {
+                return observed;
+            }
+        }
+        throw new IllegalStateException("paused client's buffered snapshots did not quiesce");
     }
 }

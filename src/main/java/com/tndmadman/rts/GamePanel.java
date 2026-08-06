@@ -19,6 +19,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final GameClient client;
     private final Timer timer;
     private final BuildMenu buildMenu = new BuildMenu();
+    private final ShipFittingWindow shipFittingWindow = new ShipFittingWindow();
     private final GameCamera camera = new GameCamera();
     private final MinimapHud minimapHud = new MinimapHud();
     private final HangarHud hangarHud = new HangarHud();
@@ -176,6 +177,52 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
                 + " | Audio: " + audio + " (" + settings.bindingText("mute_audio") + ")" + perf,
                 28, 102);
         g2.drawString(settings.hudCommandLine() + " | Mode: " + commandModeLabel(), 28, 124);
+        drawFittingButton(g2);
+    }
+
+    private void drawFittingButton(Graphics2D g2) {
+        Rectangle bounds = fittingButtonBounds();
+        Unit unit = selectedFittingShip();
+        boolean enabled = fittingAvailable(unit);
+        g2.setColor(enabled ? new Color(18, 70, 104, 235) : new Color(35, 45, 54, 210));
+        g2.fillRoundRect(bounds.x, bounds.y, bounds.width, bounds.height, 10, 10);
+        g2.setColor(enabled ? new Color(110, 215, 255) : new Color(105, 120, 130));
+        g2.drawRoundRect(bounds.x, bounds.y, bounds.width, bounds.height, 10, 10);
+        g2.setColor(enabled ? Color.WHITE : new Color(145, 155, 162));
+        g2.setFont(g2.getFont().deriveFont(Font.BOLD, 11f));
+        String label = "FITTING [L]";
+        int tx = bounds.x + (bounds.width - g2.getFontMetrics().stringWidth(label)) / 2;
+        g2.drawString(label, tx, bounds.y + 19);
+    }
+
+    private Rectangle fittingButtonBounds() { return new Rectangle(958, 106, 156, 28); }
+
+    private Unit selectedFittingShip() {
+        Unit selected = null;
+        for (Unit unit : world.selectedUnits()) {
+            if (!PlayerRegistry.isLocal(unit.playerId)) continue;
+            if (selected != null) return null;
+            selected = unit;
+        }
+        return selected;
+    }
+
+    static boolean fittingAvailable(Unit unit) { return unit != null; }
+
+    private void openSelectedFitting() {
+        Unit unit = selectedFittingShip();
+        if (unit == null) {
+            world.status = world.selectedCount() > 1
+                    ? "Select exactly one ship to open fitting."
+                    : "Select a ship to open fitting.";
+            ProceduralAudio.play(SoundCue.ERROR);
+            repaint();
+            return;
+        }
+        shipFittingWindow.showForUnit(this, world, network, unit);
+        world.status = "Opened fitting for " + unit.type().name + " #" + unit.unitId + ".";
+        ProceduralAudio.play(SoundCue.SELECT);
+        repaint();
     }
 
     private void drawSelectionBox(Graphics2D g2) {
@@ -208,6 +255,10 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         requestFocusInWindow();
         if (galaxyMapOpen) { clickGalaxyMap(e); return; }
         if (buildMenu.click(e.getX(), e.getY())) return;
+        if (SwingUtilities.isLeftMouseButton(e) && fittingButtonBounds().contains(e.getPoint())) {
+            openSelectedFitting();
+            return;
+        }
         PeerNetwork devNetwork = devNetwork();
         if (devMode && aiDevPanel.click(world, devNetwork, e.getX(), e.getY(), canEditDev(), getHeight())) return;
         if (devMode && devMenu.click(world, devNetwork, e.getX(), e.getY(), canEditDev(), getHeight())) return;
@@ -545,6 +596,10 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     @Override public void keyTyped(KeyEvent e) { }
 
     @Override public void keyPressed(KeyEvent e) {
+        if (e.getKeyCode() == KeyEvent.VK_L && !e.isControlDown() && !e.isAltDown() && !e.isMetaDown()) {
+            openSelectedFitting();
+            return;
+        }
         if (settings.matches("mute_audio", e)) {
             boolean muted = ProceduralAudio.toggleMute();
             world.status = muted ? "Audio muted." : "Audio enabled.";

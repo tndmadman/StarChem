@@ -62,7 +62,7 @@ final class SaveContentResolver {
     static String productionItemId(ProductionJobKind kind, String savedId) {
         String id = savedId == null ? "" : savedId;
         return switch (kind) {
-            case SHIP -> validShip(alias(id, SHIP_ALIASES));
+            case SHIP, REFIT -> validShip(alias(id, SHIP_ALIASES));
             case STATION_PACKAGE -> validBase(alias(id, BASE_ALIASES));
             case CRAFTABLE -> validCraftable(alias(id, CRAFTABLE_ALIASES));
             case RESEARCH -> validResearch(alias(id, RESEARCH_ALIASES));

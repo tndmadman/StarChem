@@ -1,0 +1,49 @@
+{
+  "weaponVisuals": {
+    "point_defense_laser": {
+      "seed": 11011,
+      "style": "BEAM_ARRAY",
+      "color": "#66E8FF"
+    },
+    "light_railgun": {
+      "seed": 22021,
+      "style": "RAILGUN",
+      "color": "#9FDCFF"
+    },
+    "heavy_cannon": {
+      "seed": 33031,
+      "style": "CANNON",
+      "color": "#FFD17A"
+    },
+    "fighter_strike": {
+      "seed": 44041,
+      "style": "FIGHTER",
+      "color": "#C77DFF"
+    },
+    "capital_lance": {
+      "seed": 55051,
+      "style": "LANCE",
+      "color": "#FF5F55"
+    },
+    "siege_lance": {
+      "seed": 66061,
+      "style": "LANCE",
+      "color": "#FF9F1C"
+    },
+    "light_missile": {
+      "seed": 77071,
+      "style": "MISSILE",
+      "color": "#D7F7FF"
+    },
+    "torpedo": {
+      "seed": 88081,
+      "style": "TORPEDO",
+      "color": "#FFB86B"
+    },
+    "capital_torpedo": {
+      "seed": 99091,
+      "style": "TORPEDO",
+      "color": "#FF6B35"
+    }
+  }
+}

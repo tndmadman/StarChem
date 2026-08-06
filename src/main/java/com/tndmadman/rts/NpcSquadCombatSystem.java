@@ -78,6 +78,10 @@ final class NpcSquadCombatSystem {
         if (world != null) RUNTIMES.remove(world);
     }
 
+    static double targetThreatScoreForTesting(Unit unit) {
+        return TargetInfo.unit(unit).threatScore;
+    }
+
     static synchronized Map<String,Object> capture(World world) {
         Map<String,Object> out = new LinkedHashMap<>();
         Map<String, RuntimeState> byKey = RUNTIMES.get(world);
@@ -173,7 +177,7 @@ final class NpcSquadCombatSystem {
 
         List<Unit> result = new ArrayList<>();
         for (Unit unit : world.units.values()) {
-            if (!faction.id().equals(unit.playerId) || unit.hp <= 0 || !WeaponRules.armed(unit.type())) continue;
+            if (!faction.id().equals(unit.playerId) || unit.hp <= 0 || !WeaponRules.armed(unit)) continue;
             boolean expeditionOwned = NpcExpeditionSystem.ownsUnit(world, unit.key());
             if (expeditionOwned && (!expeditionCombatAllowed || !expeditionCombat.contains(unit.key()))) continue;
             result.add(unit);
@@ -207,7 +211,7 @@ final class NpcSquadCombatSystem {
         Unit protectedUnit = members.stream()
                 .filter(unit -> hpRatio(unit) >= RECOVERY_HP_RATIO)
                 .max(Comparator
-                        .comparingDouble((Unit unit) -> WeaponRules.maxRange(unit.type()))
+                        .comparingDouble((Unit unit) -> WeaponRules.maxRange(unit))
                         .thenComparingDouble(unit -> unit.type().size.scale)
                         .thenComparingInt(unit -> -unit.unitId))
                 .orElse(members.get(0));
@@ -217,10 +221,10 @@ final class NpcSquadCombatSystem {
         for (Unit unit : members) {
             NpcSquadRole role;
             double hp = hpRatio(unit);
-            double range = WeaponRules.maxRange(unit.type());
+            double range = WeaponRules.maxRange(unit);
             if (hp < RECOVERY_HP_RATIO) {
                 role = NpcSquadRole.RETREATING_CASUALTY;
-            } else if (!WeaponRules.screenWeapons(unit.type()).isEmpty()) {
+            } else if (!WeaponRules.screenWeapons(unit).isEmpty()) {
                 role = NpcSquadRole.SCREEN;
             } else if (range >= 900.0) {
                 role = NpcSquadRole.ARTILLERY;
@@ -363,7 +367,7 @@ final class NpcSquadCombatSystem {
             double assigned = assignedDamage.getOrDefault(target.key, 0.0);
             if (rejectSaturated && assigned >= target.effectiveHp * OVERKILL_ALLOWANCE) continue;
             double distance = Calc.distance(unit.x, unit.y, target.x, target.y);
-            double range = Math.max(1.0, WeaponRules.maxRange(unit.type())
+            double range = Math.max(1.0, WeaponRules.maxRange(unit)
                     * SystemModifierRules.weaponRange(world));
             double score = target.baseScore + target.threatScore;
             score += (1.0 - target.hpRatio) * 105.0;
@@ -397,7 +401,7 @@ final class NpcSquadCombatSystem {
         double y = Calc.clamp(protectedUnit.y + ny * forward + nx * lateral, 0, world.height);
         double distanceToSlot = Calc.distance(screen.x, screen.y, x, y);
         double threatDistance = Calc.distance(screen.x, screen.y, threat.x, threat.y);
-        double range = Math.max(1.0, WeaponRules.maxRange(screen.type())
+        double range = Math.max(1.0, WeaponRules.maxRange(screen)
                 * SystemModifierRules.weaponRange(world));
         if (distanceToSlot > 72.0 && threatDistance > range * 0.58) {
             issueMove(screen, x, y);
@@ -412,7 +416,7 @@ final class NpcSquadCombatSystem {
     }
 
     private static void commandAtRange(World world, Unit unit, NpcSquadRole role, TargetInfo target) {
-        double range = Math.max(1.0, WeaponRules.maxRange(unit.type())
+        double range = Math.max(1.0, WeaponRules.maxRange(unit)
                 * SystemModifierRules.weaponRange(world));
         double preferred = range * preferredRangeFraction(role);
         double distance = Calc.distance(unit.x, unit.y, target.x, target.y);
@@ -547,10 +551,10 @@ final class NpcSquadCombatSystem {
     }
 
     private static double projectedVolley(Unit unit, TargetInfo target) {
-        double maxRange = Math.max(1.0, WeaponRules.maxRange(unit.type()));
+        double maxRange = Math.max(1.0, WeaponRules.maxRange(unit));
         double effectiveDistance = Math.min(maxRange * 0.82,
                 Calc.distance(unit.x, unit.y, target.x, target.y));
-        double damage = WeaponRules.volley(unit.type(), effectiveDistance).damage();
+        double damage = WeaponRules.volley(unit, effectiveDistance).damage();
         return Math.max(1.0, damage);
     }
 
@@ -709,11 +713,11 @@ final class NpcSquadCombatSystem {
 
         static TargetInfo unit(Unit unit) {
             ShipType type = unit.type();
-            boolean armed = WeaponRules.armed(type);
+            boolean armed = WeaponRules.armed(unit);
             double maxEffective = Math.max(1.0, type.maxHp + type.maxShield);
             double currentEffective = Math.max(0.0, unit.hp) + Math.max(0.0, unit.shield);
-            WeaponVolley volley = WeaponRules.volley(type,
-                    Math.max(1.0, WeaponRules.maxRange(type) * 0.75));
+            WeaponVolley volley = WeaponRules.volley(unit,
+                    Math.max(1.0, WeaponRules.maxRange(unit) * 0.75));
             double dps = volley.damage() <= 0 ? 0
                     : volley.damage() / Math.max(0.2, volley.cooldownSeconds());
             double threat = armed ? 85.0 + dps * 0.65 + type.size.scale * 18.0 : 8.0;

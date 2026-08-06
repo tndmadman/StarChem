@@ -25,6 +25,8 @@ final class ProceduralAudio {
     private static final int BUFFER_FRAMES = 512;
     private static final int MAX_VOICES = 64;
     private static final double PITCH_VARIATION = 0.055;
+    private static final double TAU = Math.PI * 2.0;
+    private static final long NOISE_SEED_SALT = 0x6A09E667F3BCC909L;
 
     private final Object lock = new Object();
     private final List<Voice> voices = new ArrayList<>();
@@ -56,6 +58,8 @@ final class ProceduralAudio {
     static void playWeaponImpact(WeaponType weapon) { INSTANCE.weaponImpact(weapon); }
     static void playDestruction(double scale) { INSTANCE.destruction(scale); }
     static void playResourceDepleted(Material material) { INSTANCE.resourceDepleted(material); }
+
+    static double initialPhaseForTest(long seed) { return initialPhase(seed); }
 
     private synchronized boolean setMutedInternal(boolean value) {
         muted = value;
@@ -112,6 +116,23 @@ final class ProceduralAudio {
                     voice(Wave.TRIANGLE, 360, 760, 0.075, 0.085, 0.0, 0.003, 0.050),
                     voice(Wave.SINE, 920, 1240, 0.060, 0.052, 0.0, 0.004, 0.042),
                     voice(Wave.NOISE, 640, 260, 0.045, 0.030, 0.55, 0.001, 0.038));
+            case AFTERBURNER_IGNITE -> add(
+                    voice(Wave.SAW, 84, 245, 0.72, 0.090, 0.10, 0.008, 0.28),
+                    voice(Wave.NOISE, 190, 115, 0.62, 0.080, 0.78, 0.002, 0.42),
+                    voice(Wave.SINE, 48, 76, 0.82, 0.110, 0.0, 0.015, 0.36));
+            case AFTERBURNER_CUTOFF -> add(
+                    voice(Wave.SAW, 250, 62, 0.30, 0.072, 0.12, 0.002, 0.27),
+                    voice(Wave.NOISE, 150, 70, 0.34, 0.055, 0.84, 0.001, 0.31),
+                    voice(Wave.SINE, 78, 42, 0.38, 0.075, 0.0, 0.003, 0.34));
+            case MICRO_JUMP_CHARGE -> add(
+                    voice(Wave.SINE, 110, 760, 1.55, 0.085, 0.02, 0.025, 0.18),
+                    voice(Wave.SAW, 220, 1320, 1.42, 0.038, 0.08, 0.04, 0.16),
+                    voice(Wave.TRIANGLE, 70, 155, 1.58, 0.065, 0.0, 0.02, 0.22));
+            case MICRO_JUMP -> add(
+                    voice(Wave.NOISE, 980, 70, 0.34, 0.16, 0.72, 0.001, 0.30),
+                    voice(Wave.SAW, 1640, 115, 0.42, 0.12, 0.08, 0.001, 0.36),
+                    voice(Wave.SINE, 82, 42, 0.56, 0.17, 0.0, 0.002, 0.50),
+                    voice(Wave.TRIANGLE, 480, 1040, 0.19, 0.07, 0.0, 0.001, 0.16));
             case MUTE_OFF -> add(voice(Wave.SINE, 360, 720, 0.080, 0.10, 0.0, 0.004, 0.065));
         }
     }
@@ -178,8 +199,9 @@ final class ProceduralAudio {
     private Voice voice(Wave wave, double startHz, double endHz, double duration, double volume, double noise,
                         double attack, double decay) {
         double pitch = randomPitchFactor();
+        long seed = random.nextLong();
         return new Voice(wave, startHz * pitch, endHz * pitch, duration, volume, noise, attack, decay,
-                randomPan(), random.nextLong());
+                randomPan(), seed);
     }
 
     private double randomPitchFactor() {
@@ -277,6 +299,10 @@ final class ProceduralAudio {
         catch (SecurityException ignored) { }
     }
 
+    private static double initialPhase(long seed) {
+        return new Random(seed).nextDouble() * TAU;
+    }
+
     private enum Wave { SINE, TRIANGLE, SQUARE, SAW, NOISE }
 
     private static final class Voice {
@@ -304,21 +330,22 @@ final class ProceduralAudio {
             this.attack = Math.max(0.001, attack);
             this.decay = Math.max(0.001, decay);
             this.pan = clamp(pan, -1, 1);
-            this.random = new Random(seed);
+            this.random = new Random(seed ^ NOISE_SEED_SALT);
+            this.phase = initialPhase(seed);
         }
 
         private double nextSample() {
             double t = clamp(age / duration, 0, 1);
             double freq = startHz + (endHz - startHz) * t;
-            phase += Math.PI * 2.0 * freq / SAMPLE_RATE;
-            if (phase > Math.PI * 2.0) phase -= Math.PI * 2.0;
+            phase += TAU * freq / SAMPLE_RATE;
+            if (phase > TAU) phase -= TAU;
 
             double osc = switch (wave) {
                 case SINE -> Math.sin(phase);
                 case TRIANGLE -> 2.0 / Math.PI * Math.asin(Math.sin(phase));
                 case SQUARE -> Math.sin(phase) >= 0 ? 1.0 : -1.0;
                 case SAW -> {
-                    double p = phase / (Math.PI * 2.0);
+                    double p = phase / TAU;
                     yield 2.0 * (p - Math.floor(p + 0.5));
                 }
                 case NOISE -> 0;

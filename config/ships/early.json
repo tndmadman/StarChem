@@ -23,7 +23,8 @@
       "canHarvest": [
         "SILICATE_ROCK",
         "GAS_CLOUD"
-      ]
+      ],
+      "weaponHardpoints": 0
     },
     "station_builder": {
       "displayName": "Deployer",
@@ -61,7 +62,8 @@
         "laboratory",
         "manufacturing"
       ],
-      "singleUseAfterStationPlacement": true
+      "singleUseAfterStationPlacement": true,
+      "weaponHardpoints": 0
     },
     "sensor_contact_small": {
       "displayName": "Unidentified Small Contact",
@@ -79,7 +81,8 @@
       "idleStationOrbitRadius": 45,
       "buildTimeSeconds": 0,
       "buildCost": {},
-      "canHarvest": []
+      "canHarvest": [],
+      "weaponHardpoints": 0
     },
     "sensor_contact_medium": {
       "displayName": "Unidentified Contact",
@@ -97,7 +100,8 @@
       "idleStationOrbitRadius": 55,
       "buildTimeSeconds": 0,
       "buildCost": {},
-      "canHarvest": []
+      "canHarvest": [],
+      "weaponHardpoints": 0
     },
     "sensor_contact_large": {
       "displayName": "Unidentified Large Contact",
@@ -115,7 +119,8 @@
       "idleStationOrbitRadius": 72,
       "buildTimeSeconds": 0,
       "buildCost": {},
-      "canHarvest": []
+      "canHarvest": [],
+      "weaponHardpoints": 0
     }
   }
 }

@@ -192,7 +192,7 @@ public final class NpcStrategicDirectorValidator {
         int count = 0;
         for (Unit unit : world.units.values()) {
             if (factionId.equals(unit.playerId) && unit.hp > 0
-                    && WeaponRules.armed(unit.type())) count++;
+                    && WeaponRules.armed(unit)) count++;
         }
         return count;
     }
@@ -201,7 +201,7 @@ public final class NpcStrategicDirectorValidator {
         List<Unit> out = new ArrayList<>();
         for (Unit unit : world.units.values()) {
             if (factionId.equals(unit.playerId) && unit.hp > 0
-                    && WeaponRules.armed(unit.type())) out.add(unit);
+                    && WeaponRules.armed(unit)) out.add(unit);
         }
         return out;
     }

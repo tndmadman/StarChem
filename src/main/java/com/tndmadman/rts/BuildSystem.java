@@ -1,32 +1,46 @@
 package com.tndmadman.rts;
 
 final class BuildSystem {
-    boolean buildShip(World world, String baseId, String shipTypeId) {
+    boolean buildShip(World world, String baseId, String requestedId) {
         Base base = world.bases.get(baseId);
         if (base == null) return false;
-        ShipType shipType = Rules.findShip(shipTypeId);
+        ShipLoadoutDefinition requestedLoadout = WeaponRules.findLoadout(world, requestedId);
+        ShipType shipType = requestedLoadout == null ? Rules.findShip(requestedId) : Rules.findShip(requestedLoadout.hullId());
         if (shipType == null) {
-            world.status = "Unknown ship type ID: " + shipTypeId + ".";
+            world.status = "Unknown ship or loadout ID: " + requestedId + ".";
             return false;
         }
-        if (!base.type().buildableShips.contains(shipTypeId)) {
+        ShipLoadoutDefinition loadout = requestedLoadout == null
+                ? WeaponRules.defaultLoadout(shipType.id) : requestedLoadout;
+        if (loadout == null || !shipType.id.equals(loadout.hullId())) {
+            world.status = "No valid loadout is configured for " + shipType.name + ".";
+            return false;
+        }
+        if (!base.type().buildableShips.contains(shipType.id)) {
             world.status = base.type().name + " cannot build " + shipType.name + ".";
             return false;
         }
         boolean free = freeBuild(world, base);
-        if (!free && !ResearchRules.shipUnlocked(world, base.playerId, shipTypeId)) {
-            ResearchTopic topic = ResearchRules.firstTopicUnlockingShip(shipTypeId);
+        if (!free && !ResearchRules.shipUnlocked(world, base.playerId, shipType.id)) {
+            ResearchTopic topic = ResearchRules.firstTopicUnlockingShip(shipType.id);
             world.status = shipType.name + " requires research" + (topic == null ? "." : ": " + topic.name + ".");
             GameNoticeCenter.publish(world, base.playerId, NoticeCategory.WARNING, world.status, true);
             return false;
         }
-        if (!free && !HangarStore.canAfford(base.inventory, shipType.buildCost)) {
-            if (world.logisticsSystem.queueBuildShip(world, base, shipType)) return true;
-            if (ProductionPlanner.queueShip(world, base, shipType)) return true;
-            world.status = "Need " + Rules.formatCost(shipType.buildCost) + " in " + base.type().name + " hangar.";
+        if (!free && !WeaponRules.unlocked(world, base.playerId, loadout)) {
+            world.status = loadout.displayName() + " requires research: "
+                    + WeaponRules.missingResearchLabel(world, base.playerId, loadout) + ".";
+            GameNoticeCenter.publish(world, base.playerId, NoticeCategory.WARNING, world.status, true);
             return false;
         }
-        return ProductionSystem.enqueueShip(world, base, shipType, free);
+        java.util.List<Cost> cost = WeaponRules.buildCost(shipType, loadout);
+        if (!free && !HangarStore.canAfford(base.inventory, cost)) {
+            if (world.logisticsSystem.queueBuildShip(world, base, shipType, loadout)) return true;
+            if (ProductionPlanner.queueShip(world, base, shipType, loadout)) return true;
+            world.status = "Need " + Rules.formatCost(cost) + " in " + base.type().name + " hangar.";
+            return false;
+        }
+        return ProductionSystem.enqueueShip(world, base, shipType, loadout, free);
     }
 
     boolean loadBasePackage(World world, String baseId, String packageType) {

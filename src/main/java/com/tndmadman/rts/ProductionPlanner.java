@@ -22,27 +22,32 @@ final class ProductionPlanner {
     private ProductionPlanner() { }
 
     static boolean queueShip(World world, Base target, ShipType ship) {
-        if (ship == null) return false;
-        return queue(world, target, ProductionJobKind.SHIP, ship.id, ship.name,
-                ship.buildCost, ship.buildTimeSeconds);
+        return queueShip(world, target, ship, ship == null ? null : WeaponRules.defaultLoadout(ship.id));
+    }
+
+    static boolean queueShip(World world, Base target, ShipType ship, ShipLoadoutDefinition loadout) {
+        if (ship == null || loadout == null) return false;
+        return queue(world, target, ProductionJobKind.SHIP, ship.id,
+                ship.name + " - " + loadout.displayName(), WeaponRules.buildCost(ship, loadout),
+                ship.buildTimeSeconds, loadout.id());
     }
 
     static boolean queuePackage(World world, Base target, BaseType station) {
         if (station == null) return false;
         return queue(world, target, ProductionJobKind.STATION_PACKAGE, station.id,
-                station.name + " package", station.buildCost, station.buildTimeSeconds);
+                station.name + " package", station.buildCost, station.buildTimeSeconds, "");
     }
 
     static boolean queueCraftable(World world, Base target, CraftableItem item) {
         if (item == null) return false;
         return queue(world, target, ProductionJobKind.CRAFTABLE, item.id, item.name,
-                item.requiredResources, item.timeSeconds);
+                item.requiredResources, item.timeSeconds, "");
     }
 
     static boolean queueResearch(World world, Base target, ResearchTopic topic) {
         if (topic == null) return false;
         return queue(world, target, ProductionJobKind.RESEARCH, topic.id,
-                topic.name + " research", topic.requiredResources, topic.timeSeconds);
+                topic.name + " research", topic.requiredResources, topic.timeSeconds, "");
     }
 
     static synchronized void update(World world, double dt) {
@@ -155,7 +160,7 @@ final class ProductionPlanner {
     }
 
     private static boolean queue(World world, Base target, ProductionJobKind kind, String itemId,
-                                 String displayName, List<Cost> cost, double duration) {
+                                 String displayName, List<Cost> cost, double duration, String loadoutId) {
         if (world == null || target == null || kind == null || itemId == null || itemId.isBlank()
                 || cost == null || cost.isEmpty()) return false;
         synchronized (ProductionPlanner.class) {
@@ -166,11 +171,11 @@ final class ProductionPlanner {
             }
 
             ProductionJob rootJob = ProductionSystem.enqueueWaiting(world, target, kind, itemId,
-                    displayName, duration);
+                    displayName, duration, loadoutId, "");
             if (rootJob == null) return false;
 
             String id = "AP" + state.nextPlanId++;
-            PlannedAction root = new PlannedAction(kind, itemId, displayName, target.id,
+            PlannedAction root = new PlannedAction(kind, itemId, loadoutId, displayName, target.id,
                     rootJob.id, List.copyOf(cost));
             ProductionPlan plan = new ProductionPlan(id, world.activeSystemId(), target.playerId, root);
             state.plans.add(plan);
@@ -195,7 +200,8 @@ final class ProductionPlanner {
         boolean queued = switch (root.kind) {
             case SHIP -> {
                 ShipType ship = Rules.findShip(root.itemId);
-                yield ship != null && world.logisticsSystem.queueBuildShip(world, target, ship);
+                ShipLoadoutDefinition loadout = WeaponRules.resolveForHull(root.itemId, root.loadoutId);
+                yield ship != null && loadout != null && world.logisticsSystem.queueBuildShip(world, target, ship, loadout);
             }
             case STATION_PACKAGE -> {
                 BaseType station = Rules.findBase(root.itemId);
@@ -209,6 +215,7 @@ final class ProductionPlanner {
                 ResearchTopic topic = ResearchRules.topic(root.itemId);
                 yield topic != null && world.logisticsSystem.queueResearch(world, target, topic);
             }
+            case REFIT -> false;
         };
 
         if (!queued) {
@@ -493,7 +500,7 @@ final class ProductionPlanner {
         }
     }
 
-    private record PlannedAction(ProductionJobKind kind, String itemId, String displayName,
+    private record PlannedAction(ProductionJobKind kind, String itemId, String loadoutId, String displayName,
                                  String targetBaseId, String productionJobId, List<Cost> cost) { }
 
     private static Map<String,Object> captureAction(PlannedAction action) {
@@ -501,6 +508,7 @@ final class ProductionPlanner {
         if (action == null) return out;
         out.put("kind", action.kind().name());
         out.put("itemId", action.itemId());
+        out.put("loadoutId", action.loadoutId());
         out.put("displayName", action.displayName());
         out.put("targetBaseId", action.targetBaseId());
         out.put("productionJobId", action.productionJobId());
@@ -529,7 +537,10 @@ final class ProductionPlanner {
             double amount = ServerSaveStore.doubleValue(row, "amount", 0);
             if (material != null && amount > EPSILON) cost.add(new Cost(material, amount));
         }
-        return new PlannedAction(kind, itemId, ServerSaveStore.string(data, "displayName", itemId),
+        String loadoutId = ServerSaveStore.string(data, "loadoutId",
+                kind == ProductionJobKind.SHIP ? WeaponRules.defaultLoadoutId(itemId) : "");
+        return new PlannedAction(kind, itemId, loadoutId,
+                ServerSaveStore.string(data, "displayName", itemId),
                 targetBaseId, productionJobId, List.copyOf(cost));
     }
 

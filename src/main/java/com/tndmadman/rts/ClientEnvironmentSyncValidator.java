@@ -16,12 +16,26 @@ public final class ClientEnvironmentSyncValidator {
 
     static void validateOrThrow() {
         try {
+            validateOrbitNormalization();
             GalaxyRuntimeOptions.configureCopies(2);
             validateSecondCopyViewAndOrbitPrediction();
             validatePartialResourceSyncPreservesOrbitPrediction();
         } finally {
             GalaxyRuntimeOptions.configureCopies(1);
         }
+    }
+
+    private static void validateOrbitNormalization() {
+        ResourceNode node = new ResourceNode(1, "Orbit normalization", NodeKind.SILICATE_ROCK,
+                Material.IRON, 0, 0, 100, 1, 10);
+        node.orbit(100, 80, -25, 0, 0.2);
+        require(Math.abs(node.orbitRadius - 25) < 0.000001,
+                "negative generated orbit radius was not normalized");
+        require(Math.abs(node.x - 75) < 0.000001 && Math.abs(node.y - 80) < 0.000001,
+                "orbit-radius normalization changed the represented resource position");
+        require(Double.isFinite(node.orbitCenterX) && Double.isFinite(node.orbitCenterY)
+                        && Double.isFinite(node.orbitAngle) && Double.isFinite(node.orbitSpeed),
+                "normalized orbit state contains a non-finite value");
     }
 
     private static void validateSecondCopyViewAndOrbitPrediction() {

@@ -1,9 +1,83 @@
 {
   "shipLoadouts": {
-    "frigate": ["light_railgun"],
-    "destroyer": ["light_railgun", "light_missile", "point_defense_laser"],
-    "cruiser": ["light_railgun", "heavy_cannon", "light_missile", "torpedo"],
-    "battle_cruiser": ["heavy_cannon", "heavy_cannon", "torpedo"],
-    "battleship": ["heavy_cannon", "heavy_cannon", "torpedo", "torpedo", "point_defense_laser", "point_defense_laser"]
+    "frigate": {
+      "displayName": "Frigate",
+      "hullId": "frigate",
+      "default": true,
+      "weapons": ["light_railgun"],
+      "refitTimeSeconds": 1.5
+    },
+    "destroyer": {
+      "displayName": "Balanced Escort",
+      "hullId": "destroyer",
+      "default": true,
+      "weapons": ["light_railgun", "light_missile", "point_defense_laser"],
+      "requiresResearch": ["combat_doctrine"],
+      "refitCost": {
+        "RAILGUN_ASSEMBLY": 1,
+        "MISSILE_GUIDANCE_PACKAGE": 1,
+        "POINT_DEFENSE_LASER_ASSEMBLY": 1
+      },
+      "refitTimeSeconds": 1.5
+    },
+    "destroyer_rail_escort": {
+      "displayName": "Railgun Escort",
+      "hullId": "destroyer",
+      "weapons": ["light_railgun", "light_railgun", "light_railgun"],
+      "requiresResearch": ["combat_doctrine"],
+      "buildCost": {"RAILGUN_ASSEMBLY": 1},
+      "refitCost": {"RAILGUN_ASSEMBLY": 3, "TARGETING_COMPUTER": 1},
+      "refitTimeSeconds": 1.5
+    },
+    "destroyer_missile_screen": {
+      "displayName": "Missile Screen",
+      "hullId": "destroyer",
+      "weapons": ["light_missile", "light_missile", "point_defense_laser"],
+      "requiresResearch": ["combat_doctrine"],
+      "buildCost": {"MISSILE_GUIDANCE_PACKAGE": 1, "MISSILE_WARHEAD": 2},
+      "refitCost": {"MISSILE_GUIDANCE_PACKAGE": 2, "MISSILE_WARHEAD": 4, "POINT_DEFENSE_LASER_ASSEMBLY": 1},
+      "refitTimeSeconds": 1.5
+    },
+    "cruiser": {
+      "displayName": "Balanced Line",
+      "hullId": "cruiser",
+      "default": true,
+      "weapons": ["light_railgun", "heavy_cannon", "light_missile", "torpedo"],
+      "requiresResearch": ["combat_doctrine"],
+      "refitCost": {"RAILGUN_ASSEMBLY": 1, "HEAVY_CANNON_ASSEMBLY": 1, "TORPEDO_ASSEMBLY": 1},
+      "refitTimeSeconds": 1.5
+    },
+    "cruiser_artillery": {
+      "displayName": "Artillery Battery",
+      "hullId": "cruiser",
+      "weapons": ["heavy_cannon", "heavy_cannon", "heavy_cannon", "point_defense_laser"],
+      "requiresResearch": ["combat_doctrine"],
+      "buildCost": {"HEAVY_CANNON_ASSEMBLY": 2, "TARGETING_COMPUTER": 1},
+      "refitCost": {"HEAVY_CANNON_ASSEMBLY": 3, "TARGETING_COMPUTER": 2, "POINT_DEFENSE_LASER_ASSEMBLY": 1},
+      "refitTimeSeconds": 1.5
+    },
+    "cruiser_torpedo_strike": {
+      "displayName": "Torpedo Strike",
+      "hullId": "cruiser",
+      "weapons": ["torpedo", "torpedo", "torpedo", "light_missile"],
+      "requiresResearch": ["combat_doctrine"],
+      "buildCost": {"TORPEDO_ASSEMBLY": 2, "MISSILE_GUIDANCE_PACKAGE": 1},
+      "refitCost": {"TORPEDO_ASSEMBLY": 3, "MISSILE_GUIDANCE_PACKAGE": 2, "MISSILE_WARHEAD": 4},
+      "refitTimeSeconds": 1.5
+    },
+    "battle_cruiser": {
+      "displayName": "Battle Cruiser",
+      "hullId": "battle_cruiser",
+      "default": true,
+      "weapons": ["heavy_cannon", "heavy_cannon", "torpedo"],
+      "refitTimeSeconds": 1.5
+    },
+    "battleship": {
+      "displayName": "Battleship",
+      "hullId": "battleship",
+      "default": true,
+      "weapons": ["heavy_cannon", "heavy_cannon", "torpedo", "torpedo", "point_defense_laser", "point_defense_laser"],
+      "refitTimeSeconds": 1.5
+    }
   }
 }

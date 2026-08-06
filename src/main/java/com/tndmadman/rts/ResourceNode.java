@@ -21,11 +21,17 @@ final class ResourceNode {
     }
 
     void orbit(double centerX, double centerY, double orbitRadius, double orbitAngle, double orbitSpeed) {
-        this.orbitCenterX = centerX;
-        this.orbitCenterY = centerY;
-        this.orbitRadius = orbitRadius;
-        this.orbitAngle = orbitAngle;
-        this.orbitSpeed = orbitSpeed;
+        this.orbitCenterX = Double.isFinite(centerX) ? centerX : x;
+        this.orbitCenterY = Double.isFinite(centerY) ? centerY : y;
+        double normalizedRadius = Double.isFinite(orbitRadius) ? orbitRadius : 0;
+        double normalizedAngle = Double.isFinite(orbitAngle) ? orbitAngle : 0;
+        if (normalizedRadius < 0) {
+            normalizedRadius = -normalizedRadius;
+            normalizedAngle += Math.PI;
+        }
+        this.orbitRadius = normalizedRadius;
+        this.orbitAngle = normalizedAngle;
+        this.orbitSpeed = Double.isFinite(orbitSpeed) ? orbitSpeed : 0;
         this.orbiting = true;
         updateOrbit(0);
     }

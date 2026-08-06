@@ -12,6 +12,7 @@ final class BRoute0 {
         }
         if (!SyncFrame.matches(message)) return false;
         c.readFullView(message);
+        ServerFogOfWarState.applyPendingClient(c.world, c.localPlayerId());
         return true;
     }
 }

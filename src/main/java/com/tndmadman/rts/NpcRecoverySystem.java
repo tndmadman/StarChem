@@ -264,7 +264,7 @@ final class NpcRecoverySystem {
         runtime.repairShipKeys.retainAll(livingKeys);
 
         for (Unit unit : units) {
-            if (!WeaponRules.armed(unit.type())) continue;
+            if (!WeaponRules.armed(unit)) continue;
             double ratio = hpRatio(unit);
             if (ratio + EPSILON < threshold) runtime.repairShipKeys.add(unit.key());
             if (unit.hp + EPSILON >= unit.type().maxHp) runtime.repairShipKeys.remove(unit.key());
@@ -320,7 +320,7 @@ final class NpcRecoverySystem {
 
         List<Unit> candidates = new ArrayList<>();
         for (Unit unit : units) {
-            if (retreatingKeys.contains(unit.key()) || !WeaponRules.armed(unit.type())) continue;
+            if (retreatingKeys.contains(unit.key()) || !WeaponRules.armed(unit)) continue;
             if (hpRatio(unit) < REPAIR_ESCORT_RATIO) continue;
             if (unit.orderType == UnitOrderType.ESCORT
                     && !runtime.repairEscortTargets.containsKey(unit.key())) continue;

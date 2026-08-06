@@ -50,9 +50,9 @@ final class StrictProductionQueueCodec {
         for (int i = 0; i < rows.length; i++) {
             int rowIndex = i + 1;
             String[] columns = rows[i].split("\\^", -1);
-            if (columns.length != 7 && columns.length != 8) {
+            if (columns.length != 7 && columns.length != 8 && columns.length != 10 && columns.length != 13) {
                 throw error(systemId, baseId, rowIndex,
-                        "expected 7 or 8 columns but found " + columns.length);
+                        "expected 7 or 8 columns for legacy rows, 10 columns for loadout rows, or 13 columns for quote rows, but found " + columns.length);
             }
 
             String id = required(columns[0], "job ID", systemId, baseId, rowIndex);
@@ -86,12 +86,32 @@ final class StrictProductionQueueCodec {
             validateText(reservedUnitKey, MAX_UNIT_KEY_LENGTH, "reserved unit key", systemId, baseId, rowIndex);
             validateReservedUnitKey(kind, reservedUnitKey, systemId, baseId, rowIndex);
 
-            String blockedReason = columns.length == 8 ? unclean(columns[7]) : "";
+            String blockedReason = columns.length >= 8 ? unclean(columns[7]) : "";
             validateText(blockedReason, MAX_BLOCKED_REASON_LENGTH, "blocked reason", systemId, baseId, rowIndex);
+            String loadoutId = columns.length >= 10 ? unclean(columns[8]) : "";
+            String subjectUnitKey = columns.length >= 10 ? unclean(columns[9]) : "";
+            validateText(loadoutId, MAX_ITEM_ID_LENGTH, "loadout ID", systemId, baseId, rowIndex);
+            validateText(subjectUnitKey, MAX_UNIT_KEY_LENGTH, "subject unit key", systemId, baseId, rowIndex);
+            validateLoadoutFields(kind, itemId, loadoutId, subjectUnitKey, systemId, baseId, rowIndex);
+            String sourceLoadoutId = columns.length >= 13 ? unclean(columns[10]) : "";
+            int quoteVersion = columns.length >= 13
+                    ? nonNegativeInteger(columns[11], "refit quote version", systemId, baseId, rowIndex) : 0;
+            List<Cost> reservedCost;
+            try { reservedCost = columns.length >= 13 ? RefitQuote.decodeCosts(columns[12]) : List.of(); }
+            catch (IllegalArgumentException ex) { throw error(systemId, baseId, rowIndex, ex.getMessage()); }
+            validateQuoteFields(kind, itemId, sourceLoadoutId, quoteVersion, reservedCost,
+                    systemId, baseId, rowIndex);
 
             ProductionJob job = new ProductionJob(id, kind, itemId, duration, remaining,
                     resourcesReserved, reservedUnitKey);
             job.blockedReason = blockedReason;
+            job.loadoutId = kind == ProductionJobKind.SHIP && loadoutId.isBlank()
+                    ? WeaponRules.defaultLoadoutId(itemId) : loadoutId;
+            job.subjectUnitKey = subjectUnitKey;
+            job.sourceLoadoutId = sourceLoadoutId;
+            job.refitQuoteVersion = quoteVersion;
+            job.reservedCost = reservedCost;
+            if (columns.length < 13) RefitQuote.migrateLegacy(job);
             jobs.add(job);
             nextProductionJobId = Math.max(nextProductionJobId, suffix + 1);
         }
@@ -105,10 +125,71 @@ final class StrictProductionQueueCodec {
             case STATION_PACKAGE -> Rules.BASES.containsKey(itemId);
             case CRAFTABLE -> CraftingRules.item(itemId) != null;
             case RESEARCH -> ResearchRules.topic(itemId) != null;
+            case REFIT -> Rules.SHIPS.containsKey(itemId);
         };
         if (!known) {
             throw error(systemId, baseId, rowIndex,
                     "unknown " + kind.name().toLowerCase(Locale.ROOT) + " item ID " + itemId);
+        }
+    }
+
+    private static void validateLoadoutFields(ProductionJobKind kind, String itemId, String loadoutId,
+                                              String subjectUnitKey, String systemId, String baseId, int rowIndex) {
+        if (kind == ProductionJobKind.SHIP || kind == ProductionJobKind.REFIT) {
+            String resolvedId = loadoutId.isBlank() && kind == ProductionJobKind.SHIP
+                    ? WeaponRules.defaultLoadoutId(itemId) : loadoutId;
+            ShipLoadoutDefinition loadout = WeaponRules.findLoadout(resolvedId);
+            if (loadout == null || !itemId.equals(loadout.hullId())) {
+                throw error(systemId, baseId, rowIndex, "unknown or mismatched loadout ID " + printable(resolvedId));
+            }
+            if (kind == ProductionJobKind.REFIT) {
+                if (subjectUnitKey.isBlank()) {
+                    throw error(systemId, baseId, rowIndex, "refit subject unit key is required");
+                }
+                validateUnitKey(subjectUnitKey, "refit subject unit key", systemId, baseId, rowIndex);
+            }
+            if (kind == ProductionJobKind.SHIP && !subjectUnitKey.isBlank()) {
+                throw error(systemId, baseId, rowIndex, "subject unit key is only valid for refit jobs");
+            }
+            return;
+        }
+        if (!loadoutId.isBlank() || !subjectUnitKey.isBlank()) {
+            throw error(systemId, baseId, rowIndex, "loadout and subject fields are only valid for ship or refit jobs");
+        }
+    }
+
+    private static void validateQuoteFields(ProductionJobKind kind, String itemId, String sourceLoadoutId,
+                                            int quoteVersion, List<Cost> reservedCost,
+                                            String systemId, String baseId, int rowIndex) {
+        validateText(sourceLoadoutId, MAX_ITEM_ID_LENGTH, "source loadout ID", systemId, baseId, rowIndex);
+        if (kind != ProductionJobKind.REFIT) {
+            if (!sourceLoadoutId.isBlank() || quoteVersion != 0 || !reservedCost.isEmpty()) {
+                throw error(systemId, baseId, rowIndex, "refit quote fields are only valid for refit jobs");
+            }
+            return;
+        }
+        if (quoteVersion == 0) {
+            if (!sourceLoadoutId.isBlank() || !reservedCost.isEmpty()) {
+                throw error(systemId, baseId, rowIndex, "legacy refit rows cannot contain quote fields");
+            }
+            return;
+        }
+        if (quoteVersion != RefitQuote.CURRENT_VERSION) {
+            throw error(systemId, baseId, rowIndex, "unsupported refit quote version " + quoteVersion);
+        }
+        ShipLoadoutDefinition source = WeaponRules.findLoadout(sourceLoadoutId);
+        if (source == null || !itemId.equals(source.hullId())) {
+            throw error(systemId, baseId, rowIndex, "unknown or mismatched source loadout ID " + printable(sourceLoadoutId));
+        }
+    }
+
+    private static int nonNegativeInteger(String value, String field, String systemId, String baseId, int rowIndex) {
+        try {
+            int parsed = Integer.parseInt(value);
+            if (parsed < 0) throw new NumberFormatException();
+            return parsed;
+        } catch (RuntimeException ex) {
+            throw error(systemId, baseId, rowIndex, field + " must be a non-negative integer");
         }
     }
 
@@ -119,20 +200,24 @@ final class StrictProductionQueueCodec {
             throw error(systemId, baseId, rowIndex,
                     "reserved unit key is only valid for station-package jobs");
         }
+        validateUnitKey(value, "reserved unit key", systemId, baseId, rowIndex);
+    }
+
+    private static void validateUnitKey(String value, String field, String systemId, String baseId, int rowIndex) {
         int colon = value.lastIndexOf(':');
         if (colon <= 0 || colon == value.length() - 1) {
-            throw error(systemId, baseId, rowIndex, "invalid reserved unit key " + printable(value));
+            throw error(systemId, baseId, rowIndex, "invalid " + field + " " + printable(value));
         }
         String unitId = value.substring(colon + 1);
         for (int i = 0; i < unitId.length(); i++) {
             if (!Character.isDigit(unitId.charAt(i))) {
-                throw error(systemId, baseId, rowIndex, "invalid reserved unit key " + printable(value));
+                throw error(systemId, baseId, rowIndex, "invalid " + field + " " + printable(value));
             }
         }
         try {
             Integer.parseInt(unitId);
         } catch (NumberFormatException ex) {
-            throw error(systemId, baseId, rowIndex, "invalid reserved unit key " + printable(value));
+            throw error(systemId, baseId, rowIndex, "invalid " + field + " " + printable(value));
         }
     }
 

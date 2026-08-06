@@ -680,7 +680,7 @@ final class NpcExpeditionSystem {
                 worker = unit;
                 continue;
             }
-            if (WeaponRules.armed(unit.type())) combat.add(unit);
+            if (WeaponRules.armed(unit)) combat.add(unit);
             else if (faction.supportTypeSet().contains(unit.shipTypeId)) support.add(unit);
         }
         int requested = Math.max(MIN_SURVIVING_COMBAT, faction.raidFleetSize());
@@ -880,7 +880,7 @@ final class NpcExpeditionSystem {
             for (Unit unit : world.units.values()) {
                 if (unit.hp <= 0) continue;
                 if (faction.id().equals(unit.playerId)) friendlyAssets++;
-                else if (hostile(faction, unit.playerId) && WeaponRules.armed(unit.type())) hostileCombat++;
+                else if (hostile(faction, unit.playerId) && WeaponRules.armed(unit)) hostileCombat++;
             }
             for (Base base : world.bases.values()) {
                 if (base.hp <= 0) continue;

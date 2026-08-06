@@ -15,6 +15,7 @@ final class AUnitWork {
 
     private static boolean valid(World world, Unit unit, ResourceNode node, HarvestCommand command) {
         return unit != null
+                && !ProductionSystem.refitReserved(world, unit.key())
                 && unit.playerId.equals(command.playerId())
                 && node != null
                 && node.active

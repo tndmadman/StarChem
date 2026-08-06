@@ -1,10 +1,10 @@
 # StarChem v1.7.0
 
-StarChem v1.7.0 is a security, persistence, multiplayer, server-operations, simulation-scheduling, and production-correctness release. It advances multiplayer to protocol 8 and changes how reusable authentication material is generated, transmitted, stored, and resumed.
+StarChem v1.7.0 is a security, persistence, multiplayer, server-operations, simulation-scheduling, production-correctness, and ship-fitting release. It advances multiplayer to protocol 13, rules version 27, and save format 5 while changing how reusable authentication material is generated, transmitted, stored, and resumed.
 
-## Multiplayer Protocol 8
+## Multiplayer Protocol 13
 
-- Advanced the multiplayer protocol from 7 to 8 for the revised TLS-protected credential and session-token handshake.
+- Advanced the multiplayer protocol from 7 to 13 for the revised TLS-protected credential and session-token handshake, authoritative ship-fit catalogs, and current snapshot/save compatibility contract.
 - Compatibility checks continue to require matching application version, protocol version, rules version, and packaged configuration fingerprint.
 - Build commit remains diagnostic. Builds from different commits may connect only when every required compatibility value matches.
 - StarChem v1.6.0 clients and servers use protocol 7 and are intentionally incompatible with v1.7.0 multiplayer.
@@ -59,6 +59,7 @@ StarChem v1.7.0 is a security, persistence, multiplayer, server-operations, simu
 - Retain verified current and previous companion-state copies and recover from malformed current state where possible.
 - Persist pruned galaxy state before reporting success and restore the verified pre-operation backup when a prune transaction fails.
 - Added collision-safe archive naming and stronger activity-journal rollover validation.
+- Current v1.7.0 saves use save format 5 and retain exact runtime fit catalogs, construction selections, and refit reservations.
 
 ## Identity, Admission, And Administration
 
@@ -88,6 +89,16 @@ StarChem v1.7.0 is a security, persistence, multiplayer, server-operations, simu
 - Added focused validation for alternate-recipe selection, prerequisite planning, queue deduplication, and production persistence.
 - Improved authoritative remote-system visibility, movement isolation, numerical command validation, notification handling, and reconnect convergence.
 
+## Ship Fits, Construction, And Refitting
+
+- Added authored hull variants plus private and server-published player-created weapon and utility-module fits.
+- Added Fit Studio workflows to create, save, publish, import, construct, and refit ships while keeping built-in fits read-only.
+- Made the server authoritative for component compatibility, research, hardpoint capacity, installation cost, construction cost, conversion cost, service timing, and runtime fit IDs.
+- Added transactional station refits across Outposts and Shipyards, including remote recall, station selection, exact material reservations, rollback, cancellation, destruction refunds, and restart persistence.
+- Added world-scoped runtime fit catalogs so separate worlds and client server-switches cannot leak custom definitions.
+- Unified authoritative combat, client prediction, orders, and rendering around one fitted attack-range calculation.
+- Added explicit weapon hardpoints and strict fail-closed enum parsing for current configuration.
+
 ## Launcher And Package Changes
 
 - The graphical lobby now provides **SOLO** and **JOIN**. Multiplayer hosting runs through the separate dedicated-server launcher.
@@ -102,15 +113,15 @@ StarChem v1.7.0 is a security, persistence, multiplayer, server-operations, simu
 3. Preserve current and previous saves, timestamped backups, TLS identity files, administration state, moderation state, observations, activity journal, recovery files, retained-identity state, and authentication-decoy state.
 4. Extract v1.7.0 into a new application directory.
 5. Start v1.7.0 with the same server-data directory and save name.
-6. Confirm the server reports the expected world, retained identities, player assets, research, production, systems, and TLS fingerprint before accepting remote players.
+6. Confirm the server reports the expected world, retained identities, player assets, research, production, systems, fitted ships, active jobs, and TLS fingerprint before accepting remote players.
 
 Read `UPGRADING_TO_1.7.0.md` before upgrading or attempting rollback.
 
 ## Compatibility
 
-All multiplayer clients and servers must use StarChem v1.7.0 with network protocol 8 and matching rules and packaged configuration files. StarChem v1.6.0 uses protocol 7 and cannot join a v1.7.0 server or accept a v1.7.0 client.
+All multiplayer clients and servers must use StarChem v1.7.0 with network protocol 13, rules version 27, save format 5, and matching packaged configuration files. StarChem v1.6.0 uses protocol 7 and cannot join a v1.7.0 server or accept a v1.7.0 client.
 
-Save-format migration is designed to preserve existing v1.6.0 worlds and identities, but a full directory backup is required because v1.7.0 adds and updates security-sensitive companion state. Do not assume that a v1.6.0 binary can safely interpret files written or migrated by v1.7.0.
+Save-format migration upgrades existing v1.6.0 worlds and identities to save format 5, but a full directory backup is required because v1.7.0 adds and updates security-sensitive companion state and authoritative fit data. Do not assume that a v1.6.0 binary can safely interpret files written or migrated by v1.7.0.
 
 ## Requirements
 

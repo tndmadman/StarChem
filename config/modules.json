@@ -1,0 +1,140 @@
+{
+  "defaultUtilitySlots": 0,
+  "hullUtilitySlots": {
+    "prospector": 1,
+    "station_builder": 1,
+    "sensor_contact_small": 0,
+    "sensor_contact_medium": 0,
+    "sensor_contact_large": 0,
+    "fuel_hauler_shuttle": 0,
+    "logistics_shuttle": 0,
+    "hauler": 1,
+    "deep_miner": 1,
+    "gas_harvester": 1,
+    "freighter": 2,
+    "salvager": 2,
+    "frigate": 2,
+    "destroyer": 2,
+    "cruiser": 2,
+    "battle_cruiser": 3,
+    "battleship": 3,
+    "carrier": 3,
+    "dreadnought": 3,
+    "supercarrier": 4,
+    "titan": 4,
+    "monolith": 4
+  },
+  "shipModules": {
+    "afterburner": {
+      "displayName": "Afterburner",
+      "description": "Automatically activates on long approaches. Greatly increases speed but sharply reduces turning agility.",
+      "kind": "AFTERBURNER",
+      "seed": 41021,
+      "visualStyle": "THRUSTER",
+      "activationDistance": 420,
+      "speedMultiplier": 1.85,
+      "agilityMultiplier": 0.22,
+      "requiresResearch": [
+        "combat_doctrine"
+      ],
+      "installationCost": {
+        "TARGETING_COMPUTER": 1
+      },
+      "color": "#62D8FF",
+      "compatibleHulls": [
+        "prospector",
+        "station_builder",
+        "hauler",
+        "deep_miner",
+        "gas_harvester",
+        "freighter",
+        "salvager",
+        "frigate",
+        "destroyer",
+        "cruiser",
+        "battle_cruiser",
+        "battleship",
+        "carrier",
+        "dreadnought",
+        "supercarrier",
+        "titan",
+        "monolith"
+      ],
+      "allowDuplicates": false
+    },
+    "micro_jump_drive": {
+      "displayName": "Micro Jump Drive",
+      "description": "Charges, then jumps 95% of the remaining route toward distant movement or attack objectives. Hostile tackle interrupts and prevents activation.",
+      "kind": "MICRO_JUMP_DRIVE",
+      "seed": 52037,
+      "visualStyle": "JUMP_CORE",
+      "activationDistance": 850,
+      "jumpDistance": 0.95,
+      "cooldownSeconds": 14,
+      "requiresResearch": [
+        "battlefleet_engineering"
+      ],
+      "installationCost": {
+        "TARGETING_COMPUTER": 2,
+        "LANCE_FOCUSING_ARRAY": 1
+      },
+      "color": "#9BEAFF",
+      "compatibleHulls": [
+        "prospector",
+        "station_builder",
+        "hauler",
+        "deep_miner",
+        "gas_harvester",
+        "freighter",
+        "salvager",
+        "frigate",
+        "destroyer",
+        "cruiser",
+        "battle_cruiser",
+        "battleship",
+        "carrier",
+        "dreadnought",
+        "supercarrier",
+        "titan",
+        "monolith"
+      ],
+      "allowDuplicates": false
+    },
+    "warp_scrambler": {
+      "displayName": "Jump Scrambler",
+      "description": "Tackles the targeted enemy at close range, disabling afterburners, micro jumps, and wormhole escape.",
+      "kind": "TACKLE",
+      "seed": 63073,
+      "visualStyle": "DISRUPTOR",
+      "range": 360,
+      "requiresResearch": [
+        "combat_doctrine"
+      ],
+      "installationCost": {
+        "TARGETING_COMPUTER": 1,
+        "POINT_DEFENSE_LASER_ASSEMBLY": 1
+      },
+      "color": "#FF7E48",
+      "compatibleHulls": [
+        "prospector",
+        "station_builder",
+        "hauler",
+        "deep_miner",
+        "gas_harvester",
+        "freighter",
+        "salvager",
+        "frigate",
+        "destroyer",
+        "cruiser",
+        "battle_cruiser",
+        "battleship",
+        "carrier",
+        "dreadnought",
+        "supercarrier",
+        "titan",
+        "monolith"
+      ],
+      "allowDuplicates": false
+    }
+  }
+}

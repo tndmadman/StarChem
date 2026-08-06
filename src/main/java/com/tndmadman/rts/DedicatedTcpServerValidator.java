@@ -61,6 +61,8 @@ public final class DedicatedTcpServerValidator {
                 return a != null && b != null && a.targetX != firstStartX && b.targetX != secondStartX;
             }, 5_000, "dedicated server did not process client commands");
             harness.runTicks(250);
+            stabilizeProbe(harness.serverWorld, first.playerId(), firstUnitId);
+            stabilizeProbe(harness.serverWorld, second.playerId(), secondUnitId);
             harness.awaitConverged(first, firstUnitId, 1.0, 6_000);
             harness.awaitConverged(second, secondUnitId, 1.0, 6_000);
             System.out.println("StarChem dedicated TCP server validation passed.");
@@ -83,11 +85,18 @@ public final class DedicatedTcpServerValidator {
                 Unit unit = world.units.get(Unit.key(playerId, unitId));
                 if (unit == null) continue;
                 unit.shipTypeId = STABLE_PROBE_SHIP;
+                unit.loadoutId = WeaponRules.defaultLoadoutId(unit.shipTypeId);
                 unit.task = UnitTask.IDLE;
                 unit.automationResourceId = -1;
                 unit.attackTarget = "";
                 unit.targetX = unit.x;
                 unit.targetY = unit.y;
+                unit.orderType = UnitOrderType.HOLD;
+                unit.orderX1 = unit.x;
+                unit.orderY1 = unit.y;
+                unit.orderX2 = unit.x;
+                unit.orderY2 = unit.y;
+                unit.orderTarget = "";
                 world.saveActiveSystem();
                 return;
             }

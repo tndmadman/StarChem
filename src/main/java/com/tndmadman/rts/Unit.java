@@ -7,6 +7,7 @@ final class Unit {
     final int unitId;
     final EnumMap<Material, Double> inventory = new EnumMap<>(Material.class);
     String shipTypeId;
+    String loadoutId;
     String basePackageType = "";
     String attackTarget = "";
     String logisticsTargetBaseId = "";
@@ -16,17 +17,20 @@ final class Unit {
     UnitOrderType orderType = UnitOrderType.NONE;
     double x, y, targetX, targetY, heading = -Math.PI / 2, orbitAngle, orbitRetarget;
     double weaponCooldown, weaponFlashTimer, wormholeCooldown;
+    double microJumpCooldown, microJumpFlashTimer;
     double hp, shield, shieldDelayTimer;
     double miningAnchorX, miningAnchorY;
     double orderX1, orderY1, orderX2, orderY2, orderRadius;
     int automationResourceId = -1;
     int orderPhase;
-    boolean selected, unloadingThisFrame, miningAnchorSet;
+    boolean selected, unloadingThisFrame, miningAnchorSet, afterburnerActive;
+    private boolean afterburnerAudioActive;
 
     Unit(String playerId, int unitId, String shipTypeId, double x, double y) {
         this.playerId = playerId;
         this.unitId = unitId;
         this.shipTypeId = shipTypeId;
+        this.loadoutId = WeaponRules.defaultLoadoutId(shipTypeId);
         this.x = Double.isFinite(x) ? x : 0;
         this.y = Double.isFinite(y) ? y : 0;
         this.targetX = this.x;
@@ -44,7 +48,7 @@ final class Unit {
     boolean contains(double wx, double wy) { return Calc.distance(wx, wy, x, y) <= 28 * type().size.scale; }
 
     void issueMove(double tx, double ty) {
-        if (!GameplayCommandNumbers.finite(tx, ty)) return;
+        if (refitLocked() || !GameplayCommandNumbers.finite(tx, ty)) return;
         clearOrder();
         if (canAutoMineLocally()) setMiningAnchor(tx, ty);
         moveTo(tx, ty);
@@ -60,6 +64,7 @@ final class Unit {
     }
 
     void issueAttack(String targetKey) {
+        if (refitLocked()) return;
         clearOrder();
         attack(targetKey);
     }
@@ -75,6 +80,7 @@ final class Unit {
     }
 
     void startAutoHarvest(int resourceId) {
+        if (refitLocked()) return;
         clearOrder();
         automationResourceId = resourceId;
         attackTarget = "";
@@ -82,6 +88,7 @@ final class Unit {
     }
 
     void setOrder(UnitOrderCommand command) {
+        if (refitLocked()) return;
         if (command == null || command.type() == UnitOrderType.NONE) {
             clearOrder();
             return;
@@ -133,6 +140,14 @@ final class Unit {
         return type.scoutRange > 0 && !type.harvestKinds.isEmpty();
     }
 
+    private boolean refitLocked() {
+        World world = PlayerRegistry.activeWorld();
+        if (world == null) return false;
+        if (!ProductionSystem.refitReserved(world, key())) return false;
+        if (PlayerRegistry.isLocal(playerId)) world.status = "Ship is reserved for refitting.";
+        return true;
+    }
+
     double cargoUsed() {
         double total = 0;
         for (double value : inventory.values()) if (Double.isFinite(value) && value > 0) total += value;
@@ -176,6 +191,7 @@ final class Unit {
             clearOrder();
         }
         if (!Double.isFinite(dt) || dt <= 0) return;
+        syncAfterburnerAudio();
 
         double dx = targetX - x;
         double dy = targetY - y;
@@ -188,12 +204,35 @@ final class Unit {
             return;
         }
         if (dist > 2) {
-            heading = Math.atan2(dy, dx);
-            double step = Math.min(dist, type().speed * dt);
-            x += dx / dist * step;
-            y += dy / dist * step;
+            double desiredHeading = Math.atan2(dy, dx);
+            if (afterburnerActive) {
+                double maxTurn = 1.35 * ShipModuleRules.agilityMultiplier(this) * dt;
+                heading += Calc.clamp(angleDelta(heading, desiredHeading), -maxTurn, maxTurn);
+            } else {
+                heading = desiredHeading;
+            }
+            double step = Math.min(dist, type().speed * ShipModuleRules.speedMultiplier(this) * dt);
+            x += Math.cos(heading) * step;
+            y += Math.sin(heading) * step;
         }
         x = GameplayCommandNumbers.repairedCoordinate(x, targetX, width);
         y = GameplayCommandNumbers.repairedCoordinate(y, targetY, height);
+    }
+
+    private void syncAfterburnerAudio() {
+        if (afterburnerAudioActive == afterburnerActive) return;
+        afterburnerAudioActive = afterburnerActive;
+        World world = PlayerRegistry.activeWorld();
+        if (world == null || !SystemAudio.nonRendered(world) && !"SOLO".equals(playerId)) return;
+        SystemAudio.play(world, afterburnerActive
+                ? SoundCue.AFTERBURNER_IGNITE
+                : SoundCue.AFTERBURNER_CUTOFF);
+    }
+
+    private static double angleDelta(double from, double to) {
+        double delta = to - from;
+        while (delta > Math.PI) delta -= Math.PI * 2;
+        while (delta < -Math.PI) delta += Math.PI * 2;
+        return delta;
     }
 }

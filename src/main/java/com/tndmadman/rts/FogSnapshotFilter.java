@@ -27,6 +27,10 @@ final class FogSnapshotFilter {
 
         List<ResourceState> resources = new ArrayList<>();
         for (ResourceState state : source.resources()) {
+            if (!state.active() && ResourceSync.authorizedTombstone(playerId, state.id())) {
+                resources.add(state);
+                continue;
+            }
             ResourceNode resource = world.findResource(state.id());
             IntelWarfareSystem.DetectionStage stage = visibility.resourceStage(resource);
             if (stage == IntelWarfareSystem.DetectionStage.NONE) continue;

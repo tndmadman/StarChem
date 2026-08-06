@@ -11,22 +11,29 @@ final class LogisticsSystem {
     private long nextRequestId = 1;
 
     boolean queueBuildShip(World world, Base target, ShipType ship) {
-        return queue(world, target, ProductionJobKind.SHIP, ship.id, ship.name, ship.buildCost, ship.buildTimeSeconds);
+        return queueBuildShip(world, target, ship, ship == null ? null : WeaponRules.defaultLoadout(ship.id));
+    }
+
+    boolean queueBuildShip(World world, Base target, ShipType ship, ShipLoadoutDefinition loadout) {
+        if (ship == null || loadout == null) return false;
+        return queue(world, target, ProductionJobKind.SHIP, ship.id,
+                ship.name + " - " + loadout.displayName(), WeaponRules.buildCost(ship, loadout),
+                ship.buildTimeSeconds, loadout.id());
     }
 
     boolean queueBasePackage(World world, Base target, BaseType station) {
         return queue(world, target, ProductionJobKind.STATION_PACKAGE, station.id, station.name + " package",
-                station.buildCost, station.buildTimeSeconds);
+                station.buildCost, station.buildTimeSeconds, "");
     }
 
     boolean queueCraftable(World world, Base target, CraftableItem item) {
         return queue(world, target, ProductionJobKind.CRAFTABLE, item.id, item.name,
-                item.requiredResources, item.timeSeconds);
+                item.requiredResources, item.timeSeconds, "");
     }
 
     boolean queueResearch(World world, Base target, ResearchTopic topic) {
         return queue(world, target, ProductionJobKind.RESEARCH, topic.id, topic.name + " research",
-                topic.requiredResources, topic.timeSeconds);
+                topic.requiredResources, topic.timeSeconds, "");
     }
 
     void update(World world, double dt) {
@@ -40,13 +47,14 @@ final class LogisticsSystem {
     }
 
     private boolean queue(World world, Base target, ProductionJobKind kind, String itemId, String itemName,
-                          List<Cost> cost, double duration) {
+                          List<Cost> cost, double duration, String loadoutId) {
         if (world == null || target == null || cost.isEmpty()) return false;
         if (!Rules.SHIPS.containsKey(SHUTTLE_TYPE)) return false;
         List<Cost> missing = missingAt(target, cost);
         if (missing.isEmpty() || !availableHangarsCanCover(world, target, missing)) return false;
 
-        ProductionJob job = ProductionSystem.enqueueWaiting(world, target, kind, itemId, itemName, duration);
+        ProductionJob job = ProductionSystem.enqueueWaiting(world, target, kind, itemId, itemName, duration,
+                loadoutId, "");
         if (job == null) return false;
         LogisticsRequest request = new LogisticsRequest("LR" + nextRequestId++, world.activeSystemId(),
                 target.playerId, target.id, target, job.id, itemName, cost);

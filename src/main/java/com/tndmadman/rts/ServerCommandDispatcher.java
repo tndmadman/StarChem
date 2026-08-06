@@ -60,7 +60,7 @@ final class ServerCommandDispatcher {
         this.target = target;
         this.output = output == null ? System.out : output;
         this.errors = errors == null ? System.err : errors;
-        register("help", "help [command]", "Show available commands or detailed command help.", this::help);
+        register("help", "help [command [topic]]", "Show available commands or detailed command help.", this::help);
         register("status", "status", "Print server, network, save, and autosave status.", this::status);
         register("players", "players", "List connected and retained player sessions.", this::players);
         register("leaderboard", "leaderboard [top <count>]", "Show authoritative player rankings.", this::leaderboard);
@@ -108,7 +108,7 @@ final class ServerCommandDispatcher {
         register("say", "say <message>", "Broadcast a server notice to connected clients.", this::say);
         register("shutdown", "shutdown [now|status|cancel|<duration>] [reason]", "Schedule, inspect, cancel, or perform shutdown.", this::shutdown);
         register("disconnect", "disconnect <player-id-or-name> [reason]", "Temporarily disconnect a player while retaining the session.", this::disconnect);
-        register("dev", "dev <status|mode|access|freebuild|resource|research|ai|timers|faction|production|asset|player|spawn> ...", "Run trusted local-console developer and recovery controls.", this::developer);
+        register("dev", "dev <help|status|mode|role|access|freebuild|resource|research|ai|timers|faction|production|asset|player|spawn> ...", "Run trusted local-console developer and recovery controls.", this::developer);
         register("version", "version", "Print the running StarChem build identity.", this::version);
         register("stop", "stop", "Save and stop the dedicated server immediately.", this::stop);
     }
@@ -218,11 +218,11 @@ final class ServerCommandDispatcher {
     }
 
     private void help(List<String> args) {
-        if (args.size() > 1) {
-            errors.println("Usage: help [command]");
+        if (args.size() > 2 || args.size() == 2 && !"dev".equalsIgnoreCase(args.get(0))) {
+            errors.println("Usage: help [command [topic]]");
             return;
         }
-        if (args.size() == 1) {
+        if (!args.isEmpty()) {
             String requested = args.get(0).toLowerCase(Locale.ROOT);
             String commandName = aliases.getOrDefault(requested, requested);
             Command command = commands.get(commandName);
@@ -231,6 +231,9 @@ final class ServerCommandDispatcher {
                 return;
             }
             output.println(command.usage() + " - " + command.description());
+            if ("dev".equals(commandName)) {
+                printLines(ServerDevRoleCommands.help(args.size() == 2 ? args.subList(1, 2) : List.of()));
+            }
             return;
         }
         output.println("Dedicated server commands:");
@@ -435,7 +438,22 @@ final class ServerCommandDispatcher {
         output.println(target.disconnect(args.get(0), join(args, 1)));
     }
 
-    private void developer(List<String> args) { printLines(target.developer(args)); }
+    private void developer(List<String> args) {
+        if (!args.isEmpty() && "help".equalsIgnoreCase(args.get(0))) {
+            printLines(ServerDevRoleCommands.help(args.subList(1, args.size())));
+            return;
+        }
+        if (!args.isEmpty() && "role".equalsIgnoreCase(args.get(0))) {
+            printLines(ServerDevRoleCommands.execute(target, args.subList(1, args.size())));
+            return;
+        }
+        if (args.size() == 3 && "access".equalsIgnoreCase(args.get(0))
+                && ("grant".equalsIgnoreCase(args.get(1)) || "revoke".equalsIgnoreCase(args.get(1)))) {
+            printLines(ServerDevRoleCommands.accessAlias(target, args));
+            return;
+        }
+        printLines(target.developer(args));
+    }
 
     private void version(List<String> args) {
         if (!requireNoArgs("version", args)) return;

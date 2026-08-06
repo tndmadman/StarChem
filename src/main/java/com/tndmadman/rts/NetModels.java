@@ -18,7 +18,22 @@ record PersistentPlayerSession(String playerId, String name, int rgb, byte[] pas
 record UnitState(String playerId, int unitId, String shipTypeId, double x, double y, double targetX, double targetY,
                  double heading, String task, int resourceId, String packageType, String cargo, double hp, double shield,
                  String attackTarget, double weaponFlashTimer, String orderType, double orderX1, double orderY1,
-                 double orderX2, double orderY2, double orderRadius, String orderTarget, int orderPhase) {
+                 double orderX2, double orderY2, double orderRadius, String orderTarget, int orderPhase,
+                 String loadoutId) {
+    UnitState {
+        loadoutId = loadoutId == null || loadoutId.isBlank()
+                ? WeaponRules.defaultLoadoutId(shipTypeId) : loadoutId;
+    }
+
+    UnitState(String playerId, int unitId, String shipTypeId, double x, double y, double targetX, double targetY,
+              double heading, String task, int resourceId, String packageType, String cargo, double hp, double shield,
+              String attackTarget, double weaponFlashTimer, String orderType, double orderX1, double orderY1,
+              double orderX2, double orderY2, double orderRadius, String orderTarget, int orderPhase) {
+        this(playerId, unitId, shipTypeId, x, y, targetX, targetY, heading, task, resourceId, packageType, cargo,
+                hp, shield, attackTarget, weaponFlashTimer, orderType, orderX1, orderY1, orderX2, orderY2,
+                orderRadius, orderTarget, orderPhase, WeaponRules.defaultLoadoutId(shipTypeId));
+    }
+
     UnitState(String playerId, int unitId, String shipTypeId, double x, double y, double targetX, double targetY,
               double heading, String task, int resourceId, String packageType, String cargo, double hp, double shield,
               String attackTarget, double weaponFlashTimer) {
@@ -39,6 +54,7 @@ record UnitState(String playerId, int unitId, String shipTypeId, double x, doubl
                 Rules.ship(shipTypeId).maxHp, Rules.ship(shipTypeId).maxShield, "", 0);
     }
 }
+
 record ResourceState(int id, String name, String kind, String material, double x, double y, double maxAmount, double harvestRate, double radius, double amount, boolean active, double respawnTimer, double orbitCenterX, double orbitCenterY, double orbitRadius, double orbitAngle, double orbitSpeed, boolean orbiting) {
     ResourceState(int id, String name, String kind, String material, double x, double y, double maxAmount, double harvestRate, double radius, double amount, boolean active, double respawnTimer) {
         this(id, name, kind, material, x, y, maxAmount, harvestRate, radius, amount, active, respawnTimer, x, y, 0, 0, 0, false);

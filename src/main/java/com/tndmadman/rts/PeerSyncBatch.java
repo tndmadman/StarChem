@@ -19,11 +19,25 @@ final class PeerSyncBatch {
     }
 
     static long sendInitial(World world, ClientViewCache views, ServerPeer peer, long sequence, NetOutbound out) {
+        sendFitCatalog(world, peer, out);
         long next = PeerSyncSender.sendOne(world, views, peer, sequence, SyncKind.INITIAL, out);
+        sendFogState(world, views, peer, out);
         sendNotices(world, peer, out);
         sendAudio(world, views, peer, out);
         GlobalLeaderboard.forceNextAuthoritativeSend(world);
         return next;
+    }
+
+    private static void sendFitCatalog(World world, ServerPeer peer, NetOutbound out) {
+        if (world == null || peer == null || out == null) return;
+        String packet = "FIT_CATALOG|" + FitStateWire.encode(WorldFitCatalog.networkView(world));
+        out.send(packet, peer.connectionId(), DeliveryClass.ORDERED);
+    }
+
+    private static void sendFogState(World world, ClientViewCache views, ServerPeer peer, NetOutbound out) {
+        if (world == null || views == null || peer == null || out == null) return;
+        String packet = ServerFogOfWarState.packet(world, peer.playerId(), views.view(world, peer.playerId()));
+        if (!packet.isBlank()) out.send(packet, peer.connectionId(), DeliveryClass.ORDERED);
     }
 
     private static void sendNotices(World world, ServerPeer peer, NetOutbound out) {

@@ -298,7 +298,7 @@ final class ObjectiveSystem {
                     metrics.addPlayer(unit.playerId);
                     metrics.ships.merge(unit.playerId, 1, Integer::sum);
                     metrics.liveAssets.merge(unit.playerId, 1, Integer::sum);
-                    if (WeaponRules.armed(unit.type())) {
+                    if (WeaponRules.armed(unit)) {
                         metrics.combatShips.merge(unit.playerId, 1, Integer::sum);
                     }
                     metrics.shipTypes.computeIfAbsent(unit.playerId, ignored -> new HashMap<>())

@@ -63,6 +63,19 @@ final class CodexCatalog {
             line(body, "Research", unlockedBy.isEmpty() ? "No research gate" : String.join(", ", unlockedBy));
             line(body, "Build time", seconds(ship.buildTimeSeconds));
             line(body, "Build cost", Rules.formatCost(ship.buildCost));
+            List<String> loadouts = new ArrayList<>();
+            for (ShipLoadoutDefinition loadout : WeaponRules.loadoutsForHull(ship.id)) {
+                List<String> weapons = new ArrayList<>();
+                for (WeaponType weapon : WeaponRules.loadout(loadout)) weapons.add(weapon.name);
+                String detail = loadout.displayName() + (loadout.defaultForHull() ? " [default]" : "")
+                        + ": " + (weapons.isEmpty() ? "unarmed" : String.join(", ", weapons))
+                        + " | utility " + ShipModuleRules.summary(ShipModuleRules.moduleIds(loadout));
+                if (!loadout.buildCost().isEmpty()) detail += " | build premium " + Rules.formatCost(loadout.buildCost());
+                if (!loadout.refitCost().isEmpty()) detail += " | refit " + Rules.formatCost(loadout.refitCost())
+                        + " in " + seconds(loadout.refitTimeSeconds());
+                loadouts.add(detail);
+            }
+            line(body, "Loadouts", loadouts.isEmpty() ? "None configured" : String.join("; ", loadouts));
             out.add(new CodexEntry(CodexCategory.SHIPS, ship.id, ship.name, shipRole(ship), body.toString()));
         }
     }

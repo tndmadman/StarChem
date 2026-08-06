@@ -17,6 +17,7 @@ final class UnitRenderer {
     static void draw(Graphics2D g2, Unit unit, Color ignoredColor, boolean ignoredOwner) {
         Color playerColor = PlayerRegistry.color(unit.playerId);
         boolean owner = PlayerRegistry.isLocal(unit.playerId);
+        World world = PlayerRegistry.activeWorld();
         Graphics2D s = (Graphics2D) g2.create();
         s.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         s.translate(unit.x, unit.y);
@@ -34,13 +35,21 @@ final class UnitRenderer {
             g2.setStroke(new BasicStroke(2f));
             g2.drawOval((int)unit.x - 26, (int)unit.y - 26, 52, 52);
             drawCargo(g2, unit);
+            double weaponRange = displayedWeaponRange(world, unit);
+            if (weaponRange > 0) {
+                boolean fill = world == null || world.selectedCount() <= 1;
+                drawWeaponRangeCircle(g2, unit, weaponRange, weaponRangeColor(world, unit), fill);
+            }
         }
-        World world = PlayerRegistry.activeWorld();
         if (owner && unit.type().scoutRange > 0 && shouldDrawScoutCircle(unit)) {
             double range = world == null ? unit.type().scoutRange : VisibilityRules.unitSensorRange(world, unit);
             drawRangeCircle(g2, unit, playerColor, range);
         }
         if (owner && shouldDrawTractorCircle(unit)) drawRangeCircle(g2, unit, playerColor, unit.type().tractorRange);
+    }
+
+    static double displayedWeaponRange(World world, Unit unit) {
+        return AttackRangeRules.effectiveWeaponRange(world, unit);
     }
 
     static void drawRoute(Graphics2D g2, Unit unit, Color ignoredColor) {
@@ -70,6 +79,32 @@ final class UnitRenderer {
 
     private static boolean shouldDrawTractorCircle(Unit unit) {
         return miningRangeOverlayVisible && unit.type().tractorBeamCount > 0 && unit.type().tractorRange > 0;
+    }
+
+    private static Color weaponRangeColor(World world, Unit unit) {
+        WeaponType longest = null;
+        for (WeaponType weapon : WeaponRules.loadout(world, unit)) {
+            if (weapon.screenWeapon) continue;
+            if (longest == null || weapon.range > longest.range) longest = weapon;
+        }
+        return longest == null || longest.color == null ? new Color(255, 174, 84) : longest.color;
+    }
+
+    private static void drawWeaponRangeCircle(Graphics2D g2, Unit unit, double range, Color color, boolean fill) {
+        Graphics2D r = (Graphics2D)g2.create();
+        r.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        int diameter = (int)Math.round(range * 2);
+        int x = (int)Math.round(unit.x - range);
+        int y = (int)Math.round(unit.y - range);
+        if (fill) {
+            r.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), 18));
+            r.fillOval(x, y, diameter, diameter);
+        }
+        r.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), 155));
+        r.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
+                0, new float[]{12f, 7f}, 0));
+        r.drawOval(x, y, diameter, diameter);
+        r.dispose();
     }
 
     private static void drawName(Graphics2D g2, Unit unit, Color color) {
