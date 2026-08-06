@@ -1,5 +1,7 @@
 package com.tndmadman.rts;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -13,7 +15,9 @@ final class ServerFogOfWarPersistence {
     static synchronized void attach(World world, Config config) {
         if (world == null || config == null || !config.dedicatedServerMode()) return;
         close(world);
-        ServerFogOfWarState.configureForTest(world, ServerFogOfWarStore.forConfig(config));
+        ServerFogOfWarStore store = ServerFogOfWarStore.forConfig(config);
+        migrateGenerations(world, store);
+        ServerFogOfWarState.configureForTest(world, store);
         Attachment attachment = new Attachment(world);
         attachment.shutdownHook = new Thread(attachment::flushSafely, "starchem-server-fog-shutdown");
         Runtime.getRuntime().addShutdownHook(attachment.shutdownHook);
@@ -28,6 +32,29 @@ final class ServerFogOfWarPersistence {
     static synchronized void close(World world) {
         Attachment attachment = ATTACHMENTS.remove(world);
         if (attachment != null) attachment.close();
+    }
+
+    private static void migrateGenerations(World world, ServerFogOfWarStore store) {
+        if (world == null || store == null || !store.enabled()) return;
+        List<ServerFogOfWarState.Stored> loaded = store.load();
+        if (loaded.isEmpty()) return;
+        boolean changed = false;
+        List<ServerFogOfWarState.Stored> migrated = new ArrayList<>(loaded.size());
+        for (ServerFogOfWarState.Stored stored : loaded) {
+            if (stored == null) continue;
+            long generation = ClientEnvironmentSeed.forSystem(world.systemSeed(), stored.systemId());
+            if (generation != stored.generation()) changed = true;
+            migrated.add(new ServerFogOfWarState.Stored(
+                    stored.playerId(),
+                    stored.systemId(),
+                    generation,
+                    stored.columns(),
+                    stored.rows(),
+                    stored.revision(),
+                    stored.explored(),
+                    stored.wormholes()));
+        }
+        if (changed) store.save(migrated);
     }
 
     private static final class Attachment {
