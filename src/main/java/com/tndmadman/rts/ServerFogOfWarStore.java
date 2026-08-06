@@ -32,6 +32,15 @@ final class ServerFogOfWarStore {
 
     static ServerFogOfWarStore disabled() { return DISABLED; }
 
+    static ServerFogOfWarStore forConfig(Config config) {
+        if (config == null || !config.dedicatedServerMode()) return DISABLED;
+        Path directory = config.saveDir == null ? Path.of("saves") : config.saveDir;
+        ServerFogOfWarStore store = new ServerFogOfWarStore(
+                directory.resolve(Config.cleanSaveName(config.saveName) + "-fog.properties"));
+        if (config.newWorld) store.clear();
+        return store;
+    }
+
     static ServerFogOfWarStore forTest(Path directory, String saveName) {
         Path base = directory == null ? Path.of(".") : directory;
         return new ServerFogOfWarStore(base.resolve(Config.cleanSaveName(saveName) + "-fog.properties"));
