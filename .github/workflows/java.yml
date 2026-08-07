@@ -16,6 +16,9 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
+      - name: Locate network implementation for issue 290 diagnosis
+        run: |
+          grep -R -n -E "class PeerNetwork|setServerFreeBuild|enum DeliveryClass" src/main/java/com/tndmadman/rts || true
       - run: gradle build
       - name: Validate per-client resource replication
         run: java -cp build/classes/java/main com.tndmadman.rts.ResourceReplicationValidator
