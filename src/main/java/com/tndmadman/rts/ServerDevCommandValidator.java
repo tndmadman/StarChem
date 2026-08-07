@@ -54,6 +54,7 @@ public final class ServerDevCommandValidator {
             submit(console, "dev player heal-all " + playerId);
             submit(console, "tell " + playerId + " Developer command validation");
             harness.runTicks(80);
+            requireConnected(harness, client, playerId, "initial developer command batch");
 
             base = firstBase(harness.serverWorld, playerId);
             TcpIntegrationHarness.require(base != null, "player base disappeared during developer commands");
@@ -74,18 +75,21 @@ public final class ServerDevCommandValidator {
 
             submit(console, "dev access revoke " + playerId);
             harness.runTicks(20);
+            requireConnected(harness, client, playerId, "legacy developer access revoke");
             TcpIntegrationHarness.require(!harness.serverNetwork.runtimeDevAccessGranted(playerId)
                             && !harness.serverNetwork.runtimeFreeBuildEnabled(playerId),
                     "legacy access revoke did not clear access and free-build");
 
             submit(console, "dev access grant " + playerId);
             harness.runTicks(20);
+            requireConnected(harness, client, playerId, "legacy developer access grant");
             TcpIntegrationHarness.require(harness.serverNetwork.runtimeDevAccessGranted(playerId)
                             && !harness.serverNetwork.runtimeFreeBuildEnabled(playerId),
                     "legacy access grant did not preserve separate free-build state");
 
             submit(console, "dev role set " + playerId + " developer-freebuild");
             harness.runTicks(20);
+            requireConnected(harness, client, playerId, "developer-freebuild regrant");
             client.network().devSetFreeCrafting(playerId, false);
             harness.runTicks(20);
             TcpIntegrationHarness.require(!harness.serverWorld.devFreeBuildFor(playerId),
@@ -116,6 +120,25 @@ public final class ServerDevCommandValidator {
             TcpIntegrationHarness.require(errorText.isBlank(), "developer command validator reported console errors: " + errorText);
             console.close();
         }
+    }
+
+    private static void requireConnected(TcpIntegrationHarness harness, TcpIntegrationHarness.TestClient client,
+                                         String playerId, String phase) {
+        boolean serverConnected = harness.serverNetwork.serverSessionConnected(playerId);
+        boolean clientConnected = client.network().clientConnected();
+        if (serverConnected && clientConnected) return;
+        PerfSnapshot serverPerf = harness.serverNetwork.perfSnapshot();
+        PerfSnapshot clientPerf = client.network().perfSnapshot();
+        throw new IllegalStateException("developer session disconnected during " + phase
+                + " | serverConnected=" + serverConnected
+                + " clientConnected=" + clientConnected
+                + " serverSlowClose=" + serverPerf.slowConnectionClosesPerSecond()
+                + " serverInboundOverflow=" + serverPerf.inboundOverflowsPerSecond()
+                + " serverMalformed=" + serverPerf.malformedPacketsPerSecond()
+                + " clientMalformed=" + clientPerf.malformedPacketsPerSecond()
+                + " clientSnapshotReject=" + clientPerf.snapshotDecodeFailuresPerSecond()
+                + " serverQueued=" + serverPerf.queuedFrames()
+                + " clientQueued=" + clientPerf.queuedFrames());
     }
 
     private static void submit(ServerConsole console, String command) {
