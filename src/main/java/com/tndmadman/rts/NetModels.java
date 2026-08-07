@@ -152,7 +152,8 @@ enum DeliveryClass {
     FULL_CORRECTION,
     VIEW_SNAPSHOT,
     LEADERBOARD,
-    GALAXY
+    GALAXY,
+    OWNER_FLEET
 }
 
 record NetPacket(String message, ConnectionId connectionId, InetAddress address, int port) {
