@@ -1,411 +1,70 @@
-name: Issue 290 Patch Runner
+name: Issue 290 Transport Diagnostic
 
 on:
   push:
     branches: [ agent/issue-290-main-baseline ]
 
-permissions:
-  contents: write
-
 jobs:
-  patch-feature:
+  diagnose:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: agent/issue-290-control-groups
-          fetch-depth: 0
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Apply issue 290 hardening
+      - name: Instrument transport close paths
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
-
-          def read(path):
-              return Path(path).read_text(encoding='utf-8')
-
-          def write(path, text):
-              Path(path).write_text(text, encoding='utf-8')
-
-          def replace_once(path, old, new):
-              text = read(path)
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'{path}: expected exactly one match, found {count}')
-              write(path, text.replace(old, new, 1))
-
-          galaxy = 'src/main/java/com/tndmadman/rts/GalaxyCoordinator.java'
-          old = '''    boolean hasLiveAssets(World world, String playerId) {
-              saveActive(world);
-              if (playerId == null || playerId.isBlank() || "WAIT".equals(playerId)) return true;
-              for (WorldSystemState state : systems.values()) {
-                  for (Unit unit : state.units.values()) if (unit.playerId.equals(playerId) && unit.hp > 0) return true;
-                  for (Base base : state.bases.values()) if (base.playerId.equals(playerId) && base.hp > 0) return true;
-              }
-              return false;
-          }
-
-          '''
-          new = old + '''    Map<String,String> ownerUnitLocations(World world, String playerId) {
-              if (world == null || playerId == null || playerId.isBlank() || "WAIT".equals(playerId)) return Map.of();
-              saveActive(world);
-              Map<String,String> out = new LinkedHashMap<>();
-              for (WorldSystemState state : systems.values()) {
-                  if (state == null) continue;
-                  for (Unit unit : state.units.values()) {
-                      if (unit == null || unit.hp <= 0 || !playerId.equals(unit.playerId)) continue;
-                      out.put(unit.key(), state.id);
-                  }
-              }
-              return Map.copyOf(out);
-          }
-
-          '''
-          replace_once(galaxy, old, new)
-
-          world = 'src/main/java/com/tndmadman/rts/World.java'
-          replace_once(world,
-              '    boolean hasLiveAssets(String playerId) { return galaxy.hasLiveAssets(this, playerId); }\n',
-              '    boolean hasLiveAssets(String playerId) { return galaxy.hasLiveAssets(this, playerId); }\n'
-              '    Map<String,String> ownerUnitLocations(String playerId) { return galaxy.ownerUnitLocations(this, playerId); }\n')
-
-          write('src/main/java/com/tndmadman/rts/OwnerFleetLocations.java', '''package com.tndmadman.rts;
-
-          import java.util.Map;
-
-          final class OwnerFleetLocations {
-              private OwnerFleetLocations() { }
-
-              static Map<String, String> capture(World world, String playerId) {
-                  if (world == null || playerId == null || playerId.isBlank() || "WAIT".equals(playerId)) return Map.of();
-                  return world.ownerUnitLocations(playerId);
-              }
-          }
-          '''.replace('          ', ''))
-
-          netmodels = 'src/main/java/com/tndmadman/rts/NetModels.java'
-          replace_once(netmodels,
-              '''    LEADERBOARD,
-              GALAXY
-          }'''.replace('          ', ''),
-              '''    LEADERBOARD,
-              GALAXY,
-              OWNER_FLEET
-          }'''.replace('          ', ''))
-
-          transport = 'src/main/java/com/tndmadman/rts/PeerTransport.java'
-          replace_once(transport,
-              '''        if (message.startsWith("LEADER|")) return DeliveryClass.LEADERBOARD;
-                  if (message.startsWith("GALAXY|")) return DeliveryClass.GALAXY;
-                  return DeliveryClass.ORDERED;'''.replace('              ', ''),
-              '''        if (message.startsWith("LEADER|")) return DeliveryClass.LEADERBOARD;
-                  if (message.startsWith("GALAXY|")) return DeliveryClass.GALAXY;
-                  if (message.startsWith("OWNER_FLEET")) return DeliveryClass.OWNER_FLEET;
-                  return DeliveryClass.ORDERED;'''.replace('              ', ''))
-          replace_once(transport,
-              '''            case LEADERBOARD -> "LEADERBOARD";
-                  case GALAXY -> "GALAXY";
-              };'''.replace('              ', ''),
-              '''            case LEADERBOARD -> "LEADERBOARD";
-                  case GALAXY -> "GALAXY";
-                  case OWNER_FLEET -> "OWNER_FLEET";
-              };'''.replace('              ', ''))
-
-          sync = 'src/main/java/com/tndmadman/rts/OwnerFleetLocationSync.java'
-          text = read(sync)
-          text = text.replace('out.send(packet, peer.connectionId(), DeliveryClass.ORDERED);',
-                              'out.send(packet, peer.connectionId(), DeliveryClass.OWNER_FLEET);')
-          marker = '    private record SyncState(long lastScanMs, String packet) { }\n'
-          if marker not in text:
-              raise SystemExit(f'{sync}: sync-state marker missing')
-          text = text.replace(marker,
-              '    static void clear(World world) { if (world != null) STATES.remove(world); }\n\n' + marker, 1)
-          write(sync, text)
-
-          registry = 'src/main/java/com/tndmadman/rts/OwnerFleetLocationRegistry.java'
-          marker = '''    static State state(World world) {
-              State state = world == null ? null : STATES.get(world);
-              return state == null ? State.EMPTY : state;
-          }
-
-          '''.replace('          ', '')
-          addition = marker + '''    static void invalidate(World world, String ownerId) {
-              if (world == null) return;
-              String owner = ownerId == null ? "" : ownerId.trim();
-              State prior = STATES.get(world);
-              Map<String,String> locations = prior != null && (owner.isBlank() || owner.equals(prior.ownerId()))
-                      ? prior.locations() : Map.of();
-              if (owner.isBlank() && prior != null) owner = prior.ownerId();
-              STATES.put(world, new State(false, owner, locations));
-          }
-
-          '''.replace('          ', '')
-          replace_once(registry, marker, addition)
-
-          client = 'src/main/java/com/tndmadman/rts/PeerClientSide.java'
-          replace_once(client,
-              '''        devApproved = false;
-                  world.setDevFreeBuild(localPlayerId, false);
-                  transport.clearOutbound();
-                  transport.reconnectClient();'''.replace('              ', ''),
-              '''        devApproved = false;
-                  world.setDevFreeBuild(localPlayerId, false);
-                  OwnerFleetLocationRegistry.invalidate(world, localPlayerId);
-                  transport.clearOutbound();
-                  transport.reconnectClient();'''.replace('              ', ''))
-          replace_once(client,
-              '''        state = ConnectionState.DISCONNECTED;
-                  devApproved = false;
-                  syncingResume = false;
-                  world.setDevFreeBuild(localPlayerId, false);'''.replace('              ', ''),
-              '''        state = ConnectionState.DISCONNECTED;
-                  devApproved = false;
-                  syncingResume = false;
-                  world.setDevFreeBuild(localPlayerId, false);
-                  OwnerFleetLocationRegistry.clear(world);'''.replace('              ', ''))
-
-          cleanup = 'src/main/java/com/tndmadman/rts/WorldRuntimeCleanup.java'
-          replace_once(cleanup,
-              '''        GameNoticeCenter.clear(world);
-                  AlertCenter.clear(world);'''.replace('              ', ''),
-              '''        GameNoticeCenter.clear(world);
-                  AlertCenter.clear(world);
-                  OwnerFleetLocationRegistry.clear(world);
-                  OwnerFleetLocationSync.clear(world);'''.replace('              ', ''))
-
-          frame = 'src/main/java/com/tndmadman/rts/GameFrame.java'
-          modal = '''    private boolean modalMenuVisible() {
-              return menuVisible() || settingsPanel.isOpen() || ShipFittingWindow.active();
-          }
-
-          '''.replace('          ', '')
-          gameplay = modal + '''    boolean gameplayHotkeysBlocked() {
-              if (gamePanel == null || modalMenuVisible()) return true;
-              if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) return true;
-              if (codexOverlay != null && codexOverlay.isVisible()) return true;
-              if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) return true;
-              if (connectionOverlayPanel != null && connectionOverlayPanel.isVisible()) return true;
-              if (endStatePanel != null && endStatePanel.isVisible()) return true;
-              Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
-              return focusOwner instanceof JTextComponent
-                      || focusOwner != null && !SwingUtilities.isDescendingFrom(focusOwner, gamePanel);
-          }
-
-          '''.replace('          ', '')
-          replace_once(frame, modal, gameplay)
-
-          panel = 'src/main/java/com/tndmadman/rts/GamePanel.java'
-          replace_once(panel,
-              '''        int x = 12;
-                  int y = 150;
-                  int width = 106;
-                  int height = 38;
-                  int[] order = {1, 2, 3, 4, 5, 6, 7, 8, 9, 0};
-                  for (int groupNumber : order) {
-                      if (controlGroups.empty(groupNumber)) continue;
-                      ControlGroupManager.GroupView view = controlGroups.view(groupNumber, world.activeSystemId(), controlGroupLocations);'''.replace('              ', ''),
-              '''        int startX = 12;
-                  int x = startX;
-                  int y = 150;
-                  int width = 106;
-                  int height = 38;
-                  int maxRight = Math.max(startX + width, getWidth() - 12);
-                  int[] order = {1, 2, 3, 4, 5, 6, 7, 8, 9, 0};
-                  for (int groupNumber : order) {
-                      if (controlGroups.empty(groupNumber)) continue;
-                      if (x + width > maxRight && x > startX) { x = startX; y += height + 6; }
-                      ControlGroupManager.GroupView view = controlGroups.view(groupNumber, world.activeSystemId(), controlGroupLocations);'''.replace('              ', ''))
-          replace_once(panel,
-              '''    private boolean controlGroupInputBlocked() {
-              if (galaxyMapOpen || ShipFittingWindow.active()) return true;
-              Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
-              return focusOwner != null && focusOwner != this;
-          }
-          '''.replace('          ', ''),
-              '''    private boolean controlGroupInputBlocked() {
-              return galaxyMapOpen || owner.gameplayHotkeysBlocked();
-          }
-          '''.replace('          ', ''))
-          replace_once(panel,
-              '''            if (state.initialized() && state.ownerId().equals(localPlayerId)) {
-                      base = state.locations();
-                      controlGroupLocationsReady = true;
-                  } else if (!state.ownerId().isBlank() && !state.ownerId().equals(localPlayerId)) {
-                      base = Map.of();
-                      controlGroupLocationsReady = false;
-                  }'''.replace('              ', ''),
-              '''            if (state.initialized() && state.ownerId().equals(localPlayerId)) {
-                      base = state.locations();
-                      controlGroupLocationsReady = true;
-                  } else {
-                      base = state.ownerId().equals(localPlayerId) ? state.locations() : Map.of();
-                      controlGroupLocationsReady = false;
-                  }'''.replace('              ', ''))
-
-          validator = 'src/main/java/com/tndmadman/rts/ControlGroupValidator.java'
-          replace_once(validator,
-              '''        OwnerFleetLocationRegistry.State state = OwnerFleetLocationRegistry.state(world);
-                  require(state.initialized() && source.equals(state.locations()), "owner fleet registry did not retain state");
-                  expectFailure(() -> OwnerFleetLocationRegistry.replace(world, "P1", Map.of("P2:9", "BELT_2")),'''.replace('              ', ''),
-              '''        OwnerFleetLocationRegistry.State state = OwnerFleetLocationRegistry.state(world);
-                  require(state.initialized() && source.equals(state.locations()), "owner fleet registry did not retain state");
-                  OwnerFleetLocationRegistry.invalidate(world, "P1");
-                  state = OwnerFleetLocationRegistry.state(world);
-                  require(!state.initialized() && "P1".equals(state.ownerId()) && source.equals(state.locations()),
-                          "owner fleet reconnect invalidation discarded membership locations");
-                  OwnerFleetLocationRegistry.replace(world, "P1", source);
-                  expectFailure(() -> OwnerFleetLocationRegistry.replace(world, "P1", Map.of("P2:9", "BELT_2")),'''.replace('              ', ''))
-          replace_once(validator,
-              '''        Unit starting = world.units.values().stream().filter(unit -> owner.equals(unit.playerId)).findFirst().orElseThrow();
-                  String key = starting.key();
-                  Map<String, String> initial = OwnerFleetLocations.capture(world, owner);
-                  require(world.activeSystemId().equals(initial.get(key)), "initial owner fleet projection missed the starting ship");'''.replace('              ', ''),
-              '''        Unit starting = world.units.values().stream().filter(unit -> owner.equals(unit.playerId)).findFirst().orElseThrow();
-                  String key = starting.key();
-                  String activeBeforeCapture = world.activeSystemId();
-                  Map<String, String> initial = OwnerFleetLocations.capture(world, owner);
-                  require(activeBeforeCapture.equals(world.activeSystemId()), "owner fleet projection changed the active system");
-                  require(world.activeSystemId().equals(initial.get(key)), "initial owner fleet projection missed the starting ship");'''.replace('              ', ''))
-
-          tcp_validator = '''package com.tndmadman.rts;
-
-          import java.util.Map;
-          import java.util.Set;
-
-          /** End-to-end validation for issue 290 owner-fleet synchronization and reconnect behavior. */
-          public final class ControlGroupTcpValidator {
-              private ControlGroupTcpValidator() { }
-
-              public static void main(String[] args) throws Exception {
-                  try (TcpIntegrationHarness harness = TcpIntegrationHarness.dedicated()) {
-                      TcpIntegrationHarness.TestClient client = harness.addClient("Control Group TCP");
-                      harness.awaitJoined(client);
-                      String playerId = client.playerId();
-                      Unit serverUnit = harness.firstUnit(harness.serverWorld, playerId);
-                      require(serverUnit != null, "joined player has no authoritative ship");
-                      String unitKey = serverUnit.key();
-
-                      harness.await(() -> fleetState(client).initialized() && fleetState(client).locations().containsKey(unitKey),
-                              8_000, "initial owner-fleet projection was not delivered");
-                      assertOwnerOnly(playerId, fleetState(client).locations());
-
-                      ControlGroupManager groups = new ControlGroupManager();
-                      groups.assign(1, Set.of(unitKey), FleetFormation.GRID);
-                      groups.prune(fleetState(client).locations());
-                      require(groups.size(1) == 1, "initial projection pruned a live control-group member");
-
-                      String sourceSystem = harness.serverWorld.playerHomeSystemId(playerId);
-                      String targetSystem = anotherSystem(harness.serverWorld, sourceSystem);
-                      String oldSystem = harness.serverWorld.activeSystemId();
-                      harness.serverWorld.activateSystem(sourceSystem);
-                      harness.serverWorld.movePlayerAssetsToSystem(playerId, targetSystem);
-                      harness.serverWorld.activateSystem(oldSystem);
-
-                      harness.await(() -> targetSystem.equals(fleetState(client).locations().get(unitKey)),
-                              8_000, "owner-fleet projection did not follow a remote system transfer");
-                      groups.prune(fleetState(client).locations());
-                      require(groups.size(1) == 1, "wormhole/system movement lost stable control-group membership");
-
-                      harness.serverNetwork.setRuntimeDevEnabled(true);
-                      harness.serverNetwork.setRemoteDevAccess(playerId, true);
-                      for (int i = 0; i < 4; i++) {
-                          harness.serverNetwork.setServerFreeBuild(playerId, (i & 1) == 0);
-                          harness.runTicks(80);
-                          require(harness.serverNetwork.serverSessionConnected(playerId),
-                                  "owner-fleet synchronization disconnected the server session during dev-state broadcast");
-                          require(client.network().clientConnected(),
-                                  "owner-fleet synchronization disconnected the client during dev-state broadcast");
-                      }
-
-                      client.network().forceClientDisconnectForTest();
-                      harness.await(client.network()::clientReconnecting, 6_000,
-                              "client did not enter reconnecting state after forced disconnect");
-                      OwnerFleetLocationRegistry.State reconnecting = fleetState(client);
-                      require(!reconnecting.initialized(), "reconnect did not invalidate owner-fleet freshness");
-                      require(targetSystem.equals(reconnecting.locations().get(unitKey)),
-                              "reconnect invalidation discarded the last known unit location");
-
-                      harness.await(() -> client.network().clientConnected(), 20_000,
-                              "client did not reconnect after forced disconnect");
-                      harness.await(() -> fleetState(client).initialized()
-                                      && targetSystem.equals(fleetState(client).locations().get(unitKey)),
-                              8_000, "fresh owner-fleet projection was not restored after reconnect");
-
-                      oldSystem = harness.serverWorld.activeSystemId();
-                      harness.serverWorld.activateSystem(targetSystem);
-                      Unit removed = harness.serverWorld.units.remove(unitKey);
-                      harness.serverWorld.saveActiveSystem();
-                      harness.serverWorld.activateSystem(oldSystem);
-                      require(removed != null, "authoritative test ship was missing before destruction");
-
-                      harness.await(() -> fleetState(client).initialized()
-                                      && !fleetState(client).locations().containsKey(unitKey),
-                              8_000, "destroyed ship remained in owner-fleet projection");
-                      groups.prune(fleetState(client).locations());
-                      require(groups.empty(1), "destroyed ship was not pruned from the control group");
-                      assertOwnerOnly(playerId, fleetState(client).locations());
-                  }
-                  System.out.println("Control group TCP validation passed.");
-              }
-
-              private static OwnerFleetLocationRegistry.State fleetState(TcpIntegrationHarness.TestClient client) {
-                  return OwnerFleetLocationRegistry.state(client.world());
-              }
-
-              private static String anotherSystem(World world, String excluded) {
-                  return world.authoritativeGalaxyMapSnapshot().systems().stream()
-                          .map(GalaxyMapSystem::id)
-                          .filter(id -> id != null && !id.isBlank() && !id.equals(excluded))
-                          .findFirst().orElseThrow(() -> new IllegalStateException("No alternate system available for control-group validation."));
-              }
-
-              private static void assertOwnerOnly(String playerId, Map<String,String> locations) {
-                  String prefix = playerId + ":";
-                  for (String key : locations.keySet()) {
-                      require(key != null && key.startsWith(prefix), "owner-fleet projection leaked a foreign unit key: " + key);
-                  }
-              }
-
-              private static void require(boolean condition, String message) {
-                  if (!condition) throw new IllegalStateException("Control group TCP validation failed: " + message);
-              }
-          }
-          '''.replace('          ', '')
-          write('src/main/java/com/tndmadman/rts/ControlGroupTcpValidator.java', tcp_validator)
-
-          workflow = '.github/workflows/java.yml'
-          replace_once(workflow,
-              '''      - name: Validate fleet control groups
-                  run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.ControlGroupValidator
-          '''.replace('          ', ''),
-              '''      - name: Validate fleet control groups
-                  run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.ControlGroupValidator
-                - name: Validate fleet control groups over TCP
-                  run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.ControlGroupTcpValidator
-          '''.replace('          ', ''))
-
-          for doc in ['AUTHENTICATION.md', 'RELEASE_NOTES.md', 'UPGRADE_1.7.0.md', 'UPGRADING_TO_1.7.0.md']:
-              text = read(doc)
-              text = text.replace('Protocol 13', 'Protocol 14').replace('protocol 13', 'protocol 14')
-              text = text.replace('from 7 to 13', 'from 7 to 14')
-              write(doc, text)
+          path = Path('src/main/java/com/tndmadman/rts/PeerTransport.java')
+          text = path.read_text()
+          old = '''    private void connectionClosed(TcpConnection connection) {
+              perfStats.recordConnectionClosed();'''.replace('          ', '')
+          new = '''    private void connectionClosed(TcpConnection connection) {
+              int timeout = -1;
+              try { timeout = connection.socket.getSoTimeout(); } catch (SocketException ignored) { }
+              System.err.println("[TCP_DIAG] CLOSED side=" + (serverMode ? "server" : "client")
+                      + " id=" + connection.id + " thread=" + Thread.currentThread().getName()
+                      + " authenticated=" + connection.authenticated() + " soTimeout=" + timeout
+                      + " running=" + running + " openBeforeCallback=" + connection.open());
+              perfStats.recordConnectionClosed();'''.replace('          ', '')
+          if text.count(old) != 1:
+              raise SystemExit('connectionClosed marker mismatch')
+          text = text.replace(old, new, 1)
+          old = '''            } catch (SocketTimeoutException ignored) {
+                      if (serverMode && !authenticated()) perfStats.recordConnectionRejected();
+                      // Application heartbeats and snapshots normally keep healthy connections active.
+                  } catch (IOException ex) {
+                      if (open.get()) perfStats.recordMalformedPacket();'''.replace('              ', '')
+          new = '''            } catch (SocketTimeoutException ignored) {
+                      System.err.println("[TCP_DIAG] READ_TIMEOUT side=" + (serverMode ? "server" : "client")
+                              + " id=" + id + " authenticated=" + authenticated() + " timeout=" + socket.getSoTimeout());
+                      if (serverMode && !authenticated()) perfStats.recordConnectionRejected();
+                      // Application heartbeats and snapshots normally keep healthy connections active.
+                  } catch (IOException ex) {
+                      if (open.get()) System.err.println("[TCP_DIAG] READ_IO side=" + (serverMode ? "server" : "client")
+                              + " id=" + id + " type=" + ex.getClass().getSimpleName() + " message=" + ex.getMessage());
+                      if (open.get()) perfStats.recordMalformedPacket();'''.replace('              ', '')
+          if text.count(old) != 1:
+              raise SystemExit('reader catch marker mismatch')
+          text = text.replace(old, new, 1)
+          old = '''            } catch (IOException ignored) {
+                      // Socket closure is the recovery signal.
+                  } finally {'''.replace('              ', '')
+          new = '''            } catch (IOException ex) {
+                      if (open.get()) System.err.println("[TCP_DIAG] WRITE_IO side=" + (serverMode ? "server" : "client")
+                              + " id=" + id + " type=" + ex.getClass().getSimpleName() + " message=" + ex.getMessage());
+                      // Socket closure is the recovery signal.
+                  } finally {'''.replace('              ', '')
+          if text.count(old) != 1:
+              raise SystemExit('writer catch marker mismatch')
+          text = text.replace(old, new, 1)
+          path.write_text(text)
           PY
-
-          git diff --check
           gradle classes --no-daemon
-          java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.ControlGroupValidator
-
-          git config user.name "OpenAI Codex"
-          git config user.email "codex@openai.com"
-          git add .
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-            exit 0
-          fi
-          git commit -m "Fix control-group fleet sync regression"
-          git push origin HEAD:agent/issue-290-control-groups
+          java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.ServerDevCommandValidator
