@@ -17,6 +17,10 @@ final class ClientPackets {
             ServerFogOfWarState.applyClient(c.world, c.localPlayerId(), p[1]);
             return;
         }
+        if (p[0].equals("OWNER_FLEET")) {
+            OwnerFleetLocationRegistry.replace(c.world, c.localPlayerId(), OwnerFleetLocationWire.decode(message));
+            return;
+        }
         if (p[0].equals("DIPLOMACY_VIEW") && p.length == 2) {
             Map<String,Object> view = DiplomacyStateWire.decode(p[1]);
             DiplomacySystem.restore(c.world, view.get("state"));
