@@ -129,12 +129,18 @@ public final class ServerDevCommandValidator {
         if (serverConnected && clientConnected) return;
         PerfSnapshot serverPerf = harness.serverNetwork.perfSnapshot();
         PerfSnapshot clientPerf = client.network().perfSnapshot();
+        ClientConnectionProgress progress = client.network().clientConnectionProgress();
         throw new IllegalStateException("developer session disconnected during " + phase
                 + " | serverConnected=" + serverConnected
                 + " clientConnected=" + clientConnected
+                + " serverStatus=" + harness.serverWorld.status
+                + " clientStatus=" + client.world().status
+                + " clientPhase=" + progress.phase()
+                + " clientDetail=" + progress.detail()
                 + " serverSlowClose=" + serverPerf.slowConnectionClosesPerSecond()
                 + " serverInboundOverflow=" + serverPerf.inboundOverflowsPerSecond()
                 + " serverMalformed=" + serverPerf.malformedPacketsPerSecond()
+                + " serverRejected=" + serverPerf.rejectedConnectionsPerSecond()
                 + " clientMalformed=" + clientPerf.malformedPacketsPerSecond()
                 + " clientSnapshotReject=" + clientPerf.snapshotDecodeFailuresPerSecond()
                 + " serverQueued=" + serverPerf.queuedFrames()
