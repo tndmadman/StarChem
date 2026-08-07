@@ -22,8 +22,12 @@ final class OwnerFleetLocationSync {
         String packet = OwnerFleetLocationWire.encode(OwnerFleetLocations.capture(world, peer.playerId()));
         byPlayer.put(peer.playerId(), new SyncState(now, packet));
         if (force || prior == null || !packet.equals(prior.packet)) {
-            out.send(packet, peer.connectionId(), DeliveryClass.ORDERED);
+            out.send(packet, peer.connectionId(), DeliveryClass.OWNER_FLEET);
         }
+    }
+
+    static void clear(World world) {
+        if (world != null) STATES.remove(world);
     }
 
     private record SyncState(long lastScanMs, String packet) { }
