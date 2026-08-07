@@ -19,6 +19,7 @@ jobs:
       - name: Locate network implementation for issue 290 diagnosis
         run: |
           grep -R -n -E "class PeerNetwork|setServerFreeBuild|enum DeliveryClass" src/main/java/com/tndmadman/rts || true
+          exit 1
       - run: gradle build
       - name: Validate per-client resource replication
         run: java -cp build/classes/java/main com.tndmadman.rts.ResourceReplicationValidator
