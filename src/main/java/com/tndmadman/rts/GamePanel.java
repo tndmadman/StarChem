@@ -4,12 +4,19 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.*;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 
 final class GamePanel extends JPanel implements KeyListener, MouseListener, MouseMotionListener, MouseWheelListener, FocusListener {
     private static final double CAMERA_PAN_SPEED = 640.0;
     private static final int SELECT_DRAG_PX = 7;
+    private static final long SOLO_FLEET_LOCATION_REFRESH_NANOS = 500_000_000L;
+    private static final long CONTROL_GROUP_FOCUS_TIMEOUT_NANOS = 5_000_000_000L;
     private final World world;
     private final GameFrame owner;
     private final GameSettings settings;
@@ -31,6 +38,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final GalaxyMapOverlay galaxyMapOverlay = new GalaxyMapOverlay();
     private final PerfStats perfStats = new PerfStats();
     private final PerfOverlay perfOverlay = new PerfOverlay();
+    private final ControlGroupManager controlGroups = new ControlGroupManager();
+    private final Set<Integer> heldControlGroupKeys = new HashSet<>();
     private final boolean devMode;
     private FleetFormation formation = FleetFormation.GRID;
     private UnitOrderType commandMode = UnitOrderType.NONE;
@@ -38,6 +47,10 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private Point dragStart;
     private Point dragNow;
     private long lastNanos = System.nanoTime();
+    private long lastControlGroupLocationRefreshNanos;
+    private Map<String, String> controlGroupLocations = Map.of();
+    private boolean controlGroupLocationsReady;
+    private PendingControlGroupFocus pendingControlGroupFocus;
     private boolean cameraLeft, cameraRight, cameraUp, cameraDown;
     private boolean galaxyMapOpen;
     private boolean perfOverlayVisible;
@@ -87,6 +100,11 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         else if (client != null) client.tick(dt);
         else world.update(dt);
         perfStats.recordUpdate(System.nanoTime() - updateStarted);
+        if (hasControlGroups() || pendingControlGroupFocus != null) {
+            refreshControlGroupLocations(false, now);
+            if (controlGroupLocationsReady) controlGroups.prune(controlGroupLocations);
+            completePendingControlGroupFocus(now);
+        }
         if (!galaxyMapOpen) updateCameraControls(dt);
         camera.update(world, getWidth(), getHeight(), dt);
         repaint();
@@ -116,6 +134,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         g2.setTransform(old);
         WormholeIndicator.draw(g2, world, camera, getWidth(), getHeight());
         drawHud(g2);
+        drawControlGroupHud(g2);
         leaderboardHud.draw(g2, world, getWidth());
         hangarHud.draw(g2, world, getWidth());
         if (!galaxyMapOpen) minimapHud.draw(g2, world, camera, getWidth(), getHeight());
@@ -178,6 +197,62 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
                 28, 102);
         g2.drawString(settings.hudCommandLine() + " | Mode: " + commandModeLabel(), 28, 124);
         drawFittingButton(g2);
+    }
+
+    private void drawControlGroupHud(Graphics2D g2) {
+        if (!hasControlGroups()) return;
+        int x = 12;
+        int y = 150;
+        int width = 106;
+        int height = 38;
+        int[] order = {1, 2, 3, 4, 5, 6, 7, 8, 9, 0};
+        for (int groupNumber : order) {
+            if (controlGroups.empty(groupNumber)) continue;
+            ControlGroupManager.GroupView view = controlGroups.view(groupNumber, world.activeSystemId(), controlGroupLocations);
+            int living = controlGroupLocationsReady ? view.livingShips() : controlGroups.size(groupNumber);
+            String systems = controlGroupLocationsReady ? Integer.toString(view.systemCount()) : "?";
+            boolean active = controlGroups.activeGroup() == groupNumber;
+
+            g2.setColor(new Color(0, 0, 0, active ? 210 : 175));
+            g2.fillRoundRect(x, y, width, height, 10, 10);
+            g2.setColor(active ? new Color(130, 225, 255) : new Color(70, 135, 175));
+            g2.drawRoundRect(x, y, width, height, 10, 10);
+            g2.setFont(g2.getFont().deriveFont(Font.BOLD, 12f));
+            g2.setColor(Color.WHITE);
+            g2.drawString(Integer.toString(groupNumber), x + 8, y + 16);
+            drawFormationGlyph(g2, view.formation(), x + 24, y + 7);
+            g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 10f));
+            g2.setColor(new Color(215, 232, 244));
+            g2.drawString(living + " ships", x + 48, y + 15);
+            g2.drawString(systems + " sys | " + view.formation().label, x + 48, y + 29);
+            x += width + 6;
+        }
+    }
+
+    private void drawFormationGlyph(Graphics2D g2, FleetFormation formation, int x, int y) {
+        Graphics2D icon = (Graphics2D) g2.create();
+        icon.setColor(new Color(120, 205, 255));
+        icon.setStroke(new BasicStroke(1.4f));
+        switch (formation) {
+            case GRID -> {
+                icon.fillRect(x, y, 4, 4); icon.fillRect(x + 8, y, 4, 4);
+                icon.fillRect(x, y + 8, 4, 4); icon.fillRect(x + 8, y + 8, 4, 4);
+            }
+            case LINE -> {
+                icon.drawLine(x, y + 6, x + 14, y + 6);
+                icon.fillOval(x - 1, y + 4, 4, 4); icon.fillOval(x + 6, y + 4, 4, 4); icon.fillOval(x + 13, y + 4, 4, 4);
+            }
+            case COLUMN -> {
+                icon.drawLine(x + 7, y, x + 7, y + 14);
+                icon.fillOval(x + 5, y - 1, 4, 4); icon.fillOval(x + 5, y + 5, 4, 4); icon.fillOval(x + 5, y + 12, 4, 4);
+            }
+            case WEDGE -> {
+                icon.drawLine(x + 7, y + 2, x, y + 13);
+                icon.drawLine(x + 7, y + 2, x + 14, y + 13);
+                icon.fillOval(x + 5, y, 4, 4); icon.fillOval(x - 1, y + 11, 4, 4); icon.fillOval(x + 12, y + 11, 4, 4);
+            }
+        }
+        icon.dispose();
     }
 
     private void drawFittingButton(Graphics2D g2) {
@@ -342,6 +417,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
             clickPackageCarrier(e, p, unit);
             return;
         }
+        controlGroups.clearActive();
         world.selectAt(p.getX(), p.getY());
         if (world.status.startsWith("Selected ") || world.status.startsWith("Targeted ")) {
             ProceduralAudio.play(SoundCue.SELECT);
@@ -349,6 +425,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     }
 
     private void selectVisibleShipsOfSameType(Unit clicked) {
+        controlGroups.clearActive();
         Rectangle2D view = visibleWorldRect();
         int selected = 0;
         for (Unit unit : world.units.values()) {
@@ -362,6 +439,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     }
 
     private void clickPackageCarrier(MouseEvent e, Point2D p, Unit unit) {
+        controlGroups.clearActive();
         world.selectAt(p.getX(), p.getY());
         buildMenu.showForUnit(world, network, unit, e.getX(), e.getY());
     }
@@ -533,7 +611,11 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         }
     }
 
-    private void clearSelection() { for (Unit unit : world.units.values()) unit.selected = false; }
+    private void clearSelection() {
+        controlGroups.clearActive();
+        for (Unit unit : world.units.values()) unit.selected = false;
+    }
+
     private PeerNetwork devNetwork() { return devAuthorityNetwork != null ? devAuthorityNetwork : network; }
 
     private boolean canEditDev() {
@@ -558,6 +640,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         if (SwingUtilities.isLeftMouseButton(e) && dragStart != null) {
             dragNow = e.getPoint();
             if (isSelectionDrag()) {
+                controlGroups.clearActive();
                 world.selectBox(screenRectToWorldRect(dragStart, dragNow));
                 if (world.selectedCount() > 0) ProceduralAudio.play(SoundCue.SELECT);
             } else {
@@ -596,6 +679,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     @Override public void keyTyped(KeyEvent e) { }
 
     @Override public void keyPressed(KeyEvent e) {
+        if (handleControlGroupKey(e)) return;
         if (e.getKeyCode() == KeyEvent.VK_L && !e.isControlDown() && !e.isAltDown() && !e.isMetaDown()) {
             openSelectedFitting();
             return;
@@ -629,6 +713,9 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         }
         if (settings.matches("formation", e)) {
             formation = formation.next();
+            refreshControlGroupLocations(false, System.nanoTime());
+            controlGroups.rememberFormationIfSelectionMatches(
+                    selectedLocalUnitKeys(), world.activeSystemId(), controlGroupLocations, formation);
             world.status = "Fleet formation: " + formation.label + ".";
             ProceduralAudio.play(SoundCue.SELECT);
             return;
@@ -653,6 +740,288 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         setCameraKey(e, true);
     }
 
+    private boolean handleControlGroupKey(KeyEvent event) {
+        int groupNumber = ControlGroupManager.numberForKeyCode(event.getKeyCode());
+        if (groupNumber < 0) return false;
+        if (!heldControlGroupKeys.add(event.getKeyCode())) return true;
+        if (controlGroupInputBlocked()) return true;
+
+        boolean ctrl = event.isControlDown();
+        boolean shift = event.isShiftDown();
+        boolean alt = event.isAltDown();
+        boolean meta = event.isMetaDown();
+        int modifierCount = (ctrl ? 1 : 0) + (shift ? 1 : 0) + (alt ? 1 : 0) + (meta ? 1 : 0);
+        if (meta || modifierCount > 1) return true;
+
+        long now = System.nanoTime();
+        refreshControlGroupLocations(true, now);
+        if (controlGroupLocationsReady) controlGroups.prune(controlGroupLocations);
+        Set<String> selectedKeys = selectedLocalUnitKeys();
+
+        if (ctrl) {
+            if (selectedKeys.isEmpty()) {
+                controlGroups.clear(groupNumber);
+                world.status = "Control group " + groupNumber + " cleared.";
+            } else {
+                controlGroups.assign(groupNumber, selectedKeys, formation);
+                controlGroups.markActive(groupNumber, world.activeSystemId());
+                world.status = "Control group " + groupNumber + " assigned: " + selectedKeys.size() + " ship(s).";
+            }
+            ProceduralAudio.play(SoundCue.SELECT);
+            repaint();
+            return true;
+        }
+        if (shift) {
+            if (selectedKeys.isEmpty()) {
+                world.status = "Select ships to add to control group " + groupNumber + ".";
+                ProceduralAudio.play(SoundCue.ERROR);
+            } else {
+                controlGroups.add(groupNumber, selectedKeys);
+                controlGroups.markActive(groupNumber, world.activeSystemId());
+                world.status = "Added " + selectedKeys.size() + " ship(s) to control group " + groupNumber + ".";
+                ProceduralAudio.play(SoundCue.SELECT);
+            }
+            repaint();
+            return true;
+        }
+        if (alt) {
+            if (selectedKeys.isEmpty()) {
+                world.status = "Select ships to remove from control group " + groupNumber + ".";
+                ProceduralAudio.play(SoundCue.ERROR);
+            } else {
+                controlGroups.remove(groupNumber, selectedKeys);
+                world.status = "Removed selected ships from control group " + groupNumber + ".";
+                ProceduralAudio.play(SoundCue.SELECT);
+            }
+            repaint();
+            return true;
+        }
+
+        boolean doubleTap = controlGroups.registerTap(groupNumber, now);
+        recallControlGroup(groupNumber, doubleTap, now);
+        return true;
+    }
+
+    private boolean controlGroupInputBlocked() {
+        if (galaxyMapOpen || ShipFittingWindow.active()) return true;
+        Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+        return focusOwner != null && focusOwner != this;
+    }
+
+    private void recallControlGroup(int groupNumber, boolean focusCamera, long now) {
+        if (controlGroupLocationsReady) controlGroups.prune(controlGroupLocations);
+        if (controlGroups.empty(groupNumber)) {
+            clearSelectedFlagsOnly();
+            world.status = "Control group " + groupNumber + " is empty.";
+            ProceduralAudio.play(SoundCue.ERROR);
+            repaint();
+            return;
+        }
+
+        formation = controlGroups.formation(groupNumber);
+        int selectedHere = selectControlGroupInCurrentSystem(groupNumber);
+        controlGroups.markActive(groupNumber, world.activeSystemId());
+
+        if (!focusCamera) {
+            if (controlGroupLocationsReady) {
+                ControlGroupManager.GroupView view = controlGroups.view(groupNumber, world.activeSystemId(), controlGroupLocations);
+                world.status = "Control group " + groupNumber + ": selected " + selectedHere + " here; "
+                        + view.livingShips() + " ship(s) across " + view.systemCount() + " system(s).";
+            } else {
+                world.status = "Control group " + groupNumber + ": selected " + selectedHere
+                        + " here; remote locations are synchronizing.";
+            }
+            ProceduralAudio.play(SoundCue.SELECT);
+            repaint();
+            return;
+        }
+
+        if (!controlGroupLocationsReady) {
+            if (selectedHere > 0) {
+                centerOnControlGroup(groupNumber);
+                world.status = "Centered camera on control group " + groupNumber + ".";
+                ProceduralAudio.play(SoundCue.SELECT);
+            } else {
+                world.status = "Control group locations are still synchronizing.";
+                ProceduralAudio.play(SoundCue.ERROR);
+            }
+            repaint();
+            return;
+        }
+
+        String targetSystemId = controlGroups.focusSystem(groupNumber, world.activeSystemId(), controlGroupLocations);
+        if (targetSystemId.isBlank()) {
+            controlGroups.clear(groupNumber);
+            clearSelectedFlagsOnly();
+            world.status = "Control group " + groupNumber + " no longer contains living ships.";
+            ProceduralAudio.play(SoundCue.ERROR);
+            repaint();
+            return;
+        }
+        focusControlGroupSystem(groupNumber, targetSystemId, now);
+    }
+
+    private void focusControlGroupSystem(int groupNumber, String targetSystemId, long now) {
+        if (targetSystemId.equals(world.activeSystemId())) {
+            int selected = selectControlGroupInCurrentSystem(groupNumber);
+            controlGroups.markActive(groupNumber, targetSystemId);
+            if (selected > 0) centerOnControlGroup(groupNumber);
+            world.status = selected > 0
+                    ? "Centered camera on control group " + groupNumber + "."
+                    : "Control group " + groupNumber + " has no ships in this system.";
+            ProceduralAudio.play(selected > 0 ? SoundCue.SELECT : SoundCue.ERROR);
+            repaint();
+            return;
+        }
+
+        galaxyMapOpen = false;
+        clearCameraKeys();
+        clearCommandMode();
+        if (network != null) {
+            network.viewSystem(network.localPlayerId(), targetSystemId);
+            pendingControlGroupFocus = new PendingControlGroupFocus(groupNumber, targetSystemId, now);
+            world.status = "Control group " + groupNumber + ": switching to " + targetSystemId + ".";
+            ProceduralAudio.play(SoundCue.SELECT);
+            repaint();
+            return;
+        }
+        if (world.viewGalaxySystem(targetSystemId)) {
+            refreshControlGroupLocations(true, now);
+            int selected = selectControlGroupInCurrentSystem(groupNumber);
+            controlGroups.markActive(groupNumber, targetSystemId);
+            if (selected > 0) centerOnControlGroup(groupNumber);
+            world.status = selected > 0
+                    ? "Centered camera on control group " + groupNumber + " in " + targetSystemId + "."
+                    : "Control group " + groupNumber + " moved before camera recall completed.";
+            ProceduralAudio.play(selected > 0 ? SoundCue.SELECT : SoundCue.ERROR);
+        } else {
+            world.status = "Unable to view system for control group " + groupNumber + ".";
+            ProceduralAudio.play(SoundCue.ERROR);
+        }
+        repaint();
+    }
+
+    private void completePendingControlGroupFocus(long now) {
+        PendingControlGroupFocus pending = pendingControlGroupFocus;
+        if (pending == null) return;
+        if (now - pending.requestedAtNanos() > CONTROL_GROUP_FOCUS_TIMEOUT_NANOS) {
+            pendingControlGroupFocus = null;
+            world.status = "Control group camera recall timed out.";
+            return;
+        }
+        if (!pending.systemId().equals(world.activeSystemId())) return;
+
+        refreshControlGroupLocations(true, now);
+        if (controlGroupLocationsReady) controlGroups.prune(controlGroupLocations);
+        if (controlGroups.empty(pending.groupNumber())) {
+            pendingControlGroupFocus = null;
+            clearSelectedFlagsOnly();
+            world.status = "Control group " + pending.groupNumber() + " no longer contains living ships.";
+            return;
+        }
+
+        formation = controlGroups.formation(pending.groupNumber());
+        int selected = selectControlGroupInCurrentSystem(pending.groupNumber());
+        if (selected > 0) {
+            pendingControlGroupFocus = null;
+            controlGroups.markActive(pending.groupNumber(), pending.systemId());
+            centerOnControlGroup(pending.groupNumber());
+            world.status = "Centered camera on control group " + pending.groupNumber() + " in " + pending.systemId() + ".";
+            ProceduralAudio.play(SoundCue.SELECT);
+            return;
+        }
+
+        if (controlGroupLocationsReady) {
+            String nextSystem = controlGroups.focusSystem(pending.groupNumber(), world.activeSystemId(), controlGroupLocations);
+            if (!nextSystem.isBlank() && !nextSystem.equals(world.activeSystemId()) && network != null) {
+                network.viewSystem(network.localPlayerId(), nextSystem);
+                pendingControlGroupFocus = new PendingControlGroupFocus(pending.groupNumber(), nextSystem, now);
+                world.status = "Control group moved; following it to " + nextSystem + ".";
+                return;
+            }
+            pendingControlGroupFocus = null;
+            world.status = "Control group " + pending.groupNumber() + " moved before camera recall completed.";
+        }
+    }
+
+    private int selectControlGroupInCurrentSystem(int groupNumber) {
+        int selected = 0;
+        for (Unit unit : world.units.values()) {
+            boolean match = unit != null && unit.hp > 0 && PlayerRegistry.isLocal(unit.playerId)
+                    && controlGroups.contains(groupNumber, unit.key());
+            unit.selected = match;
+            if (match) selected++;
+        }
+        world.selectedResourceId = -1;
+        return selected;
+    }
+
+    private void centerOnControlGroup(int groupNumber) {
+        boolean found = false;
+        double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE;
+        double maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+        for (Unit unit : world.units.values()) {
+            if (unit == null || unit.hp <= 0 || !PlayerRegistry.isLocal(unit.playerId)
+                    || !controlGroups.contains(groupNumber, unit.key())) continue;
+            found = true;
+            minX = Math.min(minX, unit.x);
+            minY = Math.min(minY, unit.y);
+            maxX = Math.max(maxX, unit.x);
+            maxY = Math.max(maxY, unit.y);
+        }
+        if (found) camera.centerAt((minX + maxX) * 0.5, (minY + maxY) * 0.5,
+                world, getWidth(), getHeight());
+    }
+
+    private Set<String> selectedLocalUnitKeys() {
+        Set<String> out = new LinkedHashSet<>();
+        for (Unit unit : world.selectedUnits()) {
+            if (unit != null && unit.hp > 0 && PlayerRegistry.isLocal(unit.playerId)) out.add(unit.key());
+        }
+        return out;
+    }
+
+    private void clearSelectedFlagsOnly() {
+        for (Unit unit : world.units.values()) unit.selected = false;
+        world.selectedResourceId = -1;
+    }
+
+    private boolean hasControlGroups() {
+        for (int i = 0; i < ControlGroupManager.GROUP_COUNT; i++) if (!controlGroups.empty(i)) return true;
+        return false;
+    }
+
+    private void refreshControlGroupLocations(boolean force, long nowNanos) {
+        Map<String, String> base = controlGroupLocations;
+        if (network == null) {
+            if (force || !controlGroupLocationsReady
+                    || nowNanos - lastControlGroupLocationRefreshNanos >= SOLO_FLEET_LOCATION_REFRESH_NANOS) {
+                base = OwnerFleetLocations.capture(world, PlayerRegistry.localId());
+                controlGroupLocationsReady = true;
+                lastControlGroupLocationRefreshNanos = nowNanos;
+            }
+        } else {
+            OwnerFleetLocationRegistry.State state = OwnerFleetLocationRegistry.state(world);
+            String localPlayerId = network.localPlayerId();
+            if (state.initialized() && state.ownerId().equals(localPlayerId)) {
+                base = state.locations();
+                controlGroupLocationsReady = true;
+            } else if (!state.ownerId().isBlank() && !state.ownerId().equals(localPlayerId)) {
+                base = Map.of();
+                controlGroupLocationsReady = false;
+            }
+        }
+
+        Map<String, String> merged = new LinkedHashMap<>(base == null ? Map.of() : base);
+        String activeSystemId = world.activeSystemId();
+        for (Unit unit : world.units.values()) {
+            if (unit != null && unit.hp > 0 && PlayerRegistry.isLocal(unit.playerId)) {
+                merged.put(unit.key(), activeSystemId);
+            }
+        }
+        controlGroupLocations = Map.copyOf(merged);
+    }
+
     private boolean matchesReboundOnly(String actionId, KeyEvent event,
                                        int defaultKey, boolean defaultControl) {
         GameSettings.Binding binding = settings.binding(actionId);
@@ -660,12 +1029,16 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         return binding.keyCode() != defaultKey || binding.ctrlRequired() != defaultControl;
     }
 
-    @Override public void keyReleased(KeyEvent e) { setCameraKey(e, false); }
+    @Override public void keyReleased(KeyEvent e) {
+        if (ControlGroupManager.numberForKeyCode(e.getKeyCode()) >= 0) heldControlGroupKeys.remove(e.getKeyCode());
+        setCameraKey(e, false);
+    }
     @Override public void focusGained(FocusEvent e) { }
 
     @Override public void focusLost(FocusEvent e) {
         clearCameraKeys();
         clearCommandMode();
+        heldControlGroupKeys.clear();
         dragStart = null;
         dragNow = null;
     }
@@ -720,4 +1093,6 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         if (settings.matches("camera_down_wasd", event)
                 || settings.matches("camera_down_arrow", event)) cameraDown = down;
     }
+
+    private record PendingControlGroupFocus(int groupNumber, String systemId, long requestedAtNanos) { }
 }
