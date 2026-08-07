@@ -47,6 +47,8 @@ final class ControlGroupManager {
         if (activeGroup == number) activeGroup = -1;
     }
 
+    void clearActive() { activeGroup = -1; }
+
     void prune(Map<String, String> liveLocations) {
         Map<String, String> live = liveLocations == null ? Map.of() : liveLocations;
         for (int i = 0; i < groups.length; i++) {
