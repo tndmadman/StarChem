@@ -61,7 +61,7 @@ final class CombatPolicySystem {
         AttackIntentSource source = UnitCommandQueueSystem.attackIntent(world, unit.key());
         if (source != AttackIntentSource.NONE) return source;
         // Direct attack() callers predate combat-policy metadata and represent deliberate
-        // strategic/order intent. Only WeaponSystem autonomous acquisition is marked AUTOMATIC.
+        // strategic/order intent. Only WeaponSystem/radar autonomous acquisition is marked AUTOMATIC.
         UnitCommandQueueSystem.setAttackIntent(world, unit, AttackIntentSource.EXPLICIT, false);
         return AttackIntentSource.EXPLICIT;
     }
@@ -153,6 +153,7 @@ final class CombatPolicySystem {
         AttackIntentSource source = attackIntent(world, unit);
         if (source == AttackIntentSource.EXPLICIT) return true;
         if (source != AttackIntentSource.AUTOMATIC || !mayAutoAcquire(world, unit)) return false;
+        if (IntelWarfareSystem.radarAttackActive(world, unit, unit.attackTarget)) return true;
         return automaticTargetInsideLeash(world, unit, unit.attackTarget);
     }
 
@@ -167,6 +168,9 @@ final class CombatPolicySystem {
         AttackIntentSource source = attackIntent(world, unit);
         if (source == AttackIntentSource.EXPLICIT) return true;
         if (source != AttackIntentSource.AUTOMATIC || !mayAutoAcquire(world, unit)) return false;
+        // A radar-coordinated response is still automatic combat, but its leash is the owning radar's
+        // configured response radius rather than the responder's ordinary Guard/Escort acquisition geometry.
+        if (IntelWarfareSystem.radarPursuitAllowed(world, unit, targetX, targetY)) return true;
         if (!UnitOrderSystem.canEngage(world, unit, targetX, targetY)) return false;
         if (unit.orderType != UnitOrderType.NONE) return true;
 
