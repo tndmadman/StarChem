@@ -138,6 +138,8 @@ final class ConnectionOverlayPanel extends JPanel {
 
     private void showModal() {
         if (isVisible()) return;
+        World activeWorld = PlayerRegistry.activeWorld();
+        if (activeWorld != null) OwnerFleetLocationRegistry.suspendUntilFreshProjection(activeWorld);
         setVisible(true);
         SwingUtilities.invokeLater(() -> {
             if (trust.isVisible()) trust.requestFocusInWindow();
