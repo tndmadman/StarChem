@@ -593,7 +593,6 @@ final class PeerTransport {
         if (message.startsWith("SNAPSHOT|")) return DeliveryClass.REGULAR_SNAPSHOT;
         if (message.startsWith("LEADER|")) return DeliveryClass.LEADERBOARD;
         if (message.startsWith("GALAXY|")) return DeliveryClass.GALAXY;
-        if (message.startsWith("OWNER_FLEET")) return DeliveryClass.OWNER_FLEET;
         return DeliveryClass.ORDERED;
     }
 
@@ -605,7 +604,6 @@ final class PeerTransport {
             case VIEW_SNAPSHOT -> "VIEW_SNAPSHOT";
             case LEADERBOARD -> "LEADERBOARD";
             case GALAXY -> "GALAXY";
-            case OWNER_FLEET -> "OWNER_FLEET";
         };
     }
 
