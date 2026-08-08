@@ -4,7 +4,6 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.*;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -39,7 +38,6 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final PerfStats perfStats = new PerfStats();
     private final PerfOverlay perfOverlay = new PerfOverlay();
     private final ControlGroupManager controlGroups = new ControlGroupManager();
-    private final Set<Integer> heldControlGroupKeys = new HashSet<>();
     private final boolean devMode;
     private FleetFormation formation = FleetFormation.GRID;
     private UnitOrderType commandMode = UnitOrderType.NONE;
@@ -201,22 +199,38 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
 
     private void drawControlGroupHud(Graphics2D g2) {
         if (!hasControlGroups()) return;
-        int x = 12;
-        int y = 150;
-        int width = 106;
-        int height = 38;
+        final int chipWidth = 106;
+        final int chipHeight = 38;
+        final int gap = 6;
+        final int margin = 12;
+        Rectangle minimap = minimapHud.bounds(world, getWidth(), getHeight());
+        int availableRight = minimap.isEmpty() ? getWidth() - margin : Math.max(margin + chipWidth, minimap.x - gap);
+        int maxColumns = Math.max(1, (availableRight - margin + gap) / (chipWidth + gap));
+        int occupied = 0;
+        for (int i = 0; i < ControlGroupManager.GROUP_COUNT; i++) {
+            if (!controlGroups.empty(i)) occupied++;
+        }
+        int rows = Math.max(1, (occupied + maxColumns - 1) / maxColumns);
+        int startY = Math.max(150, getHeight() - margin - rows * chipHeight - (rows - 1) * gap);
+        int index = 0;
         int[] order = {1, 2, 3, 4, 5, 6, 7, 8, 9, 0};
         for (int groupNumber : order) {
             if (controlGroups.empty(groupNumber)) continue;
+            int column = index % maxColumns;
+            int row = index / maxColumns;
+            int x = margin + column * (chipWidth + gap);
+            int y = startY + row * (chipHeight + gap);
+            index++;
+
             ControlGroupManager.GroupView view = controlGroups.view(groupNumber, world.activeSystemId(), controlGroupLocations);
             int living = controlGroupLocationsReady ? view.livingShips() : controlGroups.size(groupNumber);
             String systems = controlGroupLocationsReady ? Integer.toString(view.systemCount()) : "?";
             boolean active = controlGroups.activeGroup() == groupNumber;
 
             g2.setColor(new Color(0, 0, 0, active ? 210 : 175));
-            g2.fillRoundRect(x, y, width, height, 10, 10);
+            g2.fillRoundRect(x, y, chipWidth, chipHeight, 10, 10);
             g2.setColor(active ? new Color(130, 225, 255) : new Color(70, 135, 175));
-            g2.drawRoundRect(x, y, width, height, 10, 10);
+            g2.drawRoundRect(x, y, chipWidth, chipHeight, 10, 10);
             g2.setFont(g2.getFont().deriveFont(Font.BOLD, 12f));
             g2.setColor(Color.WHITE);
             g2.drawString(Integer.toString(groupNumber), x + 8, y + 16);
@@ -225,7 +239,6 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
             g2.setColor(new Color(215, 232, 244));
             g2.drawString(living + " ships", x + 48, y + 15);
             g2.drawString(systems + " sys | " + view.formation().label, x + 48, y + 29);
-            x += width + 6;
         }
     }
 
@@ -743,7 +756,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private boolean handleControlGroupKey(KeyEvent event) {
         int groupNumber = ControlGroupManager.numberForKeyCode(event.getKeyCode());
         if (groupNumber < 0) return false;
-        if (!heldControlGroupKeys.add(event.getKeyCode())) return true;
+        if (!controlGroups.acceptKeyPress(event.getKeyCode())) return true;
         if (controlGroupInputBlocked()) return true;
 
         boolean ctrl = event.isControlDown();
@@ -1030,7 +1043,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     }
 
     @Override public void keyReleased(KeyEvent e) {
-        if (ControlGroupManager.numberForKeyCode(e.getKeyCode()) >= 0) heldControlGroupKeys.remove(e.getKeyCode());
+        controlGroups.releaseKey(e.getKeyCode());
         setCameraKey(e, false);
     }
     @Override public void focusGained(FocusEvent e) { }
@@ -1038,7 +1051,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     @Override public void focusLost(FocusEvent e) {
         clearCameraKeys();
         clearCommandMode();
-        heldControlGroupKeys.clear();
+        controlGroups.clearHeldKeys();
         dragStart = null;
         dragNow = null;
     }

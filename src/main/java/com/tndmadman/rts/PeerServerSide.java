@@ -615,7 +615,8 @@ final class PeerServerSide {
         if (peers.isEmpty()) return;
         for (ServerPeer peer : peers.values()) {
             String message = GalaxyMapWire.encode(config.galaxyCopies,
-                    views.galaxySnapshot(world, peer.playerId()));
+                    views.galaxySnapshot(world, peer.playerId()), peer.playerId(),
+                    OwnerFleetLocations.capture(world, peer.playerId()));
             transport.send(message, peer.connectionId(), DeliveryClass.GALAXY);
         }
     }
@@ -623,7 +624,8 @@ final class PeerServerSide {
     private void sendGalaxy(ServerPeer peer) {
         if (peer == null) return;
         String message = GalaxyMapWire.encode(config.galaxyCopies,
-                views.galaxySnapshot(world, peer.playerId()));
+                views.galaxySnapshot(world, peer.playerId()), peer.playerId(),
+                OwnerFleetLocations.capture(world, peer.playerId()));
         transport.send(message, peer.connectionId(), DeliveryClass.GALAXY);
     }
 

@@ -310,11 +310,11 @@ final class GalaxyCoordinator {
 
     Map<String,String> ownerUnitLocations(World world, String playerId) {
         if (world == null || playerId == null || playerId.isBlank() || "WAIT".equals(playerId)) return Map.of();
-        saveActive(world);
         Map<String,String> out = new LinkedHashMap<>();
         for (WorldSystemState state : systems.values()) {
             if (state == null) continue;
-            for (Unit unit : state.units.values()) {
+            Collection<Unit> units = state.id.equals(activeSystemId) ? world.units.values() : state.units.values();
+            for (Unit unit : units) {
                 if (unit == null || unit.hp <= 0 || !playerId.equals(unit.playerId)) continue;
                 out.put(unit.key(), state.id);
             }

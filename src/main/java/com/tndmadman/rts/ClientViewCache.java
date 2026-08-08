@@ -121,7 +121,7 @@ final class ClientViewCache {
     GalaxyMapSnapshot galaxySnapshot(World world, String playerId) {
         if (world == null || !realPlayerId(playerId)) return new GalaxyMapSnapshot("", List.of(), List.of());
         GalaxyMapSnapshot authoritative = world.authoritativeGalaxyMapSnapshot();
-        if (authoritative == null || authoritative.empty()) return ownerProjected(world, playerId, authoritative);
+        if (authoritative == null || authoritative.empty()) return authoritative;
         String viewed = view(world, playerId);
         Set<String> known = knownSystems(playerId);
         if (known.add(viewed)) persist();
@@ -152,8 +152,7 @@ final class ClientViewCache {
                 if (link != null && included.contains(link.fromSystemId()) && included.contains(link.toSystemId())) links.add(link);
             }
         }
-        return ownerProjected(world, playerId,
-                new GalaxyMapSnapshot(viewed, List.copyOf(systems), List.copyOf(links)));
+        return new GalaxyMapSnapshot(viewed, List.copyOf(systems), List.copyOf(links));
     }
 
     void applyChange(World world, String playerId, Runnable change) {
@@ -234,13 +233,6 @@ final class ClientViewCache {
         } finally {
             world.activateSystem(old);
         }
-    }
-
-    private GalaxyMapSnapshot ownerProjected(World world, String playerId, GalaxyMapSnapshot snapshot) {
-        GalaxyMapSnapshot safe = snapshot == null
-                ? new GalaxyMapSnapshot("", List.of(), List.of()) : snapshot;
-        GalaxyMapWire.attachOwnerProjection(safe, playerId, OwnerFleetLocations.capture(world, playerId));
-        return safe;
     }
 
     private Set<String> knownSystems(String playerId) {
