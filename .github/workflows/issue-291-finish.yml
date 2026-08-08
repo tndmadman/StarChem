@@ -4,13 +4,16 @@ on:
   push:
     branches:
       - agent/issue-291-command-queues
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
   finish-and-validate:
-    if: github.event.head_commit.message != 'Finish issue 291 acceptance coverage'
+    if: github.event_name == 'pull_request' || github.event.head_commit.message != 'Finish issue 291 acceptance coverage'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -41,6 +44,7 @@ jobs:
         run: rm -f scripts/finish_issue_291.py .github/workflows/issue-291-finish.yml
 
       - name: Commit validated completion
+        if: github.event_name == 'push'
         run: |
           git config user.name "starchem-issue-291-bot"
           git config user.email "actions@users.noreply.github.com"
