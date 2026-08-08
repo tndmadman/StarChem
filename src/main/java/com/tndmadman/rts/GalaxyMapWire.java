@@ -3,23 +3,45 @@ package com.tndmadman.rts;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.WeakHashMap;
 
 final class GalaxyMapWire {
     private static final String PREFIX = "GALAXY|";
-    private static final int MAX_OWNER_UNITS = 1000;
+    private static final int MAX_OWNER_UNITS = 10_000;
     private static final int MAX_TEXT = 128;
+    private static final Map<GalaxyMapSnapshot, OwnerProjection> ENCODE_OWNER =
+            Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Map<GalaxyMapSnapshot, OwnerProjection> DECODE_OWNER =
+            Collections.synchronizedMap(new WeakHashMap<>());
 
     private GalaxyMapWire() { }
 
     static String encode(int copiesPerTemplate, GalaxyMapSnapshot snapshot) {
-        return encode(copiesPerTemplate, snapshot, Map.of());
+        OwnerProjection owner = snapshot == null ? OwnerProjection.ABSENT : ENCODE_OWNER.get(snapshot);
+        return encodeInternal(copiesPerTemplate, snapshot, owner == null ? OwnerProjection.ABSENT : owner);
     }
 
     static String encode(int copiesPerTemplate, GalaxyMapSnapshot snapshot, Map<String,String> ownerUnitLocations) {
+        String ownerId = inferOwnerId(ownerUnitLocations);
+        return ownerId.isBlank()
+                ? encodeInternal(copiesPerTemplate, snapshot, OwnerProjection.ABSENT)
+                : encode(copiesPerTemplate, snapshot, ownerId, ownerUnitLocations);
+    }
+
+    static String encode(int copiesPerTemplate, GalaxyMapSnapshot snapshot, String ownerId,
+                         Map<String,String> ownerUnitLocations) {
+        GalaxyMapSnapshot safeSnapshot = snapshot == null ? new GalaxyMapSnapshot("", List.of(), List.of()) : snapshot;
+        OwnerProjection owner = ownerProjection(ownerId, ownerUnitLocations);
+        ENCODE_OWNER.put(safeSnapshot, owner);
+        return encodeInternal(copiesPerTemplate, safeSnapshot, owner);
+    }
+
+    private static String encodeInternal(int copiesPerTemplate, GalaxyMapSnapshot snapshot, OwnerProjection owner) {
         if (snapshot == null) snapshot = new GalaxyMapSnapshot("", List.of(), List.of());
         StringBuilder out = new StringBuilder(PREFIX)
                 .append(Math.max(1, Math.min(2, copiesPerTemplate)))
@@ -53,19 +75,11 @@ final class GalaxyMapWire {
                 out.append("|L,").append(token(link.fromSystemId())).append(',').append(token(link.toSystemId()));
             }
         }
-        TreeMap<String,String> sortedOwnerUnits = new TreeMap<>();
-        if (ownerUnitLocations != null) sortedOwnerUnits.putAll(ownerUnitLocations);
-        if (sortedOwnerUnits.size() > MAX_OWNER_UNITS) {
-            throw new IllegalArgumentException("Owner fleet galaxy projection exceeds safe limits.");
-        }
-        for (Map.Entry<String,String> entry : sortedOwnerUnits.entrySet()) {
-            String unitKey = clean(entry.getKey());
-            String systemId = clean(entry.getValue());
-            if (unitKey.isBlank() || systemId.isBlank()) continue;
-            if (unitKey.length() > MAX_TEXT || systemId.length() > MAX_TEXT) {
-                throw new IllegalArgumentException("Owner fleet galaxy projection contains an oversized identity.");
+        if (owner.present()) {
+            out.append("|O,").append(token(owner.ownerId()));
+            for (Map.Entry<String,String> entry : new TreeMap<>(owner.locations()).entrySet()) {
+                out.append("|F,").append(token(entry.getKey())).append(',').append(token(entry.getValue()));
             }
-            out.append("|F,").append(token(unitKey)).append(',').append(token(systemId));
         }
         return out.toString();
     }
@@ -79,19 +93,32 @@ final class GalaxyMapWire {
         List<GalaxyMapSystem> systems = new ArrayList<>();
         List<GalaxyMapLink> links = new ArrayList<>();
         Map<String,String> ownerUnits = new LinkedHashMap<>();
+        String ownerId = "";
+        boolean ownerMarker = false;
         for (int i = 3; i < parts.length; i++) {
             String part = parts[i];
             if (part.startsWith("S,")) systems.add(system(part));
             else if (part.startsWith("L,")) links.add(link(part));
-            else if (part.startsWith("F,")) ownerFleet(part, ownerUnits);
+            else if (part.startsWith("O,")) {
+                if (ownerMarker) throw new SnapshotDecodeException("Duplicate owner fleet galaxy marker.");
+                ownerId = ownerMarker(part);
+                ownerMarker = true;
+            } else if (part.startsWith("F,")) ownerFleet(part, ownerUnits);
             else if (!part.isBlank()) throw new SnapshotDecodeException("Malformed galaxy state row.");
         }
         if (systems.size() > 96 || links.size() > 256 || ownerUnits.size() > MAX_OWNER_UNITS) {
             throw new SnapshotDecodeException("Galaxy state exceeds safe limits.");
         }
-        return new Decoded(copies,
-                new GalaxyMapSnapshot(activeSystemId, List.copyOf(systems), List.copyOf(links)),
-                Map.copyOf(ownerUnits));
+        if (!ownerUnits.isEmpty() && !ownerMarker) {
+            throw new SnapshotDecodeException("Owner fleet galaxy rows are missing their owner marker.");
+        }
+        if (ownerMarker) validateOwnerRows(ownerId, ownerUnits, true);
+        GalaxyMapSnapshot snapshot = new GalaxyMapSnapshot(activeSystemId, List.copyOf(systems), List.copyOf(links));
+        OwnerProjection owner = ownerMarker
+                ? new OwnerProjection(true, ownerId, Map.copyOf(ownerUnits))
+                : OwnerProjection.ABSENT;
+        if (owner.present()) DECODE_OWNER.put(snapshot, owner);
+        return new Decoded(copies, snapshot, owner);
     }
 
     static GalaxyMapSnapshot withActive(GalaxyMapSnapshot snapshot, String activeSystemId) {
@@ -103,7 +130,57 @@ final class GalaxyMapWire {
                     system.id().equals(activeSystemId), system.home(), system.special(), system.controllerId(),
                     system.controllerName(), system.controlStatus(), system.captureProgress(), system.controlColorRgb()));
         }
-        return new GalaxyMapSnapshot(activeSystemId, List.copyOf(systems), snapshot.links());
+        GalaxyMapSnapshot adjusted = new GalaxyMapSnapshot(activeSystemId, List.copyOf(systems), snapshot.links());
+        OwnerProjection owner = DECODE_OWNER.get(snapshot);
+        if (owner != null && owner.present()) DECODE_OWNER.put(adjusted, owner);
+        return adjusted;
+    }
+
+    static OwnerProjection decodedOwnerProjection(GalaxyMapSnapshot snapshot) {
+        if (snapshot == null) return OwnerProjection.ABSENT;
+        OwnerProjection owner = DECODE_OWNER.get(snapshot);
+        return owner == null ? OwnerProjection.ABSENT : owner;
+    }
+
+    private static OwnerProjection ownerProjection(String ownerId, Map<String,String> locations) {
+        String owner = clean(ownerId);
+        if (owner.isBlank() || owner.length() > MAX_TEXT) {
+            throw new IllegalArgumentException("Owner fleet galaxy projection has an invalid owner identity.");
+        }
+        Map<String,String> safe = locations == null ? Map.of() : Map.copyOf(locations);
+        if (safe.size() > MAX_OWNER_UNITS) {
+            throw new IllegalArgumentException("Owner fleet galaxy projection exceeds safe limits.");
+        }
+        validateOwnerRows(owner, safe, false);
+        return new OwnerProjection(true, owner, safe);
+    }
+
+    private static void validateOwnerRows(String ownerId, Map<String,String> locations, boolean decoding) {
+        String prefix = ownerId + ":";
+        for (Map.Entry<String,String> entry : locations.entrySet()) {
+            String unitKey = clean(entry.getKey());
+            String systemId = clean(entry.getValue());
+            boolean invalid = unitKey.isBlank() || systemId.isBlank()
+                    || unitKey.length() > MAX_TEXT || systemId.length() > MAX_TEXT
+                    || !unitKey.startsWith(prefix);
+            if (!invalid) continue;
+            if (decoding) throw new SnapshotDecodeException("Owner fleet galaxy projection contains a foreign or invalid unit.");
+            throw new IllegalArgumentException("Owner fleet galaxy projection contains a foreign or invalid unit.");
+        }
+    }
+
+    private static String inferOwnerId(Map<String,String> locations) {
+        if (locations == null || locations.isEmpty()) return "";
+        String owner = "";
+        for (String key : locations.keySet()) {
+            if (key == null) return "";
+            int separator = key.indexOf(':');
+            if (separator <= 0) return "";
+            String candidate = clean(key.substring(0, separator));
+            if (owner.isBlank()) owner = candidate;
+            else if (!owner.equals(candidate)) return "";
+        }
+        return owner;
     }
 
     private static GalaxyMapSystem system(String row) {
@@ -142,6 +219,16 @@ final class GalaxyMapWire {
             throw new SnapshotDecodeException("Malformed galaxy link identity.");
         }
         return new GalaxyMapLink(from, to);
+    }
+
+    private static String ownerMarker(String row) {
+        String[] f = row.split(",", -1);
+        if (f.length != 2) throw new SnapshotDecodeException("Malformed owner fleet galaxy marker.");
+        String ownerId = text(f[1]);
+        if (ownerId.isBlank() || ownerId.length() > MAX_TEXT) {
+            throw new SnapshotDecodeException("Malformed owner fleet galaxy owner identity.");
+        }
+        return ownerId;
     }
 
     private static void ownerFleet(String row, Map<String,String> ownerUnits) {
@@ -209,5 +296,15 @@ final class GalaxyMapWire {
         catch (RuntimeException ex) { throw new SnapshotDecodeException("Malformed " + label + "."); }
     }
 
-    record Decoded(int copiesPerTemplate, GalaxyMapSnapshot snapshot, Map<String,String> ownerUnitLocations) { }
+    record OwnerProjection(boolean present, String ownerId, Map<String,String> locations) {
+        static final OwnerProjection ABSENT = new OwnerProjection(false, "", Map.of());
+        OwnerProjection {
+            ownerId = ownerId == null ? "" : ownerId;
+            locations = locations == null ? Map.of() : Map.copyOf(locations);
+        }
+    }
+
+    record Decoded(int copiesPerTemplate, GalaxyMapSnapshot snapshot, OwnerProjection ownerProjection) {
+        Map<String,String> ownerUnitLocations() { return ownerProjection.locations(); }
+    }
 }
