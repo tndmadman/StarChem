@@ -1018,7 +1018,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
             if (state.initialized() && state.ownerId().equals(localPlayerId)) {
                 base = state.locations();
                 controlGroupLocationsReady = true;
-            } else if (!state.ownerId().isBlank() && !state.ownerId().equals(localPlayerId)) {
+            } else {
                 base = Map.of();
                 controlGroupLocationsReady = false;
             }
