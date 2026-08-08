@@ -47,3 +47,5 @@ jobs:
         run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue289CompletionValidator
       - name: Validate issue 292 combat policies
         run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue292CombatPolicyValidator
+      - name: Validate issue 292 radar combat coordination
+        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue292RadarCombatValidator
