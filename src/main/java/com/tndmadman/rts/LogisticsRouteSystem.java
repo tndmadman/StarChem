@@ -281,15 +281,16 @@ final class LogisticsRouteSystem {
                                   String playerId, String encoded) {
         if (countOwned(runtime, playerId) >= MAX_ROUTES_PER_PLAYER) return false;
         RouteSpec spec = parseSpec(encoded);
-        if (spec == null || !spec.routeId.isBlank()) return false;
+        if (spec == null || !spec.routeId.isBlank() || spec.keepTransports || spec.keepEscorts) return false;
+        String sourceSystemId = clean(world.activeSystemId());
+        if (sourceSystemId.isBlank() || sourceSystemId.equals(spec.destinationSystemId)) return false;
         DestinationValidation destination = validateDestination(world, playerId,
                 spec.destinationSystemId, spec.destinationBaseId, spec.materials);
-        if (!destination.valid || source.id.equals(spec.destinationBaseId)
-                && world.activeSystemId().equals(spec.destinationSystemId)) return false;
-        if (path(world, world.activeSystemId(), spec.destinationSystemId).isEmpty()) return false;
+        if (!destination.valid) return false;
+        if (path(world, sourceSystemId, spec.destinationSystemId).size() < 2) return false;
 
         String id = "LR" + runtime.nextRouteId++;
-        LogisticsRoute route = new LogisticsRoute(id, playerId, world.activeSystemId(), source.id,
+        LogisticsRoute route = new LogisticsRoute(id, playerId, sourceSystemId, source.id,
                 spec.destinationSystemId, spec.destinationBaseId, spec.materials,
                 spec.sourceReserve, spec.destinationTarget, spec.batchSize, spec.priority);
         route.observedDestination.putAll(destination.inventory);
@@ -307,9 +308,17 @@ final class LogisticsRouteSystem {
         LogisticsRoute route = runtime.routes.get(spec.routeId);
         if (route == null || !route.ownerId.equals(playerId) || !route.sourceBaseId.equals(source.id)
                 || !route.sourceSystemId.equals(world.activeSystemId())) return false;
+        if (route.sourceSystemId.equals(spec.destinationSystemId)
+                || path(world, route.sourceSystemId, spec.destinationSystemId).size() < 2) return false;
+        if (totalInTransit(route) > EPSILON) {
+            if (!route.destinationSystemId.equals(spec.destinationSystemId)
+                    || !route.destinationBaseId.equals(spec.destinationBaseId)
+                    || !route.materials.equals(new LinkedHashSet<>(spec.materials))
+                    || !spec.keepTransports) return false;
+        }
         DestinationValidation destination = validateDestination(world, playerId,
                 spec.destinationSystemId, spec.destinationBaseId, spec.materials);
-        if (!destination.valid || path(world, route.sourceSystemId, spec.destinationSystemId).isEmpty()) return false;
+        if (!destination.valid) return false;
         if (!applyAssignments(world, runtime, route, spec, true)) return false;
 
         route.destinationSystemId = spec.destinationSystemId;
@@ -773,6 +782,14 @@ final class LogisticsRouteSystem {
         double total = 0;
         for (EnumMap<Material,Double> cargo : route.shipCargo.values()) {
             total += cargo.getOrDefault(material, 0.0);
+        }
+        return total;
+    }
+
+    private static double totalInTransit(LogisticsRoute route) {
+        double total = 0;
+        for (EnumMap<Material,Double> cargo : route.shipCargo.values()) {
+            for (double amount : cargo.values()) if (Double.isFinite(amount) && amount > 0) total += amount;
         }
         return total;
     }
