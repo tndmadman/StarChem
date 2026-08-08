@@ -27,6 +27,28 @@ public final class TcpReconnectIntegrationValidator {
             String playerId = reconnecting.playerId();
             Unit unit = harness.firstUnit(harness.serverWorld, playerId);
             TcpIntegrationHarness.require(unit != null, "reconnecting player had no authoritative unit");
+            String unitKey = unit.key();
+            String unitSystem = harness.serverWorld.ownerUnitLocations(playerId).get(unitKey);
+            TcpIntegrationHarness.require(unitSystem != null && !unitSystem.isBlank(),
+                    "reconnecting queue fixture could not locate its authoritative unit");
+            QueuedUnitCommand patrol = QueuedUnitCommand.tactical(unitSystem, UnitOrderType.PATROL,
+                    Calc.clamp(unit.x + 45, 20, harness.serverWorld.width - 20),
+                    Calc.clamp(unit.y + 25, 20, harness.serverWorld.height - 20),
+                    Calc.clamp(unit.x + 115, 20, harness.serverWorld.width - 20),
+                    Calc.clamp(unit.y + 95, 20, harness.serverWorld.height - 20),
+                    UnitOrderSystem.defaultRadius(UnitOrderType.PATROL), "");
+            reconnecting.network().queue(new UnitQueueMutation(playerId, unit.unitId, UnitQueueOperation.REPLACE,
+                    UnitCommandQueueSystem.revision(reconnecting.world(), unitKey), patrol));
+            harness.await(() -> {
+                java.util.List<QueuedUnitCommand> authoritative = UnitCommandQueueSystem.commands(harness.serverWorld, unitKey);
+                java.util.List<QueuedUnitCommand> replicated = UnitCommandQueueSystem.commands(reconnecting.world(), unitKey);
+                return authoritative.size() == 1 && replicated.size() == 1
+                        && authoritative.get(0).tacticalType() == UnitOrderType.PATROL
+                        && replicated.get(0).tacticalType() == UnitOrderType.PATROL
+                        && UnitCommandQueueSystem.revision(harness.serverWorld, unitKey)
+                        == UnitCommandQueueSystem.revision(reconnecting.world(), unitKey);
+            }, 5_000, "queued patrol did not synchronize before reconnect validation");
+            long queueRevisionBefore = UnitCommandQueueSystem.revision(harness.serverWorld, unitKey);
             String tokenBefore = SessionTokenStore.load(reconnecting.config()).token();
             ConnectionId connectionBefore = harness.serverNetwork.connectionIdForPlayer(playerId);
             TcpIntegrationHarness.require(connectionBefore.valid(), "initial server connection ID was missing");
@@ -42,11 +64,19 @@ public final class TcpReconnectIntegrationValidator {
                     "server did not detach the closed TCP connection");
             TcpIntegrationHarness.require(harness.serverWorld.hasLiveAssets(playerId),
                     "server removed player state instead of retaining the resumable session");
+            TcpIntegrationHarness.require(UnitCommandQueueSystem.commands(harness.serverWorld, unitKey).size() == 1,
+                    "server lost queued work while the owner was disconnected");
+            UnitCommandQueueSystem.clearWorld(reconnecting.world());
+            TcpIntegrationHarness.require(UnitCommandQueueSystem.commands(reconnecting.world(), unitKey).isEmpty(),
+                    "queue reconnect fixture did not clear its client cache");
 
             harness.await(() -> reconnecting.network().clientConnected()
                             && playerId.equals(reconnecting.playerId())
-                            && harness.serverNetwork.serverSessionConnected(playerId),
-                    15_000, "automatic full-path TCP RESUME did not complete");
+                            && harness.serverNetwork.serverSessionConnected(playerId)
+                            && UnitCommandQueueSystem.commands(reconnecting.world(), unitKey).size() == 1
+                            && UnitCommandQueueSystem.commands(reconnecting.world(), unitKey).get(0).tacticalType() == UnitOrderType.PATROL
+                            && UnitCommandQueueSystem.revision(reconnecting.world(), unitKey) == queueRevisionBefore,
+                    15_000, "automatic full-path TCP RESUME did not restore authoritative queue state");
 
             String tokenAfter = SessionTokenStore.load(reconnecting.config()).token();
             ConnectionId connectionAfter = harness.serverNetwork.connectionIdForPlayer(playerId);

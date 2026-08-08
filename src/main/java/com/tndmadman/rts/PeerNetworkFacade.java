@@ -464,6 +464,17 @@ final class PeerNetwork implements CommandSink {
         transport.shutdown();
     }
 
+    UnitQueueApplyResult queue(UnitQueueMutation mutation) {
+        if (mutation == null) return UnitQueueApplyResult.REJECTED;
+        if (server != null) {
+            UnitQueueApplyResult result = UnitCommandQueueSystem.applyGlobal(server.world, mutation);
+            if (result != UnitQueueApplyResult.REJECTED) server.broadcastNow();
+            return result;
+        }
+        client.queue(mutation);
+        return UnitQueueApplyResult.APPLIED;
+    }
+
     @Override public void move(MoveCommand c) { if (server != null) serverCommand(() -> AUnitMove.apply(server.world, c), c.playerId()); else client.move(c); }
     @Override public void work(HarvestCommand c) { if (server != null) serverCommand(() -> AUnitWork.apply(server.world, c), c.playerId()); else client.work(c); }
     @Override public void attack(AttackCommand c) { if (server != null) serverCommand(() -> AUnitAttack.apply(server.world, c), c.playerId()); else client.attack(c); }

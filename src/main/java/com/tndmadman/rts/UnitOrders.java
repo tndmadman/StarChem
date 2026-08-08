@@ -20,7 +20,9 @@ final class UnitOrderSystem {
     }
 
     static void update(World world, Unit unit, double dt) {
-        if (world == null || unit == null || unit.orderType == UnitOrderType.NONE) return;
+        if (world == null || unit == null) return;
+        UnitCommandQueueSystem.update(world, unit, dt);
+        if (unit.orderType == UnitOrderType.NONE) return;
         if (unit.task == UnitTask.AUTO_HARVEST || unit.task == UnitTask.RETURN_TO_STATION) return;
 
         if (unit.task == UnitTask.ATTACK) {
@@ -215,6 +217,7 @@ final class AUnitOrder {
                 Calc.clamp(command.x1(), 0, world.width), Calc.clamp(command.y1(), 0, world.height),
                 Calc.clamp(command.x2(), 0, world.width), Calc.clamp(command.y2(), 0, world.height),
                 radius, target, Math.max(0, command.phase()));
+        UnitCommandQueueSystem.legacyReplace(world, unit);
         unit.setOrder(safe);
         UnitOrderSystem.update(world, unit, 0);
         return true;
@@ -240,7 +243,9 @@ final class UnitOrderRenderer {
     private UnitOrderRenderer() { }
 
     static void draw(Graphics2D g2, World world, Unit unit) {
-        if (g2 == null || world == null || unit == null || !unit.selected || !PlayerRegistry.isLocal(unit.playerId) || unit.orderType == UnitOrderType.NONE) return;
+        if (g2 == null || world == null || unit == null || !unit.selected || !PlayerRegistry.isLocal(unit.playerId)) return;
+        UnitCommandQueueRenderer.draw(g2, world, unit);
+        if (UnitCommandQueueSystem.hasPlayerIntent(world, unit) || unit.orderType == UnitOrderType.NONE) return;
         Color color = PlayerRegistry.color(unit.playerId);
         Graphics2D r = (Graphics2D) g2.create();
         r.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), 185));

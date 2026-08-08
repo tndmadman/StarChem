@@ -27,7 +27,8 @@ final class HaulerSystem {
                 || NpcRecoverySystem.ownsUnit(world, hauler)
                 || NpcRepairEvacuationSystem.ownsUnit(world, hauler)) return;
         if (!NpcRules.isNpcFaction(hauler.playerId)
-                && hauler.orderType != UnitOrderType.NONE) return;
+                && (hauler.orderType != UnitOrderType.NONE
+                || UnitCommandQueueSystem.hasPlayerIntent(world, hauler))) return;
 
         cleanupCurrentSystem(world);
         String key = runKey(world, hauler);

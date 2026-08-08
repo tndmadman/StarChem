@@ -96,7 +96,8 @@ final class ScoutSystem {
     }
 
     private void updateLocalMiner(World world, Unit miner) {
-        if (miner.task != UnitTask.IDLE || miner.freeCargo() <= 0.05) return;
+        if (miner.task != UnitTask.IDLE || miner.orderType != UnitOrderType.NONE
+                || UnitCommandQueueSystem.hasPlayerIntent(world, miner) || miner.freeCargo() <= 0.05) return;
         anchorToNearbyStation(world, miner);
         ensureMiningAnchor(miner);
         ResourceNode node = leastAssignedLocalResource(world, miner, -1, assignmentCounts(world, miner.playerId));
@@ -224,7 +225,9 @@ final class ScoutSystem {
     private List<Unit> idleHarvestWorkers(World world, String playerId) {
         List<Unit> workers = new ArrayList<>();
         for (Unit unit : world.units.values()) {
-            if (!unit.playerId.equals(playerId) || unit.task != UnitTask.IDLE) continue;
+            if (!unit.playerId.equals(playerId) || unit.task != UnitTask.IDLE
+                    || unit.orderType != UnitOrderType.NONE
+                    || UnitCommandQueueSystem.hasPlayerIntent(world, unit)) continue;
             if (unit.type().harvestKinds.isEmpty() || unit.freeCargo() <= 0.05) continue;
             workers.add(unit);
         }

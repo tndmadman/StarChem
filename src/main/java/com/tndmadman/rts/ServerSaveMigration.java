@@ -32,6 +32,10 @@ final class ServerSaveMigration {
             version = 5;
             notes.add("v4->v5 persists exact source-to-destination refit reservations");
         }
+        if (version == 5) {
+            version = 6;
+            notes.add("v5->v6 adds bounded persistent per-unit command queues");
+        }
         if (version != ServerSaveStore.SAVE_FORMAT_VERSION) {
             throw new IllegalArgumentException("Unsupported save format " + sourceVersion + ".");
         }

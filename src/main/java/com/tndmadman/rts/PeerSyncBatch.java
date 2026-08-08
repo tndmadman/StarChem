@@ -12,6 +12,7 @@ final class PeerSyncBatch {
         long next = sequence;
         for (ServerPeer peer : peers) {
             next = PeerSyncSender.sendOne(world, views, peer, next, SyncKind.REGULAR, fullResources, out);
+            sendQueueState(world, peer, false, out);
             sendNotices(world, peer, out);
             sendAudio(world, views, peer, out);
         }
@@ -22,10 +23,18 @@ final class PeerSyncBatch {
         sendFitCatalog(world, peer, out);
         long next = PeerSyncSender.sendOne(world, views, peer, sequence, SyncKind.INITIAL, out);
         sendFogState(world, views, peer, out);
+        sendQueueState(world, peer, true, out);
         sendNotices(world, peer, out);
         sendAudio(world, views, peer, out);
         GlobalLeaderboard.forceNextAuthoritativeSend(world);
         return next;
+    }
+
+    private static void sendQueueState(World world, ServerPeer peer, boolean initial, NetOutbound out) {
+        if (world == null || peer == null || out == null) return;
+        for (String packet : UnitCommandQueueSystem.statePackets(world, peer.playerId(), initial)) {
+            out.send(packet, peer.connectionId(), DeliveryClass.ORDERED);
+        }
     }
 
     private static void sendFitCatalog(World world, ServerPeer peer, NetOutbound out) {

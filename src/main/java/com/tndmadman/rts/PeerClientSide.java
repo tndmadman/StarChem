@@ -225,6 +225,7 @@ final class PeerClientSide {
         if (!fromConfiguredServer(packet)) return;
         PlayerRegistry.activate(world);
         lastServerPacket = System.currentTimeMillis();
+        if (UnitQueueWire.readState(world, message, localPlayerId)) return;
         if (readWorldInfo(message) || readGalaxy(message) || readLeaderboard(message)
                 || readDevStatus(message) || readViewDenied(message)) return;
         if (!readAuthRequired(message) && !readAuthChallenge(message) && !readSessionChallenge(message)
@@ -245,6 +246,7 @@ final class PeerClientSide {
         System.err.println(world.status + " " + ex.getClass().getSimpleName());
     }
 
+    void queue(UnitQueueMutation mutation) { sendCommandToServer(UnitQueueWire.mutationPacket(mutation)); }
     void move(MoveCommand command) { sendCommandToServer("MOVE|" + command.playerId() + "|" + command.unitId() + "|" + Calc.round(command.x()) + "|" + Calc.round(command.y())); }
     void work(HarvestCommand command) { ResourceNetDebug.clientWorkSend(world, command); sendCommandToServer("WORK|" + command.playerId() + "|" + command.unitId() + "|" + command.resourceId()); }
     void attack(AttackCommand command) { sendCommandToServer("ATTACK|" + command.playerId() + "|" + command.unitId() + "|" + command.targetKey()); }

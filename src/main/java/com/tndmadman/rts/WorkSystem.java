@@ -11,7 +11,7 @@ final class WorkSystem {
                 world.sendToNearestBase(unit);
                 return;
             }
-            if (world.scoutRetarget(unit, node)) return;
+            if (!UnitCommandQueueSystem.ownsHarvest(world, unit) && world.scoutRetarget(unit, node)) return;
             abandonTarget(world, unit);
             return;
         }
@@ -49,7 +49,7 @@ final class WorkSystem {
                 world.sendToNearestBase(unit);
                 return;
             }
-            if (world.scoutRetarget(unit, node)) return;
+            if (!UnitCommandQueueSystem.ownsHarvest(world, unit) && world.scoutRetarget(unit, node)) return;
             world.status = node.name + " depleted. Waiting at assigned mining area for another deposit.";
             abandonTarget(world, unit);
             return;
