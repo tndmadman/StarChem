@@ -13,7 +13,7 @@ public final class ControlGroupValidator {
         validateGroupEditingAndRecall();
         validateDoubleTapAndKeyMapping();
         validateOwnerFleetGalaxyWireAndIsolation();
-        validateStableKeysAcrossSystems();
+        validateStableKeysAcrossWormholeTransfer();
         System.out.println("Control group validation passed.");
     }
 
@@ -44,6 +44,11 @@ public final class ControlGroupValidator {
 
         groups.prune(Map.of("P1:3", "BETA"));
         require(groups.size(1) == 1 && groups.contains(1, "P1:3"), "destroyed unit was not pruned");
+
+        groups.assign(2, Set.of("P1:9"), FleetFormation.GRID);
+        groups.prune(Map.of("P2:9", "ALPHA"));
+        require(groups.empty(2), "ownership loss left a stale selectable group member");
+
         groups.clear(1);
         require(groups.empty(1), "group clear failed");
     }
@@ -60,6 +65,14 @@ public final class ControlGroupValidator {
         require(ControlGroupManager.numberForKeyCode(KeyEvent.VK_9) == 9, "top-row nine mapping failed");
         require(ControlGroupManager.numberForKeyCode(KeyEvent.VK_NUMPAD3) == 3, "numpad mapping failed");
         require(ControlGroupManager.numberForKeyCode(KeyEvent.VK_A) < 0, "non-number key mapped to a group");
+
+        require(groups.acceptKeyPress(KeyEvent.VK_4), "fresh number press was rejected");
+        require(!groups.acceptKeyPress(KeyEvent.VK_4), "held-key repeat was accepted as a fresh press");
+        groups.releaseKey(KeyEvent.VK_4);
+        require(groups.acceptKeyPress(KeyEvent.VK_4), "released number key could not be pressed again");
+        groups.clearHeldKeys();
+        require(groups.acceptKeyPress(KeyEvent.VK_4), "focus-reset key state remained stuck");
+        groups.releaseKey(KeyEvent.VK_4);
     }
 
     private static void validateOwnerFleetGalaxyWireAndIsolation() {
@@ -90,7 +103,7 @@ public final class ControlGroupValidator {
                 "empty owner fleet projection did not retain its owner marker");
     }
 
-    private static void validateStableKeysAcrossSystems() {
+    private static void validateStableKeysAcrossWormholeTransfer() {
         World world = new World("Control Group Projection Validator");
         String owner = "SOLO";
         Unit starting = world.units.values().stream().filter(unit -> owner.equals(unit.playerId)).findFirst().orElseThrow();
@@ -100,13 +113,18 @@ public final class ControlGroupValidator {
         require(activeBeforeCapture.equals(world.activeSystemId()), "owner fleet projection changed the active system");
         require(world.activeSystemId().equals(initial.get(key)), "initial owner fleet projection missed the starting ship");
 
-        String target = world.authoritativeGalaxyMapSnapshot().systems().stream()
-                .map(GalaxyMapSystem::id)
-                .filter(id -> !id.equals(world.activeSystemId()))
-                .findFirst().orElseThrow();
-        world.movePlayerAssetsToSystem(owner, target);
+        WormholeGate gate = world.wormholes.stream().findFirst().orElseThrow();
+        String target = gate.toSystemId;
+        starting.x = gate.x;
+        starting.y = gate.y;
+        starting.targetX = gate.x;
+        starting.targetY = gate.y;
+        starting.wormholeCooldown = 0;
+        require(world.transferTouchingShips(owner), "ship did not traverse the real wormhole transfer path");
+
         Map<String, String> moved = OwnerFleetLocations.capture(world, owner);
-        require(target.equals(moved.get(key)), "stable unit key did not follow the ship to its new system");
+        require(target.equals(moved.get(key)), "stable unit key did not follow the ship through its wormhole");
+        require(!world.units.containsKey(key), "wormhole transfer incorrectly left the ship in the source system");
     }
 
     private static void expectFailure(Runnable action, String message) {
