@@ -1,10 +1,10 @@
 # Multiplayer identity authentication
 
-StarChem v1.7.0 uses multiplayer protocol 13. Authentication and session resume run only after the client has verified the server's TLS identity.
+StarChem v1.7.0 uses multiplayer protocol 14. Authentication and session resume run only after the client has verified the server's TLS identity.
 
 ## Compatibility
 
-Clients and servers must match the StarChem application version, multiplayer protocol 13, rules version 27, save format 5 where persisted state is exchanged, and the packaged configuration fingerprint. StarChem v1.6.0 uses protocol 7 and is intentionally incompatible with v1.7.0 multiplayer.
+Clients and servers must match the StarChem application version, multiplayer protocol 14, rules version 27, save format 5 where persisted state is exchanged, and the packaged configuration fingerprint. StarChem v1.6.0 uses protocol 7 and is intentionally incompatible with v1.7.0 multiplayer.
 
 Build commit is diagnostic. Different commits may connect only when all required compatibility values match.
 
