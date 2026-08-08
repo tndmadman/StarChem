@@ -22,6 +22,7 @@ final class EndStatePanel extends JPanel {
         this.network = network;
         setOpaque(false);
         setVisible(false);
+        setFocusable(true);
         JPanel card = new JPanel(new GridLayout(0, 1, 0, 12));
         card.setBorder(BorderFactory.createEmptyBorder(26, 34, 26, 34));
         card.setBackground(new Color(8, 18, 30, 235));
@@ -47,7 +48,7 @@ final class EndStatePanel extends JPanel {
     private void primaryAction() {
         if (victoryMode) {
             victoryDismissed = true;
-            setVisible(false);
+            hideModal();
             return;
         }
         restartPlayer();
@@ -57,7 +58,7 @@ final class EndStatePanel extends JPanel {
         String playerId = PlayerRegistry.localId();
         if (network == null) WorldNetAccess.respawnPlayer(world, playerId);
         else network.respawn(playerId);
-        setVisible(false);
+        hideModal();
     }
 
     private void leaveMatch() {
@@ -68,7 +69,7 @@ final class EndStatePanel extends JPanel {
 
     private void refresh() {
         if (!ready()) {
-            setVisible(false);
+            hideModal();
             return;
         }
 
@@ -80,7 +81,7 @@ final class EndStatePanel extends JPanel {
             help.setText(objective.title() + " was completed" + by + ".");
             restart.setText("CONTINUE PLAYING");
             lobby.setText(network == null ? "RETURN TO LOBBY" : "DISCONNECT");
-            setVisible(true);
+            showModal();
             return;
         }
 
@@ -90,11 +91,34 @@ final class EndStatePanel extends JPanel {
             help.setText("You are off the leaderboard until you respawn.");
             restart.setText("RESPAWN");
             lobby.setText(network == null ? "RETURN TO LOBBY" : "DISCONNECT");
-            setVisible(true);
+            showModal();
             return;
         }
 
+        hideModal();
+    }
+
+    private void showModal() {
+        if (isVisible()) return;
+        setVisible(true);
+        SwingUtilities.invokeLater(restart::requestFocusInWindow);
+    }
+
+    private void hideModal() {
+        if (!isVisible()) return;
         setVisible(false);
+        restoreGameplayFocus();
+    }
+
+    private void restoreGameplayFocus() {
+        Container parent = getParent();
+        if (parent == null) return;
+        for (Component component : parent.getComponents()) {
+            if (component instanceof GamePanel panel && panel.isVisible()) {
+                SwingUtilities.invokeLater(panel::requestFocusInWindow);
+                return;
+            }
+        }
     }
 
     private boolean ready() {
