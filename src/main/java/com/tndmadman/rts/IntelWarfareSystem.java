@@ -26,6 +26,7 @@ final class IntelWarfareSystem {
     private static final double DETAILED_THRESHOLD = 1.52;
     private static final double MEMORY_SECONDS = 45.0;
     private static final double RESPONSE_INTERVAL = 0.45;
+    private static final double RESPONSE_MEMORY_SECONDS = 18.0;
     private static final Map<String, StructureIntelRule> STRUCTURES = loadStructureRules();
     private static final Map<World, RuntimeState> STATES = Collections.synchronizedMap(new WeakHashMap<>());
 
@@ -80,7 +81,7 @@ final class IntelWarfareSystem {
         updateMemory(world, runtime);
         if (runtime.responseTimer <= 0) {
             runtime.responseTimer = RESPONSE_INTERVAL;
-            dispatchRadarResponses(world);
+            dispatchRadarResponses(world, runtime);
             investigateLastKnownContacts(world, runtime);
         }
         prune(world, runtime);
@@ -255,6 +256,45 @@ final class IntelWarfareSystem {
         return rule == null ? StructureIntelRule.EMPTY : rule;
     }
 
+    static boolean radarAttackActive(World world, Unit unit, String targetKey) {
+        if (world == null || unit == null || targetKey == null || targetKey.isBlank()) return false;
+        RadarResponseAssignment assignment = systemRuntime(world).radarResponses.get(unit.key());
+        if (assignment == null || !assignment.attack || !targetKey.equals(assignment.targetKey)) return false;
+        Base radar = world.bases.get(assignment.radarId);
+        if (!validRadarAssignment(world, radar, unit)) return false;
+        if (!CombatPolicySystem.mayAutoAcquire(world, unit)) return false;
+        double tx = CombatTarget.x(world, targetKey);
+        double ty = CombatTarget.y(world, targetKey);
+        return GameplayCommandNumbers.finite(tx, ty)
+                && Calc.distance(radar.x, radar.y, tx, ty) <= responseRadius(radar);
+    }
+
+    static boolean radarPursuitAllowed(World world, Unit unit, double targetX, double targetY) {
+        if (world == null || unit == null || !GameplayCommandNumbers.finite(targetX, targetY)) return false;
+        RadarResponseAssignment assignment = systemRuntime(world).radarResponses.get(unit.key());
+        if (assignment == null || !assignment.attack) return false;
+        Base radar = world.bases.get(assignment.radarId);
+        if (!validRadarAssignment(world, radar, unit) || !CombatPolicySystem.mayAutoAcquire(world, unit)) return false;
+        double radius = responseRadius(radar);
+        return Calc.distance(radar.x, radar.y, targetX, targetY) <= radius
+                && Calc.distance(radar.x, radar.y, unit.x, unit.y) <= radius * 1.15;
+    }
+
+    static int radarResponseCount(World world, String radarId) {
+        if (world == null || radarId == null || radarId.isBlank()) return 0;
+        int count = 0;
+        for (RadarResponseAssignment assignment : systemRuntime(world).radarResponses.values()) {
+            if (radarId.equals(assignment.radarId)) count++;
+        }
+        return count;
+    }
+
+    static String radarResponseTarget(World world, String unitKey) {
+        if (world == null || unitKey == null || unitKey.isBlank()) return "";
+        RadarResponseAssignment assignment = systemRuntime(world).radarResponses.get(unitKey);
+        return assignment == null ? "" : assignment.targetKey;
+    }
+
     private static DetectionStage stageFor(World world, String viewerId, double x, double y,
                                            double signature, boolean station) {
         if (world == null || invalid(viewerId)) return DetectionStage.NONE;
@@ -355,62 +395,276 @@ final class IntelWarfareSystem {
         }
     }
 
-    private static void dispatchRadarResponses(World world) {
-        for (Base radar : world.bases.values()) {
-            if (radar == null || radar.hp <= 0 || !isRadar(radar.typeId)) continue;
+    private static void dispatchRadarResponses(World world, SystemRuntime runtime) {
+        Map<String,RadarResponseAssignment> previous = new LinkedHashMap<>(runtime.radarResponses);
+        Map<String,RadarResponseAssignment> next = new LinkedHashMap<>();
+        Set<String> claimedUnits = new LinkedHashSet<>();
+        List<Base> radars = new ArrayList<>();
+        for (Base base : world.bases.values()) {
+            if (base != null && base.hp > 0 && isRadar(base.typeId)) radars.add(base);
+        }
+        radars.sort(Comparator.comparingInt((Base radar) -> radarTier(radar.typeId)).reversed()
+                .thenComparing(radar -> radar.id));
+
+        for (Base radar : radars) {
             StructureIntelRule rule = rule(radar.typeId);
             if (rule.responseShipLimit <= 0 || "observe".equals(rule.responseMode)) continue;
-            TargetChoice target = bestResponseTarget(world, radar);
-            if (target == null) continue;
+            List<Unit> responders = responseCandidates(world, runtime, radar, rule, claimedUnits);
             int assigned = 0;
-            String guardTarget = CombatTarget.base(radar);
-            for (Unit unit : world.units.values()) {
+            for (Unit unit : responders) {
                 if (assigned >= rule.responseShipLimit) break;
-                if (unit == null || unit.hp <= 0 || !allied(world, radar.playerId, unit.playerId)
-                        || !WeaponRules.armed(unit)) continue;
-                boolean assignedGuard = unit.orderType == UnitOrderType.GUARD
-                        && guardTarget.equals(unit.orderTarget);
-                if (!assignedGuard && !NpcRules.isNpcFaction(unit.playerId)) continue;
-                if (Calc.distance(unit.x, unit.y, radar.x, radar.y) > rule.responseRadius) continue;
-                if (target.stage.atLeast(DetectionStage.IDENTIFIED) && !target.key.isBlank()) {
-                    unit.issueAttack(target.key);
-                } else {
-                    unit.issueMove(target.x, target.y);
-                }
+                TargetChoice target = bestResponseTarget(world, runtime, radar, unit);
+                if (target == null) continue;
+                RadarResponseAssignment assignment = assignRadarResponse(world, radar, unit, target);
+                if (assignment == null) continue;
+                next.put(unit.key(), assignment);
+                claimedUnits.add(unit.key());
                 assigned++;
             }
         }
+
+        runtime.radarResponses.clear();
+        runtime.radarResponses.putAll(next);
+        for (Map.Entry<String,RadarResponseAssignment> entry : previous.entrySet()) {
+            if (!next.containsKey(entry.getKey())) releaseRadarResponse(world, entry.getKey(), entry.getValue());
+        }
     }
 
-    private static TargetChoice bestResponseTarget(World world, Base radar) {
+    private static List<Unit> responseCandidates(World world, SystemRuntime runtime, Base radar,
+                                                 StructureIntelRule rule, Set<String> claimedUnits) {
+        List<Unit> out = new ArrayList<>();
+        for (Unit unit : world.units.values()) {
+            if (unit == null || unit.hp <= 0 || claimedUnits.contains(unit.key())
+                    || !radar.playerId.equals(unit.playerId) || !WeaponRules.armed(unit)
+                    || ProductionSystem.refitReserved(world, unit.key())) continue;
+            if (!CombatPolicySystem.mayAutoAcquire(world, unit)) continue;
+            AttackIntentSource intent = CombatPolicySystem.attackIntent(world, unit);
+            if (intent == AttackIntentSource.EXPLICIT) continue;
+            if (Calc.distance(unit.x, unit.y, radar.x, radar.y) > rule.responseRadius) continue;
+
+            boolean guarding = guardsRadar(unit, radar);
+            RadarResponseAssignment existing = runtime.radarResponses.get(unit.key());
+            boolean continuing = existing != null && radar.id.equals(existing.radarId);
+            boolean queued = !UnitCommandQueueSystem.commands(world, unit.key()).isEmpty();
+            boolean idle = unit.task == UnitTask.IDLE && unit.orderType == UnitOrderType.NONE && !queued;
+            if (!guarding && !continuing && !idle) continue;
+            out.add(unit);
+        }
+        out.sort(Comparator.comparingDouble(unit -> responderScore(runtime, radar, unit))
+                .thenComparing(Unit::key));
+        return out;
+    }
+
+    private static double responderScore(SystemRuntime runtime, Base radar, Unit unit) {
+        RadarResponseAssignment existing = runtime.radarResponses.get(unit.key());
+        int bucket = guardsRadar(unit, radar) ? 0
+                : existing != null && radar.id.equals(existing.radarId) ? 1 : 2;
+        return bucket * 10_000_000.0 + Calc.distance(unit.x, unit.y, radar.x, radar.y);
+    }
+
+    private static TargetChoice bestResponseTarget(World world, SystemRuntime runtime, Base radar, Unit responder) {
+        TargetChoice best = bestLiveResponseTarget(world, radar, responder);
+        if (best != null) return best;
+        if (CombatPolicySystem.stance(world, responder) != CombatStance.AGGRESSIVE) return null;
+        return bestRememberedResponseTarget(world, runtime, radar, responder);
+    }
+
+    private static TargetChoice bestLiveResponseTarget(World world, Base radar, Unit responder) {
         TargetChoice best = null;
-        double bestScore = Double.MAX_VALUE;
+        double bestScore = Double.POSITIVE_INFINITY;
+        double maxRange = responseRadius(radar);
         for (Unit enemy : world.units.values()) {
             if (enemy == null || enemy.hp <= 0 || allied(world, radar.playerId, enemy.playerId)) continue;
             DetectionStage stage = unitStage(world, radar.playerId, enemy);
             if (!stage.atLeast(DetectionStage.CLASSIFIED)) continue;
-            double distance = Calc.distance(radar.x, radar.y, enemy.x, enemy.y);
-            if (distance > baseSensorRange(world, radar) * 1.15) continue;
-            double score = distance / (stage.atLeast(DetectionStage.IDENTIFIED) ? 1.2 : 1.0);
-            if (score < bestScore) {
-                bestScore = score;
-                best = new TargetChoice(CombatTarget.unit(enemy), enemy.x, enemy.y, stage);
-            }
+            double radarDistance = Calc.distance(radar.x, radar.y, enemy.x, enemy.y);
+            if (radarDistance > maxRange) continue;
+            String key = CombatTarget.unit(enemy);
+            double score = radarTargetScore(world, radar, responder, key, stage, enemy.x, enemy.y);
+            if (!Double.isFinite(score) || score >= bestScore) continue;
+            double tx = stage.atLeast(DetectionStage.IDENTIFIED)
+                    ? enemy.x : approximateX(world, key, stage, enemy.x);
+            double ty = stage.atLeast(DetectionStage.IDENTIFIED)
+                    ? enemy.y : approximateY(world, key, stage, enemy.y);
+            bestScore = score;
+            best = new TargetChoice(key, tx, ty, stage, true);
         }
         for (Base enemy : world.bases.values()) {
             if (enemy == null || enemy.hp <= 0 || allied(world, radar.playerId, enemy.playerId)) continue;
             DetectionStage stage = baseStage(world, radar.playerId, enemy);
-            if (!stage.atLeast(DetectionStage.IDENTIFIED)) continue;
-            double distance = Calc.distance(radar.x, radar.y, enemy.x, enemy.y);
-            if (distance > baseSensorRange(world, radar) * 1.15) continue;
-            double priority = isRadar(enemy.typeId) || isJammer(enemy.typeId) ? 0.55 : 1.0;
-            double score = distance * priority;
-            if (score < bestScore) {
-                bestScore = score;
-                best = new TargetChoice(CombatTarget.base(enemy), enemy.x, enemy.y, stage);
-            }
+            if (!stage.atLeast(DetectionStage.CLASSIFIED)) continue;
+            double radarDistance = Calc.distance(radar.x, radar.y, enemy.x, enemy.y);
+            if (radarDistance > maxRange) continue;
+            String key = CombatTarget.base(enemy);
+            double score = radarTargetScore(world, radar, responder, key, stage, enemy.x, enemy.y);
+            if (!Double.isFinite(score) || score >= bestScore) continue;
+            double tx = stage.atLeast(DetectionStage.IDENTIFIED)
+                    ? enemy.x : approximateX(world, key, stage, enemy.x);
+            double ty = stage.atLeast(DetectionStage.IDENTIFIED)
+                    ? enemy.y : approximateY(world, key, stage, enemy.y);
+            bestScore = score;
+            best = new TargetChoice(key, tx, ty, stage, true);
         }
         return best;
+    }
+
+    private static TargetChoice bestRememberedResponseTarget(World world, SystemRuntime runtime,
+                                                              Base radar, Unit responder) {
+        Map<String,IntelMemory> memory = runtime.memoryByViewer.get(radar.playerId);
+        if (memory == null || memory.isEmpty()) return null;
+        double now = world.systemTime();
+        TargetChoice best = null;
+        double bestScore = Double.POSITIVE_INFINITY;
+        for (IntelMemory candidate : memory.values()) {
+            double age = now - candidate.lastSeenTime;
+            if (age < 0 || age > RESPONSE_MEMORY_SECONDS || !candidate.stage.atLeast(DetectionStage.CLASSIFIED)
+                    || !DiplomacySystem.hostile(world, radar.playerId, candidate.ownerId)) continue;
+            if (CombatTarget.alive(world, candidate.key)
+                    && (candidate.station ? baseStage(world, radar.playerId, CombatTarget.base(world, candidate.key))
+                    : unitStage(world, radar.playerId, CombatTarget.unit(world, candidate.key)))
+                    .atLeast(DetectionStage.CLASSIFIED)) continue;
+
+            double predictSeconds = candidate.stage.atLeast(DetectionStage.IDENTIFIED) ? Math.min(5, age) : 0;
+            double exactX = candidate.x + candidate.vx * predictSeconds;
+            double exactY = candidate.y + candidate.vy * predictSeconds;
+            if (Calc.distance(radar.x, radar.y, exactX, exactY) > responseRadius(radar)) continue;
+            double score = radarMemoryScore(world, responder, candidate, exactX, exactY, age);
+            if (!Double.isFinite(score) || score >= bestScore) continue;
+            double tx = approximateX(world, candidate.key, candidate.stage, exactX);
+            double ty = approximateY(world, candidate.key, candidate.stage, exactY);
+            bestScore = score;
+            best = new TargetChoice(candidate.key, tx, ty, candidate.stage, false);
+        }
+        return best;
+    }
+
+    private static double radarTargetScore(World world, Base radar, Unit responder, String targetKey,
+                                           DetectionStage stage, double x, double y) {
+        if (!CombatTarget.enemy(world, responder, targetKey)) return Double.POSITIVE_INFINITY;
+        Unit targetUnit = CombatTarget.unit(world, targetKey);
+        Base targetBase = CombatTarget.base(world, targetKey);
+        boolean structure = targetBase != null;
+        boolean combat = targetUnit != null && WeaponRules.armed(world, targetUnit);
+        boolean logistics = targetUnit != null && logisticsOrWorker(targetUnit.type(), combat);
+        boolean smallCraft = targetUnit != null && targetUnit.type().size.scale <= 1.0;
+        boolean assignedThreat = targetUnit != null && !CombatPolicySystem.protectedTarget(world, responder).isBlank()
+                && CombatPolicySystem.protectedTarget(world, responder).equals(targetUnit.attackTarget);
+        boolean threat = assignedThreat || radarThreatensOwner(world, radar.playerId, targetUnit);
+        if (CombatPolicySystem.stance(world, responder) == CombatStance.DEFENSIVE && !threat) {
+            return Double.POSITIVE_INFINITY;
+        }
+
+        double distance = Calc.distance(responder.x, responder.y, x, y);
+        if (targetUnit != null && targetUnit.weaponFlashTimer > 0) distance *= 0.88;
+        if (targetBase != null) {
+            if (isJammer(targetBase.typeId)) distance *= 0.45;
+            else if (isRadar(targetBase.typeId)) distance *= 0.62;
+        }
+        int bucket = policyBucket(CombatPolicySystem.priority(world, responder), structure, combat,
+                logistics, smallCraft, threat, assignedThreat);
+        double identificationFactor = stage.atLeast(DetectionStage.IDENTIFIED) ? 0.92 : 1.0;
+        return bucket * 10_000_000.0 + distance * identificationFactor;
+    }
+
+    private static double radarMemoryScore(World world, Unit responder, IntelMemory memory,
+                                           double x, double y, double age) {
+        ShipType type = memory.station ? null : Rules.SHIPS.get(memory.typeId);
+        boolean structure = memory.station;
+        boolean combat = type != null && WeaponRules.armed(type);
+        boolean logistics = type != null && logisticsOrWorker(type, combat);
+        boolean smallCraft = type != null && type.size.scale <= 1.0;
+        int bucket = policyBucket(CombatPolicySystem.priority(world, responder), structure, combat,
+                logistics, smallCraft, false, false);
+        double distance = Calc.distance(responder.x, responder.y, x, y);
+        double stalePenalty = age * 40 + memory.uncertainty;
+        if (memory.decoySuspected) stalePenalty += 500;
+        return bucket * 10_000_000.0 + distance + stalePenalty;
+    }
+
+    private static int policyBucket(TargetPriorityPolicy priority, boolean structure, boolean combat,
+                                    boolean logistics, boolean smallCraft, boolean threat, boolean assignedThreat) {
+        return switch (priority) {
+            case NEAREST_THREAT -> threat ? 0 : 1;
+            case PROTECT_ASSIGNED_TARGET -> assignedThreat ? 0 : threat ? 1 : 2;
+            case SCREENING -> smallCraft ? 0 : combat ? 1 : structure ? 2 : 3;
+            case COMBAT_FIRST -> combat ? 0 : structure ? 1 : logistics ? 2 : 3;
+            case LOGISTICS_FIRST -> logistics ? 0 : combat ? 1 : structure ? 2 : 3;
+            case STRUCTURES_FIRST -> structure ? 0 : 1;
+            case STRUCTURES_LAST -> structure ? 1 : 0;
+        };
+    }
+
+    private static boolean radarThreatensOwner(World world, String ownerId, Unit hostile) {
+        if (world == null || hostile == null || hostile.attackTarget == null || hostile.attackTarget.isBlank()) return false;
+        return ownerId.equals(CombatTarget.owner(world, hostile.attackTarget));
+    }
+
+    private static boolean logisticsOrWorker(ShipType type, boolean combat) {
+        if (type == null) return false;
+        return !type.harvestKinds.isEmpty()
+                || type.cargoCapacity >= 300
+                || type.tractorBeamCount > 0
+                || type.baseBuilder
+                || type.scoutRange > 0 && !combat;
+    }
+
+    private static RadarResponseAssignment assignRadarResponse(World world, Base radar, Unit unit, TargetChoice target) {
+        if (!target.attackable() && guardsRadar(unit, radar)) return null;
+        if (target.attackable()) {
+            CombatPolicySystem.markAutomaticAttack(world, unit);
+            unit.attack(target.key);
+            if (unit.task != UnitTask.ATTACK || !target.key.equals(unit.attackTarget)) {
+                CombatPolicySystem.clearAttackIntent(world, unit);
+                return null;
+            }
+            return new RadarResponseAssignment(radar.id, target.key, true, target.x, target.y);
+        }
+
+        if (CombatPolicySystem.attackIntent(world, unit) == AttackIntentSource.EXPLICIT) return null;
+        CombatPolicySystem.clearAttackIntent(world, unit);
+        unit.moveTo(target.x, target.y);
+        return new RadarResponseAssignment(radar.id, target.key, false, target.x, target.y);
+    }
+
+    private static void releaseRadarResponse(World world, String unitKey, RadarResponseAssignment assignment) {
+        Unit unit = world.units.get(unitKey);
+        if (unit == null || assignment == null) return;
+        if (assignment.attack) {
+            if (CombatPolicySystem.attackIntent(world, unit) == AttackIntentSource.AUTOMATIC
+                    && assignment.targetKey.equals(unit.attackTarget)) {
+                unit.attack("");
+                CombatPolicySystem.clearAttackIntent(world, unit);
+            }
+            return;
+        }
+        if (unit.task == UnitTask.MOVE && unit.attackTarget.isBlank()
+                && Calc.distance(unit.targetX, unit.targetY, assignment.x, assignment.y) <= 8) {
+            unit.targetX = unit.x;
+            unit.targetY = unit.y;
+            unit.task = UnitTask.IDLE;
+        }
+    }
+
+    private static boolean guardsRadar(Unit unit, Base radar) {
+        return unit != null && radar != null && unit.orderType == UnitOrderType.GUARD
+                && CombatTarget.base(radar).equals(unit.orderTarget);
+    }
+
+    private static boolean validRadarAssignment(World world, Base radar, Unit unit) {
+        return radar != null && radar.hp > 0 && isRadar(radar.typeId)
+                && unit != null && unit.hp > 0 && radar.playerId.equals(unit.playerId)
+                && rule(radar.typeId).responseShipLimit > 0
+                && !"observe".equals(rule(radar.typeId).responseMode);
+    }
+
+    private static double responseRadius(Base radar) {
+        if (radar == null) return 0;
+        StructureIntelRule rule = rule(radar.typeId);
+        double configured = Math.max(0, rule.responseRadius);
+        double sensorBound = Math.max(0, baseSensorRange(PlayerRegistry.activeWorld(), radar) * 1.15);
+        if (configured <= 0) return sensorBound;
+        if (sensorBound <= 0) return configured;
+        return Math.min(configured, sensorBound);
     }
 
     private static void investigateLastKnownContacts(World world, SystemRuntime runtime) {
@@ -430,6 +684,7 @@ final class IntelWarfareSystem {
             double predictedY = newest.y + newest.vy * Math.min(5, now - newest.lastSeenTime);
             for (Unit unit : world.units.values()) {
                 if (!owner.equals(unit.playerId) || unit.hp <= 0 || !WeaponRules.armed(unit)) continue;
+                if (runtime.radarResponses.containsKey(unit.key())) continue;
                 if (unit.task != UnitTask.IDLE || unit.orderType != UnitOrderType.NONE) continue;
                 unit.issueMove(predictedX, predictedY);
                 break;
@@ -441,6 +696,10 @@ final class IntelWarfareSystem {
         Set<String> liveBases = new LinkedHashSet<>();
         for (Base base : world.bases.values()) liveBases.add(base.id);
         runtime.radarModes.keySet().removeIf(id -> !liveBases.contains(id));
+        runtime.radarResponses.entrySet().removeIf(entry -> {
+            Unit unit = world.units.get(entry.getKey());
+            return unit == null || unit.hp <= 0 || !liveBases.contains(entry.getValue().radarId);
+        });
     }
 
     private static Set<String> sensorOwners(World world, String viewerId) {
@@ -572,7 +831,11 @@ final class IntelWarfareSystem {
                 0, 0, 0, 1, "ACTIVE", "observe", 0, 0, "");
     }
 
-    private record TargetChoice(String key, double x, double y, DetectionStage stage) { }
+    private record TargetChoice(String key, double x, double y, DetectionStage stage, boolean live) {
+        boolean attackable() { return live && stage.atLeast(DetectionStage.IDENTIFIED) && key != null && !key.isBlank(); }
+    }
+
+    private record RadarResponseAssignment(String radarId, String targetKey, boolean attack, double x, double y) { }
 
     private static final class RuntimeState {
         final Map<String,SystemRuntime> systems = new LinkedHashMap<>();
@@ -582,6 +845,7 @@ final class IntelWarfareSystem {
     private static final class SystemRuntime {
         final Map<String,RadarMode> radarModes = new LinkedHashMap<>();
         final Map<String,Map<String,IntelMemory>> memoryByViewer = new LinkedHashMap<>();
+        final Map<String,RadarResponseAssignment> radarResponses = new LinkedHashMap<>();
         double responseTimer;
     }
 }
