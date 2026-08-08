@@ -22,7 +22,7 @@ final class StationControls {
 
     static String role(String typeId) { return rule(typeId).role; }
     static boolean nonProduction(String typeId) { return rule(typeId).nonProduction; }
-    static boolean handles(String typeId) { return nonProduction(typeId); }
+    static boolean handles(String typeId) { return Rules.findBase(typeId) != null; }
 
     static List<Material> radarCandidates(World world, Base radar) {
         if (world == null || radar == null || !IntelWarfareSystem.isRadar(radar.typeId)) return List.of();
@@ -230,8 +230,12 @@ final class StationControlCommands {
     static boolean apply(World world, String playerId, String baseId, String action, String value) {
         if (world == null || playerId == null || baseId == null || action == null) return false;
         Base base = world.bases.get(baseId);
-        if (base == null || !playerId.equals(base.playerId) || !StationControls.nonProduction(base.typeId)) return false;
+        if (base == null || !playerId.equals(base.playerId)) return false;
         String command = action.trim().toUpperCase(Locale.ROOT);
+        if (command.startsWith("LOG_ROUTE_")) {
+            return LogisticsRouteSystem.applyCommand(world, playerId, baseId, command, value);
+        }
+        if (!StationControls.nonProduction(base.typeId)) return false;
         boolean changed = switch (command) {
             case "RADAR_PRIORITY_TOP" -> StationControls.putRadarPriorityFirst(world, base, material(value));
             case "RADAR_PRIORITY_UP" -> StationControls.moveRadarPriority(world, base, material(value), -1);
