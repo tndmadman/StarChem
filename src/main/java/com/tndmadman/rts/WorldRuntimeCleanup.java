@@ -13,5 +13,6 @@ final class WorldRuntimeCleanup {
         AudioEventCenter.discard(world);
         GameNoticeCenter.clear(world);
         AlertCenter.clear(world);
+        OwnerFleetLocationRegistry.clear(world);
     }
 }
