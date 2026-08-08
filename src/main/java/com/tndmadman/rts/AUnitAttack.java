@@ -10,6 +10,7 @@ final class AUnitAttack {
                 || !VisibilityRules.targetVisible(world, c.playerId(), c.targetKey())
                 || !CombatTarget.enemy(world, u, c.targetKey()) || !WeaponRules.armed(u)) return false;
         UnitCommandQueueSystem.legacyReplace(world, u);
+        CombatPolicySystem.markExplicitAttack(world, u);
         u.issueAttack(c.targetKey());
         return true;
     }
