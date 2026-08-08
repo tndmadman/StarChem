@@ -73,7 +73,8 @@ final class Unit {
         String candidate = targetKey == null ? "" : targetKey.trim();
         World world = PlayerRegistry.activeWorld();
         if (world != null && !candidate.isBlank()
-                && !CombatTarget.mayTarget(world, playerId, candidate)) candidate = "";
+                && (!CombatTarget.mayTarget(world, playerId, candidate)
+                || !VisibilityRules.targetVisible(world, playerId, candidate))) candidate = "";
         attackTarget = candidate;
         task = attackTarget.isBlank() ? UnitTask.IDLE : UnitTask.ATTACK;
         automationResourceId = -1;
