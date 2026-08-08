@@ -58,7 +58,12 @@ final class CombatPolicySystem {
         if (unit == null || unit.task != UnitTask.ATTACK || unit.attackTarget == null || unit.attackTarget.isBlank()) {
             return AttackIntentSource.NONE;
         }
-        return UnitCommandQueueSystem.attackIntent(world, unit.key());
+        AttackIntentSource source = UnitCommandQueueSystem.attackIntent(world, unit.key());
+        if (source != AttackIntentSource.NONE) return source;
+        // NPC and older runtime paths can already be in ATTACK without the new metadata.
+        // Treat those as automatic combat and establish the same bounded leash anchor.
+        UnitCommandQueueSystem.setAttackIntent(world, unit, AttackIntentSource.AUTOMATIC, true);
+        return AttackIntentSource.AUTOMATIC;
     }
 
     static void markExplicitAttack(World world, Unit unit) {
@@ -83,9 +88,11 @@ final class CombatPolicySystem {
 
     static double acquisitionRange(World world, Unit unit) {
         if (world == null || unit == null || !mayAutoAcquire(world, unit)) return 0;
+        double sensorScale = Math.max(0, SystemModifierRules.sensorRange(world));
         double weaponRange = Math.max(0, AttackRangeRules.effectiveWeaponRange(world, unit));
-        if (stance(world, unit) == CombatStance.DEFENSIVE) return weaponRange * 1.10;
-        return UnitOrderSystem.acquisitionRange(world, unit);
+        double base = stance(world, unit) == CombatStance.DEFENSIVE
+                ? weaponRange * 1.10 : UnitOrderSystem.acquisitionRange(world, unit);
+        return Math.max(0, base * sensorScale);
     }
 
     static boolean eligibleAutomaticTarget(World world, Unit unit, String targetKey) {
@@ -117,6 +124,14 @@ final class CombatPolicySystem {
         boolean logistics = targetUnit != null && logisticsOrWorker(targetUnit, combat);
         boolean smallCraft = targetUnit != null && targetUnit.type().size.scale <= 1.0;
         boolean threat = threatensProtectedTarget(world, unit, targetKey);
+
+        // Keep the existing preference for actively firing contacts and high-value EW structures
+        // inside whichever policy bucket the player selected.
+        if (targetUnit != null && targetUnit.weaponFlashTimer > 0) distance *= 0.88;
+        if (targetBase != null) {
+            if (IntelWarfareSystem.isJammer(targetBase.typeId)) distance *= 0.45;
+            else if (IntelWarfareSystem.isRadar(targetBase.typeId)) distance *= 0.62;
+        }
 
         int bucket = switch (priority(world, unit)) {
             case NEAREST_THREAT -> threat ? 0 : 1;
