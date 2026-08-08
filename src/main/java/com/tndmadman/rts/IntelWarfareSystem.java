@@ -444,7 +444,8 @@ final class IntelWarfareSystem {
 
             boolean guarding = guardsRadar(unit, radar);
             RadarResponseAssignment existing = runtime.radarResponses.get(unit.key());
-            boolean continuing = existing != null && radar.id.equals(existing.radarId);
+            boolean continuing = existing != null && radar.id.equals(existing.radarId)
+                    && responseRuntimeMatches(world, unit, existing);
             boolean queued = !UnitCommandQueueSystem.commands(world, unit.key()).isEmpty();
             boolean idle = unit.task == UnitTask.IDLE && unit.orderType == UnitOrderType.NONE && !queued;
             if (!guarding && !continuing && !idle) continue;
@@ -453,6 +454,17 @@ final class IntelWarfareSystem {
         out.sort(Comparator.comparingDouble((Unit unit) -> responderScore(runtime, radar, unit))
                 .thenComparing(unit -> unit.key()));
         return out;
+    }
+
+    private static boolean responseRuntimeMatches(World world, Unit unit, RadarResponseAssignment assignment) {
+        if (world == null || unit == null || assignment == null) return false;
+        if (assignment.attack) {
+            return unit.task == UnitTask.ATTACK
+                    && assignment.targetKey.equals(unit.attackTarget)
+                    && UnitCommandQueueSystem.attackIntent(world, unit.key()) == AttackIntentSource.AUTOMATIC;
+        }
+        return unit.task == UnitTask.MOVE && unit.attackTarget.isBlank()
+                && Calc.distance(unit.targetX, unit.targetY, assignment.x, assignment.y) <= 8;
     }
 
     private static double responderScore(SystemRuntime runtime, Base radar, Unit unit) {
@@ -543,9 +555,12 @@ final class IntelWarfareSystem {
         if (!CombatTarget.enemy(world, responder, targetKey)) return Double.POSITIVE_INFINITY;
         Unit targetUnit = CombatTarget.unit(world, targetKey);
         Base targetBase = CombatTarget.base(world, targetKey);
+        boolean identified = stage.atLeast(DetectionStage.IDENTIFIED);
         boolean structure = targetBase != null;
-        boolean combat = targetUnit != null && WeaponRules.armed(world, targetUnit);
-        boolean logistics = targetUnit != null && logisticsOrWorker(targetUnit.type(), combat);
+        boolean combat = identified && targetUnit != null && WeaponRules.armed(world, targetUnit);
+        boolean logistics = identified && targetUnit != null && logisticsOrWorker(targetUnit.type(), combat);
+        // Size class is already exposed by CLASSIFIED contacts, so Screening may use it without
+        // leaking a hidden exact hull or loadout.
         boolean smallCraft = targetUnit != null && targetUnit.type().size.scale <= 1.0;
         boolean assignedThreat = targetUnit != null && !CombatPolicySystem.protectedTarget(world, responder).isBlank()
                 && CombatPolicySystem.protectedTarget(world, responder).equals(targetUnit.attackTarget);
@@ -556,22 +571,23 @@ final class IntelWarfareSystem {
 
         double distance = Calc.distance(responder.x, responder.y, x, y);
         if (targetUnit != null && targetUnit.weaponFlashTimer > 0) distance *= 0.88;
-        if (targetBase != null) {
+        if (identified && targetBase != null) {
             if (isJammer(targetBase.typeId)) distance *= 0.45;
             else if (isRadar(targetBase.typeId)) distance *= 0.62;
         }
         int bucket = policyBucket(CombatPolicySystem.priority(world, responder), structure, combat,
                 logistics, smallCraft, threat, assignedThreat);
-        double identificationFactor = stage.atLeast(DetectionStage.IDENTIFIED) ? 0.92 : 1.0;
+        double identificationFactor = identified ? 0.92 : 1.0;
         return bucket * 10_000_000.0 + distance * identificationFactor;
     }
 
     private static double radarMemoryScore(World world, Unit responder, IntelMemory memory,
                                            double x, double y, double age) {
         ShipType type = memory.station ? null : Rules.SHIPS.get(memory.typeId);
+        boolean identified = memory.stage.atLeast(DetectionStage.IDENTIFIED);
         boolean structure = memory.station;
-        boolean combat = type != null && WeaponRules.armed(type);
-        boolean logistics = type != null && logisticsOrWorker(type, combat);
+        boolean combat = identified && type != null && WeaponRules.armed(type);
+        boolean logistics = identified && type != null && logisticsOrWorker(type, combat);
         boolean smallCraft = type != null && type.size.scale <= 1.0;
         int bucket = policyBucket(CombatPolicySystem.priority(world, responder), structure, combat,
                 logistics, smallCraft, false, false);
