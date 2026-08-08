@@ -23,6 +23,18 @@ final class OwnerFleetLocationRegistry {
     }
 
     static State state(World world) {
+        if (world != null) {
+            GalaxyMapWire.OwnerProjection projection =
+                    GalaxyMapWire.decodedOwnerProjection(world.galaxyMapSnapshot());
+            if (projection.present()) {
+                State prior = STATES.get(world);
+                if (prior == null || !prior.initialized()
+                        || !projection.ownerId().equals(prior.ownerId())
+                        || !projection.locations().equals(prior.locations())) {
+                    replace(world, projection.ownerId(), projection.locations());
+                }
+            }
+        }
         State state = world == null ? null : STATES.get(world);
         return state == null ? State.EMPTY : state;
     }
