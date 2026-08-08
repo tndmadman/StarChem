@@ -10,258 +10,27 @@ def replace_once(text, old, new, label):
 
 game = Path('src/main/java/com/tndmadman/rts/GamePanel.java')
 text = game.read_text(encoding='utf-8')
-text = replace_once(text, 'import java.util.HashSet;\n', '', 'remove duplicate key guard import')
-text = replace_once(text,
-    '    private final ControlGroupManager controlGroups = new ControlGroupManager();\n'
-    '    private final Set<Integer> heldControlGroupKeys = new HashSet<>();\n',
-    '    private final ControlGroupManager controlGroups = new ControlGroupManager();\n',
-    'remove duplicate key guard field')
-old_hud = '''    private void drawControlGroupHud(Graphics2D g2) {
-        if (!hasControlGroups()) return;
-        int x = 12;
-        int y = 150;
-        int width = 106;
-        int height = 38;
-        int[] order = {1, 2, 3, 4, 5, 6, 7, 8, 9, 0};
-        for (int groupNumber : order) {
-            if (controlGroups.empty(groupNumber)) continue;
-            ControlGroupManager.GroupView view = controlGroups.view(groupNumber, world.activeSystemId(), controlGroupLocations);
-            int living = controlGroupLocationsReady ? view.livingShips() : controlGroups.size(groupNumber);
-            String systems = controlGroupLocationsReady ? Integer.toString(view.systemCount()) : "?";
-            boolean active = controlGroups.activeGroup() == groupNumber;
-
-            g2.setColor(new Color(0, 0, 0, active ? 210 : 175));
-            g2.fillRoundRect(x, y, width, height, 10, 10);
-            g2.setColor(active ? new Color(130, 225, 255) : new Color(70, 135, 175));
-            g2.drawRoundRect(x, y, width, height, 10, 10);
-            g2.setFont(g2.getFont().deriveFont(Font.BOLD, 12f));
-            g2.setColor(Color.WHITE);
-            g2.drawString(Integer.toString(groupNumber), x + 8, y + 16);
-            drawFormationGlyph(g2, view.formation(), x + 24, y + 7);
-            g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 10f));
-            g2.setColor(new Color(215, 232, 244));
-            g2.drawString(living + " ships", x + 48, y + 15);
-            g2.drawString(systems + " sys | " + view.formation().label, x + 48, y + 29);
-            x += width + 6;
-        }
+old_gate = '''    private boolean controlGroupInputBlocked() {
+        if (galaxyMapOpen || ShipFittingWindow.active()) return true;
+        Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+        return focusOwner != null && focusOwner != this;
     }
 '''
-new_hud = '''    private void drawControlGroupHud(Graphics2D g2) {
-        if (!hasControlGroups()) return;
-        final int chipWidth = 106;
-        final int chipHeight = 38;
-        final int gap = 6;
-        final int margin = 12;
-        Rectangle minimap = minimapHud.bounds(world, getWidth(), getHeight());
-        int availableRight = minimap.isEmpty() ? getWidth() - margin : Math.max(margin + chipWidth, minimap.x - gap);
-        int maxColumns = Math.max(1, (availableRight - margin + gap) / (chipWidth + gap));
-        int occupied = 0;
-        for (int i = 0; i < ControlGroupManager.GROUP_COUNT; i++) {
-            if (!controlGroups.empty(i)) occupied++;
-        }
-        int rows = Math.max(1, (occupied + maxColumns - 1) / maxColumns);
-        int startY = Math.max(150, getHeight() - margin - rows * chipHeight - (rows - 1) * gap);
-        int index = 0;
-        int[] order = {1, 2, 3, 4, 5, 6, 7, 8, 9, 0};
-        for (int groupNumber : order) {
-            if (controlGroups.empty(groupNumber)) continue;
-            int column = index % maxColumns;
-            int row = index / maxColumns;
-            int x = margin + column * (chipWidth + gap);
-            int y = startY + row * (chipHeight + gap);
-            index++;
-
-            ControlGroupManager.GroupView view = controlGroups.view(groupNumber, world.activeSystemId(), controlGroupLocations);
-            int living = controlGroupLocationsReady ? view.livingShips() : controlGroups.size(groupNumber);
-            String systems = controlGroupLocationsReady ? Integer.toString(view.systemCount()) : "?";
-            boolean active = controlGroups.activeGroup() == groupNumber;
-
-            g2.setColor(new Color(0, 0, 0, active ? 210 : 175));
-            g2.fillRoundRect(x, y, chipWidth, chipHeight, 10, 10);
-            g2.setColor(active ? new Color(130, 225, 255) : new Color(70, 135, 175));
-            g2.drawRoundRect(x, y, chipWidth, chipHeight, 10, 10);
-            g2.setFont(g2.getFont().deriveFont(Font.BOLD, 12f));
-            g2.setColor(Color.WHITE);
-            g2.drawString(Integer.toString(groupNumber), x + 8, y + 16);
-            drawFormationGlyph(g2, view.formation(), x + 24, y + 7);
-            g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 10f));
-            g2.setColor(new Color(215, 232, 244));
-            g2.drawString(living + " ships", x + 48, y + 15);
-            g2.drawString(systems + " sys | " + view.formation().label, x + 48, y + 29);
-        }
+new_gate = '''    private boolean controlGroupInputBlocked() {
+        Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+        return ControlGroupInputGate.blocked(galaxyMapOpen, ShipFittingWindow.active(), focusOwner, this);
     }
 '''
-text = replace_once(text, old_hud, new_hud, 'responsive control group HUD')
-text = replace_once(text,
-    '        if (!heldControlGroupKeys.add(event.getKeyCode())) return true;\n',
-    '        if (!controlGroups.acceptKeyPress(event.getKeyCode())) return true;\n',
-    'use manager key repeat guard')
-text = replace_once(text,
-    '        if (ControlGroupManager.numberForKeyCode(e.getKeyCode()) >= 0) heldControlGroupKeys.remove(e.getKeyCode());\n',
-    '        controlGroups.releaseKey(e.getKeyCode());\n',
-    'release manager key guard')
-text = replace_once(text,
-    '        heldControlGroupKeys.clear();\n',
-    '        controlGroups.clearHeldKeys();\n',
-    'clear manager key guard on focus loss')
+if old_gate in text:
+    text = replace_once(text, old_gate, new_gate, 'testable control group input gate')
+elif new_gate not in text:
+    raise SystemExit('control group input gate is in an unexpected state')
 game.write_text(text, encoding='utf-8')
-
-
-galaxy = Path('src/main/java/com/tndmadman/rts/GalaxyCoordinator.java')
-text = galaxy.read_text(encoding='utf-8')
-old = '''    Map<String,String> ownerUnitLocations(World world, String playerId) {
-        if (world == null || playerId == null || playerId.isBlank() || "WAIT".equals(playerId)) return Map.of();
-        saveActive(world);
-        Map<String,String> out = new LinkedHashMap<>();
-        for (WorldSystemState state : systems.values()) {
-            if (state == null) continue;
-            for (Unit unit : state.units.values()) {
-                if (unit == null || unit.hp <= 0 || !playerId.equals(unit.playerId)) continue;
-                out.put(unit.key(), state.id);
-            }
-        }
-        return Map.copyOf(out);
-    }
-'''
-new = '''    Map<String,String> ownerUnitLocations(World world, String playerId) {
-        if (world == null || playerId == null || playerId.isBlank() || "WAIT".equals(playerId)) return Map.of();
-        Map<String,String> out = new LinkedHashMap<>();
-        for (WorldSystemState state : systems.values()) {
-            if (state == null) continue;
-            Collection<Unit> units = state.id.equals(activeSystemId) ? world.units.values() : state.units.values();
-            for (Unit unit : units) {
-                if (unit == null || unit.hp <= 0 || !playerId.equals(unit.playerId)) continue;
-                out.put(unit.key(), state.id);
-            }
-        }
-        return Map.copyOf(out);
-    }
-'''
-text = replace_once(text, old, new, 'read-only owner fleet projection')
-galaxy.write_text(text, encoding='utf-8')
-
-
-views = Path('src/main/java/com/tndmadman/rts/ClientViewCache.java')
-text = views.read_text(encoding='utf-8')
-text = replace_once(text,
-    '        if (authoritative == null || authoritative.empty()) return ownerProjected(world, playerId, authoritative);\n',
-    '        if (authoritative == null || authoritative.empty()) return authoritative;\n',
-    'remove implicit owner projection from empty galaxy')
-text = replace_once(text,
-    '        return ownerProjected(world, playerId,\n'
-    '                new GalaxyMapSnapshot(viewed, List.copyOf(systems), List.copyOf(links)));\n',
-    '        return new GalaxyMapSnapshot(viewed, List.copyOf(systems), List.copyOf(links));\n',
-    'remove implicit owner projection from galaxy snapshot')
-owner_method = '''    private GalaxyMapSnapshot ownerProjected(World world, String playerId, GalaxyMapSnapshot snapshot) {
-        GalaxyMapSnapshot safe = snapshot == null
-                ? new GalaxyMapSnapshot("", List.of(), List.of()) : snapshot;
-        GalaxyMapWire.attachOwnerProjection(safe, playerId, OwnerFleetLocations.capture(world, playerId));
-        return safe;
-    }
-
-'''
-text = replace_once(text, owner_method, '', 'remove implicit owner projection helper')
-views.write_text(text, encoding='utf-8')
-
-
-server = Path('src/main/java/com/tndmadman/rts/PeerServerSide.java')
-text = server.read_text(encoding='utf-8')
-old_send = '''            String message = GalaxyMapWire.encode(config.galaxyCopies,
-                    views.galaxySnapshot(world, peer.playerId()));'''
-new_send = '''            String message = GalaxyMapWire.encode(config.galaxyCopies,
-                    views.galaxySnapshot(world, peer.playerId()), peer.playerId(),
-                    OwnerFleetLocations.capture(world, peer.playerId()));'''
-text = replace_once(text, old_send, new_send, 'direct owner projection in galaxy broadcast')
-old_send2 = '''        String message = GalaxyMapWire.encode(config.galaxyCopies,
-                views.galaxySnapshot(world, peer.playerId()));'''
-new_send2 = '''        String message = GalaxyMapWire.encode(config.galaxyCopies,
-                views.galaxySnapshot(world, peer.playerId()), peer.playerId(),
-                OwnerFleetLocations.capture(world, peer.playerId()));'''
-text = replace_once(text, old_send2, new_send2, 'direct owner projection in initial galaxy send')
-server.write_text(text, encoding='utf-8')
-
-
-client = Path('src/main/java/com/tndmadman/rts/PeerClientSide.java')
-text = client.read_text(encoding='utf-8')
-old_read = '''    private boolean readGalaxy(String message) {
-        if (message == null || !message.startsWith("GALAXY|")) return false;
-        GalaxyMapWire.Decoded decoded = GalaxyMapWire.decode(message);
-        world.configureGalaxyCopies(decoded.copiesPerTemplate());
-        world.applyRemoteGalaxyMapSnapshot(decoded.snapshot());
-        return true;
-    }
-'''
-new_read = '''    private boolean readGalaxy(String message) {
-        if (message == null || !message.startsWith("GALAXY|")) return false;
-        GalaxyMapWire.Decoded decoded = GalaxyMapWire.decode(message);
-        world.configureGalaxyCopies(decoded.copiesPerTemplate());
-        if (decoded.ownerProjection().present()) {
-            OwnerFleetLocationRegistry.replace(world, decoded.ownerProjection().ownerId(), decoded.ownerUnitLocations());
-        }
-        world.applyRemoteGalaxyMapSnapshot(decoded.snapshot());
-        return true;
-    }
-'''
-text = replace_once(text, old_read, new_read, 'install decoded owner projection on client')
-client.write_text(text, encoding='utf-8')
-
 
 wire = Path('src/main/java/com/tndmadman/rts/GalaxyMapWire.java')
 text = wire.read_text(encoding='utf-8')
-for old_import in (
-    'import java.lang.ref.ReferenceQueue;\n',
-    'import java.lang.ref.WeakReference;\n',
-    'import java.util.HashMap;\n'):
-    text = replace_once(text, old_import, '', f'remove {old_import.strip()}')
-text = replace_once(text, '    private static final int MAX_OWNER_UNITS = 10_000;\n',
-                    '    private static final int MAX_OWNER_UNITS = 1_024;\n',
-                    'bound owner projection to frame-safe size')
-text = replace_once(text,
-    '    private static final ThreadLocal<EncodeContext> ENCODE_CONTEXT = new ThreadLocal<>();\n'
-    '    private static final WeakIdentityProjectionMap DECODE_OWNER = new WeakIdentityProjectionMap();\n',
-    '', 'remove hidden projection side channels')
-attach = '''    static void attachOwnerProjection(GalaxyMapSnapshot snapshot, String ownerId, Map<String,String> locations) {
-        if (snapshot == null) {
-            ENCODE_CONTEXT.remove();
-            return;
-        }
-        ENCODE_CONTEXT.set(new EncodeContext(snapshot, ownerProjection(ownerId, locations)));
-    }
-
-'''
-text = replace_once(text, attach, '', 'remove thread-local projection attachment')
-old_encode = '''    static String encode(int copiesPerTemplate, GalaxyMapSnapshot snapshot) {
-        EncodeContext context = ENCODE_CONTEXT.get();
-        ENCODE_CONTEXT.remove();
-        OwnerProjection owner = context != null && context.snapshot() == snapshot
-                ? context.owner() : OwnerProjection.ABSENT;
-        return encodeInternal(copiesPerTemplate, snapshot, owner);
-    }
-'''
-new_encode = '''    static String encode(int copiesPerTemplate, GalaxyMapSnapshot snapshot) {
-        return encodeInternal(copiesPerTemplate, snapshot, OwnerProjection.ABSENT);
-    }
-'''
-text = replace_once(text, old_encode, new_encode, 'make normal galaxy encoding explicit')
-text = replace_once(text, '        if (owner.present()) DECODE_OWNER.put(snapshot, owner);\n', '',
-                    'remove decoded projection side channel')
-old_active = '''        GalaxyMapSnapshot adjusted = new GalaxyMapSnapshot(activeSystemId, List.copyOf(systems), snapshot.links());
-        OwnerProjection owner = DECODE_OWNER.get(snapshot);
-        if (owner.present()) DECODE_OWNER.put(adjusted, owner);
-        return adjusted;
-    }
-
-    static OwnerProjection decodedOwnerProjection(GalaxyMapSnapshot snapshot) {
-        return snapshot == null ? OwnerProjection.ABSENT : DECODE_OWNER.get(snapshot);
-    }
-'''
-new_active = '''        return new GalaxyMapSnapshot(activeSystemId, List.copyOf(systems), snapshot.links());
-    }
-'''
-text = replace_once(text, old_active, new_active, 'remove weak snapshot projection propagation')
-marker = '\n    private record EncodeContext(GalaxyMapSnapshot snapshot, OwnerProjection owner) { }\n'
-pos = text.find(marker)
-if pos < 0:
-    raise SystemExit('remove weak projection helper types: marker not found')
-text = text[:pos] + '\n}\n'
+text = text.replace('    private static final int MAX_OWNER_UNITS = 1_024;\n',
+                    '    private static final int MAX_OWNER_UNITS = 10_000;\n', 1)
+if '    private static final int MAX_OWNER_UNITS = 10_000;\n' not in text:
+    raise SystemExit('owner fleet bound is in an unexpected state')
 wire.write_text(text, encoding='utf-8')
