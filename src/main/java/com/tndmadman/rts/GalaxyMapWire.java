@@ -1,44 +1,51 @@
 package com.tndmadman.rts;
 
+import java.lang.ref.ReferenceQueue;
+import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.WeakHashMap;
 
 final class GalaxyMapWire {
     private static final String PREFIX = "GALAXY|";
     private static final int MAX_OWNER_UNITS = 10_000;
     private static final int MAX_TEXT = 128;
-    private static final Map<GalaxyMapSnapshot, OwnerProjection> ENCODE_OWNER =
-            Collections.synchronizedMap(new WeakHashMap<>());
-    private static final Map<GalaxyMapSnapshot, OwnerProjection> DECODE_OWNER =
-            Collections.synchronizedMap(new WeakHashMap<>());
+    private static final ThreadLocal<EncodeContext> ENCODE_CONTEXT = new ThreadLocal<>();
+    private static final WeakIdentityProjectionMap DECODE_OWNER = new WeakIdentityProjectionMap();
 
     private GalaxyMapWire() { }
 
+    static void attachOwnerProjection(GalaxyMapSnapshot snapshot, String ownerId, Map<String,String> locations) {
+        if (snapshot == null) {
+            ENCODE_CONTEXT.remove();
+            return;
+        }
+        ENCODE_CONTEXT.set(new EncodeContext(snapshot, ownerProjection(ownerId, locations)));
+    }
+
     static String encode(int copiesPerTemplate, GalaxyMapSnapshot snapshot) {
-        OwnerProjection owner = snapshot == null ? OwnerProjection.ABSENT : ENCODE_OWNER.get(snapshot);
-        return encodeInternal(copiesPerTemplate, snapshot, owner == null ? OwnerProjection.ABSENT : owner);
+        EncodeContext context = ENCODE_CONTEXT.get();
+        ENCODE_CONTEXT.remove();
+        OwnerProjection owner = context != null && context.snapshot() == snapshot
+                ? context.owner() : OwnerProjection.ABSENT;
+        return encodeInternal(copiesPerTemplate, snapshot, owner);
     }
 
     static String encode(int copiesPerTemplate, GalaxyMapSnapshot snapshot, Map<String,String> ownerUnitLocations) {
         String ownerId = inferOwnerId(ownerUnitLocations);
         return ownerId.isBlank()
                 ? encodeInternal(copiesPerTemplate, snapshot, OwnerProjection.ABSENT)
-                : encode(copiesPerTemplate, snapshot, ownerId, ownerUnitLocations);
+                : encodeInternal(copiesPerTemplate, snapshot, ownerProjection(ownerId, ownerUnitLocations));
     }
 
     static String encode(int copiesPerTemplate, GalaxyMapSnapshot snapshot, String ownerId,
                          Map<String,String> ownerUnitLocations) {
-        GalaxyMapSnapshot safeSnapshot = snapshot == null ? new GalaxyMapSnapshot("", List.of(), List.of()) : snapshot;
-        OwnerProjection owner = ownerProjection(ownerId, ownerUnitLocations);
-        ENCODE_OWNER.put(safeSnapshot, owner);
-        return encodeInternal(copiesPerTemplate, safeSnapshot, owner);
+        return encodeInternal(copiesPerTemplate, snapshot, ownerProjection(ownerId, ownerUnitLocations));
     }
 
     private static String encodeInternal(int copiesPerTemplate, GalaxyMapSnapshot snapshot, OwnerProjection owner) {
@@ -132,14 +139,12 @@ final class GalaxyMapWire {
         }
         GalaxyMapSnapshot adjusted = new GalaxyMapSnapshot(activeSystemId, List.copyOf(systems), snapshot.links());
         OwnerProjection owner = DECODE_OWNER.get(snapshot);
-        if (owner != null && owner.present()) DECODE_OWNER.put(adjusted, owner);
+        if (owner.present()) DECODE_OWNER.put(adjusted, owner);
         return adjusted;
     }
 
     static OwnerProjection decodedOwnerProjection(GalaxyMapSnapshot snapshot) {
-        if (snapshot == null) return OwnerProjection.ABSENT;
-        OwnerProjection owner = DECODE_OWNER.get(snapshot);
-        return owner == null ? OwnerProjection.ABSENT : owner;
+        return snapshot == null ? OwnerProjection.ABSENT : DECODE_OWNER.get(snapshot);
     }
 
     private static OwnerProjection ownerProjection(String ownerId, Map<String,String> locations) {
@@ -306,5 +311,51 @@ final class GalaxyMapWire {
 
     record Decoded(int copiesPerTemplate, GalaxyMapSnapshot snapshot, OwnerProjection ownerProjection) {
         Map<String,String> ownerUnitLocations() { return ownerProjection.locations(); }
+    }
+
+    private record EncodeContext(GalaxyMapSnapshot snapshot, OwnerProjection owner) { }
+
+    private static final class WeakIdentityProjectionMap {
+        private final ReferenceQueue<GalaxyMapSnapshot> queue = new ReferenceQueue<>();
+        private final Map<IdentityKey,OwnerProjection> values = new HashMap<>();
+
+        synchronized void put(GalaxyMapSnapshot snapshot, OwnerProjection owner) {
+            prune();
+            values.put(new IdentityKey(snapshot, queue), owner);
+        }
+
+        synchronized OwnerProjection get(GalaxyMapSnapshot snapshot) {
+            prune();
+            OwnerProjection owner = values.get(new IdentityKey(snapshot));
+            return owner == null ? OwnerProjection.ABSENT : owner;
+        }
+
+        private void prune() {
+            IdentityKey key;
+            while ((key = (IdentityKey)queue.poll()) != null) values.remove(key);
+        }
+    }
+
+    private static final class IdentityKey extends WeakReference<GalaxyMapSnapshot> {
+        private final int hash;
+
+        IdentityKey(GalaxyMapSnapshot snapshot, ReferenceQueue<GalaxyMapSnapshot> queue) {
+            super(snapshot, queue);
+            hash = System.identityHashCode(snapshot);
+        }
+
+        IdentityKey(GalaxyMapSnapshot snapshot) {
+            super(snapshot);
+            hash = System.identityHashCode(snapshot);
+        }
+
+        @Override public int hashCode() { return hash; }
+
+        @Override public boolean equals(Object other) {
+            if (this == other) return true;
+            if (!(other instanceof IdentityKey key)) return false;
+            GalaxyMapSnapshot left = get();
+            return left != null && left == key.get();
+        }
     }
 }
