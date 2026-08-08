@@ -138,6 +138,15 @@ tasks.register('validateDistributedRefitQueues', JavaExec) {
     mainClass = 'com.tndmadman.rts.RefitQueuePlannerValidator'
 }
 
+tasks.register('validateIssue291CommandQueues', JavaExec) {
+    group = 'verification'
+    description = 'Validate bounded authoritative queued waypoints and compound order chains.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.Issue291CommandQueueValidator'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
 tasks.register('validateIssue289Completion', JavaExec) {
     group = 'verification'
     description = 'Validate issue 289 dedicated lifecycle, authority, persistence, and recovery.'

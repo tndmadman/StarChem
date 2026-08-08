@@ -3,14 +3,16 @@ package com.tndmadman.rts;
 final class AUnitWork {
     private AUnitWork() { }
 
-    static void apply(World world, HarvestCommand command) {
-        if (world == null || command == null) return;
+    static boolean apply(World world, HarvestCommand command) {
+        if (world == null || command == null) return false;
         Unit unit = world.units.get(Unit.key(command.playerId(), command.unitId()));
         ResourceNode node = world.findResource(command.resourceId());
         ResourceNetDebug.hostWorkOrder(world, command, unit, node);
-        if (!valid(world, unit, node, command)) return;
+        if (!valid(world, unit, node, command)) return false;
+        UnitCommandQueueSystem.legacyReplace(world, unit);
         unit.setMiningAnchor(node.x, node.y);
         unit.startAutoHarvest(node.id);
+        return true;
     }
 
     private static boolean valid(World world, Unit unit, ResourceNode node, HarvestCommand command) {

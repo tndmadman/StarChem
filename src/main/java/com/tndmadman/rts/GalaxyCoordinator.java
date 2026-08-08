@@ -36,6 +36,7 @@ final class GalaxyCoordinator {
     }
 
     private void clearWorld(World world) {
+        UnitCommandQueueSystem.clearWorld(world);
         world.resources.clear();
         world.units.clear();
         world.bases.clear();
@@ -59,7 +60,7 @@ final class GalaxyCoordinator {
         out.put("nextResourceId", nextResourceId);
         out.put("playerHomes", new LinkedHashMap<>(playerHomes));
         List<Object> savedSystems = new ArrayList<>();
-        for (WorldSystemState state : systems.values()) savedSystems.add(captureSystem(state));
+        for (WorldSystemState state : systems.values()) savedSystems.add(captureSystem(world, state));
         out.put("systems", savedSystems);
         return out;
     }
@@ -324,6 +325,7 @@ final class GalaxyCoordinator {
 
     Set<String> removePlayerAndPruneEmptySystems(World world, String playerId) {
         if (playerId == null || playerId.isBlank() || "WAIT".equals(playerId)) return Set.of();
+        UnitCommandQueueSystem.removePlayer(world, playerId);
         saveActive(world);
         for (WorldSystemState state : systems.values()) {
             state.units.values().removeIf(unit -> playerId.equals(unit.playerId));
@@ -665,7 +667,7 @@ final class GalaxyCoordinator {
     private GalaxySystem asGalaxySystem(WorldSystemState state) { return new GalaxySystem(state.id, state.definition, state.systemTime, state.celestials); }
     private String playerHomeId(String playerId) { String clean = playerId == null || playerId.isBlank() ? "player" : playerId.replaceAll("[^A-Za-z0-9_-]", "_"); return StarSystems.PLAYER_HOME_SYSTEM_ID + "_" + clean; }
 
-    private Map<String,Object> captureSystem(WorldSystemState state) {
+    private Map<String,Object> captureSystem(World world, WorldSystemState state) {
         Map<String,Object> out = new LinkedHashMap<>();
         out.put("systemId", state.id);
         out.put("templateId", state.templateId);
@@ -674,7 +676,7 @@ final class GalaxyCoordinator {
         out.put("control", captureControl(state.control));
         out.put("wormholes", captureWormholes(state.wormholes));
         out.put("resources", captureResources(state.resources));
-        out.put("units", captureUnits(state.units.values()));
+        out.put("units", captureUnits(world, state.units.values()));
         out.put("bases", captureBases(state.bases.values()));
         out.put("projectiles", captureShots(state.shots));
         out.put("worldItems", captureItems(state.items));
@@ -782,7 +784,7 @@ final class GalaxyCoordinator {
         return out;
     }
 
-    private List<Object> captureUnits(Collection<Unit> units) {
+    private List<Object> captureUnits(World world, Collection<Unit> units) {
         List<Object> out = new ArrayList<>();
         for (Unit unit : units) {
             Map<String,Object> row = new LinkedHashMap<>();
@@ -798,6 +800,8 @@ final class GalaxyCoordinator {
             row.put("miningAnchorX", unit.miningAnchorX); row.put("miningAnchorY", unit.miningAnchorY); row.put("automationResourceId", unit.automationResourceId);
             row.put("orderX1", unit.orderX1); row.put("orderY1", unit.orderY1); row.put("orderX2", unit.orderX2); row.put("orderY2", unit.orderY2);
             row.put("orderRadius", unit.orderRadius); row.put("orderPhase", unit.orderPhase); row.put("miningAnchorSet", unit.miningAnchorSet);
+            Map<String,Object> commandQueue = UnitCommandQueueSystem.capture(world, unit);
+            if (!commandQueue.isEmpty()) row.put("commandQueue", commandQueue);
             row.put("inventory", ServerSaveStore.materialMap(unit.inventory));
             out.add(row);
         }
@@ -834,6 +838,7 @@ final class GalaxyCoordinator {
             unit.orderRadius = ServerSaveStore.doubleValue(row, "orderRadius", 0); unit.orderPhase = ServerSaveStore.intValue(row, "orderPhase", 0);
             unit.miningAnchorSet = ServerSaveStore.boolValue(row, "miningAnchorSet", false);
             unit.inventory.putAll(ServerSaveStore.restoreMaterialMap(row.get("inventory")));
+            UnitCommandQueueSystem.restore(world, unit, row.get("commandQueue"));
             out.put(unit.key(), unit);
         }
         return out;

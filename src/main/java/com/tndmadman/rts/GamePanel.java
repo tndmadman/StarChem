@@ -4,6 +4,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.*;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -38,6 +39,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final PerfStats perfStats = new PerfStats();
     private final PerfOverlay perfOverlay = new PerfOverlay();
     private final ControlGroupManager controlGroups = new ControlGroupManager();
+    private final LinkedHashSet<String> queuedPlanningUnits = new LinkedHashSet<>();
     private final boolean devMode;
     private FleetFormation formation = FleetFormation.GRID;
     private UnitOrderType commandMode = UnitOrderType.NONE;
@@ -360,7 +362,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
             repaint();
             return;
         }
-        if (SwingUtilities.isRightMouseButton(e)) { clickRight(screenToWorld(e.getPoint())); return; }
+        if (SwingUtilities.isRightMouseButton(e)) { clickRight(screenToWorld(e.getPoint()), e.isShiftDown()); return; }
         if (SwingUtilities.isLeftMouseButton(e)) { dragStart = e.getPoint(); dragNow = e.getPoint(); }
     }
 
@@ -457,70 +459,49 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         buildMenu.showForUnit(world, network, unit, e.getX(), e.getY());
     }
 
-    private void clickRight(Point2D p) {
-        if (commandMode != UnitOrderType.NONE) { handleCommandClick(p); return; }
+    private void clickRight(Point2D p, boolean append) {
+        if (commandMode != UnitOrderType.NONE) { handleCommandClick(p, append); return; }
         boolean visiblePoint = FogOfWarView.currentlyVisible(world, p.getX(), p.getY());
         boolean exploredPoint = FogOfWarView.explored(world, p.getX(), p.getY());
         Unit enemyUnit = visiblePoint ? world.unitAt(p.getX(), p.getY()) : null;
         if (enemyUnit != null && !PlayerRegistry.isLocal(enemyUnit.playerId)) {
             ProceduralAudio.play(SoundCue.ATTACK_ORDER);
-            orderAttack(CombatTarget.unit(enemyUnit));
+            orderAttack(CombatTarget.unit(enemyUnit), append);
             return;
         }
         Base enemyBase = visiblePoint ? world.baseAt(p.getX(), p.getY()) : null;
         if (enemyBase != null && !PlayerRegistry.isLocal(enemyBase.playerId)) {
             ProceduralAudio.play(SoundCue.ATTACK_ORDER);
-            orderAttack(CombatTarget.base(enemyBase));
+            orderAttack(CombatTarget.base(enemyBase), append);
             return;
         }
         WormholeGate gate = exploredPoint ? wormholeAt(p) : null;
         if (gate != null) {
-            int selected = world.selectedCount();
-            if (selected <= 0) {
-                world.status = "No ship selected.";
-                ProceduralAudio.play(SoundCue.ERROR);
-                return;
-            }
-            for (Unit unit : world.selectedUnits()) unit.issueMove(gate.x, gate.y);
-            world.status = "Moving " + selected + " ship(s) straight into wormhole to "
-                    + StarSystems.get(gate.toSystemId).name() + ".";
-            ProceduralAudio.play(SoundCue.MOVE_ORDER);
-            if (network != null) {
-                for (Unit unit : world.selectedUnits()) {
-                    if (PlayerRegistry.isLocal(unit.playerId)) {
-                        network.move(new MoveCommand(unit.playerId, unit.unitId, unit.targetX, unit.targetY));
-                    }
-                }
-            }
+            int applied = queueWormholeSelected(gate, append);
+            world.status = applied > 0
+                    ? (append ? "Queued" : "Ordered") + " wormhole transit for " + applied + " ship(s) to "
+                    + StarSystems.get(gate.toSystemId).name() + "."
+                    : "No ship available for that wormhole order.";
+            ProceduralAudio.play(applied > 0 ? SoundCue.MOVE_ORDER : SoundCue.ERROR);
             return;
         }
         ResourceNode node = visiblePoint ? world.resourceAt(p.getX(), p.getY()) : null;
         if (node != null) {
-            world.autoHarvestSelected(node);
-            ProceduralAudio.play(world.status.startsWith("Auto-harvesting ")
-                    ? SoundCue.HARVEST_ORDER : SoundCue.ERROR);
-            if (network != null) {
-                for (Unit unit : world.selectedUnits()) {
-                    if (PlayerRegistry.isLocal(unit.playerId) && unit.automationResourceId == node.id) {
-                        network.work(new HarvestCommand(unit.playerId, unit.unitId, node.id));
-                    }
-                }
-            }
-        } else {
-            int selected = world.selectedCount();
-            world.moveSelected(p.getX(), p.getY(), formation);
-            ProceduralAudio.play(selected > 0 ? SoundCue.MOVE_ORDER : SoundCue.ERROR);
-            if (network != null) {
-                for (Unit unit : world.selectedUnits()) {
-                    if (PlayerRegistry.isLocal(unit.playerId)) {
-                        network.move(new MoveCommand(unit.playerId, unit.unitId, unit.targetX, unit.targetY));
-                    }
-                }
-            }
+            int applied = queueHarvestSelected(node, append);
+            world.status = applied > 0
+                    ? (append ? "Queued harvest of " : "Auto-harvesting ") + node.name + "."
+                    : "Selected ship cannot harvest this node.";
+            ProceduralAudio.play(applied > 0 ? SoundCue.HARVEST_ORDER : SoundCue.ERROR);
+            return;
         }
+        int applied = queueMoveSelected(p, append);
+        world.status = applied > 0
+                ? (append ? "Queued waypoint for " : "Moving ") + applied + " ship(s) in " + formation.label + " formation."
+                : "No ship selected.";
+        ProceduralAudio.play(applied > 0 ? SoundCue.MOVE_ORDER : SoundCue.ERROR);
     }
 
-    private void handleCommandClick(Point2D p) {
+    private void handleCommandClick(Point2D p, boolean append) {
         if (commandMode == UnitOrderType.PATROL && patrolStart == null) {
             patrolStart = p;
             world.status = "Patrol start set. Right-click the second patrol point.";
@@ -529,52 +510,48 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         }
         if (commandMode == UnitOrderType.PATROL) {
             issueSelectedOrder(UnitOrderType.PATROL, patrolStart.getX(), patrolStart.getY(),
-                    p.getX(), p.getY(), "");
+                    p.getX(), p.getY(), "", append);
             clearCommandMode();
             return;
         }
         if (commandMode == UnitOrderType.ATTACK_MOVE) {
-            issueSelectedOrder(UnitOrderType.ATTACK_MOVE, p.getX(), p.getY(), p.getX(), p.getY(), "");
+            issueSelectedOrder(UnitOrderType.ATTACK_MOVE, p.getX(), p.getY(), p.getX(), p.getY(), "", append);
             clearCommandMode();
             return;
         }
         Unit unit = world.unitAt(p.getX(), p.getY());
         Base base = world.baseAt(p.getX(), p.getY());
         if (commandMode == UnitOrderType.ESCORT) {
-            if (unit == null || !PlayerRegistry.isLocal(unit.playerId)) {
+            if (unit == null || !DiplomacySystem.allied(world, PlayerRegistry.localId(), unit.playerId)) {
                 world.status = "Escort requires a friendly ship target.";
                 ProceduralAudio.play(SoundCue.ERROR);
                 return;
             }
             issueSelectedOrder(UnitOrderType.ESCORT, unit.x, unit.y, unit.x, unit.y,
-                    CombatTarget.unit(unit));
+                    CombatTarget.unit(unit), append);
             clearCommandMode();
             return;
         }
         if (commandMode == UnitOrderType.GUARD) {
             String target = "";
-            if (unit != null && PlayerRegistry.isLocal(unit.playerId)) target = CombatTarget.unit(unit);
-            else if (base != null && PlayerRegistry.isLocal(base.playerId)) target = CombatTarget.base(base);
-            issueSelectedOrder(UnitOrderType.GUARD, p.getX(), p.getY(), p.getX(), p.getY(), target);
+            if (unit != null && DiplomacySystem.allied(world, PlayerRegistry.localId(), unit.playerId)) target = CombatTarget.unit(unit);
+            else if (base != null && DiplomacySystem.allied(world, PlayerRegistry.localId(), base.playerId)) target = CombatTarget.base(base);
+            issueSelectedOrder(UnitOrderType.GUARD, p.getX(), p.getY(), p.getX(), p.getY(), target, append);
             clearCommandMode();
         }
     }
 
     private void issueSelectedOrder(UnitOrderType type, double x1, double y1,
-                                    double x2, double y2, String targetKey) {
-        List<Unit> selected = world.selectedUnits();
-        world.orderSelected(type, x1, y1, x2, y2, targetKey, formation);
-        int applied = 0;
-        for (Unit unit : selected) {
-            if (unit.orderType != type) continue;
-            applied++;
-            if (network != null) network.order(unit.orderCommand());
-        }
+                                    double x2, double y2, String targetKey, boolean append) {
+        int applied = queueTacticalSelected(type, x1, y1, x2, y2, targetKey, append);
+        world.status = applied > 0
+                ? (append ? "Queued " : "Assigned ") + orderName(type) + " for " + applied + " ship(s)."
+                : "Unable to assign " + orderName(type) + ".";
         ProceduralAudio.play(applied > 0 ? SoundCue.MOVE_ORDER : SoundCue.ERROR);
     }
 
     private void setCommandMode(UnitOrderType type) {
-        if (world.selectedCount() <= 0) {
+        if (world.selectedCount() <= 0 && queuedPlanningUnits.isEmpty()) {
             world.status = "Select one or more ships first.";
             ProceduralAudio.play(SoundCue.ERROR);
             return;
@@ -612,16 +589,185 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         return null;
     }
 
-    private void orderAttack(String targetKey) {
-        world.attackSelected(targetKey);
-        if (network != null) {
-            for (Unit unit : world.selectedUnits()) {
-                if (PlayerRegistry.isLocal(unit.playerId) && unit.task == UnitTask.ATTACK
-                        && targetKey.equals(unit.attackTarget)) {
-                    network.attack(new AttackCommand(unit.playerId, unit.unitId, targetKey));
+    private void orderAttack(String targetKey, boolean append) {
+        int applied = queueAttackSelected(targetKey, append);
+        world.status = applied > 0
+                ? (append ? "Queued attack for " : "Attacking target with ") + applied + " ship(s)."
+                : "No valid attack-capable ship selected.";
+        if (applied <= 0) ProceduralAudio.play(SoundCue.ERROR);
+    }
+
+    private int queueMoveSelected(Point2D point, boolean append) {
+        List<String> keys = commandUnitKeys(append);
+        if (keys.isEmpty()) return 0;
+        int applied = 0;
+        for (int i = 0; i < keys.size(); i++) {
+            Point2D target = queuedFormationTarget(point.getX(), point.getY(), i, keys.size());
+            QueuedUnitCommand command = QueuedUnitCommand.move(world.activeSystemId(), target.getX(), target.getY());
+            if (issueQueueMutation(keys.get(i), command, append ? UnitQueueOperation.APPEND : UnitQueueOperation.REPLACE)) applied++;
+        }
+        return applied;
+    }
+
+    private int queueAttackSelected(String targetKey, boolean append) {
+        List<String> keys = commandUnitKeys(append);
+        if (keys.isEmpty()) return 0;
+        int applied = 0;
+        for (String key : keys) {
+            Unit present = world.units.get(key);
+            if (present != null && !WeaponRules.armed(world, present)) continue;
+            if (issueQueueMutation(key, QueuedUnitCommand.attack(world.activeSystemId(), targetKey),
+                    append ? UnitQueueOperation.APPEND : UnitQueueOperation.REPLACE)) applied++;
+        }
+        return applied;
+    }
+
+    private int queueHarvestSelected(ResourceNode node, boolean append) {
+        if (node == null) return 0;
+        List<String> keys = commandUnitKeys(append);
+        if (keys.isEmpty()) return 0;
+        int applied = 0;
+        for (String key : keys) {
+            Unit present = world.units.get(key);
+            if (present != null && !present.type().harvestKinds.contains(node.kind)) continue;
+            if (issueQueueMutation(key, QueuedUnitCommand.harvest(world.activeSystemId(), node.id),
+                    append ? UnitQueueOperation.APPEND : UnitQueueOperation.REPLACE)) applied++;
+        }
+        return applied;
+    }
+
+    private int queueWormholeSelected(WormholeGate gate, boolean append) {
+        if (gate == null) return 0;
+        List<String> keys = commandUnitKeys(append);
+        if (keys.isEmpty()) return 0;
+        int applied = 0;
+        for (String key : keys) {
+            if (issueQueueMutation(key, QueuedUnitCommand.wormhole(world.activeSystemId(), gate.id, gate.toSystemId),
+                    append ? UnitQueueOperation.APPEND : UnitQueueOperation.REPLACE)) applied++;
+        }
+        return applied;
+    }
+
+    private int queueTacticalSelected(UnitOrderType type, double x1, double y1,
+                                      double x2, double y2, String targetKey, boolean append) {
+        List<String> keys = commandUnitKeys(append);
+        if (keys.isEmpty()) return 0;
+        int applied = 0;
+        for (int i = 0; i < keys.size(); i++) {
+            double ax = x1, ay = y1, bx = x2, by = y2;
+            if (type == UnitOrderType.ATTACK_MOVE) {
+                Point2D end = queuedFormationTarget(x2, y2, i, keys.size());
+                ax = bx = end.getX(); ay = by = end.getY();
+            } else if (type == UnitOrderType.PATROL) {
+                Point2D start = queuedFormationTarget(x1, y1, i, keys.size());
+                Point2D end = queuedFormationTarget(x2, y2, i, keys.size());
+                ax = start.getX(); ay = start.getY(); bx = end.getX(); by = end.getY();
+            } else if (type == UnitOrderType.GUARD && (targetKey == null || targetKey.isBlank())) {
+                Point2D anchor = queuedFormationTarget(x1, y1, i, keys.size());
+                ax = bx = anchor.getX(); ay = by = anchor.getY();
+            }
+            double radius = UnitOrderSystem.defaultRadius(type);
+            QueuedUnitCommand command = QueuedUnitCommand.tactical(world.activeSystemId(), type,
+                    ax, ay, bx, by, radius, targetKey);
+            if (issueQueueMutation(keys.get(i), command,
+                    append ? UnitQueueOperation.APPEND : UnitQueueOperation.REPLACE)) applied++;
+        }
+        return applied;
+    }
+
+    private boolean issueQueueMutation(String key, QueuedUnitCommand command, UnitQueueOperation operation) {
+        int unitId = unitIdFromKey(key);
+        String playerId = PlayerRegistry.localId();
+        if (unitId < 0 || playerId == null || playerId.isBlank()) return false;
+        UnitQueueMutation mutation = new UnitQueueMutation(playerId, unitId, operation,
+                UnitCommandQueueSystem.revision(world, key), command);
+        if (network == null) return UnitCommandQueueSystem.applyGlobal(world, mutation) == UnitQueueApplyResult.APPLIED;
+        if (network.clientMode()) {
+            if (!network.clientReady()) return false;
+            if (UnitCommandQueueSystem.predict(world, mutation) != UnitQueueApplyResult.APPLIED) return false;
+            network.queue(mutation);
+            return true;
+        }
+        return network.queue(mutation) == UnitQueueApplyResult.APPLIED;
+    }
+
+    private List<String> commandUnitKeys(boolean append) {
+        List<String> selected = new ArrayList<>();
+        for (Unit unit : world.selectedUnits()) {
+            if (PlayerRegistry.isLocal(unit.playerId)) selected.add(unit.key());
+        }
+        if (!selected.isEmpty()) {
+            queuedPlanningUnits.clear();
+            queuedPlanningUnits.addAll(selected);
+            return selected;
+        }
+        if (append && !queuedPlanningUnits.isEmpty()) return new ArrayList<>(queuedPlanningUnits);
+        return List.of();
+    }
+
+    private void clearQueuedOrders() {
+        List<String> keys = commandUnitKeys(true);
+        int cleared = 0;
+        for (String key : keys) {
+            int unitId = unitIdFromKey(key);
+            if (unitId < 0) continue;
+            UnitQueueMutation mutation = new UnitQueueMutation(PlayerRegistry.localId(), unitId,
+                    UnitQueueOperation.CLEAR, UnitCommandQueueSystem.revision(world, key), null);
+            boolean success;
+            if (network == null) success = UnitCommandQueueSystem.applyGlobal(world, mutation) == UnitQueueApplyResult.APPLIED;
+            else if (network.clientMode()) {
+                success = network.clientReady() && UnitCommandQueueSystem.predict(world, mutation) == UnitQueueApplyResult.APPLIED;
+                if (success) network.queue(mutation);
+            } else success = network.queue(mutation) == UnitQueueApplyResult.APPLIED;
+            if (success) cleared++;
+        }
+        queuedPlanningUnits.clear();
+        world.status = cleared > 0 ? "Stopped and cleared orders for " + cleared + " ship(s)." : "No queued ships to stop.";
+        ProceduralAudio.play(cleared > 0 ? SoundCue.SELECT : SoundCue.ERROR);
+    }
+
+    private Point2D queuedFormationTarget(double x, double y, int index, int count) {
+        double spacing = 54, ox = 0, oy = 0;
+        switch (formation) {
+            case LINE -> ox = (index - (count - 1) / 2.0) * spacing;
+            case COLUMN -> oy = (index - (count - 1) / 2.0) * spacing;
+            case WEDGE -> {
+                if (index > 0) {
+                    int rank = (index + 1) / 2;
+                    int side = index % 2 == 1 ? -1 : 1;
+                    ox = side * rank * spacing;
+                    oy = rank * spacing;
                 }
             }
+            case GRID -> {
+                int cols = (int)Math.ceil(Math.sqrt(count));
+                double rows = Math.ceil(count / (double)cols);
+                int col = index % cols;
+                int row = index / cols;
+                ox = (col - (cols - 1) / 2.0) * 42;
+                oy = (row - (rows - 1) / 2.0) * 42;
+            }
         }
+        return new Point2D.Double(Calc.clamp(x + ox, 0, world.width), Calc.clamp(y + oy, 0, world.height));
+    }
+
+    private int unitIdFromKey(String key) {
+        if (key == null) return -1;
+        int separator = key.lastIndexOf(':');
+        if (separator < 0 || separator + 1 >= key.length()) return -1;
+        try { return Integer.parseInt(key.substring(separator + 1)); }
+        catch (RuntimeException ignored) { return -1; }
+    }
+
+    private String orderName(UnitOrderType type) {
+        return switch (type) {
+            case PATROL -> "patrol";
+            case GUARD -> "guard";
+            case ESCORT -> "escort";
+            case HOLD -> "hold position";
+            case ATTACK_MOVE -> "attack-move";
+            case NONE -> "order";
+        };
     }
 
     private void clearSelection() {
@@ -741,12 +887,13 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
             repaint();
             return;
         }
+        if (settings.matches("stop_orders", e)) { clearQueuedOrders(); clearCommandMode(); return; }
         if (settings.matches("attack_move", e)) { setCommandMode(UnitOrderType.ATTACK_MOVE); return; }
         if (settings.matches("patrol", e)) { setCommandMode(UnitOrderType.PATROL); return; }
         if (settings.matches("guard", e)) { setCommandMode(UnitOrderType.GUARD); return; }
         if (settings.matches("escort", e)) { setCommandMode(UnitOrderType.ESCORT); return; }
         if (settings.matches("hold", e)) {
-            issueSelectedOrder(UnitOrderType.HOLD, 0, 0, 0, 0, "");
+            issueSelectedOrder(UnitOrderType.HOLD, 0, 0, 0, 0, "", false);
             clearCommandMode();
             return;
         }

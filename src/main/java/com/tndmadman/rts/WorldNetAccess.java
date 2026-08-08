@@ -249,6 +249,7 @@ final class WorldNetAccess {
 
     static void respawnPlayer(World world, String playerId) {
         if (!realPlayerId(playerId) && !"SOLO".equals(playerId)) return;
+        UnitCommandQueueSystem.removePlayer(world, playerId);
         world.units.values().removeIf(unit -> unit.playerId.equals(playerId));
         world.bases.values().removeIf(base -> base.playerId.equals(playerId));
         world.shots.removeIf(shot -> shot.ownerId.equals(playerId));

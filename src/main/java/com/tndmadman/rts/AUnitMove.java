@@ -8,6 +8,7 @@ final class AUnitMove {
         Unit u = world.units.get(Unit.key(c.playerId(), c.unitId()));
         if (u == null || ProductionSystem.refitReserved(world, u.key())) return false;
         if (!GameplayCommandNumbers.worldCoordinate(world, c.x(), c.y())) return false;
+        UnitCommandQueueSystem.legacyReplace(world, u);
         u.issueMove(c.x(), c.y());
         return true;
     }
@@ -23,6 +24,7 @@ final class SideAOrders {
             case "WORK" -> { s.touch(connectionId); if (s.owns(connectionId, id)) s.change(id, () -> AUnitWork.apply(s.world, new HarvestCommand(id, Integer.parseInt(p[2]), Integer.parseInt(p[3])))); }
             case "ATTACK" -> { s.touch(connectionId); if (s.owns(connectionId, id)) s.change(id, () -> AUnitAttack.apply(s.world, new AttackCommand(id, Integer.parseInt(p[2]), p[3]))); }
             case "ORDER" -> applyOrder(s, p, connectionId, id);
+            case "QUEUE" -> applyQueue(s, p, connectionId, id);
             case "RESPAWN" -> { s.touch(connectionId); if (s.owns(connectionId, id)) { s.change(id, () -> WorldNetAccess.respawnPlayer(s.world, id)); s.broadcastNow(); } }
             case "BUILD" -> { s.touch(connectionId); if (s.owns(connectionId, id)) s.change(id, () -> { if (CommandAuth.base(s.world, id, p[2])) s.world.buildShip(p[2], p[3]); }); }
             case "PACK" -> { s.touch(connectionId); if (s.owns(connectionId, id)) s.change(id, () -> { if (CommandAuth.pack(s.world, id, p[2], p[3])) AUnitPack.apply(s.world, p[2], p[3], p[4]); }); }
@@ -90,6 +92,25 @@ final class SideAOrders {
             s.change(playerId, () -> {
                 if (!AUnitOrder.apply(s.world, command)) reject(s);
             });
+        } catch (RuntimeException ignored) {
+            reject(s);
+        }
+    }
+
+    private static void applyQueue(PeerServerSide s, String[] p, ConnectionId connectionId, String playerId) {
+        s.touch(connectionId);
+        if (!s.owns(connectionId, playerId)) return;
+        try {
+            UnitQueueMutation mutation = UnitQueueWire.parseMutation(p, playerId);
+            UnitQueueApplyResult result = UnitCommandQueueSystem.applyGlobal(s.world, mutation);
+            if (result == UnitQueueApplyResult.REJECTED) {
+                reject(s);
+                return;
+            }
+            if (result == UnitQueueApplyResult.STALE) {
+                UnitCommandQueueSystem.forceDirty(s.world, mutation.unitKey());
+            }
+            s.broadcastNow();
         } catch (RuntimeException ignored) {
             reject(s);
         }

@@ -242,7 +242,8 @@ public final class GameSettings {
                 + bindingText("patrol") + " patrol | "
                 + bindingText("guard") + " guard | "
                 + bindingText("escort") + " escort | "
-                + bindingText("hold") + " hold";
+                + bindingText("hold") + " hold | "
+                + bindingText("stop_orders") + " stop";
     }
 
     int effectiveEffectsVolumeForTest() { return effectiveEffectsVolume(); }
@@ -309,6 +310,7 @@ public final class GameSettings {
         add("Orders", "Guard", "guard", KeyEvent.VK_G, false, true);
         add("Orders", "Escort", "escort", KeyEvent.VK_E, false, true);
         add("Orders", "Hold Position", "hold", KeyEvent.VK_H, false, true);
+        add("Orders", "Stop / Clear Orders", "stop_orders", KeyEvent.VK_C, false, true);
         add("Debug", "AI Debug Overlay", "ai_debug_overlay", KeyEvent.VK_F3, false, true);
         add("Debug", "Performance Overlay", "performance_overlay", KeyEvent.VK_F4, false, true);
         add("System", "Pause Menu", "pause_menu", KeyEvent.VK_ESCAPE, false, false);
