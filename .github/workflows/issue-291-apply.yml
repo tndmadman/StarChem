@@ -30,13 +30,15 @@ jobs:
           java-version: '17'
 
       - name: Apply integration patch
-        run: python3 scripts/apply_issue_291.py
+        run: |
+          python3 scripts/apply_issue_291.py
+          python3 scripts/repair_issue_291.py
 
       - name: Validate queued commands and affected systems
         run: gradle clean classes validateIssue291CommandQueues validateGalaxyConnectivity validateServerSaveStore validateNetworkSecurity check
 
       - name: Remove one-shot integration tooling
-        run: rm -f scripts/apply_issue_291.py .github/workflows/issue-291-apply.yml
+        run: rm -f scripts/apply_issue_291.py scripts/repair_issue_291.py .github/workflows/issue-291-apply.yml
 
       - name: Commit validated implementation
         if: github.event_name == 'push'
