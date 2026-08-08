@@ -816,9 +816,8 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     }
 
     private boolean controlGroupInputBlocked() {
-        if (galaxyMapOpen || ShipFittingWindow.active()) return true;
         Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
-        return focusOwner != null && focusOwner != this;
+        return ControlGroupInputGate.blocked(galaxyMapOpen, ShipFittingWindow.active(), focusOwner, this);
     }
 
     private void recallControlGroup(int groupNumber, boolean focusCamera, long now) {

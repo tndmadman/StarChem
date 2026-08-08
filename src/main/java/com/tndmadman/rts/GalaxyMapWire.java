@@ -10,7 +10,7 @@ import java.util.TreeMap;
 
 final class GalaxyMapWire {
     private static final String PREFIX = "GALAXY|";
-    private static final int MAX_OWNER_UNITS = 1_024;
+    private static final int MAX_OWNER_UNITS = 10_000;
     private static final int MAX_TEXT = 128;
 
     private GalaxyMapWire() { }
