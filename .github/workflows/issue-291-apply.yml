@@ -1,0 +1,50 @@
+name: Issue 291 Queue Integration
+
+on:
+  push:
+    branches:
+      - agent/issue-291-command-queues
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    if: github.event.head_commit.message != 'Implement issue 291 queued compound orders'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/issue-291-command-queues
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Apply integration patch
+        run: python3 scripts/apply_issue_291.py
+
+      - name: Validate queued commands and affected systems
+        run: |
+          chmod +x gradlew
+          ./gradlew clean classes validateIssue291CommandQueues validateGalaxyConnectivity validateServerSaveStore validateNetworkSecurity check
+
+      - name: Remove one-shot integration tooling
+        run: rm -f scripts/apply_issue_291.py .github/workflows/issue-291-apply.yml
+
+      - name: Commit validated implementation
+        run: |
+          git config user.name "starchem-issue-291-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No implementation changes produced."
+            exit 1
+          fi
+          git commit -m "Implement issue 291 queued compound orders"
+          git push origin HEAD:agent/issue-291-command-queues
