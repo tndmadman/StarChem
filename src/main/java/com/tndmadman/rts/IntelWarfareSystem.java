@@ -197,7 +197,7 @@ final class IntelWarfareSystem {
 
     static double ordinaryUnitRange(World world, Unit unit) {
         if (unit == null) return 0;
-        double baseline = 260.0 + Math.max(0.35, unit.type().size.scale) * 70.0;
+        double baseline = 260.0 + Math.max(0, unit.type().size.scale) * 70.0;
         double configured = Math.max(0, unit.type().scoutRange);
         double raw = Math.max(baseline, configured) * SystemModifierRules.sensorRange(world);
         return raw * sensorJammingMultiplier(world, unit.playerId, unit.x, unit.y, 0);
