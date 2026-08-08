@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -16,6 +17,7 @@ final class ControlGroupManager {
     static final long DOUBLE_TAP_NANOS = 350_000_000L;
 
     private final Group[] groups = new Group[GROUP_COUNT];
+    private final Set<Integer> heldKeyCodes = new HashSet<>();
     private int activeGroup = -1;
     private int lastTapGroup = -1;
     private long lastTapNanos;
@@ -132,6 +134,16 @@ final class ControlGroupManager {
         }
         return doubleTap;
     }
+
+    boolean acceptKeyPress(int keyCode) {
+        return numberForKeyCode(keyCode) >= 0 && heldKeyCodes.add(keyCode);
+    }
+
+    void releaseKey(int keyCode) {
+        if (numberForKeyCode(keyCode) >= 0) heldKeyCodes.remove(keyCode);
+    }
+
+    void clearHeldKeys() { heldKeyCodes.clear(); }
 
     static int numberForKeyCode(int keyCode) {
         if (keyCode >= KeyEvent.VK_0 && keyCode <= KeyEvent.VK_9) return keyCode - KeyEvent.VK_0;
