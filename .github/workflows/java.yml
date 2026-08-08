@@ -45,3 +45,5 @@ jobs:
         run: java -cp build/classes/java/main com.tndmadman.rts.RefitQueuePlannerValidator
       - name: Validate issue 289 lifecycle and authority
         run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue289CompletionValidator
+      - name: Validate issue 292 combat policies
+        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue292CombatPolicyValidator
