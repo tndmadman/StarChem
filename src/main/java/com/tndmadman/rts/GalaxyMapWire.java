@@ -3,14 +3,23 @@ package com.tndmadman.rts;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 
 final class GalaxyMapWire {
     private static final String PREFIX = "GALAXY|";
+    private static final int MAX_OWNER_UNITS = 1000;
+    private static final int MAX_TEXT = 128;
 
     private GalaxyMapWire() { }
 
     static String encode(int copiesPerTemplate, GalaxyMapSnapshot snapshot) {
+        return encode(copiesPerTemplate, snapshot, Map.of());
+    }
+
+    static String encode(int copiesPerTemplate, GalaxyMapSnapshot snapshot, Map<String,String> ownerUnitLocations) {
         if (snapshot == null) snapshot = new GalaxyMapSnapshot("", List.of(), List.of());
         StringBuilder out = new StringBuilder(PREFIX)
                 .append(Math.max(1, Math.min(2, copiesPerTemplate)))
@@ -44,6 +53,20 @@ final class GalaxyMapWire {
                 out.append("|L,").append(token(link.fromSystemId())).append(',').append(token(link.toSystemId()));
             }
         }
+        TreeMap<String,String> sortedOwnerUnits = new TreeMap<>();
+        if (ownerUnitLocations != null) sortedOwnerUnits.putAll(ownerUnitLocations);
+        if (sortedOwnerUnits.size() > MAX_OWNER_UNITS) {
+            throw new IllegalArgumentException("Owner fleet galaxy projection exceeds safe limits.");
+        }
+        for (Map.Entry<String,String> entry : sortedOwnerUnits.entrySet()) {
+            String unitKey = clean(entry.getKey());
+            String systemId = clean(entry.getValue());
+            if (unitKey.isBlank() || systemId.isBlank()) continue;
+            if (unitKey.length() > MAX_TEXT || systemId.length() > MAX_TEXT) {
+                throw new IllegalArgumentException("Owner fleet galaxy projection contains an oversized identity.");
+            }
+            out.append("|F,").append(token(unitKey)).append(',').append(token(systemId));
+        }
         return out.toString();
     }
 
@@ -55,14 +78,20 @@ final class GalaxyMapWire {
         String activeSystemId = text(parts[2]);
         List<GalaxyMapSystem> systems = new ArrayList<>();
         List<GalaxyMapLink> links = new ArrayList<>();
+        Map<String,String> ownerUnits = new LinkedHashMap<>();
         for (int i = 3; i < parts.length; i++) {
             String part = parts[i];
             if (part.startsWith("S,")) systems.add(system(part));
             else if (part.startsWith("L,")) links.add(link(part));
+            else if (part.startsWith("F,")) ownerFleet(part, ownerUnits);
             else if (!part.isBlank()) throw new SnapshotDecodeException("Malformed galaxy state row.");
         }
-        if (systems.size() > 96 || links.size() > 256) throw new SnapshotDecodeException("Galaxy state exceeds safe limits.");
-        return new Decoded(copies, new GalaxyMapSnapshot(activeSystemId, List.copyOf(systems), List.copyOf(links)));
+        if (systems.size() > 96 || links.size() > 256 || ownerUnits.size() > MAX_OWNER_UNITS) {
+            throw new SnapshotDecodeException("Galaxy state exceeds safe limits.");
+        }
+        return new Decoded(copies,
+                new GalaxyMapSnapshot(activeSystemId, List.copyOf(systems), List.copyOf(links)),
+                Map.copyOf(ownerUnits));
     }
 
     static GalaxyMapSnapshot withActive(GalaxyMapSnapshot snapshot, String activeSystemId) {
@@ -83,7 +112,7 @@ final class GalaxyMapWire {
         String id = text(f[1]);
         String name = text(f[2]);
         String templateId = text(f[3]);
-        if (id.isBlank() || id.length() > 128 || name.length() > 128 || templateId.length() > 128) {
+        if (id.isBlank() || id.length() > MAX_TEXT || name.length() > MAX_TEXT || templateId.length() > MAX_TEXT) {
             throw new SnapshotDecodeException("Malformed galaxy system identity.");
         }
         SystemLifetime lifetime = enumValue(SystemLifetime.class, f[4], "system lifetime");
@@ -109,24 +138,42 @@ final class GalaxyMapWire {
         if (f.length != 3) throw new SnapshotDecodeException("Malformed galaxy link row.");
         String from = text(f[1]);
         String to = text(f[2]);
-        if (from.isBlank() || to.isBlank() || from.length() > 128 || to.length() > 128 || from.equals(to)) {
+        if (from.isBlank() || to.isBlank() || from.length() > MAX_TEXT || to.length() > MAX_TEXT || from.equals(to)) {
             throw new SnapshotDecodeException("Malformed galaxy link identity.");
         }
         return new GalaxyMapLink(from, to);
     }
 
+    private static void ownerFleet(String row, Map<String,String> ownerUnits) {
+        String[] f = row.split(",", -1);
+        if (f.length != 3) throw new SnapshotDecodeException("Malformed owner fleet galaxy row.");
+        String unitKey = text(f[1]);
+        String systemId = text(f[2]);
+        if (unitKey.isBlank() || systemId.isBlank() || unitKey.length() > MAX_TEXT || systemId.length() > MAX_TEXT) {
+            throw new SnapshotDecodeException("Malformed owner fleet galaxy identity.");
+        }
+        if (ownerUnits.putIfAbsent(unitKey, systemId) != null) {
+            throw new SnapshotDecodeException("Duplicate owner fleet galaxy unit key.");
+        }
+        if (ownerUnits.size() > MAX_OWNER_UNITS) throw new SnapshotDecodeException("Owner fleet galaxy projection exceeds safe limits.");
+    }
+
     private static String token(String value) {
-        String safe = value == null ? "" : value;
+        String safe = clean(value);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(safe.getBytes(StandardCharsets.UTF_8));
     }
 
     private static String text(String token) {
         try {
             if (token == null || token.isBlank()) return "";
-            return new String(Base64.getUrlDecoder().decode(token), StandardCharsets.UTF_8);
+            return clean(new String(Base64.getUrlDecoder().decode(token), StandardCharsets.UTF_8));
         } catch (IllegalArgumentException ex) {
             throw new SnapshotDecodeException("Malformed galaxy text token.");
         }
+    }
+
+    private static String clean(String value) {
+        return value == null ? "" : value.replace('\n', ' ').replace('\r', ' ').trim();
     }
 
     private static int parseInt(String value, int min, int max, String label) {
@@ -162,5 +209,5 @@ final class GalaxyMapWire {
         catch (RuntimeException ex) { throw new SnapshotDecodeException("Malformed " + label + "."); }
     }
 
-    record Decoded(int copiesPerTemplate, GalaxyMapSnapshot snapshot) { }
+    record Decoded(int copiesPerTemplate, GalaxyMapSnapshot snapshot, Map<String,String> ownerUnitLocations) { }
 }
