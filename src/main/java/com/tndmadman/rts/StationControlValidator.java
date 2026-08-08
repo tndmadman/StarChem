@@ -15,9 +15,9 @@ public final class StationControlValidator {
                 "Jammer non-production role was not loaded from JSON.");
         require(StationControls.nonProduction("radar_decoy") && "decoy".equals(StationControls.role("radar_decoy")),
                 "Decoy non-production role was not loaded from JSON.");
-        require(!StationControlMenu.handles("outpost") && StationControlMenu.handles("radar_array")
+        require(StationControlMenu.handles("outpost") && StationControlMenu.handles("radar_array")
                         && StationControlMenu.handles("signal_jammer") && StationControlMenu.handles("radar_decoy"),
-                "Station click routing does not follow the JSON non-production flag.");
+                "Owned stations are not routed through the unified control/logistics menu.");
 
         World world = new World("Station control validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
         PlayerRegistry.activate(world);
