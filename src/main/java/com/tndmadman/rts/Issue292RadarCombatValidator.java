@@ -12,6 +12,7 @@ public final class Issue292RadarCombatValidator {
         validatePriorityAndOwnershipIsolation();
         validateResponseLimitAndResponderSelection();
         validateClassifiedContactInvestigation();
+        validatePlayerCommandReleasesRadarControl();
         System.out.println("Issue 292 radar combat coordination validation passed.");
     }
 
@@ -140,6 +141,31 @@ public final class Issue292RadarCombatValidator {
                 "classified radar investigation leaked the hostile's exact coordinates");
         require(CombatTarget.unit(enemy).equals(IntelWarfareSystem.radarResponseTarget(world, responder.key())),
                 "classified investigation did not retain the radar contact identity for coordination");
+    }
+
+    private static void validatePlayerCommandReleasesRadarControl() {
+        World world = world("Radar player override");
+        Base radar = radar(world, "radar_picket", world.width * 0.44, world.height * 0.44, "OVERRIDE");
+        Unit responder = armedUnit(world, "SOLO", 9409, radar.x + 35, radar.y);
+        Unit enemy = hostileUnit(world, 9507, "destroyer", radar.x + 700, radar.y + 15);
+
+        IntelWarfareSystem.update(world, 0.50);
+        require(CombatTarget.unit(enemy).equals(IntelWarfareSystem.radarResponseTarget(world, responder.key())),
+                "validator setup did not create an active radar response");
+
+        double manualX = radar.x - 240;
+        double manualY = radar.y + 180;
+        require(AUnitMove.apply(world, new MoveCommand(responder.playerId, responder.unitId, manualX, manualY)),
+                "explicit player move setup was rejected");
+        IntelWarfareSystem.update(world, 0.50);
+
+        require(IntelWarfareSystem.radarResponseTarget(world, responder.key()).isBlank(),
+                "radar reclaimed a ship after an explicit player move");
+        require(responder.task == UnitTask.MOVE
+                        && Calc.distance(responder.targetX, responder.targetY, manualX, manualY) < 0.01,
+                "radar release altered the player's explicit move destination");
+        require(responder.attackTarget.isBlank(),
+                "radar reasserted its old target after the player's explicit move");
     }
 
     private static UnitQueueApplyResult applyPolicy(World world, Unit unit, CombatStance stance,
