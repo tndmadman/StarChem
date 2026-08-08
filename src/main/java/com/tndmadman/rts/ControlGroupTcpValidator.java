@@ -44,6 +44,11 @@ public final class ControlGroupTcpValidator {
             require(groups.size(1) == 1 && groups.contains(1, unitKey),
                     "cross-system transfer lost stable control-group membership");
 
+            client.network().viewSystem(playerId, secondSystem);
+            harness.await(() -> secondSystem.equals(client.network().clientViewedSystemId())
+                            && secondSystem.equals(client.world().activeSystemId()),
+                    10_000, "remote control-group system could not be authoritatively viewed");
+
             // Exercise the broadcast sequence that exposed the original issue-290 transport regression.
             harness.serverNetwork.setRuntimeDevEnabled(true);
             harness.serverNetwork.setRemoteDevAccess(playerId, true);
