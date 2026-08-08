@@ -80,7 +80,7 @@ final class StationControlMenu {
         addInfo(content, "Combat responders", activeResponses + " / " + responseCap);
         addInfo(content, "Combat response radius", Integer.toString((int)Math.round(Math.max(0, intel.responseRadius()))));
         content.add(Box.createVerticalStrut(6));
-        JLabel combatNote = label("Guarding owned combat ships respond first; remaining capacity may use idle owned ships. Combat stance and target priority control automatic response.",
+        JLabel combatNote = label("<html>Guarding owned combat ships respond first; idle owned ships fill remaining capacity.<br>Combat stance and target priority control automatic response.</html>",
                 Font.PLAIN, 11, MUTED);
         combatNote.setAlignmentX(Component.LEFT_ALIGNMENT);
         content.add(combatNote);
