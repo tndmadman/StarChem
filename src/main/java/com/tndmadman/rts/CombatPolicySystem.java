@@ -163,11 +163,11 @@ final class CombatPolicySystem {
     static boolean mayPursue(World world, Unit unit, double targetX, double targetY) {
         if (world == null || unit == null || !GameplayCommandNumbers.finite(targetX, targetY)) return false;
         CombatStance stance = stance(world, unit);
-        if (stance == CombatStance.HOLD_FIRE) return false;
+        if (stance == CombatStance.HOLD_FIRE || !UnitOrderSystem.mayChase(unit)) return false;
         AttackIntentSource source = attackIntent(world, unit);
         if (source == AttackIntentSource.EXPLICIT) return true;
         if (source != AttackIntentSource.AUTOMATIC || !mayAutoAcquire(world, unit)) return false;
-        if (!UnitOrderSystem.mayChase(unit) || !UnitOrderSystem.canEngage(world, unit, targetX, targetY)) return false;
+        if (!UnitOrderSystem.canEngage(world, unit, targetX, targetY)) return false;
         if (unit.orderType != UnitOrderType.NONE) return true;
 
         if (!UnitCommandQueueSystem.engagementAnchorSet(world, unit.key())) return false;
