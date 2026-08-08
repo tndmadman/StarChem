@@ -146,6 +146,15 @@ public final class Issue293LogisticsRouteValidator {
         LogisticsRouteSystem.update(fixture.world, 0.25);
         double cargo = fixture.transport.cargoUsed();
         require(cargo > 0.05, "manual override test did not load cargo");
+        String unsafeEdit = LogisticsRouteSystem.encodeSpec(routeId, fixture.destinationSystem, fixture.destination.id,
+                List.of(Material.COPPER), 100, 300, 150, 50,
+                List.of(), List.of(), true);
+        require(!ProductionCommands.apply(fixture.world, "SOLO", "CONTROL", fixture.source.id,
+                        LogisticsRouteSystem.COMMAND_UPDATE, unsafeEdit),
+                "route changed material rules while physical cargo was already in flight");
+        require(close(fixture.transport.cargoUsed(), cargo),
+                "rejected in-flight edit changed physical cargo");
+
         require(AUnitMove.apply(fixture.world, new MoveCommand("SOLO", fixture.transport.unitId,
                         fixture.transport.x + 60, fixture.transport.y + 20)),
                 "manual move command was rejected");
@@ -171,6 +180,23 @@ public final class Issue293LogisticsRouteValidator {
         require(!ProductionCommands.apply(fixture.world, "SOLO", "CONTROL", fixture.source.id,
                         LogisticsRouteSystem.COMMAND_CREATE, "v1~bad"),
                 "malformed route command was accepted");
+
+        Base localDestination = new Base("SOLO:LOCAL_DEST", "SOLO", Rules.DEFAULT_BASE,
+                fixture.source.x + 400, fixture.source.y + 200);
+        fixture.world.bases.put(localDestination.id, localDestination);
+        String localRoute = LogisticsRouteSystem.encodeSpec("", fixture.sourceSystem, localDestination.id,
+                List.of(Material.IRON), 50, 200, 100, 50,
+                List.of(fixture.transport.key()), List.of(), false);
+        require(!ProductionCommands.apply(fixture.world, "SOLO", "CONTROL", fixture.source.id,
+                        LogisticsRouteSystem.COMMAND_CREATE, localRoute),
+                "same-system route was accepted by the inter-system route controller");
+
+        String keepOnCreate = LogisticsRouteSystem.encodeSpec("", fixture.destinationSystem, fixture.destination.id,
+                List.of(Material.IRON), 50, 200, 100, 50,
+                List.of(), List.of(), true);
+        require(!ProductionCommands.apply(fixture.world, "SOLO", "CONTROL", fixture.source.id,
+                        LogisticsRouteSystem.COMMAND_CREATE, keepOnCreate),
+                "KEEP assignment sentinel was accepted on route creation");
 
         List<Material> oversizedMaterials = new ArrayList<>();
         for (Material material : Material.values()) oversizedMaterials.add(material);
