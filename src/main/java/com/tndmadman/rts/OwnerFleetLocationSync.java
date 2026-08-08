@@ -12,17 +12,19 @@ final class OwnerFleetLocationSync {
 
     private OwnerFleetLocationSync() { }
 
-    static void send(World world, ServerPeer peer, NetOutbound out, boolean force) {
-        if (world == null || peer == null || out == null) return;
+    static void send(World world, ClientViewCache views, ServerPeer peer, NetOutbound out, boolean force) {
+        if (world == null || views == null || peer == null || out == null) return;
         long now = System.currentTimeMillis();
         Map<String, SyncState> byPlayer = STATES.computeIfAbsent(world, ignored -> new LinkedHashMap<>());
         SyncState prior = byPlayer.get(peer.playerId());
         if (!force && prior != null && now - prior.lastScanMs < REFRESH_MS) return;
 
-        String packet = OwnerFleetLocationWire.encode(OwnerFleetLocations.capture(world, peer.playerId()));
+        GalaxyMapSnapshot galaxy = views.galaxySnapshot(world, peer.playerId());
+        String packet = GalaxyMapWire.encode(GalaxyRuntimeOptions.copiesPerTemplate(), galaxy,
+                peer.playerId(), OwnerFleetLocations.capture(world, peer.playerId()));
         byPlayer.put(peer.playerId(), new SyncState(now, packet));
         if (force || prior == null || !packet.equals(prior.packet)) {
-            out.send(packet, peer.connectionId(), DeliveryClass.OWNER_FLEET);
+            out.send(packet, peer.connectionId(), DeliveryClass.GALAXY);
         }
     }
 
