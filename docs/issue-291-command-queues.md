@@ -26,7 +26,7 @@ Wormhole steps store stable source-system, gate, and destination-system IDs rath
 
 Per-unit queue revision, active state, and queued commands are stored with galaxy unit save state. Save format 6 migrates older saves with empty queues. Multiplayer protocol 15 carries queue mutations and owner-only queue synchronization.
 
-Player queue intent takes precedence over autonomous hauler routing. A queued explicit harvest also completes when that resource is depleted instead of silently retargeting another deposit before the next queued step can run.
+Player queue intent takes precedence over autonomous hauler routing, local miner/scout retargeting, and radar worker dispatch. A queued explicit harvest also completes when that resource is depleted instead of silently retargeting another deposit before the next queued step can run.
 
 ## Validation
 
