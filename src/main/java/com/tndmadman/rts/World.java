@@ -113,6 +113,7 @@ final class World {
         systemTime = galaxy.activeSystemTime();
     }
     boolean hasLiveAssets(String playerId) { return galaxy.hasLiveAssets(this, playerId); }
+    Map<String,String> ownerUnitLocations(String playerId) { return galaxy.ownerUnitLocations(this, playerId); }
     String playerHomeSystemId(String playerId) { return galaxy.playerHomeSystemId(this, playerId, starSystem); }
     void activateSystem(String systemId) { celestials = galaxy.activate(this, systemId); systemTime = galaxy.activeSystemTime(); }
     void saveActiveSystem() { galaxy.saveActive(this); }

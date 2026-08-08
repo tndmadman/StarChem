@@ -13,6 +13,7 @@ final class ConnectionOverlayPanel extends JPanel {
     private final JLabel elapsed = new JLabel("Elapsed: 0.0s", SwingConstants.CENTER);
     private final JProgressBar progress = new JProgressBar(0, 4);
     private final JButton trust = new JButton("TRUST NEW CERTIFICATE");
+    private final JButton cancel = new JButton("CANCEL");
     private final Timer timer;
     private String lastTraceKey = "";
     private long lastRetryTraceAt;
@@ -22,6 +23,7 @@ final class ConnectionOverlayPanel extends JPanel {
         this.owner = owner;
         this.network = network;
         setOpaque(false);
+        setFocusable(true);
 
         title.setForeground(Color.WHITE);
         title.setFont(title.getFont().deriveFont(Font.BOLD, 24f));
@@ -33,7 +35,6 @@ final class ConnectionOverlayPanel extends JPanel {
 
         trust.setVisible(false);
         trust.addActionListener(e -> trustChangedCertificate());
-        JButton cancel = new JButton("CANCEL");
         cancel.addActionListener(e -> {
             System.out.println("[CONNECTION][CLIENT][CANCELLED] User cancelled the connection attempt.");
             owner.showLobby("Connection cancelled.");
@@ -114,16 +115,15 @@ final class ConnectionOverlayPanel extends JPanel {
 
     private void refresh() {
         if (network == null || !network.clientMode()) {
-            setVisible(false);
+            hideModal();
             return;
         }
         ClientConnectionProgress state = network.clientConnectionProgress();
         trace(state);
         if (state.ready()) {
-            setVisible(false);
+            hideModal();
             return;
         }
-        setVisible(true);
         title.setText(state.title());
         detail.setText(asHtml(state.detail()));
         progress.setMaximum(state.stageCount());
@@ -131,8 +131,37 @@ final class ConnectionOverlayPanel extends JPanel {
         progress.setString("Step " + state.stage() + " of " + state.stageCount());
         elapsed.setText(String.format("Elapsed: %.1fs", state.elapsedMillis() / 1000.0));
         trust.setVisible(network.serverCertificateTrustRequired());
+        showModal();
         revalidate();
         repaint();
+    }
+
+    private void showModal() {
+        if (isVisible()) return;
+        World activeWorld = PlayerRegistry.activeWorld();
+        if (activeWorld != null) OwnerFleetLocationRegistry.suspendUntilFreshProjection(activeWorld);
+        setVisible(true);
+        SwingUtilities.invokeLater(() -> {
+            if (trust.isVisible()) trust.requestFocusInWindow();
+            else cancel.requestFocusInWindow();
+        });
+    }
+
+    private void hideModal() {
+        if (!isVisible()) return;
+        setVisible(false);
+        restoreGameplayFocus();
+    }
+
+    private void restoreGameplayFocus() {
+        Container parent = getParent();
+        if (parent == null) return;
+        for (Component component : parent.getComponents()) {
+            if (component instanceof GamePanel panel && panel.isVisible()) {
+                SwingUtilities.invokeLater(panel::requestFocusInWindow);
+                return;
+            }
+        }
     }
 
     private void trace(ClientConnectionProgress state) {

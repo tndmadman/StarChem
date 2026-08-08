@@ -1,6 +1,6 @@
 # Upgrading StarChem v1.6.0 servers to v1.7.0
 
-StarChem v1.7.0 uses multiplayer protocol 13, rules version 27, and save format 5.
+StarChem v1.7.0 uses multiplayer protocol 14, rules version 27, and save format 5.
 
 ## Before upgrading
 
@@ -33,6 +33,6 @@ After v1.7.0 starts:
 - v1.6.0 clients cannot read v1.7.0 credential-vault markers as remembered tokens or password authenticators;
 - v1.6.0 does not understand new v1.7.0 identity, recovery, and previous-state companion files;
 - v1.6.0 does not understand save format 5 or authoritative runtime fit data;
-- v1.6.0 protocol 7 and v1.7.0 protocol 13 are intentionally incompatible.
+- v1.6.0 protocol 7 and v1.7.0 protocol 14 are intentionally incompatible.
 
 To roll back, stop v1.7.0 and restore the complete pre-upgrade server directory and the pre-upgrade client credential files. Restoring only one `.starchem-save` archive is not sufficient.

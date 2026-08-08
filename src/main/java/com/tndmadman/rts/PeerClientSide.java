@@ -432,6 +432,9 @@ final class PeerClientSide {
         if (message == null || !message.startsWith("GALAXY|")) return false;
         GalaxyMapWire.Decoded decoded = GalaxyMapWire.decode(message);
         world.configureGalaxyCopies(decoded.copiesPerTemplate());
+        if (decoded.ownerProjection().present()) {
+            OwnerFleetLocationRegistry.replace(world, decoded.ownerProjection().ownerId(), decoded.ownerUnitLocations());
+        }
         world.applyRemoteGalaxyMapSnapshot(decoded.snapshot());
         return true;
     }

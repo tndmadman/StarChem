@@ -151,7 +151,7 @@ public final class RefitQuotePersistenceValidator {
     }
 
     private static void validateCompatibilityVersions() {
-        require(MultiplayerCompatibility.PROTOCOL_VERSION == 13, "protocol version was not bumped");
+        require(MultiplayerCompatibility.PROTOCOL_VERSION == 14, "protocol version was not bumped");
         require(ServerSaveStore.SAVE_FORMAT_VERSION == 5, "save format was not bumped");
         require(MultiplayerCompatibility.local().rulesVersion() == 27, "rules version was not bumped");
     }

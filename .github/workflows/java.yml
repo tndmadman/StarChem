@@ -17,6 +17,10 @@ jobs:
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
       - run: gradle build
+      - name: Validate fleet control groups
+        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.ControlGroupValidator
+      - name: Validate fleet control groups over TCP
+        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.ControlGroupTcpValidator
       - name: Validate per-client resource replication
         run: java -cp build/classes/java/main com.tndmadman.rts.ResourceReplicationValidator
       - name: Validate authoritative fog persistence

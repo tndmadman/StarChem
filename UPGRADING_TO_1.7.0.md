@@ -1,6 +1,6 @@
 # Upgrading StarChem v1.6.0 to v1.7.0
 
-StarChem v1.7.0 changes multiplayer protocol, authentication material, remembered client credentials, TLS identity protection, persistence scheduling, retained identity state, authoritative ship fits, and several server companion files. Treat the upgrade as a server-data migration to multiplayer protocol 13, rules version 27, and save format 5.
+StarChem v1.7.0 changes multiplayer protocol, authentication material, remembered client credentials, TLS identity protection, persistence scheduling, retained identity state, authoritative ship fits, fleet-control metadata, and several server companion files. Treat the upgrade as a server-data migration to multiplayer protocol 14, rules version 27, and save format 5.
 
 ## Before upgrading
 
@@ -99,7 +99,7 @@ A player may be asked to enter the password again when a remembered sign-in cann
 
 ## Multiplayer compatibility
 
-v1.7.0 uses multiplayer protocol 13 and rules version 27. v1.6.0 uses protocol 7.
+v1.7.0 uses multiplayer protocol 14 and rules version 27. v1.6.0 uses protocol 7.
 
 - A v1.6.0 client cannot join a v1.7.0 server.
 - A v1.7.0 client cannot join a v1.6.0 server.
