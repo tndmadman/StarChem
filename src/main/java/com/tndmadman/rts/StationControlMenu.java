@@ -71,9 +71,19 @@ final class StationControlMenu {
     private static void buildRadar(JPanel content, JPopupMenu popup, Component invoker, World world,
                                    PeerNetwork network, Base radar, int x, int y) {
         int range = (int)Math.round(VisibilityRules.baseSensorRange(world, radar));
+        IntelWarfareSystem.StructureIntelRule intel = IntelWarfareSystem.rule(radar.typeId);
+        int responseCap = Math.max(0, intel.responseShipLimit());
+        int activeResponses = IntelWarfareSystem.radarResponseCount(world, radar.id);
         addInfo(content, "Current mode", IntelWarfareSystem.radarMode(world, radar).name());
         addInfo(content, "Current sensor range", Integer.toString(range));
         addInfo(content, "Miner dispatch cap", Integer.toString(IntelWarfareSystem.dispatchLimit(radar.typeId)));
+        addInfo(content, "Combat responders", activeResponses + " / " + responseCap);
+        addInfo(content, "Combat response radius", Integer.toString((int)Math.round(Math.max(0, intel.responseRadius()))));
+        content.add(Box.createVerticalStrut(6));
+        JLabel combatNote = label("Guarding owned combat ships respond first; remaining capacity may use idle owned ships. Combat stance and target priority control automatic response.",
+                Font.PLAIN, 11, MUTED);
+        combatNote.setAlignmentX(Component.LEFT_ALIGNMENT);
+        content.add(combatNote);
         content.add(Box.createVerticalStrut(10));
         content.add(section("RESOURCE PRIORITY"));
         JLabel note = label("Higher entries receive idle miners before lower or unlisted materials.",
