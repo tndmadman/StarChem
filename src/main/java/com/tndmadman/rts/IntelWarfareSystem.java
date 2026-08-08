@@ -197,7 +197,7 @@ final class IntelWarfareSystem {
 
     static double ordinaryUnitRange(World world, Unit unit) {
         if (unit == null) return 0;
-        double baseline = 260.0 + Math.max(0, unit.type().size.scale) * 70.0;
+        double baseline = 260.0 + Math.max(0.35, unit.type().size.scale) * 70.0;
         double configured = Math.max(0, unit.type().scoutRange);
         double raw = Math.max(baseline, configured) * SystemModifierRules.sensorRange(world);
         return raw * sensorJammingMultiplier(world, unit.playerId, unit.x, unit.y, 0);
@@ -266,7 +266,7 @@ final class IntelWarfareSystem {
         double tx = CombatTarget.x(world, targetKey);
         double ty = CombatTarget.y(world, targetKey);
         return GameplayCommandNumbers.finite(tx, ty)
-                && Calc.distance(radar.x, radar.y, tx, ty) <= responseRadius(radar);
+                && Calc.distance(radar.x, radar.y, tx, ty) <= responseRadius(world, radar);
     }
 
     static boolean radarPursuitAllowed(World world, Unit unit, double targetX, double targetY) {
@@ -275,7 +275,7 @@ final class IntelWarfareSystem {
         if (assignment == null || !assignment.attack) return false;
         Base radar = world.bases.get(assignment.radarId);
         if (!validRadarAssignment(world, radar, unit) || !CombatPolicySystem.mayAutoAcquire(world, unit)) return false;
-        double radius = responseRadius(radar);
+        double radius = responseRadius(world, radar);
         return Calc.distance(radar.x, radar.y, targetX, targetY) <= radius
                 && Calc.distance(radar.x, radar.y, unit.x, unit.y) <= radius * 1.15;
     }
@@ -450,8 +450,8 @@ final class IntelWarfareSystem {
             if (!guarding && !continuing && !idle) continue;
             out.add(unit);
         }
-        out.sort(Comparator.comparingDouble(unit -> responderScore(runtime, radar, unit))
-                .thenComparing(Unit::key));
+        out.sort(Comparator.comparingDouble((Unit unit) -> responderScore(runtime, radar, unit))
+                .thenComparing(unit -> unit.key()));
         return out;
     }
 
@@ -472,7 +472,7 @@ final class IntelWarfareSystem {
     private static TargetChoice bestLiveResponseTarget(World world, Base radar, Unit responder) {
         TargetChoice best = null;
         double bestScore = Double.POSITIVE_INFINITY;
-        double maxRange = responseRadius(radar);
+        double maxRange = responseRadius(world, radar);
         for (Unit enemy : world.units.values()) {
             if (enemy == null || enemy.hp <= 0 || allied(world, radar.playerId, enemy.playerId)) continue;
             DetectionStage stage = unitStage(world, radar.playerId, enemy);
@@ -527,7 +527,7 @@ final class IntelWarfareSystem {
             double predictSeconds = candidate.stage.atLeast(DetectionStage.IDENTIFIED) ? Math.min(5, age) : 0;
             double exactX = candidate.x + candidate.vx * predictSeconds;
             double exactY = candidate.y + candidate.vy * predictSeconds;
-            if (Calc.distance(radar.x, radar.y, exactX, exactY) > responseRadius(radar)) continue;
+            if (Calc.distance(radar.x, radar.y, exactX, exactY) > responseRadius(world, radar)) continue;
             double score = radarMemoryScore(world, responder, candidate, exactX, exactY, age);
             if (!Double.isFinite(score) || score >= bestScore) continue;
             double tx = approximateX(world, candidate.key, candidate.stage, exactX);
@@ -657,11 +657,11 @@ final class IntelWarfareSystem {
                 && !"observe".equals(rule(radar.typeId).responseMode);
     }
 
-    private static double responseRadius(Base radar) {
-        if (radar == null) return 0;
+    private static double responseRadius(World world, Base radar) {
+        if (world == null || radar == null) return 0;
         StructureIntelRule rule = rule(radar.typeId);
         double configured = Math.max(0, rule.responseRadius);
-        double sensorBound = Math.max(0, baseSensorRange(PlayerRegistry.activeWorld(), radar) * 1.15);
+        double sensorBound = Math.max(0, baseSensorRange(world, radar) * 1.15);
         if (configured <= 0) return sensorBound;
         if (sensorBound <= 0) return configured;
         return Math.min(configured, sensorBound);
