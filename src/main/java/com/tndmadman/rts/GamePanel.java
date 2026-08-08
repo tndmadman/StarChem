@@ -31,6 +31,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final MinimapHud minimapHud = new MinimapHud();
     private final HangarHud hangarHud = new HangarHud();
     private final LeaderboardHud leaderboardHud = new LeaderboardHud();
+    private final CombatPolicyHud combatPolicyHud = new CombatPolicyHud();
     private final ShieldDebugOverlay shieldDebugOverlay = new ShieldDebugOverlay();
     private final DevMenu devMenu = new DevMenu();
     private final AiDevPanel aiDevPanel = new AiDevPanel();
@@ -135,6 +136,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         WormholeIndicator.draw(g2, world, camera, getWidth(), getHeight());
         drawHud(g2);
         drawControlGroupHud(g2);
+        combatPolicyHud.draw(g2, world);
         leaderboardHud.draw(g2, world, getWidth());
         hangarHud.draw(g2, world, getWidth());
         if (!galaxyMapOpen) minimapHud.draw(g2, world, camera, getWidth(), getHeight());
@@ -344,6 +346,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     @Override public void mousePressed(MouseEvent e) {
         requestFocusInWindow();
         if (galaxyMapOpen) { clickGalaxyMap(e); return; }
+        if (combatPolicyHud.click(e, world, this::applyCombatPolicy)) { repaint(); return; }
         if (buildMenu.click(e.getX(), e.getY())) return;
         if (SwingUtilities.isLeftMouseButton(e) && fittingButtonBounds().contains(e.getPoint())) {
             openSelectedFitting();
@@ -671,6 +674,17 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
                     ax, ay, bx, by, radius, targetKey);
             if (issueQueueMutation(keys.get(i), command,
                     append ? UnitQueueOperation.APPEND : UnitQueueOperation.REPLACE)) applied++;
+        }
+        return applied;
+    }
+
+    private int applyCombatPolicy(CombatStance stance, TargetPriorityPolicy priority) {
+        List<String> keys = commandUnitKeys(false);
+        if (keys.isEmpty()) return 0;
+        int applied = 0;
+        for (String key : keys) {
+            QueuedUnitCommand command = QueuedUnitCommand.policy(world.activeSystemId(), stance, priority);
+            if (issueQueueMutation(key, command, UnitQueueOperation.POLICY)) applied++;
         }
         return applied;
     }
