@@ -1,10 +1,10 @@
 # StarChem v1.7.0
 
-StarChem v1.7.0 is a security, persistence, multiplayer, server-operations, simulation-scheduling, production-correctness, and ship-fitting release. It advances multiplayer to protocol 13, rules version 27, and save format 5 while changing how reusable authentication material is generated, transmitted, stored, and resumed.
+StarChem v1.7.0 is a security, persistence, multiplayer, server-operations, simulation-scheduling, production-correctness, ship-fitting, and fleet-control release. It advances multiplayer to protocol 14, rules version 27, and save format 5 while changing how reusable authentication material is generated, transmitted, stored, and resumed.
 
-## Multiplayer Protocol 13
+## Multiplayer Protocol 14
 
-- Advanced the multiplayer protocol from 7 to 13 for the revised TLS-protected credential and session-token handshake, authoritative ship-fit catalogs, and current snapshot/save compatibility contract.
+- Advanced the multiplayer protocol from 7 to 14 for the revised TLS-protected credential and session-token handshake, authoritative ship-fit catalogs, owner-scoped fleet-location metadata, and current snapshot/save compatibility contract.
 - Compatibility checks continue to require matching application version, protocol version, rules version, and packaged configuration fingerprint.
 - Build commit remains diagnostic. Builds from different commits may connect only when every required compatibility value matches.
 - StarChem v1.6.0 clients and servers use protocol 7 and are intentionally incompatible with v1.7.0 multiplayer.
@@ -99,6 +99,15 @@ StarChem v1.7.0 is a security, persistence, multiplayer, server-operations, simu
 - Unified authoritative combat, client prediction, orders, and rendering around one fitted attack-range calculation.
 - Added explicit weapon hardpoints and strict fail-closed enum parsing for current configuration.
 
+## Fleet Control Groups
+
+- Added client-local RTS control groups 0 through 9 with replace, add, remove, clear, and recall actions.
+- Added double-tap camera centering and split-system recall using the system containing the largest living portion of the group.
+- Preserve stable unit-key membership through wormhole travel and restore each group's remembered fleet formation on recall.
+- Prune destroyed or no-longer-owned ships from groups without transmitting control-group membership to the server.
+- Carry only the authenticated player's live unit-key-to-system mapping inside the existing coalesced galaxy-state packet, avoiding hidden enemy-state disclosure and additional network streams.
+- Added focused local and authenticated-TCP validation for group editing, rapid key input, cross-system movement, reconnect/resume reconciliation, remote destruction, and the multiplayer broadcast regression found during implementation.
+
 ## Launcher And Package Changes
 
 - The graphical lobby now provides **SOLO** and **JOIN**. Multiplayer hosting runs through the separate dedicated-server launcher.
@@ -119,7 +128,7 @@ Read `UPGRADING_TO_1.7.0.md` before upgrading or attempting rollback.
 
 ## Compatibility
 
-All multiplayer clients and servers must use StarChem v1.7.0 with network protocol 13, rules version 27, save format 5, and matching packaged configuration files. StarChem v1.6.0 uses protocol 7 and cannot join a v1.7.0 server or accept a v1.7.0 client.
+All multiplayer clients and servers must use StarChem v1.7.0 with network protocol 14, rules version 27, save format 5, and matching packaged configuration files. StarChem v1.6.0 uses protocol 7 and cannot join a v1.7.0 server or accept a v1.7.0 client.
 
 Save-format migration upgrades existing v1.6.0 worlds and identities to save format 5, but a full directory backup is required because v1.7.0 adds and updates security-sensitive companion state and authoritative fit data. Do not assume that a v1.6.0 binary can safely interpret files written or migrated by v1.7.0.
 
