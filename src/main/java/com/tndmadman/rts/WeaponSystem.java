@@ -18,19 +18,22 @@ final class WeaponSystem {
         for (Unit unit : new ArrayList<>(world.units.values())) {
             if (settings.freezeNpcCombat && NpcRules.isNpcFaction(unit.playerId)) continue;
             if (ProductionSystem.refitReserved(world, unit.key())) continue;
-            if (!WeaponRules.screenWeapons(world, unit).isEmpty()) screenShots(world, unit);
+            if (CombatPolicySystem.pointDefenseAllowed(world, unit)
+                    && !WeaponRules.screenWeapons(world, unit).isEmpty()) screenShots(world, unit);
         }
         for (Unit unit : new ArrayList<>(world.units.values())) {
             if (settings.freezeNpcCombat && NpcRules.isNpcFaction(unit.playerId)) continue;
             if (ProductionSystem.refitReserved(world, unit.key())) {
-                clearIllegalAttack(unit);
+                clearIllegalAttack(world, unit);
                 continue;
             }
             if (!WeaponRules.armed(world, unit)) {
-                clearIllegalAttack(unit);
+                clearIllegalAttack(world, unit);
                 continue;
             }
-            if (UnitOrderSystem.canAcquire(unit)) acquireTarget(world, unit);
+            if (UnitOrderSystem.canAcquire(unit) && CombatPolicySystem.mayAutoAcquire(world, unit)) {
+                acquireTarget(world, unit);
+            }
             if (unit.task == UnitTask.ATTACK) updateAttack(world, unit);
         }
         updateShots(world, dt);
@@ -53,74 +56,72 @@ final class WeaponSystem {
         }
     }
 
-    private void clearIllegalAttack(Unit unit) {
+    private void clearIllegalAttack(World world, Unit unit) {
         if (unit.task != UnitTask.ATTACK && unit.attackTarget.isBlank()) return;
         unit.attackTarget = "";
         if (unit.task == UnitTask.ATTACK) unit.task = UnitTask.IDLE;
+        CombatPolicySystem.clearAttackIntent(world, unit);
     }
 
     private void acquireTarget(World world, Unit unit) {
         String best = "";
-        double bestScore = Double.MAX_VALUE;
-        double range = UnitOrderSystem.acquisitionRange(world, unit) * SystemModifierRules.sensorRange(world);
+        double bestScore = Double.POSITIVE_INFINITY;
         for (Unit target : world.units.values()) {
-            if (target.hp <= 0 || !DiplomacySystem.hostile(world, unit.playerId, target.playerId)
-                    || !VisibilityRules.targetVisible(world, unit.playerId, CombatTarget.unit(target))) continue;
-            double distance = Calc.distance(unit.x, unit.y, target.x, target.y);
-            if (distance > range || !UnitOrderSystem.canEngage(world, unit, target.x, target.y)) continue;
-            double score = distance;
-            if (target.weaponFlashTimer > 0) score *= 0.88;
-            if (score < bestScore) {
-                best = CombatTarget.unit(target);
+            if (target == unit || target.hp <= 0) continue;
+            String key = CombatTarget.unit(target);
+            double score = CombatPolicySystem.scoreTarget(world, unit, key);
+            if (better(score, key, bestScore, best)) {
+                best = key;
                 bestScore = score;
             }
         }
         for (Base target : world.bases.values()) {
-            if (target.hp <= 0 || !DiplomacySystem.hostile(world, unit.playerId, target.playerId)
-                    || !VisibilityRules.targetVisible(world, unit.playerId, CombatTarget.base(target))) continue;
-            double distance = Calc.distance(unit.x, unit.y, target.x, target.y);
-            if (distance > range || !UnitOrderSystem.canEngage(world, unit, target.x, target.y)) continue;
-            double priority = IntelWarfareSystem.isJammer(target.typeId) ? 0.45
-                    : IntelWarfareSystem.isRadar(target.typeId) ? 0.62 : 1.0;
-            double score = distance * priority;
-            if (score < bestScore) {
-                best = CombatTarget.base(target);
+            if (target.hp <= 0) continue;
+            String key = CombatTarget.base(target);
+            double score = CombatPolicySystem.scoreTarget(world, unit, key);
+            if (better(score, key, bestScore, best)) {
+                best = key;
                 bestScore = score;
             }
         }
         if (!best.isBlank()) {
+            CombatPolicySystem.markAutomaticAttack(world, unit);
             unit.attackTarget = best;
             unit.task = UnitTask.ATTACK;
         }
     }
 
+    private boolean better(double score, String key, double bestScore, String bestKey) {
+        if (!Double.isFinite(score)) return false;
+        if (score < bestScore - 0.000001) return true;
+        return Math.abs(score - bestScore) <= 0.000001
+                && (bestKey == null || bestKey.isBlank() || key.compareTo(bestKey) < 0);
+    }
+
     private void updateAttack(World world, Unit unit) {
-        if (unit.attackTarget.isBlank() || !CombatTarget.enemy(world, unit, unit.attackTarget)
-                || !VisibilityRules.targetVisible(world, unit.playerId, unit.attackTarget)) {
-            unit.attackTarget = "";
-            unit.task = UnitTask.IDLE;
+        if (!CombatPolicySystem.retainCurrentAttack(world, unit)) {
+            clearIllegalAttack(world, unit);
             return;
         }
         double tx = CombatTarget.x(world, unit.attackTarget);
         double ty = CombatTarget.y(world, unit.attackTarget);
-        if (!UnitOrderSystem.canEngage(world, unit, tx, ty)) {
-            unit.attackTarget = "";
-            unit.task = UnitTask.IDLE;
-            return;
-        }
         double dist = Calc.distance(unit.x, unit.y, tx, ty);
         double effectiveRange = AttackRangeRules.effectiveWeaponRange(world, unit);
         double approachRange = AttackRangeRules.approachThreshold(world, unit);
         double orbitRange = AttackRangeRules.orbitRange(world, unit);
         if (effectiveRange <= 0 || approachRange <= 0 || orbitRange <= 0) {
-            unit.attackTarget = "";
-            unit.task = UnitTask.IDLE;
+            clearIllegalAttack(world, unit);
+            return;
+        }
+        if (!CombatPolicySystem.mayFire(world, unit)) {
+            unit.targetX = unit.x;
+            unit.targetY = unit.y;
             return;
         }
         if (dist > approachRange) {
-            if (!UnitOrderSystem.mayChase(unit)) {
-                unit.attackTarget = "";
-                unit.task = UnitTask.IDLE;
+            if (!CombatPolicySystem.mayPursue(world, unit, tx, ty)) {
+                if (CombatPolicySystem.holdExplicitTargetWithoutPursuit(world, unit)) return;
+                clearIllegalAttack(world, unit);
                 return;
             }
             world.moveTowardOrbit(unit, tx, ty, orbitRange);
@@ -180,12 +181,19 @@ final class WeaponSystem {
         WeaponType screen = screens.get(0);
         ProjectileShot best = null;
         double bestDist = Double.MAX_VALUE;
+        double bestScore = Double.POSITIVE_INFINITY;
         for (ProjectileShot shot : world.shots) {
             WeaponType weapon = shot.weapon();
             if (weapon == null || !weapon.stoppable
                     || !DiplomacySystem.hostile(world, unit.playerId, shot.ownerId)) continue;
             double d = Calc.distance(unit.x, unit.y, shot.x, shot.y);
-            if (d <= AttackRangeRules.effectiveRange(world, screen.range) && d < bestDist) { best = shot; bestDist = d; }
+            if (d > AttackRangeRules.effectiveRange(world, screen.range)) continue;
+            double score = CombatPolicySystem.screenScore(world, unit, shot, d);
+            if (score < bestScore) {
+                best = shot;
+                bestDist = d;
+                bestScore = score;
+            }
         }
         if (best == null) return;
         world.shots.remove(best);
