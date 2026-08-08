@@ -73,11 +73,15 @@ final class StationControlMenu {
         int range = (int)Math.round(VisibilityRules.baseSensorRange(world, radar));
         IntelWarfareSystem.StructureIntelRule intel = IntelWarfareSystem.rule(radar.typeId);
         int responseCap = Math.max(0, intel.responseShipLimit());
-        int activeResponses = IntelWarfareSystem.radarResponseCount(world, radar.id);
         addInfo(content, "Current mode", IntelWarfareSystem.radarMode(world, radar).name());
         addInfo(content, "Current sensor range", Integer.toString(range));
         addInfo(content, "Miner dispatch cap", Integer.toString(IntelWarfareSystem.dispatchLimit(radar.typeId)));
-        addInfo(content, "Combat responders", activeResponses + " / " + responseCap);
+        if (network != null && network.clientMode()) {
+            addInfo(content, "Combat response cap", Integer.toString(responseCap));
+        } else {
+            int activeResponses = IntelWarfareSystem.radarResponseCount(world, radar.id);
+            addInfo(content, "Combat responders", activeResponses + " / " + responseCap);
+        }
         addInfo(content, "Combat response radius", Integer.toString((int)Math.round(Math.max(0, intel.responseRadius()))));
         content.add(Box.createVerticalStrut(6));
         JLabel combatNote = label("<html>Guarding owned combat ships respond first; idle owned ships fill remaining capacity.<br>Combat stance and target priority control automatic response.</html>",
