@@ -18,7 +18,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
 
-enum UnitQueueOperation { REPLACE, APPEND, CLEAR }
+enum UnitQueueOperation { REPLACE, APPEND, CLEAR, POLICY }
 enum QueuedCommandKind { MOVE, ATTACK, HARVEST, TACTICAL, WORMHOLE }
 enum UnitQueueApplyResult { APPLIED, STALE, REJECTED }
 
@@ -62,6 +62,13 @@ record QueuedUnitCommand(long stepId, QueuedCommandKind kind, String systemId,
     static QueuedUnitCommand wormhole(String sourceSystemId, String gateId, String destinationSystemId) {
         return new QueuedUnitCommand(0, QueuedCommandKind.WORMHOLE, sourceSystemId,
                 0, 0, 0, 0, 0, "", -1, gateId, destinationSystemId, UnitOrderType.NONE);
+    }
+
+    static QueuedUnitCommand policy(String systemId, CombatStance stance, TargetPriorityPolicy priority) {
+        return new QueuedUnitCommand(0, QueuedCommandKind.TACTICAL, systemId,
+                0, 0, 0, 0, 0,
+                stance == null ? "" : stance.name(), -1, "",
+                priority == null ? "" : priority.name(), UnitOrderType.NONE);
     }
 
     QueuedUnitCommand withStepId(long id) {
@@ -113,6 +120,56 @@ final class UnitCommandQueueSystem {
         return state == null ? List.of() : List.copyOf(state.queue);
     }
 
+    static synchronized CombatStance combatStance(World world, String unitKey) {
+        QueueState state = lookup(world, unitKey);
+        return state == null ? CombatStance.AGGRESSIVE : state.combatStance;
+    }
+
+    static synchronized TargetPriorityPolicy targetPriority(World world, String unitKey) {
+        QueueState state = lookup(world, unitKey);
+        return state == null ? TargetPriorityPolicy.NEAREST_THREAT : state.targetPriority;
+    }
+
+    static synchronized AttackIntentSource attackIntent(World world, String unitKey) {
+        QueueState state = lookup(world, unitKey);
+        return state == null ? AttackIntentSource.NONE : state.attackIntent;
+    }
+
+    static synchronized void setAttackIntent(World world, Unit unit, AttackIntentSource source, boolean rememberAnchor) {
+        if (world == null || unit == null) return;
+        QueueState state = state(world, unit.key());
+        state.attackIntent = source == null ? AttackIntentSource.NONE : source;
+        if (rememberAnchor) {
+            state.engagementAnchorX = unit.x;
+            state.engagementAnchorY = unit.y;
+            state.engagementAnchorSet = GameplayCommandNumbers.finite(unit.x, unit.y);
+        } else if (state.attackIntent != AttackIntentSource.AUTOMATIC) {
+            state.engagementAnchorSet = false;
+        }
+    }
+
+    static synchronized void clearAttackIntent(World world, String unitKey) {
+        QueueState state = lookup(world, unitKey);
+        if (state == null) return;
+        state.attackIntent = AttackIntentSource.NONE;
+        state.engagementAnchorSet = false;
+    }
+
+    static synchronized boolean engagementAnchorSet(World world, String unitKey) {
+        QueueState state = lookup(world, unitKey);
+        return state != null && state.engagementAnchorSet;
+    }
+
+    static synchronized double engagementAnchorX(World world, String unitKey) {
+        QueueState state = lookup(world, unitKey);
+        return state == null ? 0 : state.engagementAnchorX;
+    }
+
+    static synchronized double engagementAnchorY(World world, String unitKey) {
+        QueueState state = lookup(world, unitKey);
+        return state == null ? 0 : state.engagementAnchorY;
+    }
+
     static synchronized boolean hasPlayerIntent(World world, Unit unit) {
         if (world == null || unit == null) return false;
         QueueState state = lookup(world, unit.key());
@@ -156,11 +213,15 @@ final class UnitCommandQueueSystem {
         if (unit != null && !mutation.playerId().equals(unit.playerId)) return UnitQueueApplyResult.REJECTED;
         QueueState state = state(world, key);
         if (mutation.expectedRevision() != state.revision) return UnitQueueApplyResult.STALE;
+        if (mutation.operation() == UnitQueueOperation.POLICY) {
+            if (unit == null) return UnitQueueApplyResult.REJECTED;
+            return applyPolicy(world, unit, state, mutation.command(), false);
+        }
         if (mutation.operation() == UnitQueueOperation.CLEAR) {
             state.queue.clear();
             state.activeStarted = false;
             state.revision++;
-            if (unit != null) clearRuntime(unit);
+            if (unit != null) clearRuntime(world, unit);
             return UnitQueueApplyResult.APPLIED;
         }
         QueuedUnitCommand command = mutation.command();
@@ -190,11 +251,14 @@ final class UnitCommandQueueSystem {
             forceDirty(world, unit.key());
             return UnitQueueApplyResult.STALE;
         }
+        if (mutation.operation() == UnitQueueOperation.POLICY) {
+            return applyPolicy(world, unit, state, mutation.command(), true);
+        }
         if (mutation.operation() == UnitQueueOperation.CLEAR) {
             state.queue.clear();
             state.activeStarted = false;
             state.revision++;
-            clearRuntime(unit);
+            clearRuntime(world, unit);
             markDirty(world, unit.key());
             return UnitQueueApplyResult.APPLIED;
         }
@@ -218,7 +282,7 @@ final class UnitCommandQueueSystem {
         if (mutation.operation() == UnitQueueOperation.REPLACE) {
             state.queue.clear();
             state.activeStarted = false;
-            clearRuntime(unit);
+            clearRuntime(world, unit);
         }
         state.queue.addLast(command.withStepId(state.nextStepId++));
         state.revision++;
@@ -227,11 +291,54 @@ final class UnitCommandQueueSystem {
         return UnitQueueApplyResult.APPLIED;
     }
 
+    private static UnitQueueApplyResult applyPolicy(World world, Unit unit, QueueState state,
+                                                     QueuedUnitCommand command, boolean authoritative) {
+        if (world == null || unit == null || state == null || command == null) return UnitQueueApplyResult.REJECTED;
+        if (command.systemId().isBlank() || command.systemId().length() > 128
+                || containsControl(command.systemId()) || !command.systemId().equals(world.activeSystemId())) {
+            return UnitQueueApplyResult.REJECTED;
+        }
+        CombatStance nextStance = state.combatStance;
+        TargetPriorityPolicy nextPriority = state.targetPriority;
+        boolean changed = false;
+        if (!command.targetKey().isBlank()) {
+            try { nextStance = CombatStance.valueOf(command.targetKey()); }
+            catch (RuntimeException ex) { return UnitQueueApplyResult.REJECTED; }
+            changed = true;
+        }
+        if (!command.destinationSystemId().isBlank()) {
+            try { nextPriority = TargetPriorityPolicy.valueOf(command.destinationSystemId()); }
+            catch (RuntimeException ex) { return UnitQueueApplyResult.REJECTED; }
+            changed = true;
+        }
+        if (!changed) return UnitQueueApplyResult.REJECTED;
+
+        state.combatStance = nextStance;
+        state.targetPriority = nextPriority;
+        state.revision++;
+        if (state.attackIntent == AttackIntentSource.AUTOMATIC) {
+            boolean drop = nextStance == CombatStance.PASSIVE || nextStance == CombatStance.HOLD_FIRE;
+            if (!drop && nextStance == CombatStance.DEFENSIVE && !unit.attackTarget.isBlank()) {
+                drop = !CombatPolicySystem.eligibleAutomaticTarget(world, unit, unit.attackTarget);
+            }
+            if (drop) {
+                unit.attackTarget = "";
+                if (unit.task == UnitTask.ATTACK) unit.task = UnitTask.IDLE;
+                state.attackIntent = AttackIntentSource.NONE;
+                state.engagementAnchorSet = false;
+            }
+        }
+        if (authoritative) markDirty(world, unit.key());
+        return UnitQueueApplyResult.APPLIED;
+    }
+
     static synchronized void legacyReplace(World world, Unit unit) {
         if (world == null || unit == null) return;
         QueueState state = state(world, unit.key());
         state.queue.clear();
         state.activeStarted = false;
+        state.attackIntent = AttackIntentSource.NONE;
+        state.engagementAnchorSet = false;
         state.revision++;
         markDirty(world, unit.key());
     }
@@ -243,7 +350,7 @@ final class UnitCommandQueueSystem {
         state.queue.clear();
         state.activeStarted = false;
         state.revision++;
-        clearRuntime(unit);
+        clearRuntime(world, unit);
         markDirty(world, unit.key());
     }
 
@@ -319,6 +426,7 @@ final class UnitCommandQueueSystem {
                 if (!CombatTarget.alive(world, command.targetKey())
                         || !CombatTarget.enemy(world, unit, command.targetKey())
                         || !WeaponRules.armed(world, unit)) yield QueueStartResult.SKIP;
+                CombatPolicySystem.markExplicitAttack(world, unit);
                 unit.issueAttack(command.targetKey());
                 yield unit.task == UnitTask.ATTACK ? QueueStartResult.STARTED : QueueStartResult.SKIP;
             }
@@ -368,6 +476,7 @@ final class UnitCommandQueueSystem {
             case ATTACK -> {
                 if (CombatTarget.alive(world, command.targetKey()) && CombatTarget.enemy(world, unit, command.targetKey())
                         && (unit.task != UnitTask.ATTACK || !command.targetKey().equals(unit.attackTarget))) {
+                    CombatPolicySystem.markExplicitAttack(world, unit);
                     unit.attack(command.targetKey());
                 }
             }
@@ -413,13 +522,13 @@ final class UnitCommandQueueSystem {
     }
 
     private static void completeHead(World world, Unit unit, QueueState state, QueuedUnitCommand command) {
-        finishRuntime(unit, command);
+        finishRuntime(world, unit, command);
         state.queue.pollFirst();
         state.activeStarted = false;
         markDirty(world, unit.key());
     }
 
-    private static void finishRuntime(Unit unit, QueuedUnitCommand command) {
+    private static void finishRuntime(World world, Unit unit, QueuedUnitCommand command) {
         if (unit == null || command == null) return;
         switch (command.kind()) {
             case MOVE -> {
@@ -430,6 +539,7 @@ final class UnitCommandQueueSystem {
             case ATTACK -> {
                 if (command.targetKey().equals(unit.attackTarget)) unit.attackTarget = "";
                 if (unit.task == UnitTask.ATTACK) unit.task = UnitTask.IDLE;
+                CombatPolicySystem.clearAttackIntent(world, unit);
             }
             case HARVEST -> {
                 unit.automationResourceId = -1;
@@ -444,6 +554,7 @@ final class UnitCommandQueueSystem {
                     unit.clearOrder();
                     unit.attackTarget = "";
                     if (unit.task == UnitTask.ATTACK || unit.task == UnitTask.MOVE) unit.task = UnitTask.IDLE;
+                    CombatPolicySystem.clearAttackIntent(world, unit);
                 }
             }
             case WORMHOLE -> { }
@@ -454,11 +565,11 @@ final class UnitCommandQueueSystem {
         state.queue.clear();
         state.activeStarted = false;
         state.revision++;
-        clearRuntime(unit);
+        clearRuntime(world, unit);
         markDirty(world, unit.key());
     }
 
-    private static void clearRuntime(Unit unit) {
+    private static void clearRuntime(World world, Unit unit) {
         unit.clearOrder();
         unit.attackTarget = "";
         unit.automationResourceId = -1;
@@ -467,6 +578,7 @@ final class UnitCommandQueueSystem {
         unit.task = UnitTask.IDLE;
         unit.targetX = unit.x;
         unit.targetY = unit.y;
+        CombatPolicySystem.clearAttackIntent(world, unit);
     }
 
     private static void promoteCurrentIntent(World world, Unit unit, QueueState state) {
@@ -483,6 +595,8 @@ final class UnitCommandQueueSystem {
                     : QueuedUnitCommand.wormhole(world.activeSystemId(), gate.id, gate.toSystemId);
         } else if (unit.task == UnitTask.ATTACK && !unit.attackTarget.isBlank()) {
             command = QueuedUnitCommand.attack(world.activeSystemId(), unit.attackTarget);
+            state.attackIntent = AttackIntentSource.EXPLICIT;
+            state.engagementAnchorSet = false;
         } else if ((unit.task == UnitTask.AUTO_HARVEST || unit.task == UnitTask.RETURN_TO_STATION)
                 && unit.automationResourceId >= 0) {
             command = QueuedUnitCommand.harvest(world.activeSystemId(), unit.automationResourceId);
@@ -597,6 +711,12 @@ final class UnitCommandQueueSystem {
         out.put("revision", state.revision);
         out.put("nextStepId", state.nextStepId);
         out.put("activeStarted", state.activeStarted);
+        out.put("combatStance", state.combatStance.name());
+        out.put("targetPriority", state.targetPriority.name());
+        out.put("attackIntent", state.attackIntent.name());
+        out.put("engagementAnchorX", state.engagementAnchorX);
+        out.put("engagementAnchorY", state.engagementAnchorY);
+        out.put("engagementAnchorSet", state.engagementAnchorSet);
         List<Object> commands = new ArrayList<>();
         for (QueuedUnitCommand command : state.queue) commands.add(captureCommand(command));
         out.put("commands", commands);
@@ -611,6 +731,13 @@ final class UnitCommandQueueSystem {
         state.revision = Math.max(0, ServerSaveStore.longValue(data, "revision", 0));
         state.nextStepId = Math.max(1, ServerSaveStore.longValue(data, "nextStepId", 1));
         state.activeStarted = ServerSaveStore.boolValue(data, "activeStarted", false);
+        state.combatStance = ServerSaveStore.enumValue(CombatStance.class, data.get("combatStance"), CombatStance.AGGRESSIVE);
+        state.targetPriority = ServerSaveStore.enumValue(TargetPriorityPolicy.class, data.get("targetPriority"), TargetPriorityPolicy.NEAREST_THREAT);
+        state.attackIntent = ServerSaveStore.enumValue(AttackIntentSource.class, data.get("attackIntent"), AttackIntentSource.NONE);
+        state.engagementAnchorX = ServerSaveStore.doubleValue(data, "engagementAnchorX", unit.x);
+        state.engagementAnchorY = ServerSaveStore.doubleValue(data, "engagementAnchorY", unit.y);
+        state.engagementAnchorSet = ServerSaveStore.boolValue(data, "engagementAnchorSet", false)
+                && GameplayCommandNumbers.finite(state.engagementAnchorX, state.engagementAnchorY);
         long maxStep = 0;
         for (Object item : ServerSaveStore.list(data.get("commands"))) {
             if (state.queue.size() >= MAX_QUEUE) break;
@@ -676,14 +803,16 @@ final class UnitCommandQueueSystem {
         for (String key : keys) {
             Long tombstone = tombstones(world).get(key);
             if (tombstone != null) {
-                packets.add(UnitQueueWire.statePacket(unitIdFromKey(key), tombstone, true, false, 1, List.of()));
+                packets.add(UnitQueueWire.statePacket(unitIdFromKey(key), tombstone, true, false, 1,
+                        CombatStance.AGGRESSIVE, TargetPriorityPolicy.NEAREST_THREAT, List.of()));
                 if (!initial) tombstones(world).remove(key);
                 continue;
             }
             QueueState state = lookup(world, key);
             if (state != null) {
                 packets.add(UnitQueueWire.statePacket(unitIdFromKey(key), state.revision, false,
-                        state.activeStarted, state.nextStepId, List.copyOf(state.queue)));
+                        state.activeStarted, state.nextStepId, state.combatStance, state.targetPriority,
+                        List.copyOf(state.queue)));
             }
         }
         return List.copyOf(packets);
@@ -691,6 +820,7 @@ final class UnitCommandQueueSystem {
 
     static synchronized void applyRemoteState(World world, String playerId, int unitId, long revision,
                                               boolean removed, boolean activeStarted, long nextStepId,
+                                              CombatStance combatStance, TargetPriorityPolicy targetPriority,
                                               List<QueuedUnitCommand> commands) {
         if (world == null || playerId == null || playerId.isBlank() || unitId < 0 || revision < 0) return;
         String key = Unit.key(playerId, unitId);
@@ -704,6 +834,14 @@ final class UnitCommandQueueSystem {
         state.revision = revision;
         state.activeStarted = activeStarted;
         state.nextStepId = Math.max(1, nextStepId);
+        state.combatStance = combatStance == null ? CombatStance.AGGRESSIVE : combatStance;
+        state.targetPriority = targetPriority == null ? TargetPriorityPolicy.NEAREST_THREAT : targetPriority;
+        if (current != null) {
+            state.attackIntent = current.attackIntent;
+            state.engagementAnchorX = current.engagementAnchorX;
+            state.engagementAnchorY = current.engagementAnchorY;
+            state.engagementAnchorSet = current.engagementAnchorSet;
+        }
         long maxStep = 0;
         if (commands != null) {
             for (QueuedUnitCommand command : commands) {
@@ -776,6 +914,12 @@ final class UnitCommandQueueSystem {
         long revision;
         long nextStepId = 1;
         boolean activeStarted;
+        CombatStance combatStance = CombatStance.AGGRESSIVE;
+        TargetPriorityPolicy targetPriority = TargetPriorityPolicy.NEAREST_THREAT;
+        AttackIntentSource attackIntent = AttackIntentSource.NONE;
+        double engagementAnchorX;
+        double engagementAnchorY;
+        boolean engagementAnchorSet;
     }
 }
 
@@ -811,6 +955,7 @@ final class UnitQueueWire {
 
     static String statePacket(int unitId, long revision, boolean removed,
                               boolean activeStarted, long nextStepId,
+                              CombatStance combatStance, TargetPriorityPolicy targetPriority,
                               List<QueuedUnitCommand> commands) {
         StringBuilder payload = new StringBuilder();
         if (commands != null) {
@@ -820,28 +965,42 @@ final class UnitQueueWire {
                 payload.append(encodeCommand(command));
             }
         }
+        CombatStance safeStance = combatStance == null ? CombatStance.AGGRESSIVE : combatStance;
+        TargetPriorityPolicy safePriority = targetPriority == null
+                ? TargetPriorityPolicy.NEAREST_THREAT : targetPriority;
         return "QUEUE_STATE|" + unitId + '|' + revision + '|' + (removed ? '1' : '0') + '|'
-                + (activeStarted ? '1' : '0') + '|' + Math.max(1, nextStepId) + '|' + payload;
+                + (activeStarted ? '1' : '0') + '|' + Math.max(1, nextStepId) + '|'
+                + safeStance.name() + '|' + safePriority.name() + '|' + payload;
     }
 
     static boolean readState(World world, String message, String playerId) {
         if (message == null || !message.startsWith("QUEUE_STATE|")) return false;
         if (message.length() > MAX_STATE_CHARS) throw malformed("state size");
         String[] parts = message.split("\\|", -1);
-        if (parts.length != 7) throw malformed("state fields");
+        if (parts.length != 7 && parts.length != 9) throw malformed("state fields");
         int unitId = integer(parts[1], 0, Integer.MAX_VALUE, "unit ID");
         long revision = longNumber(parts[2], 0, Long.MAX_VALUE, "revision");
         boolean removed = flag(parts[3]);
         boolean activeStarted = flag(parts[4]);
         long nextStepId = longNumber(parts[5], 1, Long.MAX_VALUE, "next step");
+        CombatStance stance = CombatStance.AGGRESSIVE;
+        TargetPriorityPolicy priority = TargetPriorityPolicy.NEAREST_THREAT;
+        int payloadIndex = 6;
+        if (parts.length == 9) {
+            try { stance = CombatStance.valueOf(parts[6]); }
+            catch (RuntimeException ex) { throw malformed("combat stance"); }
+            try { priority = TargetPriorityPolicy.valueOf(parts[7]); }
+            catch (RuntimeException ex) { throw malformed("target priority"); }
+            payloadIndex = 8;
+        }
         List<QueuedUnitCommand> commands = new ArrayList<>();
-        if (!parts[6].isBlank()) {
-            String[] encoded = parts[6].split(";", -1);
+        if (!parts[payloadIndex].isBlank()) {
+            String[] encoded = parts[payloadIndex].split(";", -1);
             if (encoded.length > UnitCommandQueueSystem.MAX_QUEUE) throw malformed("queue length");
             for (String value : encoded) commands.add(decodeCommand(value));
         }
         UnitCommandQueueSystem.applyRemoteState(world, playerId, unitId, revision, removed,
-                activeStarted, nextStepId, List.copyOf(commands));
+                activeStarted, nextStepId, stance, priority, List.copyOf(commands));
         return true;
     }
 

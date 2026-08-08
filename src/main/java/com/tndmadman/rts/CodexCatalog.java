@@ -102,6 +102,14 @@ final class CodexCatalog {
             line(body, "Research topics", research.isEmpty() ? "None" : String.join(", ", research));
             line(body, "Manufactures", crafting.isEmpty() ? "None" : String.join(", ", crafting));
             line(body, "Fuel", fuel == null ? "No operating fuel" : number(fuel.perSecond()) + " " + fuel.material().label + "/sec while working");
+            if (IntelWarfareSystem.isRadar(base.id)) {
+                IntelWarfareSystem.StructureIntelRule radar = IntelWarfareSystem.rule(base.id);
+                line(body, "Radar tier", Integer.toString(radar.tier()));
+                line(body, "Sensor range", number(radar.sensorRange()));
+                line(body, "Resource dispatch", radar.resourceDispatchLimit() + " miners / workers");
+                line(body, "Combat response", radar.responseShipLimit() + " armed ships within " + number(radar.responseRadius()));
+                line(body, "Combat policy", "Guarding ships respond first; then idle owned combat ships. Passive and Hold Fire opt out; Defensive responds to threats; Aggressive intercepts valid contacts.");
+            }
             line(body, "Build time", seconds(base.buildTimeSeconds));
             line(body, "Build cost", Rules.formatCost(base.buildCost));
             out.add(new CodexEntry(CodexCategory.STATIONS, base.id, base.name, stationRole(base, research, crafting), body.toString()));
@@ -212,6 +220,8 @@ final class CodexCatalog {
                 "Left-click: select ship, station, or resource\nDrag left mouse: box-select ships\nDouble-click ship: select same visible type\nRight-click empty space: move selected ships\nRight-click resource: auto-harvest with compatible ships\nRight-click enemy: attack"));
         out.add(control("orders", "Fleet orders", "Assign persistent tactical behavior",
                 "F: cycle formation\nX: attack-move\nP: patrol\nG: guard\nE: escort\nH: hold position\nEscape: cancel command mode or close an overlay"));
+        out.add(control("combat-policy", "Combat policy and radar response", "Choose how selected ships fight automatically",
+                "Selected ships show STANCE and TARGET controls below the main HUD.\nLeft-click cycles forward; Shift+Left-click cycles backward.\nPassive: no automatic attacks or radar response.\nDefensive: react to immediate threats and radar-reported attacks on friendly assets.\nAggressive: automatically acquire and accept radar intercepts inside bounded leashes.\nHold Fire: suppress offensive fire and automatic radar response; point defense remains active.\nTarget policy ranks legal targets for local acquisition and radar dispatch.\nShips Guarding an owned radar respond before idle owned combat ships; shared allied intel never grants control of allied ships."));
         out.add(control("audio", "Audio and accessibility", "Sound and narration controls",
                 "Ctrl+M: mute or enable audio\nF8: narration settings\nEscape: close the codex"));
     }
@@ -234,6 +244,9 @@ final class CodexCatalog {
 
     private static String stationRole(BaseType base, List<String> research, List<String> crafting) {
         List<String> roles = new ArrayList<>();
+        if (IntelWarfareSystem.isRadar(base.id)) roles.add("sensor and fleet coordination");
+        if (IntelWarfareSystem.isJammer(base.id)) roles.add("electronic warfare");
+        if (IntelWarfareSystem.isDecoy(base.id)) roles.add("strategic deception");
         if (!base.buildableShips.isEmpty()) roles.add("ship production");
         if (!base.basePackages.isEmpty()) roles.add("station deployment");
         if (!research.isEmpty()) roles.add("research");

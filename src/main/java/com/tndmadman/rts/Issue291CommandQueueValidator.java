@@ -151,7 +151,6 @@ public final class Issue291CommandQueueValidator {
                 "ship should remain in the wormhole destination system");
     }
 
-
     private static void validateAttackMoveChaining() {
         World world = world("Queue attack move");
         Unit unit = soloUnit(world);
@@ -410,8 +409,10 @@ public final class Issue291CommandQueueValidator {
         List<QueuedUnitCommand> oversized = new ArrayList<>();
         for (int i = 0; i <= UnitCommandQueueSystem.MAX_QUEUE; i++) oversized.add(command.withStepId(i + 1));
         boolean rejected = false;
-        try { UnitQueueWire.statePacket(unit.unitId, 1, false, true, 2, oversized); }
-        catch (SnapshotDecodeException expected) { rejected = true; }
+        try {
+            UnitQueueWire.statePacket(unit.unitId, 1, false, true, 2,
+                    CombatStance.AGGRESSIVE, TargetPriorityPolicy.NEAREST_THREAT, oversized);
+        } catch (SnapshotDecodeException expected) { rejected = true; }
         require(rejected, "oversized queue state must be rejected");
     }
 
