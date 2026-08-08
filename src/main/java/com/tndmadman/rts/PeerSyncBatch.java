@@ -12,6 +12,7 @@ final class PeerSyncBatch {
         long next = sequence;
         for (ServerPeer peer : peers) {
             next = PeerSyncSender.sendOne(world, views, peer, next, SyncKind.REGULAR, fullResources, out);
+            OwnerFleetLocationSync.send(world, views, peer, out, false);
             sendNotices(world, peer, out);
             sendAudio(world, views, peer, out);
         }
@@ -21,6 +22,7 @@ final class PeerSyncBatch {
     static long sendInitial(World world, ClientViewCache views, ServerPeer peer, long sequence, NetOutbound out) {
         sendFitCatalog(world, peer, out);
         long next = PeerSyncSender.sendOne(world, views, peer, sequence, SyncKind.INITIAL, out);
+        OwnerFleetLocationSync.send(world, views, peer, out, true);
         sendFogState(world, views, peer, out);
         sendNotices(world, peer, out);
         sendAudio(world, views, peer, out);
