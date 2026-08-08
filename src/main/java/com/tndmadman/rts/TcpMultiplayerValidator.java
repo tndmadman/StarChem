@@ -3,6 +3,7 @@ package com.tndmadman.rts;
 import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 
 /** End-to-end authoritative host/client validation over the real TCP transport. */
@@ -40,6 +41,11 @@ public final class TcpMultiplayerValidator {
             Unit serverUnit = firstUnit(serverWorld, playerId);
             Unit clientUnit = firstUnit(clientWorld, playerId);
             require(serverUnit != null && clientUnit != null, "joined player unit was missing");
+
+            validateQueuedRoute(server, client, serverWorld, clientWorld, playerId, serverUnit.unitId);
+            serverUnit = unit(serverWorld, playerId, serverUnit.unitId);
+            clientUnit = unit(clientWorld, playerId, serverUnit.unitId);
+            require(serverUnit != null && clientUnit != null, "queued route validation lost the joined player unit");
 
             double targetX = serverUnit.x + 30;
             double targetY = serverUnit.y + 20;
@@ -86,6 +92,100 @@ public final class TcpMultiplayerValidator {
             System.clearProperty("starchem.sessionStore");
             Files.deleteIfExists(store);
         }
+    }
+
+
+    private static void validateQueuedRoute(PeerNetwork server, PeerNetwork client, World serverWorld,
+                                            World clientWorld, String playerId, int unitId) throws Exception {
+        Unit authoritative = unit(serverWorld, playerId, unitId);
+        require(authoritative != null, "queued TCP route had no authoritative unit");
+        String key = authoritative.key();
+        String systemId = serverWorld.ownerUnitLocations(playerId).get(key);
+        require(systemId != null && !systemId.isBlank(), "queued TCP route could not locate its authoritative unit system");
+
+        String previous = serverWorld.activeSystemId();
+        serverWorld.activateSystem(systemId);
+        double x1 = Calc.clamp(authoritative.x + 70, 30, serverWorld.width - 30);
+        double y1 = Calc.clamp(authoritative.y + 35, 30, serverWorld.height - 30);
+        double x2 = Calc.clamp(authoritative.x + 145, 30, serverWorld.width - 30);
+        double y2 = Calc.clamp(authoritative.y - 55, 30, serverWorld.height - 30);
+        double x3 = Calc.clamp(authoritative.x + 215, 30, serverWorld.width - 30);
+        double y3 = Calc.clamp(authoritative.y + 90, 30, serverWorld.height - 30);
+        serverWorld.activateSystem(previous);
+
+        sendQueueAndAwait(server, client, serverWorld, clientWorld, playerId, unitId,
+                UnitQueueOperation.REPLACE, QueuedUnitCommand.move(systemId, x1, y1), 1);
+        sendQueueAndAwait(server, client, serverWorld, clientWorld, playerId, unitId,
+                UnitQueueOperation.APPEND, QueuedUnitCommand.move(systemId, x2, y2), 2);
+        sendQueueAndAwait(server, client, serverWorld, clientWorld, playerId, unitId,
+                UnitQueueOperation.APPEND, QueuedUnitCommand.move(systemId, x3, y3), 3);
+
+        List<QueuedUnitCommand> serverQueue = UnitCommandQueueSystem.commands(serverWorld, key);
+        List<QueuedUnitCommand> clientQueue = UnitCommandQueueSystem.commands(clientWorld, key);
+        require(serverQueue.size() == 3 && clientQueue.size() == 3,
+                "real TCP queue did not converge to three authoritative steps");
+        require(closePoint(serverQueue.get(0), x1, y1) && closePoint(serverQueue.get(1), x2, y2)
+                        && closePoint(serverQueue.get(2), x3, y3),
+                "authoritative TCP queue changed waypoint order");
+        require(closePoint(clientQueue.get(0), x1, y1) && closePoint(clientQueue.get(1), x2, y2)
+                        && closePoint(clientQueue.get(2), x3, y3),
+                "owner queue replication changed waypoint order");
+
+        long deadline = System.currentTimeMillis() + 12_000;
+        while (System.currentTimeMillis() < deadline) {
+            simulationNetworkTick(server, client, clientWorld);
+            Unit current = unit(serverWorld, playerId, unitId);
+            if (current != null && UnitCommandQueueSystem.commands(serverWorld, key).isEmpty()
+                    && Calc.distance(current.x, current.y, x3, y3) < 16) break;
+        }
+        authoritative = unit(serverWorld, playerId, unitId);
+        require(authoritative != null && UnitCommandQueueSystem.commands(serverWorld, key).isEmpty()
+                        && Calc.distance(authoritative.x, authoritative.y, x3, y3) < 16,
+                "authoritative server did not execute the TCP queue in order");
+
+        long stateDeadline = System.currentTimeMillis() + 4_000;
+        while (System.currentTimeMillis() < stateDeadline
+                && !UnitCommandQueueSystem.commands(clientWorld, key).isEmpty()) {
+            networkTick(server, client);
+        }
+        require(UnitCommandQueueSystem.commands(clientWorld, key).isEmpty(),
+                "owner client did not receive authoritative queue completion state");
+        settleUntilConverged(server, client, serverWorld, clientWorld, playerId, unitId,
+                5_000, "owner client did not converge after authoritative queued execution");
+    }
+
+    private static void sendQueueAndAwait(PeerNetwork server, PeerNetwork client, World serverWorld,
+                                          World clientWorld, String playerId, int unitId,
+                                          UnitQueueOperation operation, QueuedUnitCommand command,
+                                          int expectedSize) throws Exception {
+        String key = Unit.key(playerId, unitId);
+        long revision = UnitCommandQueueSystem.revision(clientWorld, key);
+        client.queue(new UnitQueueMutation(playerId, unitId, operation, revision, command));
+        long deadline = System.currentTimeMillis() + 4_000;
+        while (System.currentTimeMillis() < deadline) {
+            networkTick(server, client);
+            List<QueuedUnitCommand> authoritative = UnitCommandQueueSystem.commands(serverWorld, key);
+            List<QueuedUnitCommand> replicated = UnitCommandQueueSystem.commands(clientWorld, key);
+            if (authoritative.size() == expectedSize && replicated.size() == expectedSize
+                    && UnitCommandQueueSystem.revision(serverWorld, key)
+                    == UnitCommandQueueSystem.revision(clientWorld, key)) return;
+        }
+        throw new IllegalStateException("TCP queue mutation did not converge at size " + expectedSize);
+    }
+
+    private static void simulationNetworkTick(PeerNetwork server, PeerNetwork client, World clientWorld)
+            throws InterruptedException {
+        server.updateServerWorlds(0.016);
+        server.tick();
+        client.tick();
+        ClientEnvironmentSync.advance(clientWorld, 0.016);
+        ClientPrediction.update(clientWorld, 0.016);
+        Thread.sleep(8);
+    }
+
+    private static boolean closePoint(QueuedUnitCommand command, double x, double y) {
+        return command != null && command.kind() == QueuedCommandKind.MOVE
+                && Math.abs(command.x1() - x) < 0.001 && Math.abs(command.y1() - y) < 0.001;
     }
 
     private static void runUntil(PeerNetwork server, PeerNetwork client, World clientWorld, Check condition,

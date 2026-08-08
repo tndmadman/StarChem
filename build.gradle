@@ -528,6 +528,7 @@ tasks.named('check') {
     dependsOn tasks.named('validateCustomFitConstruction')
     dependsOn tasks.named('validateShipModuleRefits')
     dependsOn tasks.named('validateDistributedRefitQueues')
+    dependsOn tasks.named('validateIssue291CommandQueues')
     dependsOn tasks.named('validateIssue289Completion')
     dependsOn tasks.named('validateProductionQueues')
     dependsOn tasks.named('validateDevAccess')
