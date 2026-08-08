@@ -60,10 +60,10 @@ final class CombatPolicySystem {
         }
         AttackIntentSource source = UnitCommandQueueSystem.attackIntent(world, unit.key());
         if (source != AttackIntentSource.NONE) return source;
-        // NPC and older runtime paths can already be in ATTACK without the new metadata.
-        // Treat those as automatic combat and establish the same bounded leash anchor.
-        UnitCommandQueueSystem.setAttackIntent(world, unit, AttackIntentSource.AUTOMATIC, true);
-        return AttackIntentSource.AUTOMATIC;
+        // Direct attack() callers predate combat-policy metadata and represent deliberate
+        // strategic/order intent. Only WeaponSystem autonomous acquisition is marked AUTOMATIC.
+        UnitCommandQueueSystem.setAttackIntent(world, unit, AttackIntentSource.EXPLICIT, false);
+        return AttackIntentSource.EXPLICIT;
     }
 
     static void markExplicitAttack(World world, Unit unit) {
