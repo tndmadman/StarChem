@@ -1,5 +1,8 @@
 package com.tndmadman.rts;
 
+import javax.swing.JButton;
+import javax.swing.JPanel;
+import javax.swing.JTextField;
 import java.awt.event.KeyEvent;
 import java.util.Arrays;
 import java.util.List;
@@ -12,6 +15,7 @@ public final class ControlGroupValidator {
     public static void main(String[] args) {
         validateGroupEditingAndRecall();
         validateDoubleTapAndKeyMapping();
+        validateInputPriority();
         validateOwnerFleetGalaxyWireAndIsolation();
         validateStableKeysAcrossWormholeTransfer();
         System.out.println("Control group validation passed.");
@@ -73,6 +77,22 @@ public final class ControlGroupValidator {
         groups.clearHeldKeys();
         require(groups.acceptKeyPress(KeyEvent.VK_4), "focus-reset key state remained stuck");
         groups.releaseKey(KeyEvent.VK_4);
+    }
+
+    private static void validateInputPriority() {
+        JPanel game = new JPanel();
+        JTextField textField = new JTextField();
+        JButton modalButton = new JButton("Modal");
+        require(!ControlGroupInputGate.blocked(false, false, game, game),
+                "gameplay surface incorrectly blocked its own number input");
+        require(ControlGroupInputGate.blocked(false, false, textField, game),
+                "focused text field did not take priority over control-group input");
+        require(ControlGroupInputGate.blocked(false, false, modalButton, game),
+                "focused modal overlay did not take priority over control-group input");
+        require(ControlGroupInputGate.blocked(true, false, game, game),
+                "galaxy overlay did not block control-group input");
+        require(ControlGroupInputGate.blocked(false, true, game, game),
+                "ship fitting did not block control-group input");
     }
 
     private static void validateOwnerFleetGalaxyWireAndIsolation() {
