@@ -33,9 +33,7 @@ jobs:
         run: python3 scripts/apply_issue_291.py
 
       - name: Validate queued commands and affected systems
-        run: |
-          chmod +x gradlew
-          ./gradlew clean classes validateIssue291CommandQueues validateGalaxyConnectivity validateServerSaveStore validateNetworkSecurity check
+        run: gradle clean classes validateIssue291CommandQueues validateGalaxyConnectivity validateServerSaveStore validateNetworkSecurity check
 
       - name: Remove one-shot integration tooling
         run: rm -f scripts/apply_issue_291.py .github/workflows/issue-291-apply.yml
