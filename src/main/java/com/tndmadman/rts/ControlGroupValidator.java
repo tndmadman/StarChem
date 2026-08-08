@@ -85,7 +85,7 @@ public final class ControlGroupValidator {
         require(source.equals(decoded.ownerUnitLocations()), "owner fleet galaxy round-trip failed");
 
         World world = new World("Control Group Validator");
-        world.applyRemoteGalaxyMapSnapshot(decoded.snapshot());
+        OwnerFleetLocationRegistry.replace(world, decoded.ownerProjection().ownerId(), decoded.ownerUnitLocations());
         OwnerFleetLocationRegistry.State state = OwnerFleetLocationRegistry.state(world);
         require(state.initialized() && source.equals(state.locations()), "owner fleet registry did not retain state");
 
@@ -93,7 +93,7 @@ public final class ControlGroupValidator {
         require(!OwnerFleetLocationRegistry.state(world).initialized(),
                 "pre-reconnect fleet projection remained usable while suspended");
         GalaxyMapWire.Decoded refreshed = GalaxyMapWire.decode(packet);
-        world.applyRemoteGalaxyMapSnapshot(refreshed.snapshot());
+        OwnerFleetLocationRegistry.replace(world, refreshed.ownerProjection().ownerId(), refreshed.ownerUnitLocations());
         state = OwnerFleetLocationRegistry.state(world);
         require(state.initialized() && source.equals(state.locations()),
                 "fresh post-reconnect projection did not re-enable reconciliation");
