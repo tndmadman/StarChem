@@ -1,6 +1,8 @@
 package com.tndmadman.rts;
 
 import java.awt.event.KeyEvent;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -10,7 +12,7 @@ public final class ControlGroupValidator {
     public static void main(String[] args) {
         validateGroupEditingAndRecall();
         validateDoubleTapAndKeyMapping();
-        validateOwnerFleetWireAndIsolation();
+        validateOwnerFleetGalaxyWireAndIsolation();
         validateStableKeysAcrossSystems();
         System.out.println("Control group validation passed.");
     }
@@ -60,20 +62,32 @@ public final class ControlGroupValidator {
         require(ControlGroupManager.numberForKeyCode(KeyEvent.VK_A) < 0, "non-number key mapped to a group");
     }
 
-    private static void validateOwnerFleetWireAndIsolation() {
+    private static void validateOwnerFleetGalaxyWireAndIsolation() {
         Map<String, String> source = Map.of("P1:17", "HOME_P1", "P1:22", "BELT_2");
-        String packet = OwnerFleetLocationWire.encode(source);
-        require(source.equals(OwnerFleetLocationWire.decode(packet)), "owner fleet wire round-trip failed");
-        require(OwnerFleetLocationWire.decode("OWNER_FLEET").isEmpty(), "empty owner fleet packet did not decode");
+        GalaxyMapSnapshot empty = new GalaxyMapSnapshot("ALPHA", List.of(), List.of());
+        String packet = GalaxyMapWire.encode(1, empty, "P1", source);
+        GalaxyMapWire.Decoded decoded = GalaxyMapWire.decode(packet);
+        require(decoded.ownerProjection().present() && "P1".equals(decoded.ownerProjection().ownerId()),
+                "owner fleet galaxy marker was not retained");
+        require(source.equals(decoded.ownerUnitLocations()), "owner fleet galaxy round-trip failed");
 
         World world = new World("Control Group Validator");
-        OwnerFleetLocationRegistry.replace(world, "P1", source);
+        OwnerFleetLocationRegistry.replace(world, "P1", decoded.ownerUnitLocations());
         OwnerFleetLocationRegistry.State state = OwnerFleetLocationRegistry.state(world);
         require(state.initialized() && source.equals(state.locations()), "owner fleet registry did not retain state");
-        expectFailure(() -> OwnerFleetLocationRegistry.replace(world, "P1", Map.of("P2:9", "BELT_2")),
-                "foreign owner fleet key was accepted");
-        expectFailure(() -> OwnerFleetLocationWire.decode(packet + "|" + packet.substring(packet.indexOf('|') + 1)),
-                "duplicate owner fleet row was accepted");
+        expectFailure(() -> GalaxyMapWire.encode(1, empty, "P1", Map.of("P2:9", "BELT_2")),
+                "foreign owner fleet key was accepted for encoding");
+
+        String fleetRow = Arrays.stream(packet.split("\\|"))
+                .filter(row -> row.startsWith("F,"))
+                .findFirst().orElseThrow();
+        expectFailure(() -> GalaxyMapWire.decode(packet + "|" + fleetRow),
+                "duplicate owner fleet galaxy row was accepted");
+
+        String emptyPacket = GalaxyMapWire.encode(1, empty, "P1", Map.of());
+        GalaxyMapWire.Decoded emptyDecoded = GalaxyMapWire.decode(emptyPacket);
+        require(emptyDecoded.ownerProjection().present() && emptyDecoded.ownerUnitLocations().isEmpty(),
+                "empty owner fleet projection did not retain its owner marker");
     }
 
     private static void validateStableKeysAcrossSystems() {
@@ -81,7 +95,9 @@ public final class ControlGroupValidator {
         String owner = "SOLO";
         Unit starting = world.units.values().stream().filter(unit -> owner.equals(unit.playerId)).findFirst().orElseThrow();
         String key = starting.key();
+        String activeBeforeCapture = world.activeSystemId();
         Map<String, String> initial = OwnerFleetLocations.capture(world, owner);
+        require(activeBeforeCapture.equals(world.activeSystemId()), "owner fleet projection changed the active system");
         require(world.activeSystemId().equals(initial.get(key)), "initial owner fleet projection missed the starting ship");
 
         String target = world.authoritativeGalaxyMapSnapshot().systems().stream()
