@@ -38,12 +38,13 @@ jobs:
         run: |
           python3 scripts/finish_issue_291.py
           python3 scripts/finish_issue_291_import_fix.py
+          python3 scripts/finish_issue_291_removed_gate_fix.py
 
       - name: Validate issue 291 and full repository
         run: gradle clean classes validateIssue291CommandQueues validateTcpMultiplayer validateTcpReconnect check
 
       - name: Remove one-shot completion tooling
-        run: rm -f scripts/finish_issue_291.py scripts/finish_issue_291_import_fix.py .github/workflows/issue-291-finish.yml
+        run: rm -f scripts/finish_issue_291.py scripts/finish_issue_291_import_fix.py scripts/finish_issue_291_removed_gate_fix.py .github/workflows/issue-291-finish.yml
 
       - name: Commit validated completion
         if: github.event_name == 'push'
