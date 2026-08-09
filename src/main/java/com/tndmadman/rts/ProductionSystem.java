@@ -766,7 +766,7 @@ final class ProductionCommands {
         }
         return switch (normalized) {
             case "CONTROL" -> StationControlCommands.apply(world, playerId, baseId, value, extra);
-            case "POLICY" -> ProductionPolicySystem.applyCommand(world, playerId, baseId, value, extra);
+            case "POLICY" -> ProductionPolicyCommandBridge.apply(world, playerId, baseId, value, extra);
             case "ENQUEUE" -> enqueue(world, value, baseId, extra);
             case "CANCEL" -> ProductionSystem.cancel(world, playerId, baseId, value);
             case "MOVE" -> ProductionSystem.move(world, playerId, baseId, value, parseInt(extra));
