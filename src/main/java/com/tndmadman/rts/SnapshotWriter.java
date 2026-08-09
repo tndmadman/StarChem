@@ -62,7 +62,7 @@ final class SnapshotWriter {
                     .append(Calc.round(shot.lastX())).append(',').append(Calc.round(shot.lastY()));
         }
         StringBuilder items = new StringBuilder();
-        for (WorldItem item : snapshot.items()) {
+        for (ItemState item : snapshot.items()) {
             if (!items.isEmpty()) items.append(';');
             items.append(item.id()).append(',').append(item.material()).append(',').append(Calc.round(item.amount())).append(',')
                     .append(Calc.round(item.x())).append(',').append(Calc.round(item.y())).append(',')
