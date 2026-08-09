@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Base64;
 import java.util.List;
+import java.util.Properties;
 import java.util.Set;
 
 /** Real TCP and bounded-state regression coverage for issue #295. */
@@ -32,6 +33,9 @@ public final class Issue295MultiplayerCommsValidator {
                 MultiplayerComms.MAX_CHAT_CODE_POINTS);
         require(bounded.codePointCount(0, bounded.length()) == MultiplayerComms.MAX_CHAT_CODE_POINTS,
                 "chat length was not bounded by code points");
+        String joinedEmoji = "👩‍🚀";
+        require(joinedEmoji.equals(TextSafety.chatText(joinedEmoji, 16)),
+                "safe emoji joiner sequence was unnecessarily destroyed");
         require(!TextSafety.containsUnsafeTerminalText(TextSafety.terminal("safe\u001B[2J")),
                 "terminal escaping retained unsafe controls");
         GameSettings settings = GameSettings.forTest();
@@ -164,10 +168,10 @@ public final class Issue295MultiplayerCommsValidator {
                     "unavailable target").sent(), "unavailable direct target was rejected before server processing");
             runTicks(liveServer, liveFirst, liveSecond, 80, false);
             require(MultiplayerComms.messages(liveFirstWorld, MultiplayerComms.ChatChannel.DIRECT).size() == directBefore,
-                    "unavailable direct recipient created a message or identity leak");
+                    "unknown direct recipient created a message or identity leak");
             require(liveFirstWorld.status.contains("Direct recipient is unavailable")
                             || liveFirstWorld.status.contains("COMMS"),
-                    "unavailable direct recipient did not produce generic feedback");
+                    "unknown direct recipient did not produce generic feedback");
 
             int beforeFlood = MultiplayerComms.messages(liveSecondWorld, MultiplayerComms.ChatChannel.GLOBAL).size();
             double simBefore = liveServerWorld.systemTime;
@@ -212,6 +216,46 @@ public final class Issue295MultiplayerCommsValidator {
             runTicks(liveServer, liveFirst, liveSecond, 80, true);
             require(liveFirst.clientReady() && liveSecond.clientReady(),
                     "malformed/oversized comms traffic destabilized healthy clients");
+
+            // A known retained identity that disconnects must produce the same generic DM failure as an unknown ID.
+            liveSecond.shutdown();
+            runTicks(liveServer, liveFirst, liveSecond, 80, false);
+            int disconnectedBefore = MultiplayerComms.messages(liveFirstWorld,
+                    MultiplayerComms.ChatChannel.DIRECT).size();
+            require(MultiplayerComms.sendChat(liveFirstWorld, MultiplayerComms.ChatChannel.DIRECT, secondId,
+                    "known but disconnected").sent(), "disconnected direct target was rejected before server processing");
+            runTicks(liveServer, liveFirst, liveSecond, 80, false);
+            require(MultiplayerComms.messages(liveFirstWorld, MultiplayerComms.ChatChannel.DIRECT).size()
+                            == disconnectedBefore,
+                    "disconnected direct recipient created a message");
+            require(liveFirstWorld.status.contains("Direct recipient is unavailable")
+                            || liveFirstWorld.status.contains("COMMS"),
+                    "disconnected direct recipient did not use generic feedback");
+
+            // Operator policy changes are live-reloaded and can disable chat without affecting player admission.
+            Path policyPath = saveDir.resolve("issue295-comms.properties");
+            Properties policy = new Properties();
+            policy.setProperty("enabled", "false");
+            policy.setProperty("global", "true");
+            policy.setProperty("system", "true");
+            policy.setProperty("team", "true");
+            policy.setProperty("direct", "true");
+            policy.setProperty("pings", "true");
+            policy.setProperty("mutedPlayers", "");
+            try (var output = Files.newOutputStream(policyPath)) {
+                policy.store(output, "issue 295 validation");
+            }
+            Thread.sleep(2_100);
+            int disabledBefore = MultiplayerComms.messages(liveFirstWorld,
+                    MultiplayerComms.ChatChannel.GLOBAL).size();
+            require(MultiplayerComms.sendChat(liveFirstWorld, MultiplayerComms.ChatChannel.GLOBAL, "",
+                    "policy-disabled").sent(), "disabled-policy request did not reach server validation");
+            runTicks(liveServer, liveFirst, liveSecond, 80, false);
+            require(MultiplayerComms.messages(liveFirstWorld, MultiplayerComms.ChatChannel.GLOBAL).size()
+                            == disabledBefore,
+                    "server-disabled chat was delivered");
+            require(liveFirstWorld.status.contains("disabled") || liveFirstWorld.status.contains("COMMS"),
+                    "server-disabled chat did not return operator-policy feedback");
         } finally {
             MultiplayerComms.clearClient(firstWorld);
             MultiplayerComms.clearClient(secondWorld);
