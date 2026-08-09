@@ -17,7 +17,6 @@ import java.awt.event.MouseMotionAdapter;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Point2D;
 import java.lang.ref.WeakReference;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -180,6 +179,7 @@ final class MultiplayerCommsOverlay extends JPanel {
             WeakReference<MultiplayerCommsOverlay> reference = INSTANCES.get(world);
             if (reference != null && reference.get() == this) INSTANCES.remove(world);
         }
+        MultiplayerComms.clearClient(world);
         super.removeNotify();
     }
 
@@ -255,8 +255,38 @@ final class MultiplayerCommsOverlay extends JPanel {
     private MultiplayerComms.SendResult pingWorldAt(Point screenPoint, MultiplayerComms.TacticalPingType type) {
         GameCamera camera = GameCamera.forWorld(world);
         if (camera == null || screenPoint == null) return MultiplayerComms.SendResult.fail("Camera is not ready for tactical pings.");
-        Point2D point = camera.screenToWorld(screenPoint);
+        Point2D point = minimapWorldPoint(screenPoint);
+        if (point == null) {
+            Rectangle minimap = minimapHelper.bounds(world, getWidth(), getHeight());
+            if (minimap.contains(screenPoint)) return MultiplayerComms.SendResult.fail("Move the cursor inside the minimap plotting area.");
+            point = camera.screenToWorld(screenPoint);
+        }
         return MultiplayerComms.sendWorldPing(world, type, point.getX(), point.getY());
+    }
+
+    /** Mirrors MinimapHud.layout so modifier/keyboard pings target the exact minimap location. */
+    private Point2D minimapWorldPoint(Point point) {
+        if (point == null) return null;
+        Rectangle outer = minimapHelper.bounds(world, getWidth(), getHeight());
+        if (!outer.contains(point)) return null;
+        int availableMapW = Math.max(84, outer.width - 16);
+        int availableMapH = Math.max(80, Math.min(190, getHeight() / 4));
+        double aspect = Math.max(0.2, world.width / Math.max(1.0, world.height));
+        int mapW = availableMapW;
+        int mapH = (int)Math.round(mapW / aspect);
+        if (mapH > availableMapH) {
+            mapH = availableMapH;
+            mapW = (int)Math.round(mapH * aspect);
+        }
+        mapW = Math.max(80, Math.min(availableMapW, mapW));
+        mapH = Math.max(70, Math.min(availableMapH, mapH));
+        Rectangle map = new Rectangle(outer.x + (outer.width - mapW) / 2, outer.y + 24, mapW, mapH);
+        if (!map.contains(point)) return null;
+        double nx = (point.x - map.x) / Math.max(1.0, map.width);
+        double ny = (point.y - map.y) / Math.max(1.0, map.height);
+        return new Point2D.Double(
+                Calc.clamp(nx * world.width, 0, world.width),
+                Calc.clamp(ny * world.height, 0, world.height));
     }
 
     private MultiplayerComms.SendResult pingGalaxyAt(Point screenPoint, MultiplayerComms.TacticalPingType type) {
@@ -432,7 +462,7 @@ final class MultiplayerCommsOverlay extends JPanel {
         long now = System.currentTimeMillis();
         GameCamera camera = GameCamera.forWorld(world);
         for (MultiplayerComms.TacticalPing ping : pings) {
-            double age = Math.max(0, now - ping.receivedAtMs()) / (double) MultiplayerComms.PING_LIFETIME_MS;
+            double age = Math.max(0, now - ping.receivedAtMs()) / (double)MultiplayerComms.PING_LIFETIME_MS;
             int alpha = (int)Math.round(235 * Math.max(0, 1 - age));
             if (alpha <= 0) continue;
             Color base = new Color(ping.type().rgb);
