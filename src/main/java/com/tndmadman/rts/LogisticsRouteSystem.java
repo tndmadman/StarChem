@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -34,6 +35,7 @@ final class LogisticsRouteSystem {
     static final int MAX_ESCORTS = 24;
     static final int MAX_COMMAND_CHARS = 4096;
 
+    private static final int MAX_REASON_CHARS = 256;
     private static final String UNIT_MARKER = "ROUTE:";
     private static final String ESCORT_HOP_MARKER = ":ESCORT:";
     private static final String STATUS_MARKER = "Inter-system routes: ";
@@ -56,11 +58,28 @@ final class LogisticsRouteSystem {
         PAUSED
     }
 
+    enum RouteCondition {
+        NONE,
+        WAITING_FOR_TRANSPORT,
+        NO_ASSIGNED_TRANSPORT,
+        SOURCE_UNAVAILABLE,
+        DESTINATION_UNAVAILABLE,
+        SOURCE_SYSTEM_MISSING,
+        DESTINATION_SYSTEM_MISSING,
+        NO_PATH,
+        MISSING_GATE,
+        ESCORT_SEPARATED,
+        ASSIGNMENT_CONFLICT,
+        MANUAL_OVERRIDE,
+        REFIT_RESERVED,
+        INVALID_CARGO
+    }
+
     record RouteView(String id, RoutePhase phase, String destinationSystemId,
                      String destinationBaseId, List<Material> materials,
                      double sourceReserve, double destinationTarget,
                      double batchSize, int priority, int transportCount,
-                     int escortCount) { }
+                     int escortCount, RouteCondition condition) { }
 
     static synchronized boolean applyCommand(World world, String playerId, String sourceBaseId,
                                              String action, String value) {
@@ -76,7 +95,7 @@ final class LogisticsRouteSystem {
             case COMMAND_CREATE -> create(world, runtime, source, playerId, value);
             case COMMAND_UPDATE -> updateDefinition(world, runtime, source, playerId, value);
             case COMMAND_PAUSE -> pause(runtime, playerId, sourceBaseId, value, true);
-            case COMMAND_RESUME -> resume(runtime, playerId, sourceBaseId, value);
+            case COMMAND_RESUME -> resume(world, runtime, playerId, sourceBaseId, value);
             case COMMAND_DELETE -> delete(world, runtime, playerId, sourceBaseId, value);
             default -> false;
         };
@@ -101,16 +120,31 @@ final class LogisticsRouteSystem {
         for (LogisticsRoute route : ordered) {
             if (route == null) continue;
             route.phase = route.paused ? RoutePhase.PAUSED : RoutePhase.WAITING;
-            if (!route.paused) route.blockedReason = "";
+
+            if (!route.paused && !systemExists(world, route.sourceSystemId)) {
+                pauseRoute(world, route, RouteCondition.SOURCE_SYSTEM_MISSING,
+                        "source system is no longer available");
+            } else if (!route.paused && !systemExists(world, route.destinationSystemId)) {
+                pauseRoute(world, route, RouteCondition.DESTINATION_SYSTEM_MISSING,
+                        "destination system is no longer available");
+            }
+
             reconcileAssignments(world, runtime, route, activeSystemId);
+            if (route.paused) {
+                stopAssignedInSystem(world, route, activeSystemId);
+                continue;
+            }
+
             observeDestination(world, route, activeSystemId);
             if (route.paused) {
                 stopAssignedInSystem(world, route, activeSystemId);
                 continue;
             }
+
             updateRouteInSystem(world, runtime, route, activeSystemId, dt);
-            updateEscortsInSystem(world, route, activeSystemId);
-            if (!route.blockedReason.isBlank()) route.phase = RoutePhase.BLOCKED;
+            if (!route.paused) updateEscortsInSystem(world, route, activeSystemId);
+            if (route.paused) route.phase = RoutePhase.PAUSED;
+            else if (route.condition != RouteCondition.NONE) route.phase = RoutePhase.BLOCKED;
         }
         refreshStatusesForCurrentSystem(world, runtime);
     }
@@ -147,9 +181,8 @@ final class LogisticsRouteSystem {
             boolean escort = route.escortKeys.remove(unitKey);
             if (!transport && !escort) continue;
             route.shipCargo.remove(unitKey);
-            route.paused = true;
-            route.blockedReason = "manual control of " + unitKey;
-            route.phase = RoutePhase.PAUSED;
+            pauseRoute(world, route, RouteCondition.MANUAL_OVERRIDE,
+                    "manual control of " + unitKey);
         }
         Unit unit = world.units.get(unitKey);
         if (unit != null && unit.logisticsRequestId.startsWith(UNIT_MARKER)) {
@@ -185,6 +218,8 @@ final class LogisticsRouteSystem {
             row.put("transportKeys", new ArrayList<>(route.transportKeys));
             row.put("escortKeys", new ArrayList<>(route.escortKeys));
             row.put("phase", route.phase.name());
+            row.put("condition", route.condition.name());
+            row.put("blockedReason", boundedReason(route.blockedReason));
             row.put("observedDestination", ServerSaveStore.materialMap(route.observedDestination));
             routes.add(row);
         }
@@ -197,11 +232,50 @@ final class LogisticsRouteSystem {
         RouteRuntime runtime = new RouteRuntime();
         Map<String,Object> data = ServerSaveStore.object(saved);
         runtime.nextRouteId = Math.max(1, ServerSaveStore.longValue(data, "nextRouteId", 1));
+
+        List<LogisticsRoute> candidates = new ArrayList<>();
+        Set<String> routeIds = new LinkedHashSet<>();
         for (Object item : ServerSaveStore.list(data.get("routes"))) {
-            if (runtime.routes.size() >= MAX_ROUTES_PER_PLAYER * 64) break;
             Map<String,Object> row = ServerSaveStore.object(item);
             LogisticsRoute route = restoreRoute(row);
-            if (route == null || runtime.routes.containsKey(route.id)) continue;
+            if (route == null || !routeIds.add(route.id)) continue;
+            candidates.add(route);
+        }
+        candidates.sort(Comparator.comparingInt((LogisticsRoute route) -> route.priority).reversed()
+                .thenComparing(route -> route.id));
+
+        Map<String,Integer> ownerCounts = new LinkedHashMap<>();
+        Set<String> claimedShips = new LinkedHashSet<>();
+        for (LogisticsRoute route : candidates) {
+            int owned = ownerCounts.getOrDefault(route.ownerId, 0);
+            if (owned >= MAX_ROUTES_PER_PLAYER) continue;
+            ownerCounts.put(route.ownerId, owned + 1);
+
+            boolean conflict = false;
+            for (String key : new ArrayList<>(route.escortKeys)) {
+                if (route.transportKeys.contains(key)) {
+                    route.escortKeys.remove(key);
+                    conflict = true;
+                }
+            }
+            for (Iterator<String> it = route.transportKeys.iterator(); it.hasNext();) {
+                String key = it.next();
+                if (!claimedShips.add(key)) {
+                    it.remove();
+                    conflict = true;
+                }
+            }
+            for (Iterator<String> it = route.escortKeys.iterator(); it.hasNext();) {
+                String key = it.next();
+                if (!claimedShips.add(key)) {
+                    it.remove();
+                    conflict = true;
+                }
+            }
+            if (conflict && !route.paused) {
+                route.condition = RouteCondition.ASSIGNMENT_CONFLICT;
+                route.blockedReason = "saved ship assignment conflict was reconciled";
+            }
             route.needsCargoReconcile = true;
             route.destinationObserved = false;
             route.shipCargo.clear();
@@ -336,6 +410,7 @@ final class LogisticsRouteSystem {
         route.observedDestination.putAll(destination.inventory);
         route.destinationObserved = true;
         route.paused = false;
+        route.condition = RouteCondition.NONE;
         route.blockedReason = "";
         route.needsCargoReconcile = true;
         return true;
@@ -347,16 +422,28 @@ final class LogisticsRouteSystem {
         if (route == null) return false;
         route.paused = true;
         route.phase = RoutePhase.PAUSED;
-        route.blockedReason = explicit ? "" : route.blockedReason;
+        if (explicit) {
+            route.condition = RouteCondition.NONE;
+            route.blockedReason = "";
+        }
         return true;
     }
 
-    private static boolean resume(RouteRuntime runtime, String playerId, String sourceBaseId, String routeId) {
+    private static boolean resume(World world, RouteRuntime runtime, String playerId,
+                                  String sourceBaseId, String routeId) {
         LogisticsRoute route = route(runtime, playerId, sourceBaseId, routeId);
-        if (route == null) return false;
+        if (route == null || !systemExists(world, route.sourceSystemId)
+                || !systemExists(world, route.destinationSystemId)) return false;
+        DestinationValidation destination = validateDestination(world, playerId,
+                route.destinationSystemId, route.destinationBaseId, new ArrayList<>(route.materials));
+        if (!destination.valid) return false;
         route.paused = false;
+        route.condition = RouteCondition.NONE;
         route.blockedReason = "";
         route.phase = RoutePhase.WAITING;
+        route.observedDestination.clear();
+        route.observedDestination.putAll(destination.inventory);
+        route.destinationObserved = true;
         route.needsCargoReconcile = true;
         return true;
     }
@@ -474,17 +561,27 @@ final class LogisticsRouteSystem {
     private static void reconcileAssignments(World world, RouteRuntime runtime, LogisticsRoute route,
                                              String activeSystemId) {
         Map<String,String> locations = world.ownerUnitLocations(route.ownerId);
-        route.transportKeys.removeIf(key -> {
-            if (locations.containsKey(key)) return false;
-            route.shipCargo.remove(key);
-            return true;
-        });
+        for (String key : new ArrayList<>(route.transportKeys)) {
+            if (locations.containsKey(key)) continue;
+            EnumMap<Material,Double> cargo = route.shipCargo.remove(key);
+            route.transportKeys.remove(key);
+            if (cargoTotal(cargo) > EPSILON) {
+                publish(world, route, "transport " + key + " was lost with an in-transit shipment");
+            } else {
+                publish(world, route, "assigned transport " + key + " is no longer available");
+            }
+        }
         route.escortKeys.removeIf(key -> !locations.containsKey(key));
 
         if (route.autoPool && route.transportKeys.isEmpty()
                 && route.sourceSystemId.equals(activeSystemId)) {
             Unit replacement = autoTransport(world, runtime, route.ownerId, route.id);
             if (replacement != null) route.transportKeys.add(replacement.key());
+        }
+
+        if (!route.transportKeys.isEmpty()) {
+            clearCondition(world, route, RouteCondition.WAITING_FOR_TRANSPORT,
+                    RouteCondition.NO_ASSIGNED_TRANSPORT, RouteCondition.ASSIGNMENT_CONFLICT);
         }
 
         if (route.needsCargoReconcile) {
@@ -509,7 +606,8 @@ final class LogisticsRouteSystem {
         Base destination = world.bases.get(route.destinationBaseId);
         if (destination == null || destination.hp <= 0 || !route.ownerId.equals(destination.playerId)) {
             route.destinationObserved = false;
-            route.blockedReason = "destination base unavailable";
+            pauseRoute(world, route, RouteCondition.DESTINATION_UNAVAILABLE,
+                    "destination base is unavailable or destroyed");
             return;
         }
         route.observedDestination.clear();
@@ -523,7 +621,9 @@ final class LogisticsRouteSystem {
     private static void updateRouteInSystem(World world, RouteRuntime runtime, LogisticsRoute route,
                                             String activeSystemId, double dt) {
         if (route.transportKeys.isEmpty()) {
-            route.blockedReason = route.autoPool ? "waiting for an available Hauler/Freighter" : "no assigned transport";
+            setBlocked(world, route,
+                    route.autoPool ? RouteCondition.WAITING_FOR_TRANSPORT : RouteCondition.NO_ASSIGNED_TRANSPORT,
+                    route.autoPool ? "waiting for an available Hauler/Freighter" : "no assigned transport");
             return;
         }
         Map<String,String> locations = world.ownerUnitLocations(route.ownerId);
@@ -534,18 +634,23 @@ final class LogisticsRouteSystem {
             Unit transport = world.units.get(key);
             if (transport == null || transport.hp <= 0) continue;
             if (ProductionSystem.refitReserved(world, key)) {
-                releaseAssigned(route, transport, true, "transport reserved for refit");
+                releaseAssigned(world, route, transport, true, RouteCondition.REFIT_RESERVED,
+                        "transport reserved for refit");
                 continue;
             }
             if (UnitCommandQueueSystem.hasPlayerIntent(world, transport) || transport.orderType != UnitOrderType.NONE) {
-                releaseAssigned(route, transport, true, "manual transport order");
+                releaseAssigned(world, route, transport, true, RouteCondition.MANUAL_OVERRIDE,
+                        "manual transport order");
                 continue;
             }
             if (!permittedCargoOnly(route, transport)) {
-                route.blockedReason = "transport " + key + " contains non-route cargo";
+                setBlocked(world, route, RouteCondition.INVALID_CARGO,
+                        "transport " + key + " contains non-route cargo");
                 stop(transport);
                 continue;
             }
+            clearCondition(world, route, RouteCondition.INVALID_CARGO,
+                    RouteCondition.WAITING_FOR_TRANSPORT, RouteCondition.NO_ASSIGNED_TRANSPORT);
 
             transport.logisticsRequestId = UNIT_MARKER + route.id;
             if (transport.cargoUsed() > EPSILON) {
@@ -565,6 +670,7 @@ final class LogisticsRouteSystem {
                             route.sourceSystemId, RoutePhase.RETURNING);
                 }
             }
+            if (route.paused) return;
         }
     }
 
@@ -572,7 +678,8 @@ final class LogisticsRouteSystem {
                                    LogisticsRoute route, Unit transport) {
         Base source = world.bases.get(route.sourceBaseId);
         if (source == null || source.hp <= 0 || !route.ownerId.equals(source.playerId)) {
-            route.blockedReason = "source base unavailable";
+            pauseRoute(world, route, RouteCondition.SOURCE_UNAVAILABLE,
+                    "source base is unavailable or destroyed");
             stop(transport);
             return;
         }
@@ -607,16 +714,17 @@ final class LogisticsRouteSystem {
         if (loaded > EPSILON) {
             String next = nextHop(world, route.sourceSystemId, route.destinationSystemId);
             if (next == null) {
-                route.blockedReason = "no wormhole path to destination";
+                setBlocked(world, route, RouteCondition.NO_PATH, "no wormhole path to destination");
                 stop(transport);
                 return;
             }
             WormholeGate gate = gateTo(world, next);
             if (gate == null) {
-                route.blockedReason = "required wormhole gate is unavailable";
+                setBlocked(world, route, RouteCondition.MISSING_GATE, "required wormhole gate is unavailable");
                 stop(transport);
                 return;
             }
+            clearCondition(world, route, RouteCondition.NO_PATH, RouteCondition.MISSING_GATE);
             moveTransportToGate(world, route, transport, route.sourceSystemId, gate, RoutePhase.OUTBOUND);
         } else {
             route.phase = maxPhase(route.phase, RoutePhase.WAITING);
@@ -627,7 +735,8 @@ final class LogisticsRouteSystem {
     private static void unload(World world, LogisticsRoute route, Unit transport, double dt) {
         Base destination = world.bases.get(route.destinationBaseId);
         if (destination == null || destination.hp <= 0 || !route.ownerId.equals(destination.playerId)) {
-            route.blockedReason = "destination base unavailable";
+            pauseRoute(world, route, RouteCondition.DESTINATION_UNAVAILABLE,
+                    "destination base is unavailable or destroyed");
             stop(transport);
             return;
         }
@@ -655,16 +764,17 @@ final class LogisticsRouteSystem {
         if (transport.cargoUsed() <= EPSILON) {
             String next = nextHop(world, route.destinationSystemId, route.sourceSystemId);
             if (next == null) {
-                route.blockedReason = "no wormhole path back to source";
+                setBlocked(world, route, RouteCondition.NO_PATH, "no wormhole path back to source");
                 stop(transport);
                 return;
             }
             WormholeGate gate = gateTo(world, next);
             if (gate == null) {
-                route.blockedReason = "return wormhole gate is unavailable";
+                setBlocked(world, route, RouteCondition.MISSING_GATE, "return wormhole gate is unavailable");
                 stop(transport);
                 return;
             }
+            clearCondition(world, route, RouteCondition.NO_PATH, RouteCondition.MISSING_GATE);
             moveTransportToGate(world, route, transport, route.destinationSystemId, gate, RoutePhase.RETURNING);
         } else {
             route.phase = maxPhase(route.phase, RoutePhase.UNLOADING);
@@ -676,16 +786,19 @@ final class LogisticsRouteSystem {
                                          RoutePhase phase) {
         String next = nextHop(world, activeSystemId, targetSystemId);
         if (next == null) {
-            route.blockedReason = "wormhole path unavailable from " + activeSystemId;
+            setBlocked(world, route, RouteCondition.NO_PATH,
+                    "wormhole path unavailable from " + activeSystemId);
             stop(transport);
             return;
         }
         WormholeGate gate = gateTo(world, next);
         if (gate == null || !activeSystemId.equals(gate.fromSystemId)) {
-            route.blockedReason = "required wormhole gate is unavailable";
+            setBlocked(world, route, RouteCondition.MISSING_GATE,
+                    "required wormhole gate is unavailable");
             stop(transport);
             return;
         }
+        clearCondition(world, route, RouteCondition.NO_PATH, RouteCondition.MISSING_GATE);
         moveTransportToGate(world, route, transport, activeSystemId, gate, phase);
     }
 
@@ -739,7 +852,8 @@ final class LogisticsRouteSystem {
                     && lead.key().equals(escort.orderTarget);
             if (UnitCommandQueueSystem.hasPlayerIntent(world, escort)
                     || escort.orderType != UnitOrderType.NONE && !expectedEscortOrder) {
-                releaseAssigned(route, escort, false, "manual escort order");
+                releaseAssigned(world, route, escort, false, RouteCondition.MANUAL_OVERRIDE,
+                        "manual escort order");
                 continue;
             }
             if (lead == null) {
@@ -751,15 +865,18 @@ final class LogisticsRouteSystem {
                 String next = nextHop(world, activeSystemId, hopTarget);
                 WormholeGate gate = next == null ? null : gateTo(world, next);
                 if (gate == null) {
-                    route.blockedReason = "escort " + key + " cannot reach convoy hop " + hopTarget;
+                    setBlocked(world, route, RouteCondition.ESCORT_SEPARATED,
+                            "escort " + key + " cannot reach convoy hop " + hopTarget);
                     stop(escort);
                     continue;
                 }
+                clearCondition(world, route, RouteCondition.ESCORT_SEPARATED);
                 escort.clearOrder();
                 move(escort, gate.x, gate.y);
                 continue;
             }
 
+            clearCondition(world, route, RouteCondition.ESCORT_SEPARATED);
             WormholeGate leadGate = gateNearTarget(world, lead.targetX, lead.targetY);
             if (leadGate != null && Calc.distance(lead.x, lead.y, leadGate.x, leadGate.y) < 900) {
                 escort.clearOrder();
@@ -804,19 +921,66 @@ final class LogisticsRouteSystem {
         }
     }
 
-    private static void releaseAssigned(LogisticsRoute route, Unit unit,
-                                        boolean transport, String reason) {
+    private static void releaseAssigned(World world, LogisticsRoute route, Unit unit,
+                                        boolean transport, RouteCondition condition, String reason) {
         if (transport) {
             route.transportKeys.remove(unit.key());
             route.shipCargo.remove(unit.key());
         } else route.escortKeys.remove(unit.key());
-        route.paused = true;
-        route.blockedReason = reason;
-        route.phase = RoutePhase.PAUSED;
+        pauseRoute(world, route, condition, reason);
         if (unit.logisticsRequestId.startsWith(UNIT_MARKER)) {
             unit.logisticsRequestId = "";
             unit.logisticsTargetBaseId = "";
         }
+    }
+
+    private static void setBlocked(World world, LogisticsRoute route,
+                                   RouteCondition condition, String reason) {
+        if (route == null || route.paused || condition == null || condition == RouteCondition.NONE) return;
+        String detail = boundedReason(reason);
+        boolean changed = route.condition != condition || !route.blockedReason.equals(detail);
+        route.condition = condition;
+        route.blockedReason = detail;
+        route.phase = RoutePhase.BLOCKED;
+        if (changed) publish(world, route, "blocked: " + detail);
+    }
+
+    private static void pauseRoute(World world, LogisticsRoute route,
+                                   RouteCondition condition, String reason) {
+        if (route == null) return;
+        String detail = boundedReason(reason);
+        boolean changed = !route.paused || route.condition != condition || !route.blockedReason.equals(detail);
+        route.paused = true;
+        route.condition = condition == null ? RouteCondition.NONE : condition;
+        route.blockedReason = detail;
+        route.phase = RoutePhase.PAUSED;
+        if (changed && route.condition != RouteCondition.NONE) publish(world, route, "paused: " + detail);
+    }
+
+    private static void clearCondition(World world, LogisticsRoute route, RouteCondition... conditions) {
+        if (route == null || route.paused || route.condition == RouteCondition.NONE || conditions == null) return;
+        boolean match = false;
+        for (RouteCondition condition : conditions) {
+            if (route.condition == condition) {
+                match = true;
+                break;
+            }
+        }
+        if (!match) return;
+        RouteCondition previous = route.condition;
+        route.condition = RouteCondition.NONE;
+        route.blockedReason = "";
+        if (previous != RouteCondition.WAITING_FOR_TRANSPORT
+                && previous != RouteCondition.NO_ASSIGNED_TRANSPORT
+                && previous != RouteCondition.ASSIGNMENT_CONFLICT) {
+            publish(world, route, "recovered");
+        }
+    }
+
+    private static void publish(World world, LogisticsRoute route, String detail) {
+        if (world == null || route == null || detail == null || detail.isBlank()) return;
+        GameNoticeCenter.publish(world, route.ownerId, NoticeCategory.LOGISTICS,
+                "Logistics route " + route.id + ' ' + boundedReason(detail) + '.', false);
     }
 
     private static boolean permittedCargoOnly(LogisticsRoute route, Unit unit) {
@@ -852,6 +1016,13 @@ final class LogisticsRouteSystem {
         for (EnumMap<Material,Double> cargo : route.shipCargo.values()) {
             for (double amount : cargo.values()) if (Double.isFinite(amount) && amount > 0) total += amount;
         }
+        return total;
+    }
+
+    private static double cargoTotal(EnumMap<Material,Double> cargo) {
+        if (cargo == null || cargo.isEmpty()) return 0;
+        double total = 0;
+        for (Double amount : cargo.values()) if (amount != null && Double.isFinite(amount) && amount > 0) total += amount;
         return total;
     }
 
@@ -903,7 +1074,8 @@ final class LogisticsRouteSystem {
                 + route.destinationBaseId + " [materials=" + joinMaterials(new ArrayList<>(route.materials))
                 + " reserve=" + compact(route.sourceReserve) + " target=" + compact(route.destinationTarget)
                 + " batch=" + compact(route.batchSize) + " priority=" + route.priority
-                + " transports=" + route.transportKeys.size() + " escorts=" + route.escortKeys.size() + ']';
+                + " transports=" + route.transportKeys.size() + " escorts=" + route.escortKeys.size()
+                + " condition=" + route.condition.name() + ']';
     }
 
     private static RouteView parseStatusView(String row) {
@@ -926,10 +1098,13 @@ final class LogisticsRouteSystem {
                 if (equals > 0) fields.put(token.substring(0, equals), token.substring(equals + 1));
             }
             List<Material> materials = parseMaterials(fields.get("materials"));
+            RouteCondition condition;
+            try { condition = RouteCondition.valueOf(fields.getOrDefault("condition", RouteCondition.NONE.name())); }
+            catch (RuntimeException ignored) { condition = RouteCondition.NONE; }
             return new RouteView(id, phase, systemId, baseId, materials,
                     number(fields.get("reserve"), 0), number(fields.get("target"), 0),
                     number(fields.get("batch"), 0), integer(fields.get("priority"), 0),
-                    integer(fields.get("transports"), 0), integer(fields.get("escorts"), 0));
+                    integer(fields.get("transports"), 0), integer(fields.get("escorts"), 0), condition);
         } catch (RuntimeException ignored) {
             return null;
         }
@@ -938,7 +1113,7 @@ final class LogisticsRouteSystem {
     private static RouteView view(LogisticsRoute route) {
         return new RouteView(route.id, route.phase, route.destinationSystemId, route.destinationBaseId,
                 List.copyOf(route.materials), route.sourceReserve, route.destinationTarget,
-                route.batchSize, route.priority, route.transportKeys.size(), route.escortKeys.size());
+                route.batchSize, route.priority, route.transportKeys.size(), route.escortKeys.size(), route.condition);
     }
 
     private static LogisticsRoute restoreRoute(Map<String,Object> row) {
@@ -951,15 +1126,22 @@ final class LogisticsRouteSystem {
         if (!validToken(id, 128) || !validToken(ownerId, 64)
                 || !validToken(sourceSystemId, 128) || !validToken(sourceBaseId, 128)
                 || !validToken(destinationSystemId, 128) || !validToken(destinationBaseId, 128)) return null;
+
+        List<Object> materialRows = ServerSaveStore.list(row.get("materials"));
+        if (materialRows.isEmpty() || materialRows.size() > MAX_MATERIALS) return null;
         List<Material> materials = new ArrayList<>();
-        for (Object item : ServerSaveStore.list(row.get("materials"))) {
-            if (materials.size() >= MAX_MATERIALS) break;
+        for (Object item : materialRows) {
             try {
                 Material material = Material.valueOf(String.valueOf(item));
                 if (!materials.contains(material)) materials.add(material);
-            } catch (RuntimeException ignored) { }
+            } catch (RuntimeException ignored) { return null; }
         }
         if (materials.isEmpty()) return null;
+
+        LinkedHashSet<String> transports = restoreKeys(row.get("transportKeys"), MAX_TRANSPORTS);
+        LinkedHashSet<String> escorts = restoreKeys(row.get("escortKeys"), MAX_ESCORTS);
+        if (transports == null || escorts == null) return null;
+
         double reserve = boundedNumber(ServerSaveStore.doubleValue(row, "sourceReserve", 0), 0, 1_000_000);
         double target = boundedNumber(ServerSaveStore.doubleValue(row, "destinationTarget", 0), EPSILON, 1_000_000);
         double batch = boundedNumber(ServerSaveStore.doubleValue(row, "batchSize", 1), EPSILON, 1_000_000);
@@ -969,8 +1151,10 @@ final class LogisticsRouteSystem {
         route.paused = ServerSaveStore.boolValue(row, "paused", false);
         route.autoPool = ServerSaveStore.boolValue(row, "autoPool", false);
         route.phase = ServerSaveStore.enumValue(RoutePhase.class, row.get("phase"), RoutePhase.WAITING);
-        addKeys(route.transportKeys, row.get("transportKeys"), MAX_TRANSPORTS);
-        addKeys(route.escortKeys, row.get("escortKeys"), MAX_ESCORTS);
+        route.condition = ServerSaveStore.enumValue(RouteCondition.class, row.get("condition"), RouteCondition.NONE);
+        route.blockedReason = boundedReason(ServerSaveStore.string(row, "blockedReason", ""));
+        route.transportKeys.addAll(transports);
+        route.escortKeys.addAll(escorts);
         route.observedDestination.putAll(ServerSaveStore.restoreMaterialMap(row.get("observedDestination")));
         route.observedDestination.keySet().retainAll(route.materials);
         return route;
@@ -1036,7 +1220,7 @@ final class LogisticsRouteSystem {
     }
 
     private static boolean systemExists(World world, String systemId) {
-        if (!validToken(systemId, 128)) return false;
+        if (world == null || !validToken(systemId, 128)) return false;
         GalaxyMapSnapshot snapshot = world.galaxyMapSnapshot();
         for (GalaxyMapSystem system : snapshot.systems()) if (systemId.equals(system.id())) return true;
         return false;
@@ -1162,12 +1346,16 @@ final class LogisticsRouteSystem {
         return count;
     }
 
-    private static void addKeys(Set<String> target, Object saved, int limit) {
-        for (Object item : ServerSaveStore.list(saved)) {
-            if (target.size() >= limit) break;
+    private static LinkedHashSet<String> restoreKeys(Object saved, int limit) {
+        List<Object> rows = ServerSaveStore.list(saved);
+        if (rows.size() > limit) return null;
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        for (Object item : rows) {
             String key = clean(String.valueOf(item));
-            if (validToken(key, 160)) target.add(key);
+            if (!validToken(key, 160)) return null;
+            out.add(key);
         }
+        return out;
     }
 
     private static List<String> parseKeys(String text, int limit) {
@@ -1248,6 +1436,16 @@ final class LogisticsRouteSystem {
         return Math.max(minimum, Math.min(maximum, value));
     }
 
+    private static String boundedReason(String value) {
+        if (value == null || value.isBlank()) return "";
+        StringBuilder out = new StringBuilder(Math.min(value.length(), MAX_REASON_CHARS));
+        for (int i = 0; i < value.length() && out.length() < MAX_REASON_CHARS; i++) {
+            char c = value.charAt(i);
+            if (!Character.isISOControl(c)) out.append(c);
+        }
+        return out.toString().trim();
+    }
+
     private static String clean(String value) { return value == null ? "" : value.trim(); }
 
     private static RouteRuntime state(World world) {
@@ -1276,6 +1474,7 @@ final class LogisticsRouteSystem {
         boolean needsCargoReconcile = true;
         boolean destinationObserved;
         RoutePhase phase = RoutePhase.WAITING;
+        RouteCondition condition = RouteCondition.NONE;
         String blockedReason = "";
         final LinkedHashSet<String> transportKeys = new LinkedHashSet<>();
         final LinkedHashSet<String> escortKeys = new LinkedHashSet<>();
