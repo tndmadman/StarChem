@@ -115,6 +115,19 @@ final class MultiplayerCommsOverlay extends JPanel {
                 Math.max(80, bounds.width - 20), INPUT_HEIGHT);
     }
 
+    @Override public void addNotify() {
+        super.addNotify();
+        activateUiHooks();
+    }
+
+    @Override public void removeNotify() {
+        deactivateUiHooks();
+        super.removeNotify();
+        // JFrame.dispose() also produces removeNotify/addNotify during fullscreen changes.
+        // Defer cleanup and only clear the session after GameFrame actually detached GamePanel.
+        SwingUtilities.invokeLater(this::cleanupIfGameRemoved);
+    }
+
     @Override protected void paintComponent(Graphics source) {
         super.paintComponent(source);
         Graphics2D g = (Graphics2D) source.create();
@@ -125,7 +138,7 @@ final class MultiplayerCommsOverlay extends JPanel {
     }
 
     private void installIfPossible() {
-        if (root != null && getParent() != null) return;
+        if (root != null && getParent() != null) { activateUiHooks(); return; }
         GameFrame candidateFrame = null;
         GamePanel candidatePanel = null;
         for (Frame available : Frame.getFrames()) {
@@ -150,37 +163,45 @@ final class MultiplayerCommsOverlay extends JPanel {
             }
         });
         installMouseTracking(gamePanel);
-        KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(dispatcher);
-        dispatcherInstalled = true;
-        repaintTimer.start();
+        activateUiHooks();
         revalidate();
         repaint();
     }
 
-    private void uninstall() {
-        repaintTimer.stop();
-        if (dispatcherInstalled) {
-            KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(dispatcher);
-            dispatcherInstalled = false;
+    private void activateUiHooks() {
+        if (!dispatcherInstalled && isDisplayable()) {
+            KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(dispatcher);
+            dispatcherInstalled = true;
         }
-        if (getParent() != null) getParent().remove(this);
-        root = null;
-        gamePanel = null;
-        frame = null;
+        if (isDisplayable()) repaintTimer.start();
     }
 
-    @Override public void removeNotify() {
+    private void deactivateUiHooks() {
         if (dispatcherInstalled) {
             KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(dispatcher);
             dispatcherInstalled = false;
         }
         repaintTimer.stop();
+    }
+
+    private void cleanupIfGameRemoved() {
+        if (gamePanel != null && gamePanel.getParent() != null) return;
         synchronized (INSTANCES) {
             WeakReference<MultiplayerCommsOverlay> reference = INSTANCES.get(world);
             if (reference != null && reference.get() == this) INSTANCES.remove(world);
         }
         MultiplayerComms.clearClient(world);
-        super.removeNotify();
+        root = null;
+        gamePanel = null;
+        frame = null;
+    }
+
+    private void uninstall() {
+        deactivateUiHooks();
+        if (getParent() != null) getParent().remove(this);
+        root = null;
+        gamePanel = null;
+        frame = null;
     }
 
     private void installMouseTracking(GamePanel panel) {
