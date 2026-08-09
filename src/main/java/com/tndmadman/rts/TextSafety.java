@@ -46,8 +46,8 @@ final class TextSafety {
 
     /**
      * Normalize untrusted player chat while preserving ordinary Unicode and emoji.
-     * Newlines collapse to spaces and control/format/bidi/private/unassigned code
-     * points are discarded before the code-point limit is applied.
+     * Newlines collapse to spaces; unsafe controls, bidi formatting, private-use,
+     * surrogate, and unassigned code points are discarded before code-point limiting.
      */
     static String chatText(String value, int maximumCodePoints) {
         if (value == null || value.isBlank() || maximumCodePoints < 1) return "";
@@ -124,6 +124,7 @@ final class TextSafety {
     }
 
     private static boolean unsafeChatCodePoint(int codePoint) {
+        if (codePoint == 0x200C || codePoint == 0x200D) return false; // ZWNJ/ZWJ preserve valid script and emoji shaping.
         int type = Character.getType(codePoint);
         return type == Character.CONTROL
                 || type == Character.FORMAT
