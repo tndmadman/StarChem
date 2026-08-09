@@ -1,6 +1,8 @@
 package com.tndmadman.rts;
 
+import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -20,10 +22,16 @@ public final class Issue294ProductionPolicyValidator {
         validateMaintainStockAndNoDuplicateJobs();
         validateFleetReplacementAndGalaxyWideCounting();
         validateReserveProtectionAndManualCancellation();
+        validateGalaxyWideNetworkReserveAndCompetingPolicies();
+        validateBlockedResearchAndPolicyManagement();
+        validateRepeatAndStarterTemplates();
         validateTemplatesAndStatusReplication();
         validatePolicyPersistenceAndJobProvenance();
+        validatePlannerRootAndLogisticsSupplyNoDuplication();
         validateLogisticsRequestPersistence();
         validateMalformedAndBoundedCommands();
+        validateLargePolicyPerformanceAndBounds();
+        Issue294ProductionPolicyRecoveryValidator.validateOrThrow();
     }
 
     private static void validateMaintainStockAndNoDuplicateJobs() {
@@ -145,6 +153,189 @@ public final class Issue294ProductionPolicyValidator {
                 "manually cancelled policy immediately recreated its job");
     }
 
+    private static void validateGalaxyWideNetworkReserveAndCompetingPolicies() {
+        CraftableItem fuel = CraftingRules.item("fuel");
+        require(fuel != null, "Fuel recipe missing for network reserve validator");
+        double hydrogenCost = cost(fuel.requiredResources, Material.HYDROGEN);
+
+        World galaxyWorld = world("galaxy-reserve");
+        Base local = base(galaxyWorld, PLAYER + ":M1", PLAYER, "manufacturing", 300, 300);
+        setRecipeInputs(local, fuel);
+        String home = galaxyWorld.activeSystemId();
+        String remoteSystem = firstOtherSystem(galaxyWorld);
+        require(!remoteSystem.isBlank(), "network reserve validator requires a remote galaxy system");
+        galaxyWorld.activateSystem(remoteSystem);
+        Base remote = base(galaxyWorld, PLAYER + ":REMOTE", PLAYER, "manufacturing", 500, 500);
+        remote.inventory.put(Material.HYDROGEN, 30.0);
+        galaxyWorld.saveActiveSystem();
+        galaxyWorld.activateSystem(home);
+
+        EnumMap<Material,Double> networkReserve = new EnumMap<>(Material.class);
+        networkReserve.put(Material.HYDROGEN, 20.0);
+        String galaxySpec = ProductionPolicyWire.encodeSpec("",
+                ProductionPolicySystem.PolicyType.MAINTAIN_STOCK, ProductionJobKind.CRAFTABLE,
+                "fuel", "", 50, 1, 90, 1, 0, Map.of(), networkReserve);
+        require(ProductionCommands.apply(galaxyWorld, PLAYER, "POLICY", local.id,
+                ProductionPolicySystem.COMMAND_CREATE, galaxySpec), "galaxy reserve policy creation failed");
+        ProductionPolicySystem.update(galaxyWorld, 0.6);
+        require(local.productionQueue.size() == 1,
+                "network reserve ignored inventory held at an owned station in another system");
+        require(hydrogenCost > 0, "Fuel recipe unexpectedly has no hydrogen cost");
+
+        World competing = world("competing-reserve");
+        Base first = base(competing, PLAYER + ":M1", PLAYER, "manufacturing", 250, 300);
+        Base second = base(competing, PLAYER + ":M2", PLAYER, "manufacturing", 750, 300);
+        setRecipeInputs(first, fuel);
+        setRecipeInputs(second, fuel);
+        EnumMap<Material,Double> floor = new EnumMap<>(Material.class);
+        floor.put(Material.HYDROGEN, 25.0);
+        String firstSpec = ProductionPolicyWire.encodeSpec("",
+                ProductionPolicySystem.PolicyType.MAINTAIN_STOCK, ProductionJobKind.CRAFTABLE,
+                "fuel", "", 50, 1, 90, 1, 0, Map.of(), floor);
+        String secondSpec = ProductionPolicyWire.encodeSpec("",
+                ProductionPolicySystem.PolicyType.MAINTAIN_STOCK, ProductionJobKind.CRAFTABLE,
+                "fuel", "", 50, 1, 10, 1, 0, Map.of(), floor);
+        require(ProductionCommands.apply(competing, PLAYER, "POLICY", first.id,
+                ProductionPolicySystem.COMMAND_CREATE, firstSpec), "first competing policy creation failed");
+        require(ProductionCommands.apply(competing, PLAYER, "POLICY", second.id,
+                ProductionPolicySystem.COMMAND_CREATE, secondSpec), "second competing policy creation failed");
+        ProductionPolicySystem.update(competing, 0.6);
+        require(first.productionQueue.size() == 1,
+                "higher-priority competing policy did not receive the available reserve headroom");
+        require(second.productionQueue.isEmpty(),
+                "lower-priority competing policy spent through shared network reserve in the same evaluation");
+        require(ProductionPolicySystem.viewsForBase(competing, second).get(0).status()
+                        == ProductionPolicySystem.PolicyStatus.RESERVE_PROTECTED,
+                "lower-priority competing policy did not report reserve protection");
+    }
+
+    private static void validateBlockedResearchAndPolicyManagement() {
+        World researchWorld = world("research-block");
+        Base researchPlant = base(researchWorld, PLAYER + ":M1", PLAYER, "manufacturing", 400, 400);
+        fill(researchPlant);
+        researchPlant.inventory.remove(Material.TITANIUM_ALLOY);
+        String locked = ProductionPolicyWire.encodeSpec("",
+                ProductionPolicySystem.PolicyType.MAINTAIN_STOCK, ProductionJobKind.CRAFTABLE,
+                "titanium_alloy", "", 12, 1, 70, 1, 0, Map.of(), Map.of());
+        require(ProductionCommands.apply(researchWorld, PLAYER, "POLICY", researchPlant.id,
+                ProductionPolicySystem.COMMAND_CREATE, locked), "blocked-research policy creation failed");
+        ProductionPolicySystem.update(researchWorld, 0.6);
+        ProductionPolicySystem.PolicyView blocked = ProductionPolicySystem.viewsForBase(researchWorld, researchPlant).get(0);
+        require(blocked.status() == ProductionPolicySystem.PolicyStatus.BLOCKED_RESEARCH,
+                "locked craftable policy did not report BLOCKED_RESEARCH");
+        require(researchPlant.productionQueue.isEmpty(), "blocked-research policy queued production anyway");
+
+        World management = world("management");
+        Base plant = base(management, PLAYER + ":M1", PLAYER, "manufacturing", 400, 400);
+        fill(plant);
+        plant.inventory.remove(Material.FUEL);
+        plant.inventory.remove(Material.STEEL_PLATE);
+        String fuelSpec = ProductionPolicyWire.encodeSpec("",
+                ProductionPolicySystem.PolicyType.MAINTAIN_STOCK, ProductionJobKind.CRAFTABLE,
+                "fuel", "", 50, 1, 20, 1, 0, Map.of(), Map.of());
+        String steelSpec = ProductionPolicyWire.encodeSpec("",
+                ProductionPolicySystem.PolicyType.MAINTAIN_STOCK, ProductionJobKind.CRAFTABLE,
+                "steel_plate", "", 20, 1, 80, 1, 0, Map.of(), Map.of());
+        require(ProductionCommands.apply(management, PLAYER, "POLICY", plant.id,
+                ProductionPolicySystem.COMMAND_CREATE, fuelSpec), "fuel management policy creation failed");
+        require(ProductionCommands.apply(management, PLAYER, "POLICY", plant.id,
+                ProductionPolicySystem.COMMAND_CREATE, steelSpec), "steel management policy creation failed");
+        List<ProductionPolicySystem.PolicyView> initial = ProductionPolicySystem.viewsForBase(management, plant);
+        ProductionPolicySystem.PolicyView fuelPolicy = findPolicy(initial, "fuel");
+        ProductionPolicySystem.PolicyView steelPolicy = findPolicy(initial, "steel_plate");
+        require(fuelPolicy != null && steelPolicy != null && initial.get(0).id().equals(steelPolicy.id()),
+                "policy priority ordering is not deterministic");
+        require(ProductionCommands.apply(management, PLAYER, "POLICY", plant.id,
+                ProductionPolicySystem.COMMAND_MOVE_UP, fuelPolicy.id()), "policy move-up failed");
+        require(ProductionPolicySystem.viewsForBase(management, plant).get(0).id().equals(fuelPolicy.id()),
+                "policy move-up did not reorder evaluation priority");
+        require(ProductionCommands.apply(management, PLAYER, "POLICY", plant.id,
+                ProductionPolicySystem.COMMAND_TOGGLE, fuelPolicy.id() + "~0"), "policy pause failed");
+        require(!findPolicy(ProductionPolicySystem.viewsForBase(management, plant), "fuel").enabled(),
+                "policy pause state was not retained");
+        require(ProductionCommands.apply(management, PLAYER, "POLICY", plant.id,
+                ProductionPolicySystem.COMMAND_TOGGLE, fuelPolicy.id() + "~1"), "policy resume failed");
+
+        ProductionPolicySystem.update(management, 0.6);
+        ProductionPolicySystem.PolicyView activeFuel = findPolicy(ProductionPolicySystem.viewsForBase(management, plant), "fuel");
+        require(activeFuel != null && !activeFuel.jobIds().isEmpty(), "fuel policy did not create edit-detach fixture job");
+        String oldJobId = activeFuel.jobIds().get(0);
+        String edit = ProductionPolicyWire.encodeSpec(activeFuel.id(),
+                ProductionPolicySystem.PolicyType.MAINTAIN_STOCK, ProductionJobKind.CRAFTABLE,
+                "copper_wiring", "", 25, 1, activeFuel.priority(), 1, 0, Map.of(), Map.of());
+        require(ProductionCommands.apply(management, PLAYER, "POLICY", plant.id,
+                ProductionPolicySystem.COMMAND_UPDATE, edit), "policy definition edit failed");
+        require(ProductionSystem.findJob(plant, oldJobId) != null,
+                "editing a policy silently deleted its existing queue job");
+        require(ProductionPolicySystem.jobLabel(management, plant, oldJobId).isBlank(),
+                "edited policy incorrectly retained provenance on old-definition queue work");
+        require(findPolicy(ProductionPolicySystem.viewsForBase(management, plant), "copper_wiring") != null,
+                "policy edit did not replace the configured output");
+
+        require(ProductionCommands.apply(management, PLAYER, "POLICY", plant.id,
+                ProductionPolicySystem.COMMAND_DELETE, steelPolicy.id()), "policy deletion failed");
+        require(findPolicy(ProductionPolicySystem.viewsForBase(management, plant), "steel_plate") == null,
+                "deleted policy remained visible");
+    }
+
+    private static void validateRepeatAndStarterTemplates() {
+        World repeatWorld = world("repeat");
+        Base plant = base(repeatWorld, PLAYER + ":M1", PLAYER, "manufacturing", 400, 400);
+        fill(plant);
+        String repeatSpec = ProductionPolicyWire.encodeSpec("",
+                ProductionPolicySystem.PolicyType.REPEAT, ProductionJobKind.CRAFTABLE,
+                "fuel", "", 0, 1, 60, 1, 2, Map.of(), Map.of());
+        require(ProductionCommands.apply(repeatWorld, PLAYER, "POLICY", plant.id,
+                ProductionPolicySystem.COMMAND_CREATE, repeatSpec), "repeat policy creation failed");
+        ProductionPolicySystem.update(repeatWorld, 0.6);
+        require(plant.productionQueue.size() == 1, "repeat policy did not queue its first batch");
+        ProductionSystem.update(repeatWorld, 1000);
+        ProductionPolicySystem.update(repeatWorld, 0.6);
+        require(plant.productionQueue.size() == 1,
+                "repeat policy did not queue the next batch after completion");
+        ProductionSystem.update(repeatWorld, 1000);
+        ProductionPolicySystem.update(repeatWorld, 0.6);
+        ProductionPolicySystem.PolicyView repeat = ProductionPolicySystem.viewsForBase(repeatWorld, plant).get(0);
+        require(plant.productionQueue.isEmpty() && repeat.completedBatches() == 2
+                        && repeat.status() == ProductionPolicySystem.PolicyStatus.SATISFIED,
+                "repeat policy did not stop at its configured maximum batch count");
+
+        World starterWorld = world("starter");
+        Base manufacturing = base(starterWorld, PLAYER + ":M1", PLAYER, "manufacturing", 300, 300);
+        fill(manufacturing);
+        List<ProductionPolicyStarterTemplates.StarterView> starterViews =
+                ProductionPolicyStarterTemplates.viewsFor(manufacturing);
+        require(starterViews.stream().anyMatch(v -> v.id().equals(ProductionPolicyStarterTemplates.BASIC_FUEL_COMPONENTS)),
+                "manufacturing station did not expose Basic Fuel & Components starter template");
+        require(starterViews.stream().anyMatch(v -> v.id().equals(ProductionPolicyStarterTemplates.MANUFACTURING_INPUTS)),
+                "manufacturing station did not expose Manufacturing Inputs starter template");
+        require(ProductionCommands.apply(starterWorld, PLAYER, "POLICY", manufacturing.id,
+                        ProductionPolicyStarterTemplates.COMMAND_APPLY,
+                        ProductionPolicyStarterTemplates.BASIC_FUEL_COMPONENTS),
+                "basic starter template application failed");
+        List<ProductionPolicySystem.PolicyView> firstApply = ProductionPolicySystem.viewsForBase(starterWorld, manufacturing);
+        require(firstApply.size() == 4, "basic starter template did not create its four independent policies");
+        Set<String> firstIds = new HashSet<>();
+        for (ProductionPolicySystem.PolicyView view : firstApply) firstIds.add(view.id());
+        require(ProductionCommands.apply(starterWorld, PLAYER, "POLICY", manufacturing.id,
+                        ProductionPolicyStarterTemplates.COMMAND_APPLY,
+                        ProductionPolicyStarterTemplates.BASIC_FUEL_COMPONENTS),
+                "second starter template application failed");
+        List<ProductionPolicySystem.PolicyView> secondApply = ProductionPolicySystem.viewsForBase(starterWorld, manufacturing);
+        require(secondApply.size() == 8, "reapplying starter template did not create a second independent policy set");
+        int newIds = 0;
+        for (ProductionPolicySystem.PolicyView view : secondApply) if (!firstIds.contains(view.id())) newIds++;
+        require(newIds == 4, "starter template reapplication reused live policy IDs");
+
+        Base yard = base(starterWorld, PLAYER + ":Y1", PLAYER, "shipyard", 700, 300);
+        fill(yard);
+        List<ProductionPolicyStarterTemplates.StarterView> yardStarters = ProductionPolicyStarterTemplates.viewsFor(yard);
+        require(yardStarters.stream().anyMatch(v -> v.id().equals(ProductionPolicyStarterTemplates.MINING_REPLACEMENT)),
+                "shipyard did not expose Mining Replacement starter template");
+        require(yardStarters.stream().anyMatch(v -> v.id().equals(ProductionPolicyStarterTemplates.COMBAT_REPLACEMENT)),
+                "shipyard did not expose Combat Replacement starter template");
+    }
+
     private static void validateTemplatesAndStatusReplication() {
         World world = world("template");
         Base first = base(world, PLAYER + ":M1", PLAYER, "manufacturing", 300, 300);
@@ -179,6 +370,13 @@ public final class Issue294ProductionPolicyValidator {
         List<ProductionPolicySystem.TemplateView> replicatedTemplates = ProductionPolicySystem.templateViews(null, networkCopy);
         require(replicatedTemplates.size() == 1 && replicatedTemplates.get(0).name().equals("Basic Fuel"),
                 "compact multiplayer station state lost template view");
+
+        Map<String,Object> saved = ProductionPlanner.capture(world);
+        ProductionPolicySystem.clear(world);
+        ProductionPlanner.restore(world, saved);
+        require(ProductionPolicySystem.templateViews(world, first).stream()
+                        .anyMatch(v -> v.name().equals("Basic Fuel")),
+                "saved custom template did not survive runtime save/restore");
     }
 
     private static void validatePolicyPersistenceAndJobProvenance() {
@@ -208,6 +406,30 @@ public final class Issue294ProductionPolicyValidator {
                 "policy queue provenance did not survive runtime save/restore");
         require(ProductionPolicySystem.templateViews(world, plant).isEmpty(),
                 "unexpected template appeared during policy restore");
+    }
+
+    private static void validatePlannerRootAndLogisticsSupplyNoDuplication() {
+        World world = world("planner-supply");
+        Base target = base(world, PLAYER + ":M1", PLAYER, "manufacturing", 250, 250);
+        Base source = base(world, PLAYER + ":M2", PLAYER, "manufacturing", 750, 650);
+        fill(source);
+        CraftableItem fuel = CraftingRules.item("fuel");
+        require(fuel != null, "Fuel recipe missing for planner supply test");
+        for (Cost item : fuel.requiredResources) target.inventory.put(item.material(), item.amount() / 2.0);
+        target.inventory.remove(Material.FUEL);
+        require(world.craftItem(target.id, "fuel"), "logistics/planner-backed fuel request failed");
+        require(target.productionQueue.size() == 1,
+                "logistics/planner request did not create exactly one real root queue job");
+        require(ProductionSystem.waitingForResources(target.productionQueue.get(0)),
+                "logistics/planner root was expected to wait for resources");
+        String spec = ProductionPolicyWire.encodeSpec("",
+                ProductionPolicySystem.PolicyType.MAINTAIN_STOCK, ProductionJobKind.CRAFTABLE,
+                "fuel", "", 50, 1, 80, 1, 0, Map.of(), Map.of());
+        require(ProductionCommands.apply(world, PLAYER, "POLICY", target.id,
+                ProductionPolicySystem.COMMAND_CREATE, spec), "policy creation over planner root failed");
+        ProductionPolicySystem.update(world, 0.6);
+        require(target.productionQueue.size() == 1,
+                "policy double-count logic queued a duplicate final job beside a planner/logistics root");
     }
 
     private static void validateLogisticsRequestPersistence() {
@@ -263,8 +485,66 @@ public final class Issue294ProductionPolicyValidator {
         require(!ProductionCommands.apply(world, PLAYER, "POLICY", plant.id,
                 ProductionPolicySystem.COMMAND_CREATE, unknown),
                 "unknown policy item ID was accepted");
+        String nan = ProductionPolicyWire.encodeSpec("",
+                ProductionPolicySystem.PolicyType.MAINTAIN_STOCK,
+                ProductionJobKind.CRAFTABLE, "fuel", "", Double.NaN,
+                1, 50, 1, 0, Map.of(), Map.of());
+        require(!ProductionCommands.apply(world, PLAYER, "POLICY", plant.id,
+                ProductionPolicySystem.COMMAND_CREATE, nan),
+                "NaN policy target was accepted");
+        String infinity = ProductionPolicyWire.encodeSpec("",
+                ProductionPolicySystem.PolicyType.MAINTAIN_STOCK,
+                ProductionJobKind.CRAFTABLE, "fuel", "", Double.POSITIVE_INFINITY,
+                1, 50, 1, 0, Map.of(), Map.of());
+        require(!ProductionCommands.apply(world, PLAYER, "POLICY", plant.id,
+                ProductionPolicySystem.COMMAND_CREATE, infinity),
+                "infinite policy target was accepted");
         require(ProductionPolicySystem.viewsForBase(world, plant).isEmpty(),
                 "rejected policy commands mutated policy state");
+    }
+
+    private static void validateLargePolicyPerformanceAndBounds() {
+        World world = world("large");
+        List<Base> plants = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            Base plant = base(world, PLAYER + ":M" + (i + 1), PLAYER, "manufacturing", 250 + i * 180, 350);
+            fill(plant);
+            plants.add(plant);
+        }
+        int created = 0;
+        for (Base plant : plants) {
+            for (int i = 0; i < ProductionPolicySystem.MAX_POLICIES_PER_STATION; i++) {
+                String spec = ProductionPolicyWire.encodeSpec("",
+                        ProductionPolicySystem.PolicyType.REPEAT, ProductionJobKind.CRAFTABLE,
+                        "fuel", "", 0, 1, 50, 1, 0, Map.of(), Map.of());
+                require(ProductionCommands.apply(world, PLAYER, "POLICY", plant.id,
+                        ProductionPolicySystem.COMMAND_CREATE, spec),
+                        "failed to create maximum bounded policy fixture at index " + created);
+                created++;
+            }
+        }
+        require(created == ProductionPolicySystem.MAX_POLICIES_PER_PLAYER,
+                "large-policy fixture did not reach the player policy bound");
+        String overflow = ProductionPolicyWire.encodeSpec("",
+                ProductionPolicySystem.PolicyType.REPEAT, ProductionJobKind.CRAFTABLE,
+                "fuel", "", 0, 1, 50, 1, 0, Map.of(), Map.of());
+        require(!ProductionCommands.apply(world, PLAYER, "POLICY", plants.get(0).id,
+                ProductionPolicySystem.COMMAND_CREATE, overflow),
+                "policy limit accepted a 129th player policy");
+
+        long started = System.nanoTime();
+        ProductionPolicySystem.update(world, 0.6);
+        require(queueCount(plants) == 16,
+                "first large-policy evaluation did not respect the global 16-job enqueue bound");
+        for (int i = 1; i < 8; i++) ProductionPolicySystem.update(world, 0.6);
+        require(queueCount(plants) == ProductionPolicySystem.MAX_POLICIES_PER_PLAYER,
+                "bounded evaluations did not eventually service all maximum policies");
+        ProductionPolicySystem.update(world, 0.6);
+        require(queueCount(plants) == ProductionPolicySystem.MAX_POLICIES_PER_PLAYER,
+                "maximum-policy reevaluation duplicated already outstanding repeat jobs");
+        long elapsed = System.nanoTime() - started;
+        require(elapsed < 15_000_000_000L,
+                "maximum-policy evaluation exceeded the generous 15 second performance ceiling");
     }
 
     private static World world(String suffix) {
@@ -285,9 +565,27 @@ public final class Issue294ProductionPolicyValidator {
         for (Material material : Material.values()) base.inventory.put(material, 100_000.0);
     }
 
+    private static void setRecipeInputs(Base base, CraftableItem item) {
+        base.inventory.clear();
+        for (Cost input : item.requiredResources) base.inventory.put(input.material(), input.amount());
+        base.inventory.remove(item.outputMaterial);
+    }
+
     private static double cost(List<Cost> costs, Material material) {
         double total = 0;
         for (Cost cost : costs) if (cost.material() == material) total += cost.amount();
+        return total;
+    }
+
+    private static ProductionPolicySystem.PolicyView findPolicy(List<ProductionPolicySystem.PolicyView> policies,
+                                                                String itemId) {
+        for (ProductionPolicySystem.PolicyView view : policies) if (itemId.equals(view.itemId())) return view;
+        return null;
+    }
+
+    private static int queueCount(List<Base> bases) {
+        int total = 0;
+        for (Base base : bases) total += base.productionQueue.size();
         return total;
     }
 
