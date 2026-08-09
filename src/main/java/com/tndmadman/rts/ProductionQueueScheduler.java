@@ -11,6 +11,7 @@ final class ProductionQueueScheduler {
 
     static void update(World world, double dt) {
         if (world == null || dt < 0) return;
+        ProductionPolicySystem.update(world, dt);
         List<Promotion> promotions = new ArrayList<>();
         for (Base base : world.bases.values()) {
             clearTemporaryMarkers(base);
