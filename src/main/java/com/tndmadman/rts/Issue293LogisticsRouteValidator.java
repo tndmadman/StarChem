@@ -219,11 +219,11 @@ public final class Issue293LogisticsRouteValidator {
         double cargo = fixture.transport.cargoUsed();
         require(cargo > 0.05, "path-removal test did not load cargo");
 
-        isolateSystem(fixture.world, fixture.sourceSystem);
         fixture.world.activateSystem(fixture.sourceSystem);
+        fixture.world.wormholes.clear();
         LogisticsRouteSystem.update(fixture.world, 0.25);
         require(onlyRoute(fixture.world, fixture.source).phase() == LogisticsRouteSystem.RoutePhase.BLOCKED,
-                "route did not block after its wormhole path was removed");
+                "route did not block after its required wormhole gate was removed");
         require(close(fixture.transport.cargoUsed(), cargo),
                 "path removal recreated or deleted physical in-transit cargo");
     }
@@ -447,20 +447,6 @@ public final class Issue293LogisticsRouteValidator {
         require(WeaponRules.armed(world, escort), "escort fixture is not armed");
         world.saveActiveSystem();
         return escort;
-    }
-
-    private static void isolateSystem(World world, String systemId) {
-        world.activateSystem(systemId);
-        List<String> neighbors = new ArrayList<>();
-        for (WormholeGate gate : world.wormholes) neighbors.add(gate.toSystemId);
-        world.wormholes.clear();
-        world.saveActiveSystem();
-        for (String neighbor : neighbors) {
-            world.activateSystem(neighbor);
-            world.wormholes.removeIf(gate -> systemId.equals(gate.toSystemId));
-            world.saveActiveSystem();
-        }
-        world.activateSystem(systemId);
     }
 
     private static void moveConvoy(World world, String transportKey, List<String> escortKeys, String targetSystem) {
