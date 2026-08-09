@@ -30,6 +30,7 @@ public final class Issue294ProductionPolicyValidator {
         World world = world("stock");
         Base plant = base(world, PLAYER + ":M1", PLAYER, "manufacturing", 400, 400);
         fill(plant);
+        plant.inventory.remove(Material.FUEL);
         String spec = ProductionPolicyWire.encodeSpec("",
                 ProductionPolicySystem.PolicyType.MAINTAIN_STOCK,
                 ProductionJobKind.CRAFTABLE, "fuel", "", 100, 2, 80, 2, 0,
@@ -102,6 +103,7 @@ public final class Issue294ProductionPolicyValidator {
         World reserveWorld = world("reserve");
         Base plant = base(reserveWorld, PLAYER + ":M1", PLAYER, "manufacturing", 400, 400);
         fill(plant);
+        plant.inventory.remove(Material.FUEL);
         CraftableItem fuel = CraftingRules.item("fuel");
         require(fuel != null, "Fuel recipe missing");
         double hydrogenCost = cost(fuel.requiredResources, Material.HYDROGEN);
@@ -123,6 +125,7 @@ public final class Issue294ProductionPolicyValidator {
         World cancelWorld = world("cancel");
         Base cancelPlant = base(cancelWorld, PLAYER + ":M1", PLAYER, "manufacturing", 400, 400);
         fill(cancelPlant);
+        cancelPlant.inventory.remove(Material.FUEL);
         String spec = ProductionPolicyWire.encodeSpec("",
                 ProductionPolicySystem.PolicyType.MAINTAIN_STOCK,
                 ProductionJobKind.CRAFTABLE, "fuel", "", 50, 1, 60, 1, 0,
