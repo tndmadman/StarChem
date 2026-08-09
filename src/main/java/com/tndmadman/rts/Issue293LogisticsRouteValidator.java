@@ -20,6 +20,7 @@ public final class Issue293LogisticsRouteValidator {
         validateStatusResyncFallback();
         validateManualOverrideAndLifecycleCommands();
         validateAuthorizationAndBounds();
+        Issue293CompletionValidator.run();
         System.out.println("Issue 293 logistics route validation passed.");
     }
 

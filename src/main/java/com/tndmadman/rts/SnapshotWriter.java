@@ -45,7 +45,8 @@ final class SnapshotWriter {
             bases.append(base.id()).append(',').append(base.playerId()).append(',').append(base.typeId()).append(',')
                     .append(Calc.round(base.x())).append(',').append(Calc.round(base.y())).append(',')
                     .append(Calc.round(base.hp())).append(',').append(Calc.round(base.shield())).append(',')
-                    .append(CargoCodec.safe(base.cargo())).append(',').append(CargoCodec.safe(base.productionQueue()));
+                    .append(CargoCodec.safe(base.cargo())).append(',').append(CargoCodec.safe(base.productionQueue())).append(',')
+                    .append(CargoCodec.safe(base.logisticsStatus()));
         }
         StringBuilder stocks = new StringBuilder();
         for (StockState stock : snapshot.stocks()) {

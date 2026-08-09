@@ -1,12 +1,12 @@
 # Issue 293: inter-system logistics routes and escorted convoys
 
-StarChem now supports persistent player-defined cargo routes between owned stations in different star systems.
+StarChem supports persistent player-defined cargo routes between owned stations in different star systems.
 
 ## Route model
 
 A route is server-authoritative and stores a stable route ID, owner, source system/base, destination system/base, permitted materials, per-material source reserve, per-material destination target, maximum shipment batch, priority, assigned transports, optional escorts, and pause state.
 
-Route runtime reports `WAITING`, `LOADING`, `OUTBOUND`, `UNLOADING`, `RETURNING`, `BLOCKED`, or `PAUSED`.
+Route runtime reports `WAITING`, `LOADING`, `OUTBOUND`, `UNLOADING`, `RETURNING`, `BLOCKED`, or `PAUSED`. A bounded `RouteCondition` distinguishes transient routing problems such as `NO_PATH` or `MISSING_GATE` from structural failures such as `SOURCE_UNAVAILABLE`, `DESTINATION_UNAVAILABLE`, or a removed endpoint system.
 
 Routes are managed from the controls menu of any owned station. Production stations expose an **OPEN PRODUCTION** action in the same menu so adding logistics controls does not remove normal production access.
 
@@ -29,9 +29,9 @@ This is the reservation boundary:
 
 The route planner performs a deterministic breadth-first search over the authoritative galaxy link graph. Each hop is resolved to the current system's real `WormholeGate` immediately before travel.
 
-A convoy never teleports between systems. The route controller moves the transport to the selected gate and the existing authoritative wormhole transfer path performs the system transition. The route then replans from the transport's actual system for the next hop.
+A convoy never teleports between systems during gameplay. The route controller moves the transport to the selected gate and the existing authoritative wormhole transfer path performs the system transition. The route then replans from the transport's actual system for the next hop.
 
-If a required path or gate is unavailable, the transport stops in its current system and the route reports `BLOCKED`. Future route ticks retry path planning.
+If a required path or gate is temporarily unavailable, the transport stops in its current system and the route reports `BLOCKED`. Future route ticks retry path planning. When a valid path returns, the route clears the transient condition and continues from the convoy's authoritative location.
 
 ## Transports and escorts
 
@@ -39,7 +39,7 @@ Creation can use explicitly selected Haulers/Freighters or automatic transport a
 
 Assigned route transports are excluded from ordinary local Hauler automation, generic cargo auto-unload, miner return handling, and idle station orbiting while the route owns them. This prevents local automation from unloading route cargo into the source or an intermediate station.
 
-Selected armed ships can be assigned as escorts. Inside a system they use the existing persistent Escort order and retain their configured combat stance/target-priority policy. When the lead transport approaches a wormhole, the route controller moves escorts to the same gate so they transfer with the convoy; after transfer, Escort association is re-established against the lead transport.
+Selected armed ships can be assigned as escorts. Inside a system they use the existing persistent Escort order and retain their configured combat stance/target-priority policy. When the lead transport approaches a wormhole, the route controller records the escort's intended hop and stages the transport until assigned escorts are sufficiently assembled. If the transport crosses first, a lagging escort continues toward the persisted hop instead of stopping when the lead disappears from the local system. The hop marker is stored with the unit and therefore survives save/restart.
 
 Player intent has precedence. A manual move, attack, harvest, or tactical order releases that ship from route automation and pauses the affected route rather than fighting the player's command.
 
@@ -49,17 +49,21 @@ Route definitions and assignments are stored in the existing server runtime save
 
 The route controller deliberately does not trust a saved in-transit amount. It reconciles assigned ships from their restored authoritative location and `Unit.inventory` before dispatching new cargo. This prevents restart recovery from duplicating a shipment.
 
+Restore enforces the same material, transport, escort, and per-player route bounds used at runtime. Duplicate saved ship assignments are reconciled deterministically by route priority and then stable route ID; the losing route releases the conflicting assignment rather than creating two owners for one ship.
+
 If an assigned transport no longer exists, its remembered in-transit cargo is discarded from route accounting; no replacement cargo is created. Automatic routes may later claim another empty transport, while explicitly assigned routes wait for the player to edit the route.
 
-If a source or destination station is unavailable, the route stops and reports a blocked condition. Cargo already on a surviving transport remains physical cargo.
+Destroyed or missing source/destination stations and removed endpoint systems are structural failures. The route moves to `PAUSED`, surviving physical cargo remains on surviving transports, and resume is rejected until the endpoint is valid again. Temporary wormhole topology/gate failures remain `BLOCKED` and retry automatically.
 
-## Multiplayer authority
+Meaningful failure and recovery transitions publish bounded `LOGISTICS` notices through the existing `GameNoticeCenter`; repeated simulation ticks do not create a notice per tick.
+
+## Multiplayer authority and reconnect
 
 Route mutations reuse the existing authenticated `PROD|...|CONTROL` command path. The server resolves the source station in the requesting player's authoritative viewed system, verifies ownership, validates the destination station in its authoritative system, validates all transport and escort ownership, bounds material/ship counts and command text, and computes all paths and inventory movement server-side.
 
 Clients submit route preferences only. They do not select authoritative wormhole paths, reserve inventory, or advance route state.
 
-Route status is included in the station's existing logistics status field, so reconnecting/viewing clients receive current route summaries through ordinary authoritative station snapshots without adding a parallel client-owned simulation.
+Route status is included in `Base.logisticsStatus`. `BaseState` now carries that bounded status through normal authoritative snapshots, `NetBaseSync` restores it on the client, and the station controls reconstruct `RouteView` data from it when no server route runtime exists locally. This closes the real reconnect/view-resync path rather than relying on a same-world fallback. Because the base snapshot wire schema changed, multiplayer protocol version is 17.
 
 ## Controls
 
@@ -77,17 +81,26 @@ When editing, leaving transports/escorts unselected keeps their current assignme
 
 ## Validation
 
-`Issue293LogisticsRouteValidator` covers:
+`Issue293LogisticsRouteValidator` plus its completion suite cover:
 
 - real Hauler loading and physical cargo conservation;
-- multi-hop wormhole convoy travel;
+- multi-hop wormhole convoy travel, including a natural non-teleported simulation pass;
+- lagging escort hop persistence and save/restart recovery;
 - destination unloading and return routing;
 - source reserve enforcement across competing routes;
+- production-vs-route inventory contention;
 - destination/in-transit demand accounting;
-- save/restore during an in-progress shipment with physical-cargo reconciliation;
+- destroyed transport cargo loss without source refund/recreation;
+- source and destination destruction behavior and resume guards;
+- temporary local gate loss plus authoritative saved-topology removal/recovery;
+- removed destination-system recovery behavior;
+- save/restore coverage across `WAITING`, `LOADING`, `OUTBOUND`, `UNLOADING`, `RETURNING`, `BLOCKED`, and `PAUSED`;
+- real `SnapshotWriter`/`SnapshotReader`/`WorldNetAccess` reconnect-resync of route state;
+- inactive-system scheduler wakeup for a moving convoy;
 - manual command precedence without deleting cargo;
-- pause, resume, and delete lifecycle operations;
-- unauthorized owner attempts;
-- malformed route payloads, nonexistent systems, and bounded material lists.
+- pause, resume, edit, and delete lifecycle operations;
+- unauthorized source/destination/transport/escort attempts and unknown ship IDs;
+- maximum route/material/transport/escort counts, oversized commands, malformed payloads, and malformed saved route state;
+- deterministic restored assignment-conflict reconciliation.
 
 The repository CI runs the issue-specific validator after compilation in addition to the normal `gradle check` and packaging workflow.

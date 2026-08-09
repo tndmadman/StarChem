@@ -131,6 +131,8 @@ final class SnapshotValidator {
             finite(state.shield(), 0, SnapshotReader.MAX_SCALAR, "bases", row, "shield");
             SnapshotReader.validateCargo(state.cargo(), "bases", row, "cargo");
             StrictProductionQueueCodec.decode(state.productionQueue(), CelestialPacketCache.systemId(systemId), id);
+            SnapshotReader.text(state.logisticsStatus(), BaseStateParser.MAX_LOGISTICS_STATUS_CHARS,
+                    "bases", row, "logistics status");
         }
     }
 
