@@ -35,9 +35,12 @@ final class LogisticsRouteSystem {
     static final int MAX_COMMAND_CHARS = 4096;
 
     private static final String UNIT_MARKER = "ROUTE:";
+    private static final String ESCORT_HOP_MARKER = ":ESCORT:";
     private static final String STATUS_MARKER = "Inter-system routes: ";
     private static final double EPSILON = 0.05;
     private static final double DOCK_FACTOR = 0.55;
+    private static final double CONVOY_GATE_STAGE_RANGE = 260.0;
+    private static final double CONVOY_GATE_ASSEMBLY_RANGE = 620.0;
     private static final Map<World, RouteRuntime> STATES =
             Collections.synchronizedMap(new WeakHashMap<>());
 
@@ -363,16 +366,21 @@ final class LogisticsRouteSystem {
         LogisticsRoute route = route(runtime, playerId, sourceBaseId, routeId);
         if (route == null) return false;
         runtime.routes.remove(route.id);
-        for (String key : route.transportKeys) {
-            String location = world.ownerUnitLocations(route.ownerId).get(key);
+        Map<String,String> locations = world.ownerUnitLocations(route.ownerId);
+        LinkedHashSet<String> assigned = new LinkedHashSet<>();
+        assigned.addAll(route.transportKeys);
+        assigned.addAll(route.escortKeys);
+        for (String key : assigned) {
+            String location = locations.get(key);
             if (!world.activeSystemId().equals(location)) continue;
             Unit unit = world.units.get(key);
-            if (unit != null && (UNIT_MARKER + route.id).equals(unit.logisticsRequestId)) {
+            if (unit != null && unit.logisticsRequestId.startsWith(UNIT_MARKER + route.id)) {
                 unit.logisticsRequestId = "";
                 unit.logisticsTargetBaseId = "";
                 unit.targetX = unit.x;
                 unit.targetY = unit.y;
                 if (unit.task == UnitTask.MOVE) unit.task = UnitTask.IDLE;
+                if (route.escortKeys.contains(key)) unit.clearOrder();
             }
         }
         return true;
@@ -597,7 +605,6 @@ final class LogisticsRouteSystem {
         }
         captureCargo(route, transport);
         if (loaded > EPSILON) {
-            route.phase = maxPhase(route.phase, RoutePhase.OUTBOUND);
             String next = nextHop(world, route.sourceSystemId, route.destinationSystemId);
             if (next == null) {
                 route.blockedReason = "no wormhole path to destination";
@@ -610,7 +617,7 @@ final class LogisticsRouteSystem {
                 stop(transport);
                 return;
             }
-            move(transport, gate.x, gate.y);
+            moveTransportToGate(world, route, transport, route.sourceSystemId, gate, RoutePhase.OUTBOUND);
         } else {
             route.phase = maxPhase(route.phase, RoutePhase.WAITING);
             stopNear(source, transport);
@@ -646,7 +653,6 @@ final class LogisticsRouteSystem {
         }
         captureCargo(route, transport);
         if (transport.cargoUsed() <= EPSILON) {
-            route.phase = maxPhase(route.phase, RoutePhase.RETURNING);
             String next = nextHop(world, route.destinationSystemId, route.sourceSystemId);
             if (next == null) {
                 route.blockedReason = "no wormhole path back to source";
@@ -659,7 +665,7 @@ final class LogisticsRouteSystem {
                 stop(transport);
                 return;
             }
-            move(transport, gate.x, gate.y);
+            moveTransportToGate(world, route, transport, route.destinationSystemId, gate, RoutePhase.RETURNING);
         } else {
             route.phase = maxPhase(route.phase, RoutePhase.UNLOADING);
         }
@@ -680,8 +686,37 @@ final class LogisticsRouteSystem {
             stop(transport);
             return;
         }
+        moveTransportToGate(world, route, transport, activeSystemId, gate, phase);
+    }
+
+    private static void moveTransportToGate(World world, LogisticsRoute route, Unit transport,
+                                            String activeSystemId, WormholeGate gate, RoutePhase phase) {
         route.phase = maxPhase(route.phase, phase);
+        double distance = Calc.distance(transport.x, transport.y, gate.x, gate.y);
+        if (distance <= CONVOY_GATE_STAGE_RANGE
+                && !escortsReadyForGate(world, route, activeSystemId, gate)) {
+            stop(transport);
+            return;
+        }
         move(transport, gate.x, gate.y);
+    }
+
+    private static boolean escortsReadyForGate(World world, LogisticsRoute route,
+                                               String activeSystemId, WormholeGate gate) {
+        if (route.escortKeys.isEmpty()) return true;
+        Map<String,String> locations = world.ownerUnitLocations(route.ownerId);
+        for (String key : route.escortKeys) {
+            String location = locations.get(key);
+            if (location == null) continue;
+            if (gate.toSystemId.equals(location)) continue;
+            if (!activeSystemId.equals(location)) return false;
+            Unit escort = world.units.get(key);
+            if (escort != null && escort.hp > 0
+                    && Calc.distance(escort.x, escort.y, gate.x, gate.y) > CONVOY_GATE_ASSEMBLY_RANGE) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static void updateEscortsInSystem(World world, LogisticsRoute route, String activeSystemId) {
@@ -708,22 +743,48 @@ final class LogisticsRouteSystem {
                 continue;
             }
             if (lead == null) {
-                stop(escort);
+                String hopTarget = escortHopTarget(route, escort);
+                if (hopTarget.isBlank() || hopTarget.equals(activeSystemId)) {
+                    stop(escort);
+                    continue;
+                }
+                String next = nextHop(world, activeSystemId, hopTarget);
+                WormholeGate gate = next == null ? null : gateTo(world, next);
+                if (gate == null) {
+                    route.blockedReason = "escort " + key + " cannot reach convoy hop " + hopTarget;
+                    stop(escort);
+                    continue;
+                }
+                escort.clearOrder();
+                move(escort, gate.x, gate.y);
                 continue;
             }
 
             WormholeGate leadGate = gateNearTarget(world, lead.targetX, lead.targetY);
             if (leadGate != null && Calc.distance(lead.x, lead.y, leadGate.x, leadGate.y) < 900) {
                 escort.clearOrder();
+                escort.logisticsRequestId = escortHopMarker(route, leadGate.toSystemId);
                 move(escort, leadGate.x, leadGate.y);
                 continue;
             }
+            escort.logisticsRequestId = UNIT_MARKER + route.id;
             if (!expectedEscortOrder) {
                 escort.setOrder(new UnitOrderCommand(escort.playerId, escort.unitId, UnitOrderType.ESCORT,
                         escort.x, escort.y, escort.x, escort.y,
                         UnitOrderSystem.defaultRadius(UnitOrderType.ESCORT), lead.key(), 0));
             }
         }
+    }
+
+    private static String escortHopMarker(LogisticsRoute route, String destinationSystemId) {
+        return UNIT_MARKER + route.id + ESCORT_HOP_MARKER + clean(destinationSystemId);
+    }
+
+    private static String escortHopTarget(LogisticsRoute route, Unit escort) {
+        if (route == null || escort == null || escort.logisticsRequestId == null) return "";
+        String prefix = UNIT_MARKER + route.id + ESCORT_HOP_MARKER;
+        if (!escort.logisticsRequestId.startsWith(prefix)) return "";
+        return clean(escort.logisticsRequestId.substring(prefix.length()));
     }
 
     private static void stopAssignedInSystem(World world, LogisticsRoute route, String activeSystemId) {
