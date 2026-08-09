@@ -87,6 +87,7 @@ public final class ProductionQueueValidator {
         validateAutoProductionAllocation();
         validateAutoProductionRecipeSelection();
         validateMalformedQueueRejection();
+        Issue294ProductionPolicyValidator.validateOrThrow();
     }
 
     private static void validateLogisticsQueuePersistence() {

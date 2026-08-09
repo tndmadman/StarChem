@@ -66,6 +66,13 @@ final class StationControlMenu {
             });
             production.setAlignmentX(Component.LEFT_ALIGNMENT);
             content.add(production);
+            content.add(Box.createVerticalStrut(5));
+            JButton policies = actionButton("PRODUCTION POLICIES & TEMPLATES", () -> {
+                popup.setVisible(false);
+                ProductionPolicyMenu.show(invoker, world, network, base, x, y);
+            });
+            policies.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(policies);
             content.add(Box.createVerticalStrut(10));
         } else {
             switch (StationControls.role(base.typeId)) {

@@ -119,6 +119,8 @@ final class ProductionPlanner {
 
     static synchronized Map<String,Object> capture(World world) {
         Map<String,Object> out = new LinkedHashMap<>();
+        out.put("productionPolicies", ProductionPolicySystem.capture(world));
+        if (world != null) out.put("logisticsSystem", world.logisticsSystem.capture());
         PlannerState state = STATES.get(world);
         if (state == null) return out;
         out.put("nextPlanId", state.nextPlanId);
@@ -157,6 +159,8 @@ final class ProductionPlanner {
         }
         if (state.plans.isEmpty()) STATES.remove(world);
         else STATES.put(world, state);
+        world.logisticsSystem.restore(world, data.get("logisticsSystem"));
+        ProductionPolicySystem.restore(world, data.get("productionPolicies"));
     }
 
     private static boolean queue(World world, Base target, ProductionJobKind kind, String itemId,
@@ -225,6 +229,7 @@ final class ProductionPlanner {
 
         ProductionJob replacement = target.productionQueue.remove(target.productionQueue.size() - 1);
         target.productionQueue.add(Math.min(originalIndex, target.productionQueue.size()), replacement);
+        ProductionPolicySystem.transferJob(world, target, rootJob.id, replacement.id);
         return true;
     }
 
