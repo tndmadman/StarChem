@@ -480,6 +480,7 @@ final class World {
 
     private void updateUnit(Unit unit, double dt) {
         unit.unloadingThisFrame = false;
+        if (unit.hp <= 0) return;
         unit.wormholeCooldown = Math.max(0, unit.wormholeCooldown - dt);
         if (ProductionSystem.refitLocked(this, unit.key())) {
             UnitCommandQueueSystem.cancelForSystem(this, unit);
