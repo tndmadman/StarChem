@@ -97,16 +97,35 @@ final class ProductionPolicyMenu {
         templateTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
         content.add(templateTitle);
         content.add(Box.createVerticalStrut(4));
-        JLabel templateNote = label("Applying a template creates independent copies; later template edits do not live-link stations.",
+        JLabel templateNote = label("Applying any template creates independent policies; templates never live-link stations.",
                 Font.PLAIN, 11, MUTED);
         templateNote.setAlignmentX(Component.LEFT_ALIGNMENT);
         content.add(templateNote);
         content.add(Box.createVerticalStrut(7));
 
-        List<ProductionPolicySystem.TemplateView> templates = ProductionPolicySystem.templateViews(world, base);
-        for (ProductionPolicySystem.TemplateView template : templates) {
-            content.add(templateRow(popup, invoker, world, network, base, x, y, template));
+        List<ProductionPolicyStarterTemplates.StarterView> starters = ProductionPolicyStarterTemplates.viewsFor(base);
+        if (!starters.isEmpty()) {
+            JLabel starterTitle = label("BUILT-IN STARTERS", Font.BOLD, 11, TEXT);
+            starterTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(starterTitle);
             content.add(Box.createVerticalStrut(4));
+            for (ProductionPolicyStarterTemplates.StarterView starter : starters) {
+                content.add(starterRow(popup, invoker, world, network, base, x, y, starter));
+                content.add(Box.createVerticalStrut(4));
+            }
+            content.add(Box.createVerticalStrut(6));
+        }
+
+        List<ProductionPolicySystem.TemplateView> templates = ProductionPolicySystem.templateViews(world, base);
+        if (!templates.isEmpty()) {
+            JLabel savedTitle = label("SAVED TEMPLATES", Font.BOLD, 11, TEXT);
+            savedTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(savedTitle);
+            content.add(Box.createVerticalStrut(4));
+            for (ProductionPolicySystem.TemplateView template : templates) {
+                content.add(templateRow(popup, invoker, world, network, base, x, y, template));
+                content.add(Box.createVerticalStrut(4));
+            }
         }
         JButton saveTemplate = actionButton("SAVE THIS STATION AS TEMPLATE", () -> {
             String name = JOptionPane.showInputDialog(invoker, "Template name:", "Save production template",
@@ -220,6 +239,23 @@ final class ProductionPolicyMenu {
         return row;
     }
 
+    private static JPanel starterRow(JPopupMenu popup, Component invoker, World world, PeerNetwork network,
+                                     Base base, int x, int y, ProductionPolicyStarterTemplates.StarterView starter) {
+        JPanel row = new JPanel();
+        row.setLayout(new BoxLayout(row, BoxLayout.X_AXIS));
+        row.setBackground(PANEL);
+        row.setBorder(BorderFactory.createEmptyBorder(5, 7, 5, 7));
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 38));
+        JLabel name = label(starter.name() + " — " + starter.entryCount() + " polic"
+                + (starter.entryCount() == 1 ? "y" : "ies"), Font.PLAIN, 11, TEXT);
+        row.add(name);
+        row.add(Box.createHorizontalGlue());
+        row.add(smallButton("Apply", () -> send(popup, invoker, world, network, base, x, y,
+                ProductionPolicyStarterTemplates.COMMAND_APPLY, starter.id())));
+        return row;
+    }
+
     private static JPanel templateRow(JPopupMenu popup, Component invoker, World world, PeerNetwork network,
                                       Base base, int x, int y, ProductionPolicySystem.TemplateView template) {
         JPanel row = new JPanel();
@@ -281,7 +317,7 @@ final class ProductionPolicyMenu {
         fields.add(new JLabel("Maximum outstanding jobs")); fields.add(maxOutstanding);
         fields.add(new JLabel("Repeat maximum (0 = unlimited)")); fields.add(repeatLimit);
         fields.add(new JLabel("Station reserves (IRON:100,FUEL:50)")); fields.add(stationReserve);
-        fields.add(new JLabel("Network reserves (same format)")); fields.add(networkReserve);
+        fields.add(new JLabel("Network reserve across all owned station hangars")); fields.add(networkReserve);
         if (existing != null) {
             fields.add(replaceReserves);
             fields.add(new JLabel("Unchecked keeps current server reserve floors; checked + blank clears them"));
