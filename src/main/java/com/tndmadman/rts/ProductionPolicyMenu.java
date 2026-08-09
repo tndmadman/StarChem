@@ -4,6 +4,7 @@ import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -206,9 +207,16 @@ final class ProductionPolicyMenu {
         JSpinner repeatLimit = new JSpinner(new SpinnerNumberModel(existing == null ? 0 : existing.repeatLimit(), 0, 100_000, 1));
         JTextField stationReserve = new JTextField();
         JTextField networkReserve = new JTextField();
+        JCheckBox replaceReserves = new JCheckBox("Replace reserve floors");
         if (existing != null) {
             type.setSelectedItem(existing.type());
             selectExisting(item, existing);
+            stationReserve.setEnabled(false);
+            networkReserve.setEnabled(false);
+            replaceReserves.addActionListener(event -> {
+                stationReserve.setEnabled(replaceReserves.isSelected());
+                networkReserve.setEnabled(replaceReserves.isSelected());
+            });
         }
 
         JPanel fields = new JPanel(new GridLayout(0, 2, 6, 5));
@@ -222,6 +230,10 @@ final class ProductionPolicyMenu {
         fields.add(new JLabel("Repeat maximum (0 = unlimited)")); fields.add(repeatLimit);
         fields.add(new JLabel("Station reserves (IRON:100,FUEL:50)")); fields.add(stationReserve);
         fields.add(new JLabel("Network reserves (same format)")); fields.add(networkReserve);
+        if (existing != null) {
+            fields.add(replaceReserves);
+            fields.add(new JLabel("Unchecked keeps current server reserve floors; checked + blank clears them"));
+        }
 
         int answer = JOptionPane.showConfirmDialog(invoker, fields,
                 existing == null ? "Create production policy" : "Edit " + existing.id(),
@@ -247,9 +259,12 @@ final class ProductionPolicyMenu {
                 ((Number)batch.getValue()).intValue(), ((Number)priority.getValue()).intValue(),
                 ((Number)maxOutstanding.getValue()).intValue(), ((Number)repeatLimit.getValue()).intValue(),
                 stationFloors, networkFloors);
-        send(popup, invoker, world, network, base, x, y,
-                existing == null ? ProductionPolicySystem.COMMAND_CREATE : ProductionPolicySystem.COMMAND_UPDATE,
-                encoded);
+        String command = existing == null
+                ? ProductionPolicySystem.COMMAND_CREATE
+                : replaceReserves.isSelected()
+                ? ProductionPolicySystem.COMMAND_UPDATE
+                : ProductionPolicyCommandBridge.COMMAND_UPDATE_KEEP_RESERVES;
+        send(popup, invoker, world, network, base, x, y, command, encoded);
     }
 
     private static List<ItemChoice> itemChoices(World world, Base base) {
