@@ -10,9 +10,10 @@ import java.util.Set;
 public final class MinimapHudValidator {
     private MinimapHudValidator() { }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         validateOrThrow();
-        System.out.println("StarChem tactical minimap validation passed.");
+        Issue295MultiplayerCommsValidator.validateOrThrow();
+        System.out.println("StarChem tactical minimap and multiplayer communications validation passed.");
     }
 
     static void validateOrThrow() {

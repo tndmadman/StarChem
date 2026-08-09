@@ -8,6 +8,7 @@ final class ClientPackets {
     private ClientPackets() { }
 
     static void handle(PeerClientSide c, String message) {
+        if (MultiplayerComms.acceptClientPacket(c, message)) return;
         if (BRoute0.apply(c, message)) return;
         String[] p = message.split("\\|", -1);
         if (p[0].equals("ENV")) { c.readEnv(p); return; }

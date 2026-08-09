@@ -302,6 +302,7 @@ public final class GameSettings {
         add("Interface", "Galaxy Map", "galaxy_map", KeyEvent.VK_M, false, true);
         add("Interface", "Inventory", "inventory", KeyEvent.VK_I, false, true);
         add("Interface", "Narration", "narration", KeyEvent.VK_F8, false, true);
+        add("Interface", "Chat", "chat_open", KeyEvent.VK_ENTER, false, true);
         add("Interface", "Fleet Formation", "formation", KeyEvent.VK_F, false, true);
         add("Interface", "Miner Range Overlay", "miner_range", KeyEvent.VK_R, false, true);
         add("Interface", "Mute Audio", "mute_audio", KeyEvent.VK_M, true, true);

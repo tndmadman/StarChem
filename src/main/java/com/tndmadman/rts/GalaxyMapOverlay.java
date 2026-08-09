@@ -65,6 +65,13 @@ final class GalaxyMapOverlay {
         return "";
     }
 
+    Point2D pointForSystem(GalaxyMapSnapshot snapshot, String systemId, int width, int height) {
+        snapshot = visibleSnapshot(snapshot);
+        if (snapshot == null || snapshot.empty() || systemId == null || systemId.isBlank()) return null;
+        NodeLayout node = layout(snapshot, width, height).get(systemId);
+        return node == null ? null : new Point2D.Double(node.x, node.y);
+    }
+
     private GalaxyMapSnapshot visibleSnapshot(GalaxyMapSnapshot snapshot) {
         if (snapshot == null || snapshot.empty()) return snapshot;
         Set<String> linkedSystemIds = new LinkedHashSet<>();
