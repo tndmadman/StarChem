@@ -242,7 +242,7 @@ final class ProductionPolicyMenu {
         if (selected.kind == ProductionJobKind.SHIP && loadoutId.isBlank()) {
             loadoutId = WeaponRules.defaultLoadoutId(selected.itemId);
         }
-        String encoded = ProductionPolicySystem.encodeSpec(existing == null ? "" : existing.id(),
+        String encoded = ProductionPolicyWire.encodeSpec(existing == null ? "" : existing.id(),
                 selectedType, selected.kind, selected.itemId, loadoutId, targetValue,
                 ((Number)batch.getValue()).intValue(), ((Number)priority.getValue()).intValue(),
                 ((Number)maxOutstanding.getValue()).intValue(), ((Number)repeatLimit.getValue()).intValue(),
