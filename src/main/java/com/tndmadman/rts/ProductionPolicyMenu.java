@@ -55,6 +55,25 @@ final class ProductionPolicyMenu {
         content.add(note);
         content.add(Box.createVerticalStrut(9));
 
+        List<ProductionPolicyRecoveryBridge.OrphanView> orphans =
+                ProductionPolicyRecoveryBridge.orphanViews(world, base.playerId);
+        if (!orphans.isEmpty()) {
+            JLabel orphanTitle = label("ORPHANED POLICIES", Font.BOLD, 12, new Color(255, 145, 120));
+            orphanTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(orphanTitle);
+            content.add(Box.createVerticalStrut(3));
+            JLabel orphanNote = label("Their assigned station was lost. Reassign a compatible policy here or delete it.",
+                    Font.PLAIN, 11, MUTED);
+            orphanNote.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(orphanNote);
+            content.add(Box.createVerticalStrut(6));
+            for (ProductionPolicyRecoveryBridge.OrphanView orphan : orphans) {
+                content.add(orphanRow(popup, invoker, world, network, base, x, y, orphan));
+                content.add(Box.createVerticalStrut(5));
+            }
+            content.add(Box.createVerticalStrut(7));
+        }
+
         List<ProductionPolicySystem.PolicyView> policies = ProductionPolicySystem.viewsForBase(world, base);
         if (policies.isEmpty()) {
             JLabel empty = label("No standing production policies are configured for this station.", Font.PLAIN, 12, MUTED);
@@ -115,6 +134,39 @@ final class ProductionPolicyMenu {
         scroll.setPreferredSize(new Dimension(620, Math.min(680, Math.max(280, content.getPreferredSize().height + 18))));
         popup.add(scroll);
         popup.show(invoker, Math.max(4, x), Math.max(4, y));
+    }
+
+    private static JPanel orphanRow(JPopupMenu popup, Component invoker, World world, PeerNetwork network,
+                                    Base base, int x, int y, ProductionPolicyRecoveryBridge.OrphanView orphan) {
+        JPanel row = new JPanel();
+        row.setLayout(new BoxLayout(row, BoxLayout.Y_AXIS));
+        row.setBackground(PANEL);
+        row.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(255, 145, 120)),
+                BorderFactory.createEmptyBorder(6, 7, 6, 7)));
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 92));
+        JLabel title = label(orphan.id() + " | " + readable(orphan.type()) + " | " + orphan.itemId(),
+                Font.BOLD, 11, TEXT);
+        title.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.add(title);
+        JLabel detail = label("Lost station " + orphan.stationId() + " | target " + whole(orphan.targetAmount()),
+                Font.PLAIN, 10, MUTED);
+        detail.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.add(detail);
+        row.add(Box.createVerticalStrut(4));
+        JPanel actions = new JPanel();
+        actions.setOpaque(false);
+        actions.setLayout(new BoxLayout(actions, BoxLayout.X_AXIS));
+        actions.add(smallButton("Reassign here", () -> send(popup, invoker, world, network, base, x, y,
+                ProductionPolicyRecoveryBridge.COMMAND_RECOVER_HERE, orphan.id())));
+        actions.add(Box.createHorizontalStrut(4));
+        actions.add(smallButton("Delete", () -> send(popup, invoker, world, network, base, x, y,
+                ProductionPolicyRecoveryBridge.COMMAND_DELETE_ORPHAN, orphan.id())));
+        actions.add(Box.createHorizontalGlue());
+        actions.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.add(actions);
+        return row;
     }
 
     private static JPanel policyRow(JPopupMenu popup, Component invoker, World world, PeerNetwork network,
