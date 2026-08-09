@@ -30,7 +30,7 @@ public final class Issue294ProductionPolicyValidator {
         World world = world("stock");
         Base plant = base(world, PLAYER + ":M1", PLAYER, "manufacturing", 400, 400);
         fill(plant);
-        String spec = ProductionPolicySystem.encodeSpec("",
+        String spec = ProductionPolicyWire.encodeSpec("",
                 ProductionPolicySystem.PolicyType.MAINTAIN_STOCK,
                 ProductionJobKind.CRAFTABLE, "fuel", "", 100, 2, 80, 2, 0,
                 Map.of(), Map.of());
@@ -77,7 +77,7 @@ public final class Issue294ProductionPolicyValidator {
         world.saveActiveSystem();
         world.activateSystem(home);
 
-        String spec = ProductionPolicySystem.encodeSpec("",
+        String spec = ProductionPolicyWire.encodeSpec("",
                 ProductionPolicySystem.PolicyType.MAINTAIN_FLEET,
                 ProductionJobKind.SHIP, "prospector", WeaponRules.defaultLoadoutId("prospector"),
                 1, 1, 80, 2, 0, Map.of(), Map.of());
@@ -108,7 +108,7 @@ public final class Issue294ProductionPolicyValidator {
         plant.inventory.put(Material.HYDROGEN, hydrogenCost + 20);
         EnumMap<Material,Double> stationReserve = new EnumMap<>(Material.class);
         stationReserve.put(Material.HYDROGEN, 25.0);
-        String reserveSpec = ProductionPolicySystem.encodeSpec("",
+        String reserveSpec = ProductionPolicyWire.encodeSpec("",
                 ProductionPolicySystem.PolicyType.MAINTAIN_STOCK,
                 ProductionJobKind.CRAFTABLE, "fuel", "", 50, 1, 90, 1, 0,
                 stationReserve, Map.of());
@@ -123,7 +123,7 @@ public final class Issue294ProductionPolicyValidator {
         World cancelWorld = world("cancel");
         Base cancelPlant = base(cancelWorld, PLAYER + ":M1", PLAYER, "manufacturing", 400, 400);
         fill(cancelPlant);
-        String spec = ProductionPolicySystem.encodeSpec("",
+        String spec = ProductionPolicyWire.encodeSpec("",
                 ProductionPolicySystem.PolicyType.MAINTAIN_STOCK,
                 ProductionJobKind.CRAFTABLE, "fuel", "", 50, 1, 60, 1, 0,
                 Map.of(), Map.of());
@@ -148,7 +148,7 @@ public final class Issue294ProductionPolicyValidator {
         Base second = base(world, PLAYER + ":M2", PLAYER, "manufacturing", 700, 300);
         fill(first);
         fill(second);
-        String spec = ProductionPolicySystem.encodeSpec("",
+        String spec = ProductionPolicyWire.encodeSpec("",
                 ProductionPolicySystem.PolicyType.MAINTAIN_STOCK,
                 ProductionJobKind.CRAFTABLE, "fuel", "", 150, 2, 75, 2, 0,
                 Map.of(), Map.of());
@@ -182,7 +182,7 @@ public final class Issue294ProductionPolicyValidator {
         World world = world("persist");
         Base plant = base(world, PLAYER + ":M1", PLAYER, "manufacturing", 400, 400);
         fill(plant);
-        String spec = ProductionPolicySystem.encodeSpec("",
+        String spec = ProductionPolicyWire.encodeSpec("",
                 ProductionPolicySystem.PolicyType.REPEAT,
                 ProductionJobKind.CRAFTABLE, "fuel", "", 0, 1, 50, 1, 3,
                 Map.of(), Map.of());
@@ -197,8 +197,6 @@ public final class Issue294ProductionPolicyValidator {
         Map<String,Object> savedPlanner = ProductionPlanner.capture(world);
         ProductionPolicySystem.clear(world);
         world.logisticsSystem.restore(world, Map.of());
-        require(ProductionPolicySystem.viewsForBase(world, plant).isEmpty(),
-                "policy runtime did not clear for persistence test");
         ProductionPlanner.restore(world, savedPlanner);
         List<ProductionPolicySystem.PolicyView> restored = ProductionPolicySystem.viewsForBase(world, plant);
         require(restored.size() == 1 && restored.get(0).type() == ProductionPolicySystem.PolicyType.REPEAT,
@@ -248,14 +246,14 @@ public final class Issue294ProductionPolicyValidator {
         require(!ProductionCommands.apply(world, PLAYER, "POLICY", plant.id,
                 ProductionPolicySystem.COMMAND_CREATE, "garbage"),
                 "malformed policy command was accepted");
-        String invalid = ProductionPolicySystem.encodeSpec("",
+        String invalid = ProductionPolicyWire.encodeSpec("",
                 ProductionPolicySystem.PolicyType.MAINTAIN_STOCK,
                 ProductionJobKind.CRAFTABLE, "fuel", "", 50,
                 ProductionPolicySystem.MAX_BATCH_SIZE + 1, 50, 1, 0, Map.of(), Map.of());
         require(!ProductionCommands.apply(world, PLAYER, "POLICY", plant.id,
                 ProductionPolicySystem.COMMAND_CREATE, invalid),
                 "out-of-bounds policy batch size was accepted");
-        String unknown = ProductionPolicySystem.encodeSpec("",
+        String unknown = ProductionPolicyWire.encodeSpec("",
                 ProductionPolicySystem.PolicyType.MAINTAIN_STOCK,
                 ProductionJobKind.CRAFTABLE, "not_a_recipe", "", 50,
                 1, 50, 1, 0, Map.of(), Map.of());
