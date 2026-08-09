@@ -268,6 +268,11 @@ final class ProductionPolicySystem {
         if (world != null) STATES.remove(world);
     }
 
+    static synchronized void refreshCurrentSystem(World world) {
+        RuntimeState state = world == null ? null : STATES.get(world);
+        if (state != null) refreshCurrentSystem(world, state);
+    }
+
     static String encodeSpec(String policyId, PolicyType type, ProductionJobKind kind, String itemId,
                              String loadoutId, double targetAmount, int batchSize, int priority,
                              int maxOutstandingJobs, int repeatLimit,
@@ -556,7 +561,7 @@ final class ProductionPolicySystem {
     }
 
     private static ReserveDecision reserveDecision(World world, ProductionPolicy policy, Base station, List<Cost> cost) {
-        if (cost.isEmpty()) return ReserveDecision.allowed();
+        if (cost.isEmpty()) return ReserveDecision.permit();
         for (Cost need : cost) {
             double local = station.inventory.getOrDefault(need.material(), 0.0);
             if (local + EPSILON < need.amount()) {
@@ -582,7 +587,7 @@ final class ProductionPolicySystem {
                 }
             }
         }
-        return ReserveDecision.allowed();
+        return ReserveDecision.permit();
     }
 
     private static String missingResearch(World world, ProductionPolicy policy, Base station) {
@@ -1051,6 +1056,7 @@ final class ProductionPolicySystem {
 
     private static String cleanName(String value) {
         String text = value == null ? "" : value.replace('\n', ' ').replace('\r', ' ').trim();
+        if (text.isBlank()) return "";
         if (text.length() > 64) text = text.substring(0, 64);
         return token(text);
     }
@@ -1158,7 +1164,7 @@ final class ProductionPolicySystem {
     private record QueueResult(boolean queued, PolicyStatus status, String reason) { }
 
     private record ReserveDecision(boolean allowed, PolicyStatus status, String reason) {
-        static ReserveDecision allowed() { return new ReserveDecision(true, PolicyStatus.PRODUCING, ""); }
+        static ReserveDecision permit() { return new ReserveDecision(true, PolicyStatus.PRODUCING, ""); }
     }
 
     private static final class SupplyLedger {
