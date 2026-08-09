@@ -44,6 +44,33 @@ final class TextSafety {
         return Normalizer.normalize(playerName(value), Normalizer.Form.NFKC).toLowerCase(Locale.ROOT);
     }
 
+    /**
+     * Normalize untrusted player chat while preserving ordinary Unicode and emoji.
+     * Newlines collapse to spaces and control/format/bidi/private/unassigned code
+     * points are discarded before the code-point limit is applied.
+     */
+    static String chatText(String value, int maximumCodePoints) {
+        if (value == null || value.isBlank() || maximumCodePoints < 1) return "";
+        String normalized = Normalizer.normalize(value, Normalizer.Form.NFKC);
+        StringBuilder out = new StringBuilder(Math.min(normalized.length(), maximumCodePoints * 2));
+        boolean pendingSpace = false;
+        for (int offset = 0; offset < normalized.length(); ) {
+            int codePoint = normalized.codePointAt(offset);
+            offset += Character.charCount(codePoint);
+            if (Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint)
+                    || codePoint == '\n' || codePoint == '\r' || codePoint == '\t') {
+                pendingSpace = out.length() > 0;
+                continue;
+            }
+            if (unsafeChatCodePoint(codePoint)) continue;
+            if (pendingSpace && out.length() > 0) out.append(' ');
+            pendingSpace = false;
+            out.appendCodePoint(codePoint);
+            if (out.codePointCount(0, out.length()) >= maximumCodePoints) break;
+        }
+        return truncateCodePoints(out.toString(), maximumCodePoints).trim();
+    }
+
     static String terminal(String value) {
         if (value == null || value.isEmpty()) return value == null ? "" : value;
         StringBuilder out = new StringBuilder(value.length());
@@ -94,6 +121,17 @@ final class TextSafety {
                 || type == Character.PRIVATE_USE
                 || type == Character.UNASSIGNED
                 || variationSelector(codePoint);
+    }
+
+    private static boolean unsafeChatCodePoint(int codePoint) {
+        int type = Character.getType(codePoint);
+        return type == Character.CONTROL
+                || type == Character.FORMAT
+                || type == Character.LINE_SEPARATOR
+                || type == Character.PARAGRAPH_SEPARATOR
+                || type == Character.SURROGATE
+                || type == Character.PRIVATE_USE
+                || type == Character.UNASSIGNED;
     }
 
     private static boolean unsafeTerminalCodePoint(int codePoint) {
