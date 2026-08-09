@@ -18,7 +18,7 @@ final class GameClient {
     }
 
     void tick(double dt) {
-        MultiplayerCommsUi.ensureInstalled(world);
+        MultiplayerCommsOverlay.ensureInstalled(world);
         SystemAudio.listenTo(world);
         ClientEnvironmentSync.advance(world, dt);
         ClientPrediction.update(world, dt);
