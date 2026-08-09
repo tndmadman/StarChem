@@ -10,8 +10,14 @@ public final class Issue293LogisticsRouteValidator {
 
     public static void main(String[] args) {
         validateMultiHopDeliveryAndReturn();
+        validateLaggingEscortHopAndRestore();
         validateCompetingRoutesAndReserve();
+        validateProductionContention();
+        validateTransportDestructionRecovery();
+        validatePathRemovalRecovery();
         validateSaveRestoreReconciliation();
+        validatePausedSaveRestore();
+        validateStatusResyncFallback();
         validateManualOverrideAndLifecycleCommands();
         validateAuthorizationAndBounds();
         System.out.println("Issue 293 logistics route validation passed.");
@@ -63,6 +69,64 @@ public final class Issue293LogisticsRouteValidator {
                 "second shipment ignored destination in-flight/stock accounting");
     }
 
+    private static void validateLaggingEscortHopAndRestore() {
+        Fixture fixture = fixture("Issue 293 lagging escort", 900, 100);
+        Unit escort = armedEscort(fixture.world, 7020, fixture.source);
+        String spec = LogisticsRouteSystem.encodeSpec("", fixture.destinationSystem, fixture.destination.id,
+                List.of(Material.IRON), 100, 300, 180, 70,
+                List.of(fixture.transport.key()), List.of(escort.key()), false);
+        require(ProductionCommands.apply(fixture.world, "SOLO", "CONTROL", fixture.source.id,
+                        LogisticsRouteSystem.COMMAND_CREATE, spec),
+                "lagging-escort route creation was rejected");
+        LogisticsRouteSystem.update(fixture.world, 0.25);
+
+        List<String> path = LogisticsRouteSystem.pathForTest(
+                fixture.world, fixture.sourceSystem, fixture.destinationSystem);
+        require(path.size() >= 2, "lagging-escort route has no first hop");
+        String firstHop = path.get(1);
+        Unit transport = fixture.world.units.get(fixture.transport.key());
+        require(transport != null, "lagging-escort transport missing before first hop");
+
+        transport.x = transport.targetX;
+        transport.y = transport.targetY;
+        transport.wormholeCooldown = 0;
+        LogisticsRouteSystem.update(fixture.world, 0.01);
+        require(escort.logisticsRequestId.contains(":ESCORT:" + firstHop),
+                "escort did not persist the convoy wormhole hop before lead transfer");
+        require(fixture.world.transferTouchingShips("SOLO"),
+                "lead transport failed to cross first wormhole");
+        require(firstHop.equals(fixture.world.ownerUnitLocations("SOLO").get(transport.key())),
+                "lead transport did not reach the first hop");
+        require(fixture.sourceSystem.equals(fixture.world.ownerUnitLocations("SOLO").get(escort.key())),
+                "escort unexpectedly crossed with the lead in lag test");
+
+        Map<String,Object> galaxy = fixture.world.captureServerSaveGalaxy();
+        Map<String,Object> runtime = fixture.world.captureServerSaveRuntime();
+        World restored = new World("Issue 293 lagging escort restore", Set.of(), fixture.world.systemId(), false);
+        PlayerRegistry.activate(restored);
+        restored.restoreServerSaveGalaxy(galaxy);
+        restored.restoreServerSaveRuntime(runtime);
+        require(LogisticsRouteSystem.ownsEscort(restored, escort.key()),
+                "escort assignment did not survive hop restore");
+
+        restored.activateSystem(fixture.sourceSystem);
+        Unit restoredEscort = restored.units.get(escort.key());
+        require(restoredEscort != null, "lagging escort missing after restore");
+        require(restoredEscort.logisticsRequestId.contains(":ESCORT:" + firstHop),
+                "escort hop intent was not persisted with the unit");
+        LogisticsRouteSystem.update(restored, 0.25);
+        require(Calc.distance(restoredEscort.x, restoredEscort.y,
+                        restoredEscort.targetX, restoredEscort.targetY) > 0.1,
+                "lagging escort stopped instead of continuing to the convoy hop");
+        restoredEscort.x = restoredEscort.targetX;
+        restoredEscort.y = restoredEscort.targetY;
+        restoredEscort.wormholeCooldown = 0;
+        require(restored.transferTouchingShips("SOLO"),
+                "lagging escort failed to follow the persisted wormhole hop");
+        require(firstHop.equals(restored.ownerUnitLocations("SOLO").get(escort.key())),
+                "lagging escort did not reunite with the lead system");
+    }
+
     private static void validateCompetingRoutesAndReserve() {
         Fixture fixture = fixture("Issue 293 competing routes", 1_000, 850);
         Unit second = new Unit("SOLO", 7011, "hauler", fixture.source.x + 12, fixture.source.y + 8);
@@ -89,6 +153,79 @@ public final class Issue293LogisticsRouteValidator {
                 "source reserve was overspent by competing routes");
         require(close(committed + fixture.source.inventory.getOrDefault(Material.IRON, 0.0), 1_000),
                 "route reservation duplicated or destroyed source inventory");
+    }
+
+    private static void validateProductionContention() {
+        Fixture fixture = fixture("Issue 293 production contention", 600, 100);
+        ShipType ship = Rules.ship("hauler");
+        ShipLoadoutDefinition loadout = WeaponRules.defaultLoadout(ship.id);
+        List<Cost> buildCost = WeaponRules.buildCost(ship, loadout);
+        require(!buildCost.isEmpty(), "hauler build cost is empty in production-contention test");
+        Material contested = buildCost.get(0).material();
+        double productionSpend = 0;
+        for (Cost cost : buildCost) {
+            fixture.source.inventory.put(cost.material(),
+                    Math.max(fixture.source.inventory.getOrDefault(cost.material(), 0.0), cost.amount() + 500));
+            if (cost.material() == contested) productionSpend += cost.amount();
+        }
+        double starting = fixture.source.inventory.getOrDefault(contested, 0.0);
+        require(ProductionSystem.enqueueShip(fixture.world, fixture.source, ship, loadout, false),
+                "production reservation was rejected in contention test");
+        require(close(fixture.source.inventory.getOrDefault(contested, 0.0), starting - productionSpend),
+                "production did not reserve the expected contested inventory");
+
+        String spec = LogisticsRouteSystem.encodeSpec("", fixture.destinationSystem, fixture.destination.id,
+                List.of(contested), 100, 300, 300, 50,
+                List.of(fixture.transport.key()), List.of(), false);
+        require(ProductionCommands.apply(fixture.world, "SOLO", "CONTROL", fixture.source.id,
+                        LogisticsRouteSystem.COMMAND_CREATE, spec),
+                "route creation failed after production reservation");
+        LogisticsRouteSystem.update(fixture.world, 0.25);
+        double carried = fixture.transport.inventory.getOrDefault(contested, 0.0);
+        double remaining = fixture.source.inventory.getOrDefault(contested, 0.0);
+        require(remaining >= 99.9, "route consumed the configured reserve after production claimed inventory");
+        require(close(remaining + carried + productionSpend, starting),
+                "production and route reservations double-spent or recreated contested inventory");
+    }
+
+    private static void validateTransportDestructionRecovery() {
+        Fixture fixture = fixture("Issue 293 destroyed transport", 700, 100);
+        String spec = LogisticsRouteSystem.encodeSpec("", fixture.destinationSystem, fixture.destination.id,
+                List.of(Material.IRON), 100, 300, 180, 50,
+                List.of(fixture.transport.key()), List.of(), false);
+        require(ProductionCommands.apply(fixture.world, "SOLO", "CONTROL", fixture.source.id,
+                        LogisticsRouteSystem.COMMAND_CREATE, spec),
+                "destroyed-transport route creation was rejected");
+        LogisticsRouteSystem.update(fixture.world, 0.25);
+        double sourceAfterLoad = fixture.source.inventory.getOrDefault(Material.IRON, 0.0);
+        require(fixture.transport.cargoUsed() > 0.05, "destroyed-transport test did not load cargo");
+        fixture.transport.hp = 0;
+        fixture.world.updateCurrentSystem(0.25);
+        require(close(fixture.source.inventory.getOrDefault(Material.IRON, 0.0), sourceAfterLoad),
+                "destroyed transport recreated its cargo in the source hangar");
+        require(onlyRoute(fixture.world, fixture.source).transportCount() == 0,
+                "destroyed explicitly assigned transport remained attached to the route");
+    }
+
+    private static void validatePathRemovalRecovery() {
+        Fixture fixture = fixture("Issue 293 path removal", 800, 100);
+        String spec = LogisticsRouteSystem.encodeSpec("", fixture.destinationSystem, fixture.destination.id,
+                List.of(Material.IRON), 100, 300, 180, 50,
+                List.of(fixture.transport.key()), List.of(), false);
+        require(ProductionCommands.apply(fixture.world, "SOLO", "CONTROL", fixture.source.id,
+                        LogisticsRouteSystem.COMMAND_CREATE, spec),
+                "path-removal route creation was rejected");
+        LogisticsRouteSystem.update(fixture.world, 0.25);
+        double cargo = fixture.transport.cargoUsed();
+        require(cargo > 0.05, "path-removal test did not load cargo");
+
+        fixture.world.activateSystem(fixture.sourceSystem);
+        fixture.world.wormholes.clear();
+        LogisticsRouteSystem.update(fixture.world, 0.25);
+        require(onlyRoute(fixture.world, fixture.source).phase() == LogisticsRouteSystem.RoutePhase.BLOCKED,
+                "route did not block after its required wormhole gate was removed");
+        require(close(fixture.transport.cargoUsed(), cargo),
+                "path removal recreated or deleted physical in-transit cargo");
     }
 
     private static void validateSaveRestoreReconciliation() {
@@ -125,6 +262,48 @@ public final class Issue293LogisticsRouteValidator {
         LogisticsRouteSystem.update(restored, 0.25);
         require(close(restoredSource.inventory.getOrDefault(Material.IRON, 0.0), sourceBefore),
                 "restore reconciliation double-dispatched an in-progress shipment");
+    }
+
+    private static void validatePausedSaveRestore() {
+        Fixture fixture = fixture("Issue 293 paused restore", 600, 100);
+        String spec = LogisticsRouteSystem.encodeSpec("", fixture.destinationSystem, fixture.destination.id,
+                List.of(Material.IRON), 100, 300, 150, 50,
+                List.of(fixture.transport.key()), List.of(), false);
+        require(ProductionCommands.apply(fixture.world, "SOLO", "CONTROL", fixture.source.id,
+                        LogisticsRouteSystem.COMMAND_CREATE, spec), "paused-restore route was rejected");
+        String routeId = onlyRoute(fixture.world, fixture.source).id();
+        require(ProductionCommands.apply(fixture.world, "SOLO", "CONTROL", fixture.source.id,
+                        LogisticsRouteSystem.COMMAND_PAUSE, routeId), "paused-restore pause was rejected");
+
+        Map<String,Object> galaxy = fixture.world.captureServerSaveGalaxy();
+        Map<String,Object> runtime = fixture.world.captureServerSaveRuntime();
+        World restored = new World("Issue 293 paused restored", Set.of(), fixture.world.systemId(), false);
+        PlayerRegistry.activate(restored);
+        restored.restoreServerSaveGalaxy(galaxy);
+        restored.restoreServerSaveRuntime(runtime);
+        restored.activateSystem(fixture.sourceSystem);
+        Base restoredSource = restored.bases.get(fixture.source.id);
+        require(restoredSource != null, "paused-restore source is missing");
+        require(onlyRoute(restored, restoredSource).phase() == LogisticsRouteSystem.RoutePhase.PAUSED,
+                "paused route resumed unexpectedly after save/restore");
+    }
+
+    private static void validateStatusResyncFallback() {
+        Fixture fixture = fixture("Issue 293 status resync", 600, 100);
+        String spec = LogisticsRouteSystem.encodeSpec("", fixture.destinationSystem, fixture.destination.id,
+                List.of(Material.IRON), 100, 300, 150, 55,
+                List.of(fixture.transport.key()), List.of(), false);
+        require(ProductionCommands.apply(fixture.world, "SOLO", "CONTROL", fixture.source.id,
+                        LogisticsRouteSystem.COMMAND_CREATE, spec), "status-resync route was rejected");
+        LogisticsRouteSystem.update(fixture.world, 0.25);
+        String status = fixture.source.logisticsStatus;
+        List<LogisticsRouteSystem.RouteView> parsed = LogisticsRouteSystem.viewsFromStatus(status);
+        require(parsed.size() == 1 && parsed.get(0).destinationSystemId().equals(fixture.destinationSystem),
+                "authoritative station status did not contain a reconnect-safe route summary");
+        LogisticsRouteSystem.clear(fixture.world);
+        List<LogisticsRouteSystem.RouteView> fallback = LogisticsRouteSystem.viewsForSource(fixture.world, fixture.source);
+        require(fallback.size() == 1 && fallback.get(0).id().equals(parsed.get(0).id()),
+                "client-style status fallback could not reconstruct route state after runtime loss");
     }
 
     private static void validateManualOverrideAndLifecycleCommands() {
@@ -271,7 +450,7 @@ public final class Issue293LogisticsRouteValidator {
     }
 
     private static void moveConvoy(World world, String transportKey, List<String> escortKeys, String targetSystem) {
-        for (int guard = 0; guard < 32; guard++) {
+        for (int guard = 0; guard < 64; guard++) {
             String current = world.ownerUnitLocations("SOLO").get(transportKey);
             require(current != null, "transport vanished during wormhole transit");
             if (targetSystem.equals(current)) return;
