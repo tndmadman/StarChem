@@ -7,6 +7,9 @@ final class LogisticsSystem {
     private static final double DOCK_RANGE_FACTOR = 0.42;
     private static final double CLOSEST_SOURCE_BIAS = 1.5;
     private static final double RECHECK_INTERVAL = 2.0;
+    private static final int MAX_SAVED_REQUESTS = 2048;
+    private static final int MAX_TEXT = 256;
+    private static final double MAX_COST_AMOUNT = 1_000_000;
     private final List<LogisticsRequest> requests = new ArrayList<>();
     private long nextRequestId = 1;
 
@@ -38,12 +41,92 @@ final class LogisticsSystem {
 
     void update(World world, double dt) {
         if (world == null) return;
+        bindActiveTargets(world);
         deliverActiveShuttles(world);
         reconcileInTransit(world);
         cleanupDeadRequests(world);
         recheckWaitingRequests(world, dt);
         completeReadyRequests(world);
         updateBaseStatuses(world);
+        ProductionPolicySystem.refreshCurrentSystem(world);
+    }
+
+    Map<String,Object> capture() {
+        Map<String,Object> out = new LinkedHashMap<>();
+        out.put("nextRequestId", nextRequestId);
+        List<Object> savedRequests = new ArrayList<>();
+        int limit = Math.min(MAX_SAVED_REQUESTS, requests.size());
+        for (int i = 0; i < limit; i++) {
+            LogisticsRequest request = requests.get(i);
+            if (request == null) continue;
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("id", request.id);
+            row.put("targetSystemId", request.targetSystemId);
+            row.put("playerId", request.playerId);
+            row.put("targetBaseId", request.targetBaseId);
+            row.put("productionJobId", request.productionJobId);
+            row.put("itemName", request.itemName);
+            List<Object> costs = new ArrayList<>();
+            for (Cost cost : request.cost) {
+                Map<String,Object> costRow = new LinkedHashMap<>();
+                costRow.put("material", cost.material().name());
+                costRow.put("amount", cost.amount());
+                costs.add(costRow);
+            }
+            row.put("cost", costs);
+            row.put("held", ServerSaveStore.materialMap(request.held));
+            row.put("recheckTimer", request.recheckTimer);
+            savedRequests.add(row);
+        }
+        out.put("requests", savedRequests);
+        return out;
+    }
+
+    void restore(World world, Object saved) {
+        requests.clear();
+        nextRequestId = 1;
+        if (world == null) return;
+        Map<String,Object> data = ServerSaveStore.object(saved);
+        nextRequestId = Math.max(1, ServerSaveStore.longValue(data, "nextRequestId", 1));
+        Set<String> ids = new LinkedHashSet<>();
+        int count = 0;
+        for (Object item : ServerSaveStore.list(data.get("requests"))) {
+            if (count >= MAX_SAVED_REQUESTS) break;
+            Map<String,Object> row = ServerSaveStore.object(item);
+            String id = ServerSaveStore.string(row, "id", "");
+            String targetSystemId = ServerSaveStore.string(row, "targetSystemId", "");
+            String playerId = ServerSaveStore.string(row, "playerId", "");
+            String targetBaseId = ServerSaveStore.string(row, "targetBaseId", "");
+            String productionJobId = ServerSaveStore.string(row, "productionJobId", "");
+            String itemName = boundedText(ServerSaveStore.string(row, "itemName", "Production"));
+            if (!validToken(id, 64) || !ids.add(id) || !validToken(targetSystemId, 128)
+                    || !validToken(playerId, 64) || !validToken(targetBaseId, 128)
+                    || !validToken(productionJobId, 64)) continue;
+            List<Cost> cost = restoreCosts(row.get("cost"));
+            if (cost.isEmpty()) continue;
+            Base target = targetSystemId.equals(world.activeSystemId())
+                    ? world.bases.get(targetBaseId) : null;
+            LogisticsRequest request = new LogisticsRequest(id, targetSystemId, playerId,
+                    targetBaseId, target, productionJobId, itemName, cost);
+            EnumMap<Material,Double> held = ServerSaveStore.restoreMaterialMap(row.get("held"));
+            boolean heldValid = true;
+            for (Map.Entry<Material,Double> entry : held.entrySet()) {
+                double amount = entry.getValue() == null ? 0 : entry.getValue();
+                if (!Double.isFinite(amount) || amount < 0 || amount > MAX_COST_AMOUNT) {
+                    heldValid = false;
+                    break;
+                }
+            }
+            if (!heldValid) continue;
+            request.held.putAll(held);
+            request.recheckTimer = boundedTimer(ServerSaveStore.doubleValue(row, "recheckTimer", 0));
+            requests.add(request);
+            count++;
+        }
+        bindActiveTargets(world);
+        reconcileInTransit(world);
+        updateBaseStatuses(world);
+        ProductionPolicySystem.refreshCurrentSystem(world);
     }
 
     private boolean queue(World world, Base target, ProductionJobKind kind, String itemId, String itemName,
@@ -62,6 +145,7 @@ final class LogisticsSystem {
         requests.add(request);
         dispatchOutstanding(world, target, request);
         target.logisticsStatus = waitLabel(request, requestCount(world, target));
+        ProductionPolicySystem.refreshCurrentSystem(world);
         return true;
     }
 
@@ -153,6 +237,15 @@ final class LogisticsSystem {
         return sent;
     }
 
+    private void bindActiveTargets(World world) {
+        String systemId = world.activeSystemId();
+        for (LogisticsRequest request : requests) {
+            if (!request.inSystem(systemId)) continue;
+            Base target = world.bases.get(request.targetBaseId);
+            if (target != null && request.playerId.equals(target.playerId)) request.targetRef = target;
+        }
+    }
+
     private void deliverActiveShuttles(World world) {
         Iterator<Unit> it = world.units.values().iterator();
         while (it.hasNext()) {
@@ -221,6 +314,7 @@ final class LogisticsSystem {
             if (!request.inSystem(systemId)) continue;
             Base target = world.bases.get(request.targetBaseId);
             if (target == null) continue;
+            request.targetRef = target;
             request.recheckTimer += Math.max(0, dt);
             if (request.recheckTimer < RECHECK_INTERVAL) continue;
             request.recheckTimer = 0;
@@ -237,6 +331,7 @@ final class LogisticsSystem {
             if (!request.inSystem(systemId)) continue;
             Base target = world.bases.get(request.targetBaseId);
             if (target == null) continue;
+            request.targetRef = target;
             ProductionJob job = ProductionSystem.findJob(target, request.productionJobId);
             if (!ProductionSystem.waitingForResources(job)) continue;
             request.reserveAvailable(target);
@@ -257,7 +352,8 @@ final class LogisticsSystem {
         Iterator<LogisticsRequest> it = requests.iterator();
         while (it.hasNext()) {
             LogisticsRequest request = it.next();
-            if (request.targetRef != target || !request.productionJobId.equals(productionJobId)) continue;
+            boolean sameTarget = request.targetRef == target || request.targetBaseId.equals(target.id);
+            if (!sameTarget || !request.productionJobId.equals(productionJobId)) continue;
             request.refundHeld(target);
             it.remove();
         }
@@ -271,10 +367,11 @@ final class LogisticsSystem {
             LogisticsRequest request = it.next();
             if (!request.inSystem(systemId)) continue;
             Base target = world.bases.get(request.targetBaseId);
-            if (target == null) {
+            if (target == null || !request.playerId.equals(target.playerId)) {
                 it.remove();
                 continue;
             }
+            request.targetRef = target;
             ProductionJob job = ProductionSystem.findJob(target, request.productionJobId);
             if (ProductionSystem.waitingForResources(job)) continue;
             request.refundHeld(target);
@@ -302,7 +399,8 @@ final class LogisticsSystem {
         LogisticsRequest first = null;
         int count = 0;
         for (LogisticsRequest request : requests) {
-            if (request.targetRef != base) continue;
+            boolean sameTarget = request.targetRef == base || request.targetBaseId.equals(base.id);
+            if (!sameTarget) continue;
             if (first == null) first = request;
             count++;
         }
@@ -328,6 +426,45 @@ final class LogisticsSystem {
         if (id == null || id.isBlank()) return null;
         for (LogisticsRequest request : requests) if (request.id.equals(id)) return request;
         return null;
+    }
+
+    private List<Cost> restoreCosts(Object saved) {
+        EnumMap<Material,Double> merged = new EnumMap<>(Material.class);
+        int count = 0;
+        for (Object item : ServerSaveStore.list(saved)) {
+            if (count++ >= Material.values().length) return List.of();
+            Map<String,Object> row = ServerSaveStore.object(item);
+            Material material = ServerSaveStore.enumValue(Material.class, row.get("material"), null);
+            double amount = ServerSaveStore.doubleValue(row, "amount", 0);
+            if (material == null || !Double.isFinite(amount) || amount <= 0 || amount > MAX_COST_AMOUNT) return List.of();
+            merged.merge(material, amount, Double::sum);
+            if (merged.get(material) > MAX_COST_AMOUNT) return List.of();
+        }
+        List<Cost> out = new ArrayList<>();
+        for (Material material : Material.values()) {
+            double amount = merged.getOrDefault(material, 0.0);
+            if (amount > 0.001) out.add(new Cost(material, amount));
+        }
+        return List.copyOf(out);
+    }
+
+    private boolean validToken(String value, int max) {
+        if (value == null || value.isBlank() || value.length() > max) return false;
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (Character.isISOControl(c) || c == '|' || c == '^' || c == '~') return false;
+        }
+        return true;
+    }
+
+    private String boundedText(String value) {
+        String text = value == null ? "" : value.replace('\n', ' ').replace('\r', ' ').trim();
+        return text.length() <= MAX_TEXT ? text : text.substring(0, MAX_TEXT);
+    }
+
+    private double boundedTimer(double value) {
+        if (!Double.isFinite(value) || value < 0) return 0;
+        return Math.min(RECHECK_INTERVAL, value);
     }
 
     private void moveToward(Unit shuttle, Base target) {
@@ -363,7 +500,7 @@ final class LogisticsSystem {
 
 final class LogisticsRequest {
     final String id, targetSystemId, playerId, targetBaseId, productionJobId, itemName;
-    final Base targetRef;
+    Base targetRef;
     final List<Cost> cost;
     final EnumMap<Material, Double> held = new EnumMap<>(Material.class);
     final EnumMap<Material, Double> inTransit = new EnumMap<>(Material.class);
