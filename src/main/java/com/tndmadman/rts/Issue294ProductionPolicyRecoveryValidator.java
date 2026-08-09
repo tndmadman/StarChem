@@ -46,11 +46,25 @@ public final class Issue294ProductionPolicyRecoveryValidator {
                 "destroyed station policy was not exposed as orphaned");
 
         Base networkCopy = NetBaseSync.fromState(NetBaseSync.toState(replacement));
-        require(ProductionPolicyRecoveryBridge.orphanViews(nullSafeWorld(networkCopy), playerId).isEmpty(),
-                "client-only helper unexpectedly accepted a synthetic world");
+        World clientWorld = new World("Issue 294 Recovery Client", Set.of(), world.activeSystemId(), false);
+        clientWorld.bases.clear();
+        clientWorld.bases.put(networkCopy.id, networkCopy);
+        List<ProductionPolicyRecoveryBridge.OrphanView> clientOrphans =
+                ProductionPolicyRecoveryBridge.orphanViews(clientWorld, playerId);
+        require(clientOrphans.size() == 1 && policyId.equals(clientOrphans.get(0).id()),
+                "compact multiplayer state did not expose the orphan to a client world");
 
-        require(ProductionPolicyRecoveryBridge.reassign(world, playerId, policyId, replacement),
-                "orphaned policy could not be reassigned to a compatible station");
+        ProductionPolicySystem.refreshCurrentSystem(world);
+        Base refreshedCopy = NetBaseSync.fromState(NetBaseSync.toState(replacement));
+        World refreshedClient = new World("Issue 294 Recovery Refreshed Client", Set.of(), world.activeSystemId(), false);
+        refreshedClient.bases.clear();
+        refreshedClient.bases.put(refreshedCopy.id, refreshedCopy);
+        require(ProductionPolicyRecoveryBridge.orphanViews(refreshedClient, playerId).size() == 1,
+                "normal policy status refresh erased the compact orphan marker");
+
+        require(ProductionCommands.apply(world, playerId, "POLICY", replacement.id,
+                        ProductionPolicyRecoveryBridge.COMMAND_RECOVER_HERE, policyId),
+                "authoritative orphan recovery command could not reassign the policy");
         List<ProductionPolicySystem.PolicyView> reassigned = ProductionPolicySystem.viewsForBase(world, replacement);
         require(reassigned.size() == 1 && policyId.equals(reassigned.get(0).id()) && reassigned.get(0).enabled(),
                 "reassigned policy did not preserve identity and enabled state");
@@ -73,18 +87,14 @@ public final class Issue294ProductionPolicyRecoveryValidator {
         String secondId = ProductionPolicySystem.viewsForBase(world, doomed).get(0).id();
         world.bases.remove(doomed.id);
         ProductionPolicySystem.update(world, 0.6);
-        require(ProductionPolicyRecoveryBridge.delete(world, playerId, secondId),
-                "orphaned policy delete failed");
+        ProductionPolicyRecoveryBridge.refreshStatus(world);
+        require(ProductionCommands.apply(world, playerId, "POLICY", replacement.id,
+                        ProductionPolicyRecoveryBridge.COMMAND_DELETE_ORPHAN, secondId),
+                "authoritative orphan delete command failed");
         for (ProductionPolicyRecoveryBridge.OrphanView orphan :
                 ProductionPolicyRecoveryBridge.orphanViews(world, playerId)) {
             require(!secondId.equals(orphan.id()), "deleted orphan remained in recovery state");
         }
-    }
-
-    private static World nullSafeWorld(Base base) {
-        // The compact recovery view is intentionally read from a normal synced client world,
-        // not from an isolated Base object. Return null here to assert the helper fails closed.
-        return null;
     }
 
     private static Base base(World world, String id, String playerId, String typeId, double x, double y) {
