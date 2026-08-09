@@ -9,6 +9,7 @@ final class AUnitWork {
         ResourceNode node = world.findResource(command.resourceId());
         ResourceNetDebug.hostWorkOrder(world, command, unit, node);
         if (!valid(world, unit, node, command)) return false;
+        LogisticsRouteSystem.releaseForManualCommand(world, unit.key());
         UnitCommandQueueSystem.legacyReplace(world, unit);
         unit.setMiningAnchor(node.x, node.y);
         unit.startAutoHarvest(node.id);

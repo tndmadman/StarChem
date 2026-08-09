@@ -217,6 +217,7 @@ final class AUnitOrder {
                 Calc.clamp(command.x1(), 0, world.width), Calc.clamp(command.y1(), 0, world.height),
                 Calc.clamp(command.x2(), 0, world.width), Calc.clamp(command.y2(), 0, world.height),
                 radius, target, Math.max(0, command.phase()));
+        LogisticsRouteSystem.releaseForManualCommand(world, unit.key());
         UnitCommandQueueSystem.legacyReplace(world, unit);
         unit.setOrder(safe);
         UnitOrderSystem.update(world, unit, 0);

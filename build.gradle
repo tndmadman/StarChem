@@ -147,6 +147,15 @@ tasks.register('validateIssue291CommandQueues', JavaExec) {
     jvmArgs '-Djava.awt.headless=true'
 }
 
+tasks.register('validateIssue293LogisticsRoutes', JavaExec) {
+    group = 'verification'
+    description = 'Validate persistent inter-system logistics routes, reservations, recovery, and authority.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.Issue293LogisticsRouteValidator'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
 tasks.register('validateIssue289Completion', JavaExec) {
     group = 'verification'
     description = 'Validate issue 289 dedicated lifecycle, authority, persistence, and recovery.'
@@ -529,6 +538,7 @@ tasks.named('check') {
     dependsOn tasks.named('validateShipModuleRefits')
     dependsOn tasks.named('validateDistributedRefitQueues')
     dependsOn tasks.named('validateIssue291CommandQueues')
+    dependsOn tasks.named('validateIssue293LogisticsRoutes')
     dependsOn tasks.named('validateIssue289Completion')
     dependsOn tasks.named('validateProductionQueues')
     dependsOn tasks.named('validateDevAccess')

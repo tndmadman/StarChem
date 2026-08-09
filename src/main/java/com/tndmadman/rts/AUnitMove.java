@@ -8,6 +8,7 @@ final class AUnitMove {
         Unit u = world.units.get(Unit.key(c.playerId(), c.unitId()));
         if (u == null || ProductionSystem.refitReserved(world, u.key())) return false;
         if (!GameplayCommandNumbers.worldCoordinate(world, c.x(), c.y())) return false;
+        LogisticsRouteSystem.releaseForManualCommand(world, u.key());
         UnitCommandQueueSystem.legacyReplace(world, u);
         u.issueMove(c.x(), c.y());
         return true;

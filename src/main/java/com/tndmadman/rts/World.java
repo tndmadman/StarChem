@@ -95,6 +95,7 @@ final class World {
         if (GalaxyRuntimeOptions.copiesPerTemplate() == normalized) return;
         GalaxyRuntimeOptions.configureCopies(normalized);
         clearNpcAiRuntimeState();
+        LogisticsRouteSystem.clear(this);
         remoteGalaxyMapSnapshot = null;
         celestials = galaxy.rebuild(this, starSystem, systemSeed);
         systemTime = galaxy.activeSystemTime();
@@ -123,6 +124,7 @@ final class World {
         Map<String,Object> out = new LinkedHashMap<>();
         out.put("simulationScheduler", SystemSimulationScheduler.capture(this));
         out.put("productionPlanner", ProductionPlanner.capture(this));
+        out.put("logisticsRoutes", LogisticsRouteSystem.capture(this));
         out.put("npcFactions", captureNpcFactionRuntimes());
         out.put("npcStrategicDirector", NpcStrategicDirector.capture(this));
         out.put("npcStationConstruction", NpcStationConstructionSystem.capture(this));
@@ -137,6 +139,7 @@ final class World {
         Map<String,Object> data = save == null ? Map.of() : save;
         SystemSimulationScheduler.restore(this, data.get("simulationScheduler"));
         ProductionPlanner.restore(this, data.get("productionPlanner"));
+        LogisticsRouteSystem.restore(this, data.get("logisticsRoutes"));
         restoreNpcFactionRuntimes(data.get("npcFactions"));
         NpcStrategicDirector.restore(this, data.get("npcStrategicDirector"));
         NpcStationConstructionSystem.restore(this, data.get("npcStationConstruction"));
@@ -157,6 +160,7 @@ final class World {
 
     Set<String> removePlayerAndPruneEmptySystems(String playerId) {
         completedResearch.remove(playerId);
+        LogisticsRouteSystem.removePlayer(this, playerId);
         Set<String> deleted = galaxy.removePlayerAndPruneEmptySystems(this, playerId);
         npcSystems.keySet().removeAll(deleted);
         removeOrganizedNpcSystems(deleted);
@@ -275,7 +279,7 @@ final class World {
     void syncEnvironment(long seed, double hostTime) { syncEnvironment(systemId(), seed, hostTime); }
     void syncEnvironment(String newSystemId, long seed, double hostTime) { boolean changed = !StarSystems.get(newSystemId).id().equals(systemId()); if (changed) setStarSystem(newSystemId); if (changed || seed != systemSeed) setSystemSeed(seed); double delta = hostTime - systemTime; if (Math.abs(delta) > 0.02) advanceEnvironment(delta); else { systemTime = hostTime; galaxy.setActiveSystemTime(hostTime); } }
     private void setStarSystem(String systemId) { starSystem = StarSystems.get(systemId); }
-    private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); clearNpcAiRuntimeState(); remoteGalaxyMapSnapshot = null; celestials = galaxy.rebuild(this, starSystem, seed); }
+    private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); clearNpcAiRuntimeState(); LogisticsRouteSystem.clear(this); remoteGalaxyMapSnapshot = null; celestials = galaxy.rebuild(this, starSystem, seed); }
     private Point2D startShipPoint(Point2D basePoint) { return new Point2D.Double(basePoint.getX() + 180, basePoint.getY() - 80); }
 
     private void clearNpcAiRuntimeState() {
@@ -359,6 +363,7 @@ final class World {
         StationFuelRules.consume(this, dt);
         ProductionSystem.updateRefitRecalls(this);
         logisticsSystem.update(this, dt);
+        LogisticsRouteSystem.update(this, dt);
         itemPickupSystem.update(this);
         scoutSystem.update(this);
         npcSystemForActiveSystem().update(this, dt);
@@ -494,15 +499,16 @@ final class World {
         }
         boolean recoveryOwned = NpcRecoverySystem.ownsUnit(this, unit)
                 || NpcRepairEvacuationSystem.ownsUnit(this, unit);
-        if (!recoveryOwned) {
+        boolean logisticsRouteOwned = LogisticsRouteSystem.ownsTransport(this, unit);
+        if (!recoveryOwned && !logisticsRouteOwned) {
             sendFullHarvestCargoToUnload(unit);
             autoUnload(unit, dt);
             haulerSystem.update(this, unit, dt);
             workSystem.update(this, unit, dt);
         }
         UnitOrderSystem.update(this, unit, dt);
-        if (!recoveryOwned && unit.task == UnitTask.RETURN_TO_STATION) updateReturn(unit);
-        if (!recoveryOwned && unit.task == UnitTask.IDLE && unit.orderType == UnitOrderType.NONE) idleNearBase(unit, dt);
+        if (!recoveryOwned && !logisticsRouteOwned && unit.task == UnitTask.RETURN_TO_STATION) updateReturn(unit);
+        if (!recoveryOwned && !logisticsRouteOwned && unit.task == UnitTask.IDLE && unit.orderType == UnitOrderType.NONE) idleNearBase(unit, dt);
         if (unit.task == UnitTask.MOVE && Calc.distance(unit.x, unit.y, unit.targetX, unit.targetY) < 5) unit.task = UnitTask.IDLE;
         ShipModuleRules.update(this, unit, dt);
         unit.updatePosition(dt * SystemModifierRules.movementSpeed(this), width, height);
