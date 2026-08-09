@@ -5,6 +5,7 @@ final class PacketSideA {
 
     static void handle(PeerServerSide s, String message, NetPacket packet) {
         try {
+            if (MultiplayerComms.handleServer(s, message, packet)) return;
             String[] p = message == null ? new String[0] : message.split("\\|", -1);
             ConnectionId connectionId = packet == null ? ConnectionId.NONE : packet.connectionId();
             if (SideAJoin.handle(s, p, connectionId, packet)) return;
