@@ -187,12 +187,12 @@ final class ProductionSystem {
     }
 
     static void updateRefitRecalls(World world) {
-    if (world == null) return;
-    for (Base base : new ArrayList<>(world.bases.values())) {
-        cleanupInvalidRefits(world, base);
-        recallQueuedRefits(world, base);
+        if (world == null) return;
+        for (Base base : new ArrayList<>(world.bases.values())) {
+            cleanupInvalidRefits(world, base);
+            recallQueuedRefits(world, base);
+        }
     }
-}
 
     static void update(World world, double dt) {
         if (world == null || dt < 0) return;
@@ -477,6 +477,7 @@ final class ProductionSystem {
                     unit.afterburnerActive = false;
                 }
             }
+            ProductionPolicySystem.onManualJobCancelled(world, base, job);
             world.status = "Cancelled " + displayName(world, job) + (refunded ? " and refunded reserved resources." : ".");
             processBase(world, base, 0);
             return true;
@@ -592,7 +593,8 @@ final class ProductionSystem {
         } else if (waitingForResources(job)) {
             state = "queued #" + (position + 1) + " | " + WAITING_FOR_RESOURCES;
         } else state = "queued #" + (position + 1) + " | " + Math.max(0, (int)Math.ceil(job.duration)) + "s";
-        return state;
+        String automatic = ProductionPolicySystem.jobLabel(PlayerRegistry.activeWorld(), base, job.id);
+        return automatic.isBlank() ? state : automatic + " | " + state;
     }
 
     static List<Cost> costFor(World world, ProductionJob job) {
@@ -764,6 +766,7 @@ final class ProductionCommands {
         }
         return switch (normalized) {
             case "CONTROL" -> StationControlCommands.apply(world, playerId, baseId, value, extra);
+            case "POLICY" -> ProductionPolicySystem.applyCommand(world, playerId, baseId, value, extra);
             case "ENQUEUE" -> enqueue(world, value, baseId, extra);
             case "CANCEL" -> ProductionSystem.cancel(world, playerId, baseId, value);
             case "MOVE" -> ProductionSystem.move(world, playerId, baseId, value, parseInt(extra));
