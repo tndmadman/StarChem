@@ -3,19 +3,28 @@ package com.tndmadman.rts;
 import java.awt.Point;
 import java.awt.geom.Point2D;
 import java.awt.geom.Rectangle2D;
+import java.util.Collections;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
+import java.util.WeakHashMap;
 
 final class GameCamera {
     private static final double MIN_ZOOM = 0.36;
     private static final double MAX_ZOOM = 2.2;
+    private static final Map<World, GameCamera> ACTIVE = Collections.synchronizedMap(new WeakHashMap<>());
     private double x;
     private double y;
     private double zoom = 0.9;
     private boolean initialized;
     private Set<String> lastLocalEntityKeys = Set.of();
 
+    static GameCamera forWorld(World world) {
+        return world == null ? null : ACTIVE.get(world);
+    }
+
     void update(World world, int screenW, int screenH, double dt) {
+        if (world != null) ACTIVE.put(world, this);
         Set<String> currentLocalEntityKeys = localEntityKeys(world);
         if (!initialized) initialized = centerOnLocal(world, screenW, screenH);
         else if (localEntitiesReplaced(currentLocalEntityKeys)) centerOnLocal(world, screenW, screenH);
