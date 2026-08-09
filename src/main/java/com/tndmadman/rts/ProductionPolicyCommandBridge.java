@@ -1,18 +1,25 @@
 package com.tndmadman.rts;
 
 import java.util.ArrayList;
-import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** Command shim for edit operations that intentionally preserve server-owned reserve floors. */
+/** Command shim for policy edits and destroyed-station recovery operations. */
 final class ProductionPolicyCommandBridge {
     static final String COMMAND_UPDATE_KEEP_RESERVES = "UPDATE_KEEP_RESERVES";
 
     private ProductionPolicyCommandBridge() { }
 
     static boolean apply(World world, String playerId, String baseId, String command, String payload) {
+        if (world == null || playerId == null || baseId == null || command == null) return false;
+        if (ProductionPolicyRecoveryBridge.COMMAND_RECOVER_HERE.equalsIgnoreCase(command)) {
+            Base target = world.bases.get(baseId);
+            return ProductionPolicyRecoveryBridge.reassign(world, playerId, payload, target);
+        }
+        if (ProductionPolicyRecoveryBridge.COMMAND_DELETE_ORPHAN.equalsIgnoreCase(command)) {
+            return ProductionPolicyRecoveryBridge.delete(world, playerId, payload);
+        }
         if (!COMMAND_UPDATE_KEEP_RESERVES.equalsIgnoreCase(command)) {
             return ProductionPolicySystem.applyCommand(world, playerId, baseId, command, payload);
         }
