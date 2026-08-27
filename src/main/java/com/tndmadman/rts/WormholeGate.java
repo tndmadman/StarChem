@@ -24,10 +24,14 @@ final class WormholeGate {
     }
 
     boolean contains(double wx, double wy) {
+        World world = PlayerRegistry.activeWorld();
+        if (world != null && !GalaxyEventDirector.wormholeAcceptsTransit(world, id)) return false;
         return Calc.distance(wx, wy, x, y) <= radius * 0.68;
     }
 
     String label() {
+        World world = PlayerRegistry.activeWorld();
+        if (world != null && !GalaxyEventDirector.wormholeAcceptsTransit(world, id)) return toSystemId + " (closing)";
         return toSystemId;
     }
 
