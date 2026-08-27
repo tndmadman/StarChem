@@ -95,7 +95,8 @@ public final class Issue298EmpireOverviewValidator {
         if (completed != null) require(changed.research().stream().anyMatch(row -> completed.id.equals(row.topicId())
                         && "COMPLETE".equals(row.status())),
                 "completed research did not appear in strategic overview");
-        require(changed.stations().stream().anyMatch(row -> base.id.equals(row.baseId()) && row.queueSize() == 1),
+        String strategicBaseId = base.id.startsWith(base.playerId + ":") ? base.id : base.playerId + ":" + base.id;
+        require(changed.stations().stream().anyMatch(row -> strategicBaseId.equals(row.baseId()) && row.queueSize() == 1),
                 "station queue count was not refreshed in strategic overview");
 
         unit.hp = 0;
