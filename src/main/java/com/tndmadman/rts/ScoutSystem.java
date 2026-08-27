@@ -156,7 +156,8 @@ final class ScoutSystem {
         int bestAssigned = Integer.MAX_VALUE;
         double bestDist = Double.MAX_VALUE;
         for (Base radar : world.bases.values()) {
-            if (!miner.playerId.equals(radar.playerId) || radar.hp <= 0 || !IntelWarfareSystem.isRadar(radar.typeId)) continue;
+            if (!miner.playerId.equals(radar.playerId) || radar.hp <= 0 || !IntelWarfareSystem.isRadar(radar.typeId)
+                    || StationControls.radarSearchTarget(world, radar) == StationControls.RadarSearchTarget.WORMHOLES) continue;
             double range = VisibilityRules.baseSensorRange(world, radar);
             for (ResourceNode node : world.resources) {
                 if (!node.active || node.id == oldNode.id || !miner.type().harvestKinds.contains(node.kind)) continue;
@@ -183,6 +184,7 @@ final class ScoutSystem {
     }
 
     private void dispatchWorkers(World world, Base radar) {
+        if (StationControls.radarSearchTarget(world, radar) == StationControls.RadarSearchTarget.WORMHOLES) return;
         int limit = IntelWarfareSystem.dispatchLimit(radar.typeId);
         if (limit <= 0) return;
 
