@@ -84,6 +84,29 @@ final class GalaxyEventDirector {
         return true;
     }
 
+    static synchronized List<GalaxyMapLink> temporaryLinksFor(World world, String playerId) {
+        if (world == null || playerId == null || playerId.isBlank()) return List.of();
+        if (!authoritative(world)) {
+            List<GalaxyMapLink> out = new ArrayList<>();
+            for (GalaxyEventView view : remoteViews(world)) {
+                if (view.kind() != GalaxyEventKind.UNSTABLE_WORMHOLE || view.phase() != GalaxyEventPhase.ACTIVE) continue;
+            }
+            return List.copyOf(out);
+        }
+        RuntimeState state = STATES.get(world);
+        if (state == null) return List.of();
+        List<GalaxyMapLink> out = new ArrayList<>();
+        for (GalaxyEventInstance event : state.events.values()) {
+            if (event.phase != GalaxyEventPhase.ACTIVE || !event.discoveredBy.contains(playerId)) continue;
+            GalaxyEventDefinition definition = catalog().byId(event.definitionId);
+            if (definition == null || definition.kind() != GalaxyEventKind.UNSTABLE_WORMHOLE) continue;
+            String target = clean(event.custom.get("targetSystemId"));
+            if (target.isBlank() || target.equals(event.systemId)) continue;
+            out.add(new GalaxyMapLink(event.systemId, target));
+        }
+        return List.copyOf(out);
+    }
+
     static synchronized List<GalaxyEventView> viewsFor(World world, String playerId) {
         if (world == null || playerId == null || playerId.isBlank()) return List.of();
         if (!authoritative(world)) return remoteViews(world);
@@ -92,8 +115,7 @@ final class GalaxyEventDirector {
         List<GalaxyEventView> out = new ArrayList<>();
         for (GalaxyEventInstance event : state.events.values()) {
             if (!event.discoveredBy.contains(playerId)) continue;
-            if (event.phase == GalaxyEventPhase.COMPLETED || event.phase == GalaxyEventPhase.FAILED
-                    || event.phase == GalaxyEventPhase.EXPIRED) continue;
+            if (terminal(event.phase)) continue;
             GalaxyEventDefinition definition = catalog().byId(event.definitionId);
             if (definition == null) continue;
             double remaining = Math.max(0, event.expiresAt - state.clockBySystem.getOrDefault(event.systemId, 0.0));
@@ -163,8 +185,8 @@ final class GalaxyEventDirector {
         if (state == null || systemIds == null) return;
         Set<String> removed = new LinkedHashSet<>();
         for (String id : systemIds) {
-            String clean = clean(id);
-            if (!clean.isBlank()) removed.add(clean);
+            String value = clean(id);
+            if (!value.isBlank()) removed.add(value);
         }
         if (removed.isEmpty()) return;
         for (String id : removed) {
@@ -185,9 +207,7 @@ final class GalaxyEventDirector {
         REMOTE_VIEWS.remove(world);
     }
 
-    static synchronized void reloadCatalogForValidation() {
-        catalog = null;
-    }
+    static synchronized void reloadCatalogForValidation() { catalog = null; }
 
     private static void evaluateSpawn(World world, RuntimeState state, String systemId, double clock,
                                       GalaxyEventCatalog rules) {
@@ -198,8 +218,7 @@ final class GalaxyEventDirector {
         long sequence = ++state.sequence;
         Random random = new Random(mixSeed(world.systemSeed(), sequence, systemId));
         if (random.nextDouble() > rules.spawnChance()) return;
-        if (activeCount(state) >= rules.maxActiveGalaxy()) return;
-        if (activeCount(state, systemId) >= rules.maxActivePerSystem()) return;
+        if (activeCount(state) >= rules.maxActiveGalaxy() || activeCount(state, systemId) >= rules.maxActivePerSystem()) return;
 
         boolean home = isHomeSystem(world, systemId);
         List<GalaxyEventDefinition> candidates = new ArrayList<>();
@@ -242,25 +261,53 @@ final class GalaxyEventDirector {
     }
 
     private static void discover(World world, RuntimeState state, String systemId, double clock) {
+        List<PlayerInfo> players = List.copyOf(PlayerRegistry.snapshotPlayers());
         for (GalaxyEventInstance event : new ArrayList<>(state.events.values())) {
-            if (!systemId.equals(event.systemId)) continue;
-            if (event.phase == GalaxyEventPhase.COMPLETED || event.phase == GalaxyEventPhase.FAILED
-                    || event.phase == GalaxyEventPhase.EXPIRED || event.phase == GalaxyEventPhase.CLOSING) continue;
+            if (!systemId.equals(event.systemId) || terminal(event.phase) || event.phase == GalaxyEventPhase.CLOSING) continue;
             GalaxyEventDefinition definition = catalog().byId(event.definitionId);
             if (definition == null) continue;
-            for (Unit unit : world.units.values()) {
-                if (unit == null || unit.hp <= 0 || NpcRules.isNpcFaction(unit.playerId)) continue;
-                if (Calc.distance(unit.x, unit.y, event.x, event.y) > definition.discoveryRadius()) continue;
-                if (!event.discoveredBy.add(unit.playerId)) continue;
-                GameNoticeCenter.publish(world, unit.playerId, NoticeCategory.SYSTEM,
-                        "Sensors discovered " + definition.name() + " in " + systemId + ".", false);
-                if (event.phase == GalaxyEventPhase.HIDDEN) {
-                    event.phase = GalaxyEventPhase.ACTIVE;
-                    event.activatedAt = clock;
-                    materialize(world, state, event, definition);
-                }
+
+            boolean newlyActivated = false;
+            for (PlayerInfo player : players) {
+                if (player == null || player.id() == null || player.id().isBlank() || "WAIT".equals(player.id())
+                        || NpcRules.isNpcFaction(player.id())) continue;
+                if (!eventDetectableBy(world, player.id(), event, definition)) continue;
+                if (shareDiscovery(world, event, player.id(), players, definition)) newlyActivated = true;
+            }
+
+            if (newlyActivated && event.phase == GalaxyEventPhase.HIDDEN) {
+                event.phase = GalaxyEventPhase.ACTIVE;
+                event.activatedAt = clock;
+                materialize(world, state, event, definition);
             }
         }
+    }
+
+    private static boolean eventDetectableBy(World world, String playerId, GalaxyEventInstance event,
+                                             GalaxyEventDefinition definition) {
+        VisibilityRules.Frame frame = VisibilityRules.frame(world, playerId);
+        double cap = Math.max(25, definition.discoveryRadius());
+        for (VisibilityRules.Sensor sensor : frame.sensors()) {
+            double range = Math.min(cap, Math.max(0, sensor.range()));
+            if (range <= 0) continue;
+            if (Calc.distance(sensor.x(), sensor.y(), event.x, event.y) <= range) return true;
+        }
+        return false;
+    }
+
+    private static boolean shareDiscovery(World world, GalaxyEventInstance event, String discoverer,
+                                          List<PlayerInfo> players, GalaxyEventDefinition definition) {
+        boolean changed = false;
+        for (PlayerInfo player : players) {
+            if (player == null || player.id() == null || player.id().isBlank() || "WAIT".equals(player.id())
+                    || NpcRules.isNpcFaction(player.id())) continue;
+            if (!player.id().equals(discoverer) && !IntelWarfareSystem.allied(world, discoverer, player.id())) continue;
+            if (!event.discoveredBy.add(player.id())) continue;
+            changed = true;
+            GameNoticeCenter.publish(world, player.id(), NoticeCategory.SYSTEM,
+                    "Sensors discovered " + definition.name() + " in " + event.systemId + ".", false);
+        }
+        return changed;
     }
 
     private static void advance(World world, RuntimeState state, String systemId, double clock,
@@ -294,8 +341,7 @@ final class GalaxyEventDirector {
                         if (ownedUnitsGone(world, event)) complete(world, state, event, definition, GalaxyEventPhase.COMPLETED);
                     }
                     case DISTRESS_SIGNAL -> advanceDistress(world, state, event, definition);
-                    case ENVIRONMENTAL -> { }
-                    case UNSTABLE_WORMHOLE -> { }
+                    case ENVIRONMENTAL, UNSTABLE_WORMHOLE -> { }
                 }
             }
 
@@ -327,11 +373,8 @@ final class GalaxyEventDirector {
             if (key.equals(civilian)) continue;
             if (world.units.containsKey(key)) attackers++;
         }
-        if (!civilianAlive) {
-            complete(world, state, event, definition, GalaxyEventPhase.FAILED);
-        } else if (attackers == 0) {
-            complete(world, state, event, definition, GalaxyEventPhase.COMPLETED);
-        }
+        if (!civilianAlive) complete(world, state, event, definition, GalaxyEventPhase.FAILED);
+        else if (attackers == 0) complete(world, state, event, definition, GalaxyEventPhase.COMPLETED);
     }
 
     private static void materialize(World world, RuntimeState state, GalaxyEventInstance event,
@@ -419,7 +462,7 @@ final class GalaxyEventDirector {
     private static void spawnDistress(World world, GalaxyEventInstance event,
                                       GalaxyEventDefinition definition, Random random) {
         registerNpcFaction("NPC_MINERS");
-        Unit civilian = spawnEventUnit(world, "NPC_MINERS", "prospector", event.x, event.y);
+        Unit civilian = spawnEventUnit(world, "NPC_MINERS", Rules.STARTING_SHIP, event.x, event.y);
         if (civilian != null) {
             civilian.clearOrder();
             civilian.task = UnitTask.IDLE;
@@ -431,12 +474,11 @@ final class GalaxyEventDirector {
         spawnPirates(world, event, definition, random);
     }
 
-    private static Unit spawnEventUnit(World world, String playerId, String shipType,
-                                       double x, double y) {
+    private static Unit spawnEventUnit(World world, String playerId, String shipType, double x, double y) {
         try {
             Rules.ship(shipType);
             int unitId = 1;
-            for (Unit existing : world.units.values()) {
+            for (Unit existing : new ArrayList<>(world.units.values())) {
                 if (playerId.equals(existing.playerId)) unitId = Math.max(unitId, existing.unitId + 1);
             }
             Unit unit = new Unit(playerId, unitId, shipType,
@@ -467,11 +509,9 @@ final class GalaxyEventDirector {
         double targetX = Calc.clamp(parseDouble(event.custom.get("targetX"), world.width * 0.5), 40, Math.max(40, world.width - 40));
         double targetY = Calc.clamp(parseDouble(event.custom.get("targetY"), world.height * 0.5), 40, Math.max(40, world.height - 40));
         if (systemId.equals(event.systemId) && !hasGate(world, sourceGateId)) {
-            world.wormholes.add(new WormholeGate(sourceGateId, event.systemId, target,
-                    event.x, event.y, targetX, targetY));
+            world.wormholes.add(new WormholeGate(sourceGateId, event.systemId, target, event.x, event.y, targetX, targetY));
         } else if (systemId.equals(target) && !hasGate(world, targetGateId)) {
-            world.wormholes.add(new WormholeGate(targetGateId, target, event.systemId,
-                    targetX, targetY, event.x, event.y));
+            world.wormholes.add(new WormholeGate(targetGateId, target, event.systemId, targetX, targetY, event.x, event.y));
         }
     }
 
@@ -540,9 +580,7 @@ final class GalaxyEventDirector {
     }
 
     private static void notifyDiscovered(World world, GalaxyEventInstance event, String text, NoticeCategory category) {
-        for (String playerId : event.discoveredBy) {
-            GameNoticeCenter.publish(world, playerId, category, text, false);
-        }
+        for (String playerId : event.discoveredBy) GameNoticeCenter.publish(world, playerId, category, text, false);
     }
 
     private static String wormholeTarget(World world, String sourceSystemId, Random random) {
@@ -605,7 +643,8 @@ final class GalaxyEventDirector {
 
     private static String eventId(long seed, long sequence, String definitionId, String systemId) {
         long mixed = mixSeed(seed, sequence, definitionId + "|" + systemId);
-        return "EV-" + Long.toUnsignedString(mixed, 36).toUpperCase(Locale.ROOT) + "-" + Long.toUnsignedString(sequence, 36).toUpperCase(Locale.ROOT);
+        return "EV-" + Long.toUnsignedString(mixed, 36).toUpperCase(Locale.ROOT)
+                + "-" + Long.toUnsignedString(sequence, 36).toUpperCase(Locale.ROOT);
     }
 
     private static Material parseMaterial(String value, Material fallback) {
@@ -623,8 +662,7 @@ final class GalaxyEventDirector {
     }
 
     private static boolean authoritative(World world) {
-        // Network clients are assigned P*/observer identities; authoritative solo/host/dedicated worlds use SOLO.
-        // This intentionally fails closed for remote clients so event entities never originate client-side.
+        // PeerNetwork assigns WAIT/P*/observer identities to remote clients and SOLO to solo/host/dedicated worlds.
         return world != null && "SOLO".equals(PlayerRegistry.localId());
     }
 
