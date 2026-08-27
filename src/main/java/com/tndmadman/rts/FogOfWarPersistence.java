@@ -24,11 +24,12 @@ final class FogOfWarPersistence {
     private static final String PREFIX = "fow-v1.";
     private static final int MAX_VALUE_LENGTH = 2 * 1024 * 1024;
     private static final int MAX_WORMHOLES = 512;
-    private static final long WRITE_DELAY_MS = 750;
+    private static final long WRITE_DELAY_NANOS = TimeUnit.MILLISECONDS.toNanos(750);
     private static final ScheduledExecutorService WRITER = Executors.newSingleThreadScheduledExecutor(
             new DaemonThreadFactory());
     private static final Map<String, Pending> PENDING = new ConcurrentHashMap<>();
     private static final Map<String, ScheduledFuture<?>> SCHEDULED = new ConcurrentHashMap<>();
+    private static final Object SCHEDULE_LOCK = new Object();
     private static volatile boolean testEnabled;
 
     record Stored(BitSet explored, List<FogOfWarView.KnownWormhole> wormholes) {
@@ -53,24 +54,25 @@ final class FogOfWarPersistence {
         if (!enabled()) return;
         String key = storageKey(playerId, systemId, environmentSeed, columns, rows);
         if (key.isBlank() || explored == null) return;
-        Pending snapshot = new Pending(columns, rows, (BitSet)explored.clone(), copyWormholes(wormholes));
+        Pending snapshot = new Pending(columns, rows, (BitSet)explored.clone(), copyWormholes(wormholes),
+                System.nanoTime());
         PENDING.put(key, snapshot);
-        ScheduledFuture<?> previous = SCHEDULED.put(key,
-                WRITER.schedule(() -> flushKey(key), WRITE_DELAY_MS, TimeUnit.MILLISECONDS));
-        if (previous != null) previous.cancel(false);
+        scheduleIfNeeded(key, WRITE_DELAY_NANOS);
     }
 
     static void flushForTest() {
-        for (String key : List.copyOf(PENDING.keySet())) flushKey(key);
+        for (String key : List.copyOf(PENDING.keySet())) flushKeyNow(key);
     }
 
     static void clearForTest(String playerId, String systemId, long environmentSeed, int columns, int rows) {
         testEnabled = true;
         String key = storageKey(playerId, systemId, environmentSeed, columns, rows);
         if (key.isBlank()) return;
-        PENDING.remove(key);
-        ScheduledFuture<?> future = SCHEDULED.remove(key);
-        if (future != null) future.cancel(false);
+        synchronized (SCHEDULE_LOCK) {
+            PENDING.remove(key);
+            ScheduledFuture<?> future = SCHEDULED.remove(key);
+            if (future != null) future.cancel(false);
+        }
         ClientSessionPropertiesStore.update(properties -> {
             properties.remove(key);
             return null;
@@ -82,10 +84,48 @@ final class FogOfWarPersistence {
                 || Boolean.getBoolean("starchem.fowPersistenceHeadless");
     }
 
+    private static void scheduleIfNeeded(String key, long delayNanos) {
+        synchronized (SCHEDULE_LOCK) {
+            ScheduledFuture<?> current = SCHEDULED.get(key);
+            if (current != null && !current.isDone() && !current.isCancelled()) return;
+            SCHEDULED.put(key, WRITER.schedule(() -> flushKey(key),
+                    Math.max(1, delayNanos), TimeUnit.NANOSECONDS));
+        }
+    }
+
     private static void flushKey(String key) {
-        Pending pending = PENDING.remove(key);
-        SCHEDULED.remove(key);
-        if (pending == null) return;
+        Pending pending;
+        synchronized (SCHEDULE_LOCK) {
+            SCHEDULED.remove(key);
+            pending = PENDING.get(key);
+            if (pending == null) return;
+            long remaining = WRITE_DELAY_NANOS - Math.max(0, System.nanoTime() - pending.updatedNanos());
+            if (remaining > 0) {
+                SCHEDULED.put(key, WRITER.schedule(() -> flushKey(key),
+                        remaining, TimeUnit.NANOSECONDS));
+                return;
+            }
+            if (!PENDING.remove(key, pending)) {
+                scheduleIfNeeded(key, WRITE_DELAY_NANOS);
+                return;
+            }
+        }
+        write(key, pending);
+        if (PENDING.containsKey(key)) scheduleIfNeeded(key, WRITE_DELAY_NANOS);
+    }
+
+    private static void flushKeyNow(String key) {
+        Pending pending;
+        synchronized (SCHEDULE_LOCK) {
+            ScheduledFuture<?> future = SCHEDULED.remove(key);
+            if (future != null) future.cancel(false);
+            pending = PENDING.remove(key);
+        }
+        if (pending != null) write(key, pending);
+        if (PENDING.containsKey(key)) scheduleIfNeeded(key, WRITE_DELAY_NANOS);
+    }
+
+    private static void write(String key, Pending pending) {
         String encoded = encode(pending);
         if (encoded.isBlank() || encoded.length() > MAX_VALUE_LENGTH) return;
         ClientSessionPropertiesStore.update(properties -> {
@@ -214,7 +254,7 @@ final class FogOfWarPersistence {
     }
 
     private record Pending(int columns, int rows, BitSet explored,
-                           List<FogOfWarView.KnownWormhole> wormholes) { }
+                           List<FogOfWarView.KnownWormhole> wormholes, long updatedNanos) { }
 
     private static final class DaemonThreadFactory implements ThreadFactory {
         @Override public Thread newThread(Runnable runnable) {

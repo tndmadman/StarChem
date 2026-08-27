@@ -77,9 +77,38 @@ public final class StationControlValidator {
         }
         require(spoofed, "Filtered intel snapshot did not present the selected decoy spoof signal.");
 
+        validateSharedMinerAssignments();
         validateRadarWormholeSearch();
 
         System.out.println("Station control validator passed.");
+    }
+
+    private static void validateSharedMinerAssignments() {
+        World world = new World("Shared miner assignment validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        PlayerRegistry.activate(world);
+        PlayerRegistry.reset("P1", "Miner Operator", 0x50BEFF);
+        world.units.clear();
+        world.bases.clear();
+        world.resources.clear();
+        world.shots.clear();
+        world.items.clear();
+
+        Unit first = new Unit("P1", 1, "prospector", 1_000, 1_000);
+        Unit second = new Unit("P1", 2, "prospector", 1_000, 1_000);
+        world.units.put(first.key(), first);
+        world.units.put(second.key(), second);
+        ResourceNode near = new ResourceNode(101, "Near iron", NodeKind.SILICATE_ROCK,
+                Material.IRON, 1_020, 1_000, 500, 5, 3);
+        ResourceNode alternate = new ResourceNode(102, "Alternate iron", NodeKind.SILICATE_ROCK,
+                Material.IRON, 1_040, 1_000, 500, 5, 3);
+        world.resources.add(near);
+        world.resources.add(alternate);
+
+        new ScoutSystem().update(world);
+        require(first.task == UnitTask.AUTO_HARVEST && second.task == UnitTask.AUTO_HARVEST,
+                "Shared miner assignment optimization left an eligible miner idle.");
+        require(first.automationResourceId != second.automationResourceId,
+                "Shared miner assignment counts were not updated after the first assignment.");
     }
 
     private static void validateRadarWormholeSearch() {
