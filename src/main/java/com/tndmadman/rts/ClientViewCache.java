@@ -31,6 +31,12 @@ final class ClientViewCache {
 
     void setHome(World world, String playerId) {
         if (!realPlayerId(playerId)) return;
+        if (ObserverSessions.promoteAtHome(world, playerId) || ObserverSessions.isObserver(world, playerId)) {
+            String initial = ObserverSessions.initialSystem(world, playerId);
+            if (globalSystemExists(world, initial)) viewByPlayer.put(playerId, initial);
+            publish(world);
+            return;
+        }
         world.ensurePlayerHome(playerId, WorldNetAccess.usesPrimaryHome(playerId));
         String home = world.playerHomeSystemId(playerId);
         boolean changed = !home.equals(viewByPlayer.put(playerId, home));
@@ -62,7 +68,7 @@ final class ClientViewCache {
     String[] systems(World world) {
         Set<String> out = new LinkedHashSet<>(viewByPlayer.values());
         for (PlayerInfo player : PlayerRegistry.snapshotPlayers()) {
-            if (realPlayerId(player.id())) out.add(world.playerHomeSystemId(player.id()));
+            if (realPlayerId(player.id()) && !ObserverSessions.isObserver(world, player.id())) out.add(world.playerHomeSystemId(player.id()));
         }
         out.add(world.activeSystemId());
         out.removeIf(systemId -> systemId == null || systemId.isBlank() || systemId.contains("WAIT"));
@@ -71,6 +77,17 @@ final class ClientViewCache {
 
     String view(World world, String playerId) {
         if (!realPlayerId(playerId)) return world.activeSystemId();
+        if (ObserverSessions.isObserver(world, playerId)) {
+            String existing = viewByPlayer.get(playerId);
+            if (globalSystemExists(world, existing)) return existing;
+            String initial = ObserverSessions.initialSystem(world, playerId);
+            if (globalSystemExists(world, initial)) {
+                viewByPlayer.put(playerId, initial);
+                publish(world);
+                return initial;
+            }
+            return world.activeSystemId();
+        }
         String existing = viewByPlayer.get(playerId);
         if (existing != null && !existing.contains("WAIT")) {
             boolean changed = knownSystems(playerId).add(existing);
@@ -88,6 +105,19 @@ final class ClientViewCache {
 
     boolean requestView(World world, String playerId, String systemId, long revision) {
         if (!realPlayerId(playerId) || revision < 0 || !globalSystemExists(world, systemId)) return false;
+        if (ObserverSessions.isObserver(world, playerId)) {
+            ObserverSessions.VisibilityMode mode = ObserverSessions.mode(world, playerId);
+            if (mode != ObserverSessions.VisibilityMode.FULL) {
+                String visibilityOwner = ObserverSessions.visibilityOwner(world, playerId);
+                if (visibilityOwner.isBlank()) return false;
+                Set<String> known = knownSystems(visibilityOwner);
+                if (!known.contains(systemId) && !playerHasAssetsInSystem(world, visibilityOwner, systemId)) return false;
+            }
+            viewByPlayer.put(playerId, systemId);
+            revisionByPlayer.put(playerId, revision);
+            publish(world);
+            return true;
+        }
         Set<String> known = knownSystems(playerId);
         if (!known.contains(systemId) && !playerHasAssetsInSystem(world, playerId, systemId)) return false;
         boolean changed = known.add(systemId);
@@ -111,8 +141,12 @@ final class ClientViewCache {
         String old = world.activeSystemId();
         try {
             world.activateSystem(view(world, playerId));
+            Snapshot source = WorldNetAccess.snapshot(world, sequence);
+            if (ObserverSessions.isObserver(world, playerId)) {
+                return ObserverSessions.sanitizeSnapshot(world, playerId, source);
+            }
             if (discoverCurrent(world, playerId)) persist();
-            return FogSnapshotFilter.forPlayer(world, playerId, WorldNetAccess.snapshot(world, sequence));
+            return FogSnapshotFilter.forPlayer(world, playerId, source);
         } finally {
             world.activateSystem(old);
         }
@@ -120,6 +154,31 @@ final class ClientViewCache {
 
     GalaxyMapSnapshot galaxySnapshot(World world, String playerId) {
         if (world == null || !realPlayerId(playerId)) return new GalaxyMapSnapshot("", List.of(), List.of());
+        if (ObserverSessions.isObserver(world, playerId)) {
+            String viewed = view(world, playerId);
+            ObserverSessions.VisibilityMode mode = ObserverSessions.mode(world, playerId);
+            if (mode == ObserverSessions.VisibilityMode.FULL) {
+                GalaxyMapSnapshot authoritative = world.authoritativeGalaxyMapSnapshot();
+                if (authoritative == null || authoritative.empty()) return authoritative;
+                List<GalaxyMapSystem> systems = new ArrayList<>();
+                for (GalaxyMapSystem system : authoritative.systems()) {
+                    if (system != null) systems.add(withActive(system, system.id().equals(viewed)));
+                }
+                return new GalaxyMapSnapshot(viewed, List.copyOf(systems),
+                        authoritative.links() == null ? List.of() : List.copyOf(authoritative.links()));
+            }
+            String visibilityOwner = ObserverSessions.visibilityOwner(world, playerId);
+            if (!visibilityOwner.isBlank()) {
+                GalaxyMapSnapshot projected = galaxySnapshot(world, visibilityOwner);
+                if (projected == null || projected.empty()) return projected;
+                List<GalaxyMapSystem> systems = new ArrayList<>();
+                for (GalaxyMapSystem system : projected.systems()) {
+                    if (system != null) systems.add(withActive(system, system.id().equals(viewed)));
+                }
+                return new GalaxyMapSnapshot(viewed, List.copyOf(systems), projected.links());
+            }
+            return ObserverSessions.emptyPublicGalaxy(world.authoritativeGalaxyMapSnapshot(), viewed);
+        }
         GalaxyMapSnapshot authoritative = world.authoritativeGalaxyMapSnapshot();
         if (authoritative == null || authoritative.empty()) return authoritative;
         String viewed = view(world, playerId);
@@ -156,6 +215,7 @@ final class ClientViewCache {
     }
 
     void applyChange(World world, String playerId, Runnable change) {
+        if (ObserverSessions.isObserver(world, playerId)) return;
         String old = world.activeSystemId();
         try {
             world.activateSystem(view(world, playerId));
@@ -174,7 +234,7 @@ final class ClientViewCache {
     }
 
     private boolean discoverCurrent(World world, String playerId) {
-        if (world == null || !realPlayerId(playerId)) return false;
+        if (world == null || !realPlayerId(playerId) || ObserverSessions.isObserver(world, playerId)) return false;
         String active = world.activeSystemId();
         if (active == null || active.isBlank() || active.contains("WAIT")) return false;
         boolean changed = knownSystems(playerId).add(active);
