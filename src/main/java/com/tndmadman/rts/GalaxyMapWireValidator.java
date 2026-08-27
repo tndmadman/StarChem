@@ -7,6 +7,7 @@ public final class GalaxyMapWireValidator {
 
     public static void main(String[] args) {
         validateOrThrow();
+        Issue298EmpireOverviewValidator.validateOrThrow();
         System.out.println("StarChem galaxy map wire validation passed.");
     }
 
