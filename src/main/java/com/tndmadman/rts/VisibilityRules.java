@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Set;
 
 final class VisibilityRules {
+    private static final double WORMHOLE_DISCOVERY_RADIUS = 18.0;
+
     private VisibilityRules() { }
 
     static double unitSensorRange(World world, Unit unit) {
@@ -59,8 +61,10 @@ final class VisibilityRules {
             this.playerId = playerId == null ? "" : playerId;
             List<Sensor> found = new ArrayList<>();
             for (IntelWarfareSystem.IntelSensor sensor : IntelWarfareSystem.sensors(world, this.playerId)) {
+                if (focusedRadarSensor(sensor)) continue;
                 found.add(sensor(sensor.x(), sensor.y(), sensor.range()));
             }
+            addFocusedWormholeSensors(found);
             sensors = List.copyOf(found);
 
             List<ResourceRadar> radars = new ArrayList<>();
@@ -69,7 +73,9 @@ final class VisibilityRules {
                 for (Base base : world.bases.values()) {
                     if (base == null || base.hp <= 0
                             || !IntelWarfareSystem.allied(world, this.playerId, base.playerId)
-                            || !IntelWarfareSystem.isRadar(base.typeId)) continue;
+                            || !IntelWarfareSystem.isRadar(base.typeId)
+                            || StationControls.radarSearchTarget(world, base)
+                            == StationControls.RadarSearchTarget.WORMHOLES) continue;
                     double range = baseSensorRange(world, base);
                     if (range > 0) {
                         radars.add(new ResourceRadar(base.x, base.y, range,
@@ -105,11 +111,21 @@ final class VisibilityRules {
         }
 
         IntelWarfareSystem.DetectionStage unitStage(Unit unit) {
-            return VisibilityRules.unitStage(world, playerId, unit);
+            IntelWarfareSystem.DetectionStage stage = VisibilityRules.unitStage(world, playerId, unit);
+            if (unit == null || stage == IntelWarfareSystem.DetectionStage.NONE
+                    || IntelWarfareSystem.allied(world, playerId, unit.playerId)) return stage;
+            if (StationControls.focusedAreaScanWouldCover(world, playerId, unit.x, unit.y)
+                    && !pointVisible(unit.x, unit.y)) return IntelWarfareSystem.DetectionStage.NONE;
+            return stage;
         }
 
         IntelWarfareSystem.DetectionStage baseStage(Base base) {
-            return VisibilityRules.baseStage(world, playerId, base);
+            IntelWarfareSystem.DetectionStage stage = VisibilityRules.baseStage(world, playerId, base);
+            if (base == null || stage == IntelWarfareSystem.DetectionStage.NONE
+                    || IntelWarfareSystem.allied(world, playerId, base.playerId)) return stage;
+            if (StationControls.focusedAreaScanWouldCover(world, playerId, base.x, base.y)
+                    && !pointVisible(base.x, base.y)) return IntelWarfareSystem.DetectionStage.NONE;
+            return stage;
         }
 
         IntelWarfareSystem.DetectionStage resourceStage(ResourceNode resource) {
@@ -169,6 +185,23 @@ final class VisibilityRules {
             if (unit != null) return unitIdentified(unit);
             Base base = CombatTarget.base(world, targetKey);
             return base != null && baseIdentified(base);
+        }
+
+        private boolean focusedRadarSensor(IntelWarfareSystem.IntelSensor sensor) {
+            if (world == null || sensor == null || sensor.sourceKey() == null || !sensor.sourceKey().startsWith("B:")) {
+                return false;
+            }
+            Base base = world.bases.get(sensor.sourceKey().substring(2));
+            return base != null && IntelWarfareSystem.isRadar(base.typeId)
+                    && StationControls.radarSearchTarget(world, base) == StationControls.RadarSearchTarget.WORMHOLES;
+        }
+
+        private void addFocusedWormholeSensors(List<Sensor> found) {
+            if (world == null || found == null || world.wormholes.isEmpty()) return;
+            for (WormholeGate gate : world.wormholes) {
+                if (gate == null || !StationControls.focusedWormholeSearchCovers(world, playerId, gate.x, gate.y)) continue;
+                found.add(sensor(gate.x, gate.y, WORMHOLE_DISCOVERY_RADIUS));
+            }
         }
 
         private Sensor sensor(double x, double y, double range) {
