@@ -307,10 +307,15 @@ final class StationControlMenu {
     private static void buildRadar(JPanel content, JPopupMenu popup, Component invoker, World world,
                                    PeerNetwork network, Base radar, int x, int y) {
         int range = (int)Math.round(VisibilityRules.baseSensorRange(world, radar));
+        int wormholeRange = (int)Math.round(StationControls.wormholeSearchRange(world, radar));
+        StationControls.RadarSearchTarget searchTarget = StationControls.radarSearchTarget(world, radar);
         IntelWarfareSystem.StructureIntelRule intel = IntelWarfareSystem.rule(radar.typeId);
         int responseCap = Math.max(0, intel.responseShipLimit());
         addInfo(content, "Current mode", IntelWarfareSystem.radarMode(world, radar).name());
+        addInfo(content, "Search target", searchTarget.name());
         addInfo(content, "Current sensor range", Integer.toString(range));
+        addInfo(content, "Wormhole search range", Integer.toString(wormholeRange));
+        addInfo(content, "Area exploration", searchTarget == StationControls.RadarSearchTarget.AREA ? "ENABLED" : "PAUSED");
         addInfo(content, "Miner dispatch cap", Integer.toString(IntelWarfareSystem.dispatchLimit(radar.typeId)));
         if (network != null && network.clientMode()) {
             addInfo(content, "Combat response cap", Integer.toString(responseCap));
@@ -325,8 +330,33 @@ final class StationControlMenu {
         combatNote.setAlignmentX(Component.LEFT_ALIGNMENT);
         content.add(combatNote);
         content.add(Box.createVerticalStrut(10));
+
+        content.add(section("SCAN TARGET"));
+        JLabel scanNote = label("<html>AREA explores normal fog and surveys resources. WORMHOLES pauses this radar's area exploration/resource survey and searches farther for wormhole signatures.</html>",
+                Font.PLAIN, 11, MUTED);
+        scanNote.setAlignmentX(Component.LEFT_ALIGNMENT);
+        content.add(scanNote);
+        content.add(Box.createVerticalStrut(7));
+        JButton area = actionButton((searchTarget == StationControls.RadarSearchTarget.AREA ? "● " : "○ ") + "AREA SCAN",
+                () -> send(popup, invoker, world, network, radar, x, y,
+                        "RADAR_SEARCH_TARGET", StationControls.RadarSearchTarget.AREA.name()));
+        area.setEnabled(searchTarget != StationControls.RadarSearchTarget.AREA);
+        area.setAlignmentX(Component.LEFT_ALIGNMENT);
+        content.add(area);
+        content.add(Box.createVerticalStrut(4));
+        JButton wormholes = actionButton((searchTarget == StationControls.RadarSearchTarget.WORMHOLES ? "● " : "○ ")
+                        + "WORMHOLE SEARCH",
+                () -> send(popup, invoker, world, network, radar, x, y,
+                        "RADAR_SEARCH_TARGET", StationControls.RadarSearchTarget.WORMHOLES.name()));
+        wormholes.setEnabled(searchTarget != StationControls.RadarSearchTarget.WORMHOLES);
+        wormholes.setAlignmentX(Component.LEFT_ALIGNMENT);
+        content.add(wormholes);
+        content.add(Box.createVerticalStrut(10));
+
         content.add(section("RESOURCE PRIORITY"));
-        JLabel note = label("Higher entries receive idle miners before lower or unlisted materials.",
+        JLabel note = label(searchTarget == StationControls.RadarSearchTarget.WORMHOLES
+                        ? "Resource survey is paused while this radar searches for wormholes; priorities are retained."
+                        : "Higher entries receive idle miners before lower or unlisted materials.",
                 Font.PLAIN, 11, MUTED);
         note.setAlignmentX(Component.LEFT_ALIGNMENT);
         content.add(note);
