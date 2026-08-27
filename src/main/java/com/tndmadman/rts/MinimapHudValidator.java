@@ -3,6 +3,7 @@ package com.tndmadman.rts;
 import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.Rectangle;
+import java.awt.geom.Point2D;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.util.Set;
@@ -63,6 +64,96 @@ public final class MinimapHudValidator {
         hud.draw(graphics, world, camera, screenW, screenH);
         require(hud.pingCount() > 0, "lost friendly contact did not retain a minimap ping");
         graphics.dispose();
+
+        validateRememberedWormholePresentation();
+    }
+
+    private static void validateRememberedWormholePresentation() {
+        World world = new World("Remembered Wormhole Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        PlayerRegistry.activate(world);
+        PlayerRegistry.reset("SOLO", "Wormhole Observer", 0x50BEFF);
+        world.units.clear();
+        world.bases.clear();
+        world.resources.clear();
+        world.wormholes.clear();
+
+        double gateX = world.width * 0.56;
+        double gateY = world.height * 0.52;
+        Base radar = new Base("SOLO:RADAR", "SOLO", RadarTowerRules.TIER_ONE, gateX - 300, gateY);
+        world.bases.put(radar.id, radar);
+        world.wormholes.add(new WormholeGate("remembered-render-gate", world.activeSystemId(),
+                "remembered-render-target", gateX, gateY, gateX + 200, gateY));
+
+        FogOfWarView.clearCachedStateForTest(world);
+        FogOfWarView.forceRefreshForTest(world);
+        require(FogOfWarView.knownWormholes(world).stream()
+                        .anyMatch(gate -> "remembered-render-gate".equals(gate.id())),
+                "presentation fixture did not observe its wormhole");
+
+        world.wormholes.clear();
+        FogOfWarView.forceRefreshForTest(world);
+        require(FogOfWarView.knownWormholes(world).stream()
+                        .anyMatch(gate -> "remembered-render-gate".equals(gate.id())),
+                "remembered wormhole vanished when the live gate snapshot was removed");
+
+        int screenW = 1280;
+        int screenH = 720;
+        GameCamera camera = new GameCamera();
+        camera.centerAt(gateX, gateY, world, screenW, screenH);
+        camera.update(world, screenW, screenH, 0.016);
+
+        MinimapHud hud = new MinimapHud();
+        BufferedImage minimapImage = new BufferedImage(screenW, screenH, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D minimapGraphics = minimapImage.createGraphics();
+        hud.draw(minimapGraphics, world, camera, screenW, screenH);
+        minimapGraphics.dispose();
+        Point marker = hud.pointForWorld(world, gateX, gateY, screenW, screenH);
+        require(cyanPixelCount(minimapImage, marker.x, marker.y, 7) >= 4,
+                "remembered wormhole was not rendered on the tactical minimap");
+
+        BufferedImage indicatorImage = new BufferedImage(screenW, screenH, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D indicatorGraphics = indicatorImage.createGraphics();
+        WormholeIndicator.draw(indicatorGraphics, world, camera, screenW, screenH);
+        indicatorGraphics.dispose();
+        Point2D screenPoint = camera.worldToScreen(gateX, gateY);
+        require(nonTransparentPixelCount(indicatorImage, (int)Math.round(screenPoint.getX()),
+                        (int)Math.round(screenPoint.getY()), 18) > 0,
+                "remembered wormhole was not rendered by the tactical directional indicator");
+
+        FogOfWarView.clearCachedStateForTest(world);
+    }
+
+    private static int cyanPixelCount(BufferedImage image, int centerX, int centerY, int radius) {
+        int count = 0;
+        int minX = Math.max(0, centerX - radius);
+        int maxX = Math.min(image.getWidth() - 1, centerX + radius);
+        int minY = Math.max(0, centerY - radius);
+        int maxY = Math.min(image.getHeight() - 1, centerY + radius);
+        for (int y = minY; y <= maxY; y++) {
+            for (int x = minX; x <= maxX; x++) {
+                int argb = image.getRGB(x, y);
+                int alpha = (argb >>> 24) & 0xFF;
+                int red = (argb >>> 16) & 0xFF;
+                int green = (argb >>> 8) & 0xFF;
+                int blue = argb & 0xFF;
+                if (alpha >= 100 && green >= 180 && blue >= 210 && blue - red >= 50) count++;
+            }
+        }
+        return count;
+    }
+
+    private static int nonTransparentPixelCount(BufferedImage image, int centerX, int centerY, int radius) {
+        int count = 0;
+        int minX = Math.max(0, centerX - radius);
+        int maxX = Math.min(image.getWidth() - 1, centerX + radius);
+        int minY = Math.max(0, centerY - radius);
+        int maxY = Math.min(image.getHeight() - 1, centerY + radius);
+        for (int y = minY; y <= maxY; y++) {
+            for (int x = minX; x <= maxX; x++) {
+                if (((image.getRGB(x, y) >>> 24) & 0xFF) > 0) count++;
+            }
+        }
+        return count;
     }
 
     private static void require(boolean condition, String message) {
