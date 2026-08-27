@@ -175,7 +175,8 @@ final class StrategicSummaryService {
                 double hp = number(row.get("hp"));
                 if (hp <= 0) continue;
                 aggregate.stations++;
-                String baseId = text(row.get("id"));
+                String rawBaseId = text(row.get("id"));
+                String baseId = rawBaseId.startsWith(ownerId + ":") ? rawBaseId : ownerId + ":" + rawBaseId;
                 String typeId = text(row.get("typeId"));
                 BaseType type = safeBase(typeId);
                 ownedStationTypes.add(typeId);
