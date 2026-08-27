@@ -15,14 +15,61 @@ import java.util.WeakHashMap;
 
 /** JSON-driven station interaction roles and per-station control state. */
 final class StationControls {
+    private static final double WORMHOLE_SEARCH_RANGE_MULTIPLIER = 1.75;
     private static final Map<String, InteractionRule> RULES = loadRules();
     private static final Map<World, RuntimeState> STATES = Collections.synchronizedMap(new WeakHashMap<>());
+
+    enum RadarSearchTarget {
+        AREA,
+        WORMHOLES
+    }
 
     private StationControls() { }
 
     static String role(String typeId) { return rule(typeId).role; }
     static boolean nonProduction(String typeId) { return rule(typeId).nonProduction; }
     static boolean handles(String typeId) { return Rules.findBase(typeId) != null; }
+
+    static RadarSearchTarget radarSearchTarget(World world, Base radar) {
+        if (world == null || radar == null || !IntelWarfareSystem.isRadar(radar.typeId)) return RadarSearchTarget.AREA;
+        return systemState(world).radarSearchTargets.getOrDefault(radar.id, RadarSearchTarget.AREA);
+    }
+
+    static boolean setRadarSearchTarget(World world, Base radar, RadarSearchTarget target) {
+        if (world == null || radar == null || target == null || !IntelWarfareSystem.isRadar(radar.typeId)) return false;
+        systemState(world).radarSearchTargets.put(radar.id, target);
+        return true;
+    }
+
+    static double wormholeSearchRange(World world, Base radar) {
+        if (world == null || radar == null || !IntelWarfareSystem.isRadar(radar.typeId)) return 0;
+        return VisibilityRules.baseSensorRange(world, radar) * WORMHOLE_SEARCH_RANGE_MULTIPLIER;
+    }
+
+    static boolean focusedWormholeSearchCovers(World world, String viewerId, double x, double y) {
+        return focusedRadarCovers(world, viewerId, x, y, true);
+    }
+
+    static boolean focusedAreaScanWouldCover(World world, String viewerId, double x, double y) {
+        return focusedRadarCovers(world, viewerId, x, y, false);
+    }
+
+    private static boolean focusedRadarCovers(World world, String viewerId, double x, double y, boolean wormholeRange) {
+        if (world == null || viewerId == null || viewerId.isBlank() || !Double.isFinite(x) || !Double.isFinite(y)) {
+            return false;
+        }
+        for (Base radar : world.bases.values()) {
+            if (radar == null || radar.hp <= 0 || !IntelWarfareSystem.isRadar(radar.typeId)
+                    || !IntelWarfareSystem.allied(world, viewerId, radar.playerId)
+                    || radarSearchTarget(world, radar) != RadarSearchTarget.WORMHOLES) continue;
+            double range = wormholeRange ? wormholeSearchRange(world, radar) : VisibilityRules.baseSensorRange(world, radar);
+            if (range <= 0) continue;
+            double dx = x - radar.x;
+            double dy = y - radar.y;
+            if (dx * dx + dy * dy <= range * range) return true;
+        }
+        return false;
+    }
 
     static List<Material> radarCandidates(World world, Base radar) {
         if (world == null || radar == null || !IntelWarfareSystem.isRadar(radar.typeId)) return List.of();
@@ -219,6 +266,7 @@ final class StationControls {
 
     private static final class SystemState {
         final Map<String,List<Material>> radarPriorities = new LinkedHashMap<>();
+        final Map<String,RadarSearchTarget> radarSearchTargets = new LinkedHashMap<>();
         final Map<String,String> decoyProfiles = new LinkedHashMap<>();
     }
 }
@@ -237,6 +285,7 @@ final class StationControlCommands {
         }
         if (!StationControls.nonProduction(base.typeId)) return false;
         boolean changed = switch (command) {
+            case "RADAR_SEARCH_TARGET" -> StationControls.setRadarSearchTarget(world, base, radarSearchTarget(value));
             case "RADAR_PRIORITY_TOP" -> StationControls.putRadarPriorityFirst(world, base, material(value));
             case "RADAR_PRIORITY_UP" -> StationControls.moveRadarPriority(world, base, material(value), -1);
             case "RADAR_PRIORITY_DOWN" -> StationControls.moveRadarPriority(world, base, material(value), 1);
@@ -254,7 +303,21 @@ final class StationControlCommands {
         catch (RuntimeException ignored) { return null; }
     }
 
+    private static StationControls.RadarSearchTarget radarSearchTarget(String value) {
+        try {
+            return value == null ? null : StationControls.RadarSearchTarget.valueOf(value.trim().toUpperCase(Locale.ROOT));
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
     private static String status(Base base, String action, String value) {
+        if ("RADAR_SEARCH_TARGET".equals(action)) {
+            StationControls.RadarSearchTarget target = radarSearchTarget(value);
+            return base.type().name + (target == StationControls.RadarSearchTarget.WORMHOLES
+                    ? " is focusing on wormhole signatures; general area exploration is paused."
+                    : " resumed general area exploration.");
+        }
         if (action.startsWith("RADAR_PRIORITY")) {
             if ("RADAR_PRIORITY_CLEAR".equals(action)) return base.type().name + " resource priorities cleared.";
             Material material = material(value);
