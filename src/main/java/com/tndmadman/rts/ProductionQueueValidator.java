@@ -78,6 +78,7 @@ public final class ProductionQueueValidator {
         require(world.hasResearch(playerId, "advanced_industry"), "first research did not complete");
         require(world.hasResearch(playerId, "combat_doctrine"), "chained research did not complete");
 
+        validateQueuedDeployerPackage();
         validateLogisticsQueuePersistence();
         validateLogisticsEscrow();
         validateLostShuttleRecovery();
@@ -88,6 +89,43 @@ public final class ProductionQueueValidator {
         validateAutoProductionRecipeSelection();
         validateMalformedQueueRejection();
         Issue294ProductionPolicyValidator.validateOrThrow();
+    }
+
+    private static void validateQueuedDeployerPackage() {
+        World world = new World("Issue 319 Queue Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        String playerId = "ISSUE_319_QUEUE_TEST";
+        Base outpost = base(world, playerId + ":B1", playerId, "outpost", 100, 100);
+        fill(outpost);
+
+        require(world.buildShip(outpost.id, "station_builder"),
+                "Deployer should enqueue before a station package");
+        require(world.units.isEmpty(), "queued Deployer unexpectedly existed before construction completed");
+        require(world.loadBasePackage(outpost.id, "shipyard"),
+                "station package should queue behind a Deployer that is still under construction");
+        require(outpost.productionQueue.size() == 2,
+                "Deployer and station package did not remain as two ordered queue jobs");
+        require(outpost.productionQueue.get(0).kind == ProductionJobKind.SHIP
+                        && "station_builder".equals(outpost.productionQueue.get(0).itemId),
+                "Deployer was not first in the issue 319 queue");
+        ProductionJob packageJob = outpost.productionQueue.get(1);
+        require(packageJob.kind == ProductionJobKind.STATION_PACKAGE && "shipyard".equals(packageJob.itemId),
+                "station package was not queued behind the Deployer");
+        require(packageJob.reservedUnitKey.isBlank(),
+                "station package reserved a Deployer that does not exist yet");
+
+        ProductionSystem.update(world, 1_000.0);
+        require(outpost.productionQueue.isEmpty(),
+                "Deployer followed by station package did not drain the queue");
+        Unit loadedDeployer = null;
+        for (Unit unit : world.units.values()) {
+            if (playerId.equals(unit.playerId) && "station_builder".equals(unit.shipTypeId)
+                    && "shipyard".equals(unit.basePackageType)) {
+                loadedDeployer = unit;
+                break;
+            }
+        }
+        require(loadedDeployer != null,
+                "newly built Deployer did not receive the queued Shipyard package");
     }
 
     private static void validateLogisticsQueuePersistence() {
