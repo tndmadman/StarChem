@@ -74,6 +74,7 @@ final class GalaxyMapWire {
             if (activeWorld != null) {
                 StrategicSummarySnapshot strategic = StrategicSummaryService.capture(activeWorld, owner.ownerId());
                 out.append("|E,").append(StrategicSummaryWire.encodeToken(strategic));
+                for (String row : GalaxyEventWire.encodeRows(activeWorld, owner.ownerId())) out.append('|').append(row);
             }
         }
         return out.toString();
@@ -87,6 +88,7 @@ final class GalaxyMapWire {
         String activeSystemId = text(parts[2]);
         List<GalaxyMapSystem> systems = new ArrayList<>();
         List<GalaxyMapLink> links = new ArrayList<>();
+        List<GalaxyEventView> eventViews = new ArrayList<>();
         Map<String,String> ownerUnits = new LinkedHashMap<>();
         String ownerId = "";
         boolean ownerMarker = false;
@@ -107,6 +109,11 @@ final class GalaxyMapWire {
                 if (fields.length != 2) throw new SnapshotDecodeException("Malformed strategic empire summary row.");
                 strategic = StrategicSummaryWire.decodeToken(fields[1]);
                 strategicMarker = true;
+            } else if (part.startsWith("V,")) {
+                if (eventViews.size() >= GalaxyEventWire.MAX_EVENT_VIEWS) {
+                    throw new SnapshotDecodeException("Galaxy event projection exceeds safe limits.");
+                }
+                eventViews.add(GalaxyEventWire.decodeRow(part));
             } else if (!part.isBlank()) throw new SnapshotDecodeException("Malformed galaxy state row.");
         }
         if (systems.size() > 96 || links.size() > 256 || ownerUnits.size() > MAX_OWNER_UNITS) {
@@ -114,6 +121,9 @@ final class GalaxyMapWire {
         }
         if (!ownerUnits.isEmpty() && !ownerMarker) {
             throw new SnapshotDecodeException("Owner fleet galaxy rows are missing their owner marker.");
+        }
+        if (!eventViews.isEmpty() && !ownerMarker) {
+            throw new SnapshotDecodeException("Galaxy event rows are missing their owner marker.");
         }
         if (ownerMarker) validateOwnerRows(ownerId, ownerUnits, true);
         if (strategic != null) {
@@ -123,6 +133,8 @@ final class GalaxyMapWire {
             World activeWorld = PlayerRegistry.activeWorld();
             if (activeWorld != null) StrategicSummaryRegistry.replace(activeWorld, strategic);
         }
+        World activeWorld = PlayerRegistry.activeWorld();
+        if (activeWorld != null && ownerMarker) GalaxyEventDirector.replaceRemoteViews(activeWorld, eventViews);
         GalaxyMapSnapshot snapshot = new GalaxyMapSnapshot(activeSystemId, List.copyOf(systems), List.copyOf(links));
         OwnerProjection owner = ownerMarker
                 ? new OwnerProjection(true, ownerId, Map.copyOf(ownerUnits))
