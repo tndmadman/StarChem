@@ -10,14 +10,15 @@ final class WormholeIndicator {
     private WormholeIndicator() { }
 
     static void draw(Graphics2D g2, World world, GameCamera camera, int screenW, int screenH) {
-        if (screenW <= 0 || screenH <= 0 || world.wormholes.isEmpty()) return;
-        for (WormholeGate gate : world.wormholes) {
-            if (FogOfWarView.explored(world, gate.x, gate.y)) drawOne(g2, gate, camera, screenW, screenH);
+        if (screenW <= 0 || screenH <= 0) return;
+        for (FogOfWarView.KnownWormhole gate : FogOfWarView.knownWormholes(world)) {
+            drawOne(g2, gate, camera, screenW, screenH);
         }
     }
 
-    private static void drawOne(Graphics2D g2, WormholeGate gate, GameCamera camera, int screenW, int screenH) {
-        Point2D sp = camera.worldToScreen(gate.x, gate.y);
+    private static void drawOne(Graphics2D g2, FogOfWarView.KnownWormhole gate,
+                                GameCamera camera, int screenW, int screenH) {
+        Point2D sp = camera.worldToScreen(gate.x(), gate.y());
         double rawX = sp.getX();
         double rawY = sp.getY();
         boolean visible = rawX >= MARGIN && rawX <= screenW - MARGIN && rawY >= MARGIN && rawY <= screenH - MARGIN;
@@ -37,7 +38,7 @@ final class WormholeIndicator {
         int[] ys = {0, -7, 7};
         a.fillPolygon(xs, ys, 3);
         a.setTransform(new AffineTransform());
-        String text = gate.label();
+        String text = gate.toSystemId();
         FontMetrics fm = g2.getFontMetrics();
         int tw = fm.stringWidth(text);
         int tx = (int)Calc.clamp(x - tw / 2.0, 4, Math.max(4, screenW - tw - 4));
