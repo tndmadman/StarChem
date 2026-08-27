@@ -10,10 +10,12 @@ final class EndStatePanel extends JPanel {
     private final JLabel title = new JLabel("FLEET DESTROYED", SwingConstants.CENTER);
     private final JLabel help = new JLabel("You are off the leaderboard until you respawn.", SwingConstants.CENTER);
     private final JButton restart = new JButton("RESPAWN");
+    private final JButton observe = new JButton("OBSERVE");
     private final JButton lobby = new JButton("DISCONNECT");
     private final Timer timer;
     private boolean victoryMode;
     private boolean victoryDismissed;
+    private boolean observerRequested;
 
     EndStatePanel(World world, GameFrame owner, PeerNetwork network) {
         super(new GridBagLayout());
@@ -29,15 +31,17 @@ final class EndStatePanel extends JPanel {
         title.setForeground(Color.WHITE);
         title.setFont(title.getFont().deriveFont(Font.BOLD, 24f));
         help.setForeground(new Color(220, 238, 250));
-        JPanel buttons = new JPanel(new GridLayout(1, 2, 12, 0));
+        JPanel buttons = new JPanel(new GridLayout(1, 3, 12, 0));
         buttons.setOpaque(false);
         buttons.add(restart);
+        buttons.add(observe);
         buttons.add(lobby);
         card.add(title);
         card.add(help);
         card.add(buttons);
         add(card);
         restart.addActionListener(e -> primaryAction());
+        observe.addActionListener(e -> requestObserver());
         lobby.addActionListener(e -> leaveMatch());
         timer = new Timer(250, e -> refresh());
         timer.start();
@@ -55,10 +59,19 @@ final class EndStatePanel extends JPanel {
     }
 
     private void restartPlayer() {
+        observerRequested = false;
         String playerId = PlayerRegistry.localId();
         if (network == null) WorldNetAccess.respawnPlayer(world, playerId);
         else network.respawn(playerId);
         hideModal();
+    }
+
+    private void requestObserver() {
+        if (network == null || network.clientObserver()) return;
+        observerRequested = true;
+        observe.setEnabled(false);
+        help.setText("Requesting a read-only observer session from the server...");
+        network.requestObserverConversion(PlayerRegistry.localId());
     }
 
     private void leaveMatch() {
@@ -68,7 +81,8 @@ final class EndStatePanel extends JPanel {
     }
 
     private void refresh() {
-        if (!ready()) {
+        if (!ready() || network != null && network.clientObserver()) {
+            observerRequested = false;
             hideModal();
             return;
         }
@@ -80,6 +94,7 @@ final class EndStatePanel extends JPanel {
             String by = objective.completedBy().isBlank() ? "" : " by " + objective.completedBy();
             help.setText(objective.title() + " was completed" + by + ".");
             restart.setText("CONTINUE PLAYING");
+            observe.setVisible(false);
             lobby.setText(network == null ? "RETURN TO LOBBY" : "DISCONNECT");
             showModal();
             return;
@@ -88,13 +103,18 @@ final class EndStatePanel extends JPanel {
         if (fleetDestroyed()) {
             victoryMode = false;
             title.setText("FLEET DESTROYED");
-            help.setText("You are off the leaderboard until you respawn.");
             restart.setText("RESPAWN");
+            observe.setVisible(network != null && network.clientMode());
+            observe.setEnabled(!observerRequested);
+            if (!observerRequested) help.setText(network != null && network.clientMode()
+                    ? "Respawn, remain connected as a read-only observer, or disconnect."
+                    : "You are off the leaderboard until you respawn.");
             lobby.setText(network == null ? "RETURN TO LOBBY" : "DISCONNECT");
             showModal();
             return;
         }
 
+        observerRequested = false;
         hideModal();
     }
 
