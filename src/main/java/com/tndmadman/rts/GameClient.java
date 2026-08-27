@@ -19,6 +19,7 @@ final class GameClient {
 
     void tick(double dt) {
         MultiplayerCommsOverlay.ensureInstalled(world);
+        EmpireOverviewOverlay.ensureInstalled(world, network);
         SystemAudio.listenTo(world);
         ClientEnvironmentSync.advance(world, dt);
         ClientPrediction.update(world, dt);
