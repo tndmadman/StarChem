@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "director": {
+    "enabled": true,
+    "initialDelaySeconds": 30,
+    "evaluationSeconds": 45,
+    "spawnChance": 0.35,
+    "maxActiveGalaxy": 4,
+    "maxActivePerSystem": 2,
+    "wormholeClosingSeconds": 3
+  },
+  "events": [
+    {
+      "id": "rich_rare_earths",
+      "name": "Rich Rare-Earth Deposit",
+      "kind": "RICH_RESOURCE",
+      "enabled": true,
+      "weight": 3.0,
+      "safeForHome": true,
+      "minDurationSeconds": 150,
+      "maxDurationSeconds": 300,
+      "discoveryRadius": 850,
+      "entityCount": 4,
+      "amount": 420,
+      "resourceMaterial": "RARE_EARTHS"
+    },
+    {
+      "id": "derelict_convoy",
+      "name": "Derelict Convoy",
+      "kind": "DERELICT_SALVAGE",
+      "enabled": true,
+      "weight": 2.5,
+      "safeForHome": true,
+      "minDurationSeconds": 150,
+      "maxDurationSeconds": 300,
+      "discoveryRadius": 850,
+      "entityCount": 5,
+      "amount": 55,
+      "salvageMaterial": "SCRAP_METAL"
+    },
+    {
+      "id": "distress_beacon",
+      "name": "Distress Beacon",
+      "kind": "DISTRESS_SIGNAL",
+      "enabled": true,
+      "weight": 2.0,
+      "safeForHome": true,
+      "minDurationSeconds": 180,
+      "maxDurationSeconds": 330,
+      "discoveryRadius": 1050,
+      "entityCount": 3,
+      "npcFactionId": "NPC_RAIDERS"
+    },
+    {
+      "id": "pirate_ambush",
+      "name": "Pirate Ambush",
+      "kind": "PIRATE_AMBUSH",
+      "enabled": true,
+      "weight": 1.5,
+      "safeForHome": false,
+      "minDurationSeconds": 150,
+      "maxDurationSeconds": 260,
+      "discoveryRadius": 850,
+      "entityCount": 4,
+      "npcFactionId": "NPC_RAIDERS"
+    },
+    {
+      "id": "ion_storm",
+      "name": "Ion Storm",
+      "kind": "ENVIRONMENTAL",
+      "enabled": true,
+      "weight": 1.25,
+      "safeForHome": false,
+      "minDurationSeconds": 120,
+      "maxDurationSeconds": 240,
+      "discoveryRadius": 1000,
+      "entityCount": 1,
+      "modifiers": {
+        "miningYield": 1.0,
+        "resourceRespawn": 1.0,
+        "sensorRange": 0.65,
+        "shieldRegen": 1.25,
+        "movementSpeed": 0.9,
+        "weaponRange": 0.85,
+        "environmentalDamagePerSecond": 0.0
+      }
+    },
+    {
+      "id": "unstable_wormhole",
+      "name": "Unstable Wormhole",
+      "kind": "UNSTABLE_WORMHOLE",
+      "enabled": true,
+      "weight": 0.55,
+      "safeForHome": false,
+      "minDurationSeconds": 150,
+      "maxDurationSeconds": 260,
+      "discoveryRadius": 1100,
+      "entityCount": 1
+    }
+  ]
+}
