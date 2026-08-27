@@ -6,9 +6,11 @@ final class SideAJoin {
     private SideAJoin() { }
 
     static boolean handle(PeerServerSide server, String[] parts, ConnectionId connectionId, NetPacket packet) {
+        if (parts.length == 0) return false;
         switch (parts[0]) {
             case "JOIN" -> {
                 String name = parts.length > 1 ? parts[1] : "Player";
+                if (!ObserverSessions.prepareJoin(server, connectionId, name, parts)) return true;
                 String registrationVerifier = markerValue(parts, "AUTH_REGISTER");
                 String proofNonce = markerValue(parts, "AUTH_PROOF_NONCE");
                 String proof = markerValue(parts, "AUTH_PROOF");
@@ -38,6 +40,7 @@ final class SideAJoin {
                     if (remoteRegistration) {
                         RemoteRegistrationBridge.restoreRealAddress(server, connectionId, realAddress, realPort);
                     }
+                    ObserverSessions.finishAuthentication(server, connectionId);
                     System.out.println("[CONNECTION][SERVER][AUTH] JOIN " + phase
                             + " processed name=" + Config.clean(name) + " connection=" + connectionId + '.');
                 } catch (RuntimeException ex) {
@@ -53,15 +56,18 @@ final class SideAJoin {
             case "RESUME" -> {
                 String source = packet == null || packet.address() == null ? "unknown"
                         : packet.address().getHostAddress() + ':' + packet.port();
+                String playerId = parts.length > 1 ? parts[1] : "";
+                if (!ObserverSessions.prepareResume(server, connectionId, playerId)) return true;
                 System.out.println("[CONNECTION][SERVER][AUTH] RESUME player="
-                        + (parts.length > 1 ? parts[1] : "") + " source=" + source
+                        + playerId + " source=" + source
                         + " connection=" + connectionId + '.');
                 server.resume(connectionId, packet.address(), packet.port(),
-                        parts.length > 1 ? parts[1] : "",
+                        playerId,
                         parts.length > 2 ? parts[2] : "",
                         markerValue(parts, "SESSION_PROOF_NONCE"),
                         markerValue(parts, "SESSION_PROOF"),
                         server.requestedResumeDev(parts), server.requestedResumeDevToken(parts));
+                ObserverSessions.finishAuthentication(server, connectionId);
                 return true;
             }
             case "PING" -> { server.touch(connectionId); return true; }
