@@ -30,7 +30,7 @@ public final class GalaxyEventValidator {
         String target = otherSystem(world, systemId);
         double x = world.width * 0.5;
         double y = world.height * 0.5;
-        Unit scout = new Unit("SOLO", 77, "scout", x, y);
+        Unit scout = new Unit("SOLO", 77, Rules.STARTING_SHIP, x, y);
         world.units.put(scout.key(), scout);
 
         List<Object> events = new ArrayList<>();
@@ -64,7 +64,7 @@ public final class GalaxyEventValidator {
         String systemId = world.activeSystemId();
         double x = world.width * 0.8;
         double y = world.height * 0.8;
-        Unit scout = new Unit("SOLO", 1, "scout", world.width * 0.1, world.height * 0.1);
+        Unit scout = new Unit("SOLO", 1, Rules.STARTING_SHIP, world.width * 0.1, world.height * 0.1);
         world.units.put(scout.key(), scout);
         GalaxyEventDirector.restore(world, runtime(systemId,
                 List.of(event("EV-HIDDEN", "rich_rare_earths", systemId, x, y, 1000, Map.of()))));
@@ -124,7 +124,7 @@ public final class GalaxyEventValidator {
 
     private static void materializeRich(World world, String systemId, double x, double y) {
         PlayerRegistry.activate(world);
-        Unit scout = new Unit("SOLO", 90, "scout", x, y);
+        Unit scout = new Unit("SOLO", 90, Rules.STARTING_SHIP, x, y);
         world.units.put(scout.key(), scout);
         GalaxyEventDirector.restore(world, runtime(systemId,
                 List.of(event("EV-DETERMINISTIC", "rich_rare_earths", systemId, x, y, 1000, Map.of()))));
