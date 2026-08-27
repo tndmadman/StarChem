@@ -24,7 +24,10 @@ final class GameCamera {
     }
 
     void update(World world, int screenW, int screenH, double dt) {
-        if (world != null) ACTIVE.put(world, this);
+        if (world != null) {
+            ACTIVE.put(world, this);
+            EmpireOverviewOverlay.ensureInstalled(world, null);
+        }
         Set<String> currentLocalEntityKeys = localEntityKeys(world);
         if (!initialized) initialized = centerOnLocal(world, screenW, screenH);
         else if (localEntitiesReplaced(currentLocalEntityKeys)) centerOnLocal(world, screenW, screenH);

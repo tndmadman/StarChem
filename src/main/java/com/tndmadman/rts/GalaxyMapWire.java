@@ -70,6 +70,11 @@ final class GalaxyMapWire {
             for (Map.Entry<String,String> entry : new TreeMap<>(owner.locations()).entrySet()) {
                 out.append("|F,").append(token(entry.getKey())).append(',').append(token(entry.getValue()));
             }
+            World activeWorld = PlayerRegistry.activeWorld();
+            if (activeWorld != null) {
+                StrategicSummarySnapshot strategic = StrategicSummaryService.capture(activeWorld, owner.ownerId());
+                out.append("|E,").append(StrategicSummaryWire.encodeToken(strategic));
+            }
         }
         return out.toString();
     }
@@ -85,6 +90,8 @@ final class GalaxyMapWire {
         Map<String,String> ownerUnits = new LinkedHashMap<>();
         String ownerId = "";
         boolean ownerMarker = false;
+        StrategicSummarySnapshot strategic = null;
+        boolean strategicMarker = false;
         for (int i = 3; i < parts.length; i++) {
             String part = parts[i];
             if (part.startsWith("S,")) systems.add(system(part));
@@ -94,7 +101,13 @@ final class GalaxyMapWire {
                 ownerId = ownerMarker(part);
                 ownerMarker = true;
             } else if (part.startsWith("F,")) ownerFleet(part, ownerUnits);
-            else if (!part.isBlank()) throw new SnapshotDecodeException("Malformed galaxy state row.");
+            else if (part.startsWith("E,")) {
+                if (strategicMarker) throw new SnapshotDecodeException("Duplicate strategic empire summary.");
+                String[] fields = part.split(",", -1);
+                if (fields.length != 2) throw new SnapshotDecodeException("Malformed strategic empire summary row.");
+                strategic = StrategicSummaryWire.decodeToken(fields[1]);
+                strategicMarker = true;
+            } else if (!part.isBlank()) throw new SnapshotDecodeException("Malformed galaxy state row.");
         }
         if (systems.size() > 96 || links.size() > 256 || ownerUnits.size() > MAX_OWNER_UNITS) {
             throw new SnapshotDecodeException("Galaxy state exceeds safe limits.");
@@ -103,11 +116,18 @@ final class GalaxyMapWire {
             throw new SnapshotDecodeException("Owner fleet galaxy rows are missing their owner marker.");
         }
         if (ownerMarker) validateOwnerRows(ownerId, ownerUnits, true);
+        if (strategic != null) {
+            if (!ownerMarker || !ownerId.equals(strategic.ownerId())) {
+                throw new SnapshotDecodeException("Strategic empire summary does not match the owner projection.");
+            }
+            World activeWorld = PlayerRegistry.activeWorld();
+            if (activeWorld != null) StrategicSummaryRegistry.replace(activeWorld, strategic);
+        }
         GalaxyMapSnapshot snapshot = new GalaxyMapSnapshot(activeSystemId, List.copyOf(systems), List.copyOf(links));
         OwnerProjection owner = ownerMarker
                 ? new OwnerProjection(true, ownerId, Map.copyOf(ownerUnits))
                 : OwnerProjection.ABSENT;
-        return new Decoded(copies, snapshot, owner);
+        return new Decoded(copies, snapshot, owner, strategic);
     }
 
     static GalaxyMapSnapshot withActive(GalaxyMapSnapshot snapshot, String activeSystemId) {
@@ -284,8 +304,8 @@ final class GalaxyMapWire {
         }
     }
 
-    record Decoded(int copiesPerTemplate, GalaxyMapSnapshot snapshot, OwnerProjection ownerProjection) {
+    record Decoded(int copiesPerTemplate, GalaxyMapSnapshot snapshot, OwnerProjection ownerProjection,
+                   StrategicSummarySnapshot strategicSummary) {
         Map<String,String> ownerUnitLocations() { return ownerProjection.locations(); }
     }
-
 }
