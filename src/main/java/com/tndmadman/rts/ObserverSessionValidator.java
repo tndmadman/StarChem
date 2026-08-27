@@ -17,10 +17,63 @@ public final class ObserverSessionValidator {
     private ObserverSessionValidator() { }
 
     public static void main(String[] args) throws Exception {
+        validateInvitedObserverJoin();
         validateServerAuthorityAndPersistence();
         validateVisibilityPolicies();
         validateClientPresentation();
         System.out.println("StarChem observer session validation passed.");
+    }
+
+    private static void validateInvitedObserverJoin() throws Exception {
+        Path saveDir = Files.createTempDirectory("starchem-pure-observer-validator-");
+        String saveName = "pure-observer-validator";
+        Files.writeString(saveDir.resolve(saveName + "-observers.json"),
+                "{\"version\":1,\"enabled\":true,\"maxObservers\":1,\"invitations\":[{\"name\":\"Pure Observer\",\"mode\":\"FULL\",\"followPlayerId\":\"\",\"expiresAt\":4102444800000}],\"grants\":[]}");
+        Config config = Config.parse(new String[]{"--server", "50000", "--save-dir", saveDir.toString(), "--save-name", saveName});
+        InetAddress loopback = InetAddress.getLoopbackAddress();
+        PeerTransport transport = PeerTransport.server(0, new PerfStats());
+        transport.start();
+        try (Socket socket = connect(loopback, transport.localPort())) {
+            waitConnection(transport, loopback, socket.getLocalPort());
+            World world = new World("Pure Observer Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+            PlayerRegistry.activate(world);
+            PlayerRegistry.reset("SOLO", "Observer Host", 0x50BEFF);
+            ObserverSessions.configure(config, world);
+            PeerServerSide server = new PeerServerSide(config, world, transport);
+            ConnectionId connectionId = transport.connectionId(loopback, socket.getLocalPort());
+            String[] observerJoin = {"JOIN", "Pure Observer", "NODEV", "", "OBSERVER", "1"};
+            require(ObserverSessions.prepareJoin(server, connectionId, "Pure Observer", observerJoin),
+                    "valid operator invitation was rejected before authentication");
+            server.join(connectionId, loopback, socket.getLocalPort(), "Pure Observer", false, "");
+            String required = receivePayload(socket, "AUTH_REQUIRED|");
+            String[] requiredParts = required.split("\\|", -1);
+            require(requiredParts.length == 3 && PasswordAuth.decodeHex(requiredParts[2]).length == 16,
+                    "pure observer did not receive a scoped registration challenge");
+            String verifier = PasswordAuth.scopedVerifier("Pure Observer", "validator-password",
+                    TEST_SERVER_FINGERPRINT, PasswordAuth.decodeHex(requiredParts[2]));
+            require(ObserverSessions.prepareJoin(server, connectionId, "Pure Observer", observerJoin),
+                    "observer invitation was lost during authentication challenge");
+            server.join(connectionId, loopback, socket.getLocalPort(), "Pure Observer", verifier, false, "");
+            String welcome = receivePayload(socket, "WELCOME|");
+            require(welcome.startsWith("WELCOME|P1|Pure Observer|"), "pure observer authentication did not retain its identity");
+            ObserverSessions.finishAuthentication(server, connectionId);
+            String observerState = receivePayload(socket, "OBSERVER_STATE|");
+            require(observerState.contains("MODE|FULL"), "invited FULL observer did not receive the configured visibility mode");
+            require(ObserverSessions.isObserver(world, "P1"), "pure invited identity was not promoted to observer role");
+            require(!world.hasLiveAssets("P1"), "pure observer spawned or retained gameplay assets");
+            require(world.completedResearch.getOrDefault("P1", Set.of()).isEmpty(), "pure observer received research state");
+            require(ObserverSessions.normalPlayerSessionCount(server) == 0, "pure observer consumed a normal player slot");
+            require(ObserverSessions.prepareResume(server, connectionId, "P1"), "pure observer permission did not survive reconnect checks");
+
+            World restored = new World("Pure Observer Restore", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+            PlayerRegistry.activate(restored);
+            PlayerRegistry.reset("SOLO", "Observer Host", 0x50BEFF);
+            ObserverSessions.configure(config, restored);
+            require(ObserverSessions.isObserver(restored, "P1"), "pure observer grant did not persist independently of gameplay state");
+        } finally {
+            transport.shutdown();
+            deleteTree(saveDir);
+        }
     }
 
     private static void validateServerAuthorityAndPersistence() throws Exception {
@@ -57,10 +110,26 @@ public final class ObserverSessionValidator {
                     "observer identity still consumed the normal player-session count");
             require(!server.devAllowed(connectionId, "P1"), "observer retained developer authority");
 
-            require(ObserverSessions.handleObserverControl(server, new String[]{"MOVE", "P1", "1", "20", "20"}, connectionId),
-                    "observer gameplay mutation was not intercepted server-side");
-            String denied = receivePayload(socket, "OBSERVER_DENIED|");
-            require(denied.contains("READ_ONLY|MOVE"), "observer mutation rejection was not explicit");
+            String[][] mutations = {
+                    {"MOVE", "P1", "1", "20", "20"},
+                    {"ORDER", "P1", "1", "MOVE", "20", "20", "20", "20", "0", "", "0"},
+                    {"ATTACK", "P1", "1", "U:P2:1"},
+                    {"PROD", "P1", "ENQUEUE", "P1:B1", "prospector", "SHIP"},
+                    {"RESEARCH", "P1", "P1:B1", "advanced_industry"},
+                    {"BUILD", "P1", "P1:B1", "prospector"},
+                    {"RESPAWN", "P1"},
+                    {"PACK", "P1", "LOAD", "P1:B1", "shipyard"},
+                    {"DEVFREE", "P1", "1"},
+                    {"DEVHANGAR", "P1", "P1:B1", "IRON", "100"},
+                    {"DEVAI", "P1", "pause"}
+            };
+            for (String[] mutation : mutations) {
+                require(ObserverSessions.handleObserverControl(server, mutation, connectionId),
+                        "observer mutation was not intercepted server-side: " + mutation[0]);
+                String denied = receivePayload(socket, "OBSERVER_DENIED|");
+                require(denied.contains("READ_ONLY|" + mutation[0]),
+                        "observer mutation rejection was not explicit for " + mutation[0]);
+            }
             require(!ObserverSessions.handleObserverControl(server,
                             new String[]{"VIEW_SYSTEM", "P1", world.activeSystemId(), "1"}, connectionId),
                     "observer read-only system-view command was incorrectly blocked");
