@@ -7,6 +7,7 @@ import java.util.List;
 
 final class LeaderboardHud {
     void draw(Graphics2D g2, World world, int screenW) {
+        drawObserverWatermark(g2, world, screenW);
         List<Row> rows = rows(world);
         int w = 260;
         int rowH = 20;
@@ -40,6 +41,27 @@ final class LeaderboardHud {
             rank++;
         }
         drawObjective(g2, world, screenW, y + h + 8);
+    }
+
+    private void drawObserverWatermark(Graphics2D g2, World world, int screenW) {
+        String text = ObserverSessions.clientWatermark(world);
+        if (text.isBlank()) return;
+        Font oldFont = g2.getFont();
+        Composite oldComposite = g2.getComposite();
+        g2.setFont(oldFont.deriveFont(Font.BOLD, 18f));
+        int padX = 18;
+        int width = g2.getFontMetrics().stringWidth(text) + padX * 2;
+        int x = Math.max(12, (screenW - width) / 2);
+        int y = 14;
+        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.88f));
+        g2.setColor(new Color(0, 0, 0, 205));
+        g2.fillRoundRect(x, y, width, 34, 12, 12);
+        g2.setColor(new Color(255, 205, 95));
+        g2.drawRoundRect(x, y, width, 34, 12, 12);
+        g2.setColor(Color.WHITE);
+        g2.drawString(text, x + padX, y + 23);
+        g2.setFont(oldFont);
+        g2.setComposite(oldComposite);
     }
 
     private void drawObjective(Graphics2D g2, World world, int screenW, int y) {

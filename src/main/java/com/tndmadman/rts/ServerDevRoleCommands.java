@@ -6,13 +6,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** Clear role-oriented developer access controls for the trusted local server console. */
+/** Clear role-oriented developer and observer access controls for the trusted local server console. */
 final class ServerDevRoleCommands {
     private ServerDevRoleCommands() { }
 
     static List<String> help(List<String> supplied) {
         List<String> args = supplied == null ? List.of() : supplied;
-        if (args.size() > 1) return List.of("Usage: help dev [access|role|freebuild|mode]");
+        if (args.size() > 1) return List.of("Usage: help dev [access|role|freebuild|mode|observer]");
         String topic = args.isEmpty() ? "" : args.get(0).toLowerCase(Locale.ROOT);
         return switch (topic) {
             case "" -> List.of(
@@ -22,13 +22,24 @@ final class ServerDevRoleCommands {
                     "  dev role set <player> developer",
                     "  dev role set <player> developer-freebuild",
                     "  dev role set <player> none",
-                    "Use 'help dev role', 'help dev access', 'help dev freebuild', or 'help dev mode' for details.");
+                    "Observer administration: dev role observer status",
+                    "Use 'help dev role', 'help dev access', 'help dev freebuild', 'help dev mode', or 'help dev observer' for details.");
             case "role" -> List.of(
                     "dev role list [all|connected|granted] - Show retained players and their effective developer role.",
                     "dev role show <player> - Show one retained player's connection, request, access, and free-build state.",
                     "dev role set <player> none - Revoke developer access and free-build, including while offline.",
                     "dev role set <player> developer - Grant developer access without free-build.",
-                    "dev role set <player> developer-freebuild - Grant developer access and free-build together.");
+                    "dev role set <player> developer-freebuild - Grant developer access and free-build together.",
+                    "dev role observer ... - Administer the separate read-only observer role.");
+            case "observer" -> List.of(
+                    "dev role observer status - Show observer enablement, separate slot use, invitations, and retained grants.",
+                    "dev role observer on|off - Enable observers or disable them and disconnect connected observers.",
+                    "dev role observer limit <count> - Set the independent observer slot limit.",
+                    "dev role observer invite <name> public [duration] - Invite a public-view observer.",
+                    "dev role observer invite <name> full [duration] - Invite a trusted full-view observer.",
+                    "dev role observer invite <name> follow:<player> [duration] - Lock an observer to a player's visibility.",
+                    "dev role observer revoke <name-or-id> - Revoke an invitation/grant and disconnect the observer.",
+                    "dev role observer list - List invitations and retained observer grants.");
             case "access" -> List.of(
                     "dev access list - Show connected developer candidates.",
                     "dev access requests - Show pending client requests.",
@@ -45,7 +56,7 @@ final class ServerDevRoleCommands {
                     "dev mode on - Enable runtime developer controls for this server process.",
                     "dev mode off [confirm] - Disable developer controls, revoke grants, and reset developer simulation state.");
             default -> List.of("Unknown developer help topic: " + args.get(0)
-                    + ". Use 'help dev [access|role|freebuild|mode]'.");
+                    + ". Use 'help dev [access|role|freebuild|mode|observer]'.");
         };
     }
 
@@ -53,18 +64,24 @@ final class ServerDevRoleCommands {
         HeadlessGameServer host = host(target);
         if (host == null || host.network == null) return List.of("Developer role context is unavailable.");
         List<String> args = supplied == null ? List.of() : supplied;
+        if (!args.isEmpty() && "observer".equalsIgnoreCase(args.get(0))) {
+            return ObserverSessions.console(host, args.subList(1, args.size()));
+        }
         if (args.isEmpty() || "list".equalsIgnoreCase(args.get(0))) return list(host.network, args);
         String action = args.get(0).toLowerCase(Locale.ROOT);
         if ("show".equals(action) && args.size() == 2) {
             PersistentPlayerSession session = resolve(host.network, args.get(1));
             return session == null ? List.of("Unknown retained player identity: " + args.get(1))
-                    : List.of(describe(host.network, session, peerMap(host.network).get(session.playerId())));
+                    : List.of(describe(host, session, peerMap(host.network).get(session.playerId())));
         }
         if ("set".equals(action) && args.size() == 3) {
             PersistentPlayerSession session = resolve(host.network, args.get(1));
             if (session == null) return List.of("Unknown retained player identity: " + args.get(1));
             String role = normalizeRole(args.get(2));
             if (role.isBlank()) return List.of("Usage: dev role set <player> <none|developer|developer-freebuild>");
+            if (ObserverSessions.isObserver(host.world, session.playerId()) && !"none".equals(role)) {
+                return List.of("Observer identities are read-only and cannot receive developer roles.");
+            }
             if (!"none".equals(role) && !host.network.runtimeDevEnabled()) {
                 return List.of("Runtime developer mode is disabled. Use 'dev mode on' first.");
             }
@@ -72,7 +89,7 @@ final class ServerDevRoleCommands {
             String connection = host.network.serverSessionConnected(session.playerId()) ? "connected" : "retained/offline";
             return List.of("Developer role for " + session.playerId() + " set to " + role + " (" + connection + ").");
         }
-        return List.of("Usage: dev role <list [all|connected|granted]|show <player>|set <player> <none|developer|developer-freebuild>>");
+        return List.of("Usage: dev role <list [all|connected|granted]|show <player>|set <player> <none|developer|developer-freebuild>|observer ...>");
     }
 
     static List<String> accessAlias(ServerCommandDispatcher.Target target, List<String> supplied) {
@@ -89,6 +106,9 @@ final class ServerDevRoleCommands {
         PersistentPlayerSession session = resolve(host.network, args.get(2));
         if (session == null) return List.of("Unknown retained player identity: " + args.get(2));
         if ("grant".equals(action)) {
+            if (ObserverSessions.isObserver(host.world, session.playerId())) {
+                return List.of("Observer identities are read-only and cannot receive developer access.");
+            }
             if (!host.network.runtimeDevEnabled()) return List.of("Runtime developer mode is disabled. Use 'dev mode on' first.");
             host.network.setRemoteDevAccess(session.playerId(), true);
             return List.of("Developer access granted to " + session.playerId()
@@ -106,6 +126,7 @@ final class ServerDevRoleCommands {
             return List.of("Usage: dev role list [all|connected|granted]");
         }
         Map<String,DevPeerAccess> peers = peerMap(network);
+        HeadlessGameServer host = null;
         ArrayList<String> lines = new ArrayList<>();
         for (PersistentPlayerSession session : network.persistentPlayerSessions()) {
             if (session == null) continue;
@@ -116,6 +137,15 @@ final class ServerDevRoleCommands {
             lines.add(describe(network, session, peers.get(session.playerId())));
         }
         return lines.isEmpty() ? List.of("No matching retained player identities.") : List.copyOf(lines);
+    }
+
+    private static String describe(HeadlessGameServer host, PersistentPlayerSession session, DevPeerAccess peer) {
+        if (ObserverSessions.isObserver(host.world, session.playerId())) {
+            return session.playerId() + " | " + session.name() + " | "
+                    + (host.network.serverSessionConnected(session.playerId()) ? "connected" : "retained")
+                    + " | role observer-" + ObserverSessions.mode(host.world, session.playerId()).name().toLowerCase(Locale.ROOT);
+        }
+        return describe(host.network, session, peer);
     }
 
     private static String describe(PeerNetwork network, PersistentPlayerSession session, DevPeerAccess peer) {

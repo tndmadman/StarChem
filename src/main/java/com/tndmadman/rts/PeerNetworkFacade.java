@@ -92,6 +92,7 @@ final class PeerNetwork implements CommandSink {
         PeerServerSide server = null;
         PeerClientSide client = null;
         if (config.hostMode) {
+            ObserverSessions.configure(config, world);
             PlayerRegistry.reset("SOLO", config.playerName, 0x50BEFF);
             world.setDevFreeBuild("SOLO", config.devMode);
             world.status = "Hosting " + world.systemName() + " TCP " + transport.localPort() + (config.devMode ? " with dev mode enabled" : "");
@@ -111,7 +112,7 @@ final class PeerNetwork implements CommandSink {
         return network;
     }
 
-    String statusLine() { return server != null ? server.statusLine() : client.statusLine(); }
+    String statusLine() { return server != null ? server.statusLine() + " | " + ObserverSessions.statusSuffix(server) : client.statusLine(); }
     String localPlayerId() { return client != null ? client.localPlayerId() : "SOLO"; }
     boolean connectionFailed() { return client != null && client.connectionFailed(); }
     String failureMessage() { return client != null ? client.failureMessage() : "Connection failed."; }
@@ -120,6 +121,8 @@ final class PeerNetwork implements CommandSink {
     boolean clientReconnecting() { return client != null && client.reconnecting(); }
     boolean clientConnected() { return client != null && client.connectedState(); }
     boolean clientReady() { return client == null || client.readyState(); }
+    boolean clientObserver() { return client != null && ObserverSessions.clientObserver(client.world); }
+    void requestObserverConversion(String playerId) { if (client != null) client.requestObserverConversion(playerId); }
     ClientConnectionProgress clientConnectionProgress() {
         return client == null
                 ? new ClientConnectionProgress(ConnectionPhase.READY, "READY", "Local authoritative session.", 4, 4, 0)
@@ -415,8 +418,10 @@ final class PeerNetwork implements CommandSink {
                     if (server != null) server.connectionClosed(packet);
                     if (!playerId.isBlank()) {
                         PersistentPlayerSession session = sessionById(playerId);
-                        if (identityStore != null) identityStore.recordSeen(playerId, session == null ? playerId : session.name());
-                        journal.add("LEAVE", playerId, "connection closed");
+                        if (identityStore != null && !ObserverSessions.isObserver(server.world, playerId)) {
+                            identityStore.recordSeen(playerId, session == null ? playerId : session.name());
+                        }
+                        journal.add("LEAVE", playerId, ObserverSessions.isObserver(server.world, playerId) ? "observer connection closed" : "connection closed");
                     }
                     continue;
                 }
@@ -505,6 +510,10 @@ final class PeerNetwork implements CommandSink {
         if (!(message.startsWith("DEVFREE|") || message.startsWith("DEVHANGAR|") || message.startsWith("DEVAI|"))) return false;
         String[] parts = message.split("\\|", -1);
         String playerId = parts.length > 1 ? parts[1] : "";
+        if (ObserverSessions.isObserver(server.world, server.ownerId(connectionId, ""))) {
+            journal.add("OBSERVER_DENIED", playerId, parts.length == 0 ? "developer" : parts[0]);
+            return true;
+        }
         if (!server.owns(connectionId, playerId) || !runtimeAuthorized(playerId, connectionId)) {
             journal.add("DEV_DENIED", playerId, parts.length == 0 ? "unknown" : parts[0]);
             return true;
@@ -551,7 +560,8 @@ final class PeerNetwork implements CommandSink {
         PersistentPlayerSession existing = sessionById(requestedPlayerId);
         String playerId = existing == null ? requestedPlayerId : existing.playerId();
         String playerName = existing == null ? "" : existing.name();
-        String lifecycleReason = identityStore == null ? "" : identityStore.denialReason(playerId);
+        String lifecycleReason = identityStore == null || ObserverSessions.isObserver(server.world, playerId)
+                ? "" : identityStore.denialReason(playerId);
         if (!lifecycleReason.isBlank()) {
             rejectIdentity(false, connectionId, lifecycleReason);
             journal.add("ADMISSION_DENIED", playerId.isBlank() ? requestedPlayerId : playerId, "identity-lifecycle");
@@ -576,7 +586,9 @@ final class PeerNetwork implements CommandSink {
 
     private String joinAdmissionDenial(ConnectionId connectionId, String playerId, String playerName,
                                        InetAddress address, boolean newIdentity, long now) {
-        String lifecycleReason = identityStore == null ? "" : identityStore.denialReason(playerId);
+        boolean observer = ObserverSessions.pendingObserver(server.world, connectionId)
+                || ObserverSessions.isObserver(server.world, playerId);
+        String lifecycleReason = identityStore == null || observer ? "" : identityStore.denialReason(playerId);
         if (!lifecycleReason.isBlank()) {
             journal.add("ADMISSION_DENIED", playerId.isBlank() ? playerName : playerId, "identity-lifecycle");
             return lifecycleReason;
@@ -600,7 +612,8 @@ final class PeerNetwork implements CommandSink {
             journal.add("ADMISSION_DENIED", playerName, "maintenance");
             return policy.maintenanceMessage();
         }
-        if (newIdentity && policy.maxSlots() > 0 && server.persistentSessions().size() >= policy.maxSlots()) {
+        if (newIdentity && !observer && policy.maxSlots() > 0
+                && ObserverSessions.normalPlayerSessionCount(server) >= policy.maxSlots()) {
             journal.add("ADMISSION_DENIED", playerName, "slots");
             return "Server player slots are full (" + policy.maxSlots() + ").";
         }
@@ -637,22 +650,29 @@ final class PeerNetwork implements CommandSink {
         PersistentPlayerSession session = sessionById(playerId);
         String device = deviceByConnection.getOrDefault(connectionId, deviceByPlayer.getOrDefault(playerId, ""));
         String playerName = session == null ? playerId : session.name();
+        boolean observer = ObserverSessions.isObserver(server.world, playerId);
         observationStore.record(playerId, playerName, serverPlayerAddress(playerId), device);
-        if (identityStore != null) {
+        if (!observer && identityStore != null) {
             ServerIdentityStore.MutationResult lifecycle = identityStore.recordSeen(playerId, playerName);
             if (!lifecycle.success()) journal.add("IDENTITY_STATE_ERROR", playerId, lifecycle.message());
             server.reserveNextPlayer(identityStore.nextPlayerNumber());
         }
-        for (DevPeerAccess peer : server.devAccessPeers()) if (playerId.equals(peer.playerId()) && peer.authorized()) {
-            runtimeDevAccess.add(playerId);
-            if (server.world.devFreeBuildFor(playerId)) runtimeFreeBuild.add(playerId);
+        if (!observer) {
+            for (DevPeerAccess peer : server.devAccessPeers()) if (playerId.equals(peer.playerId()) && peer.authorized()) {
+                runtimeDevAccess.add(playerId);
+                if (server.world.devFreeBuildFor(playerId)) runtimeFreeBuild.add(playerId);
+            }
+            if (runtimeDevEnabled && runtimeDevAccess.contains(playerId)) {
+                if (config.devMode) server.setDevAccess(playerId, true);
+                else PeerServerAdminBridge.setDevAccess(server, playerId, true);
+                server.applyDevFreeCrafting(playerId, runtimeFreeBuild.contains(playerId));
+            }
+        } else {
+            runtimeDevAccess.remove(playerId);
+            runtimeFreeBuild.remove(playerId);
         }
-        if (runtimeDevEnabled && runtimeDevAccess.contains(playerId)) {
-            if (config.devMode) server.setDevAccess(playerId, true);
-            else PeerServerAdminBridge.setDevAccess(server, playerId, true);
-            server.applyDevFreeCrafting(playerId, runtimeFreeBuild.contains(playerId));
-        }
-        journal.add(joinMessage(message) ? "JOIN" : "RECONNECT", playerId, "accepted");
+        journal.add(observer ? (joinMessage(message) ? "OBSERVER_JOIN" : "OBSERVER_RECONNECT")
+                : (joinMessage(message) ? "JOIN" : "RECONNECT"), playerId, "accepted");
         admissionRecorded.add(connectionId);
     }
 
@@ -706,6 +726,7 @@ final class PeerNetwork implements CommandSink {
     }
 
     private void serverCommand(Runnable action, String playerId) {
+        if (ObserverSessions.isObserver(server.world, playerId)) return;
         server.change(playerId, action);
         server.broadcastNow();
     }

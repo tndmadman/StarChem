@@ -9,6 +9,7 @@ final class PacketSideA {
             String[] p = message == null ? new String[0] : message.split("\\|", -1);
             ConnectionId connectionId = packet == null ? ConnectionId.NONE : packet.connectionId();
             if (SideAJoin.handle(s, p, connectionId, packet)) return;
+            if (ObserverSessions.handleObserverControl(s, p, connectionId)) return;
             if (SideADev.handle(s, p, connectionId)) return;
             SideAOrders.handle(s, p, connectionId);
         } catch (Exception ex) {
