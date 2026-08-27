@@ -9,6 +9,7 @@ final class PeerClientSide {
     final Config config;
     final World world;
     final PeerTransport transport;
+    private final ObserverSessions.ClientRequest observerRequest;
     private ConnectionState state;
     private long attemptStarted;
     private long lastHandshake;
@@ -45,6 +46,7 @@ final class PeerClientSide {
         this.config = config;
         this.world = world;
         this.transport = transport;
+        this.observerRequest = ObserverSessions.clientRequest(config);
         PlayerRegistry.activate(world);
         long now = System.currentTimeMillis();
         attemptStarted = now;
@@ -77,14 +79,16 @@ final class PeerClientSide {
             case DISCONNECTED -> "disconnected";
             case FAILED -> "failed";
         };
+        String observer = ObserverSessions.clientObserver(world)
+                ? " | observer " + ObserverSessions.clientMode(world).name() : "";
         return "CLIENT " + label + " -> " + config.serverAddress + " | " + world.activeSystemId()
                 + " | " + SkirmishRuntime.settings(world).statusLabel()
-                + " | queued " + transport.queuedCount() + (devApproved ? " | dev" : "");
+                + " | queued " + transport.queuedCount() + (devApproved ? " | dev" : "") + observer;
     }
 
     String localPlayerId() { return localPlayerId; }
     boolean connectionFailed() { return state == ConnectionState.FAILED; }
-    boolean devToolsAllowed() { return state == ConnectionState.CONNECTED && devApproved; }
+    boolean devToolsAllowed() { return state == ConnectionState.CONNECTED && devApproved && !ObserverSessions.clientObserver(world); }
     String failureMessage() { return failureMessage.isBlank() ? "Connection failed." : failureMessage; }
     static long serverSilenceMs() { return SERVER_SILENCE_MS; }
     boolean reconnecting() { return state == ConnectionState.RECONNECTING || state == ConnectionState.SYNCING && syncingResume; }
@@ -127,12 +131,13 @@ final class PeerClientSide {
                     : new ClientConnectionProgress(ConnectionPhase.CONNECTING, "CONNECTING TO SERVER",
                     transportDetail("Opening TCP connection to " + config.serverAddress + "."), 1, 4, elapsed);
             case SYNCING -> new ClientConnectionProgress(ConnectionPhase.SYNCHRONIZING,
-                    syncingResume ? "RESTORING SESSION" : "SYNCHRONIZING FLEET",
+                    syncingResume ? "RESTORING SESSION" : ObserverSessions.clientObserver(world) ? "SYNCHRONIZING OBSERVER" : "SYNCHRONIZING FLEET",
                     syncingResume ? "Receiving authoritative state for the saved session."
+                            : ObserverSessions.clientObserver(world) ? "Receiving the permitted read-only observer view."
                             : "Receiving and validating authoritative galaxy and fleet state.",
                     3, 4, elapsed);
             case CONNECTED -> new ClientConnectionProgress(ConnectionPhase.READY, "READY",
-                    "Authoritative state loaded.", 4, 4, elapsed);
+                    ObserverSessions.clientObserver(world) ? "Read-only observer state loaded." : "Authoritative state loaded.", 4, 4, elapsed);
             case RECONNECTING -> transport.connected()
                     ? new ClientConnectionProgress(ConnectionPhase.HANDSHAKING, "RECONNECTING",
                     "TCP restored. Requesting the saved session from the server.", 2, 4, elapsed)
@@ -219,6 +224,7 @@ final class PeerClientSide {
         devApproved = false;
         syncingResume = false;
         world.setDevFreeBuild(localPlayerId, false);
+        ObserverSessions.clearClient(world);
     }
 
     void handle(NetPacket packet, String message) {
@@ -226,8 +232,16 @@ final class PeerClientSide {
         PlayerRegistry.activate(world);
         lastServerPacket = System.currentTimeMillis();
         if (UnitQueueWire.readState(world, message, localPlayerId)) return;
+        if (ObserverSessions.applyClientState(world, message)) {
+            if (ObserverSessions.clientObserver(world)) {
+                devApproved = false;
+                viewSnapshotMode = true;
+                world.setDevFreeBuild(localPlayerId, false);
+            }
+            return;
+        }
         if (readWorldInfo(message) || readGalaxy(message) || readLeaderboard(message)
-                || readDevStatus(message) || readViewDenied(message)) return;
+                || readDevStatus(message) || readViewDenied(message) || readObserverDenied(message)) return;
         if (!readAuthRequired(message) && !readAuthChallenge(message) && !readSessionChallenge(message)
                 && !readJoinDenied(message) && !readSessionBusy(message) && !readSessionDenied(message)
                 && !readSystemDelete(message)) ClientPackets.handle(this, message);
@@ -268,11 +282,15 @@ final class PeerClientSide {
         sendCommandToServer("DEVHANGAR|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(baseId) + "|" + material.name() + "|" + Calc.round(amount));
     }
     void devAiCommand(String playerId, String command) { sendCommandToServer("DEVAI|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(command)); }
+    void requestObserverConversion(String playerId) {
+        if (ObserverSessions.clientObserver(world)) return;
+        sendCommandToServer("OBSERVER_CONVERT|" + cleanPacketPart(playerId));
+    }
     void jump(String playerId, double x, double y) { viewSystem(playerId, world.wormholeTargetAt(x, y)); }
     void jump(String playerId, String targetSystemId, double x, double y) { viewSystem(playerId, targetSystemId); }
 
     void viewSystem(String playerId, String targetSystemId) {
-        if (!canIssueCommands()) { blockCommand(); return; }
+        if (!canIssueViewCommands()) { blockCommand(); return; }
         String requestedSystem = cleanSystemId(targetSystemId);
         if (invalidSystemId(requestedSystem)) {
             world.status = "Unable to request that galaxy system.";
@@ -287,7 +305,7 @@ final class PeerClientSide {
         viewedSystemId = requestedSystem;
         pendingViewRevision = nextViewRevision++;
         world.status = "Requesting view of " + requestedSystem + " from the server.";
-        sendCommandToServer("VIEW_SYSTEM|" + playerId + "|" + requestedSystem + "|" + pendingViewRevision);
+        sendReadOnlyToServer("VIEW_SYSTEM|" + playerId + "|" + requestedSystem + "|" + pendingViewRevision);
     }
     void wormholeTouch(String playerId) { sendCommandToServer("WHTOUCH|" + playerId); }
     void wormholeTouch(WormholeTouchRequest request) { if (request != null && request.valid()) sendCommandToServer(request.packet()); }
@@ -335,15 +353,18 @@ final class PeerClientSide {
         lastHandshake = 0;
         if (parts.length >= 7) syncEnv(parts[4], parts[5], parts[6]); else if (parts.length >= 6) syncEnv(world.systemId(), parts[4], parts[5]); else if (parts.length >= 5) readSeed(parts[4]);
         PlayerRegistry.register(localPlayerId, parts[2], rgb, true);
-        world.ensurePlayerHome(localPlayerId, WorldNetAccess.usesPrimaryHome(localPlayerId));
-        world.activateSystem(world.playerHomeSystemId(localPlayerId));
+        boolean observerJoin = observerRequest.requested() || ObserverSessions.clientObserver(world);
+        if (!observerJoin) {
+            world.ensurePlayerHome(localPlayerId, WorldNetAccess.usesPrimaryHome(localPlayerId));
+            world.activateSystem(world.playerHomeSystemId(localPlayerId));
+        }
         viewedSystemId = world.activeSystemId();
-        viewSnapshotMode = false;
+        viewSnapshotMode = observerJoin;
         viewRequestPending = false;
         viewRequestFallbackMode = false;
         viewRequestFallbackSystemId = "";
         pendingViewRevision = 0;
-        devApproved = flag(markerValue(parts, "DEV"));
+        devApproved = !observerJoin && flag(markerValue(parts, "DEV"));
         world.setDevFreeBuild(localPlayerId, devApproved);
         SessionTokenStore.save(config, localPlayerId, sessionToken);
         world.status = syncingResume
@@ -417,7 +438,11 @@ final class PeerClientSide {
         attemptStarted = now;
         lastServerPacket = now;
         lastPing = now;
-        world.status = (resumed ? "Reconnected " : "Joined ") + world.activeSystemId() + " as " + playerName + devStatus(devApproved);
+        if (ObserverSessions.clientObserver(world)) {
+            world.status = (resumed ? "Reconnected" : "Joined") + " as read-only " + ObserverSessions.clientWatermark(world) + ".";
+        } else {
+            world.status = (resumed ? "Reconnected " : "Joined ") + world.activeSystemId() + " as " + playerName + devStatus(devApproved);
+        }
     }
 
     private boolean readWorldInfo(String message) {
@@ -450,9 +475,10 @@ final class PeerClientSide {
     private boolean readDevStatus(String message) {
         if (message == null || !message.startsWith("DEVSTATUS|")) return false;
         String[] parts = message.split("\\|", -1);
-        devApproved = parts.length > 1 && flag(parts[1]);
+        devApproved = !ObserverSessions.clientObserver(world) && parts.length > 1 && flag(parts[1]);
         world.setDevFreeBuild(localPlayerId, devApproved);
-        world.status = "Dev access " + (devApproved ? "granted by host." : "revoked by host.");
+        world.status = ObserverSessions.clientObserver(world) ? "Observer sessions cannot use developer access."
+                : "Dev access " + (devApproved ? "granted by host." : "revoked by host.");
         return true;
     }
 
@@ -484,6 +510,14 @@ final class PeerClientSide {
         }
         String reason = parts.length > 3 ? parts[3].trim() : "The server rejected that system view.";
         world.status = reason.isBlank() ? "The server rejected that system view." : reason;
+        return true;
+    }
+
+    private boolean readObserverDenied(String message) {
+        if (message == null || !message.startsWith("OBSERVER_DENIED|")) return false;
+        String[] parts = message.split("\\|", 3);
+        String reason = parts.length > 2 ? parts[2].trim() : "Observer request was rejected by the server.";
+        world.status = reason.isBlank() ? "Observer request was rejected by the server." : reason;
         return true;
     }
 
@@ -579,7 +613,8 @@ final class PeerClientSide {
             state = ConnectionState.JOINING;
             attemptStarted = System.currentTimeMillis();
             lastHandshake = 0;
-            world.status = (reason.isBlank() ? "Saved session was rejected." : reason) + " Joining as a new player.";
+            world.status = (reason.isBlank() ? "Saved session was rejected." : reason)
+                    + (observerRequest.requested() ? " Rejoining with the requested observer permission." : " Joining as a new player.");
             return true;
         }
         failConnection(reason.isBlank() ? "Saved session was rejected." : reason);
@@ -602,13 +637,15 @@ final class PeerClientSide {
             world.removePlayerAndPruneEmptySystems(owner);
         }
         if (deletedViewedSystem || deletedActiveSystem) {
-            viewSnapshotMode = false;
+            viewSnapshotMode = ObserverSessions.clientObserver(world);
             viewRequestPending = false;
             viewRequestFallbackMode = false;
             viewRequestFallbackSystemId = "";
             pendingViewRevision = 0;
-            world.ensurePlayerHome(localPlayerId);
-            world.activateSystem(world.playerHomeSystemId(localPlayerId));
+            if (!ObserverSessions.clientObserver(world)) {
+                world.ensurePlayerHome(localPlayerId);
+                world.activateSystem(world.playerHomeSystemId(localPlayerId));
+            }
             viewedSystemId = world.activeSystemId();
         }
         world.status = "Removed abandoned system from galaxy map.";
@@ -621,20 +658,20 @@ final class PeerClientSide {
     }
 
     private boolean shouldApplyAsView(Snapshot snapshot) {
-        return viewSnapshotMode || currentViewSnapshot(snapshot)
+        return ObserverSessions.clientObserver(world) || viewSnapshotMode || currentViewSnapshot(snapshot)
                 && !WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId);
     }
 
     private void updateViewModeFromRegularSnapshot(Snapshot snapshot) {
         if (!currentViewSnapshot(snapshot)) return;
         viewedSystemId = snapshot.systemId();
-        viewSnapshotMode = !WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId);
+        viewSnapshotMode = ObserverSessions.clientObserver(world) || !WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId);
     }
 
     private void acceptAuthoritativeView(Snapshot snapshot) {
         if (snapshot == null || snapshot.systemId() == null || snapshot.systemId().isBlank()) return;
         viewedSystemId = snapshot.systemId();
-        viewSnapshotMode = !WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId);
+        viewSnapshotMode = ObserverSessions.clientObserver(world) || !WorldNetAccess.hasPlayerAssets(snapshot, localPlayerId);
     }
 
     private boolean currentViewSnapshot(Snapshot snapshot) {
@@ -645,7 +682,7 @@ final class PeerClientSide {
 
     private boolean holdingDifferentView(Snapshot snapshot) {
         if (!viewSnapshotMode || viewedSystemId == null || viewedSystemId.isBlank()) return false;
-        if (invalidSystemId(viewedSystemId)) { viewSnapshotMode = false; viewedSystemId = world.activeSystemId(); return false; }
+        if (invalidSystemId(viewedSystemId)) { viewSnapshotMode = ObserverSessions.clientObserver(world); viewedSystemId = world.activeSystemId(); return false; }
         String systemId = snapshot.systemId();
         if (systemId == null || systemId.isBlank() || systemId.equals(viewedSystemId)) return false;
         ResourceNetDebug.ignoredSnapshot(world, snapshot, "holding requested view " + viewedSystemId);
@@ -717,9 +754,11 @@ final class PeerClientSide {
     }
 
     private String joinMessage() {
-        String request = config.devMode ? "DEV" : "NODEV";
-        String token = config.devMode ? config.devToken : "";
-        String message = "JOIN|" + cleanPacketPart(config.playerName) + "|" + request + "|" + token;
+        boolean observer = observerRequest.requested();
+        String request = !observer && config.devMode ? "DEV" : "NODEV";
+        String token = !observer && config.devMode ? config.devToken : "";
+        String message = "JOIN|" + cleanPacketPart(config.playerName) + "|" + request + "|" + token
+                + (observer ? "|OBSERVER|1" : "");
         if (!authChallengeNonce.isBlank() && !authChallengeSalt.isBlank()) {
             String credential = scopedPasswordVerifier;
             if (!passwordVerifier.isBlank() && !credential.isBlank()) credential += ":" + passwordVerifier;
@@ -786,13 +825,18 @@ final class PeerClientSide {
     }
 
     private String resumeMessage() {
-        String request = config.devMode ? "DEV" : "NODEV";
-        String devToken = config.devMode ? config.devToken : "";
+        boolean observer = observerRequest.requested() || ObserverSessions.clientObserver(world);
+        String request = !observer && config.devMode ? "DEV" : "NODEV";
+        String devToken = !observer && config.devMode ? config.devToken : "";
         return "RESUME|" + cleanPacketPart(localPlayerId) + "|" + cleanPacketPart(sessionToken)
-                + "|" + request + "|" + devToken;
+                + "|" + request + "|" + devToken + (observer ? "|OBSERVER|1" : "");
     }
 
-    private boolean canIssueCommands() { return state == ConnectionState.CONNECTED; }
+    private boolean canIssueCommands() {
+        return state == ConnectionState.CONNECTED && !ObserverSessions.clientObserver(world);
+    }
+
+    private boolean canIssueViewCommands() { return state == ConnectionState.CONNECTED; }
 
     private void blockCommand() {
         world.status = switch (state) {
@@ -801,12 +845,17 @@ final class PeerClientSide {
             case SYNCING -> "Command blocked until authoritative state finishes loading.";
             case DISCONNECTED -> "Command blocked because the client is disconnected.";
             case FAILED -> "Command blocked because the connection failed.";
-            case CONNECTED -> world.status;
+            case CONNECTED -> ObserverSessions.clientObserver(world) ? "Observer session is read-only." : world.status;
         };
     }
 
     private void sendCommandToServer(String payload) {
         if (!canIssueCommands()) { blockCommand(); return; }
+        if (canSendControl()) transport.sendOrdered(payload, config.serverAddress.getAddress(), config.serverAddress.getPort());
+    }
+
+    private void sendReadOnlyToServer(String payload) {
+        if (!canIssueViewCommands()) { blockCommand(); return; }
         if (canSendControl()) transport.sendOrdered(payload, config.serverAddress.getAddress(), config.serverAddress.getPort());
     }
 
