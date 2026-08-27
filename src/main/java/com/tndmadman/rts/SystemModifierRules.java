@@ -8,7 +8,16 @@ final class SystemModifierRules {
     static SystemModifiers current(World world) {
         if (world == null) return SystemModifiers.STANDARD;
         StarSystemDefinition definition = StarSystems.get(world.activeSystemId());
-        return definition == null ? SystemModifiers.STANDARD : definition.modifiers();
+        SystemModifiers base = definition == null ? SystemModifiers.STANDARD : definition.modifiers();
+        SystemModifiers temporary = GalaxyEventDirector.temporaryModifiers(world, world.activeSystemId());
+        return new SystemModifiers(
+                base.miningYield() * temporary.miningYield(),
+                base.resourceRespawn() * temporary.resourceRespawn(),
+                base.sensorRange() * temporary.sensorRange(),
+                base.shieldRegen() * temporary.shieldRegen(),
+                base.movementSpeed() * temporary.movementSpeed(),
+                base.weaponRange() * temporary.weaponRange(),
+                base.environmentalDamagePerSecond() + temporary.environmentalDamagePerSecond());
     }
 
     static double miningYield(World world) { return current(world).miningYield(); }
@@ -20,6 +29,7 @@ final class SystemModifierRules {
 
     static void applyEnvironment(World world, double dt) {
         if (world == null || dt <= 0) return;
+        GalaxyEventDirector.update(world, dt);
         double damage = current(world).environmentalDamagePerSecond() * dt;
         if (damage <= 0) return;
         for (Unit unit : new ArrayList<>(world.units.values())) {
