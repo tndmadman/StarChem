@@ -29,6 +29,7 @@ final class LobbyPanel extends JPanel {
     private final JCheckBox sharedVisionBox = new JCheckBox("Shared vision");
     private final JCheckBox sharedVictoryBox = new JCheckBox("Shared victory");
     private final JCheckBox devBox = new JCheckBox("Dev mode");
+    private final JCheckBox observerBox = new JCheckBox("Join as approved observer");
     private final JCheckBox spawnRaidersBox = new JCheckBox("Raiders", true);
     private final JCheckBox spawnFreeMinersBox = new JCheckBox("Free Miners", true);
     private final JCheckBox spawnCorsairsBox = new JCheckBox("Corsair Syndicate", true);
@@ -70,9 +71,15 @@ final class LobbyPanel extends JPanel {
         styleCheck(sharedVisionBox);
         styleCheck(sharedVictoryBox);
         styleCheck(devBox);
+        styleCheck(observerBox);
         styleCheck(spawnRaidersBox);
         styleCheck(spawnFreeMinersBox);
         styleCheck(spawnCorsairsBox);
+        observerBox.setToolTipText("Requires an operator-created observer invitation. Observer sessions are always read-only.");
+        observerBox.addActionListener(e -> {
+            if (observerBox.isSelected()) devBox.setSelected(false);
+            devBox.setEnabled(!observerBox.isSelected());
+        });
         skirmishPresetBox.addActionListener(e -> applyPresetDefaults());
         diplomacyModeBox.addActionListener(e -> applyDiplomacyDefaults());
         applyPresetDefaults();
@@ -205,6 +212,9 @@ final class LobbyPanel extends JPanel {
         addFormRow(grid, row++, "Port", portField);
         addFormRow(grid, row++, "JOIN accounts",
                 help("Remote: sign in to an existing commander. Local: an unused name creates one."));
+        addFormRow(grid, row++, "JOIN role", observerBox);
+        addFormRow(grid, row++, "Observer access",
+                help("Observer requires a server invitation and uses the server-selected PUBLIC, FOLLOW, or FULL visibility policy."));
         addFormRow(grid, row++, "Solo starting home", systemBox);
         addFormRow(grid, row++, "Solo galaxy copies", galaxyCopiesBox);
         addFormRow(grid, row++, "Solo skirmish preset", skirmishPresetBox);
@@ -483,12 +493,15 @@ final class LobbyPanel extends JPanel {
 
     private void startClient() {
         try {
+            boolean observer = observerBox.isSelected();
             Config config = Config.join(nameField.getText(), addressField.getText().trim(),
-                    Config.parsePort(portField.getText()), devBox.isSelected());
+                    Config.parsePort(portField.getText()), !observer && devBox.isSelected());
+            ObserverClientIntent.set(config, observer);
             if (!ensurePlayerPassword(config)) return;
             RecentServerStore.record(addressField.getText().trim(), Config.parsePort(portField.getText()),
                     selectedServerName(), selectedServerVersion());
             reloadRecentServers();
+            setStatus(observer ? "Connecting as an approved read-only observer..." : "Connecting...");
             owner.launchGame(config);
         } catch (RuntimeException ex) {
             setStatus(ex.getMessage());
@@ -546,7 +559,10 @@ final class LobbyPanel extends JPanel {
         JPasswordField confirm = new JPasswordField(18);
         JCheckBox remember = new JCheckBox("Remember sign-in on this computer", true);
 
-        JTextArea explanation = new JTextArea(localAccount
+        boolean observer = observerBox.isSelected();
+        JTextArea explanation = new JTextArea(observer
+                ? "Sign in with the commander name approved by the server operator. Observer permission and visibility are enforced by the server and the session cannot issue gameplay commands."
+                : localAccount
                 ? "Sign in to this local server. If the commander name is unused, StarChem creates a new account with this password."
                 : "Sign in to an existing commander on this remote server. New remote accounts must be provisioned by the server operator.");
         explanation.setEditable(false);
@@ -555,7 +571,7 @@ final class LobbyPanel extends JPanel {
         explanation.setLineWrap(true);
         explanation.setWrapStyleWord(true);
         explanation.setColumns(38);
-        explanation.setRows(localAccount ? 3 : 2);
+        explanation.setRows(observer ? 3 : localAccount ? 3 : 2);
         explanation.setFont(UIManager.getFont("Label.font"));
         explanation.setForeground(UIManager.getColor("Label.foreground"));
 
@@ -606,7 +622,7 @@ final class LobbyPanel extends JPanel {
         constraints.insets = new Insets(4, 0, 0, 0);
         fields.add(remember, constraints);
 
-        String title = localAccount ? "Local Commander Sign-In or Creation" : "Commander Sign-In";
+        String title = observer ? "Observer Sign-In" : localAccount ? "Local Commander Sign-In or Creation" : "Commander Sign-In";
         int result = JOptionPane.showConfirmDialog(this, fields, title,
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (result != JOptionPane.OK_OPTION) {
