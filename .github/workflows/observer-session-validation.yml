@@ -19,9 +19,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Set up Gradle
+      - name: Set up Gradle 8.10.2
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
       - name: Compile project
-        run: ./gradlew classes --no-daemon
+        run: gradle classes --no-daemon
       - name: Validate observer sessions
         run: java -Djava.awt.headless=true -cp build/classes/java/main:build/resources/main com.tndmadman.rts.ObserverSessionValidator
