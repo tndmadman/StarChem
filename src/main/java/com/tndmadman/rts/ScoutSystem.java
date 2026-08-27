@@ -16,20 +16,33 @@ final class ScoutSystem {
     void update(World world) {
         refreshTeamIntelSharing(world);
         updateIntel(world);
+
+        Map<String,Map<Integer,Integer>> assignmentCountsByPlayer = new HashMap<>();
         for (Unit miner : world.units.values()) {
-            if (canLocalMine(miner)) updateLocalMiner(world, miner);
+            if (!canLocalMine(miner)) continue;
+            Map<Integer,Integer> assigned = assignmentCountsByPlayer.computeIfAbsent(miner.playerId,
+                    playerId -> assignmentCounts(world, playerId));
+            updateLocalMiner(world, miner, assigned);
         }
+
+        Map<String,VisibilityRules.Frame> visibilityByPlayer = new HashMap<>();
         for (Base radar : world.bases.values()) {
             if (radar.hp <= 0 || !IntelWarfareSystem.isRadar(radar.typeId)) continue;
-            adaptRadarMode(world, radar);
-            dispatchWorkers(world, radar);
+            if (adaptRadarMode(world, radar)) visibilityByPlayer.remove(radar.playerId);
+            VisibilityRules.Frame visibility = visibilityByPlayer.computeIfAbsent(radar.playerId,
+                    playerId -> VisibilityRules.frame(world, playerId));
+            Map<Integer,Integer> assigned = assignmentCountsByPlayer.computeIfAbsent(radar.playerId,
+                    playerId -> assignmentCounts(world, playerId));
+            dispatchWorkers(world, radar, visibility, assigned);
         }
     }
 
     boolean retargetAfterDepletion(World world, Unit miner, ResourceNode oldNode) {
         if (miner.freeCargo() <= 0.05) return false;
-        if (retargetLocalMiner(world, miner, oldNode)) return true;
-        return retargetFromRadar(world, miner, oldNode);
+        Map<Integer,Integer> assigned = assignmentCounts(world, miner.playerId);
+        if (retargetLocalMiner(world, miner, oldNode, assigned)) return true;
+        return retargetFromRadar(world, miner, oldNode, assigned,
+                VisibilityRules.frame(world, miner.playerId));
     }
 
     private void refreshTeamIntelSharing(World world) {
@@ -60,7 +73,7 @@ final class ScoutSystem {
         IntelWarfareSystem.update(world, simulationDelta);
     }
 
-    private void adaptRadarMode(World world, Base radar) {
+    private boolean adaptRadarMode(World world, Base radar) {
         String key = world.activeSystemId() + '|' + radar.id;
         double phase = radarModePhases.getOrDefault(key, 0.0) + lastIntelDelta;
         radarModePhases.put(key, phase);
@@ -72,12 +85,16 @@ final class ScoutSystem {
             IntelWarfareSystem.DetectionStage stage = VisibilityRules.unitStage(world, radar.playerId, enemy);
             detected |= stage.atLeast(IntelWarfareSystem.DetectionStage.CONTACT);
             identifiedThreat |= stage.atLeast(IntelWarfareSystem.DetectionStage.IDENTIFIED);
+            if (identifiedThreat) break;
         }
-        for (Base enemy : world.bases.values()) {
-            if (enemy == null || enemy.hp <= 0 || IntelWarfareSystem.allied(world, radar.playerId, enemy.playerId)) continue;
-            IntelWarfareSystem.DetectionStage stage = VisibilityRules.baseStage(world, radar.playerId, enemy);
-            detected |= stage.atLeast(IntelWarfareSystem.DetectionStage.CONTACT);
-            identifiedThreat |= stage.atLeast(IntelWarfareSystem.DetectionStage.IDENTIFIED);
+        if (!identifiedThreat) {
+            for (Base enemy : world.bases.values()) {
+                if (enemy == null || enemy.hp <= 0 || IntelWarfareSystem.allied(world, radar.playerId, enemy.playerId)) continue;
+                IntelWarfareSystem.DetectionStage stage = VisibilityRules.baseStage(world, radar.playerId, enemy);
+                detected |= stage.atLeast(IntelWarfareSystem.DetectionStage.CONTACT);
+                identifiedThreat |= stage.atLeast(IntelWarfareSystem.DetectionStage.IDENTIFIED);
+                if (identifiedThreat) break;
+            }
         }
 
         IntelWarfareSystem.RadarMode desired;
@@ -85,24 +102,26 @@ final class ScoutSystem {
         else if (detected) desired = IntelWarfareSystem.RadarMode.ACTIVE;
         else desired = phase % 8.0 < 1.5 ? IntelWarfareSystem.RadarMode.ACTIVE
                 : IntelWarfareSystem.RadarMode.PASSIVE;
-        setModeSilently(world, radar, desired);
+        return setModeSilently(world, radar, desired);
     }
 
-    private void setModeSilently(World world, Base radar, IntelWarfareSystem.RadarMode desired) {
-        if (IntelWarfareSystem.radarMode(world, radar) == desired) return;
+    private boolean setModeSilently(World world, Base radar, IntelWarfareSystem.RadarMode desired) {
+        if (IntelWarfareSystem.radarMode(world, radar) == desired) return false;
         String status = world.status;
         IntelWarfareSystem.setRadarMode(world, radar, desired, radar.playerId);
         world.status = status;
+        return true;
     }
 
-    private void updateLocalMiner(World world, Unit miner) {
+    private void updateLocalMiner(World world, Unit miner, Map<Integer,Integer> assignedCounts) {
         if (miner.task != UnitTask.IDLE || miner.orderType != UnitOrderType.NONE
                 || UnitCommandQueueSystem.hasPlayerIntent(world, miner) || miner.freeCargo() <= 0.05) return;
         anchorToNearbyStation(world, miner);
         ensureMiningAnchor(miner);
-        ResourceNode node = leastAssignedLocalResource(world, miner, -1, assignmentCounts(world, miner.playerId));
+        ResourceNode node = leastAssignedLocalResource(world, miner, -1, assignedCounts);
         if (node != null) {
             miner.startAutoHarvest(node.id);
+            assignedCounts.merge(node.id, 1, Integer::sum);
             world.status = miner.type().name + " found " + node.name + " nearby.";
         }
     }
@@ -112,16 +131,20 @@ final class ScoutSystem {
         Base base = world.nearestBase(miner.playerId, miner.x, miner.y);
         if (base == null) return;
         double idleStationRange = base.type().unloadRange + 170;
-        if (Calc.distance(miner.x, miner.y, base.x, base.y) <= idleStationRange) miner.setMiningAnchor(base.x, base.y);
+        double dx = miner.x - base.x;
+        double dy = miner.y - base.y;
+        if (dx * dx + dy * dy <= idleStationRange * idleStationRange) miner.setMiningAnchor(base.x, base.y);
     }
 
-    private boolean retargetLocalMiner(World world, Unit miner, ResourceNode oldNode) {
+    private boolean retargetLocalMiner(World world, Unit miner, ResourceNode oldNode,
+                                       Map<Integer,Integer> assignedCounts) {
         if (!canLocalMine(miner)) return false;
         ensureMiningAnchor(miner);
         ResourceNode best = leastAssignedLocalResource(world, miner, oldNode == null ? -1 : oldNode.id,
-                assignmentCounts(world, miner.playerId));
+                assignedCounts);
         if (best == null) return false;
         miner.startAutoHarvest(best.id);
+        assignedCounts.merge(best.id, 1, Integer::sum);
         world.status = miner.type().name + " redirected itself to " + best.name + ".";
         return true;
     }
@@ -133,10 +156,13 @@ final class ScoutSystem {
         ResourceNode best = null;
         int bestAssigned = Integer.MAX_VALUE;
         double bestDist = Double.MAX_VALUE;
+        double localRange = miner.type().scoutRange * SystemModifierRules.sensorRange(world);
+        double localRangeSquared = localRange * localRange;
         for (ResourceNode node : world.resources) {
             if (!node.active || node.id == skippedResourceId || !miner.type().harvestKinds.contains(node.kind)) continue;
-            if (Calc.distance(miner.miningAnchorX, miner.miningAnchorY, node.x, node.y)
-                    > miner.type().scoutRange * SystemModifierRules.sensorRange(world)) continue;
+            double anchorDx = miner.miningAnchorX - node.x;
+            double anchorDy = miner.miningAnchorY - node.y;
+            if (anchorDx * anchorDx + anchorDy * anchorDy > localRangeSquared) continue;
             int assigned = assignedCounts.getOrDefault(node.id, 0);
             double distance = Calc.distance(miner.x, miner.y, node.x, node.y);
             if (betterResource(node, assigned, distance, best, bestAssigned, bestDist)) {
@@ -148,9 +174,9 @@ final class ScoutSystem {
         return best;
     }
 
-    private boolean retargetFromRadar(World world, Unit miner, ResourceNode oldNode) {
+    private boolean retargetFromRadar(World world, Unit miner, ResourceNode oldNode,
+                                      Map<Integer,Integer> assignedCounts, VisibilityRules.Frame visibility) {
         if (oldNode == null) return false;
-        Map<Integer,Integer> assignedCounts = assignmentCounts(world, miner.playerId);
         ResourceNode best = null;
         int bestPriority = Integer.MAX_VALUE;
         int bestAssigned = Integer.MAX_VALUE;
@@ -159,11 +185,13 @@ final class ScoutSystem {
             if (!miner.playerId.equals(radar.playerId) || radar.hp <= 0 || !IntelWarfareSystem.isRadar(radar.typeId)
                     || StationControls.radarSearchTarget(world, radar) == StationControls.RadarSearchTarget.WORMHOLES) continue;
             double range = VisibilityRules.baseSensorRange(world, radar);
+            double rangeSquared = range * range;
             for (ResourceNode node : world.resources) {
                 if (!node.active || node.id == oldNode.id || !miner.type().harvestKinds.contains(node.kind)) continue;
-                if (Calc.distance(radar.x, radar.y, node.x, node.y) > range) continue;
-                if (!VisibilityRules.resourceStage(world, miner.playerId, node)
-                        .atLeast(IntelWarfareSystem.DetectionStage.IDENTIFIED)) continue;
+                double radarDx = radar.x - node.x;
+                double radarDy = radar.y - node.y;
+                if (radarDx * radarDx + radarDy * radarDy > rangeSquared) continue;
+                if (!visibility.resourceStage(node).atLeast(IntelWarfareSystem.DetectionStage.IDENTIFIED)) continue;
                 int priority = StationControls.priorityRank(world, radar, node.material);
                 int assigned = assignedCounts.getOrDefault(node.id, 0);
                 double distance = Calc.distance(miner.x, miner.y, node.x, node.y);
@@ -179,19 +207,20 @@ final class ScoutSystem {
         if (best == null) return false;
         miner.setMiningAnchor(best.x, best.y);
         miner.startAutoHarvest(best.id);
+        assignedCounts.merge(best.id, 1, Integer::sum);
         world.status = "Radar network redirected " + miner.type().name + " to " + best.name + ".";
         return true;
     }
 
-    private void dispatchWorkers(World world, Base radar) {
+    private void dispatchWorkers(World world, Base radar, VisibilityRules.Frame visibility,
+                                 Map<Integer,Integer> assignedCounts) {
         if (StationControls.radarSearchTarget(world, radar) == StationControls.RadarSearchTarget.WORMHOLES) return;
         int limit = IntelWarfareSystem.dispatchLimit(radar.typeId);
         if (limit <= 0) return;
 
-        List<ResourceNode> visibleResources = radarVisibleResources(world, radar);
+        List<ResourceNode> visibleResources = radarVisibleResources(world, radar, visibility);
         if (visibleResources.isEmpty()) return;
 
-        Map<Integer,Integer> assignedCounts = assignmentCounts(world, radar.playerId);
         int assignedInsideRadar = 0;
         for (ResourceNode node : visibleResources) assignedInsideRadar += assignedCounts.getOrDefault(node.id, 0);
         int availableSlots = Math.max(0, limit - assignedInsideRadar);
@@ -213,13 +242,17 @@ final class ScoutSystem {
         }
     }
 
-    private List<ResourceNode> radarVisibleResources(World world, Base radar) {
+    private List<ResourceNode> radarVisibleResources(World world, Base radar, VisibilityRules.Frame visibility) {
         List<ResourceNode> visible = new ArrayList<>();
         double range = VisibilityRules.baseSensorRange(world, radar);
+        double rangeSquared = range * range;
         for (ResourceNode node : world.resources) {
-            if (node.active && Calc.distance(radar.x, radar.y, node.x, node.y) <= range
-                    && VisibilityRules.resourceStage(world, radar.playerId, node)
-                    .atLeast(IntelWarfareSystem.DetectionStage.IDENTIFIED)) visible.add(node);
+            double dx = radar.x - node.x;
+            double dy = radar.y - node.y;
+            if (node.active && dx * dx + dy * dy <= rangeSquared
+                    && visibility.resourceStage(node).atLeast(IntelWarfareSystem.DetectionStage.IDENTIFIED)) {
+                visible.add(node);
+            }
         }
         return visible;
     }
