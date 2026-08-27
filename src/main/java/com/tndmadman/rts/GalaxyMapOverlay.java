@@ -34,7 +34,7 @@ final class GalaxyMapOverlay {
         g.drawString("GALAXY MAP", 66, 78);
         g.setFont(g.getFont().deriveFont(Font.PLAIN, 12f));
         g.setColor(new Color(185, 211, 235));
-        g.drawString("Click a linked system to view it | Ring color shows controller or active claimant", 66, 101);
+        g.drawString("Click a linked system to view it | Ring color shows controller | Discovered events are marked", 66, 101);
 
         if (snapshot == null || snapshot.empty()) {
             g.setColor(new Color(230, 244, 255, 180));
@@ -124,6 +124,7 @@ final class GalaxyMapOverlay {
 
     private void drawNodes(Graphics2D g, GalaxyMapSnapshot snapshot, Map<String, NodeLayout> layout) {
         int count = snapshot.systems().size();
+        Map<String,Integer> eventCounts = discoveredEventCounts();
         for (GalaxyMapSystem system : snapshot.systems()) {
             NodeLayout node = layout.get(system.id());
             if (node == null) continue;
@@ -160,7 +161,24 @@ final class GalaxyMapOverlay {
             drawCentered(g, system.ships() + "S  " + system.bases() + "B  " + system.resources() + "R", node.x, node.y + radius + 13);
             g.setColor(controlColor);
             drawCentered(g, system.controlLabel(), node.x, node.y + radius + 26);
+            int events = eventCounts.getOrDefault(system.id(), 0);
+            if (events > 0) {
+                g.setFont(g.getFont().deriveFont(Font.BOLD, (float)Math.max(8, detailSize - 1)));
+                g.setColor(new Color(235, 195, 255));
+                drawCentered(g, events == 1 ? "1 EVENT" : events + " EVENTS", node.x, node.y - radius - 23);
+            }
         }
+    }
+
+    private Map<String,Integer> discoveredEventCounts() {
+        Map<String,Integer> counts = new HashMap<>();
+        World world = PlayerRegistry.activeWorld();
+        if (world == null) return counts;
+        for (GalaxyEventView view : GalaxyEventDirector.visibleViews(world)) {
+            if (view == null || view.systemId() == null || view.systemId().isBlank()) continue;
+            counts.merge(view.systemId(), 1, Integer::sum);
+        }
+        return counts;
     }
 
     private void drawLegend(Graphics2D g, int width, int height) {
@@ -168,7 +186,7 @@ final class GalaxyMapOverlay {
         int y = Math.max(136, height - 50);
         g.setFont(g.getFont().deriveFont(Font.PLAIN, 11f));
         g.setColor(new Color(208, 229, 247));
-        g.drawString("Outer ring = controller/claimant   Gray = neutral   Gold inner ring = your assets   Green fill = current view", x, y);
+        g.drawString("Outer ring = controller/claimant   Gray = neutral   Gold inner ring = your assets   Event tag = discovered anomaly", x, y);
     }
 
     private double nodeRadius(int count, boolean active) {
@@ -225,7 +243,8 @@ final class GalaxyMapOverlay {
         for (int i = 0; i < count; i++) {
             double angle = -Math.PI / 2 + i * Math.PI * 2.0 / Math.max(1, count);
             double radius = count <= 1 ? 0 : 75 + count * 5;
-            out.put(homes.get(i).id(), new NodeLayout(centerX + Math.cos(angle) * radius, centerY + Math.sin(angle) * radius));
+            out.put(homes.get(i).id(), new NodeLayout(centerX + Math.cos(angle) * radius,
+                    centerY + Math.sin(angle) * radius));
         }
     }
 
