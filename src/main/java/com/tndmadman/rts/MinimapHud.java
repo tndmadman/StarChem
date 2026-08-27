@@ -38,10 +38,10 @@ final class MinimapHud {
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         drawFrame(g, layout);
         drawResources(g, world, layout.map);
-        drawWormholes(g, world, layout.map);
         drawBases(g, world, layout.map);
         drawUnits(g, world, layout.map);
         FogOfWarView.drawMinimap(g, world, layout.map);
+        drawWormholes(g, world, layout.map);
         drawPings(g, world, layout.map);
         drawCamera(g, camera.visibleWorldRect(screenW, screenH), world, layout.map);
         g.dispose();
@@ -114,8 +114,8 @@ final class MinimapHud {
 
     private void drawWormholes(Graphics2D g, World world, Rectangle map) {
         g.setColor(new Color(90, 235, 255, 225));
-        for (WormholeGate gate : world.wormholes) {
-            Point2D p = mapPoint(world, map, gate.x, gate.y);
+        for (FogOfWarView.KnownWormhole gate : FogOfWarView.knownWormholes(world)) {
+            Point2D p = mapPoint(world, map, gate.x(), gate.y());
             int x = (int)Math.round(p.getX());
             int y = (int)Math.round(p.getY());
             Polygon diamond = new Polygon(new int[]{x, x + 4, x, x - 4}, new int[]{y - 4, y, y + 4, y}, 4);
@@ -221,10 +221,9 @@ final class MinimapHud {
             ContactKind kind = local ? ContactKind.LOCAL : ContactKind.ENEMY;
             out.put("B:" + base.id, new TrackedContact(base.x, base.y, kind));
         }
-        for (WormholeGate gate : world.wormholes) {
-            if (!FogOfWarView.explored(world, gate.x, gate.y)) continue;
-            String key = "W:" + gate.toSystemId + ":" + Math.round(gate.x) + ":" + Math.round(gate.y);
-            out.put(key, new TrackedContact(gate.x, gate.y, ContactKind.WORMHOLE));
+        for (FogOfWarView.KnownWormhole gate : FogOfWarView.knownWormholes(world)) {
+            String key = "W:" + gate.id();
+            out.put(key, new TrackedContact(gate.x(), gate.y(), ContactKind.WORMHOLE));
         }
         return out;
     }
