@@ -96,12 +96,9 @@ final class ProductionSystem {
     static boolean enqueuePackage(World world, Base base, BaseType station, boolean free) {
         if (world == null || base == null || station == null) return false;
         Unit builder = availableBuilder(world, base, null);
-        if (builder == null) {
-            world.status = "Move an empty Deployer into base range first.";
-            return false;
-        }
         return enqueue(world, base, ProductionJobKind.STATION_PACKAGE, station.id,
-                station.name + " package", station.buildCost, station.buildTimeSeconds, free, builder.key(), "", "");
+                station.name + " package", station.buildCost, station.buildTimeSeconds, free,
+                builder == null ? "" : builder.key(), "", "");
     }
 
     static boolean enqueueCraftable(World world, Base base, CraftableItem item, boolean free) {
@@ -217,7 +214,6 @@ final class ProductionSystem {
             world.status = "Refit cancelled because the target ship was destroyed; reserved resources were refunded.";
         }
     }
-
     private static void recallQueuedRefits(World world, Base base) {
         if (base == null || !base.type().canRefitShips) return;
         for (ProductionJob job : base.productionQueue) {
