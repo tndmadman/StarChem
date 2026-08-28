@@ -126,7 +126,7 @@ final class AuthoritativeSystemScheduler {
             if (slot.tier != SystemSimulationScheduler.SimulationTier.HOT
                     && !viewedSystems.contains(slot.systemId)) {
                 hotSystems.remove(slot.systemId);
-                slot.nextDue = clock + SystemSimulationScheduler.intervalSeconds(slot.tier);
+                slot.nextDue = clock + nextInterval(slot);
                 schedule(slot);
             }
         }
@@ -149,7 +149,7 @@ final class AuthoritativeSystemScheduler {
                     || viewedSystems.contains(slot.systemId)) {
                 markHot(slot);
             } else {
-                slot.nextDue = clock + SystemSimulationScheduler.intervalSeconds(slot.tier);
+                slot.nextDue = clock + nextInterval(slot);
                 schedule(slot);
             }
             updated.add(slot.systemId);
@@ -170,6 +170,13 @@ final class AuthoritativeSystemScheduler {
         slot.lastRun = clock;
         slot.tier = SystemSimulationScheduler.tier(world);
         slot.playerAssets = playerAssetCount(world);
+        slot.eventDueIn = GalaxyEventDirector.nextDueInSeconds(world, slot.systemId);
+    }
+
+    private double nextInterval(Slot slot) {
+        double normal = SystemSimulationScheduler.intervalSeconds(slot.tier);
+        if (!Double.isFinite(slot.eventDueIn)) return normal;
+        return Math.max(0.01, Math.min(normal, slot.eventDueIn));
     }
 
     private boolean activePlayerAssetCountChanged(World world, String systemId) {
@@ -305,6 +312,7 @@ final class AuthoritativeSystemScheduler {
         int signature;
         Due queuedDue;
         int playerAssets = -1;
+        double eventDueIn = Double.POSITIVE_INFINITY;
         SystemSimulationScheduler.SimulationTier tier = SystemSimulationScheduler.SimulationTier.DORMANT;
 
         Slot(String systemId, double lastRun, int signature) {

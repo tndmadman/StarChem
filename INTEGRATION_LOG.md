@@ -201,16 +201,16 @@ The integration base is functional and green, but these acceptance items still r
 - [x] safe unstable-wormhole transit draining for ships already touching/committed when collapse begins;
 - [x] owner-aware effective topology so strategic/logistics routing can use a discovered temporary shortcut without leaking it to other players;
 - [x] route recalculation/blocking when a temporary shortcut closes;
-- [ ] session/operator event enable/frequency/category controls;
-- [ ] actual save/reload tests for exact spawned entities and reward state, not only runtime map shape;
-- [ ] explicit every-phase transition tests;
-- [ ] simultaneous multiplayer discovery/alliance/no-leak tests;
-- [ ] system prune/delete tests for event sources, targets, entities, and closing wormholes;
-- [ ] malformed event-configuration regression matrix;
-- [ ] large-galaxy bounded-work/performance regression;
-- [ ] add event validation to normal Gradle `check` or an aggregate Gradle verification task;
-- [ ] Codex/general event documentation;
-- [ ] final current-system event HUD / richer discovered-event status presentation if required to satisfy #297 UI scope.
+- [x] session/operator event enable/frequency/category controls;
+- [x] actual save/reload tests for exact spawned entities and reward state, not only runtime map shape;
+- [x] explicit every-phase transition tests;
+- [x] simultaneous multiplayer discovery/alliance/no-leak tests;
+- [x] system prune/delete tests for event sources, targets, entities, and closing wormholes;
+- [x] malformed event-configuration regression matrix;
+- [x] large-galaxy bounded-work/performance regression;
+- [x] add event validation to normal Gradle `check` or an aggregate Gradle verification task;
+- [x] Codex/general event documentation;
+- [x] final current-system event HUD / richer discovered-event status presentation if required to satisfy #297 UI scope.
 
 ## Validation log
 
@@ -273,3 +273,39 @@ The #319 source files and integration files are byte-identical. Decision: no rep
 ### 2026-08-27 — galaxy-map decode audit
 
 A prior review note suspected that `GalaxyMapWire.decode` might insert `S` system rows twice after the strategic-summary/event integrations. The combined source was inspected before the rewards/topology push: there is exactly one `part.startsWith("S,")` decode branch in the packet loop. Decision: **no code change**; the suspected duplicate was not present, so changing the decoder would have been an unnecessary regression risk.
+
+### 2026-08-28 — #297 acceptance completion block (local exact integration snapshot)
+
+Implemented on the exact `integration/starchem-functional-2026-08-27` snapshot before the final GitHub push:
+
+- real `ServerSaveStore` archive round trips for every lifecycle enum phase, exact event-owned resource entities, partially claimed and fully claimed exactly-once rewards, closing-wormhole drain reservations, and persisted operator policy;
+- source-system and target-system prune cleanup for event state and temporary topology;
+- simultaneous multiplayer discovery without duplicate materialization, allied discovery sharing, non-allied event/wire/notice isolation, and FOW-filtered physical reward projection;
+- session/server event policy controls (`--enable-events`, `--disable-events`, `--event-frequency`, `--event-categories`) with fail-closed parsing and persisted save policy;
+- strict malformed `events.json` validation covering duplicate IDs, kinds, roles, materials, NPC factions, discovery rules, durations, active limits, reward materials, modifiers, and director bounds;
+- event-deadline hints integrated into the bounded authoritative scheduler without making event systems permanently HOT;
+- doubled-galaxy event performance soak proving no more than `MAX_INACTIVE_UPDATES_PER_TICK` inactive systems are processed, the due queue stays bounded, and galaxy-wide event limits hold;
+- aggregate Gradle `validateGalaxyEvents` verification wired into normal `check`;
+- dedicated discovered-event HUD, richer galaxy-map event name/state/countdown display, distinct host/solo temporary-link rendering, closing-wormhole countdown correction, and event Codex entries;
+- README documentation for server event policy controls and persistence behavior.
+
+Local Java 17 validation after this block:
+
+- full-source `javac --release 17`: PASS;
+- `GalaxyEventValidator`: PASS;
+- `GalaxyEventPersistenceValidator`: PASS;
+- `GalaxyEventMultiplayerValidator`: PASS;
+- `GalaxyEventConfigValidator`: PASS;
+- `GalaxyEventPerformanceValidator`: PASS;
+- `GalaxyConnectivityValidator`: PASS;
+- `SystemModifierValidator`: PASS;
+- `GalaxyMapWireValidator`: PASS;
+- `Issue293LogisticsRouteValidator`: PASS;
+- `NpcGalaxyDirectorValidator`: PASS;
+- `StationControlValidator`: PASS;
+- `ProductionQueueValidator`: PASS;
+- `SystemSimulationSchedulerValidator`: PASS;
+- `CodexCatalogValidator`: PASS;
+- `MinimapHudValidator`: PASS.
+
+The remaining gate is repository-side validation of this exact completion block: push the reviewed patch to PR #360, ensure all normal GitHub workflows and Gradle event tasks are green, inspect the final diff for temporary integration plumbing, update the PR description, and only then mark the PR ready for review. `main` remains untouched until a separate explicit merge decision.

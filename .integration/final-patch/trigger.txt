@@ -1,1 +1,0 @@
-Apply exact validated StarChem completion source patch — workflow files handled separately.

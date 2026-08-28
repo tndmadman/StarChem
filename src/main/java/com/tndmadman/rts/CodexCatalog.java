@@ -35,6 +35,7 @@ final class CodexCatalog {
         addResearch(out);
         addCrafting(out);
         addNpcFactions(out);
+        addEvents(out);
         addControls(out);
         return List.copyOf(out);
     }
@@ -213,6 +214,30 @@ final class CodexCatalog {
         }
     }
 
+    private static void addEvents(List<CodexEntry> out) {
+        out.add(new CodexEntry(CodexCategory.EVENTS, "dynamic_events", "Dynamic Galaxy Events",
+                "Temporary server-authoritative opportunities and hazards",
+                "Events appear over time according to the server event policy. Hidden events are revealed only by their configured sensor or proximity discovery rule. Discovered events show a marker and countdown, and temporary state is removed when the event completes, fails, or expires.\n\nServer operators can disable events, change event frequency, or restrict event categories when creating a session."));
+        out.add(new CodexEntry(CodexCategory.EVENTS, "rich_resource", "Rich Deposits",
+                "Temporary high-yield resource fields",
+                "Rich deposits create event-owned resource nodes for a limited time. Mining the field can complete the event. Undiscovered deposits do not appear on maps or network event projections."));
+        out.add(new CodexEntry(CodexCategory.EVENTS, "derelict_salvage", "Derelict Convoys",
+                "Temporary salvage caches",
+                "Derelict events create event-owned salvage items. Recovering all event salvage completes the encounter. Event cleanup never removes unrelated world items."));
+        out.add(new CodexEntry(CodexCategory.EVENTS, "distress", "Distress Beacons",
+                "Timed civilian defense encounters",
+                "A discovered distress beacon can materialize a protected civilian and hostile attackers. Saving the civilian by defeating the attackers completes the event; losing the civilian fails it. Completion rewards are generated deterministically and only once."));
+        out.add(new CodexEntry(CodexCategory.EVENTS, "pirate_ambush", "Pirate Ambushes",
+                "Concealed hostile encounters",
+                "Pirate ambushes use proximity discovery and spawn event-owned raiders. Their ships use normal StarChem combat while remaining isolated from ordinary NPC faction population and economy accounting."));
+        out.add(new CodexEntry(CodexCategory.EVENTS, "environmental", "Environmental Anomalies",
+                "Temporary system-wide modifiers",
+                "Ion storms and similar anomalies temporarily modify sensors, shields, movement, weapons, resource behavior, or environmental damage according to their data-driven definition. Their effects end with the event."));
+        out.add(new CodexEntry(CodexCategory.EVENTS, "unstable_wormhole", "Unstable Wormholes",
+                "Temporary discovered galaxy shortcuts",
+                "An unstable wormhole is visible and routable only to players allowed to know it. When collapse begins, new entrants are rejected while ships already committed to the gate are given a bounded drain window. The event never modifies permanent galaxy topology."));
+    }
+
     private static void addControls(List<CodexEntry> out) {
         out.add(control("camera", "Camera and maps", "Navigate the battlefield",
                 "WASD or Arrow Keys: pan camera\nMouse Wheel: zoom\nM: galaxy map\nClick tactical minimap: pan camera\nI: resource catalog\nF1: codex"));
@@ -338,6 +363,7 @@ enum CodexCategory {
     RESEARCH("Research"),
     CRAFTING("Crafting"),
     NPC_FACTIONS("NPC Factions"),
+    EVENTS("Events"),
     CONTROLS("Controls");
 
     final String label;

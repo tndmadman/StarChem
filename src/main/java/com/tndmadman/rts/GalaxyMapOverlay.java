@@ -5,6 +5,7 @@ import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.Stroke;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Line2D;
 import java.awt.geom.Point2D;
@@ -112,19 +113,25 @@ final class GalaxyMapOverlay {
     }
 
     private void drawLinks(Graphics2D g, GalaxyMapSnapshot snapshot, Map<String, NodeLayout> layout) {
-        g.setStroke(new BasicStroke(1.7f));
+        Set<String> temporary = discoveredTemporaryLinkKeys();
+        Stroke normal = new BasicStroke(1.7f);
+        Stroke temporaryStroke = new BasicStroke(2.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
+                10f, new float[]{7f, 6f}, 0f);
         for (GalaxyMapLink link : snapshot.links()) {
             NodeLayout a = layout.get(link.fromSystemId());
             NodeLayout b = layout.get(link.toSystemId());
             if (a == null || b == null) continue;
-            g.setColor(new Color(90, 186, 255, 92));
+            boolean dynamic = temporary.contains(linkKey(link.fromSystemId(), link.toSystemId()));
+            g.setStroke(dynamic ? temporaryStroke : normal);
+            g.setColor(dynamic ? new Color(105, 235, 255, 185) : new Color(90, 186, 255, 92));
             g.draw(new Line2D.Double(a.x, a.y, b.x, b.y));
         }
+        g.setStroke(normal);
     }
 
     private void drawNodes(Graphics2D g, GalaxyMapSnapshot snapshot, Map<String, NodeLayout> layout) {
         int count = snapshot.systems().size();
-        Map<String,Integer> eventCounts = discoveredEventCounts();
+        Map<String,List<GalaxyEventView>> eventsBySystem = discoveredEventsBySystem();
         for (GalaxyMapSystem system : snapshot.systems()) {
             NodeLayout node = layout.get(system.id());
             if (node == null) continue;
@@ -161,24 +168,44 @@ final class GalaxyMapOverlay {
             drawCentered(g, system.ships() + "S  " + system.bases() + "B  " + system.resources() + "R", node.x, node.y + radius + 13);
             g.setColor(controlColor);
             drawCentered(g, system.controlLabel(), node.x, node.y + radius + 26);
-            int events = eventCounts.getOrDefault(system.id(), 0);
-            if (events > 0) {
+            List<GalaxyEventView> events = eventsBySystem.getOrDefault(system.id(), List.of());
+            if (!events.isEmpty()) {
+                GalaxyEventView first = events.get(0);
                 g.setFont(g.getFont().deriveFont(Font.BOLD, (float)Math.max(8, detailSize - 1)));
                 g.setColor(new Color(235, 195, 255));
-                drawCentered(g, events == 1 ? "1 EVENT" : events + " EVENTS", node.x, node.y - radius - 23);
+                String eventLine = first.name() + " | " + first.phase().name() + " | "
+                        + Math.max(0, (int)Math.ceil(first.remainingSeconds())) + "s";
+                if (events.size() > 1) eventLine += " +" + (events.size() - 1);
+                drawCentered(g, eventLine, node.x, node.y - radius - 23);
             }
         }
     }
 
-    private Map<String,Integer> discoveredEventCounts() {
-        Map<String,Integer> counts = new HashMap<>();
+    private Map<String,List<GalaxyEventView>> discoveredEventsBySystem() {
+        Map<String,List<GalaxyEventView>> grouped = new HashMap<>();
         World world = PlayerRegistry.activeWorld();
-        if (world == null) return counts;
+        if (world == null) return grouped;
         for (GalaxyEventView view : GalaxyEventDirector.visibleViews(world)) {
             if (view == null || view.systemId() == null || view.systemId().isBlank()) continue;
-            counts.merge(view.systemId(), 1, Integer::sum);
+            grouped.computeIfAbsent(view.systemId(), ignored -> new ArrayList<>()).add(view);
         }
-        return counts;
+        return grouped;
+    }
+
+    private Set<String> discoveredTemporaryLinkKeys() {
+        Set<String> keys = new LinkedHashSet<>();
+        World world = PlayerRegistry.activeWorld();
+        if (world == null) return keys;
+        for (GalaxyMapLink link : GalaxyEventDirector.temporaryLinksFor(world, PlayerRegistry.localId())) {
+            if (link != null) keys.add(linkKey(link.fromSystemId(), link.toSystemId()));
+        }
+        return keys;
+    }
+
+    private String linkKey(String first, String second) {
+        String a = first == null ? "" : first;
+        String b = second == null ? "" : second;
+        return a.compareTo(b) <= 0 ? a + "\u0000" + b : b + "\u0000" + a;
     }
 
     private void drawLegend(Graphics2D g, int width, int height) {
@@ -186,7 +213,7 @@ final class GalaxyMapOverlay {
         int y = Math.max(136, height - 50);
         g.setFont(g.getFont().deriveFont(Font.PLAIN, 11f));
         g.setColor(new Color(208, 229, 247));
-        g.drawString("Outer ring = controller/claimant   Gray = neutral   Gold inner ring = your assets   Event tag = discovered anomaly", x, y);
+        g.drawString("Outer ring = controller/claimant   Gray = neutral   Gold inner ring = your assets   Event line = name/state/countdown   Dashed cyan link = temporary shortcut", x, y);
     }
 
     private double nodeRadius(int count, boolean active) {

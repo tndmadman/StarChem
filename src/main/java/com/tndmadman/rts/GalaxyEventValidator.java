@@ -27,7 +27,9 @@ public final class GalaxyEventValidator {
         validateWormholeMaterialization();
         validateOwnerAwareEffectiveTopology();
         validateEventProjectionSerialization();
+        validateEventHudProjection();
         validateHiddenEventsDoNotLeak();
+        validateLifecycleTransitions();
         validateDeterministicMaterialization();
         validateClosingWormholeRejectsTransit();
         validateClosingWormholeTransitDrain();
@@ -291,6 +293,22 @@ public final class GalaxyEventValidator {
                 "galaxy event wire row did not decode");
     }
 
+    private static void validateEventHudProjection() {
+        World world = world(991_450L);
+        String systemId = world.activeSystemId();
+        double x = world.width * 0.5;
+        double y = world.height * 0.5;
+        GalaxyEventDirector.restore(world, runtime(systemId,
+                List.of(event("EV-HUD-HIDDEN", "rich_rare_earths", systemId, x, y, 1000, Map.of()))));
+        require(new EventHud().lines(world).isEmpty(), "event HUD leaked a hidden event");
+        Unit scout = new Unit("SOLO", 451, Rules.STARTING_SHIP, x, y);
+        world.units.put(scout.key(), scout);
+        GalaxyEventDirector.update(world, 0.1);
+        List<String> lines = new EventHud().lines(world);
+        require(lines.size() == 1 && lines.get(0).contains("Rich Rare-Earth Deposit") && lines.get(0).contains("ACTIVE"),
+                "event HUD did not show concise discovered current-system event state");
+    }
+
     private static void validateHiddenEventsDoNotLeak() {
         World world = world(44_221L);
         String systemId = world.activeSystemId();
@@ -307,6 +325,65 @@ public final class GalaxyEventValidator {
         require(GalaxyEventWire.encodeRows(world, "SOLO").isEmpty(), "hidden event leaked into galaxy wire rows");
         require(world.resources.size() == resourcesBefore, "hidden resource event materialized before discovery");
         require(world.items.size() == itemsBefore, "hidden event changed world items before discovery");
+    }
+
+    private static void validateLifecycleTransitions() {
+        World hiddenWorld = world(992_110L);
+        String hiddenSystem = hiddenWorld.activeSystemId();
+        int resourcesBefore = hiddenWorld.resources.size();
+        GalaxyEventDirector.restore(hiddenWorld, runtime(hiddenSystem,
+                List.of(event("EV-PHASE-HIDDEN-EXPIRE", "rich_rare_earths", hiddenSystem,
+                        hiddenWorld.width * 0.8, hiddenWorld.height * 0.8, 100.05, Map.of()))));
+        GalaxyEventDirector.update(hiddenWorld, 0.1);
+        require(capturedEvent(hiddenWorld, "EV-PHASE-HIDDEN-EXPIRE").isEmpty(),
+                "HIDDEN -> EXPIRED event did not retire");
+        require(hiddenWorld.resources.size() == resourcesBefore,
+                "HIDDEN -> EXPIRED event materialized resources while expiring undiscovered");
+
+        World distressWorld = world(992_111L);
+        discoverSingle(distressWorld, "EV-PHASE-FAILED", "distress_beacon", Map.of());
+        Map<String,Object> distress = capturedEvent(distressWorld, "EV-PHASE-FAILED");
+        String civilian = ServerSaveStore.string(ServerSaveStore.object(distress.get("custom")), "civilianUnitKey", "");
+        require(!civilian.isBlank(), "distress phase fixture did not materialize its civilian");
+        distressWorld.units.remove(civilian);
+        GalaxyEventDirector.update(distressWorld, 0.1);
+        require(capturedEvent(distressWorld, "EV-PHASE-FAILED").isEmpty(),
+                "ACTIVE -> FAILED distress event did not retire after cleanup");
+        boolean failedNotice = false;
+        for (GameNotice notice : GameNoticeCenter.drain(distressWorld, "SOLO")) {
+            if (notice.text().toLowerCase(java.util.Locale.ROOT).contains("failed")) failedNotice = true;
+        }
+        require(failedNotice, "ACTIVE -> FAILED distress transition did not publish its failure state");
+
+        World environmentWorld = world(992_112L);
+        String envSystem = environmentWorld.activeSystemId();
+        Map<String,Object> environmental = discoveredProjectionEvent("EV-PHASE-ENV-EXPIRE", "ion_storm",
+                envSystem, environmentWorld.width * 0.5, environmentWorld.height * 0.5, Map.of());
+        environmental.put("materialized", true);
+        environmental.put("expiresAt", 100.05);
+        GalaxyEventDirector.restore(environmentWorld, runtime(envSystem, List.of(environmental)));
+        require(GalaxyEventDirector.temporaryModifiers(environmentWorld, envSystem).sensorRange() < 1,
+                "ACTIVE environmental phase fixture did not apply its modifier");
+        GalaxyEventDirector.update(environmentWorld, 0.1);
+        require(capturedEvent(environmentWorld, "EV-PHASE-ENV-EXPIRE").isEmpty(),
+                "ACTIVE -> EXPIRED environmental event did not retire");
+        require(Math.abs(GalaxyEventDirector.temporaryModifiers(environmentWorld, envSystem).sensorRange() - 1) < 0.000001,
+                "expired environmental event left a temporary modifier behind");
+
+        World rewardWorld = world(992_113L);
+        discoverSingle(rewardWorld, "EV-PHASE-REWARD-EXPIRE", "pirate_ambush", Map.of());
+        Map<String,Object> active = capturedEvent(rewardWorld, "EV-PHASE-REWARD-EXPIRE");
+        for (Object raw : ServerSaveStore.list(active.get("ownedUnits"))) rewardWorld.units.remove(String.valueOf(raw));
+        GalaxyEventDirector.update(rewardWorld, 0.1);
+        Map<String,Object> completed = capturedEvent(rewardWorld, "EV-PHASE-REWARD-EXPIRE");
+        int rewardItemId = ServerSaveStore.intValue(completed, "rewardItemId", -1);
+        require("COMPLETED".equals(ServerSaveStore.string(completed, "phase", "")) && rewardItemId >= 0,
+                "ACTIVE -> COMPLETED -> reward-pending fixture did not reach terminal reward state");
+        GalaxyEventDirector.update(rewardWorld, 151.0);
+        require(capturedEvent(rewardWorld, "EV-PHASE-REWARD-EXPIRE").isEmpty(),
+                "unclaimed reward expiry did not retire the completed event");
+        require(countItem(rewardWorld, rewardItemId) == 0,
+                "expired unclaimed reward item remained in world state");
     }
 
     private static void validateDeterministicMaterialization() {

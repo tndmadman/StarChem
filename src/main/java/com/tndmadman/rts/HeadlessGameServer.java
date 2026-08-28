@@ -83,6 +83,7 @@ final class HeadlessGameServer {
             System.out.println(config.newWorld ? "Starting a new server world by request." : "No server save found; starting a new world.");
         }
         DevTimerSettings.configure(world, config.disableProductionTimers);
+        GalaxyEventDirector.configurePolicy(world, config, loaded.isPresent());
         PeerNetwork network = PeerNetwork.start(config, world, saves.loadedPlayerSessions(), accessPolicy);
         if (network == null) throw new IOException("Dedicated server network did not start.");
         return new HeadlessGameServer(world, network, config, saves, adminStore, backupAdmin, accessPolicy);
@@ -228,8 +229,11 @@ final class HeadlessGameServer {
         String maintenance = accessPolicy.maintenance() ? " | maintenance" : "";
         String slots = accessPolicy.maxSlots() <= 0 ? "" : " | slots " + sortedSessions().size() + "/" + accessPolicy.maxSlots();
         String recovery = recoveryRequiredReason.isBlank() ? "" : " | RECOVERY REQUIRED";
+        GalaxyEventPolicy events = GalaxyEventDirector.policy(world);
+        String eventStatus = " | events " + (events.enabled() ? "on" : "off")
+                + " x" + events.frequencyMultiplier() + " " + events.enabledCategories().size() + "cat";
         return statusLine() + " | " + SkirmishRuntime.settings(world).statusLabel()
-                + " | save " + config.saveName + " | " + autosave + maintenance + slots + shutdown + recovery;
+                + " | save " + config.saveName + " | " + autosave + eventStatus + maintenance + slots + shutdown + recovery;
     }
 
     private List<String> playerStatusLines() {
@@ -428,6 +432,10 @@ final class HeadlessGameServer {
         List<String> lines = new ArrayList<>();
         if (!"tls".equals(scope) && !"compatibility".equals(scope)) {
             lines.add("Server: " + config.playerName + " | TCP " + config.port + " | galaxy copies " + config.galaxyCopies);
+            GalaxyEventPolicy events = GalaxyEventDirector.policy(world);
+            lines.add("Galaxy events: " + (events.enabled() ? "enabled" : "disabled")
+                    + " | frequency x" + events.frequencyMultiplier()
+                    + " | categories " + events.enabledCategories());
             lines.add("Build: " + BuildInfo.display());
             lines.add("Save: " + currentSavePath().toAbsolutePath().normalize());
             lines.add("Admin policy: " + adminStore.path().toAbsolutePath().normalize());

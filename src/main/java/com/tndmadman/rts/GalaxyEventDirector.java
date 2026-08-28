@@ -33,12 +33,50 @@ final class GalaxyEventDirector {
 
     static String saveKey() { return SAVE_KEY; }
 
+    static synchronized void configurePolicy(World world, Config config, boolean preserveRestored) {
+        if (world == null || config == null) return;
+        RuntimeState state = STATES.computeIfAbsent(world, ignored -> new RuntimeState());
+        if (preserveRestored && state.policyPersisted) return;
+        state.policy = new GalaxyEventPolicy(config.galaxyEventsEnabled, config.galaxyEventFrequency,
+                config.galaxyEventCategories);
+        state.policyPersisted = true;
+    }
+
+    static synchronized GalaxyEventPolicy policy(World world) {
+        RuntimeState state = STATES.get(world);
+        return state == null ? GalaxyEventPolicy.standard() : state.policy;
+    }
+
+    static synchronized double nextDueInSeconds(World world, String systemId) {
+        RuntimeState state = STATES.get(world);
+        String id = clean(systemId);
+        if (state == null || id.isBlank() || !state.policy.enabled() || !catalog().enabled()) {
+            return Double.POSITIVE_INFINITY;
+        }
+        double clock = state.clockBySystem.getOrDefault(id, 0.0);
+        double best = Double.POSITIVE_INFINITY;
+        double nextEvaluation = state.nextEvaluationBySystem.getOrDefault(id, catalog().initialDelaySeconds());
+        best = Math.min(best, Math.max(0, nextEvaluation - clock));
+        for (GalaxyEventInstance event : state.events.values()) {
+            if (!id.equals(event.systemId)) continue;
+            if (event.phase == GalaxyEventPhase.HIDDEN || event.phase == GalaxyEventPhase.ACTIVE) {
+                best = Math.min(best, Math.max(0, event.expiresAt - clock));
+            } else if (event.phase == GalaxyEventPhase.CLOSING) {
+                double closeAt = parseDouble(event.custom.get("closeAt"), event.expiresAt);
+                double hardCloseAt = parseDouble(event.custom.get("hardCloseAt"), closeAt);
+                best = Math.min(best, Math.max(0, Math.min(closeAt, hardCloseAt) - clock));
+            } else if (terminal(event.phase) && event.rewardGenerated && !rewardSettled(event)) {
+                best = Math.min(best, Math.max(0, event.rewardExpiresAt - clock));
+            }
+        }
+        return Double.isFinite(best) ? Math.max(0.01, best) : Double.POSITIVE_INFINITY;
+    }
+
     static synchronized void update(World world, double dt) {
         if (world == null || !Double.isFinite(dt) || dt <= 0 || !authoritative(world)) return;
         GalaxyEventCatalog rules = catalog();
-        if (!rules.enabled()) return;
-
         RuntimeState state = STATES.computeIfAbsent(world, ignored -> new RuntimeState());
+        if (!rules.enabled() || !state.policy.enabled()) return;
         String systemId = clean(world.activeSystemId());
         if (systemId.isBlank()) return;
 
@@ -281,7 +319,10 @@ final class GalaxyEventDirector {
             if (terminal(event.phase)) continue;
             GalaxyEventDefinition definition = catalog().byId(event.definitionId);
             if (definition == null) continue;
-            double remaining = Math.max(0, event.expiresAt - state.clockBySystem.getOrDefault(event.systemId, 0.0));
+            double clock = state.clockBySystem.getOrDefault(event.systemId, 0.0);
+            double deadline = event.phase == GalaxyEventPhase.CLOSING
+                    ? parseDouble(event.custom.get("closeAt"), event.expiresAt) : event.expiresAt;
+            double remaining = Math.max(0, deadline - clock);
             out.add(new GalaxyEventView(event.id, event.definitionId, definition.kind(), event.systemId,
                     definition.name(), event.phase, event.x, event.y, remaining));
         }
@@ -311,6 +352,7 @@ final class GalaxyEventDirector {
         if (state == null) return Map.of();
         Map<String,Object> out = new LinkedHashMap<>();
         out.put("sequence", state.sequence);
+        out.put("policy", state.policy.capture());
         out.put("clockBySystem", new LinkedHashMap<>(state.clockBySystem));
         out.put("nextEvaluationBySystem", new LinkedHashMap<>(state.nextEvaluationBySystem));
         out.put("cooldownUntilByDefinition", new LinkedHashMap<>(state.cooldownUntilByDefinition));
@@ -330,6 +372,10 @@ final class GalaxyEventDirector {
         }
         RuntimeState state = new RuntimeState();
         state.sequence = Math.max(0, ServerSaveStore.longValue(root, "sequence", 0));
+        if (root.containsKey("policy")) {
+            state.policy = GalaxyEventPolicy.restore(root.get("policy"));
+            state.policyPersisted = true;
+        }
         restoreDoubleMap(root.get("clockBySystem"), state.clockBySystem);
         restoreDoubleMap(root.get("nextEvaluationBySystem"), state.nextEvaluationBySystem);
         restoreDoubleMap(root.get("cooldownUntilByDefinition"), state.cooldownUntilByDefinition);
@@ -360,12 +406,18 @@ final class GalaxyEventDirector {
             String prefix = id + '\u0000';
             state.cooldownUntilByDefinition.keySet().removeIf(key -> key.startsWith(prefix));
         }
+        Set<String> retiredNow = new LinkedHashSet<>();
         state.events.values().removeIf(event -> {
             String target = clean(event.custom.get("targetSystemId"));
             if (!removed.contains(event.systemId) && !removed.contains(target)) return false;
             state.retiredGateIds.addAll(event.ownedWormholes);
+            retiredNow.addAll(event.ownedWormholes);
             return true;
         });
+        if (!retiredNow.isEmpty()) {
+            world.wormholes.removeIf(gate -> gate != null && retiredNow.contains(gate.id));
+            state.retiredGateIds.removeAll(retiredNow);
+        }
     }
 
     static synchronized void clear(World world) {
@@ -389,7 +441,8 @@ final class GalaxyEventDirector {
 
         long sequence = ++state.sequence;
         Random random = new Random(mixSeed(world.systemSeed(), sequence, systemId));
-        if (random.nextDouble() > rules.spawnChance()) return;
+        double effectiveSpawnChance = Calc.clamp(rules.spawnChance() * state.policy.frequencyMultiplier(), 0, 1);
+        if (effectiveSpawnChance <= 0 || random.nextDouble() > effectiveSpawnChance) return;
         if (activeCount(state) >= rules.maxActiveGalaxy() || activeCount(state, systemId) >= rules.maxActivePerSystem()) return;
 
         boolean home = isHomeSystem(world, systemId);
@@ -397,6 +450,7 @@ final class GalaxyEventDirector {
         double totalWeight = 0;
         for (GalaxyEventDefinition definition : rules.definitions()) {
             if (!definition.enabled() || definition.weight() <= 0) continue;
+            if (!state.policy.enabledCategories().contains(definition.kind())) continue;
             if (activeDefinitionCount(state, definition.id()) >= definition.maxActiveInstances()) continue;
             if (home && !definition.safeForHome()) continue;
             if (!definitionEligible(state, systemId, clock, definition)) continue;
@@ -1058,6 +1112,8 @@ final class GalaxyEventDirector {
 
     private static final class RuntimeState {
         long sequence;
+        GalaxyEventPolicy policy = GalaxyEventPolicy.standard();
+        boolean policyPersisted;
         final Map<String,Double> clockBySystem = new LinkedHashMap<>();
         final Map<String,Double> nextEvaluationBySystem = new LinkedHashMap<>();
         final Map<String,Double> cooldownUntilByDefinition = new LinkedHashMap<>();
@@ -1096,6 +1152,45 @@ enum GalaxyEventEntityRole {
     CIVILIAN,
     REWARD,
     GATE
+}
+
+record GalaxyEventPolicy(boolean enabled, double frequencyMultiplier, Set<GalaxyEventKind> enabledCategories) {
+    GalaxyEventPolicy {
+        if (!Double.isFinite(frequencyMultiplier) || frequencyMultiplier < 0 || frequencyMultiplier > 4) {
+            throw new IllegalArgumentException("Galaxy event frequency multiplier must be from 0 to 4.");
+        }
+        enabledCategories = enabledCategories == null ? Set.of(GalaxyEventKind.values()) : Set.copyOf(enabledCategories);
+    }
+
+    static GalaxyEventPolicy standard() {
+        return new GalaxyEventPolicy(true, 1.0, Set.of(GalaxyEventKind.values()));
+    }
+
+    Map<String,Object> capture() {
+        Map<String,Object> out = new LinkedHashMap<>();
+        out.put("enabled", enabled);
+        out.put("frequencyMultiplier", frequencyMultiplier);
+        List<String> categories = new ArrayList<>();
+        for (GalaxyEventKind kind : enabledCategories) categories.add(kind.name());
+        categories.sort(String::compareTo);
+        out.put("enabledCategories", categories);
+        return out;
+    }
+
+    static GalaxyEventPolicy restore(Object saved) {
+        Map<String,Object> row = ServerSaveStore.object(saved);
+        if (row.isEmpty()) return standard();
+        boolean enabled = ServerSaveStore.boolValue(row, "enabled", true);
+        double frequency = ServerSaveStore.doubleValue(row, "frequencyMultiplier", 1.0);
+        if (!Double.isFinite(frequency) || frequency < 0 || frequency > 4) frequency = 1.0;
+        Set<GalaxyEventKind> categories = new LinkedHashSet<>();
+        for (Object raw : ServerSaveStore.list(row.get("enabledCategories"))) {
+            try { categories.add(GalaxyEventKind.valueOf(String.valueOf(raw).trim().toUpperCase(Locale.ROOT))); }
+            catch (RuntimeException ignored) { }
+        }
+        if (!row.containsKey("enabledCategories")) categories.addAll(Set.of(GalaxyEventKind.values()));
+        return new GalaxyEventPolicy(enabled, frequency, categories);
+    }
 }
 
 record GalaxyEventView(String eventId, String definitionId, GalaxyEventKind kind, String systemId,
@@ -1320,8 +1415,17 @@ final class GalaxyEventCatalog {
 
     static GalaxyEventCatalog load() {
         if (!Files.exists(CONFIG_PATH)) return defaults();
+        return load(CONFIG_PATH);
+    }
+
+    static GalaxyEventCatalog loadForValidation(Path path) {
+        if (path == null) throw new IllegalStateException("Galaxy event config path is required.");
+        return load(path);
+    }
+
+    private static GalaxyEventCatalog load(Path path) {
         try {
-            Object parsed = MiniJson.parse(Files.readString(CONFIG_PATH));
+            Object parsed = MiniJson.parse(Files.readString(path));
             Map<String,Object> root = ServerSaveStore.object(parsed);
             Map<String,Object> director = ServerSaveStore.object(root.get("director"));
             List<GalaxyEventDefinition> definitions = new ArrayList<>();
@@ -1330,15 +1434,23 @@ final class GalaxyEventCatalog {
                 if (definition != null) definitions.add(definition);
             }
             if (definitions.isEmpty()) throw new IllegalStateException("config/events.json contains no valid events.");
+            double initialDelay = ServerSaveStore.doubleValue(director, "initialDelaySeconds", 30);
+            double evaluation = ServerSaveStore.doubleValue(director, "evaluationSeconds", 45);
+            double chance = ServerSaveStore.doubleValue(director, "spawnChance", 0.35);
+            int maxGalaxy = ServerSaveStore.intValue(director, "maxActiveGalaxy", 4);
+            int maxSystem = ServerSaveStore.intValue(director, "maxActivePerSystem", 2);
+            double closing = ServerSaveStore.doubleValue(director, "wormholeClosingSeconds", 3);
+            if (!Double.isFinite(initialDelay) || initialDelay < 0
+                    || !Double.isFinite(evaluation) || evaluation < 5
+                    || !Double.isFinite(chance) || chance < 0 || chance > 1
+                    || maxGalaxy < 1 || maxGalaxy > 1024
+                    || maxSystem < 1 || maxSystem > maxGalaxy
+                    || !Double.isFinite(closing) || closing < 0.5 || closing > 3600) {
+                throw new IllegalStateException("Galaxy event director has invalid numeric bounds.");
+            }
             return new GalaxyEventCatalog(
                     ServerSaveStore.boolValue(director, "enabled", true),
-                    ServerSaveStore.doubleValue(director, "initialDelaySeconds", 30),
-                    ServerSaveStore.doubleValue(director, "evaluationSeconds", 45),
-                    ServerSaveStore.doubleValue(director, "spawnChance", 0.35),
-                    ServerSaveStore.intValue(director, "maxActiveGalaxy", 4),
-                    ServerSaveStore.intValue(director, "maxActivePerSystem", 2),
-                    ServerSaveStore.doubleValue(director, "wormholeClosingSeconds", 3),
-                    definitions);
+                    initialDelay, evaluation, chance, maxGalaxy, maxSystem, closing, definitions);
         } catch (IOException | RuntimeException ex) {
             throw new IllegalStateException("Could not load galaxy event config: " + ex.getMessage(), ex);
         }
@@ -1383,6 +1495,13 @@ final class GalaxyEventCatalog {
             throw new IllegalStateException("Galaxy event " + id + " has invalid numeric bounds.");
         }
         Map<String,Object> modifiers = ServerSaveStore.object(row.get("modifiers"));
+        validateModifier(id, modifiers, "miningYield", 1, false);
+        validateModifier(id, modifiers, "resourceRespawn", 1, false);
+        validateModifier(id, modifiers, "sensorRange", 1, false);
+        validateModifier(id, modifiers, "shieldRegen", 1, false);
+        validateModifier(id, modifiers, "movementSpeed", 1, false);
+        validateModifier(id, modifiers, "weaponRange", 1, false);
+        validateModifier(id, modifiers, "environmentalDamagePerSecond", 0, true);
         return new GalaxyEventDefinition(
                 id, name.isBlank() ? id : name, kind,
                 ServerSaveStore.boolValue(row, "enabled", true),
@@ -1415,6 +1534,14 @@ final class GalaxyEventCatalog {
                         ServerSaveStore.doubleValue(modifiers, "movementSpeed", 1),
                         ServerSaveStore.doubleValue(modifiers, "weaponRange", 1),
                         Math.max(0, ServerSaveStore.doubleValue(modifiers, "environmentalDamagePerSecond", 0))));
+    }
+
+    private static void validateModifier(String eventId, Map<String,Object> modifiers, String field,
+                                         double fallback, boolean allowZero) {
+        if (!modifiers.containsKey(field)) return;
+        double value = ServerSaveStore.doubleValue(modifiers, field, fallback);
+        boolean invalid = !Double.isFinite(value) || (allowZero ? value < 0 : value <= 0);
+        if (invalid) throw new IllegalStateException("Galaxy event " + eventId + " has invalid modifier " + field + ".");
     }
 
     private static void validateDefinition(GalaxyEventDefinition definition) {
