@@ -17,46 +17,108 @@ public final class GalaxyEventValidator {
     }
 
     static void validateOrThrow() {
-        validateDiscoveryAndMaterialization();
+        validateRichResourceMaterialization();
+        validateSalvageMaterialization();
+        validateNpcEncounterMaterialization();
+        validateEnvironmentalModifierMaterialization();
+        validateWormholeMaterialization();
+        validateEventProjectionSerialization();
         validateHiddenEventsDoNotLeak();
         validateDeterministicMaterialization();
         validateClosingWormholeRejectsTransit();
         validateRuntimePersistenceShape();
     }
 
-    private static void validateDiscoveryAndMaterialization() {
+    private static void validateRichResourceMaterialization() {
         World world = world(991_337L);
+        String systemId = world.activeSystemId();
+        discoverSingle(world, "EV-RICH", "rich_rare_earths", Map.of());
+
+        Map<String,Object> saved = capturedEvent(world, "EV-RICH");
+        int owned = ServerSaveStore.list(saved.get("ownedResources")).size();
+        require(owned == 4, "rich-resource event tracked " + owned + " resource nodes; expected 4");
+        require(countOwnedResources(world, saved) == owned,
+                "rich-resource event did not leave all tracked resource nodes in the active system");
+        require(GalaxyEventDirector.viewsFor(world, "SOLO").size() == 1,
+                "rich-resource event was not visible after discovery in " + systemId);
+    }
+
+    private static void validateSalvageMaterialization() {
+        World world = world(991_338L);
+        discoverSingle(world, "EV-SALVAGE", "derelict_convoy", Map.of());
+
+        Map<String,Object> saved = capturedEvent(world, "EV-SALVAGE");
+        int owned = ServerSaveStore.list(saved.get("ownedItems")).size();
+        int present = countOwnedItems(world, saved);
+        require(owned == 5, "derelict event tracked " + owned + " salvage items; expected 5; world has "
+                + world.items.size() + " item(s)");
+        require(present == owned, "derelict event tracked " + owned + " salvage items but only " + present
+                + " remain in world.items");
+    }
+
+    private static void validateNpcEncounterMaterialization() {
+        World pirateWorld = world(991_339L);
+        discoverSingle(pirateWorld, "EV-PIRATE", "pirate_ambush", Map.of());
+        Map<String,Object> pirate = capturedEvent(pirateWorld, "EV-PIRATE");
+        int pirateOwned = ServerSaveStore.list(pirate.get("ownedUnits")).size();
+        require(pirateOwned == 4, "pirate event tracked " + pirateOwned + " NPC units; expected 4");
+        require(countOwner(pirateWorld, "NPC_RAIDERS") >= 4,
+                "pirate encounter did not materialize its raider force");
+
+        World distressWorld = world(991_340L);
+        discoverSingle(distressWorld, "EV-DISTRESS", "distress_beacon", Map.of());
+        Map<String,Object> distress = capturedEvent(distressWorld, "EV-DISTRESS");
+        int distressOwned = ServerSaveStore.list(distress.get("ownedUnits")).size();
+        require(distressOwned == 4, "distress event tracked " + distressOwned + " NPC units; expected civilian + 3 attackers");
+        require(countOwner(distressWorld, "NPC_MINERS") >= 1,
+                "distress encounter did not materialize its civilian NPC");
+        require(countOwner(distressWorld, "NPC_RAIDERS") >= 3,
+                "distress encounter did not materialize its attackers");
+    }
+
+    private static void validateEnvironmentalModifierMaterialization() {
+        World world = world(991_341L);
+        String systemId = world.activeSystemId();
+        double baseSensors = StarSystems.get(systemId).modifiers().sensorRange();
+        discoverSingle(world, "EV-ION", "ion_storm", Map.of());
+        require(SystemModifierRules.sensorRange(world) < baseSensors,
+                "temporary environmental event modifier was not composed with system rules");
+    }
+
+    private static void validateWormholeMaterialization() {
+        World world = world(991_342L);
+        String systemId = world.activeSystemId();
+        String target = otherSystem(world, systemId);
+        discoverSingle(world, "EV-WORM", "unstable_wormhole",
+                Map.of("targetSystemId", target, "targetX", "900", "targetY", "750"));
+        require(hasGate(world, "EV-WORM:A"), "unstable wormhole did not materialize its source gate");
+        require(containsLink(GalaxyEventDirector.temporaryLinksFor(world, "SOLO"), systemId, target),
+                "discovered unstable wormhole did not project a temporary galaxy link");
+    }
+
+    private static void validateEventProjectionSerialization() {
+        World world = world(991_343L);
         String systemId = world.activeSystemId();
         String target = otherSystem(world, systemId);
         double x = world.width * 0.5;
         double y = world.height * 0.5;
-        Unit scout = new Unit("SOLO", 77, Rules.STARTING_SHIP, x, y);
-        world.units.put(scout.key(), scout);
 
         List<Object> events = new ArrayList<>();
-        events.add(event("EV-RICH", "rich_rare_earths", systemId, x, y, 1000, Map.of()));
-        events.add(event("EV-SALVAGE", "derelict_convoy", systemId, x, y, 1000, Map.of()));
-        events.add(event("EV-DISTRESS", "distress_beacon", systemId, x, y, 1000, Map.of()));
-        events.add(event("EV-PIRATE", "pirate_ambush", systemId, x, y, 1000, Map.of()));
-        events.add(event("EV-ION", "ion_storm", systemId, x, y, 1000, Map.of()));
-        events.add(event("EV-WORM", "unstable_wormhole", systemId, x, y, 1000,
-                Map.of("targetSystemId", target, "targetX", Double.toString(x + 250), "targetY", Double.toString(y + 150))));
+        events.add(discoveredProjectionEvent("EV-RICH-P", "rich_rare_earths", systemId, x, y, Map.of()));
+        events.add(discoveredProjectionEvent("EV-SALVAGE-P", "derelict_convoy", systemId, x, y, Map.of()));
+        events.add(discoveredProjectionEvent("EV-DISTRESS-P", "distress_beacon", systemId, x, y, Map.of()));
+        events.add(discoveredProjectionEvent("EV-PIRATE-P", "pirate_ambush", systemId, x, y, Map.of()));
+        events.add(discoveredProjectionEvent("EV-ION-P", "ion_storm", systemId, x, y, Map.of()));
+        events.add(discoveredProjectionEvent("EV-WORM-P", "unstable_wormhole", systemId, x, y,
+                Map.of("targetSystemId", target, "targetX", "900", "targetY", "750")));
         GalaxyEventDirector.restore(world, runtime(systemId, events));
-        GalaxyEventDirector.update(world, 0.25);
-
-        require(world.resources.size() >= 4, "rich-resource event did not materialize ordinary resource nodes");
-        require(world.items.size() >= 5, "derelict event did not materialize ordinary salvage items");
-        require(hasOwner(world, "NPC_RAIDERS"), "NPC-backed encounter did not materialize raiders");
-        require(hasOwner(world, "NPC_MINERS"), "distress encounter did not materialize a civilian NPC");
-        require(SystemModifierRules.sensorRange(world) < StarSystems.get(systemId).modifiers().sensorRange(),
-                "temporary environmental event modifier was not composed with system rules");
-        require(hasGate(world, "EV-WORM:A"), "unstable wormhole did not materialize its source gate");
 
         List<GalaxyEventView> views = GalaxyEventDirector.viewsFor(world, "SOLO");
-        require(views.size() == 6, "discovered event projection did not include all discovered events");
+        require(views.size() == 6, "discovered event projection did not include all six event categories");
         List<String> rows = GalaxyEventWire.encodeRows(world, "SOLO");
-        require(rows.size() == 6, "galaxy event wire did not serialize discovered events");
-        for (String row : rows) require(GalaxyEventWire.decodeRow(row) != null, "galaxy event wire row did not decode");
+        require(rows.size() == 6, "galaxy event wire did not serialize all discovered event categories");
+        for (String row : rows) require(GalaxyEventWire.decodeRow(row) != null,
+                "galaxy event wire row did not decode");
     }
 
     private static void validateHiddenEventsDoNotLeak() {
@@ -64,6 +126,8 @@ public final class GalaxyEventValidator {
         String systemId = world.activeSystemId();
         double x = world.width * 0.8;
         double y = world.height * 0.8;
+        int resourcesBefore = world.resources.size();
+        int itemsBefore = world.items.size();
         Unit scout = new Unit("SOLO", 1, Rules.STARTING_SHIP, world.width * 0.1, world.height * 0.1);
         world.units.put(scout.key(), scout);
         GalaxyEventDirector.restore(world, runtime(systemId,
@@ -71,7 +135,8 @@ public final class GalaxyEventValidator {
         GalaxyEventDirector.update(world, 0.1);
         require(GalaxyEventDirector.viewsFor(world, "SOLO").isEmpty(), "hidden event leaked into player projection");
         require(GalaxyEventWire.encodeRows(world, "SOLO").isEmpty(), "hidden event leaked into galaxy wire rows");
-        require(world.resources.isEmpty(), "hidden resource event materialized before discovery");
+        require(world.resources.size() == resourcesBefore, "hidden resource event materialized before discovery");
+        require(world.items.size() == itemsBefore, "hidden event changed world items before discovery");
     }
 
     private static void validateDeterministicMaterialization() {
@@ -104,6 +169,8 @@ public final class GalaxyEventValidator {
         WormholeGate gate = new WormholeGate("EV-CLOSING:A", systemId, target, 600, 600, 700, 700);
         world.wormholes.add(gate);
         require(!gate.contains(600, 600), "closing unstable wormhole still accepted new transit");
+        require(!containsLink(GalaxyEventDirector.temporaryLinksFor(world, "SOLO"), systemId, target),
+                "closing unstable wormhole was still advertised as active temporary topology");
     }
 
     private static void validateRuntimePersistenceShape() {
@@ -122,6 +189,18 @@ public final class GalaxyEventValidator {
                 "event state was not embedded in authoritative runtime persistence");
     }
 
+    private static void discoverSingle(World world, String id, String definitionId, Map<String,String> custom) {
+        PlayerRegistry.activate(world);
+        String systemId = world.activeSystemId();
+        double x = world.width * 0.5;
+        double y = world.height * 0.5;
+        Unit scout = new Unit("SOLO", 77, Rules.STARTING_SHIP, x, y);
+        world.units.put(scout.key(), scout);
+        GalaxyEventDirector.restore(world, runtime(systemId,
+                List.of(event(id, definitionId, systemId, x, y, 1000, custom))));
+        GalaxyEventDirector.update(world, 0.25);
+    }
+
     private static void materializeRich(World world, String systemId, double x, double y) {
         PlayerRegistry.activate(world);
         Unit scout = new Unit("SOLO", 90, Rules.STARTING_SHIP, x, y);
@@ -129,6 +208,59 @@ public final class GalaxyEventValidator {
         GalaxyEventDirector.restore(world, runtime(systemId,
                 List.of(event("EV-DETERMINISTIC", "rich_rare_earths", systemId, x, y, 1000, Map.of()))));
         GalaxyEventDirector.update(world, 0.1);
+    }
+
+    private static Map<String,Object> discoveredProjectionEvent(String id, String definitionId, String systemId,
+                                                                double x, double y, Map<String,String> custom) {
+        Map<String,Object> row = event(id, definitionId, systemId, x, y, 1000, custom);
+        row.put("phase", GalaxyEventPhase.ACTIVE.name());
+        row.put("activatedAt", 100.0);
+        row.put("discoveredBy", List.of("SOLO"));
+        return row;
+    }
+
+    private static Map<String,Object> capturedEvent(World world, String eventId) {
+        Map<String,Object> captured = GalaxyEventDirector.capture(world);
+        for (Object item : ServerSaveStore.list(captured.get("events"))) {
+            Map<String,Object> row = ServerSaveStore.object(item);
+            if (eventId.equals(ServerSaveStore.string(row, "id", ""))) return row;
+        }
+        return Map.of();
+    }
+
+    private static int countOwnedResources(World world, Map<String,Object> event) {
+        Set<Integer> ids = new java.util.LinkedHashSet<>();
+        for (Object value : ServerSaveStore.list(event.get("ownedResources"))) {
+            if (value instanceof Number number) ids.add(number.intValue());
+        }
+        int count = 0;
+        for (ResourceNode node : world.resources) if (ids.contains(node.id)) count++;
+        return count;
+    }
+
+    private static int countOwnedItems(World world, Map<String,Object> event) {
+        Set<Integer> ids = new java.util.LinkedHashSet<>();
+        for (Object value : ServerSaveStore.list(event.get("ownedItems"))) {
+            if (value instanceof Number number) ids.add(number.intValue());
+        }
+        int count = 0;
+        for (WorldItem item : world.items) if (ids.contains(item.id) && !item.empty()) count++;
+        return count;
+    }
+
+    private static int countOwner(World world, String playerId) {
+        int count = 0;
+        for (Unit unit : world.units.values()) if (playerId.equals(unit.playerId) && unit.hp > 0) count++;
+        return count;
+    }
+
+    private static boolean containsLink(List<GalaxyMapLink> links, String from, String to) {
+        for (GalaxyMapLink link : links) {
+            if (link == null) continue;
+            if ((from.equals(link.fromSystemId()) && to.equals(link.toSystemId()))
+                    || (to.equals(link.fromSystemId()) && from.equals(link.toSystemId()))) return true;
+        }
+        return false;
     }
 
     private static List<String> resourceFingerprint(World world) {
@@ -186,11 +318,6 @@ public final class GalaxyEventValidator {
             if (system != null && !source.equals(system.id())) return system.id();
         }
         throw new IllegalStateException("Galaxy event validation requires at least two systems.");
-    }
-
-    private static boolean hasOwner(World world, String playerId) {
-        for (Unit unit : world.units.values()) if (playerId.equals(unit.playerId)) return true;
-        return false;
     }
 
     private static boolean hasGate(World world, String gateId) {
