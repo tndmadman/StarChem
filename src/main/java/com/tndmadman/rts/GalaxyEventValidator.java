@@ -330,9 +330,9 @@ public final class GalaxyEventValidator {
     }
 
     private static World world(long seed) {
-        PlayerRegistry.reset("SOLO", "Event Validator", 0x50BEFF);
         World world = new World("Event Validator", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, false);
         PlayerRegistry.activate(world);
+        PlayerRegistry.reset("SOLO", "Event Validator", 0x50BEFF);
         world.useSystemSeed(seed);
         world.activateSystem(StarSystems.DEFAULT_SYSTEM_ID);
         return world;
