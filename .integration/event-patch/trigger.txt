@@ -1,1 +1,1 @@
-Trigger the one-shot validated integration patch helper.
+Trigger the repaired one-shot validated integration patch helper.
