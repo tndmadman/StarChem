@@ -1,1 +1,1 @@
-Apply exact validated StarChem completion patch.
+Apply exact validated StarChem completion patch — retry after verified payload reconstruction.
