@@ -33,7 +33,9 @@ jobs:
             echo "$EXTRA"
             exit 1
           fi
-          cat .integration/final-patch/b64-* > /tmp/starchem-finish.patch.gz.b64
+          cat .integration/final-patch/b64-00 .integration/final-patch/b64-01 > /tmp/starchem-finish.patch.gz.b64
+          head -c 8000 .integration/final-patch/b64-02 >> /tmp/starchem-finish.patch.gz.b64
+          cat .integration/final-patch/b64-03 >> /tmp/starchem-finish.patch.gz.b64
           echo 'c9da026311021624e46a30c403a7ddff95d025be9dc8cfd13130b089ff4a141c  /tmp/starchem-finish.patch.gz.b64' | sha256sum -c -
           base64 -d /tmp/starchem-finish.patch.gz.b64 > /tmp/starchem-finish.patch.gz
           echo '894868637cc9aef0728ec688bb3164facf72d8973fb0ef90e93bdebde43b40be  /tmp/starchem-finish.patch.gz' | sha256sum -c -
