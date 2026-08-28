@@ -33,6 +33,7 @@ final class GalaxyMapWire {
 
     private static String encodeInternal(int copiesPerTemplate, GalaxyMapSnapshot snapshot, OwnerProjection owner) {
         if (snapshot == null) snapshot = new GalaxyMapSnapshot("", List.of(), List.of());
+        World activeWorld = owner.present() ? PlayerRegistry.activeWorld() : null;
         StringBuilder out = new StringBuilder(PREFIX)
                 .append(Math.max(1, Math.min(2, copiesPerTemplate)))
                 .append('|').append(token(snapshot.activeSystemId()));
@@ -59,18 +60,28 @@ final class GalaxyMapWire {
                         .append(system.controlColorRgb() & 0xFFFFFF);
             }
         }
+
+        Map<String,GalaxyMapLink> projectedLinks = new LinkedHashMap<>();
         if (snapshot.links() != null) {
-            for (GalaxyMapLink link : snapshot.links()) {
-                if (link == null) continue;
-                out.append("|L,").append(token(link.fromSystemId())).append(',').append(token(link.toSystemId()));
+            for (GalaxyMapLink link : snapshot.links()) addProjectedLink(projectedLinks, link);
+        }
+        if (activeWorld != null) {
+            for (GalaxyMapLink link : GalaxyEventDirector.temporaryLinksFor(activeWorld, owner.ownerId())) {
+                addProjectedLink(projectedLinks, link);
             }
         }
+        if (projectedLinks.size() > 256) {
+            throw new IllegalArgumentException("Galaxy link projection exceeds safe limits.");
+        }
+        for (GalaxyMapLink link : projectedLinks.values()) {
+            out.append("|L,").append(token(link.fromSystemId())).append(',').append(token(link.toSystemId()));
+        }
+
         if (owner.present()) {
             out.append("|O,").append(token(owner.ownerId()));
             for (Map.Entry<String,String> entry : new TreeMap<>(owner.locations()).entrySet()) {
                 out.append("|F,").append(token(entry.getKey())).append(',').append(token(entry.getValue()));
             }
-            World activeWorld = PlayerRegistry.activeWorld();
             if (activeWorld != null) {
                 StrategicSummarySnapshot strategic = StrategicSummaryService.capture(activeWorld, owner.ownerId());
                 out.append("|E,").append(StrategicSummaryWire.encodeToken(strategic));
@@ -78,6 +89,16 @@ final class GalaxyMapWire {
             }
         }
         return out.toString();
+    }
+
+    private static void addProjectedLink(Map<String,GalaxyMapLink> links, GalaxyMapLink link) {
+        if (link == null) return;
+        String from = clean(link.fromSystemId());
+        String to = clean(link.toSystemId());
+        if (from.isBlank() || to.isBlank() || from.equals(to)) return;
+        String first = from.compareTo(to) <= 0 ? from : to;
+        String second = from.compareTo(to) <= 0 ? to : from;
+        links.putIfAbsent(first + '\u0000' + second, new GalaxyMapLink(from, to));
     }
 
     static Decoded decode(String message) {
