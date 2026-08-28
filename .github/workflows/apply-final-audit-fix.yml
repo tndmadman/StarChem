@@ -1,0 +1,48 @@
+name: Apply final audit fixes
+
+on:
+  push:
+    branches:
+      - integration/starchem-functional-2026-08-27
+    paths:
+      - '.audit/final-verify/trigger.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    name: Apply exact final audit patch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out integration branch
+        uses: actions/checkout@v4
+        with:
+          ref: integration/starchem-functional-2026-08-27
+          fetch-depth: 0
+
+      - name: Verify and apply final audit fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_BASE='3a1dc7738e1dd0f5ecb412a8dce01dd7901f88d9'
+          EXTRA="$(git diff --name-only "$EXPECTED_BASE"..HEAD | grep -Ev '^(\.audit/final-verify/|\.github/workflows/apply-final-audit-fix\.yml$)' || true)"
+          if [ -n "$EXTRA" ]; then
+            echo 'Unexpected source changes since audited base:'
+            echo "$EXTRA"
+            exit 1
+          fi
+          cat .audit/final-verify/b64-* > /tmp/starchem-final-audit.patch.b64
+          echo '8acbd0556da987b9fa3c14d1ed9f912776668d9a0d3f8d50188b48cccc31274b  /tmp/starchem-final-audit.patch.b64' | sha256sum -c -
+          base64 -d /tmp/starchem-final-audit.patch.b64 > /tmp/starchem-final-audit.patch
+          echo 'ab6de4ddfe5165a7d9575c31fa335d3454900d420bf643d8a6703583ddc81a48  /tmp/starchem-final-audit.patch' | sha256sum -c -
+          git apply --check /tmp/starchem-final-audit.patch
+          git apply /tmp/starchem-final-audit.patch
+          git rm -r .audit/final-verify
+          git add -A
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Close final event observer and persistence audit gaps'
+          git push origin HEAD:integration/starchem-functional-2026-08-27
