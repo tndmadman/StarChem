@@ -193,14 +193,14 @@ No source branch is deleted as part of this consolidation pass.
 
 The integration base is functional and green, but these acceptance items still require completion or deeper proof before #297 can be called fully done:
 
-- [ ] explicit persisted event-entity ownership roles/metadata beyond raw owned-ID sets;
-- [ ] deterministic completion rewards where applicable;
-- [ ] exactly-once reward generation/claim behavior across restart and contention;
-- [ ] event NPC isolation from unrelated normal faction population/economy lifecycle;
-- [ ] event-specific encounter ordering for distress civilians / attackers;
-- [ ] safe unstable-wormhole transit draining for ships already touching/committed when collapse begins;
-- [ ] owner-aware effective topology so strategic/logistics routing can use a discovered temporary shortcut without leaking it to other players;
-- [ ] route recalculation/blocking when a temporary shortcut closes;
+- [x] explicit persisted event-entity ownership roles/metadata beyond raw owned-ID sets;
+- [x] deterministic completion rewards where applicable;
+- [x] exactly-once reward generation/claim behavior across director-state restart and contention;
+- [x] event NPC isolation from unrelated normal faction population/economy lifecycle;
+- [x] event-specific encounter ordering for distress civilians / attackers;
+- [x] safe unstable-wormhole transit draining for ships already touching/committed when collapse begins;
+- [x] owner-aware effective topology so strategic/logistics routing can use a discovered temporary shortcut without leaking it to other players;
+- [x] route recalculation/blocking when a temporary shortcut closes;
 - [ ] session/operator event enable/frequency/category controls;
 - [ ] actual save/reload tests for exact spawned entities and reward state, not only runtime map shape;
 - [ ] explicit every-phase transition tests;
@@ -239,6 +239,23 @@ The integration base is functional and green, but these acceptance items still r
 
 The branch has not yet been declared final because new #297 completion work remains. After each event-completion block, record its CI result here. Final acceptance requires the normal Gradle suite plus event, observer, FOW/intel, station-control, production-queue, strategic-summary, galaxy topology, scheduler, save/recovery, multiplayer, and release validation.
 
+#### Local integration validation — rewards / NPC isolation / effective topology / wormhole draining
+
+Validated against the exact PR integration snapshot before pushing the block to GitHub:
+
+- Java 17 full-source compilation: PASS (`javac --release 17`).
+- `GalaxyEventValidator`: PASS.
+- `GalaxyConnectivityValidator`: PASS.
+- `SystemModifierValidator`: PASS.
+- `GalaxyMapWireValidator`: PASS.
+- `Issue293LogisticsRouteValidator`: PASS.
+- `NpcGalaxyDirectorValidator`: PASS.
+- `StationControlValidator`: PASS.
+- `ProductionQueueValidator`: PASS.
+- `git diff --check`: PASS.
+
+This block adds explicit persisted event entity roles, deterministic exactly-once completion rewards, event-NPC isolation and encounter orders, owner-scoped effective topology for temporary shortcuts, route closure behavior, and persisted unstable-wormhole transit draining with bounded safe hard-close behavior. Full `ServerSaveStore` round-trip validation remains separately unchecked below until it exercises these states through the real server save/reload path rather than only event-director capture/restore.
+
 ## Conflict / decision log
 
 ### 2026-08-27 — source history vs content
@@ -252,3 +269,7 @@ Historical branches modify the same Scout/validator files. The current integrati
 ### 2026-08-27 — production queue branch
 
 The #319 source files and integration files are byte-identical. Decision: no replay merge required; preserve the current integrated files and their validator.
+
+### 2026-08-27 — galaxy-map decode audit
+
+A prior review note suspected that `GalaxyMapWire.decode` might insert `S` system rows twice after the strategic-summary/event integrations. The combined source was inspected before the rewards/topology push: there is exactly one `part.startsWith("S,")` decode branch in the packet loop. Decision: **no code change**; the suspected duplicate was not present, so changing the decoder would have been an unnecessary regression risk.

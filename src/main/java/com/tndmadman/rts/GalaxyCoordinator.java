@@ -374,13 +374,16 @@ final class GalaxyCoordinator {
                     || ShipModuleRules.tackled(world, unit)) continue;
             WormholeGate gate = touchingGate(world, unit);
             if (gate == null) continue;
-            moved |= transferUnit(world, gate, unit);
+            if (transferUnit(world, gate, unit)) {
+                GalaxyEventDirector.onWormholeTransit(world, gate.id, unit.key());
+                moved = true;
+            }
         }
         return moved;
     }
 
     private WormholeGate touchingGate(World world, Unit unit) {
-        for (WormholeGate gate : world.wormholes) if (gate.contains(unit.x, unit.y)) return gate;
+        for (WormholeGate gate : world.wormholes) if (gate.containsForTransit(world, unit)) return gate;
         return null;
     }
 

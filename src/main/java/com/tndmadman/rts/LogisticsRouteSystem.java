@@ -351,7 +351,11 @@ final class LogisticsRouteSystem {
     }
 
     static List<String> pathForTest(World world, String fromSystemId, String toSystemId) {
-        return path(world, fromSystemId, toSystemId);
+        return path(world, PlayerRegistry.localId(), fromSystemId, toSystemId);
+    }
+
+    static List<String> pathForTest(World world, String ownerId, String fromSystemId, String toSystemId) {
+        return path(world, ownerId, fromSystemId, toSystemId);
     }
 
     private static boolean create(World world, RouteRuntime runtime, Base source,
@@ -364,7 +368,7 @@ final class LogisticsRouteSystem {
         DestinationValidation destination = validateDestination(world, playerId,
                 spec.destinationSystemId, spec.destinationBaseId, spec.materials);
         if (!destination.valid) return false;
-        if (path(world, sourceSystemId, spec.destinationSystemId).size() < 2) return false;
+        if (path(world, playerId, sourceSystemId, spec.destinationSystemId).size() < 2) return false;
 
         String id = "LR" + runtime.nextRouteId++;
         LogisticsRoute route = new LogisticsRoute(id, playerId, sourceSystemId, source.id,
@@ -386,7 +390,7 @@ final class LogisticsRouteSystem {
         if (route == null || !route.ownerId.equals(playerId) || !route.sourceBaseId.equals(source.id)
                 || !route.sourceSystemId.equals(world.activeSystemId())) return false;
         if (route.sourceSystemId.equals(spec.destinationSystemId)
-                || path(world, route.sourceSystemId, spec.destinationSystemId).size() < 2) return false;
+                || path(world, route.ownerId, route.sourceSystemId, spec.destinationSystemId).size() < 2) return false;
         if (totalInTransit(route) > EPSILON) {
             if (!route.destinationSystemId.equals(spec.destinationSystemId)
                     || !route.destinationBaseId.equals(spec.destinationBaseId)
@@ -712,7 +716,7 @@ final class LogisticsRouteSystem {
         }
         captureCargo(route, transport);
         if (loaded > EPSILON) {
-            String next = nextHop(world, route.sourceSystemId, route.destinationSystemId);
+            String next = nextHop(world, route.ownerId, route.sourceSystemId, route.destinationSystemId);
             if (next == null) {
                 setBlocked(world, route, RouteCondition.NO_PATH, "no wormhole path to destination");
                 stop(transport);
@@ -762,7 +766,7 @@ final class LogisticsRouteSystem {
         }
         captureCargo(route, transport);
         if (transport.cargoUsed() <= EPSILON) {
-            String next = nextHop(world, route.destinationSystemId, route.sourceSystemId);
+            String next = nextHop(world, route.ownerId, route.destinationSystemId, route.sourceSystemId);
             if (next == null) {
                 setBlocked(world, route, RouteCondition.NO_PATH, "no wormhole path back to source");
                 stop(transport);
@@ -784,7 +788,7 @@ final class LogisticsRouteSystem {
     private static void moveAcrossGalaxy(World world, LogisticsRoute route, Unit transport,
                                          String activeSystemId, String targetSystemId,
                                          RoutePhase phase) {
-        String next = nextHop(world, activeSystemId, targetSystemId);
+        String next = nextHop(world, route.ownerId, activeSystemId, targetSystemId);
         if (next == null) {
             setBlocked(world, route, RouteCondition.NO_PATH,
                     "wormhole path unavailable from " + activeSystemId);
@@ -862,7 +866,7 @@ final class LogisticsRouteSystem {
                     stop(escort);
                     continue;
                 }
-                String next = nextHop(world, activeSystemId, hopTarget);
+                String next = nextHop(world, route.ownerId, activeSystemId, hopTarget);
                 WormholeGate gate = next == null ? null : gateTo(world, next);
                 if (gate == null) {
                     setBlocked(world, route, RouteCondition.ESCORT_SEPARATED,
@@ -1226,15 +1230,15 @@ final class LogisticsRouteSystem {
         return false;
     }
 
-    private static List<String> path(World world, String fromSystemId, String toSystemId) {
+    private static List<String> path(World world, String ownerId, String fromSystemId, String toSystemId) {
         String from = clean(fromSystemId);
         String to = clean(toSystemId);
         if (world == null || from.isBlank() || to.isBlank()) return List.of();
         if (from.equals(to)) return List.of(from);
-        GalaxyMapSnapshot snapshot = world.galaxyMapSnapshot();
+        GalaxyMapSnapshot snapshot = world.authoritativeGalaxyMapSnapshot();
         Map<String,LinkedHashSet<String>> adjacency = new LinkedHashMap<>();
         for (GalaxyMapSystem system : snapshot.systems()) adjacency.put(system.id(), new LinkedHashSet<>());
-        for (GalaxyMapLink link : snapshot.links()) {
+        for (GalaxyMapLink link : GalaxyTopology.effectiveLinks(world, ownerId, snapshot.links())) {
             if (link == null || !adjacency.containsKey(link.fromSystemId())
                     || !adjacency.containsKey(link.toSystemId())) continue;
             adjacency.get(link.fromSystemId()).add(link.toSystemId());
@@ -1269,8 +1273,8 @@ final class LogisticsRouteSystem {
         return List.copyOf(reversed);
     }
 
-    private static String nextHop(World world, String fromSystemId, String toSystemId) {
-        List<String> path = path(world, fromSystemId, toSystemId);
+    private static String nextHop(World world, String ownerId, String fromSystemId, String toSystemId) {
+        List<String> path = path(world, ownerId, fromSystemId, toSystemId);
         return path.size() < 2 ? null : path.get(1);
     }
 

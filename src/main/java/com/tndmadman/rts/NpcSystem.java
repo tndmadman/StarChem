@@ -64,7 +64,8 @@ final class NpcSystem {
 
     private boolean hasAssets(World world, NpcFaction faction) {
         for (Unit unit : world.units.values()) {
-            if (unit.playerId.equals(faction.id()) && unit.hp > 0) return true;
+            if (unit.playerId.equals(faction.id()) && unit.hp > 0
+                    && !GalaxyEventDirector.ownsUnit(world, unit.key())) return true;
         }
         for (Base base : world.bases.values()) {
             if (base.playerId.equals(faction.id()) && base.hp > 0) return true;
@@ -184,7 +185,8 @@ final class NpcSystem {
 
     private void orderRaiders(World world, NpcFaction faction) {
         for (Unit unit : world.units.values()) {
-            if (!unit.playerId.equals(faction.id()) || unit.hp <= 0) continue;
+            if (!unit.playerId.equals(faction.id()) || unit.hp <= 0
+                    || GalaxyEventDirector.ownsUnit(world, unit.key())) continue;
             String target = nearestEnemyTarget(world, faction, unit);
             if (!target.isBlank()) unit.attack(target);
         }
@@ -194,7 +196,8 @@ final class NpcSystem {
         if (faction.replaceWorkers()) maintainWorkers(world, faction);
         Set<String> workerTypes = faction.workerTypeSet();
         for (Unit unit : new ArrayList<>(world.units.values())) {
-            if (!unit.playerId.equals(faction.id()) || unit.hp <= 0) continue;
+            if (!unit.playerId.equals(faction.id()) || unit.hp <= 0
+                    || GalaxyEventDirector.ownsUnit(world, unit.key())) continue;
             if (!unit.type().harvestKinds.isEmpty()
                     && (workerTypes.isEmpty()
                     || workerTypes.contains(unit.shipTypeId))) {
@@ -376,7 +379,8 @@ final class NpcSystem {
     private void orderFactionWorkers(World world, NpcFaction faction) {
         Set<String> workerTypes = faction.workerTypeSet();
         for (Unit unit : new ArrayList<>(world.units.values())) {
-            if (!unit.playerId.equals(faction.id()) || unit.hp <= 0) continue;
+            if (!unit.playerId.equals(faction.id()) || unit.hp <= 0
+                    || GalaxyEventDirector.ownsUnit(world, unit.key())) continue;
             if (unit.type().harvestKinds.isEmpty()) continue;
             if (!workerTypes.isEmpty()
                     && !workerTypes.contains(unit.shipTypeId)
@@ -387,7 +391,8 @@ final class NpcSystem {
 
     private void orderSupportShips(World world, NpcFaction faction, Base base) {
         for (Unit unit : world.units.values()) {
-            if (!unit.playerId.equals(faction.id()) || unit.hp <= 0) continue;
+            if (!unit.playerId.equals(faction.id()) || unit.hp <= 0
+                    || GalaxyEventDirector.ownsUnit(world, unit.key())) continue;
             if (MobileDepot.isDepot(unit)) {
                 guardBase(world, unit, base == null
                         ? nearestBase(world, faction, unit.x, unit.y) : base);
@@ -411,7 +416,7 @@ final class NpcSystem {
         WorldItem best = null;
         double bestDist = Double.MAX_VALUE;
         for (WorldItem item : world.items) {
-            if (item.empty()) continue;
+            if (item.empty() || GalaxyEventDirector.ownsItem(world, item.id)) continue;
             double d = Calc.distance(unit.x, unit.y, item.x, item.y);
             if (d < bestDist) {
                 best = item;
@@ -479,7 +484,8 @@ final class NpcSystem {
         Unit best = null;
         double bestDist = Double.MAX_VALUE;
         for (Unit unit : world.units.values()) {
-            if (!unit.playerId.equals(faction.id()) || unit.hp <= 0) continue;
+            if (!unit.playerId.equals(faction.id()) || unit.hp <= 0
+                    || GalaxyEventDirector.ownsUnit(world, unit.key())) continue;
             if (!unit.type().baseBuilder || !unit.basePackageType.isBlank()) continue;
             if (NpcStationConstructionSystem.ownsBuilder(world, unit.key())) continue;
             double d = Calc.distance(unit.x, unit.y, source.x, source.y);
@@ -698,6 +704,7 @@ final class NpcSystem {
         for (Unit unit : world.units.values()) {
             if (!unit.playerId.equals(faction.id())
                     || unit.hp <= 0
+                    || GalaxyEventDirector.ownsUnit(world, unit.key())
                     || unit.type().harvestKinds.isEmpty()) continue;
             if (workerTypes.isEmpty()
                     || workerTypes.contains(unit.shipTypeId)) workers++;
@@ -725,7 +732,8 @@ final class NpcSystem {
     private List<Unit> combatUnits(World world, NpcFaction faction) {
         List<Unit> out = new ArrayList<>();
         for (Unit unit : world.units.values()) {
-            if (!unit.playerId.equals(faction.id()) || unit.hp <= 0) continue;
+            if (!unit.playerId.equals(faction.id()) || unit.hp <= 0
+                    || GalaxyEventDirector.ownsUnit(world, unit.key())) continue;
             if (WeaponRules.armed(unit)) out.add(unit);
         }
         return out;

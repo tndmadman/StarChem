@@ -72,16 +72,179 @@ final class GalaxyEventDirector {
         return new SystemModifiers(mining, respawn, sensors, shields, movement, weapons, damage);
     }
 
+    static synchronized boolean ownsUnit(World world, String unitKey) {
+        return entityRole(world, entityKey("UNIT", unitKey)) != null;
+    }
+
+    static synchronized GalaxyEventEntityRole unitRole(World world, String unitKey) {
+        return entityRole(world, entityKey("UNIT", unitKey));
+    }
+
+    static synchronized boolean ownsItem(World world, int itemId) {
+        return entityRole(world, entityKey("ITEM", Integer.toString(itemId))) != null;
+    }
+
+    static synchronized GalaxyEventEntityRole itemRole(World world, int itemId) {
+        return entityRole(world, entityKey("ITEM", Integer.toString(itemId)));
+    }
+
+    static synchronized boolean canPickupItem(World world, int itemId, String playerId) {
+        GalaxyEventInstance event = eventForEntity(world, entityKey("ITEM", Integer.toString(itemId)));
+        if (event == null || event.entityRoles.get(entityKey("ITEM", Integer.toString(itemId))) != GalaxyEventEntityRole.REWARD) {
+            return true;
+        }
+        if (event.rewardClaimed || event.rewardExpired) return false;
+        String claimant = clean(event.rewardClaimantId);
+        return claimant.isBlank() || claimant.equals(playerId);
+    }
+
+    static synchronized boolean claimItemForPickup(World world, int itemId, String playerId) {
+        String key = entityKey("ITEM", Integer.toString(itemId));
+        GalaxyEventInstance event = eventForEntity(world, key);
+        if (event == null || event.entityRoles.get(key) != GalaxyEventEntityRole.REWARD) return true;
+        if (event.rewardClaimed || event.rewardExpired || playerId == null || playerId.isBlank()) return false;
+        if (event.rewardClaimantId.isBlank()) event.rewardClaimantId = playerId;
+        return event.rewardClaimantId.equals(playerId);
+    }
+
+    static synchronized void onItemPickup(World world, WorldItem item, Unit unit, double amount) {
+        if (world == null || item == null || unit == null || amount <= 0) return;
+        String key = entityKey("ITEM", Integer.toString(item.id));
+        GalaxyEventInstance event = eventForEntity(world, key);
+        if (event == null || event.entityRoles.get(key) != GalaxyEventEntityRole.REWARD) return;
+        if (event.rewardClaimantId.isBlank()) event.rewardClaimantId = unit.playerId;
+        if (!event.rewardClaimantId.equals(unit.playerId)) return;
+        if (item.empty()) {
+            event.rewardClaimed = true;
+            GameNoticeCenter.publish(world, unit.playerId, NoticeCategory.SYSTEM,
+                    "Event reward secured: " + event.rewardTransactionId + ".", false);
+        }
+    }
+
+    static synchronized boolean ownsResource(World world, int resourceId) {
+        return entityRole(world, entityKey("RESOURCE", Integer.toString(resourceId))) != null;
+    }
+
+    private static GalaxyEventEntityRole entityRole(World world, String key) {
+        if (world == null || key == null || key.isBlank()) return null;
+        RuntimeState state = STATES.get(world);
+        if (state == null) return null;
+        for (GalaxyEventInstance event : state.events.values()) {
+            GalaxyEventEntityRole role = event.entityRoles.get(key);
+            if (role != null) return role;
+        }
+        return null;
+    }
+
+    private static GalaxyEventInstance eventForEntity(World world, String key) {
+        if (world == null || key == null || key.isBlank()) return null;
+        RuntimeState state = STATES.get(world);
+        if (state == null) return null;
+        for (GalaxyEventInstance event : state.events.values()) {
+            if (event.entityRoles.containsKey(key)) return event;
+        }
+        return null;
+    }
+
+    private static String entityKey(String type, String id) {
+        String cleanType = clean(type).toUpperCase(Locale.ROOT);
+        String cleanId = clean(id);
+        return cleanType.isBlank() || cleanId.isBlank() ? "" : cleanType + ':' + cleanId;
+    }
+
+    private static void markEntity(GalaxyEventInstance event, String type, String id, GalaxyEventEntityRole role) {
+        if (event == null || role == null) return;
+        String key = entityKey(type, id);
+        if (!key.isBlank()) event.entityRoles.put(key, role);
+    }
+
     static synchronized boolean wormholeAcceptsTransit(World world, String gateId) {
+        return wormholeAcceptsTransit(world, gateId, "");
+    }
+
+    static synchronized boolean wormholeAcceptsTransit(World world, String gateId, String unitKey) {
         if (world == null || gateId == null || gateId.isBlank()) return true;
         RuntimeState state = STATES.get(world);
         if (state == null) return true;
         if (state.retiredGateIds.contains(gateId)) return false;
         for (GalaxyEventInstance event : state.events.values()) {
             if (!event.ownedWormholes.contains(gateId)) continue;
-            return event.phase == GalaxyEventPhase.ACTIVE;
+            if (event.phase == GalaxyEventPhase.ACTIVE) return true;
+            return event.phase == GalaxyEventPhase.CLOSING
+                    && unitKey != null && !unitKey.isBlank()
+                    && event.drainingUnits.contains(unitKey);
         }
         return true;
+    }
+
+    static synchronized void onWormholeTransit(World world, String gateId, String unitKey) {
+        if (world == null || gateId == null || gateId.isBlank() || unitKey == null || unitKey.isBlank()) return;
+        RuntimeState state = STATES.get(world);
+        if (state == null) return;
+        for (GalaxyEventInstance event : state.events.values()) {
+            if (!event.ownedWormholes.contains(gateId)) continue;
+            event.drainingUnits.remove(unitKey);
+            return;
+        }
+    }
+
+    static synchronized void enforceEncounterOrders(World world) {
+        if (world == null || !authoritative(world)) return;
+        RuntimeState state = STATES.get(world);
+        if (state == null) return;
+        String systemId = clean(world.activeSystemId());
+        for (GalaxyEventInstance event : state.events.values()) {
+            if (!systemId.equals(event.systemId) || event.phase != GalaxyEventPhase.ACTIVE) continue;
+            GalaxyEventDefinition definition = catalog().byId(event.definitionId);
+            if (definition == null) continue;
+            if (definition.kind() == GalaxyEventKind.DISTRESS_SIGNAL) {
+                String civilianKey = clean(event.custom.get("civilianUnitKey"));
+                Unit civilian = world.units.get(civilianKey);
+                if (civilian != null && civilian.hp > 0) {
+                    civilian.clearOrder();
+                    civilian.attackTarget = "";
+                    civilian.automationResourceId = -1;
+                    civilian.task = UnitTask.IDLE;
+                    civilian.targetX = civilian.x;
+                    civilian.targetY = civilian.y;
+                }
+                for (String key : event.ownedUnits) {
+                    if (key.equals(civilianKey)) continue;
+                    Unit attacker = world.units.get(key);
+                    if (attacker == null || attacker.hp <= 0) continue;
+                    if (civilian != null && civilian.hp > 0) attacker.attack(CombatTarget.unit(civilian));
+                }
+            } else if (definition.kind() == GalaxyEventKind.PIRATE_AMBUSH) {
+                for (String key : event.ownedUnits) {
+                    Unit attacker = world.units.get(key);
+                    if (attacker == null || attacker.hp <= 0) continue;
+                    String target = nearestPlayerTarget(world, attacker);
+                    if (!target.isBlank()) attacker.attack(target);
+                }
+            }
+        }
+    }
+
+    private static String nearestPlayerTarget(World world, Unit attacker) {
+        String best = "";
+        double bestDistance = Double.MAX_VALUE;
+        for (Unit target : world.units.values()) {
+            if (target == null || target.hp <= 0 || NpcRules.isNpcFaction(target.playerId)) continue;
+            double distance = Calc.distance(attacker.x, attacker.y, target.x, target.y);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = CombatTarget.unit(target);
+            }
+        }
+        for (Base target : world.bases.values()) {
+            if (target == null || target.hp <= 0 || NpcRules.isNpcFaction(target.playerId)) continue;
+            double distance = Calc.distance(attacker.x, attacker.y, target.x, target.y);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = CombatTarget.base(target);
+            }
+        }
+        return best;
     }
 
     static synchronized List<GalaxyMapLink> temporaryLinksFor(World world, String playerId) {
@@ -234,6 +397,7 @@ final class GalaxyEventDirector {
         double totalWeight = 0;
         for (GalaxyEventDefinition definition : rules.definitions()) {
             if (!definition.enabled() || definition.weight() <= 0) continue;
+            if (activeDefinitionCount(state, definition.id()) >= definition.maxActiveInstances()) continue;
             if (home && !definition.safeForHome()) continue;
             if (!definitionEligible(state, systemId, clock, definition)) continue;
             if (definition.kind() == GalaxyEventKind.UNSTABLE_WORMHOLE && !hasWormholeTarget(world, systemId)) continue;
@@ -392,8 +556,15 @@ final class GalaxyEventDirector {
                 continue;
             }
 
+            if (primary && terminal(event.phase)) {
+                advanceTerminalReward(world, event, clock);
+                if (rewardSettled(event)) remove.add(event.id);
+                continue;
+            }
+
             if (definition.kind() == GalaxyEventKind.UNSTABLE_WORMHOLE && event.materialized) {
                 ensureWormholeGate(world, event, systemId);
+                if (event.phase == GalaxyEventPhase.CLOSING) captureClosingDrain(world, event, systemId);
             }
             if (!primary) continue;
 
@@ -416,18 +587,28 @@ final class GalaxyEventDirector {
             if ((event.phase == GalaxyEventPhase.HIDDEN || event.phase == GalaxyEventPhase.ACTIVE)
                     && clock >= event.expiresAt) {
                 if (definition.kind() == GalaxyEventKind.UNSTABLE_WORMHOLE && event.materialized) {
-                    event.phase = GalaxyEventPhase.CLOSING;
-                    event.custom.put("closeAt", Double.toString(clock + rules.wormholeClosingSeconds()));
-                    notifyDiscovered(world, event, "Unstable wormhole is collapsing; new transit is disabled.", NoticeCategory.WARNING);
+                    beginWormholeClosing(world, event, systemId, clock, rules);
                 } else {
                     complete(world, state, event, definition, GalaxyEventPhase.EXPIRED);
                 }
             } else if (event.phase == GalaxyEventPhase.CLOSING) {
+                reconcileDrainUnits(world, event);
                 double closeAt = parseDouble(event.custom.get("closeAt"), clock);
-                if (clock >= closeAt) complete(world, state, event, definition, GalaxyEventPhase.EXPIRED);
+                double hardCloseAt = parseDouble(event.custom.get("hardCloseAt"),
+                        closeAt + Math.max(5.0, rules.wormholeClosingSeconds() * 2.0));
+                if (clock >= closeAt && event.drainingUnits.isEmpty()) {
+                    complete(world, state, event, definition, GalaxyEventPhase.EXPIRED);
+                } else if (clock >= hardCloseAt) {
+                    if (!event.drainingUnits.isEmpty()) {
+                        notifyDiscovered(world, event,
+                                "Unstable wormhole collapsed with " + event.drainingUnits.size()
+                                        + " unresolved ship(s) left safely in-system.", NoticeCategory.WARNING);
+                    }
+                    complete(world, state, event, definition, GalaxyEventPhase.EXPIRED);
+                }
             }
 
-            if (terminal(event.phase)) remove.add(event.id);
+            if (terminal(event.phase) && rewardSettled(event)) remove.add(event.id);
         }
         for (String id : remove) state.events.remove(id);
     }
@@ -460,6 +641,8 @@ final class GalaxyEventDirector {
             case UNSTABLE_WORMHOLE -> {
                 event.ownedWormholes.add(event.id + ":A");
                 event.ownedWormholes.add(event.id + ":B");
+                markEntity(event, "WORMHOLE", event.id + ":A", GalaxyEventEntityRole.GATE);
+                markEntity(event, "WORMHOLE", event.id + ":B", GalaxyEventEntityRole.GATE);
                 ensureWormholeGate(world, event, world.activeSystemId());
             }
         }
@@ -492,6 +675,7 @@ final class GalaxyEventDirector {
                     amount, Math.max(2, amount / 60.0), 34);
             world.resources.add(node);
             event.ownedResources.add(node.id);
+            markEntity(event, "RESOURCE", Integer.toString(node.id), GalaxyEventEntityRole.RESOURCE);
         }
     }
 
@@ -508,7 +692,10 @@ final class GalaxyEventDirector {
                     Calc.clamp(event.y + Math.sin(angle) * distance, 20, Math.max(20, world.height - 20)),
                     random.nextDouble() * 8 - 4, random.nextDouble() * 8 - 4,
                     random.nextDouble() * Math.PI * 2, random.nextDouble() * 0.8 - 0.4);
-            if (item != null) event.ownedItems.add(item.id);
+            if (item != null) {
+                event.ownedItems.add(item.id);
+                markEntity(event, "ITEM", Integer.toString(item.id), GalaxyEventEntityRole.SALVAGE);
+            }
         }
     }
 
@@ -523,7 +710,10 @@ final class GalaxyEventDirector {
             Unit unit = spawnEventUnit(world, factionId, ship,
                     event.x + random.nextDouble() * 180 - 90,
                     event.y + random.nextDouble() * 180 - 90);
-            if (unit != null) event.ownedUnits.add(unit.key());
+            if (unit != null) {
+                event.ownedUnits.add(unit.key());
+                markEntity(event, "UNIT", unit.key(), GalaxyEventEntityRole.ATTACKER);
+            }
         }
     }
 
@@ -537,6 +727,7 @@ final class GalaxyEventDirector {
             civilian.targetX = civilian.x;
             civilian.targetY = civilian.y;
             event.ownedUnits.add(civilian.key());
+            markEntity(event, "UNIT", civilian.key(), GalaxyEventEntityRole.CIVILIAN);
             event.custom.put("civilianUnitKey", civilian.key());
         }
         spawnPirates(world, event, definition, random);
@@ -567,6 +758,59 @@ final class GalaxyEventDirector {
         }
     }
 
+    private static void beginWormholeClosing(World world, GalaxyEventInstance event, String systemId,
+                                             double clock, GalaxyEventCatalog rules) {
+        event.phase = GalaxyEventPhase.CLOSING;
+        double closeAt = clock + rules.wormholeClosingSeconds();
+        event.custom.put("closeAt", Double.toString(closeAt));
+        event.custom.put("hardCloseAt", Double.toString(
+                closeAt + Math.max(5.0, rules.wormholeClosingSeconds() * 2.0)));
+        captureClosingDrain(world, event, systemId);
+        notifyDiscovered(world, event,
+                event.drainingUnits.isEmpty()
+                        ? "Unstable wormhole is collapsing; new transit is disabled."
+                        : "Unstable wormhole is collapsing; " + event.drainingUnits.size()
+                                + " ship(s) already committed may finish transit, but new transit is disabled.",
+                NoticeCategory.WARNING);
+    }
+
+    private static void captureClosingDrain(World world, GalaxyEventInstance event, String systemId) {
+        if (world == null || event == null || systemId == null || systemId.isBlank()
+                || event.phase != GalaxyEventPhase.CLOSING || event.drainCapturedSystems.contains(systemId)) return;
+        String target = clean(event.custom.get("targetSystemId"));
+        String gateId;
+        if (systemId.equals(event.systemId)) gateId = event.id + ":A";
+        else if (systemId.equals(target)) gateId = event.id + ":B";
+        else return;
+        ensureWormholeGate(world, event, systemId);
+        WormholeGate gate = gateById(world, gateId);
+        if (gate != null) {
+            for (Unit unit : world.units.values()) {
+                if (unit == null || unit.hp <= 0 || unit.wormholeCooldown > 0) continue;
+                if (gate.containsGeometry(unit.x, unit.y)) event.drainingUnits.add(unit.key());
+            }
+        }
+        event.drainCapturedSystems.add(systemId);
+    }
+
+    private static void reconcileDrainUnits(World world, GalaxyEventInstance event) {
+        if (world == null || event == null || event.drainingUnits.isEmpty()) return;
+        event.drainingUnits.removeIf(key -> !unitExistsAnywhere(world, key));
+    }
+
+    private static boolean unitExistsAnywhere(World world, String unitKey) {
+        int separator = unitKey == null ? -1 : unitKey.indexOf(':');
+        if (separator <= 0) return false;
+        String ownerId = unitKey.substring(0, separator);
+        return world.ownerUnitLocations(ownerId).containsKey(unitKey);
+    }
+
+    private static WormholeGate gateById(World world, String gateId) {
+        if (world == null || gateId == null || gateId.isBlank()) return null;
+        for (WormholeGate gate : world.wormholes) if (gate != null && gateId.equals(gate.id)) return gate;
+        return null;
+    }
+
     private static void ensureWormholeGate(World world, GalaxyEventInstance event, String systemId) {
         if (world == null || event == null || systemId == null || systemId.isBlank()) return;
         if (event.phase != GalaxyEventPhase.ACTIVE && event.phase != GalaxyEventPhase.CLOSING) return;
@@ -592,12 +836,56 @@ final class GalaxyEventDirector {
                                  GalaxyEventDefinition definition, GalaxyEventPhase terminalPhase) {
         if (terminal(event.phase)) return;
         event.phase = terminalPhase;
+        double clock = state.clockBySystem.getOrDefault(event.systemId, event.expiresAt);
         if (terminalPhase == GalaxyEventPhase.COMPLETED) {
             notifyDiscovered(world, event, definition.name() + " completed.", NoticeCategory.SYSTEM);
         } else if (terminalPhase == GalaxyEventPhase.FAILED) {
             notifyDiscovered(world, event, definition.name() + " failed.", NoticeCategory.WARNING);
         }
         cleanupOwned(world, state, event);
+        if (terminalPhase == GalaxyEventPhase.COMPLETED) ensureReward(world, event, definition, clock);
+    }
+
+    private static void ensureReward(World world, GalaxyEventInstance event,
+                                     GalaxyEventDefinition definition, double clock) {
+        if (event.rewardGenerated || definition.rewardAmount() <= 0 || definition.rewardMaterial().isBlank()) return;
+        Material material = parseMaterial(definition.rewardMaterial(), null);
+        if (material == null) return;
+        event.rewardGenerated = true;
+        event.rewardTransactionId = event.id + ":REWARD";
+        event.rewardExpiresAt = clock + definition.rewardLifetimeSeconds();
+        WorldItem item = world.addWorldItem(material, definition.rewardAmount(), event.x, event.y, 0, 0, 0, 0);
+        if (item == null) {
+            event.rewardExpired = true;
+            return;
+        }
+        event.rewardItemId = item.id;
+        event.ownedItems.add(item.id);
+        markEntity(event, "ITEM", Integer.toString(item.id), GalaxyEventEntityRole.REWARD);
+        notifyDiscovered(world, event, definition.name() + " reward cache is available for "
+                + Math.round(definition.rewardLifetimeSeconds()) + " seconds.", NoticeCategory.SYSTEM);
+    }
+
+    private static void advanceTerminalReward(World world, GalaxyEventInstance event, double clock) {
+        if (!event.rewardGenerated || event.rewardClaimed || event.rewardExpired) return;
+        boolean present = false;
+        for (WorldItem item : world.items) {
+            if (item.id != event.rewardItemId) continue;
+            present = !item.empty();
+            break;
+        }
+        if (!present && !event.rewardClaimantId.isBlank()) {
+            event.rewardClaimed = true;
+            return;
+        }
+        if (clock + 0.000001 < event.rewardExpiresAt) return;
+        world.items.removeIf(item -> item.id == event.rewardItemId);
+        event.rewardExpired = true;
+        notifyDiscovered(world, event, "Unclaimed event reward expired.", NoticeCategory.WARNING);
+    }
+
+    private static boolean rewardSettled(GalaxyEventInstance event) {
+        return !event.rewardGenerated || event.rewardClaimed || event.rewardExpired;
     }
 
     private static void cleanupOwned(World world, RuntimeState state, GalaxyEventInstance event) {
@@ -692,6 +980,14 @@ final class GalaxyEventDirector {
         int count = 0;
         for (GalaxyEventInstance event : state.events.values()) {
             if (systemId.equals(event.systemId) && !terminal(event.phase)) count++;
+        }
+        return count;
+    }
+
+    private static int activeDefinitionCount(RuntimeState state, String definitionId) {
+        int count = 0;
+        for (GalaxyEventInstance event : state.events.values()) {
+            if (definitionId.equals(event.definitionId) && !terminal(event.phase)) count++;
         }
         return count;
     }
@@ -793,6 +1089,15 @@ enum GalaxyEventDiscoveryRule {
     PROXIMITY
 }
 
+enum GalaxyEventEntityRole {
+    RESOURCE,
+    SALVAGE,
+    ATTACKER,
+    CIVILIAN,
+    REWARD,
+    GATE
+}
+
 record GalaxyEventView(String eventId, String definitionId, GalaxyEventKind kind, String systemId,
                        String name, GalaxyEventPhase phase, double x, double y, double remainingSeconds) { }
 
@@ -807,11 +1112,21 @@ final class GalaxyEventInstance {
     double activatedAt = -1;
     final double expiresAt;
     boolean materialized;
+    boolean rewardGenerated;
+    boolean rewardClaimed;
+    boolean rewardExpired;
+    String rewardTransactionId = "";
+    int rewardItemId = -1;
+    String rewardClaimantId = "";
+    double rewardExpiresAt = -1;
     final Set<String> discoveredBy = new LinkedHashSet<>();
     final Set<Integer> ownedResources = new LinkedHashSet<>();
     final Set<Integer> ownedItems = new LinkedHashSet<>();
     final Set<String> ownedUnits = new LinkedHashSet<>();
     final Set<String> ownedWormholes = new LinkedHashSet<>();
+    final Set<String> drainingUnits = new LinkedHashSet<>();
+    final Set<String> drainCapturedSystems = new LinkedHashSet<>();
+    final Map<String,GalaxyEventEntityRole> entityRoles = new LinkedHashMap<>();
     final Map<String,String> custom = new LinkedHashMap<>();
 
     GalaxyEventInstance(String id, String definitionId, String systemId, double x, double y,
@@ -838,11 +1153,25 @@ final class GalaxyEventInstance {
         out.put("activatedAt", activatedAt);
         out.put("expiresAt", expiresAt);
         out.put("materialized", materialized);
+        out.put("rewardGenerated", rewardGenerated);
+        out.put("rewardClaimed", rewardClaimed);
+        out.put("rewardExpired", rewardExpired);
+        out.put("rewardTransactionId", rewardTransactionId);
+        out.put("rewardItemId", rewardItemId);
+        out.put("rewardClaimantId", rewardClaimantId);
+        out.put("rewardExpiresAt", rewardExpiresAt);
         out.put("discoveredBy", new ArrayList<>(discoveredBy));
         out.put("ownedResources", new ArrayList<>(ownedResources));
         out.put("ownedItems", new ArrayList<>(ownedItems));
         out.put("ownedUnits", new ArrayList<>(ownedUnits));
         out.put("ownedWormholes", new ArrayList<>(ownedWormholes));
+        out.put("drainingUnits", new ArrayList<>(drainingUnits));
+        out.put("drainCapturedSystems", new ArrayList<>(drainCapturedSystems));
+        Map<String,Object> roles = new LinkedHashMap<>();
+        for (Map.Entry<String,GalaxyEventEntityRole> entry : entityRoles.entrySet()) {
+            roles.put(entry.getKey(), entry.getValue().name());
+        }
+        out.put("entityRoles", roles);
         out.put("custom", new LinkedHashMap<>(custom));
         return out;
     }
@@ -860,15 +1189,44 @@ final class GalaxyEventInstance {
                 ServerSaveStore.doubleValue(row, "expiresAt", 0));
         event.activatedAt = ServerSaveStore.doubleValue(row, "activatedAt", -1);
         event.materialized = ServerSaveStore.boolValue(row, "materialized", false);
+        event.rewardGenerated = ServerSaveStore.boolValue(row, "rewardGenerated", false);
+        event.rewardClaimed = ServerSaveStore.boolValue(row, "rewardClaimed", false);
+        event.rewardExpired = ServerSaveStore.boolValue(row, "rewardExpired", false);
+        event.rewardTransactionId = ServerSaveStore.string(row, "rewardTransactionId", "").trim();
+        event.rewardItemId = ServerSaveStore.intValue(row, "rewardItemId", -1);
+        event.rewardClaimantId = ServerSaveStore.string(row, "rewardClaimantId", "").trim();
+        event.rewardExpiresAt = ServerSaveStore.doubleValue(row, "rewardExpiresAt", -1);
         restoreStrings(row.get("discoveredBy"), event.discoveredBy);
         restoreInts(row.get("ownedResources"), event.ownedResources);
         restoreInts(row.get("ownedItems"), event.ownedItems);
         restoreStrings(row.get("ownedUnits"), event.ownedUnits);
         restoreStrings(row.get("ownedWormholes"), event.ownedWormholes);
+        restoreStrings(row.get("drainingUnits"), event.drainingUnits);
+        restoreStrings(row.get("drainCapturedSystems"), event.drainCapturedSystems);
+        for (Map.Entry<String,Object> entry : ServerSaveStore.object(row.get("entityRoles")).entrySet()) {
+            String key = entry.getKey() == null ? "" : entry.getKey().trim();
+            if (key.isBlank()) continue;
+            try {
+                event.entityRoles.put(key, GalaxyEventEntityRole.valueOf(String.valueOf(entry.getValue()).trim()));
+            } catch (RuntimeException ignored) { }
+        }
         for (Map.Entry<String,Object> entry : ServerSaveStore.object(row.get("custom")).entrySet()) {
             if (entry.getKey() != null && entry.getValue() != null) event.custom.put(entry.getKey(), entry.getValue().toString());
         }
+        event.rebuildLegacyRoles();
         return event;
+    }
+
+    private void rebuildLegacyRoles() {
+        for (Integer id : ownedResources) entityRoles.putIfAbsent("RESOURCE:" + id, GalaxyEventEntityRole.RESOURCE);
+        for (Integer id : ownedItems) entityRoles.putIfAbsent("ITEM:" + id,
+                rewardGenerated && id == rewardItemId ? GalaxyEventEntityRole.REWARD : GalaxyEventEntityRole.SALVAGE);
+        String civilian = custom.getOrDefault("civilianUnitKey", "").trim();
+        for (String key : ownedUnits) {
+            entityRoles.putIfAbsent("UNIT:" + key, key.equals(civilian)
+                    ? GalaxyEventEntityRole.CIVILIAN : GalaxyEventEntityRole.ATTACKER);
+        }
+        for (String id : ownedWormholes) entityRoles.putIfAbsent("WORMHOLE:" + id, GalaxyEventEntityRole.GATE);
     }
 
     private static void restoreStrings(Object saved, Set<String> out) {
@@ -891,6 +1249,7 @@ record GalaxyEventDefinition(
         GalaxyEventKind kind,
         boolean enabled,
         double weight,
+        int maxActiveInstances,
         boolean safeForHome,
         Set<String> eligibleRoles,
         double minimumAgeSeconds,
@@ -907,6 +1266,9 @@ record GalaxyEventDefinition(
         String resourceMaterial,
         String salvageMaterial,
         String npcFactionId,
+        String rewardMaterial,
+        double rewardAmount,
+        double rewardLifetimeSeconds,
         SystemModifiers modifiers
 ) {
     GalaxyEventDefinition {
@@ -915,6 +1277,10 @@ record GalaxyEventDefinition(
         resourceMaterial = resourceMaterial == null ? "" : resourceMaterial.trim();
         salvageMaterial = salvageMaterial == null ? "" : salvageMaterial.trim();
         npcFactionId = npcFactionId == null ? "" : npcFactionId.trim();
+        rewardMaterial = rewardMaterial == null ? "" : rewardMaterial.trim();
+        maxActiveInstances = Math.max(1, maxActiveInstances);
+        rewardAmount = Math.max(0, rewardAmount);
+        rewardLifetimeSeconds = Math.max(5, rewardLifetimeSeconds);
         modifiers = modifiers == null ? SystemModifiers.STANDARD : modifiers;
     }
 }
@@ -1006,9 +1372,14 @@ final class GalaxyEventCatalog {
         int placementAttempts = ServerSaveStore.intValue(row, "placementAttempts", 24);
         int entityCount = ServerSaveStore.intValue(row, "entityCount", 3);
         double amount = ServerSaveStore.doubleValue(row, "amount", 250);
+        int maxActiveInstances = ServerSaveStore.intValue(row, "maxActiveInstances", 2);
+        double rewardAmount = ServerSaveStore.doubleValue(row, "rewardAmount", 0);
+        double rewardLifetimeSeconds = ServerSaveStore.doubleValue(row, "rewardLifetimeSeconds", 120);
         if (weight < 0 || minimumAge < 0 || cooldown < 0 || minDuration < 5 || maxDuration < minDuration
                 || discoveryRadius < 25 || minAssetDistance < 0 || minWormholeDistance < 0
-                || placementAttempts < 1 || placementAttempts > 256 || entityCount < 1 || amount <= 0) {
+                || placementAttempts < 1 || placementAttempts > 256 || entityCount < 1 || amount <= 0
+                || maxActiveInstances < 1 || maxActiveInstances > 64 || rewardAmount < 0
+                || rewardLifetimeSeconds < 5 || rewardLifetimeSeconds > 86_400) {
             throw new IllegalStateException("Galaxy event " + id + " has invalid numeric bounds.");
         }
         Map<String,Object> modifiers = ServerSaveStore.object(row.get("modifiers"));
@@ -1016,6 +1387,7 @@ final class GalaxyEventCatalog {
                 id, name.isBlank() ? id : name, kind,
                 ServerSaveStore.boolValue(row, "enabled", true),
                 weight,
+                maxActiveInstances,
                 ServerSaveStore.boolValue(row, "safeForHome", false),
                 parseLowercaseSet(row.get("eligibleRoles")),
                 minimumAge,
@@ -1032,6 +1404,9 @@ final class GalaxyEventCatalog {
                 ServerSaveStore.string(row, "resourceMaterial", "RARE_EARTHS"),
                 ServerSaveStore.string(row, "salvageMaterial", "SCRAP_METAL"),
                 ServerSaveStore.string(row, "npcFactionId", "NPC_RAIDERS"),
+                ServerSaveStore.string(row, "rewardMaterial", ""),
+                rewardAmount,
+                rewardLifetimeSeconds,
                 new SystemModifiers(
                         ServerSaveStore.doubleValue(modifiers, "miningYield", 1),
                         ServerSaveStore.doubleValue(modifiers, "resourceRespawn", 1),
@@ -1062,6 +1437,9 @@ final class GalaxyEventCatalog {
         }
         if (definition.kind() == GalaxyEventKind.DERELICT_SALVAGE) {
             requireMaterial(definition.id(), "salvageMaterial", definition.salvageMaterial());
+        }
+        if (definition.rewardAmount() > 0) {
+            requireMaterial(definition.id(), "rewardMaterial", definition.rewardMaterial());
         }
         if (definition.kind() == GalaxyEventKind.PIRATE_AMBUSH || definition.kind() == GalaxyEventKind.DISTRESS_SIGNAL) {
             boolean found = false;
@@ -1098,40 +1476,41 @@ final class GalaxyEventCatalog {
     private static GalaxyEventCatalog defaults() {
         return new GalaxyEventCatalog(true, 30, 45, 0.35, 4, 2, 3, List.of(
                 definition("rich_rare_earths", "Rich Rare-Earth Deposit", GalaxyEventKind.RICH_RESOURCE,
-                        true, 3, true, Set.of(), 30, 180, GalaxyEventDiscoveryRule.SENSOR, 150, 300, 850,
-                        500, 350, 24, 4, 420, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS", SystemModifiers.STANDARD),
+                        true, 3, 2, true, Set.of(), 30, 180, GalaxyEventDiscoveryRule.SENSOR, 150, 300, 850,
+                        500, 350, 24, 4, 420, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS", "", 0, 120, SystemModifiers.STANDARD),
                 definition("derelict_convoy", "Derelict Convoy", GalaxyEventKind.DERELICT_SALVAGE,
-                        true, 2.5, true, Set.of("relic"), 45, 240, GalaxyEventDiscoveryRule.SENSOR, 150, 300, 850,
-                        600, 400, 24, 5, 55, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS", SystemModifiers.STANDARD),
+                        true, 2.5, 2, true, Set.of("relic"), 45, 240, GalaxyEventDiscoveryRule.SENSOR, 150, 300, 850,
+                        600, 400, 24, 5, 55, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS", "", 0, 120, SystemModifiers.STANDARD),
                 definition("distress_beacon", "Distress Beacon", GalaxyEventKind.DISTRESS_SIGNAL,
-                        true, 2, true, Set.of(), 60, 240, GalaxyEventDiscoveryRule.SENSOR, 180, 330, 1050,
-                        900, 450, 32, 3, 1, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS", SystemModifiers.STANDARD),
+                        true, 2, 1, true, Set.of(), 60, 240, GalaxyEventDiscoveryRule.SENSOR, 180, 330, 1050,
+                        900, 450, 32, 3, 1, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS", "CIRCUIT_FRAGMENTS", 42, 180, SystemModifiers.STANDARD),
                 definition("pirate_ambush", "Pirate Ambush", GalaxyEventKind.PIRATE_AMBUSH,
-                        true, 1.5, false, Set.of("danger"), 90, 300, GalaxyEventDiscoveryRule.PROXIMITY, 150, 260, 850,
-                        1200, 500, 40, 4, 1, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS", SystemModifiers.STANDARD),
+                        true, 1.5, 1, false, Set.of("danger"), 90, 300, GalaxyEventDiscoveryRule.PROXIMITY, 150, 260, 850,
+                        1200, 500, 40, 4, 1, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS", "CIRCUIT_FRAGMENTS", 30, 150, SystemModifiers.STANDARD),
                 definition("ion_storm", "Ion Storm", GalaxyEventKind.ENVIRONMENTAL,
-                        true, 1.25, false, Set.of("danger"), 90, 300, GalaxyEventDiscoveryRule.SENSOR, 120, 240, 1000,
-                        1400, 650, 48, 1, 1, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS",
+                        true, 1.25, 2, false, Set.of("danger"), 90, 300, GalaxyEventDiscoveryRule.SENSOR, 120, 240, 1000,
+                        1400, 650, 48, 1, 1, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS", "", 0, 120,
                         new SystemModifiers(1, 1, 0.65, 1.25, 0.9, 0.85, 0)),
                 definition("unstable_wormhole", "Unstable Wormhole", GalaxyEventKind.UNSTABLE_WORMHOLE,
-                        true, 0.55, false, Set.of(), 120, 420, GalaxyEventDiscoveryRule.SENSOR, 150, 260, 1100,
-                        1000, 900, 48, 1, 1, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS", SystemModifiers.STANDARD)));
+                        true, 0.55, 1, false, Set.of(), 120, 420, GalaxyEventDiscoveryRule.SENSOR, 150, 260, 1100,
+                        1000, 900, 48, 1, 1, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS", "", 0, 120, SystemModifiers.STANDARD)));
     }
 
     private static GalaxyEventDefinition definition(String id, String name, GalaxyEventKind kind,
-                                                     boolean enabled, double weight, boolean safeForHome,
-                                                     Set<String> eligibleRoles, double minimumAgeSeconds,
+                                                     boolean enabled, double weight, int maxActiveInstances,
+                                                     boolean safeForHome, Set<String> eligibleRoles, double minimumAgeSeconds,
                                                      double cooldownSeconds, GalaxyEventDiscoveryRule discoveryRule,
                                                      double minDurationSeconds, double maxDurationSeconds,
                                                      double discoveryRadius, double minDistanceFromPlayerAssets,
                                                      double minDistanceFromWormholes, int placementAttempts,
                                                      int entityCount, double amount, String resourceMaterial,
-                                                     String salvageMaterial, String npcFactionId,
-                                                     SystemModifiers modifiers) {
-        return new GalaxyEventDefinition(id, name, kind, enabled, weight, safeForHome, eligibleRoles,
+                                                     String salvageMaterial, String npcFactionId, String rewardMaterial,
+                                                     double rewardAmount, double rewardLifetimeSeconds, SystemModifiers modifiers) {
+        return new GalaxyEventDefinition(id, name, kind, enabled, weight, maxActiveInstances, safeForHome, eligibleRoles,
                 minimumAgeSeconds, cooldownSeconds, discoveryRule, minDurationSeconds, maxDurationSeconds,
                 discoveryRadius, minDistanceFromPlayerAssets, minDistanceFromWormholes, placementAttempts,
-                entityCount, amount, resourceMaterial, salvageMaterial, npcFactionId, modifiers);
+                entityCount, amount, resourceMaterial, salvageMaterial, npcFactionId, rewardMaterial,
+                rewardAmount, rewardLifetimeSeconds, modifiers);
     }
 
     boolean enabled() { return enabled; }

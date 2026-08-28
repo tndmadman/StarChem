@@ -21,12 +21,16 @@ public final class GalaxyEventValidator {
         validateRichResourceMaterialization();
         validateSalvageMaterialization();
         validateNpcEncounterMaterialization();
+        validateEntityOwnershipAndNpcIsolation();
+        validateExactlyOnceRewardLifecycle();
         validateEnvironmentalModifierMaterialization();
         validateWormholeMaterialization();
+        validateOwnerAwareEffectiveTopology();
         validateEventProjectionSerialization();
         validateHiddenEventsDoNotLeak();
         validateDeterministicMaterialization();
         validateClosingWormholeRejectsTransit();
+        validateClosingWormholeTransitDrain();
         validateRuntimePersistenceShape();
     }
 
@@ -102,6 +106,102 @@ public final class GalaxyEventValidator {
                 "distress encounter did not materialize its attackers");
     }
 
+    private static void validateEntityOwnershipAndNpcIsolation() {
+        World pirateWorld = world(991_339_1L);
+        double x = pirateWorld.width * 0.5;
+        double y = pirateWorld.height * 0.5;
+        Unit player = new Unit("SOLO", 501, "frigate", x, y);
+        pirateWorld.units.put(player.key(), player);
+        discoverSingle(pirateWorld, "EV-OWNERSHIP", "pirate_ambush", Map.of());
+        pirateWorld.units.remove(Unit.key("SOLO", 77));
+        Map<String,Object> saved = capturedEvent(pirateWorld, "EV-OWNERSHIP");
+        Map<String,Object> roles = ServerSaveStore.object(saved.get("entityRoles"));
+        require(!roles.isEmpty(), "event-owned entities did not persist explicit role metadata");
+        String attackerKey = firstOwnedUnit(saved, "NPC_RAIDERS");
+        require(!attackerKey.isBlank() && GalaxyEventDirector.ownsUnit(pirateWorld, attackerKey),
+                "event-owned attacker was not discoverable through the ownership registry");
+        require(GalaxyEventDirector.unitRole(pirateWorld, attackerKey) == GalaxyEventEntityRole.ATTACKER,
+                "event-owned attacker did not retain ATTACKER metadata");
+
+        NpcFaction raiders = npcFaction("NPC_RAIDERS");
+        NpcFactionCapacitySnapshot capacity = NpcFactionCapacitySystem.snapshot(pirateWorld, raiders);
+        require(capacity.combat() == 0,
+                "event raiders polluted ordinary NPC faction capacity accounting");
+
+        Map<String,Object> beforeOrders = capturedEvent(pirateWorld, "EV-OWNERSHIP");
+        require("ACTIVE".equals(ServerSaveStore.string(beforeOrders, "phase", "")),
+                "ownership test pirate event stopped being ACTIVE before encounter ordering");
+        require(pirateWorld.units.containsKey(player.key()),
+                "ownership capacity snapshot lost the player target from the active system");
+        GalaxyEventDirector.enforceEncounterOrders(pirateWorld);
+        Unit attacker = pirateWorld.units.get(attackerKey);
+        require(attacker != null && CombatTarget.unit(player).equals(attacker.attackTarget),
+                "pirate event controller did not issue encounter-specific attack orders; actual="
+                        + (attacker == null ? "<missing>" : attacker.attackTarget) + " expected=" + CombatTarget.unit(player)
+                        + " local=" + PlayerRegistry.localId() + " system=" + pirateWorld.activeSystemId());
+
+        World distressWorld = world(991_339_2L);
+        discoverSingle(distressWorld, "EV-OWNERSHIP-D", "distress_beacon", Map.of());
+        Map<String,Object> distress = capturedEvent(distressWorld, "EV-OWNERSHIP-D");
+        String civilianKey = ServerSaveStore.string(ServerSaveStore.object(distress.get("custom")),
+                "civilianUnitKey", "");
+        require(!civilianKey.isBlank()
+                        && GalaxyEventDirector.unitRole(distressWorld, civilianKey) == GalaxyEventEntityRole.CIVILIAN,
+                "distress civilian did not retain CIVILIAN ownership metadata");
+        GalaxyEventDirector.enforceEncounterOrders(distressWorld);
+        for (Object raw : ServerSaveStore.list(distress.get("ownedUnits"))) {
+            String key = String.valueOf(raw);
+            if (key.equals(civilianKey)) continue;
+            Unit eventAttacker = distressWorld.units.get(key);
+            if (eventAttacker != null) require(CombatTarget.unit(distressWorld.units.get(civilianKey)).equals(eventAttacker.attackTarget),
+                    "distress attacker was not ordered against the protected civilian");
+        }
+    }
+
+    private static void validateExactlyOnceRewardLifecycle() {
+        World world = world(991_339_3L);
+        discoverSingle(world, "EV-REWARD", "pirate_ambush", Map.of());
+        Map<String,Object> active = capturedEvent(world, "EV-REWARD");
+        for (Object raw : ServerSaveStore.list(active.get("ownedUnits"))) world.units.remove(String.valueOf(raw));
+        GalaxyEventDirector.update(world, 0.25);
+
+        Map<String,Object> completed = capturedEvent(world, "EV-REWARD");
+        require("COMPLETED".equals(ServerSaveStore.string(completed, "phase", "")),
+                "completed pirate event did not persist while its reward was outstanding");
+        require(ServerSaveStore.boolValue(completed, "rewardGenerated", false),
+                "completed pirate event did not generate its deterministic reward");
+        int rewardItemId = ServerSaveStore.intValue(completed, "rewardItemId", -1);
+        require(rewardItemId >= 0 && GalaxyEventDirector.itemRole(world, rewardItemId) == GalaxyEventEntityRole.REWARD,
+                "event reward item did not retain REWARD ownership metadata");
+        WorldItem reward = world.items.stream().filter(item -> item.id == rewardItemId).findFirst().orElse(null);
+        require(reward != null && reward.material == Material.CIRCUIT_FRAGMENTS
+                        && Math.abs(reward.amount - 30.0) < 0.000001,
+                "pirate reward material/amount did not match the data-driven definition");
+
+        Map<String,Object> savedRuntime = GalaxyEventDirector.capture(world);
+        int rewardCountBefore = countItem(world, rewardItemId);
+        GalaxyEventDirector.clear(world);
+        GalaxyEventDirector.restore(world, savedRuntime);
+        GalaxyEventDirector.update(world, 0.1);
+        require(countItem(world, rewardItemId) == rewardCountBefore,
+                "restart replayed or duplicated an already-generated event reward");
+
+        require(GalaxyEventDirector.claimItemForPickup(world, rewardItemId, "SOLO"),
+                "first reward claimant could not claim the reward transaction");
+        require(!GalaxyEventDirector.claimItemForPickup(world, rewardItemId, "P2"),
+                "a second player was able to contend for an already-claimed reward transaction");
+        double taken = reward.take(reward.amount);
+        Unit claimant = new Unit("SOLO", 777, Rules.STARTING_SHIP, reward.x, reward.y);
+        GalaxyEventDirector.onItemPickup(world, reward, claimant, taken);
+        Map<String,Object> claimed = capturedEvent(world, "EV-REWARD");
+        require(ServerSaveStore.boolValue(claimed, "rewardClaimed", false)
+                        && "SOLO".equals(ServerSaveStore.string(claimed, "rewardClaimantId", "")),
+                "reward claim was not persisted exactly once for the winning player");
+        GalaxyEventDirector.update(world, 0.1);
+        require(capturedEvent(world, "EV-REWARD").isEmpty(),
+                "settled terminal event was not retired after its reward was claimed");
+    }
+
     private static void validateEnvironmentalModifierMaterialization() {
         World world = world(991_341L);
         String systemId = world.activeSystemId();
@@ -129,6 +229,41 @@ public final class GalaxyEventValidator {
         GalaxyMapWire.Decoded publicView = GalaxyMapWire.decode(GalaxyMapWire.encode(1, withoutPair));
         require(!containsLink(publicView.snapshot().links(), systemId, target),
                 "unscoped galaxy wire leaked an owner-discovered unstable-wormhole shortcut");
+    }
+
+    private static void validateOwnerAwareEffectiveTopology() {
+        World world = world(991_342_1L);
+        String source = world.activeSystemId();
+        String target = nonAdjacentSystem(world, source);
+        double x = world.width * 0.5;
+        double y = world.height * 0.5;
+
+        Map<String,Object> row = discoveredProjectionEvent("EV-ROUTE-WORM", "unstable_wormhole",
+                source, x, y, Map.of("targetSystemId", target, "targetX", "900", "targetY", "750"));
+        row.put("materialized", true);
+        row.put("ownedWormholes", List.of("EV-ROUTE-WORM:A", "EV-ROUTE-WORM:B"));
+        GalaxyEventDirector.restore(world, runtime(source, List.of(row)));
+
+        List<String> ownerPath = LogisticsRouteSystem.pathForTest(world, "SOLO", source, target);
+        require(ownerPath.size() == 2 && source.equals(ownerPath.get(0)) && target.equals(ownerPath.get(1)),
+                "discovered unstable wormhole was not usable as an owner-scoped logistics shortcut: " + ownerPath);
+
+        List<String> hiddenPath = LogisticsRouteSystem.pathForTest(world, "P2", source, target);
+        require(hiddenPath.size() != 2,
+                "undiscovered player inherited another owner's temporary wormhole shortcut: " + hiddenPath);
+
+        Map<String,Object> closing = capturedEvent(world, "EV-ROUTE-WORM");
+        closing.put("phase", GalaxyEventPhase.CLOSING.name());
+        Map<String,Object> custom = new LinkedHashMap<>(ServerSaveStore.object(closing.get("custom")));
+        custom.put("closeAt", "500");
+        closing.put("custom", custom);
+        GalaxyEventDirector.restore(world, runtime(source, List.of(closing)));
+
+        List<String> closingPath = LogisticsRouteSystem.pathForTest(world, "SOLO", source, target);
+        require(closingPath.size() != 2,
+                "closing unstable wormhole remained available to strategic/logistics pathfinding: " + closingPath);
+        require(!GalaxyTopology.containsLink(GalaxyTopology.effectiveSnapshot(world, "SOLO").links(), source, target),
+                "closing unstable wormhole remained in the owner's effective galaxy topology");
     }
 
     private static void validateEventProjectionSerialization() {
@@ -206,6 +341,90 @@ public final class GalaxyEventValidator {
         require(!gate.contains(600, 600), "closing unstable wormhole still accepted new transit");
         require(!containsLink(GalaxyEventDirector.temporaryLinksFor(world, "SOLO"), systemId, target),
                 "closing unstable wormhole was still advertised as active temporary topology");
+    }
+
+    private static void validateClosingWormholeTransitDrain() {
+        World world = world(992_202L);
+        String source = world.activeSystemId();
+        String target = otherSystem(world, source);
+        double x = world.width * 0.5;
+        double y = world.height * 0.5;
+        Unit committed = new Unit("SOLO", 801, Rules.STARTING_SHIP, x, y);
+        Unit late = new Unit("SOLO", 802, Rules.STARTING_SHIP, x + 600, y + 600);
+        world.units.put(committed.key(), committed);
+        world.units.put(late.key(), late);
+
+        Map<String,Object> row = discoveredProjectionEvent("EV-DRAIN", "unstable_wormhole", source, x, y,
+                Map.of("targetSystemId", target, "targetX", "900", "targetY", "750"));
+        row.put("materialized", true);
+        row.put("expiresAt", 100.05);
+        row.put("ownedWormholes", List.of("EV-DRAIN:A", "EV-DRAIN:B"));
+        GalaxyEventDirector.restore(world, runtime(source, List.of(row)));
+        GalaxyEventDirector.update(world, 0.1);
+
+        Map<String,Object> closing = capturedEvent(world, "EV-DRAIN");
+        require("CLOSING".equals(ServerSaveStore.string(closing, "phase", "")),
+                "unstable wormhole did not enter CLOSING at expiry");
+        require(ServerSaveStore.list(closing.get("drainingUnits")).contains(committed.key()),
+                "ship already touching the wormhole was not captured into the transit drain");
+        WormholeGate gate = gateById(world, "EV-DRAIN:A");
+        require(gate != null && gate.containsForTransit(world, committed),
+                "pre-collapse committed ship was not allowed to finish transit");
+
+        late.x = x;
+        late.y = y;
+        require(!gate.containsForTransit(world, late),
+                "ship arriving after collapse began was incorrectly admitted to the transit drain");
+
+        Map<String,Object> closingRuntime = GalaxyEventDirector.capture(world);
+        GalaxyEventDirector.clear(world);
+        GalaxyEventDirector.restore(world, closingRuntime);
+        require(gate.containsForTransit(world, committed),
+                "restart during wormhole closing lost a committed ship's drain eligibility");
+        require(!gate.containsForTransit(world, late),
+                "restart during wormhole closing admitted an uncommitted ship");
+
+        require(world.transferTouchingShips("SOLO"),
+                "committed ship could not finish transit through a closing unstable wormhole");
+        require(target.equals(world.ownerUnitLocations("SOLO").get(committed.key())),
+                "committed ship did not arrive in the unstable wormhole target system");
+        require(source.equals(world.ownerUnitLocations("SOLO").get(late.key())),
+                "late-arriving ship crossed a closing unstable wormhole");
+        Map<String,Object> drained = capturedEvent(world, "EV-DRAIN");
+        require(!ServerSaveStore.list(drained.get("drainingUnits")).contains(committed.key()),
+                "successful closing-wormhole transit did not retire the drain reservation");
+
+        GalaxyEventDirector.update(world, 3.1);
+        require(capturedEvent(world, "EV-DRAIN").isEmpty(),
+                "drained unstable wormhole did not retire after its warning/closing period");
+        require(gateById(world, "EV-DRAIN:A") == null,
+                "expired unstable wormhole source gate remained after the drain completed");
+
+        World blockedWorld = world(992_203L);
+        String blockedSource = blockedWorld.activeSystemId();
+        String blockedTarget = otherSystem(blockedWorld, blockedSource);
+        double bx = blockedWorld.width * 0.5;
+        double by = blockedWorld.height * 0.5;
+        Unit strandedSafely = new Unit("SOLO", 811, Rules.STARTING_SHIP, bx, by);
+        blockedWorld.units.put(strandedSafely.key(), strandedSafely);
+        Map<String,Object> blocked = discoveredProjectionEvent("EV-DRAIN-HARD", "unstable_wormhole",
+                blockedSource, bx, by,
+                Map.of("targetSystemId", blockedTarget, "targetX", "850", "targetY", "700"));
+        blocked.put("materialized", true);
+        blocked.put("expiresAt", 100.05);
+        blocked.put("ownedWormholes", List.of("EV-DRAIN-HARD:A", "EV-DRAIN-HARD:B"));
+        GalaxyEventDirector.restore(blockedWorld, runtime(blockedSource, List.of(blocked)));
+        GalaxyEventDirector.update(blockedWorld, 0.1);
+        require(ServerSaveStore.list(capturedEvent(blockedWorld, "EV-DRAIN-HARD").get("drainingUnits"))
+                        .contains(strandedSafely.key()),
+                "hard-close fixture did not capture the touching ship");
+        GalaxyEventDirector.update(blockedWorld, 10.0);
+        require(capturedEvent(blockedWorld, "EV-DRAIN-HARD").isEmpty(),
+                "unstable wormhole did not honor the bounded hard-close deadline");
+        require(blockedWorld.units.containsKey(strandedSafely.key()) && strandedSafely.hp > 0,
+                "bounded hard close destroyed or displaced an unresolved touching ship");
+        require(gateById(blockedWorld, "EV-DRAIN-HARD:A") == null,
+                "hard-closed unstable wormhole left its temporary gate behind");
     }
 
     private static void validateRuntimePersistenceShape() {
@@ -371,6 +590,15 @@ public final class GalaxyEventValidator {
         return world;
     }
 
+    private static String nonAdjacentSystem(World world, String source) {
+        GalaxyMapSnapshot snapshot = world.authoritativeGalaxyMapSnapshot();
+        for (GalaxyMapSystem system : snapshot.systems()) {
+            if (system == null || source.equals(system.id())) continue;
+            if (!containsLink(snapshot.links(), source, system.id())) return system.id();
+        }
+        throw new IllegalStateException("Galaxy event topology validation requires a non-adjacent system.");
+    }
+
     private static String otherSystem(World world, String source) {
         for (GalaxyMapSystem system : world.authoritativeGalaxyMapSnapshot().systems()) {
             if (system != null && !source.equals(system.id())) return system.id();
@@ -378,9 +606,33 @@ public final class GalaxyEventValidator {
         throw new IllegalStateException("Galaxy event validation requires at least two systems.");
     }
 
+    private static WormholeGate gateById(World world, String gateId) {
+        for (WormholeGate gate : world.wormholes) if (gateId.equals(gate.id)) return gate;
+        return null;
+    }
+
     private static boolean hasGate(World world, String gateId) {
         for (WormholeGate gate : world.wormholes) if (gateId.equals(gate.id)) return true;
         return false;
+    }
+
+    private static String firstOwnedUnit(Map<String,Object> event, String playerId) {
+        for (Object raw : ServerSaveStore.list(event.get("ownedUnits"))) {
+            String key = String.valueOf(raw);
+            if (key.startsWith(playerId + ':')) return key;
+        }
+        return "";
+    }
+
+    private static NpcFaction npcFaction(String id) {
+        for (NpcFaction faction : NpcRules.factions()) if (id.equals(faction.id())) return faction;
+        throw new IllegalStateException("Missing NPC faction " + id);
+    }
+
+    private static int countItem(World world, int id) {
+        int count = 0;
+        for (WorldItem item : world.items) if (item.id == id && !item.empty()) count++;
+        return count;
     }
 
     private static void require(boolean condition, String message) {

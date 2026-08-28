@@ -29,7 +29,10 @@
       "placementAttempts": 24,
       "entityCount": 4,
       "amount": 420,
-      "resourceMaterial": "RARE_EARTHS"
+      "resourceMaterial": "RARE_EARTHS",
+      "maxActiveInstances": 2,
+      "rewardAmount": 0,
+      "rewardLifetimeSeconds": 120
     },
     {
       "id": "derelict_convoy",
@@ -38,7 +41,9 @@
       "enabled": true,
       "weight": 2.5,
       "safeForHome": true,
-      "eligibleRoles": ["relic"],
+      "eligibleRoles": [
+        "relic"
+      ],
       "minimumAgeSeconds": 45,
       "cooldownSeconds": 240,
       "discoveryRule": "SENSOR",
@@ -50,7 +55,10 @@
       "placementAttempts": 24,
       "entityCount": 5,
       "amount": 55,
-      "salvageMaterial": "SCRAP_METAL"
+      "salvageMaterial": "SCRAP_METAL",
+      "maxActiveInstances": 2,
+      "rewardAmount": 0,
+      "rewardLifetimeSeconds": 120
     },
     {
       "id": "distress_beacon",
@@ -70,7 +78,11 @@
       "minDistanceFromWormholes": 450,
       "placementAttempts": 32,
       "entityCount": 3,
-      "npcFactionId": "NPC_RAIDERS"
+      "npcFactionId": "NPC_RAIDERS",
+      "maxActiveInstances": 1,
+      "rewardMaterial": "CIRCUIT_FRAGMENTS",
+      "rewardAmount": 42,
+      "rewardLifetimeSeconds": 180
     },
     {
       "id": "pirate_ambush",
@@ -79,7 +91,9 @@
       "enabled": true,
       "weight": 1.5,
       "safeForHome": false,
-      "eligibleRoles": ["danger"],
+      "eligibleRoles": [
+        "danger"
+      ],
       "minimumAgeSeconds": 90,
       "cooldownSeconds": 300,
       "discoveryRule": "PROXIMITY",
@@ -90,7 +104,11 @@
       "minDistanceFromWormholes": 500,
       "placementAttempts": 40,
       "entityCount": 4,
-      "npcFactionId": "NPC_RAIDERS"
+      "npcFactionId": "NPC_RAIDERS",
+      "maxActiveInstances": 1,
+      "rewardMaterial": "CIRCUIT_FRAGMENTS",
+      "rewardAmount": 30,
+      "rewardLifetimeSeconds": 150
     },
     {
       "id": "ion_storm",
@@ -99,7 +117,9 @@
       "enabled": true,
       "weight": 1.25,
       "safeForHome": false,
-      "eligibleRoles": ["danger"],
+      "eligibleRoles": [
+        "danger"
+      ],
       "minimumAgeSeconds": 90,
       "cooldownSeconds": 300,
       "discoveryRule": "SENSOR",
@@ -118,7 +138,10 @@
         "movementSpeed": 0.9,
         "weaponRange": 0.85,
         "environmentalDamagePerSecond": 0.0
-      }
+      },
+      "maxActiveInstances": 2,
+      "rewardAmount": 0,
+      "rewardLifetimeSeconds": 120
     },
     {
       "id": "unstable_wormhole",
@@ -137,7 +160,10 @@
       "minDistanceFromPlayerAssets": 1000,
       "minDistanceFromWormholes": 900,
       "placementAttempts": 48,
-      "entityCount": 1
+      "entityCount": 1,
+      "maxActiveInstances": 1,
+      "rewardAmount": 0,
+      "rewardLifetimeSeconds": 120
     }
   ]
 }

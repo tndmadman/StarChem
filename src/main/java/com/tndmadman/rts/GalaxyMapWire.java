@@ -61,19 +61,12 @@ final class GalaxyMapWire {
             }
         }
 
-        Map<String,GalaxyMapLink> projectedLinks = new LinkedHashMap<>();
-        if (snapshot.links() != null) {
-            for (GalaxyMapLink link : snapshot.links()) addProjectedLink(projectedLinks, link);
-        }
-        if (activeWorld != null) {
-            for (GalaxyMapLink link : GalaxyEventDirector.temporaryLinksFor(activeWorld, owner.ownerId())) {
-                addProjectedLink(projectedLinks, link);
-            }
-        }
+        List<GalaxyMapLink> projectedLinks = GalaxyTopology.effectiveLinks(
+                activeWorld, owner.present() ? owner.ownerId() : "", snapshot.links());
         if (projectedLinks.size() > 256) {
             throw new IllegalArgumentException("Galaxy link projection exceeds safe limits.");
         }
-        for (GalaxyMapLink link : projectedLinks.values()) {
+        for (GalaxyMapLink link : projectedLinks) {
             out.append("|L,").append(token(link.fromSystemId())).append(',').append(token(link.toSystemId()));
         }
 
@@ -89,16 +82,6 @@ final class GalaxyMapWire {
             }
         }
         return out.toString();
-    }
-
-    private static void addProjectedLink(Map<String,GalaxyMapLink> links, GalaxyMapLink link) {
-        if (link == null) return;
-        String from = clean(link.fromSystemId());
-        String to = clean(link.toSystemId());
-        if (from.isBlank() || to.isBlank() || from.equals(to)) return;
-        String first = from.compareTo(to) <= 0 ? from : to;
-        String second = from.compareTo(to) <= 0 ? to : from;
-        links.putIfAbsent(first + '\u0000' + second, new GalaxyMapLink(from, to));
     }
 
     static Decoded decode(String message) {

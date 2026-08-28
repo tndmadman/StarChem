@@ -241,14 +241,15 @@ final class World {
             if (!allPlayers && !playerId.equals(unit.playerId)) continue;
             if (unit.wormholeCooldown > 0 || ProductionSystem.refitReserved(this, unit.key())
                     || ShipModuleRules.tackled(this, unit)) continue;
-            WormholeGate gate = wormholeAt(unit.x, unit.y);
+            WormholeGate gate = wormholeForTransit(unit);
             if (gate != null && gate.toSystemId != null && !gate.toSystemId.isBlank()) destinations.add(gate.toSystemId);
         }
         return destinations;
     }
 
-    boolean playerShipTouchingWormhole(String playerId) { if (playerId == null || playerId.isBlank()) return false; for (Unit unit : units.values()) if (playerId.equals(unit.playerId) && unit.wormholeCooldown <= 0 && !ProductionSystem.refitReserved(this, unit.key()) && !ShipModuleRules.tackled(this, unit) && wormholeAt(unit.x, unit.y) != null) return true; return false; }
+    boolean playerShipTouchingWormhole(String playerId) { if (playerId == null || playerId.isBlank()) return false; for (Unit unit : units.values()) if (playerId.equals(unit.playerId) && unit.wormholeCooldown <= 0 && !ProductionSystem.refitReserved(this, unit.key()) && !ShipModuleRules.tackled(this, unit) && wormholeForTransit(unit) != null) return true; return false; }
     private WormholeGate wormholeAt(double x, double y) { for (WormholeGate gate : wormholes) if (gate.contains(x, y)) return gate; return null; }
+    private WormholeGate wormholeForTransit(Unit unit) { if (unit == null) return null; for (WormholeGate gate : wormholes) if (gate.containsForTransit(this, unit)) return gate; return null; }
     private WormholeGate wormholeTo(String targetSystemId) { if (targetSystemId == null || targetSystemId.isBlank()) return null; for (WormholeGate gate : wormholes) if (targetSystemId.equals(gate.toSystemId)) return gate; return null; }
 
     void spawnPlayerGroup(String playerId, int slot) { spawnPlayerGroup(playerId, slot, false); }
@@ -367,6 +368,7 @@ final class World {
         itemPickupSystem.update(this);
         scoutSystem.update(this);
         npcSystemForActiveSystem().update(this, dt);
+        GalaxyEventDirector.enforceEncounterOrders(this);
         updateOrganizedNpcFactions(dt);
         npcGalaxyDirector.update(this, dt);
         for (Unit unit : new ArrayList<>(units.values())) updateUnit(unit, dt);
