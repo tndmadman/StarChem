@@ -287,18 +287,12 @@ final class GalaxyEventDirector {
 
     static synchronized List<GalaxyMapLink> temporaryLinksFor(World world, String playerId) {
         if (world == null || playerId == null || playerId.isBlank()) return List.of();
-        if (!authoritative(world)) {
-            List<GalaxyMapLink> out = new ArrayList<>();
-            for (GalaxyEventView view : remoteViews(world)) {
-                if (view.kind() != GalaxyEventKind.UNSTABLE_WORMHOLE || view.phase() != GalaxyEventPhase.ACTIVE) continue;
-            }
-            return List.copyOf(out);
-        }
+        if (!authoritative(world)) return List.of();
         RuntimeState state = STATES.get(world);
         if (state == null) return List.of();
         List<GalaxyMapLink> out = new ArrayList<>();
         for (GalaxyEventInstance event : state.events.values()) {
-            if (event.phase != GalaxyEventPhase.ACTIVE || !event.discoveredBy.contains(playerId)) continue;
+            if (event.phase != GalaxyEventPhase.ACTIVE || !visibleToRecipient(world, event, playerId)) continue;
             GalaxyEventDefinition definition = catalog().byId(event.definitionId);
             if (definition == null || definition.kind() != GalaxyEventKind.UNSTABLE_WORMHOLE) continue;
             String target = clean(event.custom.get("targetSystemId"));
@@ -315,7 +309,7 @@ final class GalaxyEventDirector {
         if (state == null) return List.of();
         List<GalaxyEventView> out = new ArrayList<>();
         for (GalaxyEventInstance event : state.events.values()) {
-            if (!event.discoveredBy.contains(playerId)) continue;
+            if (!visibleToRecipient(world, event, playerId)) continue;
             if (terminal(event.phase)) continue;
             GalaxyEventDefinition definition = catalog().byId(event.definitionId);
             if (definition == null) continue;
@@ -328,6 +322,19 @@ final class GalaxyEventDirector {
         }
         out.sort(Comparator.comparing(GalaxyEventView::systemId).thenComparing(GalaxyEventView::eventId));
         return List.copyOf(out);
+    }
+
+    private static boolean visibleToRecipient(World world, GalaxyEventInstance event, String recipientId) {
+        if (world == null || event == null || recipientId == null || recipientId.isBlank()) return false;
+        if (!ObserverSessions.isObserver(world, recipientId)) return event.discoveredBy.contains(recipientId);
+        ObserverSessions.VisibilityMode mode = ObserverSessions.mode(world, recipientId);
+        if (mode == ObserverSessions.VisibilityMode.FULL) {
+            // FULL observers can see every event that has actually been revealed/materialized,
+            // but HIDDEN events remain subject to #297's configured discovery rules.
+            return event.phase != GalaxyEventPhase.HIDDEN && !event.discoveredBy.isEmpty();
+        }
+        String visibilityOwner = ObserverSessions.visibilityOwner(world, recipientId);
+        return !visibilityOwner.isBlank() && event.discoveredBy.contains(visibilityOwner);
     }
 
     static synchronized List<GalaxyEventView> visibleViews(World world) {

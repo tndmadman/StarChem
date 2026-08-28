@@ -21,6 +21,8 @@ public final class GalaxyEventPersistenceValidator {
     public static void main(String[] args) throws Exception {
         validateLifecyclePhaseRoundTrips();
         validateMaterializedEntitiesRoundTrip();
+        validateSalvageEntitiesRoundTrip();
+        validateNpcEntitiesRoundTrip();
         validateRewardRoundTripAndReplayProtection();
         validateClosingWormholeDrainRoundTrip();
         validatePrunedSourceAndTargetCleanup();
@@ -87,6 +89,81 @@ public final class GalaxyEventPersistenceValidator {
             GalaxyEventDirector.update(loaded, 0.25);
             require(resourceFingerprint(loaded, ids).size() == beforeCount,
                     "restored materialized event duplicated resources after its first update");
+        } finally {
+            deleteTree(dir);
+        }
+    }
+
+    private static void validateSalvageEntitiesRoundTrip() throws Exception {
+        Path dir = tempDir("salvage-entities");
+        try {
+            Config config = config(dir, "events-salvage-entities");
+            World world = world(1_297_001_1L);
+            discoverSingle(world, "EV-SAVE-SALVAGE", "derelict_convoy", Map.of());
+            Map<String,Object> before = capturedEvent(world, "EV-SAVE-SALVAGE");
+            Set<Integer> ids = ints(before.get("ownedItems"));
+            require(ids.size() == 5, "derelict fixture did not materialize five salvage items");
+            Map<Integer,String> fingerprint = itemFingerprint(world, ids);
+
+            ServerSaveStore store = new ServerSaveStore(config.saveDir, config.saveName, config.backupCount);
+            store.save(world, config, "event-salvage-round-trip");
+            GalaxyEventDirector.clear(world);
+            World loaded = requireLoaded(store.load(config), "salvage event save did not load");
+            PlayerRegistry.activate(loaded);
+            Map<String,Object> after = capturedEvent(loaded, "EV-SAVE-SALVAGE");
+            require(ids.equals(ints(after.get("ownedItems"))),
+                    "event-owned salvage ids changed across real server save/load");
+            require(fingerprint.equals(itemFingerprint(loaded, ids)),
+                    "event-owned salvage entities changed across real server save/load");
+            require(allRoles(after, "ITEM:", GalaxyEventEntityRole.SALVAGE),
+                    "salvage ownership roles were lost across real server save/load");
+            GalaxyEventDirector.update(loaded, 0.25);
+            require(ids.equals(ints(capturedEvent(loaded, "EV-SAVE-SALVAGE").get("ownedItems")))
+                            && itemFingerprint(loaded, ids).size() == ids.size(),
+                    "restored derelict event duplicated or lost salvage on first update");
+        } finally {
+            deleteTree(dir);
+        }
+    }
+
+    private static void validateNpcEntitiesRoundTrip() throws Exception {
+        Path dir = tempDir("npc-entities");
+        try {
+            Config config = config(dir, "events-npc-entities");
+            World world = world(1_297_001_2L);
+            discoverSingle(world, "EV-SAVE-DISTRESS", "distress_beacon", Map.of());
+            Map<String,Object> before = capturedEvent(world, "EV-SAVE-DISTRESS");
+            Set<String> keys = strings(before.get("ownedUnits"));
+            require(keys.size() == 4, "distress fixture did not materialize civilian plus three attackers");
+            Map<String,String> fingerprint = unitFingerprint(world, keys);
+            String civilian = ServerSaveStore.string(ServerSaveStore.object(before.get("custom")),
+                    "civilianUnitKey", "");
+            require(!civilian.isBlank(), "distress fixture did not persist its civilian identity");
+
+            ServerSaveStore store = new ServerSaveStore(config.saveDir, config.saveName, config.backupCount);
+            store.save(world, config, "event-npc-round-trip");
+            GalaxyEventDirector.clear(world);
+            World loaded = requireLoaded(store.load(config), "distress event save did not load");
+            PlayerRegistry.activate(loaded);
+            Map<String,Object> after = capturedEvent(loaded, "EV-SAVE-DISTRESS");
+            require(keys.equals(strings(after.get("ownedUnits"))),
+                    "event-owned NPC keys changed across real server save/load");
+            require(fingerprint.equals(unitFingerprint(loaded, keys)),
+                    "event-owned NPC entities changed across real server save/load");
+            require(GalaxyEventDirector.unitRole(loaded, civilian) == GalaxyEventEntityRole.CIVILIAN,
+                    "distress civilian role was lost across real server save/load");
+            int attackers = 0;
+            for (String key : keys) {
+                if (key.equals(civilian)) continue;
+                require(GalaxyEventDirector.unitRole(loaded, key) == GalaxyEventEntityRole.ATTACKER,
+                        "distress attacker role was lost across real server save/load: " + key);
+                attackers++;
+            }
+            require(attackers == 3, "distress fixture did not retain three attackers");
+            GalaxyEventDirector.update(loaded, 0.25);
+            require(strings(capturedEvent(loaded, "EV-SAVE-DISTRESS").get("ownedUnits")).equals(keys)
+                            && unitFingerprint(loaded, keys).size() == keys.size(),
+                    "restored distress event duplicated or lost NPCs on first update");
         } finally {
             deleteTree(dir);
         }
@@ -374,6 +451,38 @@ public final class GalaxyEventPersistenceValidator {
                     + Double.toString(node.x) + "|" + Double.toString(node.y));
         }
         return Map.copyOf(out);
+    }
+
+    private static Map<Integer,String> itemFingerprint(World world, Set<Integer> ids) {
+        Map<Integer,String> out = new LinkedHashMap<>();
+        for (WorldItem item : world.items) {
+            if (!ids.contains(item.id) || item.empty()) continue;
+            out.put(item.id, item.material + "|" + Double.toString(item.amount) + "|"
+                    + Double.toString(item.x) + "|" + Double.toString(item.y));
+        }
+        return Map.copyOf(out);
+    }
+
+    private static Map<String,String> unitFingerprint(World world, Set<String> keys) {
+        Map<String,String> out = new LinkedHashMap<>();
+        for (String key : keys) {
+            Unit unit = world.units.get(key);
+            if (unit == null || unit.hp <= 0) continue;
+            out.put(key, unit.playerId + "|" + unit.shipTypeId + "|" + Double.toString(unit.hp) + "|"
+                    + Double.toString(unit.x) + "|" + Double.toString(unit.y));
+        }
+        return Map.copyOf(out);
+    }
+
+    private static boolean allRoles(Map<String,Object> event, String prefix, GalaxyEventEntityRole expected) {
+        Map<String,Object> roles = ServerSaveStore.object(event.get("entityRoles"));
+        int matched = 0;
+        for (Map.Entry<String,Object> entry : roles.entrySet()) {
+            if (!entry.getKey().startsWith(prefix)) continue;
+            if (!expected.name().equals(String.valueOf(entry.getValue()))) return false;
+            matched++;
+        }
+        return matched > 0;
     }
 
     private static WorldItem item(World world, int id) {
