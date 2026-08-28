@@ -1,1 +1,1 @@
-Apply exact validated StarChem completion patch — retry after verified payload reconstruction.
+Apply exact validated StarChem completion source patch — workflow files handled separately.
