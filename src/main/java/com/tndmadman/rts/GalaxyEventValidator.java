@@ -17,6 +17,7 @@ public final class GalaxyEventValidator {
     }
 
     static void validateOrThrow() {
+        validateConfiguredSpawnSafety();
         validateRichResourceMaterialization();
         validateSalvageMaterialization();
         validateNpcEncounterMaterialization();
@@ -27,6 +28,31 @@ public final class GalaxyEventValidator {
         validateDeterministicMaterialization();
         validateClosingWormholeRejectsTransit();
         validateRuntimePersistenceShape();
+    }
+
+    private static void validateConfiguredSpawnSafety() {
+        World world = world(991_330L);
+        String systemId = world.activeSystemId();
+        double x = world.width * 0.5;
+        double y = world.height * 0.5;
+
+        Unit fleet = new Unit("SOLO", 700, Rules.STARTING_SHIP, x, y);
+        world.units.put(fleet.key(), fleet);
+        require(!GalaxyEventDirector.spawnLocationSafeForValidation(world, "pirate_ambush", x, y),
+                "hostile event spawn safety allowed a pirate ambush directly on a player fleet");
+        world.units.remove(fleet.key());
+
+        Base production = new Base("SOLO:B700", "SOLO", Rules.DEFAULT_BASE, x, y);
+        world.bases.put(production.id, production);
+        require(!GalaxyEventDirector.spawnLocationSafeForValidation(world, "ion_storm", x, y),
+                "environmental event spawn safety allowed a hazard directly on a player base");
+        world.bases.remove(production.id);
+
+        String target = otherSystem(world, systemId);
+        WormholeGate gate = new WormholeGate("VALIDATOR-GATE", systemId, target, x, y, x + 500, y + 500);
+        world.wormholes.add(gate);
+        require(!GalaxyEventDirector.spawnLocationSafeForValidation(world, "unstable_wormhole", x, y),
+                "temporary wormhole spawn safety allowed a gate directly on existing topology");
     }
 
     private static void validateRichResourceMaterialization() {
@@ -187,12 +213,18 @@ public final class GalaxyEventValidator {
         String systemId = world.activeSystemId();
         Map<String,Object> saved = runtime(systemId,
                 List.of(event("EV-SAVE", "ion_storm", systemId, 500, 500, 1200, Map.of())));
+        String cooldownKey = systemId + '\u0000' + "ion_storm";
+        saved.put("cooldownUntilByDefinition", Map.of(cooldownKey, 333.0));
         GalaxyEventDirector.restore(world, saved);
         Map<String,Object> captured = GalaxyEventDirector.capture(world);
         require(ServerSaveStore.longValue(captured, "sequence", -1) == 12,
                 "event director sequence did not survive runtime capture/restore");
         require(ServerSaveStore.list(captured.get("events")).size() == 1,
                 "event runtime capture did not preserve active event state");
+        double cooldown = ServerSaveStore.asDouble(
+                ServerSaveStore.object(captured.get("cooldownUntilByDefinition")).get(cooldownKey), -1);
+        require(Math.abs(cooldown - 333.0) < 0.000001,
+                "event per-definition cooldown did not survive runtime capture/restore");
         Map<String,Object> scheduler = SystemSimulationScheduler.capture(world);
         require(scheduler.containsKey(GalaxyEventDirector.saveKey()),
                 "event state was not embedded in authoritative runtime persistence");
@@ -302,6 +334,7 @@ public final class GalaxyEventValidator {
         root.put("sequence", 12L);
         root.put("clockBySystem", Map.of(systemId, 100.0));
         root.put("nextEvaluationBySystem", Map.of(systemId, 100_000.0));
+        root.put("cooldownUntilByDefinition", Map.of());
         root.put("events", events);
         root.put("retiredGateIds", List.of());
         return root;
