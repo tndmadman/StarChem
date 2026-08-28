@@ -94,6 +94,15 @@ public final class GalaxyEventValidator {
         require(hasGate(world, "EV-WORM:A"), "unstable wormhole did not materialize its source gate");
         require(containsLink(GalaxyEventDirector.temporaryLinksFor(world, "SOLO"), systemId, target),
                 "discovered unstable wormhole did not project a temporary galaxy link");
+
+        GalaxyMapSnapshot withoutPair = withoutLink(world.authoritativeGalaxyMapSnapshot(), systemId, target);
+        GalaxyMapWire.Decoded ownerView = GalaxyMapWire.decode(GalaxyMapWire.encode(1, withoutPair, "SOLO", Map.of()));
+        require(containsLink(ownerView.snapshot().links(), systemId, target),
+                "owner galaxy wire omitted a discovered active unstable-wormhole shortcut");
+
+        GalaxyMapWire.Decoded publicView = GalaxyMapWire.decode(GalaxyMapWire.encode(1, withoutPair));
+        require(!containsLink(publicView.snapshot().links(), systemId, target),
+                "unscoped galaxy wire leaked an owner-discovered unstable-wormhole shortcut");
     }
 
     private static void validateEventProjectionSerialization() {
@@ -254,11 +263,27 @@ public final class GalaxyEventValidator {
         return count;
     }
 
+    private static GalaxyMapSnapshot withoutLink(GalaxyMapSnapshot snapshot, String from, String to) {
+        List<GalaxyMapLink> links = new ArrayList<>();
+        if (snapshot != null && snapshot.links() != null) {
+            for (GalaxyMapLink link : snapshot.links()) {
+                if (link == null || sameLink(link, from, to)) continue;
+                links.add(link);
+            }
+        }
+        return snapshot == null
+                ? new GalaxyMapSnapshot("", List.of(), List.of())
+                : new GalaxyMapSnapshot(snapshot.activeSystemId(), snapshot.systems(), List.copyOf(links));
+    }
+
+    private static boolean sameLink(GalaxyMapLink link, String from, String to) {
+        return (from.equals(link.fromSystemId()) && to.equals(link.toSystemId()))
+                || (to.equals(link.fromSystemId()) && from.equals(link.toSystemId()));
+    }
+
     private static boolean containsLink(List<GalaxyMapLink> links, String from, String to) {
         for (GalaxyMapLink link : links) {
-            if (link == null) continue;
-            if ((from.equals(link.fromSystemId()) && to.equals(link.toSystemId()))
-                    || (to.equals(link.fromSystemId()) && from.equals(link.toSystemId()))) return true;
+            if (link != null && sameLink(link, from, to)) return true;
         }
         return false;
     }
