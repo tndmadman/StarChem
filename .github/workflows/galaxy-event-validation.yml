@@ -15,33 +15,11 @@ concurrency:
 
 jobs:
   validate:
-    name: Compile and validate dynamic galaxy events
+    name: Validate dynamic galaxy events
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
         uses: actions/checkout@v4
-
-      - name: Publish temporary integration source bundle
-        uses: actions/upload-artifact@v4
-        with:
-          name: starchem-integration-source-${{ github.sha }}
-          path: |
-            .github
-            config
-            packaging
-            src
-            build.gradle
-            settings.gradle
-            gradle.properties
-            README.md
-            RELEASE_NOTES.md
-            LICENSE
-            THIRD_PARTY_NOTICES.md
-            PROJECT_GOALS.md
-            INTEGRATION_LOG.md
-          if-no-files-found: error
-          retention-days: 1
-          include-hidden-files: true
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -54,17 +32,5 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Compile project
-        run: gradle clean classes --no-daemon
-
-      - name: Validate dynamic galaxy events
-        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.GalaxyEventValidator
-
-      - name: Re-run topology validation
-        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.GalaxyConnectivityValidator
-
-      - name: Re-run system modifier validation
-        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.SystemModifierValidator
-
-      - name: Re-run galaxy wire validation
-        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.GalaxyMapWireValidator
+      - name: Run event acceptance and adjacent galaxy regressions
+        run: gradle validateGalaxyEvents validateGalaxyConnectivity validateSystemModifiers validateGalaxyMapWire --no-daemon
