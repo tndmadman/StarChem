@@ -22,7 +22,7 @@ jobs:
           ref: integration/starchem-functional-2026-08-27
           fetch-depth: 0
 
-      - name: Verify, apply, and self-remove helper
+      - name: Verify and apply source completion
         shell: bash
         run: |
           set -euo pipefail
@@ -43,7 +43,10 @@ jobs:
           echo 'e88d7dd93125db9934985372590a47bd9a1fd81e4f535b8a8ad6bd73d64d8568  /tmp/starchem-finish.patch' | sha256sum -c -
           git apply --check /tmp/starchem-finish.patch
           git apply /tmp/starchem-finish.patch
-          git rm -r .integration/final-patch .github/workflows/apply-final-integration-patch.yml
+          # Workflow changes are applied separately through the GitHub contents API,
+          # because Actions tokens cannot create/update workflow files.
+          git checkout -- .github/workflows/galaxy-event-validation.yml
+          git rm -r .integration/final-patch
           git add -A
           git diff --cached --check
           git config user.name 'github-actions[bot]'
