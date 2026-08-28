@@ -150,6 +150,7 @@ final class GalaxyEventDirector {
         out.put("sequence", state.sequence);
         out.put("clockBySystem", new LinkedHashMap<>(state.clockBySystem));
         out.put("nextEvaluationBySystem", new LinkedHashMap<>(state.nextEvaluationBySystem));
+        out.put("cooldownUntilByDefinition", new LinkedHashMap<>(state.cooldownUntilByDefinition));
         out.put("retiredGateIds", new ArrayList<>(state.retiredGateIds));
         List<Object> events = new ArrayList<>();
         for (GalaxyEventInstance event : state.events.values()) events.add(event.capture());
@@ -168,6 +169,7 @@ final class GalaxyEventDirector {
         state.sequence = Math.max(0, ServerSaveStore.longValue(root, "sequence", 0));
         restoreDoubleMap(root.get("clockBySystem"), state.clockBySystem);
         restoreDoubleMap(root.get("nextEvaluationBySystem"), state.nextEvaluationBySystem);
+        restoreDoubleMap(root.get("cooldownUntilByDefinition"), state.cooldownUntilByDefinition);
         for (Object item : ServerSaveStore.list(root.get("retiredGateIds"))) {
             String id = clean(ServerSaveStore.asString(item, ""));
             if (!id.isBlank()) state.retiredGateIds.add(id);
@@ -192,6 +194,8 @@ final class GalaxyEventDirector {
         for (String id : removed) {
             state.clockBySystem.remove(id);
             state.nextEvaluationBySystem.remove(id);
+            String prefix = id + '\u0000';
+            state.cooldownUntilByDefinition.keySet().removeIf(key -> key.startsWith(prefix));
         }
         state.events.values().removeIf(event -> {
             String target = clean(event.custom.get("targetSystemId"));
@@ -208,6 +212,11 @@ final class GalaxyEventDirector {
     }
 
     static synchronized void reloadCatalogForValidation() { catalog = null; }
+
+    static synchronized boolean spawnLocationSafeForValidation(World world, String definitionId, double x, double y) {
+        GalaxyEventDefinition definition = catalog().byId(definitionId);
+        return definition != null && safeSpawnLocation(world, definition, x, y);
+    }
 
     private static void evaluateSpawn(World world, RuntimeState state, String systemId, double clock,
                                       GalaxyEventCatalog rules) {
@@ -226,8 +235,8 @@ final class GalaxyEventDirector {
         for (GalaxyEventDefinition definition : rules.definitions()) {
             if (!definition.enabled() || definition.weight() <= 0) continue;
             if (home && !definition.safeForHome()) continue;
-            if (definition.kind() == GalaxyEventKind.UNSTABLE_WORMHOLE
-                    && wormholeTarget(world, systemId, random) == null) continue;
+            if (!definitionEligible(state, systemId, clock, definition)) continue;
+            if (definition.kind() == GalaxyEventKind.UNSTABLE_WORMHOLE && !hasWormholeTarget(world, systemId)) continue;
             candidates.add(definition);
             totalWeight += definition.weight();
         }
@@ -243,12 +252,12 @@ final class GalaxyEventDirector {
             }
         }
 
-        double x = marginPoint(random, world.width);
-        double y = marginPoint(random, world.height);
+        SpawnPoint point = safeSpawnPoint(world, selected, random);
+        if (point == null) return;
         double duration = selected.minDurationSeconds()
                 + random.nextDouble() * Math.max(0, selected.maxDurationSeconds() - selected.minDurationSeconds());
         String id = eventId(world.systemSeed(), sequence, selected.id(), systemId);
-        GalaxyEventInstance event = new GalaxyEventInstance(id, selected.id(), systemId, x, y,
+        GalaxyEventInstance event = new GalaxyEventInstance(id, selected.id(), systemId, point.x(), point.y(),
                 GalaxyEventPhase.HIDDEN, clock, clock + duration);
         if (selected.kind() == GalaxyEventKind.UNSTABLE_WORMHOLE) {
             String target = wormholeTarget(world, systemId, random);
@@ -258,6 +267,54 @@ final class GalaxyEventDirector {
             event.custom.put("targetY", Double.toString(marginPoint(random, world.height)));
         }
         state.events.put(event.id, event);
+        state.cooldownUntilByDefinition.put(cooldownKey(systemId, selected.id()), clock + selected.cooldownSeconds());
+    }
+
+    private static boolean definitionEligible(RuntimeState state, String systemId, double clock,
+                                              GalaxyEventDefinition definition) {
+        if (clock + 0.000001 < definition.minimumAgeSeconds()) return false;
+        if (state.cooldownUntilByDefinition.getOrDefault(cooldownKey(systemId, definition.id()), 0.0) > clock) return false;
+        Set<String> roles = definition.eligibleRoles();
+        if (roles.isEmpty()) return true;
+        String role = clean(StarSystems.get(systemId).role()).toLowerCase(Locale.ROOT);
+        return roles.contains(role);
+    }
+
+    private static SpawnPoint safeSpawnPoint(World world, GalaxyEventDefinition definition, Random random) {
+        int attempts = Math.max(1, definition.placementAttempts());
+        for (int attempt = 0; attempt < attempts; attempt++) {
+            double x = marginPoint(random, world.width);
+            double y = marginPoint(random, world.height);
+            if (safeSpawnLocation(world, definition, x, y)) return new SpawnPoint(x, y);
+        }
+        return null;
+    }
+
+    private static boolean safeSpawnLocation(World world, GalaxyEventDefinition definition, double x, double y) {
+        if (world == null || definition == null || !Double.isFinite(x) || !Double.isFinite(y)) return false;
+        double assetDistance = Math.max(0, definition.minDistanceFromPlayerAssets());
+        if (assetDistance > 0) {
+            for (Unit unit : world.units.values()) {
+                if (unit == null || unit.hp <= 0 || NpcRules.isNpcFaction(unit.playerId)) continue;
+                if (Calc.distance(x, y, unit.x, unit.y) < assetDistance) return false;
+            }
+            for (Base base : world.bases.values()) {
+                if (base == null || base.hp <= 0 || NpcRules.isNpcFaction(base.playerId)) continue;
+                double required = base.productionQueue.isEmpty() ? assetDistance : assetDistance * 1.5;
+                if (Calc.distance(x, y, base.x, base.y) < required) return false;
+            }
+        }
+        double wormholeDistance = Math.max(0, definition.minDistanceFromWormholes());
+        if (wormholeDistance > 0) {
+            for (WormholeGate gate : world.wormholes) {
+                if (gate != null && Calc.distance(x, y, gate.x, gate.y) < wormholeDistance) return false;
+            }
+        }
+        return true;
+    }
+
+    private static String cooldownKey(String systemId, String definitionId) {
+        return clean(systemId) + '\u0000' + clean(definitionId);
     }
 
     private static void discover(World world, RuntimeState state, String systemId, double clock) {
@@ -285,8 +342,19 @@ final class GalaxyEventDirector {
 
     private static boolean eventDetectableBy(World world, String playerId, GalaxyEventInstance event,
                                              GalaxyEventDefinition definition) {
-        VisibilityRules.Frame frame = VisibilityRules.frame(world, playerId);
         double cap = Math.max(25, definition.discoveryRadius());
+        if (definition.discoveryRule() == GalaxyEventDiscoveryRule.PROXIMITY) {
+            for (Unit unit : world.units.values()) {
+                if (unit == null || unit.hp <= 0 || !IntelWarfareSystem.allied(world, playerId, unit.playerId)) continue;
+                if (Calc.distance(unit.x, unit.y, event.x, event.y) <= cap) return true;
+            }
+            for (Base base : world.bases.values()) {
+                if (base == null || base.hp <= 0 || !IntelWarfareSystem.allied(world, playerId, base.playerId)) continue;
+                if (Calc.distance(base.x, base.y, event.x, event.y) <= cap) return true;
+            }
+            return false;
+        }
+        VisibilityRules.Frame frame = VisibilityRules.frame(world, playerId);
         for (VisibilityRules.Sensor sensor : frame.sensors()) {
             double range = Math.min(cap, Math.max(0, sensor.range()));
             if (range <= 0) continue;
@@ -583,6 +651,15 @@ final class GalaxyEventDirector {
         for (String playerId : event.discoveredBy) GameNoticeCenter.publish(world, playerId, category, text, false);
     }
 
+    private static boolean hasWormholeTarget(World world, String sourceSystemId) {
+        GalaxyMapSnapshot map = world.authoritativeGalaxyMapSnapshot();
+        if (map == null || map.systems() == null) return false;
+        for (GalaxyMapSystem system : map.systems()) {
+            if (system != null && system.id() != null && !system.id().isBlank() && !system.id().equals(sourceSystemId)) return true;
+        }
+        return false;
+    }
+
     private static String wormholeTarget(World world, String sourceSystemId, Random random) {
         GalaxyMapSnapshot map = world.authoritativeGalaxyMapSnapshot();
         if (map == null || map.systems() == null) return null;
@@ -681,10 +758,13 @@ final class GalaxyEventDirector {
         return catalog;
     }
 
+    private record SpawnPoint(double x, double y) { }
+
     private static final class RuntimeState {
         long sequence;
         final Map<String,Double> clockBySystem = new LinkedHashMap<>();
         final Map<String,Double> nextEvaluationBySystem = new LinkedHashMap<>();
+        final Map<String,Double> cooldownUntilByDefinition = new LinkedHashMap<>();
         final Map<String,GalaxyEventInstance> events = new LinkedHashMap<>();
         final Set<String> retiredGateIds = new LinkedHashSet<>();
     }
@@ -706,6 +786,11 @@ enum GalaxyEventPhase {
     COMPLETED,
     FAILED,
     EXPIRED
+}
+
+enum GalaxyEventDiscoveryRule {
+    SENSOR,
+    PROXIMITY
 }
 
 record GalaxyEventView(String eventId, String definitionId, GalaxyEventKind kind, String systemId,
@@ -807,16 +892,32 @@ record GalaxyEventDefinition(
         boolean enabled,
         double weight,
         boolean safeForHome,
+        Set<String> eligibleRoles,
+        double minimumAgeSeconds,
+        double cooldownSeconds,
+        GalaxyEventDiscoveryRule discoveryRule,
         double minDurationSeconds,
         double maxDurationSeconds,
         double discoveryRadius,
+        double minDistanceFromPlayerAssets,
+        double minDistanceFromWormholes,
+        int placementAttempts,
         int entityCount,
         double amount,
         String resourceMaterial,
         String salvageMaterial,
         String npcFactionId,
         SystemModifiers modifiers
-) { }
+) {
+    GalaxyEventDefinition {
+        eligibleRoles = eligibleRoles == null ? Set.of() : Set.copyOf(eligibleRoles);
+        discoveryRule = discoveryRule == null ? GalaxyEventDiscoveryRule.SENSOR : discoveryRule;
+        resourceMaterial = resourceMaterial == null ? "" : resourceMaterial.trim();
+        salvageMaterial = salvageMaterial == null ? "" : salvageMaterial.trim();
+        npcFactionId = npcFactionId == null ? "" : npcFactionId.trim();
+        modifiers = modifiers == null ? SystemModifiers.STANDARD : modifiers;
+    }
+}
 
 final class GalaxyEventCatalog {
     private static final Path CONFIG_PATH = Path.of("config/events.json");
@@ -843,6 +944,7 @@ final class GalaxyEventCatalog {
         this.definitions = List.copyOf(definitions);
         Map<String,GalaxyEventDefinition> index = new LinkedHashMap<>();
         for (GalaxyEventDefinition definition : definitions) {
+            validateDefinition(definition);
             if (index.putIfAbsent(definition.id(), definition) != null) {
                 throw new IllegalStateException("Duplicate galaxy event id: " + definition.id());
             }
@@ -886,17 +988,47 @@ final class GalaxyEventCatalog {
         } catch (RuntimeException ex) {
             throw new IllegalStateException("Galaxy event " + id + " has invalid kind.");
         }
+        GalaxyEventDiscoveryRule discoveryRule;
+        try {
+            discoveryRule = GalaxyEventDiscoveryRule.valueOf(
+                    ServerSaveStore.string(row, "discoveryRule", "SENSOR").trim().toUpperCase(Locale.ROOT));
+        } catch (RuntimeException ex) {
+            throw new IllegalStateException("Galaxy event " + id + " has invalid discoveryRule.");
+        }
+        double weight = ServerSaveStore.doubleValue(row, "weight", 1);
+        double minimumAge = ServerSaveStore.doubleValue(row, "minimumAgeSeconds", 0);
+        double cooldown = ServerSaveStore.doubleValue(row, "cooldownSeconds", 180);
+        double minDuration = ServerSaveStore.doubleValue(row, "minDurationSeconds", 90);
+        double maxDuration = ServerSaveStore.doubleValue(row, "maxDurationSeconds", 180);
+        double discoveryRadius = ServerSaveStore.doubleValue(row, "discoveryRadius", 900);
+        double minAssetDistance = ServerSaveStore.doubleValue(row, "minDistanceFromPlayerAssets", 500);
+        double minWormholeDistance = ServerSaveStore.doubleValue(row, "minDistanceFromWormholes", 350);
+        int placementAttempts = ServerSaveStore.intValue(row, "placementAttempts", 24);
+        int entityCount = ServerSaveStore.intValue(row, "entityCount", 3);
+        double amount = ServerSaveStore.doubleValue(row, "amount", 250);
+        if (weight < 0 || minimumAge < 0 || cooldown < 0 || minDuration < 5 || maxDuration < minDuration
+                || discoveryRadius < 25 || minAssetDistance < 0 || minWormholeDistance < 0
+                || placementAttempts < 1 || placementAttempts > 256 || entityCount < 1 || amount <= 0) {
+            throw new IllegalStateException("Galaxy event " + id + " has invalid numeric bounds.");
+        }
         Map<String,Object> modifiers = ServerSaveStore.object(row.get("modifiers"));
         return new GalaxyEventDefinition(
                 id, name.isBlank() ? id : name, kind,
                 ServerSaveStore.boolValue(row, "enabled", true),
-                Math.max(0, ServerSaveStore.doubleValue(row, "weight", 1)),
+                weight,
                 ServerSaveStore.boolValue(row, "safeForHome", false),
-                Math.max(5, ServerSaveStore.doubleValue(row, "minDurationSeconds", 90)),
-                Math.max(5, ServerSaveStore.doubleValue(row, "maxDurationSeconds", 180)),
-                Math.max(25, ServerSaveStore.doubleValue(row, "discoveryRadius", 900)),
-                Math.max(1, ServerSaveStore.intValue(row, "entityCount", 3)),
-                Math.max(1, ServerSaveStore.doubleValue(row, "amount", 250)),
+                parseLowercaseSet(row.get("eligibleRoles")),
+                minimumAge,
+                cooldown,
+                discoveryRule,
+                minDuration,
+                maxDuration,
+                discoveryRadius,
+                minAssetDistance,
+                minWormholeDistance,
+                placementAttempts,
+                entityCount,
+                amount,
                 ServerSaveStore.string(row, "resourceMaterial", "RARE_EARTHS"),
                 ServerSaveStore.string(row, "salvageMaterial", "SCRAP_METAL"),
                 ServerSaveStore.string(row, "npcFactionId", "NPC_RAIDERS"),
@@ -910,21 +1042,96 @@ final class GalaxyEventCatalog {
                         Math.max(0, ServerSaveStore.doubleValue(modifiers, "environmentalDamagePerSecond", 0))));
     }
 
+    private static void validateDefinition(GalaxyEventDefinition definition) {
+        if (definition == null || definition.id() == null || definition.id().isBlank()) {
+            throw new IllegalStateException("Galaxy event definitions require a non-empty id.");
+        }
+        Set<String> knownRoles = new LinkedHashSet<>();
+        for (StarSystemDefinition system : StarSystems.options()) {
+            if (system != null && system.role() != null && !system.role().isBlank()) {
+                knownRoles.add(system.role().trim().toLowerCase(Locale.ROOT));
+            }
+        }
+        for (String role : definition.eligibleRoles()) {
+            if (!knownRoles.contains(role)) {
+                throw new IllegalStateException("Galaxy event " + definition.id() + " references unknown system role " + role + ".");
+            }
+        }
+        if (definition.kind() == GalaxyEventKind.RICH_RESOURCE) {
+            requireMaterial(definition.id(), "resourceMaterial", definition.resourceMaterial());
+        }
+        if (definition.kind() == GalaxyEventKind.DERELICT_SALVAGE) {
+            requireMaterial(definition.id(), "salvageMaterial", definition.salvageMaterial());
+        }
+        if (definition.kind() == GalaxyEventKind.PIRATE_AMBUSH || definition.kind() == GalaxyEventKind.DISTRESS_SIGNAL) {
+            boolean found = false;
+            for (NpcFaction faction : NpcRules.factions()) {
+                if (faction != null && faction.id().equals(definition.npcFactionId())) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                throw new IllegalStateException("Galaxy event " + definition.id() + " references unknown NPC faction "
+                        + definition.npcFactionId() + ".");
+            }
+        }
+    }
+
+    private static Material requireMaterial(String eventId, String field, String value) {
+        try {
+            return Material.valueOf(value.trim().toUpperCase(Locale.ROOT));
+        } catch (RuntimeException ex) {
+            throw new IllegalStateException("Galaxy event " + eventId + " has invalid " + field + ": " + value + ".");
+        }
+    }
+
+    private static Set<String> parseLowercaseSet(Object value) {
+        Set<String> out = new LinkedHashSet<>();
+        for (Object item : ServerSaveStore.list(value)) {
+            String text = ServerSaveStore.asString(item, "").trim().toLowerCase(Locale.ROOT);
+            if (!text.isBlank()) out.add(text);
+        }
+        return Set.copyOf(out);
+    }
+
     private static GalaxyEventCatalog defaults() {
         return new GalaxyEventCatalog(true, 30, 45, 0.35, 4, 2, 3, List.of(
-                new GalaxyEventDefinition("rich_rare_earths", "Rich Rare-Earth Deposit", GalaxyEventKind.RICH_RESOURCE,
-                        true, 3, true, 150, 300, 850, 4, 420, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS", SystemModifiers.STANDARD),
-                new GalaxyEventDefinition("derelict_convoy", "Derelict Convoy", GalaxyEventKind.DERELICT_SALVAGE,
-                        true, 2.5, true, 150, 300, 850, 5, 55, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS", SystemModifiers.STANDARD),
-                new GalaxyEventDefinition("distress_beacon", "Distress Beacon", GalaxyEventKind.DISTRESS_SIGNAL,
-                        true, 2, true, 180, 330, 1050, 3, 1, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS", SystemModifiers.STANDARD),
-                new GalaxyEventDefinition("pirate_ambush", "Pirate Ambush", GalaxyEventKind.PIRATE_AMBUSH,
-                        true, 1.5, false, 150, 260, 850, 4, 1, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS", SystemModifiers.STANDARD),
-                new GalaxyEventDefinition("ion_storm", "Ion Storm", GalaxyEventKind.ENVIRONMENTAL,
-                        true, 1.25, false, 120, 240, 1000, 1, 1, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS",
+                definition("rich_rare_earths", "Rich Rare-Earth Deposit", GalaxyEventKind.RICH_RESOURCE,
+                        true, 3, true, Set.of(), 30, 180, GalaxyEventDiscoveryRule.SENSOR, 150, 300, 850,
+                        500, 350, 24, 4, 420, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS", SystemModifiers.STANDARD),
+                definition("derelict_convoy", "Derelict Convoy", GalaxyEventKind.DERELICT_SALVAGE,
+                        true, 2.5, true, Set.of("relic"), 45, 240, GalaxyEventDiscoveryRule.SENSOR, 150, 300, 850,
+                        600, 400, 24, 5, 55, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS", SystemModifiers.STANDARD),
+                definition("distress_beacon", "Distress Beacon", GalaxyEventKind.DISTRESS_SIGNAL,
+                        true, 2, true, Set.of(), 60, 240, GalaxyEventDiscoveryRule.SENSOR, 180, 330, 1050,
+                        900, 450, 32, 3, 1, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS", SystemModifiers.STANDARD),
+                definition("pirate_ambush", "Pirate Ambush", GalaxyEventKind.PIRATE_AMBUSH,
+                        true, 1.5, false, Set.of("danger"), 90, 300, GalaxyEventDiscoveryRule.PROXIMITY, 150, 260, 850,
+                        1200, 500, 40, 4, 1, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS", SystemModifiers.STANDARD),
+                definition("ion_storm", "Ion Storm", GalaxyEventKind.ENVIRONMENTAL,
+                        true, 1.25, false, Set.of("danger"), 90, 300, GalaxyEventDiscoveryRule.SENSOR, 120, 240, 1000,
+                        1400, 650, 48, 1, 1, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS",
                         new SystemModifiers(1, 1, 0.65, 1.25, 0.9, 0.85, 0)),
-                new GalaxyEventDefinition("unstable_wormhole", "Unstable Wormhole", GalaxyEventKind.UNSTABLE_WORMHOLE,
-                        true, 0.55, false, 150, 260, 1100, 1, 1, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS", SystemModifiers.STANDARD)));
+                definition("unstable_wormhole", "Unstable Wormhole", GalaxyEventKind.UNSTABLE_WORMHOLE,
+                        true, 0.55, false, Set.of(), 120, 420, GalaxyEventDiscoveryRule.SENSOR, 150, 260, 1100,
+                        1000, 900, 48, 1, 1, "RARE_EARTHS", "SCRAP_METAL", "NPC_RAIDERS", SystemModifiers.STANDARD)));
+    }
+
+    private static GalaxyEventDefinition definition(String id, String name, GalaxyEventKind kind,
+                                                     boolean enabled, double weight, boolean safeForHome,
+                                                     Set<String> eligibleRoles, double minimumAgeSeconds,
+                                                     double cooldownSeconds, GalaxyEventDiscoveryRule discoveryRule,
+                                                     double minDurationSeconds, double maxDurationSeconds,
+                                                     double discoveryRadius, double minDistanceFromPlayerAssets,
+                                                     double minDistanceFromWormholes, int placementAttempts,
+                                                     int entityCount, double amount, String resourceMaterial,
+                                                     String salvageMaterial, String npcFactionId,
+                                                     SystemModifiers modifiers) {
+        return new GalaxyEventDefinition(id, name, kind, enabled, weight, safeForHome, eligibleRoles,
+                minimumAgeSeconds, cooldownSeconds, discoveryRule, minDurationSeconds, maxDurationSeconds,
+                discoveryRadius, minDistanceFromPlayerAssets, minDistanceFromWormholes, placementAttempts,
+                entityCount, amount, resourceMaterial, salvageMaterial, npcFactionId, modifiers);
     }
 
     boolean enabled() { return enabled; }
