@@ -237,7 +237,7 @@ The integration base is functional and green, but these acceptance items still r
 
 ### Combined branch
 
-The branch has not yet been declared final because new #297 completion work remains. After each event-completion block, record its CI result here. Final acceptance requires the normal Gradle suite plus event, observer, FOW/intel, station-control, production-queue, strategic-summary, galaxy topology, scheduler, save/recovery, multiplayer, and release validation.
+All planned #297 implementation and acceptance coverage is now present on the integration branch. The clean code/workflow head `dbeb8c09aaae145e922d81cadae26d302c6ab17b` passed the complete GitHub workflow wall listed below. The only repository change after that validation is this integration-log evidence update; the resulting documentation-only head must also remain green before PR #360 is marked ready for review.
 
 #### Local integration validation — rewards / NPC isolation / effective topology / wormhole draining
 
@@ -308,4 +308,20 @@ Local Java 17 validation after this block:
 - `CodexCatalogValidator`: PASS;
 - `MinimapHudValidator`: PASS.
 
-The remaining gate is repository-side validation of this exact completion block: push the reviewed patch to PR #360, ensure all normal GitHub workflows and Gradle event tasks are green, inspect the final diff for temporary integration plumbing, update the PR description, and only then mark the PR ready for review. `main` remains untouched until a separate explicit merge decision.
+Repository-side validation is complete for clean code/workflow head `dbeb8c09aaae145e922d81cadae26d302c6ab17b`. The completion patch was checksum-verified before application, all temporary patch payloads/helpers were removed, the temporary source-bundle artifact step was removed, and PR #360 contains only intended project files. `main` remains untouched until a separate explicit merge decision.
+
+### GitHub final validation — clean code/workflow head `dbeb8c09aaae145e922d81cadae26d302c6ab17b`
+
+All pull-request workflows completed successfully on this exact head:
+
+- CI run `33204033934`: PASS, including compile, FOW, radar, intel/counterintel, station controls, issue #293 logistics routes, shipyard regression, full `Verify project` / Gradle `check`, endpoint/numeric/mining validation, Linux headless smoke, and release-identity verification.
+- Java CI run `33204033947`: PASS.
+- Galaxy Event Validation run `33204034072`: PASS using the final Gradle-backed event acceptance task plus galaxy connectivity, system modifiers, and galaxy wire regressions.
+- Observer Session Validation run `33204033923`: PASS.
+- TLS identity and private storage validation run `33204033919`: PASS.
+- AI Validation run `33204034006`: PASS.
+- AI Stress run `33204033916`: PASS.
+- Windows Observation Store run `33204033958`: PASS.
+- Release StarChem run `33204033936`: PASS.
+
+Final changed-file audit on PR #360 after helper cleanup showed 35 intended files and no `.integration/` payload files or one-shot helper workflow. The historical source branches remain preserved and were not deleted or destructively replayed.
