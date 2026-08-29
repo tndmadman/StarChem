@@ -47,6 +47,11 @@ public final class CodexCatalogValidator {
             require(find(entries, CodexCategory.NPC_FACTIONS, faction.id()) != null, "codex missing NPC faction: " + faction.id());
         }
 
+        require(find(entries, CodexCategory.EVENTS, "dynamic_events") != null, "codex missing dynamic event overview");
+        require(find(entries, CodexCategory.EVENTS, "unstable_wormhole") != null, "codex missing unstable wormhole event rules");
+        require(CodexCatalog.filter(CodexCategory.EVENTS, "discovery").size() >= 1,
+                "event codex entries are not searchable by discovery rules");
+
         require(!CodexCatalog.filter(CodexCategory.SHIPS, "cargo").isEmpty(), "codex role search returned no cargo ships");
         require(CodexCatalog.filter(CodexCategory.RESEARCH, "prerequisites").size() == ResearchRules.all().size(),
                 "research search did not cover prerequisite text");

@@ -2,6 +2,8 @@ package com.tndmadman.rts;
 
 import java.net.InetSocketAddress;
 import java.nio.file.Path;
+import java.util.LinkedHashSet;
+import java.util.Locale;
 import java.util.Set;
 
 final class Config {
@@ -29,6 +31,9 @@ final class Config {
     final int autosaveSeconds;
     final int backupCount;
     final boolean newWorld;
+    final boolean galaxyEventsEnabled;
+    final double galaxyEventFrequency;
+    final Set<GalaxyEventKind> galaxyEventCategories;
 
     private Config(String playerName, boolean showLobby, boolean hostMode, boolean dedicatedServer,
                    boolean localHostClient, boolean devMode, String devToken,
@@ -47,6 +52,19 @@ final class Config {
                    Set<String> disabledNpcFactionIds, String systemId, int galaxyCopies, Path saveDir,
                    String saveName, int autosaveSeconds, int backupCount, boolean newWorld,
                    SkirmishSettings skirmishSettings) {
+        this(playerName, showLobby, hostMode, dedicatedServer, localHostClient, devMode, devToken,
+                disableProductionTimers, port, serverAddress, disabledNpcFactionIds, systemId, galaxyCopies,
+                saveDir, saveName, autosaveSeconds, backupCount, newWorld, skirmishSettings, true, 1.0,
+                Set.of(GalaxyEventKind.values()));
+    }
+
+    private Config(String playerName, boolean showLobby, boolean hostMode, boolean dedicatedServer,
+                   boolean localHostClient, boolean devMode, String devToken,
+                   boolean disableProductionTimers, int port, InetSocketAddress serverAddress,
+                   Set<String> disabledNpcFactionIds, String systemId, int galaxyCopies, Path saveDir,
+                   String saveName, int autosaveSeconds, int backupCount, boolean newWorld,
+                   SkirmishSettings skirmishSettings, boolean galaxyEventsEnabled,
+                   double galaxyEventFrequency, Set<GalaxyEventKind> galaxyEventCategories) {
         this.playerName = playerName;
         this.showLobby = showLobby;
         this.hostMode = hostMode;
@@ -67,6 +85,10 @@ final class Config {
         this.autosaveSeconds = Math.max(0, autosaveSeconds);
         this.backupCount = Math.max(1, Math.min(24, backupCount));
         this.newWorld = newWorld;
+        this.galaxyEventsEnabled = galaxyEventsEnabled;
+        this.galaxyEventFrequency = clampEventFrequency(galaxyEventFrequency);
+        this.galaxyEventCategories = galaxyEventCategories == null
+                ? Set.of(GalaxyEventKind.values()) : Set.copyOf(galaxyEventCategories);
     }
 
     static Config parse(String[] suppliedArgs) {
@@ -87,6 +109,9 @@ final class Config {
         int autosaveSeconds = 60;
         int backupCount = 5;
         boolean newWorld = false;
+        boolean galaxyEventsEnabled = true;
+        double galaxyEventFrequency = 1.0;
+        Set<GalaxyEventKind> galaxyEventCategories = Set.of(GalaxyEventKind.values());
         SkirmishPreset skirmishPreset = SkirmishPreset.STANDARD;
         NpcDifficulty npcDifficulty = NpcDifficulty.NORMAL;
         String victoryConditionId = VictoryConditionRules.defaultId();
@@ -108,6 +133,12 @@ final class Config {
                 case "--backup-count" -> backupCount = parsePositiveInt(
                         requiredValue(args, ++i, option), "Backup count");
                 case "--new-world" -> newWorld = true;
+                case "--disable-events" -> galaxyEventsEnabled = false;
+                case "--enable-events" -> galaxyEventsEnabled = true;
+                case "--event-frequency" -> galaxyEventFrequency = parseEventFrequency(
+                        requiredValue(args, ++i, option));
+                case "--event-categories" -> galaxyEventCategories = parseEventCategories(
+                        requiredValue(args, ++i, option));
                 case "--dev" -> { dev = true; disableProductionTimers = true; }
                 case "--dev-token" -> {
                     if (inlineDevToken || devTokenFile != null) throw conflictingDevTokenSources();
@@ -143,7 +174,8 @@ final class Config {
             return new Config(clean(name), false, true, true, false, dev, devToken,
                     disableProductionTimers, port == 0 ? 50000 : port, null,
                     selectedSkirmish.disabledNpcFactionIds(), system, galaxyCopies, dedicatedSaveDir,
-                    saveName, autosaveSeconds, backupCount, newWorld, selectedSkirmish);
+                    saveName, autosaveSeconds, backupCount, newWorld, selectedSkirmish, galaxyEventsEnabled,
+                    galaxyEventFrequency, galaxyEventCategories);
         }
         if (server != null) {
             return join(name, server.getHostString(), server.getPort(), dev,
@@ -153,7 +185,7 @@ final class Config {
         return new Config(clean(name), false, false, false, false, dev, devToken,
                 disableProductionTimers, 0, null, selectedSkirmish.disabledNpcFactionIds(), system,
                 galaxyCopies, soloSaveDir, saveName, autosaveSeconds, backupCount, newWorld,
-                selectedSkirmish);
+                selectedSkirmish, galaxyEventsEnabled, galaxyEventFrequency, galaxyEventCategories);
     }
 
     private static IllegalArgumentException conflictingDevTokenSources() {
@@ -261,7 +293,8 @@ final class Config {
                 new InetSocketAddress(DEFAULT_HOST, hostConfig.port), hostConfig.disabledNpcFactionIds,
                 hostConfig.systemId, hostConfig.galaxyCopies, hostConfig.saveDir,
                 hostConfig.saveName, hostConfig.autosaveSeconds, hostConfig.backupCount,
-                hostConfig.newWorld, hostConfig.skirmishSettings);
+                hostConfig.newWorld, hostConfig.skirmishSettings, hostConfig.galaxyEventsEnabled,
+                hostConfig.galaxyEventFrequency, hostConfig.galaxyEventCategories);
     }
 
     NetworkRole role() {
@@ -313,6 +346,38 @@ final class Config {
         catch (NumberFormatException ex) {
             throw new IllegalArgumentException("Galaxy copies must be 1 or 2.");
         }
+    }
+
+    static double parseEventFrequency(String value) {
+        try { return clampEventFrequency(Double.parseDouble(value.trim())); }
+        catch (NumberFormatException ex) {
+            throw new IllegalArgumentException("Event frequency must be a number from 0 to 4.");
+        }
+    }
+
+    static Set<GalaxyEventKind> parseEventCategories(String value) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException("Event categories cannot be blank.");
+        String text = value.trim();
+        if (text.equalsIgnoreCase("all")) return Set.of(GalaxyEventKind.values());
+        if (text.equalsIgnoreCase("none")) return Set.of();
+        Set<GalaxyEventKind> out = new LinkedHashSet<>();
+        for (String raw : text.split(",")) {
+            String token = raw.trim().replace('-', '_').toUpperCase(Locale.ROOT);
+            if (token.isBlank()) continue;
+            try { out.add(GalaxyEventKind.valueOf(token)); }
+            catch (RuntimeException ex) {
+                throw new IllegalArgumentException("Unknown event category: " + raw.trim());
+            }
+        }
+        if (out.isEmpty()) throw new IllegalArgumentException("Event categories cannot be empty; use 'none' explicitly.");
+        return Set.copyOf(out);
+    }
+
+    private static double clampEventFrequency(double value) {
+        if (!Double.isFinite(value) || value < 0 || value > 4) {
+            throw new IllegalArgumentException("Event frequency must be from 0 to 4.");
+        }
+        return value;
     }
 
     private static int parseNonNegativeInt(String value, String label) {

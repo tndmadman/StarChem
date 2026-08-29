@@ -32,7 +32,7 @@ record WormholeTouchRequest(String playerId, int unitId, String fromSystemId, St
 
     static WormholeGate touchingGate(World world, Unit unit) {
         if (world == null || unit == null) return null;
-        for (WormholeGate gate : world.wormholes) if (gate.contains(unit.x, unit.y)) return gate;
+        for (WormholeGate gate : world.wormholes) if (gate.containsForTransit(world, unit)) return gate;
         return null;
     }
 

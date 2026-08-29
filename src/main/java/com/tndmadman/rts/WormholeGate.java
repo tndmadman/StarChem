@@ -23,11 +23,24 @@ final class WormholeGate {
         this.radius = 76;
     }
 
-    boolean contains(double wx, double wy) {
+    boolean containsGeometry(double wx, double wy) {
         return Calc.distance(wx, wy, x, y) <= radius * 0.68;
     }
 
+    boolean contains(double wx, double wy) {
+        World world = PlayerRegistry.activeWorld();
+        if (world != null && !GalaxyEventDirector.wormholeAcceptsTransit(world, id)) return false;
+        return containsGeometry(wx, wy);
+    }
+
+    boolean containsForTransit(World world, Unit unit) {
+        if (unit == null || !containsGeometry(unit.x, unit.y)) return false;
+        return GalaxyEventDirector.wormholeAcceptsTransit(world, id, unit.key());
+    }
+
     String label() {
+        World world = PlayerRegistry.activeWorld();
+        if (world != null && !GalaxyEventDirector.wormholeAcceptsTransit(world, id)) return toSystemId + " (closing)";
         return toSystemId;
     }
 

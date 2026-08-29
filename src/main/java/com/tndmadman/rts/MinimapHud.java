@@ -42,6 +42,7 @@ final class MinimapHud {
         drawUnits(g, world, layout.map);
         FogOfWarView.drawMinimap(g, world, layout.map);
         drawWormholes(g, world, layout.map);
+        drawEvents(g, world, layout.map);
         drawPings(g, world, layout.map);
         drawCamera(g, camera.visibleWorldRect(screenW, screenH), world, layout.map);
         g.dispose();
@@ -121,6 +122,45 @@ final class MinimapHud {
             Polygon diamond = new Polygon(new int[]{x, x + 4, x, x - 4}, new int[]{y - 4, y, y + 4, y}, 4);
             g.drawPolygon(diamond);
         }
+    }
+
+    private void drawEvents(Graphics2D g, World world, Rectangle map) {
+        List<GalaxyEventView> views = GalaxyEventDirector.visibleViews(world);
+        if (views.isEmpty()) return;
+        Font old = g.getFont();
+        int labelRow = 0;
+        for (GalaxyEventView view : views) {
+            if (view == null || !world.activeSystemId().equals(view.systemId())) continue;
+            Point2D p = mapPoint(world, map, view.x(), view.y());
+            int x = (int)Math.round(p.getX());
+            int y = (int)Math.round(p.getY());
+            int radius = view.phase() == GalaxyEventPhase.CLOSING ? 6 : 5;
+            g.setStroke(new BasicStroke(1.5f));
+            g.setColor(eventColor(view.kind()));
+            g.draw(new Ellipse2D.Double(x - radius, y - radius, radius * 2.0, radius * 2.0));
+            g.drawLine(x - radius - 2, y, x + radius + 2, y);
+            g.drawLine(x, y - radius - 2, x, y + radius + 2);
+            if (labelRow < 3) {
+                String label = view.name() + "  " + Math.max(0, (int)Math.ceil(view.remainingSeconds())) + "s";
+                g.setFont(old.deriveFont(Font.BOLD, 8.5f));
+                g.setColor(new Color(238, 244, 255, 225));
+                g.drawString(label, map.x + 5, map.y + 11 + labelRow * 10);
+                labelRow++;
+            }
+        }
+        g.setFont(old);
+    }
+
+    private Color eventColor(GalaxyEventKind kind) {
+        if (kind == null) return new Color(230, 220, 255, 225);
+        return switch (kind) {
+            case RICH_RESOURCE -> new Color(112, 238, 175, 230);
+            case DERELICT_SALVAGE -> new Color(245, 205, 105, 230);
+            case DISTRESS_SIGNAL -> new Color(255, 235, 125, 235);
+            case PIRATE_AMBUSH -> new Color(255, 105, 95, 235);
+            case ENVIRONMENTAL -> new Color(175, 130, 255, 235);
+            case UNSTABLE_WORMHOLE -> new Color(80, 230, 255, 235);
+        };
     }
 
     private void drawBases(Graphics2D g, World world, Rectangle map) {

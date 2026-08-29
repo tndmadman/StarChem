@@ -108,7 +108,8 @@ final class NpcFactionCapacitySystem {
         }
 
         for (Unit unit : world.units.values()) {
-            if (!faction.id().equals(unit.playerId) || unit.hp <= 0) continue;
+            if (!faction.id().equals(unit.playerId) || unit.hp <= 0
+                    || GalaxyEventDirector.ownsUnit(world, unit.key())) continue;
             ShipType ship = unit.type();
             shipTypes.merge(unit.shipTypeId, 1, Integer::sum);
             if (WeaponRules.armed(unit)) combat++;

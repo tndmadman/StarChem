@@ -103,6 +103,7 @@ final class GameFrame extends JFrame {
                 config.role() == NetworkRole.SOLO);
         SkirmishRuntime.bind(world, config.skirmishSettings);
         DevTimerSettings.configure(world, config.disableProductionTimers);
+        GalaxyEventDirector.configurePolicy(world, config, false);
         try {
             network = PeerNetwork.start(config, world);
         } catch (IOException ex) {

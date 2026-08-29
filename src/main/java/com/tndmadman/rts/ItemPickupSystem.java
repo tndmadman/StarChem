@@ -41,7 +41,8 @@ final class ItemPickupSystem {
         WorldItem best = null;
         double bestDist = Double.MAX_VALUE;
         for (WorldItem item : world.items) {
-            if (item.empty() || assigned.contains(item)) continue;
+            if (item.empty() || assigned.contains(item)
+                    || !GalaxyEventDirector.canPickupItem(world, item.id, unit.playerId)) continue;
             double dist = Calc.distance(unit.x, unit.y, item.x, item.y);
             if (dist > type.tractorRange || dist >= bestDist) continue;
             best = item;
@@ -63,9 +64,11 @@ final class ItemPickupSystem {
     }
 
     private void transfer(World world, WorldItem item, Unit unit) {
+        if (!GalaxyEventDirector.claimItemForPickup(world, item.id, unit.playerId)) return;
         double take = item.take(unit.freeCargo());
         if (take <= EPS) return;
         unit.addCargo(item.material, take);
+        GalaxyEventDirector.onItemPickup(world, item, unit, take);
         if (PlayerRegistry.isLocal(unit.playerId)) unit.unloadingThisFrame = true;
         SystemAudio.playForPlayerInSystem(world, unit.playerId, SoundCue.ITEM_PICKUP);
     }

@@ -83,6 +83,18 @@ Choose a new world's scenario and NPC pressure with:
 --npc-difficulty relaxed|normal|hard|brutal
 ```
 
+Control dynamic galaxy events for a newly created session with:
+
+```text
+--disable-events
+--enable-events
+--event-frequency 0..4
+--event-categories all
+--event-categories RICH_RESOURCE,DERELICT_SALVAGE,DISTRESS_SIGNAL,PIRATE_AMBUSH,ENVIRONMENTAL,UNSTABLE_WORMHOLE
+```
+
+`--event-frequency 1` is the default configured rate, `0` suppresses random event creation without changing the category allow-list, and values up to `4` increase evaluation probability. `--event-categories none` disables all categories while preserving the general event setting. The authoritative event policy is persisted in the server save; restarting an existing save keeps its saved policy rather than silently replacing it from new launch arguments. Use `--new-world` when intentionally changing event policy for a new session.
+
 The graphical lobby applies these settings only to **SOLO**. A JOIN client receives the dedicated server's authoritative settings. Dedicated-server settings are captured in the save and remain unchanged on restart even if later launch arguments differ; use `--new-world` to intentionally create a different scenario.
 
 Open or forward the selected **TCP** port. Stop the server with `Ctrl+C` or a normal termination signal; the server closes its network transport before the process exits. It prints a status line at startup and every 60 seconds while running.

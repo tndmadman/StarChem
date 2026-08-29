@@ -29,6 +29,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private final ShipFittingWindow shipFittingWindow = new ShipFittingWindow();
     private final GameCamera camera = new GameCamera();
     private final MinimapHud minimapHud = new MinimapHud();
+    private final EventHud eventHud = new EventHud();
     private final HangarHud hangarHud = new HangarHud();
     private final LeaderboardHud leaderboardHud = new LeaderboardHud();
     private final CombatPolicyHud combatPolicyHud = new CombatPolicyHud();
@@ -139,7 +140,10 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         combatPolicyHud.draw(g2, world);
         leaderboardHud.draw(g2, world, getWidth());
         hangarHud.draw(g2, world, getWidth());
-        if (!galaxyMapOpen) minimapHud.draw(g2, world, camera, getWidth(), getHeight());
+        if (!galaxyMapOpen) {
+            minimapHud.draw(g2, world, camera, getWidth(), getHeight());
+            eventHud.draw(g2, world, getWidth());
+        }
         if (world.devFreeBuild) shieldDebugOverlay.draw(g2, world, getWidth());
         if (devMode) {
             devMenu.draw(g2, world, canEditDev(), getHeight());

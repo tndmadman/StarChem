@@ -435,6 +435,56 @@ tasks.register('validateNarrationProcesses', JavaExec) {
     mainClass = 'com.tndmadman.rts.NarrationProcessValidator'
 }
 
+tasks.register('validateGalaxyEventCore', JavaExec) {
+    group = 'verification'
+    description = 'Validate dynamic galaxy event spawning, ownership, rewards, topology, lifecycle, and UI projection.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.GalaxyEventValidator'
+}
+
+tasks.register('validateGalaxyEventPersistence', JavaExec) {
+    group = 'verification'
+    description = 'Validate dynamic galaxy events across real server save/reload and system pruning.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.GalaxyEventPersistenceValidator'
+}
+
+tasks.register('validateGalaxyEventMultiplayer', JavaExec) {
+    group = 'verification'
+    description = 'Validate simultaneous/allied event discovery and multiplayer information isolation.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.GalaxyEventMultiplayerValidator'
+}
+
+tasks.register('validateGalaxyEventConfig', JavaExec) {
+    group = 'verification'
+    description = 'Validate strict fail-closed dynamic galaxy event configuration.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.GalaxyEventConfigValidator'
+}
+
+tasks.register('validateGalaxyEventPerformance', JavaExec) {
+    group = 'verification'
+    description = 'Validate bounded dynamic-event scheduling on the largest supported galaxy.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.GalaxyEventPerformanceValidator'
+}
+
+tasks.register('validateGalaxyEvents') {
+    group = 'verification'
+    description = 'Run the complete dynamic galaxy event acceptance suite.'
+    dependsOn tasks.named('validateGalaxyEventCore')
+    dependsOn tasks.named('validateGalaxyEventPersistence')
+    dependsOn tasks.named('validateGalaxyEventMultiplayer')
+    dependsOn tasks.named('validateGalaxyEventConfig')
+    dependsOn tasks.named('validateGalaxyEventPerformance')
+}
+
 tasks.register('verifyLegalNotices') {
     group = 'verification'
     description = 'Verify the proprietary license and third-party notice files.'
@@ -544,6 +594,7 @@ tasks.named('check') {
     dependsOn tasks.named('validateDevAccess')
     dependsOn tasks.named('validateClientLaunch')
     dependsOn tasks.named('validateGalaxyConnectivity')
+    dependsOn tasks.named('validateGalaxyEvents')
     dependsOn tasks.named('validateRuleIds')
     dependsOn tasks.named('validateNetworkSecurity')
     dependsOn tasks.named('validateTcpMultiplayer')
