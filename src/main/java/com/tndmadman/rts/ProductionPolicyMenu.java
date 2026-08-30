@@ -33,6 +33,7 @@ final class ProductionPolicyMenu {
     private static final Color TEXT = new Color(230, 242, 250);
     private static final Color MUTED = new Color(155, 180, 196);
     private static final Color ACCENT = new Color(90, 220, 255);
+    private static final int LABEL_WRAP_WIDTH = 570;
 
     private ProductionPolicyMenu() { }
 
@@ -40,8 +41,7 @@ final class ProductionPolicyMenu {
         if (invoker == null || world == null || base == null || StationControls.nonProduction(base.typeId)) return;
         JPopupMenu popup = new JPopupMenu();
         popup.setBorder(BorderFactory.createLineBorder(ACCENT));
-        JPanel content = new JPanel();
-        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+        MenuScrollPanel content = new MenuScrollPanel();
         content.setBackground(BACKGROUND);
         content.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
@@ -150,6 +150,7 @@ final class ProductionPolicyMenu {
         scroll.setBorder(null);
         scroll.getViewport().setBackground(BACKGROUND);
         scroll.getVerticalScrollBar().setUnitIncrement(18);
+        scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         scroll.setPreferredSize(new Dimension(620, Math.min(680, Math.max(280, content.getPreferredSize().height + 18))));
         popup.add(scroll);
         popup.show(invoker, Math.max(4, x), Math.max(4, y));
@@ -449,10 +450,28 @@ final class ProductionPolicyMenu {
     }
 
     private static JLabel label(String text, int style, int size, Color color) {
-        JLabel label = new JLabel(text == null ? "" : text, SwingConstants.LEFT);
+        JLabel label = new JLabel(wrappedLabelText(text), SwingConstants.LEFT);
         label.setForeground(color);
         label.setFont(label.getFont().deriveFont(style, (float)size));
         return label;
+    }
+
+    private static String wrappedLabelText(String text) {
+        String value = text == null ? "" : text;
+        if (value.isBlank()) return value;
+        if (value.regionMatches(true, 0, "<html>", 0, 6)) {
+            String body = value.substring(6);
+            if (body.regionMatches(true, Math.max(0, body.length() - 7), "</html>", 0, 7)) {
+                body = body.substring(0, body.length() - 7);
+            }
+            return "<html><div style='width:" + LABEL_WRAP_WIDTH + "px'>" + body + "</div></html>";
+        }
+        if (value.length() < 72) return value;
+        return "<html><div style='width:" + LABEL_WRAP_WIDTH + "px'>" + escapeHtml(value) + "</div></html>";
+    }
+
+    private static String escapeHtml(String value) {
+        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     private static JButton actionButton(String text, Runnable action) {
