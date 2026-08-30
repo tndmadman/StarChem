@@ -9,15 +9,18 @@ final class SystemModifierRules {
         if (world == null) return SystemModifiers.STANDARD;
         StarSystemDefinition definition = StarSystems.get(world.activeSystemId());
         SystemModifiers base = definition == null ? SystemModifiers.STANDARD : definition.modifiers();
-        SystemModifiers temporary = GalaxyEventDirector.temporaryModifiers(world, world.activeSystemId());
+        SystemModifiers legacy = GalaxyEventDirector.temporaryModifiers(world, world.activeSystemId());
+        SystemModifiers advanced = GalaxyEventExtensions.temporaryModifiers(world, world.activeSystemId());
         return new SystemModifiers(
-                base.miningYield() * temporary.miningYield(),
-                base.resourceRespawn() * temporary.resourceRespawn(),
-                base.sensorRange() * temporary.sensorRange(),
-                base.shieldRegen() * temporary.shieldRegen(),
-                base.movementSpeed() * temporary.movementSpeed(),
-                base.weaponRange() * temporary.weaponRange(),
-                base.environmentalDamagePerSecond() + temporary.environmentalDamagePerSecond());
+                base.miningYield() * legacy.miningYield() * advanced.miningYield(),
+                base.resourceRespawn() * legacy.resourceRespawn() * advanced.resourceRespawn(),
+                base.sensorRange() * legacy.sensorRange() * advanced.sensorRange(),
+                base.shieldRegen() * legacy.shieldRegen() * advanced.shieldRegen(),
+                base.movementSpeed() * legacy.movementSpeed() * advanced.movementSpeed(),
+                base.weaponRange() * legacy.weaponRange() * advanced.weaponRange(),
+                base.environmentalDamagePerSecond()
+                        + legacy.environmentalDamagePerSecond()
+                        + advanced.environmentalDamagePerSecond());
     }
 
     static double miningYield(World world) { return current(world).miningYield(); }
@@ -30,6 +33,7 @@ final class SystemModifierRules {
     static void applyEnvironment(World world, double dt) {
         if (world == null || dt <= 0) return;
         GalaxyEventDirector.update(world, dt);
+        GalaxyEventExtensions.update(world, dt);
         double damage = current(world).environmentalDamagePerSecond() * dt;
         if (damage <= 0) return;
         for (Unit unit : new ArrayList<>(world.units.values())) {

@@ -1,6 +1,7 @@
 package com.tndmadman.rts;
 
 import java.awt.*;
+import java.util.Map;
 
 final class ResourceNode {
     final int id;
@@ -18,6 +19,28 @@ final class ResourceNode {
     ResourceNode(int id, String name, NodeKind kind, Material material, double x, double y, double maxAmount, double harvestRate, double radius) {
         this.id = id; this.name = name; this.kind = kind; this.material = material; this.x = x; this.y = y;
         this.maxAmount = maxAmount; this.harvestRate = harvestRate; this.radius = radius; this.amount = maxAmount;
+    }
+
+    /** Convenience shape used by generic JSON-authored event resource spawns. */
+    ResourceNode(int id, NodeKind kind, double x, double y, double radius, double initialAmount,
+                 Map<Material,Double> baseYield, double harvestRate) {
+        this(id, eventMaterial(baseYield).label, kind, eventMaterial(baseYield), x, y,
+                initialAmount, harvestRate, radius);
+    }
+
+    private static Material eventMaterial(Map<Material,Double> baseYield) {
+        if (baseYield == null || baseYield.isEmpty()) return Material.RARE_EARTHS;
+        Material best = null;
+        double bestWeight = Double.NEGATIVE_INFINITY;
+        for (Map.Entry<Material,Double> entry : baseYield.entrySet()) {
+            if (entry.getKey() == null) continue;
+            double weight = entry.getValue() == null || !Double.isFinite(entry.getValue()) ? 0 : entry.getValue();
+            if (best == null || weight > bestWeight) {
+                best = entry.getKey();
+                bestWeight = weight;
+            }
+        }
+        return best == null ? Material.RARE_EARTHS : best;
     }
 
     void orbit(double centerX, double centerY, double orbitRadius, double orbitAngle, double orbitSpeed) {

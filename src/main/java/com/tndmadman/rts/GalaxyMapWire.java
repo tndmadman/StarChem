@@ -34,35 +34,38 @@ final class GalaxyMapWire {
     private static String encodeInternal(int copiesPerTemplate, GalaxyMapSnapshot snapshot, OwnerProjection owner) {
         if (snapshot == null) snapshot = new GalaxyMapSnapshot("", List.of(), List.of());
         World activeWorld = owner.present() ? PlayerRegistry.activeWorld() : null;
+        String ownerId = owner.present() ? owner.ownerId() : "";
         StringBuilder out = new StringBuilder(PREFIX)
                 .append(Math.max(1, Math.min(2, copiesPerTemplate)))
                 .append('|').append(token(snapshot.activeSystemId()));
-        if (snapshot.systems() != null) {
-            for (GalaxyMapSystem system : snapshot.systems()) {
-                if (system == null) continue;
-                out.append("|S,")
-                        .append(token(system.id())).append(',')
-                        .append(token(system.name())).append(',')
-                        .append(token(system.templateId())).append(',')
-                        .append(system.lifetime().name()).append(',')
-                        .append(system.ships()).append(',')
-                        .append(system.bases()).append(',')
-                        .append(system.resources()).append(',')
-                        .append(system.localShips()).append(',')
-                        .append(system.localBases()).append(',')
-                        .append(flag(system.active())).append(',')
-                        .append(flag(system.home())).append(',')
-                        .append(flag(system.special())).append(',')
-                        .append(token(system.controllerId())).append(',')
-                        .append(token(system.controllerName())).append(',')
-                        .append(system.controlStatus().name()).append(',')
-                        .append(Calc.round(system.captureProgress())).append(',')
-                        .append(system.controlColorRgb() & 0xFFFFFF);
-            }
+
+        List<GalaxyMapSystem> projectedSystems = GalaxyTopology.effectiveSystems(activeWorld, ownerId, snapshot.systems());
+        if (projectedSystems.size() > 96) {
+            throw new IllegalArgumentException("Galaxy system projection exceeds safe limits.");
+        }
+        for (GalaxyMapSystem system : projectedSystems) {
+            if (system == null) continue;
+            out.append("|S,")
+                    .append(token(system.id())).append(',')
+                    .append(token(system.name())).append(',')
+                    .append(token(system.templateId())).append(',')
+                    .append(system.lifetime().name()).append(',')
+                    .append(system.ships()).append(',')
+                    .append(system.bases()).append(',')
+                    .append(system.resources()).append(',')
+                    .append(system.localShips()).append(',')
+                    .append(system.localBases()).append(',')
+                    .append(flag(system.active())).append(',')
+                    .append(flag(system.home())).append(',')
+                    .append(flag(system.special())).append(',')
+                    .append(token(system.controllerId())).append(',')
+                    .append(token(system.controllerName())).append(',')
+                    .append(system.controlStatus().name()).append(',')
+                    .append(Calc.round(system.captureProgress())).append(',')
+                    .append(system.controlColorRgb() & 0xFFFFFF);
         }
 
-        List<GalaxyMapLink> projectedLinks = GalaxyTopology.effectiveLinks(
-                activeWorld, owner.present() ? owner.ownerId() : "", snapshot.links());
+        List<GalaxyMapLink> projectedLinks = GalaxyTopology.effectiveLinks(activeWorld, ownerId, snapshot.links());
         if (projectedLinks.size() > 256) {
             throw new IllegalArgumentException("Galaxy link projection exceeds safe limits.");
         }

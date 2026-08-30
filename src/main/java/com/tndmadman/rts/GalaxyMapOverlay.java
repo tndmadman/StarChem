@@ -172,7 +172,19 @@ final class GalaxyMapOverlay {
             if (!events.isEmpty()) {
                 GalaxyEventView first = events.get(0);
                 g.setFont(g.getFont().deriveFont(Font.BOLD, (float)Math.max(8, detailSize - 1)));
-                g.setColor(new Color(235, 195, 255));
+                GalaxyEventVisualStyle visual = GalaxyEventVisualCatalog.visual(first.definitionId());
+                int eventRgb = visual.enabled() ? visual.mapColorRgb() : 0xEBC3FF;
+                int eventAlpha = 255;
+                if (visual.enabled() && visual.mapPulse() && visual.mapPulseSpeed() > 0) {
+                    double pulse = 0.5 + 0.5 * Math.sin(System.nanoTime() / 1_000_000_000.0
+                            * visual.mapPulseSpeed() * Math.PI * 2.0);
+                    eventAlpha = 145 + (int)Math.round(pulse * 110);
+                    double ring = radius + 7 + pulse * 5;
+                    g.setStroke(new BasicStroke(1.8f));
+                    g.setColor(new Color((eventRgb >> 16) & 0xFF, (eventRgb >> 8) & 0xFF, eventRgb & 0xFF, eventAlpha));
+                    g.draw(new Ellipse2D.Double(node.x - ring, node.y - ring, ring * 2, ring * 2));
+                }
+                g.setColor(new Color((eventRgb >> 16) & 0xFF, (eventRgb >> 8) & 0xFF, eventRgb & 0xFF, eventAlpha));
                 String eventLine = first.name() + " | " + first.phase().name() + " | "
                         + Math.max(0, (int)Math.ceil(first.remainingSeconds())) + "s";
                 if (events.size() > 1) eventLine += " +" + (events.size() - 1);
@@ -188,6 +200,12 @@ final class GalaxyMapOverlay {
         for (GalaxyEventView view : GalaxyEventDirector.visibleViews(world)) {
             if (view == null || view.systemId() == null || view.systemId().isBlank()) continue;
             grouped.computeIfAbsent(view.systemId(), ignored -> new ArrayList<>()).add(view);
+        }
+        for (GalaxyEventView view : GalaxyEventExtensions.viewsFor(world, PlayerRegistry.localId())) {
+            if (view == null || view.systemId() == null || view.systemId().isBlank()) continue;
+            List<GalaxyEventView> rows = grouped.computeIfAbsent(view.systemId(), ignored -> new ArrayList<>());
+            boolean duplicate = rows.stream().anyMatch(existing -> existing.eventId().equals(view.eventId()));
+            if (!duplicate) rows.add(view);
         }
         return grouped;
     }

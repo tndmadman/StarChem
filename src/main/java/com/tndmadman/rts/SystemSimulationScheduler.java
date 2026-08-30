@@ -48,6 +48,7 @@ final class SystemSimulationScheduler {
             for (String systemId : systemIds) bySystem.remove(systemId);
         }
         GalaxyEventDirector.removeSystems(world, systemIds);
+        GalaxyEventExtensions.removeSystems(world, systemIds);
     }
 
     static synchronized Map<String,Object> capture(World world) {
@@ -62,6 +63,8 @@ final class SystemSimulationScheduler {
         }
         Map<String,Object> events = GalaxyEventDirector.capture(world);
         if (!events.isEmpty()) out.put(GalaxyEventDirector.saveKey(), events);
+        Map<String,Object> advanced = GalaxyEventExtensions.capture(world);
+        if (!advanced.isEmpty()) out.put(GalaxyEventExtensions.saveKey(), advanced);
         return out;
     }
 
@@ -70,7 +73,8 @@ final class SystemSimulationScheduler {
         Map<String,Object> saved = ServerSaveStore.object(state);
         Map<String, Double> bySystem = new LinkedHashMap<>();
         for (Map.Entry<String,Object> entry : saved.entrySet()) {
-            if (GalaxyEventDirector.saveKey().equals(entry.getKey())) continue;
+            if (GalaxyEventDirector.saveKey().equals(entry.getKey())
+                    || GalaxyEventExtensions.saveKey().equals(entry.getKey())) continue;
             double value = ServerSaveStore.asDouble(entry.getValue(), 0);
             if (entry.getKey() != null && !entry.getKey().isBlank() && value > 0) {
                 bySystem.put(entry.getKey(), value);
@@ -79,6 +83,7 @@ final class SystemSimulationScheduler {
         if (bySystem.isEmpty()) ACCUMULATED.remove(world);
         else ACCUMULATED.put(world, bySystem);
         GalaxyEventDirector.restore(world, saved.get(GalaxyEventDirector.saveKey()));
+        GalaxyEventExtensions.restore(world, saved.get(GalaxyEventExtensions.saveKey()));
     }
 
     static SimulationTier tier(World world) {

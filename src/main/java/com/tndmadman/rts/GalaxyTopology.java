@@ -8,11 +8,23 @@ import java.util.Map;
 /**
  * Builds the effective galaxy topology visible/usable by one player.
  * Permanent coordinator links are always present. Dynamic event links are
- * added only when the authoritative event director has revealed them to the
+ * added only when the authoritative event layers have revealed them to the
  * requested owner. The permanent coordinator graph is never mutated.
  */
 final class GalaxyTopology {
     private GalaxyTopology() { }
+
+    static List<GalaxyMapSystem> effectiveSystems(World world, String playerId,
+                                                  List<GalaxyMapSystem> permanentSystems) {
+        if (permanentSystems == null || permanentSystems.isEmpty()) return List.of();
+        if (world == null || playerId == null || playerId.isBlank()) return List.copyOf(permanentSystems);
+        List<GalaxyMapSystem> out = new ArrayList<>();
+        for (GalaxyMapSystem system : permanentSystems) {
+            if (system == null) continue;
+            if (GalaxyEventExtensions.systemVisibleTo(world, playerId, system.id())) out.add(system);
+        }
+        return List.copyOf(out);
+    }
 
     static List<GalaxyMapLink> effectiveLinks(World world, String playerId,
                                                List<GalaxyMapLink> permanentLinks) {
@@ -22,6 +34,7 @@ final class GalaxyTopology {
         }
         if (world != null && playerId != null && !playerId.isBlank()) {
             for (GalaxyMapLink link : GalaxyEventDirector.temporaryLinksFor(world, playerId)) add(links, link);
+            for (GalaxyMapLink link : GalaxyEventExtensions.temporaryLinksFor(world, playerId)) add(links, link);
         }
         return List.copyOf(links.values());
     }
@@ -30,7 +43,8 @@ final class GalaxyTopology {
         if (world == null) return new GalaxyMapSnapshot("", List.of(), List.of());
         GalaxyMapSnapshot permanent = world.authoritativeGalaxyMapSnapshot();
         if (permanent == null) return new GalaxyMapSnapshot("", List.of(), List.of());
-        return new GalaxyMapSnapshot(permanent.activeSystemId(), permanent.systems(),
+        return new GalaxyMapSnapshot(permanent.activeSystemId(),
+                effectiveSystems(world, playerId, permanent.systems()),
                 effectiveLinks(world, playerId, permanent.links()));
     }
 
