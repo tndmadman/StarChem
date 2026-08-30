@@ -53,6 +53,9 @@ jobs:
       - name: Validate issue 293 logistics routes
         run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue293LogisticsRouteValidator
 
+      - name: Validate production logistics sourcing
+        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.ProductionLogisticsSourcingValidator
+
       - name: Validate shipyard scroll hotfix
         run: java -cp build/classes/java/main com.tndmadman.rts.ShipyardScrollHotfixValidator
 
