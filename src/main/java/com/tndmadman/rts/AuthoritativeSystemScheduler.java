@@ -170,7 +170,9 @@ final class AuthoritativeSystemScheduler {
         slot.lastRun = clock;
         slot.tier = SystemSimulationScheduler.tier(world);
         slot.playerAssets = playerAssetCount(world);
-        slot.eventDueIn = GalaxyEventDirector.nextDueInSeconds(world, slot.systemId);
+        slot.eventDueIn = Math.min(
+                GalaxyEventDirector.nextDueInSeconds(world, slot.systemId),
+                GalaxyEventExtensions.nextDueInSeconds(world, slot.systemId));
     }
 
     private double nextInterval(Slot slot) {
