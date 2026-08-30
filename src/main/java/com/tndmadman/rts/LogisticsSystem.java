@@ -5,7 +5,6 @@ import java.util.*;
 final class LogisticsSystem {
     static final String SHUTTLE_TYPE = "logistics_shuttle";
     private static final double DOCK_RANGE_FACTOR = 0.42;
-    private static final double CLOSEST_SOURCE_BIAS = 1.5;
     private static final double RECHECK_INTERVAL = 2.0;
     private static final int MAX_SAVED_REQUESTS = 2048;
     private static final int MAX_TEXT = 256;
@@ -41,10 +40,12 @@ final class LogisticsSystem {
 
     void update(World world, double dt) {
         if (world == null) return;
+        InterSystemProductionLogistics.update(world);
         bindActiveTargets(world);
         deliverActiveShuttles(world);
         reconcileInTransit(world);
         cleanupDeadRequests(world);
+        adoptWaitingJobs(world);
         recheckWaitingRequests(world, dt);
         completeReadyRequests(world);
         updateBaseStatuses(world);
@@ -149,6 +150,38 @@ final class LogisticsSystem {
         return true;
     }
 
+    /**
+     * Pick up planner-created waiting jobs even when their only available
+     * materials live in another system. Previously ProductionPlanner's local
+     * world.bases view prevented those jobs from ever reaching LogisticsSystem.
+     */
+    private void adoptWaitingJobs(World world) {
+        if (requests.size() >= MAX_SAVED_REQUESTS) return;
+        String systemId = world.activeSystemId();
+        for (Base target : new ArrayList<>(world.bases.values())) {
+            if (target == null || target.hp <= 0) continue;
+            for (ProductionJob job : new ArrayList<>(target.productionQueue)) {
+                if (!ProductionSystem.waitingForResources(job) || job.kind == ProductionJobKind.REFIT) continue;
+                if (requestForJob(systemId, target.id, job.id) != null) continue;
+                List<Cost> cost = ProductionSystem.costFor(world, job);
+                if (cost.isEmpty()) continue;
+                List<Cost> missing = missingAt(target, cost);
+                if (missing.isEmpty()) {
+                    ProductionSystem.fundWaitingJob(world, target, job.id);
+                    continue;
+                }
+                if (!availableHangarsCanCover(world, target, missing)) continue;
+                LogisticsRequest request = new LogisticsRequest("LR" + nextRequestId++, systemId,
+                        target.playerId, target.id, target, job.id,
+                        ProductionSystem.displayName(world, job), cost);
+                request.reserveAvailable(target);
+                requests.add(request);
+                dispatchOutstanding(world, target, request);
+                if (requests.size() >= MAX_SAVED_REQUESTS) return;
+            }
+        }
+    }
+
     private List<Cost> missingAt(Base base, List<Cost> cost) {
         List<Cost> out = new ArrayList<>();
         for (Cost c : cost) {
@@ -159,11 +192,16 @@ final class LogisticsSystem {
     }
 
     private boolean availableHangarsCanCover(World world, Base target, List<Cost> missing) {
+        String targetSystemId = world.activeSystemId();
         for (Cost need : missing) {
             double available = 0;
             for (Base source : sourceHangars(world, target, need.material())) {
                 available += source.inventory.getOrDefault(need.material(), 0.0);
                 if (available + 0.001 >= need.amount()) break;
+            }
+            if (available + 0.001 < need.amount()) {
+                available += InterSystemProductionLogistics.remoteAvailableAmount(
+                        world, targetSystemId, target, need.material());
             }
             if (available + 0.001 < need.amount()) return false;
         }
@@ -177,7 +215,9 @@ final class LogisticsSystem {
             if (source.inventory.getOrDefault(material, 0.0) <= 0.05) continue;
             out.add(source);
         }
-        out.sort(Comparator.comparingDouble(source -> Calc.distance(source.x, source.y, target.x, target.y)));
+        out.sort(Comparator
+                .comparingDouble((Base source) -> Calc.distance(source.x, source.y, target.x, target.y))
+                .thenComparing(source -> source.id));
         return out;
     }
 
@@ -188,32 +228,28 @@ final class LogisticsSystem {
         }
     }
 
-    private void dispatchMaterial(World world, Base target, LogisticsRequest request, Material material, double amount) {
+    private void dispatchMaterial(World world, Base target, LogisticsRequest request,
+                                  Material material, double amount) {
         double remaining = amount;
         double shuttleCapacity = Math.max(1, Rules.ship(SHUTTLE_TYPE).cargoCapacity);
-        List<Base> sources = sourceHangars(world, target, material);
-        while (remaining > 0.05) {
-            List<Base> active = activeSources(sources, material);
-            if (active.isEmpty()) return;
-            boolean sentAny = false;
-            for (int i = 0; i < active.size() && remaining > 0.05; i++) {
-                Base source = active.get(i);
-                int sourcesLeft = active.size() - i;
-                double share = remaining / Math.max(1, sourcesLeft);
-                if (i == 0 && active.size() > 1) share *= CLOSEST_SOURCE_BIAS;
-                double sent = dispatchFromSource(world, source, target, request, material,
-                        Math.min(remaining, share), shuttleCapacity);
-                remaining -= sent;
-                sentAny |= sent > 0.05;
-            }
-            if (!sentAny) return;
-        }
-    }
 
-    private List<Base> activeSources(List<Base> sources, Material material) {
-        List<Base> out = new ArrayList<>();
-        for (Base source : sources) if (source.inventory.getOrDefault(material, 0.0) > 0.05) out.add(source);
-        return out;
+        // Strict nearest-first local sourcing. Fully exhaust what the closest
+        // station can contribute before touching the next farther station.
+        for (Base source : sourceHangars(world, target, material)) {
+            if (remaining <= 0.05) break;
+            double available = source.inventory.getOrDefault(material, 0.0);
+            if (available <= 0.05) continue;
+            double sent = dispatchFromSource(world, source, target, request, material,
+                    Math.min(remaining, available), shuttleCapacity);
+            remaining -= sent;
+        }
+
+        // Only spill into other systems after every nearer station in the
+        // destination system has been used as far as necessary.
+        if (remaining > 0.05) {
+            InterSystemProductionLogistics.dispatch(
+                    world, world.activeSystemId(), target, request, material, remaining);
+        }
     }
 
     private double dispatchFromSource(World world, Base source, Base target, LogisticsRequest request,
@@ -251,6 +287,7 @@ final class LogisticsSystem {
         while (it.hasNext()) {
             Unit shuttle = it.next();
             if (!SHUTTLE_TYPE.equals(shuttle.shipTypeId)) continue;
+            if (InterSystemProductionLogistics.manages(shuttle)) continue;
             if (shuttle.cargoUsed() <= 0.05) {
                 it.remove();
                 continue;
@@ -301,11 +338,12 @@ final class LogisticsSystem {
         String systemId = world.activeSystemId();
         for (LogisticsRequest request : requests) if (request.inSystem(systemId)) request.clearInTransit();
         for (Unit shuttle : world.units.values()) {
-            if (!SHUTTLE_TYPE.equals(shuttle.shipTypeId)) continue;
+            if (!SHUTTLE_TYPE.equals(shuttle.shipTypeId) || InterSystemProductionLogistics.manages(shuttle)) continue;
             LogisticsRequest request = requestById(shuttle.logisticsRequestId);
             if (request == null || !request.matches(systemId, shuttle.logisticsTargetBaseId)) continue;
             request.trackInTransit(shuttle.inventory);
         }
+        InterSystemProductionLogistics.trackInTransit(world, requests, systemId);
     }
 
     private void recheckWaitingRequests(World world, double dt) {
@@ -417,7 +455,7 @@ final class LogisticsSystem {
     }
 
     private String waitLabel(LogisticsRequest request, int count) {
-        String prefix = request.ready() ? "Resources delivered: " : "Waiting on resources from other hangars: ";
+        String prefix = request.ready() ? "Resources delivered: " : "Waiting on resources from owned stations: ";
         String suffix = count > 1 ? " +" + (count - 1) + " queued" : "";
         return prefix + request.itemName + suffix;
     }
@@ -425,6 +463,14 @@ final class LogisticsSystem {
     private LogisticsRequest requestById(String id) {
         if (id == null || id.isBlank()) return null;
         for (LogisticsRequest request : requests) if (request.id.equals(id)) return request;
+        return null;
+    }
+
+    private LogisticsRequest requestForJob(String systemId, String baseId, String jobId) {
+        for (LogisticsRequest request : requests) {
+            if (request.inSystem(systemId) && request.targetBaseId.equals(baseId)
+                    && request.productionJobId.equals(jobId)) return request;
+        }
         return null;
     }
 
