@@ -57,10 +57,12 @@ final class ServerDevCommands {
             case "asset" -> asset(host, args);
             case "player" -> player(host, args);
             case "spawn" -> spawn(host, args);
+            case "event", "events" -> GalaxyEventExtensions.admin(host.world,
+                    args.size() <= 1 ? List.of() : args.subList(1, args.size()));
             case "trigger" -> legacyTrigger(host, args);
             case "remove" -> legacyRemove(host, args);
             case "reset" -> legacyReset(host, args);
-            default -> List.of("Usage: dev <status|mode|access|freebuild|resource|research|ai|timers|faction|production|asset|player|spawn> ...");
+            default -> List.of("Usage: dev <status|mode|access|freebuild|resource|research|ai|timers|faction|production|asset|player|spawn|events> ...");
         };
     }
 

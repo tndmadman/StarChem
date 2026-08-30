@@ -229,7 +229,9 @@ final class GalaxyEventExtensions {
             case "resume" -> { state.paused = false; return List.of("Advanced galaxy events resumed."); }
             case "reload" -> {
                 catalog = GalaxyEventExtensionCatalog.load();
-                return List.of("Reloaded config/events.json version " + GalaxyEventExtensionCatalog.SCHEMA_VERSION + ".");
+                GalaxyEventVisualCatalog.reload();
+                return List.of("Reloaded config/events.json version " + GalaxyEventExtensionCatalog.SCHEMA_VERSION
+                        + " and config/event-visuals.json version " + GalaxyEventVisualCatalog.SCHEMA_VERSION + ".");
             }
             case "list" -> {
                 List<String> out = new ArrayList<>();
@@ -694,7 +696,9 @@ final class GalaxyEventExtensions {
     private static void advanceStage(World world, AdvancedEventInstance event, AdvancedEventDefinition definition,
                                      String explicitNextStageId) {
         int next = event.stageIndex + 1;
-        if (explicitNextStageId != null && !explicitNextStageId.isBlank()) {
+        if ("@complete".equalsIgnoreCase(clean(explicitNextStageId))) {
+            next = definition.stages().size();
+        } else if (explicitNextStageId != null && !explicitNextStageId.isBlank()) {
             for (int i = 0; i < definition.stages().size(); i++) {
                 if (explicitNextStageId.equals(definition.stages().get(i).id())) { next = i; break; }
             }
@@ -788,7 +792,12 @@ final class GalaxyEventExtensions {
                 AdvancedUnitRole role = event.unitRoles.get(key);
                 if (role == AdvancedUnitRole.HOSTILE || role == AdvancedUnitRole.BOSS || role == AdvancedUnitRole.COMPETITOR) {
                     String target = nearestHumanTarget(world, unit);
-                    if (!target.isBlank()) unit.attack(target);
+                    if (!target.isBlank()) {
+                        unit.attack(target);
+                        if (unit.attackTarget.isBlank() && CombatTarget.alive(world, target)) {
+                            unit.moveTo(CombatTarget.x(world, target), CombatTarget.y(world, target));
+                        }
+                    }
                 }
             }
         }
@@ -821,9 +830,17 @@ final class GalaxyEventExtensions {
         systems.sort(String::compareTo);
         if (systems.isEmpty()) return;
         int index = Math.floorMod((event.id + "|" + event.scopeMoves).hashCode(), systems.size());
-        event.currentSystemId = systems.get(index);
+        String previousSystemId = event.currentSystemId;
+        double previousClock = clockFor(state, previousSystemId);
+        String nextSystemId = systems.get(index);
+        double nextClock = clockFor(state, nextSystemId);
+        double delta = nextClock - previousClock;
+        event.currentSystemId = nextSystemId;
+        event.expiresAt += delta;
+        if (event.activatedAt >= 0) event.activatedAt += delta;
+        event.stageStartedAt += delta;
         event.scopeMoves++;
-        event.nextScopeMoveAt = clockFor(state, event.currentSystemId) + definition.scope().moveEverySeconds();
+        event.nextScopeMoveAt = nextClock + definition.scope().moveEverySeconds();
         notifyDiscovered(world, event, definition.name() + " moved into " + event.currentSystemId + ".", NoticeCategory.WARNING);
     }
 
@@ -1176,7 +1193,7 @@ final class AdvancedEventInstance {
     GalaxyEventPhase phase;
     final double createdAt;
     double activatedAt = -1;
-    final double expiresAt;
+    double expiresAt;
     int stageIndex;
     double stageStartedAt;
     boolean initialMaterialized;
@@ -1235,7 +1252,7 @@ final class AdvancedEventInstance {
                 ServerSaveStore.doubleValue(row, "createdAt", 0), ServerSaveStore.doubleValue(row, "expiresAt", 0));
         event.activatedAt = ServerSaveStore.doubleValue(row, "activatedAt", -1);
         event.stageIndex = Math.max(0, ServerSaveStore.intValue(row, "stageIndex", 0));
-        event.stageStartedAt = Math.max(0, ServerSaveStore.doubleValue(row, "stageStartedAt", 0));
+        event.stageStartedAt = ServerSaveStore.doubleValue(row, "stageStartedAt", 0);
         event.initialMaterialized = ServerSaveStore.boolValue(row, "initialMaterialized", false);
         event.winnerId = ServerSaveStore.string(row, "winnerId", "").trim();
         event.pocketSystemId = ServerSaveStore.string(row, "pocketSystemId", "").trim();

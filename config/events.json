@@ -762,8 +762,8 @@
         "spawn": {},
         "stages": [
           {"id": "choose", "name": "Choose the artifact response", "timeoutSeconds": 180, "objective": {"type": "CHOICE", "radius": 220, "choices": [
-            {"id": "stabilize", "label": "Stabilize", "offsetX": -280, "offsetY": 0, "radius": 180, "nextStageId": "stabilized", "rewards": [{"type": "MATERIAL", "material": "SHIELD_GENERATOR", "amount": 1}]},
-            {"id": "loot", "label": "Strip for parts", "offsetX": 280, "offsetY": 0, "radius": 180, "nextStageId": "looted", "rewards": [{"type": "MATERIAL", "material": "CIRCUIT_FRAGMENTS", "amount": 95}]}
+            {"id": "stabilize", "label": "Stabilize", "offsetX": -280, "offsetY": 0, "radius": 180, "nextStageId": "@complete", "rewards": [{"type": "MATERIAL", "material": "SHIELD_GENERATOR", "amount": 1}, {"type": "RESEARCH", "researchId": "advanced_industry"}]},
+            {"id": "loot", "label": "Strip for parts", "offsetX": 280, "offsetY": 0, "radius": 180, "nextStageId": "@complete", "rewards": [{"type": "MATERIAL", "material": "CIRCUIT_FRAGMENTS", "amount": 95}, {"type": "MATERIAL", "material": "GOLD_CONTACT_MESH", "amount": 10}]}
           ]}},
           {"id": "stabilized", "name": "Stabilized artifact", "timeoutSeconds": 90, "objective": {"type": "SURVIVE", "radius": 100000, "seconds": 15}, "rewards": [{"type": "RESEARCH", "researchId": "advanced_industry"}]},
           {"id": "looted", "name": "Looted artifact", "timeoutSeconds": 90, "objective": {"type": "SURVIVE", "radius": 100000, "seconds": 15}, "rewards": [{"type": "MATERIAL", "material": "GOLD_CONTACT_MESH", "amount": 10}]}

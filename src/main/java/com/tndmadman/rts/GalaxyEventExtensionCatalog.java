@@ -281,6 +281,15 @@ final class GalaxyEventExtensionCatalog {
             }
             validateObjective(definition.id(), stage.objective());
         }
+        for (AdvancedEventStage stage : definition.stages()) {
+            for (AdvancedChoice choice : stage.objective().choices()) {
+                String next = choice.nextStageId();
+                if (!next.isBlank() && !"@complete".equalsIgnoreCase(next) && !stageIds.contains(next)) {
+                    throw new IllegalStateException("Advanced event " + definition.id()
+                            + " choice " + choice.id() + " references unknown stage " + next + ".");
+                }
+            }
+        }
         if (definition.spawn().pocketSystem().enabled()) validatePocket(definition.id(), definition.spawn().pocketSystem());
         for (AdvancedEventStage stage : definition.stages()) {
             if (stage.spawn().pocketSystem().enabled()) validatePocket(definition.id(), stage.spawn().pocketSystem());

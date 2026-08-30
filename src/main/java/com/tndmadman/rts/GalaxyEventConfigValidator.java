@@ -16,6 +16,7 @@ public final class GalaxyEventConfigValidator {
     static void validateOrThrow() throws Exception {
         validateLegacyCatalog();
         validateAdvancedCatalog();
+        validateVisualCatalog();
     }
 
     private static void validateLegacyCatalog() throws Exception {
@@ -74,6 +75,16 @@ public final class GalaxyEventConfigValidator {
                 ",\"spawn\":{\"pocketSystem\":{\"templateId\":\"definitely-not-a-system\",\"idSuffix\":\"bad\"}}")));
         rejectAdvanced("invalid relationship faction", advancedConfig(3, advancedEvent("bad-faction", "SURVIVE",
                 ",\"rewards\":[{\"type\":\"RELATIONSHIP\",\"factionId\":\"NOPE\",\"relationship\":\"ALLIED\"}]")));
+    }
+
+    private static void validateVisualCatalog() {
+        GalaxyEventVisualCatalog catalog = GalaxyEventVisualCatalog.loadForValidation(GalaxyEventVisualCatalog.CONFIG_PATH);
+        require(catalog.size() >= 10, "galaxy event visual catalog is unexpectedly small");
+        for (String id : Set.of("ion_storm", "radiation_storm", "resource_surge", "sensor_blackout",
+                "shield_null_zone", "gravitational_disturbance", "stellar_blessing",
+                "precursor_aftershock", "spatial_rift_stabilization", "roaming_radiation_front")) {
+            require(catalog.contains(id), "missing galaxy event visual definition: " + id);
+        }
     }
 
     private static String validConfig(String events) {
