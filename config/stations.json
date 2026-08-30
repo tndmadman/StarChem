@@ -67,7 +67,16 @@
         "titan",
         "monolith"
       ],
-      "canBuildStationPackages": [],
+      "canBuildStationPackages": [
+        "radar_picket",
+        "radar_array",
+        "radar_nexus",
+        "signal_jammer",
+        "radar_decoy",
+        "shipyard",
+        "laboratory",
+        "manufacturing"
+      ],
       "role": "production",
       "nonProduction": false,
       "canRefitShips": true,
