@@ -3,6 +3,7 @@ package com.tndmadman.rts;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Comparator;
 import java.util.List;
 
 /** Compact rows embedded in the existing GALAXY state packet. */
@@ -13,8 +14,13 @@ final class GalaxyEventWire {
     private GalaxyEventWire() { }
 
     static List<String> encodeRows(World world, String playerId) {
+        List<GalaxyEventView> views = new ArrayList<>();
+        views.addAll(GalaxyEventDirector.viewsFor(world, playerId));
+        views.addAll(GalaxyEventExtensions.viewsFor(world, playerId));
+        views.sort(Comparator.comparing(GalaxyEventView::systemId).thenComparing(GalaxyEventView::eventId));
+
         List<String> out = new ArrayList<>();
-        for (GalaxyEventView view : GalaxyEventDirector.viewsFor(world, playerId)) {
+        for (GalaxyEventView view : views) {
             if (view == null) continue;
             out.add("V," + token(view.eventId())
                     + "," + token(view.definitionId())
