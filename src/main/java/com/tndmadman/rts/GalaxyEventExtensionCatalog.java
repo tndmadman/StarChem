@@ -186,7 +186,7 @@ final class GalaxyEventExtensionCatalog {
         Map<String,Object> pocket = ServerSaveStore.object(row.get("pocketSystem"));
         AdvancedPocketSystem pocketSystem = pocket.isEmpty() ? AdvancedPocketSystem.NONE : new AdvancedPocketSystem(
                 true,
-                text(pocket, "templateId", StarSystems.DEFAULT_SYSTEM_ID),
+                systemTemplate(text(pocket, "templateId", StarSystems.DEFAULT_SYSTEM_ID), eventId),
                 text(pocket, "idSuffix", "pocket"),
                 number(pocket, "gateOffsetX", 0, -100_000, 100_000),
                 number(pocket, "gateOffsetY", 0, -100_000, 100_000),
@@ -347,6 +347,19 @@ final class GalaxyEventExtensionCatalog {
         if (id == null || id.isBlank()) return false;
         for (NpcFaction faction : NpcRules.factions()) if (faction != null && id.equals(faction.id())) return true;
         return false;
+    }
+
+    private static String systemTemplate(String value, String eventId) {
+        String requested = value == null ? "" : value.trim();
+        if (requested.isBlank()) requested = StarSystems.DEFAULT_SYSTEM_ID;
+        String folded = requested.replace('-', '_');
+        for (StarSystemDefinition option : StarSystems.options()) {
+            if (option == null || option.id() == null) continue;
+            String candidate = option.id().trim();
+            if (candidate.equals(requested) || candidate.replace('-', '_').equals(folded)) return candidate;
+        }
+        throw new IllegalStateException("Advanced event " + eventId
+                + " references unknown pocket-system template " + requested + ".");
     }
 
     private static Material material(String value, String eventId, String field) {
