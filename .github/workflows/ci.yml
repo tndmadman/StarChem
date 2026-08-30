@@ -59,6 +59,9 @@ jobs:
       - name: Validate Shipyard station packages
         run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.ShipyardStationPackageValidator
 
+      - name: Validate menu overflow layout
+        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.MenuOverflowValidator
+
       - name: Validate shipyard scroll hotfix
         run: java -cp build/classes/java/main com.tndmadman.rts.ShipyardScrollHotfixValidator
 
