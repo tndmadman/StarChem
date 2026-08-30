@@ -4,6 +4,7 @@ import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics2D;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 final class EventHud {
@@ -11,9 +12,19 @@ final class EventHud {
 
     List<String> lines(World world) {
         if (world == null) return List.of();
+        List<GalaxyEventView> views = new ArrayList<>(GalaxyEventDirector.visibleViews(world));
+        // On remote clients the combined legacy+advanced V rows already live in
+        // GalaxyEventDirector's remote-view registry. On the authoritative world
+        // append the local advanced runtime directly.
+        views.addAll(GalaxyEventExtensions.viewsFor(world, PlayerRegistry.localId()));
+        views.sort(Comparator.comparing(GalaxyEventView::systemId).thenComparing(GalaxyEventView::eventId));
+
         List<String> out = new ArrayList<>();
-        for (GalaxyEventView view : GalaxyEventDirector.visibleViews(world)) {
-            if (view == null || !world.activeSystemId().equals(view.systemId())) continue;
+        String previousEventId = "";
+        for (GalaxyEventView view : views) {
+            if (view == null || view.eventId().equals(previousEventId)
+                    || !world.activeSystemId().equals(view.systemId())) continue;
+            previousEventId = view.eventId();
             int seconds = Math.max(0, (int)Math.ceil(view.remainingSeconds()));
             String phase = view.phase() == GalaxyEventPhase.CLOSING ? "CLOSING" : "ACTIVE";
             out.add(view.name() + " | " + phase + " | " + seconds + "s");
