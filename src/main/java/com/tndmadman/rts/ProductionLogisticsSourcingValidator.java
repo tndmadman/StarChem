@@ -3,7 +3,6 @@ package com.tndmadman.rts;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /** Regression coverage for nearest-first and cross-system production sourcing. */
@@ -137,6 +136,7 @@ public final class ProductionLogisticsSourcingValidator {
                 WormholeGate gate = gateTo(world, path.get(1));
                 require(gate != null, "next-hop wormhole was missing for production cargo");
                 for (Unit shuttle : managed) {
+                    shuttle.wormholeCooldown = 0;
                     shuttle.x = gate.x;
                     shuttle.y = gate.y;
                 }
@@ -181,13 +181,14 @@ public final class ProductionLogisticsSourcingValidator {
     }
 
     private static String reachableOtherSystem(World world, String playerId, String targetSystemId) {
+        String fallback = "";
         for (String systemId : systemIds(world)) {
             if (systemId.equals(targetSystemId)) continue;
-            if (LogisticsRouteSystem.pathForTest(world, playerId, systemId, targetSystemId).size() >= 2) {
-                return systemId;
-            }
+            List<String> path = LogisticsRouteSystem.pathForTest(world, playerId, systemId, targetSystemId);
+            if (path.size() == 2) return systemId;
+            if (path.size() >= 2 && fallback.isBlank()) fallback = systemId;
         }
-        return "";
+        return fallback;
     }
 
     private static List<String> systemIds(World world) {
