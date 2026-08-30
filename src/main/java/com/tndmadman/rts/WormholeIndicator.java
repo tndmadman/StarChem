@@ -11,6 +11,10 @@ final class WormholeIndicator {
 
     static void draw(Graphics2D g2, World world, GameCamera camera, int screenW, int screenH) {
         if (screenW <= 0 || screenH <= 0) return;
+        // GamePanel invokes this screen-space pass after world/FOW rendering and before
+        // HUDs. Draw discovered event weather here so the effect cannot tint menus,
+        // the minimap, or the galaxy map and never bypasses event fog-of-war rules.
+        GalaxyEventVisualOverlay.draw(g2, world, screenW, screenH);
         for (FogOfWarView.KnownWormhole gate : FogOfWarView.knownWormholes(world)) {
             drawOne(g2, gate, camera, screenW, screenH);
         }
