@@ -10,6 +10,7 @@ on:
     paths:
       - '.github/workflows/release.yml'
       - 'build.gradle'
+      - 'gradle.properties'
       - 'settings.gradle'
       - 'config/**'
       - 'packaging/**'
@@ -17,6 +18,9 @@ on:
       - 'src/main/java/com/tndmadman/rts/**'
       - 'README.md'
       - 'RELEASE_NOTES.md'
+      - 'AUTHENTICATION.md'
+      - 'TLS_IDENTITY_SECURITY.md'
+      - 'UPGRADING_TO_1.8.0.md'
       - 'LICENSE'
       - 'THIRD_PARTY_NOTICES.md'
   workflow_dispatch:
@@ -172,19 +176,29 @@ jobs:
           cp packaging/run-starchem-server.sh release/StarChem/run-starchem-server.sh
           chmod +x release/StarChem/run-starchem.sh release/StarChem/run-starchem-server.sh
           cp README.md release/StarChem/README.md
+          cp RELEASE_NOTES.md release/StarChem/RELEASE_NOTES.md
+          cp AUTHENTICATION.md release/StarChem/AUTHENTICATION.md
+          cp TLS_IDENTITY_SECURITY.md release/StarChem/TLS_IDENTITY_SECURITY.md
+          cp UPGRADING_TO_1.8.0.md release/StarChem/UPGRADING_TO_1.8.0.md
           cp LICENSE release/StarChem/LICENSE
           cp THIRD_PARTY_NOTICES.md release/StarChem/THIRD_PARTY_NOTICES.md
 
           test -s release/StarChem/LICENSE
           test -s release/StarChem/THIRD_PARTY_NOTICES.md
+          test -s release/StarChem/RELEASE_NOTES.md
+          test -s release/StarChem/AUTHENTICATION.md
+          test -s release/StarChem/TLS_IDENTITY_SECURITY.md
+          test -s release/StarChem/UPGRADING_TO_1.8.0.md
           test -x release/StarChem/run-starchem.sh
           test -x release/StarChem/run-starchem-server.sh
           grep -Fq 'STARCHEM PROPRIETARY SOFTWARE LICENSE' release/StarChem/LICENSE
           grep -Fq 'StarChem is proprietary software.' release/StarChem/README.md
+          grep -Fq '# StarChem v1.8.0' release/StarChem/RELEASE_NOTES.md
+          grep -Fq '# Upgrading StarChem v1.7.0 to v1.8.0' release/StarChem/UPGRADING_TO_1.8.0.md
 
           mapfile -t TOP_LEVEL_FILES < <(find release/StarChem -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)
           mapfile -t TOP_LEVEL_DIRS < <(find release/StarChem -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
-          [[ "${TOP_LEVEL_FILES[*]}" == "LICENSE README.md StarChem.jar THIRD_PARTY_NOTICES.md run-starchem-server.bat run-starchem-server.sh run-starchem.bat run-starchem.sh" ]]
+          [[ "${TOP_LEVEL_FILES[*]}" == "AUTHENTICATION.md LICENSE README.md RELEASE_NOTES.md StarChem.jar THIRD_PARTY_NOTICES.md TLS_IDENTITY_SECURITY.md UPGRADING_TO_1.8.0.md run-starchem-server.bat run-starchem-server.sh run-starchem.bat run-starchem.sh" ]]
           [[ "${TOP_LEVEL_DIRS[*]}" == "config" ]]
 
           COMMIT_EPOCH="$(git show -s --format=%ct "$STARCHEM_COMMIT")"
@@ -215,6 +229,10 @@ jobs:
 
           test -f "$PACKAGE_DIR/StarChem.jar"
           test -d "$PACKAGE_DIR/config"
+          test -s "$PACKAGE_DIR/RELEASE_NOTES.md"
+          test -s "$PACKAGE_DIR/AUTHENTICATION.md"
+          test -s "$PACKAGE_DIR/TLS_IDENTITY_SECURITY.md"
+          test -s "$PACKAGE_DIR/UPGRADING_TO_1.8.0.md"
           test -x "$PACKAGE_DIR/run-starchem.sh"
           test -x "$PACKAGE_DIR/run-starchem-server.sh"
 

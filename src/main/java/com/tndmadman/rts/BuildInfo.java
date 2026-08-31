@@ -6,7 +6,7 @@ import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 
 final class BuildInfo {
-    private static final String FALLBACK_VERSION = "1.7.0-dev";
+    private static final String FALLBACK_VERSION = "1.8.0-dev";
     private static final String UNKNOWN_COMMIT = "unknown";
     private static final ManifestData MANIFEST = loadManifest();
 

@@ -10,6 +10,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CP="$1"
 cd "$ROOT"
 
+# Release identity and packaging contract. Keep this first so stale version/docs/workflow
+# metadata fails before the expensive historical fixture and network regressions run.
+bash validation/validate-release-metadata.sh
+
 run_java() {
   local class="$1"
   shift || true
