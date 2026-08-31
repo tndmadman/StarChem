@@ -19,6 +19,13 @@ require_text() {
   grep -Fq -- "$text" "$file" || fail "$file is missing required text: $text"
 }
 
+require_unstyled_text() {
+  local file="$1"
+  local text="$2"
+  tr -d '*`' < "$file" | grep -Fq -- "$text" \
+    || fail "$file is missing required release meaning: $text"
+}
+
 reject_text() {
   local file="$1"
   local text="$2"
@@ -33,12 +40,13 @@ for file in README.md PLAY.txt RELEASE_NOTES.md AUTHENTICATION.md TLS_IDENTITY_S
 done
 
 # Current public compatibility identity must agree everywhere operators are likely to look.
+# Strip Markdown emphasis/code markers so presentation changes do not weaken the contract.
 for file in README.md PLAY.txt AUTHENTICATION.md RELEASE_NOTES.md; do
-  require_text "$file" 'protocol 17'
-  require_text "$file" 'rules version 27'
+  require_unstyled_text "$file" 'protocol 17'
+  require_unstyled_text "$file" 'rules version 27'
 done
 for file in README.md PLAY.txt AUTHENTICATION.md RELEASE_NOTES.md UPGRADING_TO_1.8.0.md; do
-  require_text "$file" 'save format 6'
+  require_unstyled_text "$file" 'save format 6'
 done
 
 require_text README.md 'UPGRADING_TO_1.8.0.md'
