@@ -50,4 +50,4 @@ Current release documents
 - TLS_IDENTITY_SECURITY.md          Server certificate identity and key storage.
 - UPGRADING_TO_1.8.0.md             Required reading before upgrading a v1.7.0 persistent server.
 
-StarChem v1.8.0 multiplayer uses protocol 17 and rules version 27. Dedicated-server saves use format 6. Published v1.7.0 clients/servers are not multiplayer-compatible with v1.8.0.
+StarChem v1.8.0 multiplayer uses protocol 17 and rules version 27. Dedicated-server save format 6 is current. Published v1.7.0 clients/servers are not multiplayer-compatible with v1.8.0.
