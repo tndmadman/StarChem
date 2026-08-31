@@ -1,191 +1,22 @@
-name: Controlled StarChem v1.7.0 Release
+name: Retired StarChem v1.7.0 Publisher
 
+# Historical tombstone only. StarChem v1.7.0 is already published and this workflow
+# intentionally has no release, tag, artifact, or contents-write capability. All current
+# release validation and publication goes through .github/workflows/release.yml.
 on:
-  push:
-    branches: [main]
-    paths: ['.github/workflows/publish-v1.7.0.yml']
   workflow_dispatch:
 
-concurrency:
-  group: controlled-starchem-v1.7.0-release
-  cancel-in-progress: false
-
-env:
-  RELEASE_VERSION: 1.7.0
-  RELEASE_TAG: v1.7.0
-  TARGET_SHA: 71bf62d1eb6a35e747ad9b494fded32b6e5e57fb
-  RELEASE_ZIP: StarChem-v1.7.0.zip
-  CHECKSUM_FILE: StarChem-v1.7.0.zip.sha256
-  RELEASE_ARTIFACT: StarChem-v1.7.0-controlled
+permissions:
+  contents: read
 
 jobs:
-  package:
+  retired:
+    name: v1.7.0 publisher is retired
     runs-on: ubuntu-latest
-    timeout-minutes: 75
-    permissions:
-      contents: read
-      issues: read
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Verify pinned release state
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Explain current release path
         shell: bash
         run: |
-          set -euo pipefail
-          git cat-file -e "$TARGET_SHA^{commit}"
-          git merge-base --is-ancestor "$TARGET_SHA" "$GITHUB_SHA"
-          mapfile -t changed < <(git diff --name-only "$TARGET_SHA..$GITHUB_SHA" | sort)
-          [[ "${#changed[@]}" -eq 1 && "${changed[0]}" == '.github/workflows/publish-v1.7.0.yml' ]]
-          for issue in 272 273 275 276; do
-            [[ "$(gh api "repos/$GITHUB_REPOSITORY/issues/$issue" --jq .state)" == closed ]]
-          done
-          git checkout --detach "$TARGET_SHA"
-          grep -Fq '# StarChem v1.7.0' RELEASE_NOTES.md
-          grep -Fq 'static final int PROTOCOL_VERSION = 8;' src/main/java/com/tndmadman/rts/MultiplayerCompatibility.java
-          grep -Fq 'releaseVersion=1.7.0-dev' gradle.properties
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.10.2'
-      - name: Build and validate release
-        shell: bash
-        run: |
-          set -euo pipefail
-          gradle clean check jar --no-daemon -PreleaseVersion="$RELEASE_VERSION" -PbuildCommit="$TARGET_SHA"
-          [[ "$(java -jar build/libs/StarChem.jar --version)" == "StarChem ${RELEASE_VERSION} (${TARGET_SHA:0:12})" ]]
-      - name: Create deterministic package
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf release && mkdir -p release/StarChem
-          cp build/libs/StarChem.jar release/StarChem/StarChem.jar
-          cp -R config release/StarChem/config
-          cp packaging/run-starchem.bat release/StarChem/run-starchem.bat
-          cp packaging/run-starchem-server.bat release/StarChem/run-starchem-server.bat
-          cp packaging/run-starchem.sh release/StarChem/run-starchem.sh
-          cp packaging/run-starchem-server.sh release/StarChem/run-starchem-server.sh
-          chmod +x release/StarChem/*.sh
-          cp README.md RELEASE_NOTES.md AUTHENTICATION.md TLS_IDENTITY_SECURITY.md UPGRADING_TO_1.7.0.md LICENSE THIRD_PARTY_NOTICES.md release/StarChem/
-          epoch="$(git show -s --format=%ct "$TARGET_SHA")"
-          find release/StarChem -exec touch -d "@$epoch" {} +
-          (cd release && find StarChem -print | LC_ALL=C sort | zip -X -q "$RELEASE_ZIP" -@)
-          cp "release/$RELEASE_ZIP" .
-          sha256sum "$RELEASE_ZIP" > "$CHECKSUM_FILE"
-          sha256sum -c "$CHECKSUM_FILE"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.RELEASE_ARTIFACT }}
-          path: |
-            ${{ env.RELEASE_ZIP }}
-            ${{ env.CHECKSUM_FILE }}
-          if-no-files-found: error
-          retention-days: 14
-
-  windows-smoke:
-    needs: package
-    runs-on: windows-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.RELEASE_ARTIFACT }}
-          path: release-artifact
-      - name: Validate Windows package
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $zip = Join-Path release-artifact $env:RELEASE_ZIP
-          $expected = ((Get-Content (Join-Path release-artifact $env:CHECKSUM_FILE) -Raw).Trim() -split '\s+')[0]
-          if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected.ToLowerInvariant()) { throw 'Checksum mismatch' }
-          $root = Join-Path $env:RUNNER_TEMP 'starchem-v1.7.0-windows'
-          Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue
-          Expand-Archive $zip $root
-          Push-Location (Join-Path $root StarChem)
-          try {
-            $version = (& cmd /c run-starchem.bat --version | Out-String).Trim()
-            if ($version -ne "StarChem $env:RELEASE_VERSION ($($env:TARGET_SHA.Substring(0,12)))") { throw "Unexpected version: $version" }
-            java -cp StarChem.jar com.tndmadman.rts.ClientCredentialVaultValidator
-            java -cp StarChem.jar com.tndmadman.rts.TlsIdentityValidator
-          } finally { Pop-Location }
-
-  macos-smoke:
-    needs: package
-    runs-on: macos-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.RELEASE_ARTIFACT }}
-          path: release-artifact
-      - name: Validate macOS package
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd release-artifact
-          shasum -a 256 -c "$CHECKSUM_FILE"
-          root="$RUNNER_TEMP/starchem-v1.7.0-macos"
-          rm -rf "$root" && mkdir -p "$root"
-          ditto -x -k "$RELEASE_ZIP" "$root"
-          package="$root/StarChem"
-          chmod +x "$package"/*.sh
-          [[ "$("$package/run-starchem.sh" --version)" == "StarChem ${RELEASE_VERSION} (${TARGET_SHA:0:12})" ]]
-          java -cp "$package/StarChem.jar" com.tndmadman.rts.ClientCredentialVaultValidator
-          java -cp "$package/StarChem.jar" com.tndmadman.rts.TlsIdentityValidator
-
-  publish:
-    needs: [package, windows-smoke, macos-smoke]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.TARGET_SHA }}
-      - uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.RELEASE_ARTIFACT }}
-          path: release-artifact
-      - name: Refuse an existing tag or release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          ! git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1
-          ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1
-      - name: Publish immutable release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          target_commitish: ${{ env.TARGET_SHA }}
-          name: StarChem v1.7.0
-          body_path: RELEASE_NOTES.md
-          draft: false
-          prerelease: false
-          fail_on_unmatched_files: true
-          files: |
-            release-artifact/${{ env.RELEASE_ZIP }}
-            release-artifact/${{ env.CHECKSUM_FILE }}
-      - name: Audit release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq .object.sha)" == "$TARGET_SHA" ]]
-          test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')" -eq 2
+          echo 'StarChem v1.7.0 is already published.'
+          echo 'This historical publisher is retired and cannot publish or mutate releases.'
+          echo 'Use the validated generic Release StarChem workflow for current releases.'
