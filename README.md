@@ -229,7 +229,7 @@ Do not delete them to resolve a startup problem. Losing or replacing the key can
 
 Commander accounts use TLS-protected password challenge/proof authentication and resumable session tokens. The server does not store raw player passwords.
 
-The stock graphical JOIN flow allows local/loopback creation of an unused commander name. Remote JOIN is presented as sign-in to an existing commander. An explicit server-side remote-registration bridge exists but is disabled by default and should be enabled only when the operator intentionally wants that admission model. See [`AUTHENTICATION.md`](AUTHENTICATION.md).
+The stock graphical JOIN flow allows local/loopback creation of an unused commander name. Remote JOIN is presented as sign-in to an existing commander, but the current v1.8 server also routes an unused remote commander name through its registration challenge automatically. That remote-registration bridge is part of the current protocol path; it is not controlled by a separate JVM property or environment switch. During remote registration, requested developer access and any supplied developer token are stripped before account creation, and the real remote endpoint is restored after registration. See [`AUTHENTICATION.md`](AUTHENTICATION.md).
 
 Remembered reusable credentials use the operating-system credential service when available (Windows DPAPI, macOS Keychain, Linux Secret Service), with an owner-only fallback where necessary. Clearing remembered sign-ins does not erase the server certificate trust record or client-device identifier.
 
