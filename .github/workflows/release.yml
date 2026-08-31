@@ -17,10 +17,15 @@ on:
       - 'validation/**'
       - 'src/main/java/com/tndmadman/rts/**'
       - 'README.md'
+      - 'PLAY.txt'
       - 'RELEASE_NOTES.md'
+      - 'RELEASE_CHECKLIST.md'
       - 'AUTHENTICATION.md'
       - 'TLS_IDENTITY_SECURITY.md'
+      - 'UPGRADE_1.7.0.md'
+      - 'UPGRADING_TO_1.7.0.md'
       - 'UPGRADING_TO_1.8.0.md'
+      - 'CONTRIBUTING.md'
       - 'LICENSE'
       - 'THIRD_PARTY_NOTICES.md'
   workflow_dispatch:
@@ -159,6 +164,8 @@ jobs:
           [[ "$VERSION_OUTPUT" == "$EXPECTED_OUTPUT" ]]
           JAR_HELP_OUTPUT="$(java -jar build/libs/StarChem.jar --help)"
           printf '%s\n' "$JAR_HELP_OUTPUT" | grep -Fq -- '--server [PORT]'
+          printf '%s\n' "$JAR_HELP_OUTPUT" | grep -Fq -- '--event-frequency 0..4'
+          printf '%s\n' "$JAR_HELP_OUTPUT" | grep -Fq -- '--event-categories LIST'
           jar tf build/libs/StarChem.jar | grep -Fx 'META-INF/LICENSE'
           jar tf build/libs/StarChem.jar | grep -Fx 'META-INF/THIRD_PARTY_NOTICES.md'
 
@@ -176,6 +183,7 @@ jobs:
           cp packaging/run-starchem-server.sh release/StarChem/run-starchem-server.sh
           chmod +x release/StarChem/run-starchem.sh release/StarChem/run-starchem-server.sh
           cp README.md release/StarChem/README.md
+          cp PLAY.txt release/StarChem/PLAY.txt
           cp RELEASE_NOTES.md release/StarChem/RELEASE_NOTES.md
           cp AUTHENTICATION.md release/StarChem/AUTHENTICATION.md
           cp TLS_IDENTITY_SECURITY.md release/StarChem/TLS_IDENTITY_SECURITY.md
@@ -185,6 +193,7 @@ jobs:
 
           test -s release/StarChem/LICENSE
           test -s release/StarChem/THIRD_PARTY_NOTICES.md
+          test -s release/StarChem/PLAY.txt
           test -s release/StarChem/RELEASE_NOTES.md
           test -s release/StarChem/AUTHENTICATION.md
           test -s release/StarChem/TLS_IDENTITY_SECURITY.md
@@ -193,12 +202,13 @@ jobs:
           test -x release/StarChem/run-starchem-server.sh
           grep -Fq 'STARCHEM PROPRIETARY SOFTWARE LICENSE' release/StarChem/LICENSE
           grep -Fq 'StarChem is proprietary software.' release/StarChem/README.md
+          grep -Fq 'StarChem v1.8.0 quick start' release/StarChem/PLAY.txt
           grep -Fq '# StarChem v1.8.0' release/StarChem/RELEASE_NOTES.md
           grep -Fq '# Upgrading StarChem v1.7.0 to v1.8.0' release/StarChem/UPGRADING_TO_1.8.0.md
 
           mapfile -t TOP_LEVEL_FILES < <(find release/StarChem -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)
           mapfile -t TOP_LEVEL_DIRS < <(find release/StarChem -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
-          [[ "${TOP_LEVEL_FILES[*]}" == "AUTHENTICATION.md LICENSE README.md RELEASE_NOTES.md StarChem.jar THIRD_PARTY_NOTICES.md TLS_IDENTITY_SECURITY.md UPGRADING_TO_1.8.0.md run-starchem-server.bat run-starchem-server.sh run-starchem.bat run-starchem.sh" ]]
+          [[ "${TOP_LEVEL_FILES[*]}" == "AUTHENTICATION.md LICENSE PLAY.txt README.md RELEASE_NOTES.md StarChem.jar THIRD_PARTY_NOTICES.md TLS_IDENTITY_SECURITY.md UPGRADING_TO_1.8.0.md run-starchem-server.bat run-starchem-server.sh run-starchem.bat run-starchem.sh" ]]
           [[ "${TOP_LEVEL_DIRS[*]}" == "config" ]]
 
           COMMIT_EPOCH="$(git show -s --format=%ct "$STARCHEM_COMMIT")"
@@ -229,6 +239,7 @@ jobs:
 
           test -f "$PACKAGE_DIR/StarChem.jar"
           test -d "$PACKAGE_DIR/config"
+          test -s "$PACKAGE_DIR/PLAY.txt"
           test -s "$PACKAGE_DIR/RELEASE_NOTES.md"
           test -s "$PACKAGE_DIR/AUTHENTICATION.md"
           test -s "$PACKAGE_DIR/TLS_IDENTITY_SECURITY.md"
@@ -241,6 +252,7 @@ jobs:
           [[ "$VERSION_OUTPUT" == "$EXPECTED_OUTPUT" ]]
           SERVER_HELP_OUTPUT="$("$PACKAGE_DIR/run-starchem-server.sh" --help)"
           printf '%s\n' "$SERVER_HELP_OUTPUT" | grep -Fq -- '--server [PORT]'
+          printf '%s\n' "$SERVER_HELP_OUTPUT" | grep -Fq -- '--event-frequency 0..4'
 
           PORT="$(python3 - <<'PY'
           import socket
@@ -336,6 +348,7 @@ jobs:
           Expand-Archive -LiteralPath $zipPath -DestinationPath $extractRoot
           Push-Location (Join-Path $extractRoot 'StarChem')
           try {
+            if (-not (Test-Path -LiteralPath 'PLAY.txt')) { throw 'Windows package is missing PLAY.txt' }
             $versionOutput = (& cmd /c run-starchem.bat --version | Out-String).Trim()
             if ($LASTEXITCODE -ne 0) { throw "Windows player launcher exited with $LASTEXITCODE" }
             $commit = '${{ needs.jar-release.outputs.build_commit }}'
@@ -348,6 +361,9 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "Windows server launcher exited with $LASTEXITCODE" }
             if ($helpOutput -notmatch '--server \[PORT\]') {
               throw 'Windows server launcher did not reach StarChem help output.'
+            }
+            if ($helpOutput -notmatch '--event-frequency 0\.\.4') {
+              throw 'Windows server launcher help is missing the documented event-frequency option.'
             }
           }
           finally {

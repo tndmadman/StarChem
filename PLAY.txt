@@ -1,27 +1,53 @@
-StarChem launch instructions
+StarChem v1.8.0 quick start
 
-1. Install Java 17 or newer.
-2. Extract the StarChem release ZIP.
-3. Double-click StarChem.jar.
+Requirements
+- Java 17 or newer.
+- Extract the COMPLETE StarChem release ZIP before launching.
+- Keep StarChem.jar, config/, the launchers, and the packaged documentation together.
 
-If double-click does not open the game, Windows probably does not have .jar files associated with Java.
+Windows player
+1. Open the extracted StarChem folder.
+2. Run run-starchem.bat.
+3. Use SOLO for a local game or JOIN for multiplayer.
 
-Fix without using commands:
+Linux player
+1. Open a terminal in the extracted StarChem folder.
+2. Run:
 
-1. Right-click StarChem.jar.
-2. Choose Open with.
-3. Choose Java Platform SE Binary or OpenJDK Platform Binary.
-4. Check Always use this app to open .jar files.
-5. Click OK.
+   ./run-starchem.sh
 
-After that, double-clicking StarChem.jar should launch the game.
+Dedicated server
+Windows:
 
-Fallback terminal launch:
+   run-starchem-server.bat
 
-java -jar .\StarChem.jar
+Linux:
 
-Do not run this:
+   ./run-starchem-server.sh
 
-java .\StarChem.jar
+Both dedicated-server launchers default to TCP port 50000 and server name StarChem-Server. Run this for the complete supported command-line option list:
 
-The -jar flag is required when launching from a terminal.
+   java -jar StarChem.jar --help
+
+Direct player launch, if needed:
+
+   java -jar StarChem.jar
+
+Direct dedicated-server launch, if needed:
+
+   java -Djava.awt.headless=true -jar StarChem.jar --server 50000 --name StarChem-Server
+
+Do NOT run:
+
+   java StarChem.jar
+
+The -jar flag is required for a direct Java launch.
+
+Current release documents
+- README.md                         Main player/server guide.
+- RELEASE_NOTES.md                  StarChem v1.8.0 changes and compatibility.
+- AUTHENTICATION.md                 Multiplayer account/sign-in behavior.
+- TLS_IDENTITY_SECURITY.md          Server certificate identity and key storage.
+- UPGRADING_TO_1.8.0.md             Required reading before upgrading a v1.7.0 persistent server.
+
+StarChem v1.8.0 multiplayer uses protocol 17 and rules version 27. Dedicated-server save format 6 is current. Published v1.7.0 clients/servers are not multiplayer-compatible with v1.8.0.

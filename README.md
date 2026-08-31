@@ -1,327 +1,316 @@
 # StarChem
 
-StarChem is a Java 2D top-down multiplayer RTS prototype.
+StarChem is a Java 17 2D top-down space RTS with solo play and dedicated-server multiplayer.
 
-## Download
+## StarChem v1.8.0
 
-Download the release ZIP and its matching `.sha256` file, verify the checksum, then extract the complete ZIP.
+The v1.8.0 release line uses:
 
-The player package contains the compiled `StarChem.jar`, the required `config`
-folder, Windows and Linux launchers, and the packaged legal and quick-start documents.
+- multiplayer protocol **17**;
+- rules version **27**;
+- dedicated-server save format **6**.
 
-On Windows, double-click `run-starchem.bat` to open the lobby. The graphical menu contains only **SOLO** and **JOIN**; multiplayer servers run as separate dedicated-server processes.
+Published StarChem v1.7.0 multiplayer uses protocol 8 and is intentionally incompatible with v1.8.0. Persistent v1.7.0 servers can be upgraded through the validated migration path described in [`UPGRADING_TO_1.8.0.md`](UPGRADING_TO_1.8.0.md).
 
-On Linux, open a terminal in the extracted folder and run:
+Release-facing documentation:
+
+- [`PLAY.txt`](PLAY.txt) — shortest player/server launch instructions.
+- [`RELEASE_NOTES.md`](RELEASE_NOTES.md) — v1.8.0 feature and compatibility summary.
+- [`UPGRADING_TO_1.8.0.md`](UPGRADING_TO_1.8.0.md) — required persistent-server upgrade procedure.
+- [`AUTHENTICATION.md`](AUTHENTICATION.md) — commander accounts, password authentication, session resume, and remembered sign-ins.
+- [`TLS_IDENTITY_SECURITY.md`](TLS_IDENTITY_SECURITY.md) — server TLS identity, certificate pinning, managed key files, and external keystore configuration.
+- [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) — maintainer tag/publish checklist.
+
+## Download and launch
+
+Download the official release ZIP and its matching `.sha256` file, verify the checksum, then extract the **complete** ZIP before launching. Keep `StarChem.jar`, `config/`, the launchers, and packaged documentation together.
+
+Java 17 or newer is required. Players do not need Gradle or source files.
+
+### Windows player
+
+Run:
+
+```text
+run-starchem.bat
+```
+
+### Linux player
+
+Run:
 
 ```text
 ./run-starchem.sh
 ```
 
-Java 17 or newer is required.
+### Direct Java launch
 
-Players do not need Gradle, source files, or a local compile step.
+```text
+java -jar StarChem.jar
+```
+
+Run this to print the build identity:
+
+```text
+java -jar StarChem.jar --version
+```
+
+Run this to display the authoritative command-line option list:
+
+```text
+java -jar StarChem.jar --help
+```
+
+Unknown options and missing option values are rejected.
+
+## Graphical lobby
+
+The graphical lobby is the normal player entry point. Its primary game actions are **SOLO** and **JOIN**, with additional controls for:
+
+- LAN server discovery and refresh;
+- recent-server selection and reconnect;
+- direct address/port entry;
+- approved read-only observer joining;
+- commander sign-in and saved-sign-in clearing;
+- solo starting system and galaxy copies;
+- skirmish preset and NPC difficulty;
+- victory condition;
+- diplomacy mode, friendly-fire, shared-vision, and shared-victory settings;
+- NPC faction spawn selection;
+- Codex access;
+- Settings.
+
+JOIN clients receive authoritative world/game state from the server. Solo setup controls do not override a remote dedicated server's saved settings.
 
 ## Dedicated server
 
-### Windows
+StarChem multiplayer uses TLS-protected framed TCP. The default game port is `50000`.
 
-Start a dedicated server from the extracted release folder with:
+### Windows packaged launcher
+
+Run:
 
 ```text
 run-starchem-server.bat
 ```
 
-The launcher defaults to TCP port `50000` and the server name `StarChem-Server`. Override either value before launching:
+The launcher defaults to:
 
 ```text
-set STARCHEM_PORT=50100
-set STARCHEM_SERVER_NAME=Public Server
-run-starchem-server.bat --galaxy-copies 2
+STARCHEM_PORT=50000
+STARCHEM_SERVER_NAME=StarChem-Server
 ```
 
-For protected remote developer authorization, store the token in an owner-only file and set its path without placing the reusable token in the Java command line:
+On Windows it also chooses a per-user server-data directory by default:
+
+```text
+%LOCALAPPDATA%\StarChem\server
+```
+
+Override it before launch when needed:
+
+```text
+set STARCHEM_SERVER_SAVE_DIR=D:\StarChemServer
+set STARCHEM_PORT=50100
+set STARCHEM_SERVER_NAME=Public Server
+run-starchem-server.bat
+```
+
+### Linux packaged launcher
+
+Run:
+
+```text
+./run-starchem-server.sh
+```
+
+The Linux launcher defaults to TCP port `50000`, server name `StarChem-Server`, and the application's normal dedicated-server `saves` directory under the extracted launch folder. Override the save directory with an explicit application option:
+
+```text
+STARCHEM_PORT=50100 STARCHEM_SERVER_NAME="Public Server" \
+  ./run-starchem-server.sh --save-dir /srv/starchem
+```
+
+### Direct dedicated-server launch
+
+```text
+java -Djava.awt.headless=true -jar StarChem.jar \
+  --server 50000 \
+  --name StarChem-Server
+```
+
+Important dedicated-server options include:
+
+```text
+--server [PORT]
+--name NAME
+--system SYSTEM_ID
+--galaxy-copies 1|2
+--skirmish-preset peaceful|standard|hostile|sandbox
+--npc-difficulty relaxed|normal|hard|brutal
+--victory-condition ID
+--save-dir DIR
+--save-name NAME
+--autosave-seconds N
+--backup-count N
+--new-world
+--disable-events
+--enable-events
+--event-frequency 0..4
+--event-categories LIST
+```
+
+Use `java -jar StarChem.jar --help` rather than copying an old option list from a prior release.
+
+### Persistent settings and new worlds
+
+World/scenario state is authoritative and persisted. Changing launch arguments on a later restart does not silently rewrite an existing world's saved policy. Use `--new-world` only when you intentionally want a new session rather than the existing persistent world.
+
+Dynamic galaxy-event startup controls accept `all`, `none`, or comma-separated configured category IDs for `--event-categories`. Event frequency is clamped to the supported 0..4 range by the application parser.
+
+### Network exposure
+
+Internet-hosted servers must allow inbound **TCP** traffic on the selected game port. Do not expose unrelated local management services merely because the StarChem game port is public.
+
+Stop the dedicated server through its console `stop` / `shutdown` command or a normal process termination path. The server performs an authoritative save/transport shutdown sequence and reports whether shutdown was clean.
+
+## Dedicated-server console
+
+The authoritative dedicated-server console provides administration, save/backup, player/session, moderation, observation, system, performance, production/research, and developer commands.
+
+Do not maintain an external copied list as the source of truth. At the server console, enter:
+
+```text
+help
+```
+
+or:
+
+```text
+help <command>
+```
+
+Useful discovery/diagnostic commands include `status`, `server-info`, `save-info`, `players`, `sessions`, `systems`, `health`, `perf`, `version`, and `help`. The running server's help output is authoritative for the exact build.
+
+Runtime operator changes that are explicitly process-scoped, such as runtime developer mode or pause state, should not be assumed to persist after restart unless the command/help states otherwise.
+
+## Server data and backups
+
+A persistent server is more than one `.starchem-save` file. Depending on enabled/current features, the server-data directory can contain:
+
+- current, previous, and timestamped save archives;
+- TLS identity and password files;
+- retained identity/session state;
+- authentication-decoy material;
+- administration and moderation state;
+- observations and activity records;
+- recovery and previous-state files;
+- persistent fog/intelligence/discovery state;
+- event and other companion state.
+
+Back up the **entire server-data directory as one coherent set**. Do not publish a real server backup in a bug report: it can contain security-sensitive and moderation data.
+
+Before moving a persistent server between versions, read [`UPGRADING_TO_1.8.0.md`](UPGRADING_TO_1.8.0.md).
+
+## TLS server identity
+
+StarChem verifies a remote server's TLS certificate before sending reusable login material. A changed pinned fingerprint fails closed so credentials are not automatically sent to a different certificate.
+
+Managed dedicated-server TLS files normally live beside the save as:
+
+```text
+<save-name>-tls.p12
+<save-name>-tls.password
+```
+
+Do not delete them to resolve a startup problem. Losing or replacing the key can change the identity clients have pinned. The server can also use an operator-supplied PKCS#12 keystore/password file through the configuration documented in [`TLS_IDENTITY_SECURITY.md`](TLS_IDENTITY_SECURITY.md).
+
+## Commander authentication
+
+Commander accounts use TLS-protected password challenge/proof authentication and resumable session tokens. The server does not store raw player passwords.
+
+The stock graphical JOIN flow allows local/loopback creation of an unused commander name. Remote JOIN is presented as sign-in to an existing commander, but the current v1.8 server also routes an unused remote commander name through its registration challenge automatically. That remote-registration bridge is part of the current protocol path; it is not controlled by a separate JVM property or environment switch. During remote registration, requested developer access and any supplied developer token are stripped before account creation, and the real remote endpoint is restored after registration. See [`AUTHENTICATION.md`](AUTHENTICATION.md).
+
+Remembered reusable credentials use the operating-system credential service when available (Windows DPAPI, macOS Keychain, Linux Secret Service), with an owner-only fallback where necessary. Clearing remembered sign-ins does not erase the server certificate trust record or client-device identifier.
+
+## Observer sessions
+
+The graphical lobby can request **Join as approved observer**. Observer sessions require server approval/invitation and are read-only. The server, not the client UI, enforces observer visibility and rejection of gameplay/developer mutations.
+
+## Developer access
+
+`--dev` does not by itself grant a remote client authority over a dedicated server.
+
+For a protected dedicated-server developer token, keep the token in an owner-only file and pass only its path:
+
+Windows server:
 
 ```text
 set STARCHEM_DEV_TOKEN_FILE=C:\secure\starchem-dev-token.txt
 run-starchem-server.bat --dev
 ```
 
-### Linux
-
-Start a headless dedicated server from the extracted release folder with:
-
-```text
-./run-starchem-server.sh
-```
-
-Override its default port or name with environment variables and pass additional StarChem options after the script name:
-
-```text
-STARCHEM_PORT=50100 STARCHEM_SERVER_NAME="Public Server" ./run-starchem-server.sh --galaxy-copies 2
-```
-
-Create an owner-only token file and pass only its path through the launcher:
+Linux server:
 
 ```text
 umask 077
-printf '%s\n' 'replace-with-a-random-token' > /secure/starchem-dev-token
+printf '%s\n' 'replace-with-a-strong-random-token' > /secure/starchem-dev-token
 STARCHEM_DEV_TOKEN_FILE=/secure/starchem-dev-token ./run-starchem-server.sh --dev
 ```
 
-The token file is read once during startup. Replacing it does not rotate the active token until the server is restarted.
-
-The equivalent direct Java command on either platform is:
+A direct client launch can request developer access with a matching protected token file:
 
 ```text
-java -Djava.awt.headless=true -jar StarChem.jar --server 50000 --name StarChem-Server
-```
-
-Choose a new world's scenario and NPC pressure with:
-
-```text
---skirmish-preset peaceful|standard|hostile|sandbox
---npc-difficulty relaxed|normal|hard|brutal
-```
-
-Control dynamic galaxy events for a newly created session with:
-
-```text
---disable-events
---enable-events
---event-frequency 0..4
---event-categories all
---event-categories RICH_RESOURCE,DERELICT_SALVAGE,DISTRESS_SIGNAL,PIRATE_AMBUSH,ENVIRONMENTAL,UNSTABLE_WORMHOLE
-```
-
-`--event-frequency 1` is the default configured rate, `0` suppresses random event creation without changing the category allow-list, and values up to `4` increase evaluation probability. `--event-categories none` disables all categories while preserving the general event setting. The authoritative event policy is persisted in the server save; restarting an existing save keeps its saved policy rather than silently replacing it from new launch arguments. Use `--new-world` when intentionally changing event policy for a new session.
-
-The graphical lobby applies these settings only to **SOLO**. A JOIN client receives the dedicated server's authoritative settings. Dedicated-server settings are captured in the save and remain unchanged on restart even if later launch arguments differ; use `--new-world` to intentionally create a different scenario.
-
-Open or forward the selected **TCP** port. Stop the server with `Ctrl+C` or a normal termination signal; the server closes its network transport before the process exits. It prints a status line at startup and every 60 seconds while running.
-
-### Console commands
-
-When the dedicated server is attached to an interactive terminal, enter commands directly in that terminal. Input is queued and executed by the authoritative server tick instead of changing game state from the console-reader thread. Closing or redirecting standard input does not stop the server.
-
-Available commands:
-
-```text
-help [command]             Show available commands or detailed command help.
-status                     Print server, network, save, admission, and autosave status.
-players                    List connected and retained player sessions.
-leaderboard [top <count>]  Show authoritative cross-system player rankings.
-player <player> [assets|research|systems]
-                           Show detailed player state.
-sessions [connected|retained]
-                           Show sanitized session and queue details.
-uptime                     Show start time, uptime, save counts, and autosave timing.
-perf [all|network|simulation]
-                           Show simulation and network performance counters.
-health [disk|network|simulation]
-                           Show JVM, disk, network, and simulation health.
-systems [active|controlled|player <player>]
-                           List authoritative galaxy systems.
-system <id-or-name>        Show detailed information for one galaxy system.
-connection <player>        Show sanitized connection diagnostics.
-assets <player|system> <selector> [ships|bases]
-asset <unit-or-base-id>    Inspect authoritative ships and bases.
-research topics|topic <topic>|status|completed|queued|available|blocked <player>
-                           Inspect loaded research rules and player progress.
-production <summary|player <player>|system <system>|base <base-id>|stalled>
-factions                   Show NPC faction totals and runtime-record count.
-faction <id-or-name>       Inspect one NPC faction.
-resync <player|all|resources>
-                           Resend authoritative state or force resource correction.
-server-info [compatibility|tls]
-                           Show build, protocol, config fingerprint, and TLS identity.
-save-info                  Show current, fallback, and administration-file state.
-save                       Write a manual dedicated-server save.
-autosave status            Show runtime and startup autosave settings.
-autosave set <duration>    Change the interval for the current process.
-autosave on|off|reset      Enable, disable, or restore the startup interval.
-backups list               List current, previous, and timestamped save archives.
-backups create [label]     Save, copy, and checksum-verify a manual backup.
-backups verify <selector>  Verify current, previous, or a named archive.
-backups prune              Apply the configured backup-retention limit.
-maintenance status         Show admission-control state.
-maintenance on [reason]    Reject new identities while allowing reconnects.
-maintenance off            Allow new player identities again.
-slots                      Show connected, retained, and maximum sessions.
-slots set <count>          Set the persistent player-session limit.
-slots unlimited            Remove the session limit.
-motd show|set|clear|send   Manage the persistent message of the day.
-whitelist status|on|off|list
-whitelist add|remove <player-or-name>
-whitelist add-connected    Manage persistent identity admission.
-kick <player> [duration] [reason]
-kicks                      List active temporary kicks.
-unkick <entry-id|player|name>
-ban [player|ip|device|mac] <target> <duration|permanent> [--include-stale] [reason]
-bans [all|player|ip|device]
-unban <entry-id|player|name|target>
-                           Manage persistent identity, IP/CIDR, and client-device bans.
-pause status|on [reason]|off
-                           Pause simulation while networking and administration continue.
-activity [last <count>|player <player>|type <type>|clear|export <filename>]
-                           Inspect or export the bounded persistent operator journal.
-observations [player]      Show retained IP and client-device signals with per-signal ages.
-observations delete <player>
-observations prune
-observations clear confirm  Delete retained observation data.
-identity list [active|archived]
-identity dormant <age>     Inspect retained identities by lifecycle and inactivity.
-identity archive <player> confirm
-identity restore <player>
-identity delete <player> confirm
-                           Archive or permanently delete retained identities.
-prune-systems preview      Preview abandoned dynamic systems.
-prune-systems run confirm Create a verified backup, then prune eligible systems.
-tell <player> <message>    Send one connected player a private server notice.
-notice all <message>       Send a scoped server notice.
-notice system <system> <message>
-threads                    List live JVM threads and states.
-memory                     Show JVM heap and non-heap usage.
-gc-status                  Show garbage-collector statistics without forcing collection.
-dump player|system <selector> [filename]
-                           Write a sanitized JSON administration dump.
-say <message>              Broadcast a server notice to connected clients.
-shutdown now               Save and stop immediately.
-shutdown <duration> [reason]
-                           Schedule shutdown; durations accept seconds, s, m, h, or d.
-shutdown status            Show the pending shutdown.
-shutdown cancel            Cancel the pending shutdown.
-disconnect <player> [reason]
-                           Temporarily disconnect a player while retaining the session.
-dev status                 Show runtime developer state.
-dev mode status|on|off [confirm]
-                           Enable or disable developer controls for this process.
-dev access list|requests|grant|revoke|revoke-all ...
-dev freebuild status <player>|<player> on|off
-dev resource ...           Inspect, add, remove, set, fill, or clear base inventory.
-dev research ...           Grant, finish, revoke, cascade, or reset research.
-dev ai ...                 Control AI pause, speed, freezes, rules, preset, snapshot, and reload.
-dev timers status|on|off   Control production timers at runtime.
-dev faction ...            Spawn, inspect, reset, remove, fund, or trigger any NPC faction.
-dev production ...         Fund, finish, cancel, move, or clear production jobs.
-dev asset ...              Heal, move, or safely destroy an asset.
-dev player ...             Heal, relocate, or respawn a player.
-dev spawn ...              Spawn validated ships, bases, loot, or attack waves.
-version                    Print the running build identity.
-stop                       Save and stop immediately.
-```
-
-Maintenance mode and the slot limit apply only to brand-new player identities. Existing connected players remain online, and retained identities may reconnect or reclaim their session. Lowering the slot limit never disconnects an existing session. Fresh dedicated servers default to a finite limit of 128 retained identities; operators may change it with `slots set` or explicitly choose `slots unlimited`.
-
-Identity creation and last-seen timestamps, archive state, and the monotonic player-ID high-water mark are stored in `<save-name>-identities.json`. Archived identities keep their names and world state but cannot authenticate until restored. Permanent deletion requires a disconnected player, an explicit `confirm`, a fresh verified backup, and a verified post-deletion save. Deletion removes the session, ships, bases, research, home state, and system ownership; the deleted name becomes reusable while player IDs are never recycled. Identity-scoped whitelist, kick, and player-ban entries are removed, while IP and device bans remain as independent security records.
-
-The message of the day, maintenance state, maintenance reason, and slot limit are stored beside the server save in `<save-name>-admin.json`. Whitelist entries, kicks, and bans are stored in `<save-name>-moderation.json`. The bounded operator journal is retained in `<save-name>-activity.log`, and age-limited last-seen moderation signals are retained in the owner-only `<save-name>-observations.json` companion file. Runtime autosave, simulation pause, and runtime developer mode changes last only until the process exits.
-
-Observation records exist only to support server moderation. Each retained IP address and random client-device identifier has its own last-seen timestamp. Signals expire automatically after 90 days by default. Automatic `ban player` expansion uses only signals seen within the last 30 days; use `--include-stale` only after reviewing the displayed ages. Configure these periods with JVM properties `-Dstarchem.observations.retentionDays=N` and `-Dstarchem.observations.banMaxAgeDays=N`, or environment variables `STARCHEM_OBSERVATION_RETENTION_DAYS` and `STARCHEM_OBSERVATION_BAN_MAX_AGE_DAYS`. Use `observations delete <player>` or `observations clear confirm` to remove retained data.
-
-A player ban records the player identity and, when available, also records that connection's numeric IP address and client device ID. IP bans accept exact IPv4 or IPv6 addresses and CIDR ranges. A game server cannot obtain a remote computer's Ethernet or Wi-Fi MAC address across the internet because routers do not forward MAC addresses. The `mac` spelling is therefore an explicit alias for StarChem's locally persisted random client device ID, not a hardware MAC address. Client device IDs can be reset or spoofed, IP addresses can change or be hidden by VPNs, and an IP ban may affect multiple players behind the same shared address; use identity, IP/CIDR, and device bans together when stronger enforcement is needed.
-
-Kicks and bans retain the player's session, ships, bases, research, and systems. They prevent JOIN, password reclaim, and RESUME until removed or expired instead of using the normal disconnected-session expiry path. `prune-systems run confirm` is intentionally separate and creates a verified backup before deleting abandoned dynamic systems.
-
-The `say`, `tell`, `notice`, and scheduled-shutdown commands send notices to connected clients. A temporary `disconnect` keeps the player's resumable session and assets; it is not a ban or permanent kick.
-
-Runtime developer mode can be enabled only from the trusted local server console. It is independent from immutable startup configuration and resets after restart. Disabling it revokes all remote developer grants and free-build permissions, restores normal AI flags and the startup timer setting, and informs affected clients. Remote developer authorization and free-build are separate controls. Destructive developer operations require explicit confirmation and create a verified backup where recovery risk is meaningful. Resource grants, research changes, production changes, spawns, repairs, relocations, and faction operations run on the authoritative server tick and force client resynchronization.
-
-Run `java -jar StarChem.jar --help` to view all supported startup options. Unknown options and missing option values are rejected instead of being silently ignored.
-
-## Version
-
-Run the following command from the extracted release folder to print the application version and build commit:
-
-```text
-java -jar StarChem.jar --version
-```
-
-Clients and servers should use the same StarChem release version.
-
-## Multiplayer networking
-
-StarChem multiplayer uses framed TCP connections. A dedicated server listens on the selected game port, and clients connect to that server with **JOIN**. Internet-hosted games must allow inbound TCP traffic on the selected port; StarChem no longer uses UDP for multiplayer.
-
-Remote servers use a pinned TLS certificate. If a server is intentionally moved or its TLS key is replaced, StarChem blocks login secrets and displays the old and new fingerprints. Verify the change with the server owner before choosing **TRUST NEW CERTIFICATE**. Player password verifiers are derived with an intentionally expensive PBKDF2 step from the verified TLS fingerprint, player name, and a server-provided random account salt, so credentials captured from one server cannot be reused on another. Existing dedicated-server accounts created with the legacy verifier require one password re-entry; after successful authentication the server upgrades the account in place without replacing its player identity or assets. Dedicated-server operators should still back up the complete save directory, including the `*-tls.p12` identity file.
-
-## In-game reference menus
-
-Press `F1` during a game, or choose **CODEX** in the lobby, to open the searchable StarChem codex. It is generated from the currently loaded rule definitions and covers ships, stations, resources, research prerequisites and unlocks, manufacturing recipes, NPC factions, and controls. Filter by category or search names, IDs, stats, costs, descriptions, and unlock text. The codex is read-only and works during solo and joined games without changing game state.
-
-Press `I` during a game to open the resource catalog. The catalog lists every loaded material and shows the loaded star-system templates, configured system roles, and resource-node types where the selected raw resource can naturally appear. Manufactured and salvage materials are identified separately because they are not placed in natural system belts.
-
-Press `M` to open the galaxy map. Press the active menu key again or `Escape` to close a reference overlay.
-
-A tactical minimap appears in the lower-right corner during normal play. It shows resources, wormholes, friendly ships and bases, enemy contacts, and the current camera view. Click anywhere inside its map area to pan the camera there. Contact, wormhole, and friendly-loss pings briefly highlight important locations; build and developer panels take input priority if they overlap it.
-
-## Manufacturing economy
-
-StarChem uses a JSON-driven intermediate manufacturing economy. Material display metadata, family, rarity, color, and raw/manufactured status are loaded from `config/materials.json`. Manufacturing recipes are loaded from the files listed under `files.craftables` in `config/starchem.json`.
-
-The Manufacturing Plant organizes recipes into processed materials, chemicals, electronics, industrial assemblies, power and defense, weapons, and capital systems. Recipes may require completed research through their `requiresResearch` field. Starter Prospectors, Deployers, and the first Manufacturing Plant remain directly craftable from raw resources so a new game cannot deadlock before manufacturing is available.
-
-Salvage can be recycled through reclamation recipes, while ships, stations, and later research consume progressively more manufactured components instead of enormous flat piles of raw ore and gas.
-
-## Galaxy topology
-
-`config/galaxy.json` controls the number of extra seeded shortcuts added on top of the permanent connected ring:
-
-```json
-{
-  "topology": {
-    "wanderingWormholePairs": 4
-  }
-}
-```
-
-Set `wanderingWormholePairs` to `0` to keep only the base topology. Accepted values are `0` through `32`. The same galaxy seed and setting produce the same additional links. The host reads this setting when a session is created, so changing it requires starting a new session. Multiplayer clients should use the same packaged configuration as the host.
-
-## Development
-
-Run from source with Gradle during development.
-
-Local builds use an identifiable `-dev` application version. Release builds receive their semantic version and commit SHA from the release workflow.
-
-### Remote developer access
-
-Remote clients never receive developer authority solely because they launch with `--dev`.
-
-Create separate protected token files containing the same strong random token on the host and client machines, then pass only the file paths:
-
-```text
-java -jar StarChem.jar --host 50000 --dev --dev-token-file /secure/host-dev-token
 java -jar StarChem.jar --join HOST 50000 --dev --dev-token-file /secure/client-dev-token
 ```
 
-Tokens must contain 16-128 letters, numbers, `.`, `_`, `~`, or `-`. Token files must be regular, non-symbolic-link files owned by the current user. On POSIX filesystems they must not grant group or other permissions. Broad Windows ACL access is also rejected. One trailing newline is accepted. The file is loaded only at startup, so token rotation requires restarting the process.
+The legacy `--dev-token TOKEN` argument remains supported but is intentionally discouraged because command-line secrets can leak through shell history, process listings, service definitions, diagnostics, or crash reports.
 
-The legacy `--dev-token TOKEN` form remains available for migration but prints a warning because command-line secrets can be exposed through shell history, process listings, service definitions, crash reports, and diagnostics. Do not use the legacy form for normal deployment.
+## Gameplay reference
 
-A graphical host's loopback client remains authorized automatically; dedicated servers require the token even for loopback clients.
+The in-game UI is the primary current reference for loaded rules:
 
-A graphical host can also grant or revoke a connected client's requested developer access from the **Remote dev access** section of the in-game dev crafting panel. Revocation takes effect immediately on the client and server.
+- `F1` — searchable Codex for ships, stations, resources, research, recipes, factions, and controls.
+- `I` — resource/material catalog and natural-resource placement information.
+- `M` — galaxy map.
+- tactical minimap — contacts, resources, wormholes, friendly assets, pings, and current camera area.
+
+Rules and manufacturing data are loaded from the packaged `config/` directory. Multiplayer compatibility includes a packaged configuration fingerprint, so do not casually mix configuration files from different builds.
+
+## Development and verification
+
+Local source builds resolve to the repository development version (`1.8.0-dev` during v1.8 preparation). Release builds receive the final semantic version and build commit through the release workflow.
+
+The normal repository verification command is:
+
+```text
+gradle clean check jar --no-daemon
+```
+
+The canonical release regression gate is:
+
+```text
+bash validation/run-release-regressions.sh 'build/classes/java/main:build/resources/main'
+```
+
+That gate includes release-metadata/docs checks, permanent regression validators, and the real published-v1.7.0-to-current persistence migration test.
+
+## Release process
+
+StarChem uses `.github/workflows/release.yml` as the current release publisher. The old v1.7.0 one-shot workflow is retained only as a read-only historical tombstone and has no release-write capability.
+
+Before tagging, follow [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md). In summary:
+
+1. Keep `RELEASE_NOTES.md`, `gradle.properties`, runtime fallback identity, protocol/rules/save documentation, and upgrade docs consistent.
+2. Require the exact final `main` commit to pass normal CI and the generic release-package workflow.
+3. Tag that exact immutable commit with `v1.8.0`.
+4. The tag-triggered workflow rebuilds and verifies the JAR, runs canonical regressions, creates a deterministic ZIP and checksum, validates the extracted Linux package, validates Windows launchers, and only then publishes the GitHub Release assets.
+5. Do not manually rebuild or substitute release artifacts after the validated workflow.
 
 ## License
 
-StarChem is proprietary software. Copyright © 2026 tndmadman. All rights
-reserved.
+StarChem is proprietary software. Copyright © 2026 tndmadman. All rights reserved.
 
-The source code is visible for inspection only. Public repository access does
-not grant permission to copy, compile, modify, redistribute, publish, sell,
-reuse, or incorporate StarChem code, rules data, assets, or other protected
-material into another project.
+The source code is visible for inspection only. Public repository access does not grant permission to copy, compile, modify, redistribute, publish, sell, reuse, or incorporate StarChem code, rules data, assets, or other protected material into another project.
 
-Official unmodified compiled releases may be run only under the limited
-personal, non-commercial permission stated in [`LICENSE`](LICENSE). StarChem is
-not open source. Outside implementation contributions are not currently
-accepted; see [`CONTRIBUTING.md`](CONTRIBUTING.md). Third-party notice policy is
-documented in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
-
-## Release
-
-1. Update `RELEASE_NOTES.md` so its first line is exactly `# StarChem v<version>`.
-2. Create and push that immutable semantic-version tag, for example `v1.1.0-alpha`.
-3. The release workflow rebuilds the JAR twice and requires byte-identical output, runs the complete verification suite, creates the release ZIP twice and requires byte-identical output, verifies its SHA-256 checksum, smoke-tests the extracted Linux client and dedicated server, and validates both Windows launchers.
-4. Only after every validation job passes does the tag-triggered publish job attach the ZIP and `.sha256` file to the GitHub Release.
-
-The workflow never creates, moves, or force-updates a release tag. Pull requests that modify release-critical files run the same build and package validation without publishing anything.
+Official unmodified compiled releases may be run only under the limited personal, non-commercial permission stated in [`LICENSE`](LICENSE). StarChem is not open source. Outside implementation contributions are not currently accepted; see [`CONTRIBUTING.md`](CONTRIBUTING.md). Third-party notice policy is documented in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

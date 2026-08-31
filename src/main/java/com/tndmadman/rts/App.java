@@ -78,6 +78,10 @@ public final class App {
         System.out.println("  --autosave-seconds N    Dedicated-server autosave interval; 0 disables autosave");
         System.out.println("  --backup-count N        Number of timestamped save backups to retain");
         System.out.println("  --new-world             Ignore existing dedicated-server saves");
+        System.out.println("  --disable-events        Disable dynamic galaxy events for a new session");
+        System.out.println("  --enable-events         Enable dynamic galaxy events for a new session");
+        System.out.println("  --event-frequency 0..4  Scale random galaxy-event evaluation frequency");
+        System.out.println("  --event-categories LIST all, none, or comma-separated event category IDs");
         System.out.println("  --dev                   Enable developer mode");
         System.out.println("  --dev-token-file FILE   Load the developer token from a protected file");
         System.out.println("  --dev-token TOKEN       Legacy unsafe token argument; prefer --dev-token-file");
