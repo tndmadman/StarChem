@@ -1,0 +1,54 @@
+name: Create StarChem v1.8.0 Tag
+
+on:
+  push:
+    branches:
+      - 'release/v1.8.0-tag-publisher'
+
+permissions:
+  contents: write
+
+jobs:
+  create-tag:
+    name: Create guarded v1.8.0 tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out helper branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify release target and create annotated tag
+        shell: bash
+        env:
+          TARGET_SHA: 2e4b3b760dbe125fb8c04d1bea5b836fc843f759
+          RELEASE_TAG: v1.8.0
+        run: |
+          set -euo pipefail
+          git fetch origin main --tags --force
+          MAIN_SHA="$(git rev-parse origin/main)"
+          if [[ "$MAIN_SHA" != "$TARGET_SHA" ]]; then
+            echo "Refusing release: main moved to $MAIN_SHA; expected $TARGET_SHA" >&2
+            exit 1
+          fi
+
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            EXISTING_SHA="$(git rev-list -n 1 "$RELEASE_TAG")"
+            if [[ "$EXISTING_SHA" != "$TARGET_SHA" ]]; then
+              echo "Refusing release: $RELEASE_TAG already points to $EXISTING_SHA" >&2
+              exit 1
+            fi
+            echo "$RELEASE_TAG already points to the validated release commit."
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "$RELEASE_TAG" "$TARGET_SHA" -m 'StarChem v1.8.0'
+          git push origin "refs/tags/$RELEASE_TAG"
+
+          git fetch origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG" --force
+          TAGGED_SHA="$(git rev-list -n 1 "$RELEASE_TAG")"
+          [[ "$TAGGED_SHA" == "$TARGET_SHA" ]]
+          echo "$RELEASE_TAG created at $TAGGED_SHA"
