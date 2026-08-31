@@ -55,9 +55,11 @@ if grep -Eq 'contents:[[:space:]]*write|softprops/action-gh-release|gh[[:space:]
   fail "retired v1.7 workflow still contains release-write capability"
 fi
 
-for release_doc in RELEASE_NOTES.md AUTHENTICATION.md TLS_IDENTITY_SECURITY.md UPGRADING_TO_1.8.0.md; do
+for release_doc in README.md PLAY.txt RELEASE_NOTES.md AUTHENTICATION.md TLS_IDENTITY_SECURITY.md UPGRADING_TO_1.8.0.md; do
   grep -Fq "cp $release_doc release/StarChem/$release_doc" .github/workflows/release.yml \
     || fail "release workflow does not package $release_doc"
 done
+
+bash validation/validate-release-docs.sh
 
 echo "Release metadata validation passed for StarChem v${NOTES_VERSION}: dev=${DEV_VERSION}, protocol=${PROTOCOL}, rules=${RULES_VERSION}, save=${SAVE_FORMAT}."
