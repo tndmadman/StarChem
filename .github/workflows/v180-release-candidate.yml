@@ -1,6 +1,26 @@
 name: StarChem v1.8 Release Candidate
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/v180-release-candidate.yml'
+      - 'build.gradle'
+      - 'gradle.properties'
+      - 'config/**'
+      - 'packaging/**'
+      - 'validation/**'
+      - 'src/main/java/com/tndmadman/rts/**'
+      - 'README.md'
+      - 'PLAY.txt'
+      - 'RELEASE_NOTES.md'
+      - 'RELEASE_CHECKLIST.md'
+      - 'AUTHENTICATION.md'
+      - 'TLS_IDENTITY_SECURITY.md'
+      - 'UPGRADING_TO_1.8.0.md'
+      - 'LICENSE'
+      - 'THIRD_PARTY_NOTICES.md'
   pull_request:
     branches:
       - main
