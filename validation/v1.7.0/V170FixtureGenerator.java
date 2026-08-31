@@ -33,6 +33,9 @@ public final class V170FixtureGenerator {
         Files.createDirectories(serverDir);
         Files.createDirectories(clientDir);
         System.setProperty("starchem.sessionStore", clientDir.resolve("sessions.properties").toString());
+        System.setProperty("starchem.credentialVault", "file");
+        System.setProperty("starchem.credentialVaultPath", clientDir.resolve("credentials").toString());
+        ClientCredentialVault.resetForTests();
 
         require(ServerSaveStore.SAVE_FORMAT_VERSION == SAVE_FORMAT,
                 "published v1.7.0 source does not use expected save format " + SAVE_FORMAT);
