@@ -32,28 +32,19 @@ Unknown and retained names use the authentication bootstrap path rather than exp
 
 ## Creating commander identities
 
-The graphical JOIN flow deliberately distinguishes local and remote account creation.
-
 ### Local server / loopback
 
 When joining `127.0.0.1` or another loopback address, an unused commander name can be created through the normal graphical sign-in dialog. The client requires password confirmation for local account creation.
 
-This is the normal operator-controlled provisioning path for a dedicated server when remote self-registration is not enabled.
-
 ### Remote server
 
-The stock graphical client treats a remote JOIN as sign-in to an existing commander. Its sign-in dialog does not present remote account creation as a normal player action.
+The stock graphical JOIN dialog labels a remote connection as sign-in to an existing commander, but the current v1.8 server also accepts an unused remote commander name. `SideAJoin` routes that unused remote name through `RemoteRegistrationBridge`, which temporarily uses the existing loopback-only registration challenge and then restores the connection's real remote address after registration.
 
-The server also contains an explicit opt-in remote-registration bridge for deployments that intentionally want protocol clients to create retained identities remotely. It is disabled unless one of these is set true before server startup:
+Remote registration is therefore automatic for an unused remote commander name in the current v1.8 implementation. There is no `starchem.auth.remoteRegistration` JVM property or `STARCHEM_AUTH_REMOTE_REGISTRATION` environment switch in the current source.
 
-```text
--Dstarchem.auth.remoteRegistration=true
-STARCHEM_AUTH_REMOTE_REGISTRATION=true
-```
+During the remote-registration path, the server deliberately strips any requested developer flag and developer token before invoking the registration flow. Creating a new remote commander does not grant remote developer authority. Normal admission, moderation, slot, rate-limit, and TLS/authentication protections still apply.
 
-When enabled, an unknown remote name may enter the server's registration/provisioning path, subject to a registration cooldown and the normal admission controls. Enabling this changes the server's account-admission posture; do not enable it merely to work around a forgotten password or an account mismatch.
-
-When remote registration is disabled, provision a new commander from a trusted loopback client or another operator-controlled local workflow, then have the player sign in remotely with that retained name.
+If a retained commander with the requested name already exists, the connection uses the normal authentication path instead of registration.
 
 ## Session resume
 
@@ -83,7 +74,7 @@ The lobby option **Remember sign-in on this computer** controls reusable sign-in
 
 ## Password reset and identity recovery
 
-Do not create a second commander name to work around a lost remembered sign-in. If resume fails, use the retained commander's password. If the password itself is lost, recovery must be handled by the server operator using the server's identity/administration workflow rather than by copying authentication fields from a save or enabling remote registration as a bypass.
+Do not create a second commander name to work around a lost remembered sign-in. If resume fails, use the retained commander's password. If the password itself is lost, recovery must be handled by the server operator using the server's identity/administration workflow rather than by copying authentication fields from a save.
 
 Archived, banned, kicked, or otherwise disallowed identities remain subject to their server-side policy even if the supplied password or session token is otherwise valid.
 
