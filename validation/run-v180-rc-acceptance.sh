@@ -78,7 +78,10 @@ run_java com.tndmadman.rts.NpcStrategicStabilityValidator
 section "system control, diplomacy, and victory objectives"
 run_java com.tndmadman.rts.SystemControlValidator
 run_java com.tndmadman.rts.DiplomacyObjectiveValidator
-run_java com.tndmadman.rts.ObjectiveSystemValidator
+# ClientLaunchValidator is the executable acceptance entry point that invokes
+# ObjectiveSystemValidator.validate(), covering all ten configured victory types,
+# startup selection/rejection, authoritative completion, snapshot transport, and Sandbox disablement.
+run_java com.tndmadman.rts.ClientLaunchValidator
 
 section "clean dedicated-server shutdown and save"
 run_java com.tndmadman.rts.ServerShutdownValidator
