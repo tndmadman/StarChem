@@ -6,7 +6,7 @@ group = 'com.tndmadman'
 
 def releaseVersion = providers.gradleProperty('releaseVersion')
         .orElse(providers.environmentVariable('STARCHEM_VERSION'))
-        .orElse('0.1.5-dev')
+        .orElse('1.8.0-dev')
         .get()
 def buildCommit = providers.gradleProperty('buildCommit')
         .orElse(providers.environmentVariable('GITHUB_SHA'))
@@ -565,7 +565,7 @@ tasks.register('verifyBuildMetadata') {
             throw new GradleException("StarChem --version failed: ${execution.standardError.asText.get().trim()}")
         }
         def shortCommit = buildCommit == 'unknown' ? '' : buildCommit.take(12)
-        def expectedIdentity = "StarChem ${project.version}" + (shortCommit.isBlank() ? '' : " (${shortCommit})")
+        def expectedIdentity = "StarChem ${project.version}" + (shortCommit.isBlank() ? '' : " (" + shortCommit + ")")
         def actualIdentity = execution.standardOutput.asText.get().trim()
         if (actualIdentity != expectedIdentity) {
             throw new GradleException("Reported build identity '${actualIdentity}' does not match '${expectedIdentity}'")
