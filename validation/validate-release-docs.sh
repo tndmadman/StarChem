@@ -22,7 +22,9 @@ require_text() {
 require_unstyled_text() {
   local file="$1"
   local text="$2"
-  tr -d '*`' < "$file" | grep -Fq -- "$text" \
+  local normalized
+  normalized="$(tr -d '*`' < "$file")"
+  [[ "$normalized" == *"$text"* ]] \
     || fail "$file is missing required release meaning: $text"
 }
 
