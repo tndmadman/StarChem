@@ -45,8 +45,15 @@ grep -Fq 'save format 6' UPGRADING_TO_1.8.0.md || fail "upgrade guide does not i
 grep -Fq 'protocol 8' UPGRADING_TO_1.8.0.md || fail "upgrade guide does not identify the published v1.7 protocol"
 grep -Fq 'protocol 17' UPGRADING_TO_1.8.0.md || fail "upgrade guide does not identify the v1.8 protocol"
 
-[[ ! -e .github/workflows/publish-v1.7.0.yml ]] \
-  || fail "obsolete one-shot v1.7.0 publisher is still present"
+LEGACY_PUBLISHER=.github/workflows/publish-v1.7.0.yml
+[[ -s "$LEGACY_PUBLISHER" ]] || fail "historical v1.7 publisher tombstone is missing"
+grep -Fq 'Retired StarChem v1.7.0 Publisher' "$LEGACY_PUBLISHER" \
+  || fail "historical v1.7 publisher was not retired"
+grep -Fq 'contents: read' "$LEGACY_PUBLISHER" \
+  || fail "retired v1.7 publisher does not explicitly remain read-only"
+if grep -Eq 'contents:[[:space:]]*write|softprops/action-gh-release|gh[[:space:]]+release|create-release|upload-release' "$LEGACY_PUBLISHER"; then
+  fail "retired v1.7 workflow still contains release-write capability"
+fi
 
 for release_doc in RELEASE_NOTES.md AUTHENTICATION.md TLS_IDENTITY_SECURITY.md UPGRADING_TO_1.8.0.md; do
   grep -Fq "cp $release_doc release/StarChem/$release_doc" .github/workflows/release.yml \
