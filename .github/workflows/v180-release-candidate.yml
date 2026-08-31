@@ -1,0 +1,203 @@
+name: StarChem v1.8 Release Candidate
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/v180-release-candidate.yml'
+      - 'build.gradle'
+      - 'gradle.properties'
+      - 'config/**'
+      - 'packaging/**'
+      - 'validation/**'
+      - 'src/main/java/com/tndmadman/rts/**'
+      - 'README.md'
+      - 'PLAY.txt'
+      - 'RELEASE_NOTES.md'
+      - 'RELEASE_CHECKLIST.md'
+      - 'AUTHENTICATION.md'
+      - 'TLS_IDENTITY_SECURITY.md'
+      - 'UPGRADING_TO_1.8.0.md'
+      - 'LICENSE'
+      - 'THIRD_PARTY_NOTICES.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rc-acceptance:
+    name: Run v1.8 RC acceptance suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      STARCHEM_VERSION: '1.8.0'
+      STARCHEM_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+
+    steps:
+      - name: Check out exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build exact release candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle clean classes jar --no-daemon \
+            -PreleaseVersion="$STARCHEM_VERSION" \
+            -PbuildCommit="$STARCHEM_COMMIT"
+          EXPECTED="StarChem ${STARCHEM_VERSION} (${STARCHEM_COMMIT:0:12})"
+          ACTUAL="$(java -jar build/libs/StarChem.jar --version)"
+          [[ "$ACTUAL" == "$EXPECTED" ]]
+
+      - name: Run release-candidate acceptance matrix
+        shell: bash
+        run: bash validation/run-v180-rc-acceptance.sh 'build/classes/java/main:build/resources/main'
+
+      - name: Stage cross-platform RC package
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf rc-stage
+          mkdir -p rc-stage/StarChem
+          cp build/libs/StarChem.jar rc-stage/StarChem/StarChem.jar
+          cp -R config rc-stage/StarChem/config
+          cp packaging/run-starchem.bat rc-stage/StarChem/run-starchem.bat
+          cp packaging/run-starchem-server.bat rc-stage/StarChem/run-starchem-server.bat
+          cp packaging/run-starchem.sh rc-stage/StarChem/run-starchem.sh
+          cp packaging/run-starchem-server.sh rc-stage/StarChem/run-starchem-server.sh
+          chmod +x rc-stage/StarChem/run-starchem.sh rc-stage/StarChem/run-starchem-server.sh
+          cp README.md rc-stage/StarChem/README.md
+          cp PLAY.txt rc-stage/StarChem/PLAY.txt
+          cp RELEASE_NOTES.md rc-stage/StarChem/RELEASE_NOTES.md
+          cp AUTHENTICATION.md rc-stage/StarChem/AUTHENTICATION.md
+          cp TLS_IDENTITY_SECURITY.md rc-stage/StarChem/TLS_IDENTITY_SECURITY.md
+          cp UPGRADING_TO_1.8.0.md rc-stage/StarChem/UPGRADING_TO_1.8.0.md
+          cp LICENSE rc-stage/StarChem/LICENSE
+          cp THIRD_PARTY_NOTICES.md rc-stage/StarChem/THIRD_PARTY_NOTICES.md
+          (
+            cd rc-stage
+            zip -X -q -r ../StarChem-v1.8.0-rc.zip StarChem
+          )
+          sha256sum StarChem-v1.8.0-rc.zip > StarChem-v1.8.0-rc.zip.sha256
+          sha256sum -c StarChem-v1.8.0-rc.zip.sha256
+
+      - name: Upload exact RC package
+        uses: actions/upload-artifact@v4
+        with:
+          name: StarChem-v1.8.0-rc-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            StarChem-v1.8.0-rc.zip
+            StarChem-v1.8.0-rc.zip.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  macos-package-smoke:
+    name: Validate exact RC package on macOS
+    needs: rc-acceptance
+    runs-on: macos-latest
+    timeout-minutes: 20
+    env:
+      STARCHEM_VERSION: '1.8.0'
+      STARCHEM_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+
+    steps:
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Download exact RC package
+        uses: actions/download-artifact@v4
+        with:
+          name: StarChem-v1.8.0-rc-${{ github.event.pull_request.head.sha || github.sha }}
+          path: rc-artifact
+
+      - name: Verify checksum and extract package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd rc-artifact
+          EXPECTED="$(awk '{print $1}' StarChem-v1.8.0-rc.zip.sha256)"
+          ACTUAL="$(shasum -a 256 StarChem-v1.8.0-rc.zip | awk '{print $1}')"
+          [[ "$ACTUAL" == "$EXPECTED" ]]
+          unzip -q StarChem-v1.8.0-rc.zip -d extracted
+          chmod +x extracted/StarChem/run-starchem.sh extracted/StarChem/run-starchem-server.sh
+
+      - name: Validate macOS launchers and Keychain credential storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACKAGE="$PWD/rc-artifact/extracted/StarChem"
+          EXPECTED="StarChem ${STARCHEM_VERSION} (${STARCHEM_COMMIT:0:12})"
+          [[ "$("$PACKAGE/run-starchem.sh" --version)" == "$EXPECTED" ]]
+          HELP="$("$PACKAGE/run-starchem-server.sh" --help)"
+          printf '%s\n' "$HELP" | grep -Fq -- '--server [PORT]'
+          printf '%s\n' "$HELP" | grep -Fq -- '--event-frequency 0..4'
+          java -Djava.awt.headless=true -cp "$PACKAGE/StarChem.jar" com.tndmadman.rts.MacCredentialVaultValidator
+
+      - name: Smoke-test packaged dedicated server on macOS
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACKAGE="$PWD/rc-artifact/extracted/StarChem"
+          SAVE_DIR="$RUNNER_TEMP/starchem-v180-rc-server"
+          mkdir -p "$SAVE_DIR"
+          PORT="$(python3 - <<'PY'
+          import socket
+          with socket.socket() as sock:
+              sock.bind(('127.0.0.1', 0))
+              print(sock.getsockname()[1])
+          PY
+          )"
+          LOG="$RUNNER_TEMP/starchem-v180-rc-macos.log"
+          STARCHEM_PORT="$PORT" STARCHEM_SERVER_NAME="v1.8-RC-macOS" \
+            "$PACKAGE/run-starchem-server.sh" --save-dir "$SAVE_DIR" --save-name rc-macos >"$LOG" 2>&1 &
+          SERVER_PID=$!
+
+          cleanup() {
+            kill -TERM "$SERVER_PID" 2>/dev/null || true
+            wait "$SERVER_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          READY=0
+          for _ in {1..150}; do
+            if grep -Fq 'Dedicated server ready.' "$LOG"; then
+              READY=1
+              break
+            fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              cat "$LOG"
+              echo 'macOS RC server exited before becoming ready.' >&2
+              exit 1
+            fi
+            sleep 0.1
+          done
+          [[ "$READY" -eq 1 ]]
+          grep -Fq "TCP $PORT" "$LOG"
+
+          kill -TERM "$SERVER_PID"
+          set +e
+          wait "$SERVER_PID"
+          STATUS=$?
+          set -e
+          trap - EXIT
+          cat "$LOG"
+          [[ "$STATUS" -eq 0 || "$STATUS" -eq 143 ]]
+          grep -Fq 'Dedicated server stopped.' "$LOG"
