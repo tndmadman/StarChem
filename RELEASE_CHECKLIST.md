@@ -55,7 +55,39 @@ Require the pull-request workflow wall to be green on the exact candidate head, 
 
 A PR run must not publish a GitHub Release.
 
-## 4. Check persistent-server migration readiness
+## 4. Pass the v1.8 release-candidate acceptance suite
+
+Run the explicit release-candidate matrix against the exact candidate classes:
+
+```text
+bash validation/run-v180-rc-acceptance.sh 'build/classes/java/main:build/resources/main'
+```
+
+The RC matrix must cover, by named executable validators rather than manual recollection:
+
+- clean solo and dedicated-server startup;
+- simultaneous multiplayer clients, reconnect, session recovery, and persistence recovery;
+- real published-v1.7.0 migration, current-format resave, restart, and authentication recovery;
+- cross-system production sourcing and physical inter-system logistics;
+- production policies and recovery;
+- Shipyard station packages and Deployer-dependent production;
+- ship fitting/refitting and atomic resource handling;
+- command queues and combat/radar policies;
+- dynamic event lifecycle, multiplayer isolation, and mid-event save/reload;
+- wormhole connectivity, fog of war, and remote-system visibility;
+- observer authority isolation;
+- NPC expansion, cross-system operations, and strategic stability;
+- system control, diplomacy/objective progress, and victory-condition behavior;
+- clean dedicated-server shutdown/save;
+- a sustained TCP soak after the targeted checks.
+
+The **StarChem v1.8 Release Candidate** workflow must be green on the pull-request head and must run again successfully on the resulting `main` commit. The post-merge run is required because squash/rebase/merge operations can change the final release commit SHA.
+
+That workflow must also package the exact candidate JAR/config/launchers/docs, transfer that package to a `macos-latest` runner, verify its checksum and reported build identity, run the macOS player/server launchers, validate macOS Keychain credential storage, and complete a packaged dedicated-server startup/shutdown smoke test.
+
+Do not move to tagging while the RC workflow is skipped, pending, cancelled, or red on the final `main` commit.
+
+## 5. Check persistent-server migration readiness
 
 Before tagging, confirm the migration gate still checks out immutable published v1.7.0 commit:
 
@@ -67,7 +99,7 @@ The gate must generate real v1.7.0 state and validate current-code migration, au
 
 Do not replace this with a hand-authored approximation of an old save.
 
-## 5. Tag the exact validated main commit
+## 6. Tag the exact validated main commit
 
 After all required workflows are green, identify the exact `main` SHA and create the immutable tag:
 
@@ -77,7 +109,7 @@ v1.8.0
 
 The tag must point to the exact commit that passed final validation. Do not move or force-update an existing release tag to a different commit.
 
-## 6. Let the workflow publish
+## 7. Let the workflow publish
 
 The tag-triggered `.github/workflows/release.yml` run must perform validation again. The publish job is allowed to run only after the Linux/package job and Windows-launcher job succeed.
 
@@ -90,7 +122,7 @@ StarChem-v1.8.0.zip.sha256
 
 Do not manually rebuild, rename, replace, or re-upload different binaries under the same validated release identity.
 
-## 7. Post-publish verification
+## 8. Post-publish verification
 
 After GitHub reports the release published:
 
@@ -98,12 +130,12 @@ After GitHub reports the release published:
 - verify the SHA-256 file against the downloaded ZIP;
 - extract the ZIP into a fresh directory;
 - verify `java -jar StarChem.jar --version` reports `StarChem 1.8.0` and the expected commit prefix;
-- open the Windows or Linux player launcher on the intended platform;
+- open the Windows, Linux, or macOS player launcher on the intended platform;
 - start a dedicated server from the packaged launcher and confirm `Dedicated server ready.`;
 - confirm `java -jar StarChem.jar --help` shows the documented server/event options;
 - confirm the packaged release contains README, release notes, authentication/TLS guidance, v1.8 upgrade guidance, legal notices, `config/`, JAR, and platform launchers.
 
-## 8. Rollback a bad publication safely
+## 9. Rollback a bad publication safely
 
 If post-publish verification exposes a release-blocking problem, do not silently replace assets under the same tag. Stop distribution, preserve the failed artifacts/logs for diagnosis, fix the repository on a new commit, rerun the full release wall, and publish with an appropriate new immutable version/tag.
 
