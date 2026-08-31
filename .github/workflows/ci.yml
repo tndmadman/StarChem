@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -38,50 +40,12 @@ jobs:
       - name: Compile project
         run: gradle clean classes --no-daemon
 
-      - name: Validate authoritative fog of war
-        run: java -cp build/classes/java/main com.tndmadman.rts.FogOfWarValidator
-
-      - name: Validate radar tower progression
-        run: java -cp build/classes/java/main com.tndmadman.rts.RadarTowerValidator
-
-      - name: Validate intel and counterintel warfare
-        run: java -cp build/classes/java/main com.tndmadman.rts.IntelWarfareValidator
-
-      - name: Validate station control menus
-        run: java -cp build/classes/java/main com.tndmadman.rts.StationControlValidator
-
-      - name: Validate issue 293 logistics routes
-        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue293LogisticsRouteValidator
-
-      - name: Validate production logistics sourcing
-        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.ProductionLogisticsSourcingValidator
-
-      - name: Validate Shipyard station packages
-        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.ShipyardStationPackageValidator
-
-      - name: Validate menu overflow layout
-        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.MenuOverflowValidator
-
-      - name: Validate shipyard scroll hotfix
-        run: java -cp build/classes/java/main com.tndmadman.rts.ShipyardScrollHotfixValidator
-
       - name: Verify project
         run: gradle check jar --no-daemon
 
-      - name: Validate canonical endpoint identity
-        run: java -cp build/classes/java/main com.tndmadman.rts.SessionEndpointIdentityValidator
-
-      - name: Validate authenticated numeric commands
-        run: java -cp build/classes/java/main com.tndmadman.rts.NumericCommandValidationValidator authenticated
-
-      - name: Validate authoritative numeric repair
-        run: java -cp build/classes/java/main com.tndmadman.rts.NumericCommandValidationValidator repair
-
-      - name: Validate numeric serialization boundaries
-        run: java -cp build/classes/java/main com.tndmadman.rts.NumericCommandValidationValidator serialization
-
-      - name: Validate authoritative mining commands
-        run: java -cp build/classes/java/main com.tndmadman.rts.MiningCommandValidationValidator
+      - name: Run canonical release regressions
+        shell: bash
+        run: bash validation/run-release-regressions.sh 'build/classes/java/main:build/resources/main'
 
       - name: Smoke-test Linux headless server
         shell: bash
