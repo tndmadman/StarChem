@@ -24,7 +24,7 @@ Loopback connections are treated as local-server connections and may update thei
 
 Retained commander identities use a challenge/proof flow inside the verified TLS connection. The server does not store the player's raw password.
 
-Password derivation uses PBKDF2-HMAC-SHA256 with 310,000 iterations and per-account salt material. Retained authentication state stores verifier material rather than the plaintext password. Challenge nonces and password-provisioning salts are generated with secure random data.
+Current v2 password handling uses two PBKDF2-HMAC-SHA256 stages. The client/server-scoped credential derivation uses **210,000 iterations** and a 256-bit result, with the verified TLS fingerprint, normalized commander name, and a 16-byte scoped salt incorporated into its derivation context. The server then protects the supplied verifier with a second PBKDF2-HMAC-SHA256 digest using **160,000 iterations** and per-account salt before retaining authentication state. These are separate derivations rather than one combined iteration count. Challenge nonces and password-provisioning salts are generated with secure random data.
 
 Authentication material copied from a server save is not accepted as a reusable wire proof by itself. A connection must complete the live TLS-protected challenge flow.
 
