@@ -40,7 +40,7 @@ When joining `127.0.0.1` or another loopback address, an unused commander name c
 
 The stock graphical JOIN dialog labels a remote connection as sign-in to an existing commander, but the current v1.8 server also accepts an unused remote commander name. `SideAJoin` routes that unused remote name through `RemoteRegistrationBridge`, which temporarily uses the existing loopback-only registration challenge and then restores the connection's real remote address after registration.
 
-Remote registration is therefore automatic for an unused remote commander name in the current v1.8 implementation. There is no `starchem.auth.remoteRegistration` JVM property or `STARCHEM_AUTH_REMOTE_REGISTRATION` environment switch in the current source.
+Remote registration is therefore automatic for an unused remote commander name in the current v1.8 implementation. There is no separate JVM property or environment switch controlling this path in the current source.
 
 During the remote-registration path, the server deliberately strips any requested developer flag and developer token before invoking the registration flow. Creating a new remote commander does not grant remote developer authority. Normal admission, moderation, slot, rate-limit, and TLS/authentication protections still apply.
 
