@@ -59,7 +59,9 @@ require_text README.md '--save-dir /srv/starchem'
 
 # Source-backed authentication/security guidance.
 require_text AUTHENTICATION.md 'PBKDF2-HMAC-SHA256'
-require_text AUTHENTICATION.md '310,000 iterations'
+require_text AUTHENTICATION.md '210,000 iterations'
+require_text AUTHENTICATION.md '160,000 iterations'
+reject_text AUTHENTICATION.md '310,000 iterations'
 require_text AUTHENTICATION.md 'starchem.auth.remoteRegistration'
 require_text AUTHENTICATION.md 'STARCHEM_AUTH_REMOTE_REGISTRATION'
 require_text AUTHENTICATION.md '<save-name>-auth-decoy.key'
@@ -69,7 +71,8 @@ require_text AUTHENTICATION.md 'Windows user-scoped DPAPI'
 require_text AUTHENTICATION.md 'macOS Keychain'
 require_text AUTHENTICATION.md 'Linux Secret Service'
 
-require_text src/main/java/com/tndmadman/rts/PasswordAuth.java 'DEFAULT_ITERATIONS = 310_000'
+require_text src/main/java/com/tndmadman/rts/PasswordAuth.java 'CLIENT_KEY_ITERATIONS = 210_000'
+require_text src/main/java/com/tndmadman/rts/PasswordAuth.java 'KEY_ITERATIONS = 160_000'
 require_text src/main/java/com/tndmadman/rts/RemoteRegistrationBridge.java 'starchem.auth.remoteRegistration'
 require_text src/main/java/com/tndmadman/rts/RemoteRegistrationBridge.java 'STARCHEM_AUTH_REMOTE_REGISTRATION'
 
