@@ -23,6 +23,7 @@ run_java() {
 
 # Permanent regression validators that historically lived only as explicit CI steps.
 run_java com.tndmadman.rts.FogOfWarValidator
+run_java com.tndmadman.rts.FogPerformanceValidator
 run_java com.tndmadman.rts.RadarTowerValidator
 run_java com.tndmadman.rts.IntelWarfareValidator
 run_java com.tndmadman.rts.StationControlValidator
