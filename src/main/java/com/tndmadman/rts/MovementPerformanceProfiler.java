@@ -34,12 +34,16 @@ public final class MovementPerformanceProfiler {
         BufferedImage image = new BufferedImage(1280, 720, BufferedImage.TYPE_INT_ARGB_PRE);
         Graphics2D graphics = image.createGraphics();
         graphics.setClip(0, 0, image.getWidth(), image.getHeight());
+        GameCamera camera = new GameCamera();
+        camera.update(world, image.getWidth(), image.getHeight(), DT);
+        MinimapHud minimap = new MinimapHud();
 
         // Warm up JIT and graphics paths before reporting anything.
         for (int i = 0; i < 600; i++) ClientPrediction.update(world, DT);
         for (int i = 0; i < 40; i++) {
             world.draw(graphics);
             FogOfWarView.drawWorld(graphics, world);
+            minimap.draw(graphics, world, camera, image.getWidth(), image.getHeight());
         }
 
         setStationary(ships);
@@ -52,6 +56,9 @@ public final class MovementPerformanceProfiler {
             ClientPrediction.update(world, DT);
         });
 
+        setMoveOrders(ships);
+        double predictionMove = timeMillis(3000, () -> ClientPrediction.update(world, DT));
+
         setStationary(ships);
         double drawStationary = timeMillis(300, () -> world.draw(graphics));
 
@@ -62,6 +69,9 @@ public final class MovementPerformanceProfiler {
             ClientPrediction.update(world, DT);
             world.draw(graphics);
         });
+
+        setMoveOrders(ships);
+        double drawMove = timeMillis(300, () -> world.draw(graphics));
 
         setStationary(ships);
         FogOfWarView.clearCachedStateForTest(world);
@@ -74,13 +84,48 @@ public final class MovementPerformanceProfiler {
         final int[] fogStep = {0};
         double fogOrbiting = timeMillis(300, () -> {
             retargetOrbit(ships, ++fogStep[0]);
+            ClientPrediction.update(world, DT);
             world.systemTime += DT;
             FogOfWarView.forceRefreshForTest(world);
             FogOfWarView.drawWorld(graphics, world);
         });
 
+        setStationary(ships);
+        FogOfWarView.clearCachedStateForTest(world);
+        double minimapStationary = timeMillis(300, () -> minimap.draw(
+                graphics, world, camera, image.getWidth(), image.getHeight()));
+
+        setStationary(ships);
+        FogOfWarView.clearCachedStateForTest(world);
+        final int[] minimapStep = {0};
+        double minimapOrbiting = timeMillis(300, () -> {
+            retargetOrbit(ships, ++minimapStep[0]);
+            ClientPrediction.update(world, DT);
+            world.systemTime += DT;
+            FogOfWarView.forceRefreshForTest(world);
+            minimap.draw(graphics, world, camera, image.getWidth(), image.getHeight());
+        });
+
+        setStationary(ships);
+        FogOfWarView.clearCachedStateForTest(world);
+        double fullFrameStationary = timeMillis(180, () -> {
+            world.draw(graphics);
+            FogOfWarView.drawWorld(graphics, world);
+            minimap.draw(graphics, world, camera, image.getWidth(), image.getHeight());
+        });
+
         setMoveOrders(ships);
-        double predictionMove = timeMillis(3000, () -> ClientPrediction.update(world, DT));
+        FogOfWarView.clearCachedStateForTest(world);
+        final int[] fullMoveStep = {0};
+        double fullFrameMove = timeMillis(180, () -> {
+            ClientPrediction.update(world, DT);
+            world.systemTime += DT;
+            FogOfWarView.forceRefreshForTest(world);
+            world.draw(graphics);
+            FogOfWarView.drawWorld(graphics, world);
+            minimap.draw(graphics, world, camera, image.getWidth(), image.getHeight());
+            fullMoveStep[0]++;
+        });
 
         graphics.dispose();
 
@@ -90,8 +135,13 @@ public final class MovementPerformanceProfiler {
         report("client prediction MOVE", predictionMove, 3000);
         report("world draw stationary", drawStationary, 300);
         report("world draw orbiting", drawOrbiting, 300);
+        report("world draw MOVE", drawMove, 300);
         report("fog draw stationary", fogStationary, 300);
         report("fog draw orbiting", fogOrbiting, 300);
+        report("minimap stationary", minimapStationary, 300);
+        report("minimap orbiting", minimapOrbiting, 300);
+        report("frame subset stationary", fullFrameStationary, 180);
+        report("frame subset MOVE", fullFrameMove, 180);
     }
 
     private static void setStationary(List<Unit> ships) {
