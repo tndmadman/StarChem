@@ -28,7 +28,7 @@ import java.util.WeakHashMap;
 final class FogOfWarView {
     static final int CELL_SIZE = 128;
     private static final double EXPLORATION_MASK_WORLD_UNITS = 64.0;
-    private static final double WORLD_BUFFER_SCALE = 0.5;
+    private static final double WORLD_BUFFER_SCALE = 1.0;
     private static final double EDGE_FEATHER_WORLD_UNITS = 96.0;
     private static final double DIRTY_REGION_PAD_WORLD_UNITS = 12.0;
     private static final long UPDATE_INTERVAL_NANOS = 50_000_000L;
@@ -495,7 +495,7 @@ final class FogOfWarView {
     private static void drawBuffer(Graphics2D g, BufferedImage buffer, Rectangle2D view) {
         if (buffer == null) return;
         Object oldInterpolation = g.getRenderingHint(RenderingHints.KEY_INTERPOLATION);
-        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
         AffineTransform transform = new AffineTransform(
                 view.getWidth() / buffer.getWidth(), 0, 0, view.getHeight() / buffer.getHeight(),
                 view.getX(), view.getY());
@@ -525,7 +525,7 @@ final class FogOfWarView {
     }
 
     private static int clampBufferSize(int value) {
-        return Math.max(2, Math.min(2048, value));
+        return Math.max(2, Math.min(2560, value));
     }
 
     private static BufferedImage ensureBuffer(BufferedImage image, int width, int height) {
