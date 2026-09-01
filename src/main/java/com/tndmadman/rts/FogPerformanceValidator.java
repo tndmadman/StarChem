@@ -40,6 +40,7 @@ public final class FogPerformanceValidator {
         validateFrameEquivalence(world, enemies, enemyBase);
         validateIncrementalSensorCoverage(world, friendly);
         validatePartialFogComposition(world, friendly.get(0));
+        validateFleetVisualFogAggregation(world, friendly);
 
         System.out.println("Fog performance validator passed.");
     }
@@ -120,6 +121,37 @@ public final class FogPerformanceValidator {
                 "A moving sensor forced a full fog-buffer composition with an unchanged viewport.");
         require(partialAfter > partialBefore,
                 "A moving sensor did not use the dirty-region fog-buffer update path.");
+    }
+
+    private static void validateFleetVisualFogAggregation(World world, List<Unit> friendly) {
+        FogOfWarView.clearCachedStateForTest(world);
+        BufferedImage image = new BufferedImage(1000, 800, BufferedImage.TYPE_INT_ARGB_PRE);
+        Graphics2D g = image.createGraphics();
+        g.setClip(0, 0, image.getWidth(), image.getHeight());
+
+        FogOfWarView.drawWorld(g, world);
+        long initialVisualRebuilds = FogOfWarView.visualFogRebuildCountForTest(world);
+        require(initialVisualRebuilds == 1,
+                "Initial fog draw did not build exactly one shared visual fog mask.");
+
+        for (int i = 0; i < friendly.size(); i++) {
+            Unit unit = friendly.get(i);
+            unit.x += 11 + (i % 3);
+            unit.y += 7 + (i % 2);
+        }
+        world.systemTime += 0.1;
+        FogOfWarView.forceRefreshForTest(world);
+        long beforeDraw = FogOfWarView.visualFogRebuildCountForTest(world);
+        require(beforeDraw == initialVisualRebuilds,
+                "Sensor-state refresh rebuilt the visual fog raster before a render was requested.");
+
+        FogOfWarView.drawWorld(g, world);
+        long afterDraw = FogOfWarView.visualFogRebuildCountForTest(world);
+        g.dispose();
+
+        require(afterDraw == initialVisualRebuilds + 1,
+                "Moving the whole fleet rebuilt the shared visual fog raster more than once: expected +1, got +"
+                        + (afterDraw - initialVisualRebuilds));
     }
 
     private static void require(boolean condition, String message) {
