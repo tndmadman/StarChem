@@ -8,12 +8,14 @@ import java.awt.Graphics2D;
 import java.awt.RadialGradientPaint;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
+import java.awt.Shape;
 import java.awt.Stroke;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Point2D;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -28,11 +30,13 @@ final class FogOfWarView {
     private static final double EXPLORATION_MASK_WORLD_UNITS = 64.0;
     private static final double WORLD_BUFFER_SCALE = 0.5;
     private static final double EDGE_FEATHER_WORLD_UNITS = 96.0;
+    private static final double DIRTY_REGION_PAD_WORLD_UNITS = 12.0;
     private static final long UPDATE_INTERVAL_NANOS = 50_000_000L;
     private static final long MINIMAP_REFRESH_NANOS = 100_000_000L;
     private static final double CONTACT_CLEAR_CONFIRM_SECONDS = 2.0;
     private static final double CONTACT_MEMORY_SECONDS = 45.0;
     private static final int MAX_CONTACTS = 512;
+    private static final int MAX_DIRTY_REGIONS = 48;
     private static final int GRADIENT_STAMP_SIZE = 128;
     private static final Color UNEXPLORED = new Color(1, 3, 7);
     private static final Color EXPLORED = new Color(8, 14, 22);
@@ -117,6 +121,21 @@ final class FogOfWarView {
         return count;
     }
 
+    static synchronized long sensorCoverageRebuildCountForTest(World world) {
+        SystemState state = update(world, System.nanoTime());
+        return state == null ? 0 : state.sensorCoverageRebuilds;
+    }
+
+    static synchronized long fullFogCompositionCountForTest(World world) {
+        SystemState state = update(world, System.nanoTime());
+        return state == null ? 0 : state.fullFogCompositions;
+    }
+
+    static synchronized long partialFogCompositionCountForTest(World world) {
+        SystemState state = update(world, System.nanoTime());
+        return state == null ? 0 : state.partialFogCompositions;
+    }
+
     static synchronized void forceRefreshForTest(World world) {
         WorldState worldState = STATES.get(world);
         if (worldState != null) for (SystemState state : worldState.systems.values()) state.lastUpdateNanos = 0;
@@ -149,18 +168,11 @@ final class FogOfWarView {
         state.lastUpdateNanos = now;
 
         VisibilityRules.Frame frame = VisibilityRules.frame(world, playerId);
-        List<VisibilityRules.Sensor> nextSensors = frame.sensors();
-        boolean sensorsChanged = !nextSensors.equals(state.sensors);
-        boolean explorationChanged = false;
-        if (sensorsChanged) {
-            state.sensors = nextSensors;
-            state.visible.clear();
-            for (VisibilityRules.Sensor sensor : state.sensors) reveal(state, sensor);
-            int exploredBefore = state.explored.cardinality();
-            state.explored.or(state.visible);
-            explorationChanged = state.explored.cardinality() != exploredBefore;
-            if (explorationChanged) paintExploration(state, state.sensors);
+        SensorUpdate sensorUpdate = updateSensors(state, frame.sensors());
+        boolean explorationChanged = sensorUpdate.explorationChanged();
+        if (sensorUpdate.changed()) {
             state.fogRevision++;
+            if (explorationChanged) paintExploration(state, sensorUpdate.explorationSensors());
         }
 
         observeContacts(world, playerId, frame, state);
@@ -172,8 +184,62 @@ final class FogOfWarView {
         return state;
     }
 
-    private static void reveal(SystemState state, VisibilityRules.Sensor sensor) {
-        if (sensor == null || sensor.range() <= 0) return;
+    private static SensorUpdate updateSensors(SystemState state, List<VisibilityRules.Sensor> nextSensors) {
+        List<VisibilityRules.Sensor> safeSensors = nextSensors == null ? List.of() : nextSensors;
+        Map<String, VisibilityRules.Sensor> nextByKey = new LinkedHashMap<>();
+        int duplicate = 0;
+        for (VisibilityRules.Sensor sensor : safeSensors) {
+            if (sensor == null || sensor.range() <= 0) continue;
+            String key = sensor.sourceKey();
+            if (key == null || key.isBlank()) key = "SENSOR:" + duplicate++;
+            while (nextByKey.containsKey(key)) key = sensor.sourceKey() + "#" + duplicate++;
+            nextByKey.put(key, sensor);
+        }
+
+        boolean changed = false;
+        boolean explorationChanged = false;
+        List<VisibilityRules.Sensor> explorationSensors = new ArrayList<>();
+
+        Iterator<Map.Entry<String, SensorCoverage>> oldIterator = state.sensorCoverage.entrySet().iterator();
+        while (oldIterator.hasNext()) {
+            Map.Entry<String, SensorCoverage> entry = oldIterator.next();
+            if (nextByKey.containsKey(entry.getKey())) continue;
+            SensorCoverage old = entry.getValue();
+            removeCoverage(state, old.cells());
+            markSensorDirty(state, old.sensor());
+            oldIterator.remove();
+            changed = true;
+        }
+
+        for (Map.Entry<String, VisibilityRules.Sensor> entry : nextByKey.entrySet()) {
+            VisibilityRules.Sensor sensor = entry.getValue();
+            SensorCoverage old = state.sensorCoverage.get(entry.getKey());
+            if (old != null && sameSensorGeometry(old.sensor(), sensor)) continue;
+
+            if (old != null) {
+                removeCoverage(state, old.cells());
+                markSensorDirty(state, old.sensor());
+            }
+
+            BitSet cells = coveredCells(state, sensor);
+            boolean newlyExplored = addCoverage(state, cells);
+            state.sensorCoverage.put(entry.getKey(), new SensorCoverage(sensor, cells));
+            state.sensorCoverageRebuilds++;
+            markSensorDirty(state, sensor);
+            changed = true;
+            if (newlyExplored) {
+                explorationChanged = true;
+                explorationSensors.add(sensor);
+            }
+        }
+
+        state.sensors = List.copyOf(nextByKey.values());
+        return new SensorUpdate(changed, explorationChanged, List.copyOf(explorationSensors));
+    }
+
+    private static BitSet coveredCells(SystemState state, VisibilityRules.Sensor sensor) {
+        BitSet cells = new BitSet(state.columns * state.rows);
+        if (sensor == null || sensor.range() <= 0) return cells;
         int minColumn = clampCell((int)Math.floor((sensor.x() - sensor.range()) / CELL_SIZE), state.columns);
         int maxColumn = clampCell((int)Math.floor((sensor.x() + sensor.range()) / CELL_SIZE), state.columns);
         int minRow = clampCell((int)Math.floor((sensor.y() - sensor.range()) / CELL_SIZE), state.rows);
@@ -188,12 +254,88 @@ final class FogOfWarView {
                 double nearestX = Calc.clamp(sensor.x(), left, right);
                 double dx = nearestX - sensor.x();
                 double dy = nearestY - sensor.y();
-                if (dx * dx + dy * dy <= sensor.rangeSquared()) state.visible.set(state.index(column, row));
+                if (dx * dx + dy * dy <= sensor.rangeSquared()) cells.set(state.index(column, row));
+            }
+        }
+        return cells;
+    }
+
+    private static boolean addCoverage(SystemState state, BitSet cells) {
+        boolean explorationChanged = false;
+        for (int cell = cells.nextSetBit(0); cell >= 0; cell = cells.nextSetBit(cell + 1)) {
+            int count = state.visibleCoverage[cell];
+            if (count < Integer.MAX_VALUE) state.visibleCoverage[cell] = count + 1;
+            if (count == 0) state.visible.set(cell);
+            if (!state.explored.get(cell)) {
+                state.explored.set(cell);
+                explorationChanged = true;
+            }
+        }
+        return explorationChanged;
+    }
+
+    private static void removeCoverage(SystemState state, BitSet cells) {
+        if (cells == null || cells.isEmpty()) return;
+        for (int cell = cells.nextSetBit(0); cell >= 0; cell = cells.nextSetBit(cell + 1)) {
+            int count = state.visibleCoverage[cell];
+            if (count <= 1) {
+                state.visibleCoverage[cell] = 0;
+                state.visible.clear(cell);
+            } else {
+                state.visibleCoverage[cell] = count - 1;
             }
         }
     }
 
+    private static boolean sameSensorGeometry(VisibilityRules.Sensor first, VisibilityRules.Sensor second) {
+        if (first == second) return true;
+        if (first == null || second == null) return false;
+        return same(first.x(), second.x()) && same(first.y(), second.y()) && same(first.range(), second.range());
+    }
+
+    private static void markSensorDirty(SystemState state, VisibilityRules.Sensor sensor) {
+        if (sensor == null || sensor.range() <= 0) return;
+        double radius = sensor.range() + DIRTY_REGION_PAD_WORLD_UNITS;
+        double x = Math.max(0, sensor.x() - radius);
+        double y = Math.max(0, sensor.y() - radius);
+        double maxX = Math.min(state.worldWidth, sensor.x() + radius);
+        double maxY = Math.min(state.worldHeight, sensor.y() + radius);
+        if (maxX <= x || maxY <= y) return;
+        addDirtyRegion(state, new Rectangle2D.Double(x, y, maxX - x, maxY - y));
+    }
+
+    private static void addDirtyRegion(SystemState state, Rectangle2D.Double region) {
+        if (region == null || region.isEmpty()) return;
+        Rectangle2D.Double merged = region;
+        boolean mergedAny;
+        do {
+            mergedAny = false;
+            Iterator<Rectangle2D.Double> iterator = state.dirtyWorldRegions.iterator();
+            while (iterator.hasNext()) {
+                Rectangle2D.Double existing = iterator.next();
+                if (!regionsTouch(existing, merged)) continue;
+                Rectangle2D union = existing.createUnion(merged);
+                merged = new Rectangle2D.Double(union.getX(), union.getY(), union.getWidth(), union.getHeight());
+                iterator.remove();
+                mergedAny = true;
+            }
+        } while (mergedAny);
+        state.dirtyWorldRegions.add(merged);
+        if (state.dirtyWorldRegions.size() > MAX_DIRTY_REGIONS) {
+            state.dirtyWorldRegions.clear();
+            state.dirtyWorldRegions.add(new Rectangle2D.Double(0, 0, state.worldWidth, state.worldHeight));
+        }
+    }
+
+    private static boolean regionsTouch(Rectangle2D first, Rectangle2D second) {
+        if (first.intersects(second)) return true;
+        double pad = DIRTY_REGION_PAD_WORLD_UNITS;
+        return first.getMaxX() + pad >= second.getMinX() && second.getMaxX() + pad >= first.getMinX()
+                && first.getMaxY() + pad >= second.getMinY() && second.getMaxY() + pad >= first.getMinY();
+    }
+
     private static void paintExploration(SystemState state, List<VisibilityRules.Sensor> sensors) {
+        if (sensors == null || sensors.isEmpty()) return;
         Graphics2D g = state.exploredFogMask.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setColor(EXPLORED);
@@ -212,20 +354,36 @@ final class FogOfWarView {
         int height = clampBufferSize((int)Math.ceil(view.getHeight() * zoom * WORLD_BUFFER_SCALE));
         boolean resized = state.worldFogBuffer == null
                 || state.worldFogBuffer.getWidth() != width || state.worldFogBuffer.getHeight() != height;
-        if (!resized && state.worldFogRevision == state.fogRevision
+        boolean sameView = !resized
                 && same(state.worldFogViewX, view.getX())
                 && same(state.worldFogViewY, view.getY())
                 && same(state.worldFogViewWidth, view.getWidth())
                 && same(state.worldFogViewHeight, view.getHeight())
-                && same(state.worldFogZoom, zoom)) {
-            return state.worldFogBuffer;
-        }
+                && same(state.worldFogZoom, zoom);
+        if (sameView && state.worldFogRevision == state.fogRevision) return state.worldFogBuffer;
 
         state.worldFogBuffer = ensureBuffer(state.worldFogBuffer, width, height);
         Graphics2D g = state.worldFogBuffer.createGraphics();
-        prepareBuffer(g, width, height);
-        drawExplorationSlice(g, state, view, width, height);
-        carveSensors(g, state.sensors, view, width, height);
+        if (sameView && state.worldFogRevision >= 0 && !state.dirtyWorldRegions.isEmpty()) {
+            for (Rectangle2D dirty : state.dirtyWorldRegions) {
+                Rectangle2D patch = dirty.createIntersection(view);
+                if (patch.isEmpty() || patch.getWidth() <= 0 || patch.getHeight() <= 0) continue;
+                Rectangle pixelPatch = bufferRect(view, patch, width, height);
+                if (pixelPatch.isEmpty()) continue;
+                Shape oldClip = g.getClip();
+                g.setClip(pixelPatch);
+                prepareBuffer(g, width, height);
+                drawExplorationSlice(g, state, view, width, height);
+                carveSensors(g, state.sensors, view, width, height);
+                g.setClip(oldClip);
+                state.partialFogCompositions++;
+            }
+        } else {
+            prepareBuffer(g, width, height);
+            drawExplorationSlice(g, state, view, width, height);
+            carveSensors(g, state.sensors, view, width, height);
+            state.fullFogCompositions++;
+        }
         g.dispose();
 
         state.worldFogRevision = state.fogRevision;
@@ -234,7 +392,18 @@ final class FogOfWarView {
         state.worldFogViewWidth = view.getWidth();
         state.worldFogViewHeight = view.getHeight();
         state.worldFogZoom = zoom;
+        state.dirtyWorldRegions.clear();
         return state.worldFogBuffer;
+    }
+
+    private static Rectangle bufferRect(Rectangle2D view, Rectangle2D patch, int width, int height) {
+        double sx = width / Math.max(1.0, view.getWidth());
+        double sy = height / Math.max(1.0, view.getHeight());
+        int x1 = Math.max(0, (int)Math.floor((patch.getMinX() - view.getMinX()) * sx) - 2);
+        int y1 = Math.max(0, (int)Math.floor((patch.getMinY() - view.getMinY()) * sy) - 2);
+        int x2 = Math.min(width, (int)Math.ceil((patch.getMaxX() - view.getMinX()) * sx) + 2);
+        int y2 = Math.min(height, (int)Math.ceil((patch.getMaxY() - view.getMinY()) * sy) + 2);
+        return new Rectangle(x1, y1, Math.max(0, x2 - x1), Math.max(0, y2 - y1));
     }
 
     private static BufferedImage composeMinimapFog(SystemState state, int width, int height, long now) {
@@ -486,6 +655,9 @@ final class FogOfWarView {
     record LastKnownContact(String key, String ownerId, String typeId, boolean base, double x, double y,
                             double vx, double vy, IntelWarfareSystem.DetectionStage stage,
                             double lastSeenSystemTime, boolean decoySuspected) { }
+    private record SensorCoverage(VisibilityRules.Sensor sensor, BitSet cells) { }
+    private record SensorUpdate(boolean changed, boolean explorationChanged,
+                                List<VisibilityRules.Sensor> explorationSensors) { }
 
     private static final class WorldState {
         final Map<String, SystemState> systems = new LinkedHashMap<>();
@@ -502,7 +674,10 @@ final class FogOfWarView {
         final int maskHeight;
         final BitSet explored;
         final BitSet visible;
+        final int[] visibleCoverage;
         final BufferedImage exploredFogMask;
+        final Map<String, SensorCoverage> sensorCoverage = new LinkedHashMap<>();
+        final List<Rectangle2D.Double> dirtyWorldRegions = new ArrayList<>();
         final Map<String, LastKnownContact> contacts = new LinkedHashMap<>();
         final Set<String> liveContacts = new LinkedHashSet<>();
         final Map<String, KnownWormhole> wormholes = new LinkedHashMap<>();
@@ -514,6 +689,9 @@ final class FogOfWarView {
         long minimapFogRevision = -1;
         long lastUpdateNanos;
         long lastMinimapRefreshNanos;
+        long sensorCoverageRebuilds;
+        long fullFogCompositions;
+        long partialFogCompositions;
         double worldFogViewX = Double.NaN;
         double worldFogViewY = Double.NaN;
         double worldFogViewWidth = Double.NaN;
@@ -531,6 +709,7 @@ final class FogOfWarView {
             maskHeight = Math.max(2, (int)Math.ceil(worldHeight / EXPLORATION_MASK_WORLD_UNITS));
             explored = new BitSet(columns * rows);
             visible = new BitSet(columns * rows);
+            visibleCoverage = new int[columns * rows];
             exploredFogMask = new BufferedImage(maskWidth, maskHeight, BufferedImage.TYPE_INT_ARGB_PRE);
             Graphics2D g = exploredFogMask.createGraphics();
             g.setComposite(AlphaComposite.Src);
