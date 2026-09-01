@@ -28,6 +28,7 @@ import java.util.WeakHashMap;
 final class FogOfWarView {
     static final int CELL_SIZE = 128;
     private static final double EXPLORATION_MASK_WORLD_UNITS = 64.0;
+    private static final double VISUAL_FOG_MASK_WORLD_UNITS = 16.0;
     private static final double WORLD_BUFFER_SCALE = 1.0;
     private static final double EDGE_FEATHER_WORLD_UNITS = 96.0;
     private static final double DIRTY_REGION_PAD_WORLD_UNITS = 12.0;
@@ -134,6 +135,11 @@ final class FogOfWarView {
     static synchronized long partialFogCompositionCountForTest(World world) {
         SystemState state = update(world, System.nanoTime());
         return state == null ? 0 : state.partialFogCompositions;
+    }
+
+    static synchronized long visualFogRebuildCountForTest(World world) {
+        SystemState state = update(world, System.nanoTime());
+        return state == null ? 0 : state.visualFogRebuilds;
     }
 
     static synchronized void forceRefreshForTest(World world) {
@@ -362,8 +368,10 @@ final class FogOfWarView {
                 && same(state.worldFogZoom, zoom);
         if (sameView && state.worldFogRevision == state.fogRevision) return state.worldFogBuffer;
 
+        rebuildVisualFogMask(state);
         state.worldFogBuffer = ensureBuffer(state.worldFogBuffer, width, height);
         Graphics2D g = state.worldFogBuffer.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
         if (sameView && state.worldFogRevision >= 0 && !state.dirtyWorldRegions.isEmpty()) {
             for (Rectangle2D dirty : state.dirtyWorldRegions) {
                 Rectangle2D patch = dirty.createIntersection(view);
@@ -372,16 +380,12 @@ final class FogOfWarView {
                 if (pixelPatch.isEmpty()) continue;
                 Shape oldClip = g.getClip();
                 g.setClip(pixelPatch);
-                prepareBuffer(g, width, height);
-                drawExplorationSlice(g, state, view, width, height);
-                carveSensors(g, state.sensors, view, width, height);
+                drawVisualFogSlice(g, state, view, width, height);
                 g.setClip(oldClip);
                 state.partialFogCompositions++;
             }
         } else {
-            prepareBuffer(g, width, height);
-            drawExplorationSlice(g, state, view, width, height);
-            carveSensors(g, state.sensors, view, width, height);
+            drawVisualFogSlice(g, state, view, width, height);
             state.fullFogCompositions++;
         }
         g.dispose();
@@ -394,6 +398,31 @@ final class FogOfWarView {
         state.worldFogZoom = zoom;
         state.dirtyWorldRegions.clear();
         return state.worldFogBuffer;
+    }
+
+    private static void rebuildVisualFogMask(SystemState state) {
+        if (state.visualFogRevision == state.fogRevision) return;
+        Graphics2D g = state.visualFogMask.createGraphics();
+        prepareBuffer(g, state.visualMaskWidth, state.visualMaskHeight);
+        Rectangle2D wholeWorld = new Rectangle2D.Double(0, 0, state.worldWidth, state.worldHeight);
+        drawExplorationSlice(g, state, wholeWorld, state.visualMaskWidth, state.visualMaskHeight);
+        carveSensors(g, state.sensors, wholeWorld, state.visualMaskWidth, state.visualMaskHeight);
+        g.dispose();
+        state.visualFogRevision = state.fogRevision;
+        state.visualFogRebuilds++;
+    }
+
+    private static void drawVisualFogSlice(Graphics2D g, SystemState state, Rectangle2D view,
+                                           int width, int height) {
+        double pixelWorldX = state.worldWidth / (double)state.visualMaskWidth;
+        double pixelWorldY = state.worldHeight / (double)state.visualMaskHeight;
+        double scaleX = pixelWorldX * width / Math.max(1.0, view.getWidth());
+        double scaleY = pixelWorldY * height / Math.max(1.0, view.getHeight());
+        double translateX = -view.getX() * width / Math.max(1.0, view.getWidth());
+        double translateY = -view.getY() * height / Math.max(1.0, view.getHeight());
+        AffineTransform transform = new AffineTransform(scaleX, 0, 0, scaleY, translateX, translateY);
+        g.setComposite(AlphaComposite.Src);
+        g.drawImage(state.visualFogMask, transform, null);
     }
 
     private static Rectangle bufferRect(Rectangle2D view, Rectangle2D patch, int width, int height) {
@@ -416,11 +445,11 @@ final class FogOfWarView {
             return state.minimapFogBuffer;
         }
         state.lastMinimapRefreshNanos = now;
+        rebuildVisualFogMask(state);
         Graphics2D g = state.minimapFogBuffer.createGraphics();
-        prepareBuffer(g, width, height);
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
         Rectangle2D wholeWorld = new Rectangle2D.Double(0, 0, state.worldWidth, state.worldHeight);
-        drawExplorationSlice(g, state, wholeWorld, width, height);
-        carveSensors(g, state.sensors, wholeWorld, width, height);
+        drawVisualFogSlice(g, state, wholeWorld, width, height);
         g.dispose();
         state.minimapFogRevision = state.fogRevision;
         return state.minimapFogBuffer;
@@ -454,8 +483,8 @@ final class FogOfWarView {
             if (sensor == null || sensor.range() <= 0) continue;
             double centerX = (sensor.x() - view.getX()) * sx;
             double centerY = (sensor.y() - view.getY()) * sy;
-            double radiusX = Math.max(0.5, sensor.range() * sx - 1.5);
-            double radiusY = Math.max(0.5, sensor.range() * sy - 1.5);
+            double radiusX = Math.max(0.5, sensor.range() * sx);
+            double radiusY = Math.max(0.5, sensor.range() * sy);
             if (centerX + radiusX < 0 || centerY + radiusY < 0
                     || centerX - radiusX > width || centerY - radiusY > height) continue;
             BufferedImage stamp = gradientStamp(sensor.range());
@@ -672,10 +701,13 @@ final class FogOfWarView {
         final int worldHeight;
         final int maskWidth;
         final int maskHeight;
+        final int visualMaskWidth;
+        final int visualMaskHeight;
         final BitSet explored;
         final BitSet visible;
         final int[] visibleCoverage;
         final BufferedImage exploredFogMask;
+        final BufferedImage visualFogMask;
         final Map<String, SensorCoverage> sensorCoverage = new LinkedHashMap<>();
         final List<Rectangle2D.Double> dirtyWorldRegions = new ArrayList<>();
         final Map<String, LastKnownContact> contacts = new LinkedHashMap<>();
@@ -685,11 +717,13 @@ final class FogOfWarView {
         BufferedImage worldFogBuffer;
         BufferedImage minimapFogBuffer;
         long fogRevision;
+        long visualFogRevision = -1;
         long worldFogRevision = -1;
         long minimapFogRevision = -1;
         long lastUpdateNanos;
         long lastMinimapRefreshNanos;
         long sensorCoverageRebuilds;
+        long visualFogRebuilds;
         long fullFogCompositions;
         long partialFogCompositions;
         double worldFogViewX = Double.NaN;
@@ -707,10 +741,13 @@ final class FogOfWarView {
             this.worldHeight = worldHeight;
             maskWidth = Math.max(2, (int)Math.ceil(worldWidth / EXPLORATION_MASK_WORLD_UNITS));
             maskHeight = Math.max(2, (int)Math.ceil(worldHeight / EXPLORATION_MASK_WORLD_UNITS));
+            visualMaskWidth = Math.max(2, (int)Math.ceil(worldWidth / VISUAL_FOG_MASK_WORLD_UNITS));
+            visualMaskHeight = Math.max(2, (int)Math.ceil(worldHeight / VISUAL_FOG_MASK_WORLD_UNITS));
             explored = new BitSet(columns * rows);
             visible = new BitSet(columns * rows);
             visibleCoverage = new int[columns * rows];
             exploredFogMask = new BufferedImage(maskWidth, maskHeight, BufferedImage.TYPE_INT_ARGB_PRE);
+            visualFogMask = new BufferedImage(visualMaskWidth, visualMaskHeight, BufferedImage.TYPE_INT_ARGB_PRE);
             Graphics2D g = exploredFogMask.createGraphics();
             g.setComposite(AlphaComposite.Src);
             g.setColor(UNEXPLORED);
