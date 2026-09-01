@@ -4,6 +4,7 @@ import java.awt.*;
 import java.awt.geom.Line2D;
 
 final class UnitRenderer {
+    private static final Stroke ROUTE_STROKE = new BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
     private static boolean miningRangeOverlayVisible;
 
     private UnitRenderer() { }
@@ -53,14 +54,17 @@ final class UnitRenderer {
     }
 
     static void drawRoute(Graphics2D g2, Unit unit, Color ignoredColor) {
-        if (!PlayerRegistry.isLocal(unit.playerId)) return;
+        if (!unit.selected || !PlayerRegistry.isLocal(unit.playerId)) return;
         if (Calc.distance(unit.x, unit.y, unit.targetX, unit.targetY) <= 4) return;
         Color color = PlayerRegistry.color(unit.playerId);
-        Graphics2D r = (Graphics2D) g2.create();
-        r.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), 160));
-        r.setStroke(new BasicStroke(1.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 0, new float[]{9f, 8f}, 0));
-        r.draw(new Line2D.Double(unit.x, unit.y, unit.targetX, unit.targetY));
-        r.dispose();
+        Stroke oldStroke = g2.getStroke();
+        Color oldColor = g2.getColor();
+        g2.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), 145));
+        g2.setStroke(ROUTE_STROKE);
+        g2.drawLine((int)Math.round(unit.x), (int)Math.round(unit.y),
+                (int)Math.round(unit.targetX), (int)Math.round(unit.targetY));
+        g2.setStroke(oldStroke);
+        g2.setColor(oldColor);
     }
 
     static void drawWorkLine(Graphics2D g2, Unit unit, ResourceNode node) {
