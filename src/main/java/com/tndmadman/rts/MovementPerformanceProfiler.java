@@ -6,14 +6,76 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
-/** Diagnostic micro-profiler for the client-side movement/render paths behind issue #372. */
+/**
+ * Repeatable movement/fog profiler for issue #372.
+ *
+ * With --gate it also enforces deliberately conservative automated ratios. The stricter
+ * 10-15% moving-vs-stationary release target remains a real-machine acceptance check because
+ * shared CI timing is too noisy for a 1.15x threshold.
+ */
 public final class MovementPerformanceProfiler {
-    private static final int SHIPS = 20;
+    private static final int[] SHIP_COUNTS = {1, 10, 20, 50, 100, 250};
     private static final double DT = 1.0 / 60.0;
+    private static final int WARMUP_ITERATIONS = 80;
+    private static final int MEASURE_ITERATIONS = 120;
+    private static final double AUTOMATED_MOVING_RATIO_LIMIT = 6.0;
+    private static final double AUTOMATED_SCALING_LIMIT = 12.0;
 
     private MovementPerformanceProfiler() { }
 
     public static void main(String[] args) {
+        boolean gate = false;
+        for (String arg : args) if ("--gate".equalsIgnoreCase(arg)) gate = true;
+
+        List<Result> results = new ArrayList<>();
+        System.out.println("movement-profiler mode=" + (gate ? "gate" : "report"));
+        System.out.println("ships  stationary-ms  moving-ms  ratio  tile-rebuilds/move");
+        for (int ships : SHIP_COUNTS) {
+            Result result = measure(ships);
+            results.add(result);
+            System.out.printf("%5d  %13.5f  %9.5f  %5.2fx  %8.3f%n",
+                    ships, result.stationaryMillis, result.movingMillis, result.ratio(),
+                    result.tileRebuildsPerMove);
+        }
+
+        if (gate) enforceGates(results);
+    }
+
+    private static Result measure(int shipCount) {
+        Scenario scenario = scenario(shipCount);
+        Graphics2D graphics = scenario.graphics;
+
+        setStationary(scenario.ships);
+        for (int i = 0; i < WARMUP_ITERATIONS; i++) {
+            FogOfWarView.forceRefreshForTest(scenario.world);
+            FogOfWarView.drawWorld(graphics, scenario.world);
+        }
+
+        setStationary(scenario.ships);
+        double stationary = timeMillis(MEASURE_ITERATIONS, () -> {
+            scenario.world.systemTime += DT;
+            FogOfWarView.forceRefreshForTest(scenario.world);
+            FogOfWarView.drawWorld(graphics, scenario.world);
+        }) / MEASURE_ITERATIONS;
+
+        setStationary(scenario.ships);
+        final int[] step = {0};
+        long tileBefore = FogOfWarView.visualFogRebuildCountForTest(scenario.world);
+        double moving = timeMillis(MEASURE_ITERATIONS, () -> {
+            retargetOrbit(scenario.ships, ++step[0]);
+            ClientPrediction.update(scenario.world, DT);
+            scenario.world.systemTime += DT;
+            FogOfWarView.forceRefreshForTest(scenario.world);
+            FogOfWarView.drawWorld(graphics, scenario.world);
+        }) / MEASURE_ITERATIONS;
+        long tileAfter = FogOfWarView.visualFogRebuildCountForTest(scenario.world);
+
+        graphics.dispose();
+        return new Result(shipCount, stationary, moving,
+                Math.max(0, tileAfter - tileBefore) / (double)MEASURE_ITERATIONS);
+    }
+
+    private static Scenario scenario(int shipCount) {
         World world = new World("Movement profiler", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
         PlayerRegistry.activate(world);
         PlayerRegistry.reset("P1", "Profiler", 0x50BEFF);
@@ -24,9 +86,12 @@ public final class MovementPerformanceProfiler {
         world.items.clear();
         world.wormholes.clear();
 
-        List<Unit> ships = new ArrayList<>();
-        for (int i = 0; i < SHIPS; i++) {
-            Unit unit = new Unit("P1", i + 1, "frigate", 420 + (i % 5) * 72, 360 + (i / 5) * 72);
+        List<Unit> ships = new ArrayList<>(shipCount);
+        for (int i = 0; i < shipCount; i++) {
+            int column = i % 20;
+            int row = i / 20;
+            Unit unit = new Unit("P1", i + 1, "frigate",
+                    260 + column * 42, 220 + row * 42);
             world.units.put(unit.key(), unit);
             ships.add(unit);
         }
@@ -34,114 +99,43 @@ public final class MovementPerformanceProfiler {
         BufferedImage image = new BufferedImage(1280, 720, BufferedImage.TYPE_INT_ARGB_PRE);
         Graphics2D graphics = image.createGraphics();
         graphics.setClip(0, 0, image.getWidth(), image.getHeight());
-        GameCamera camera = new GameCamera();
-        camera.update(world, image.getWidth(), image.getHeight(), DT);
-        MinimapHud minimap = new MinimapHud();
-
-        // Warm up JIT and graphics paths before reporting anything.
-        for (int i = 0; i < 600; i++) ClientPrediction.update(world, DT);
-        for (int i = 0; i < 40; i++) {
-            world.draw(graphics);
-            FogOfWarView.drawWorld(graphics, world);
-            minimap.draw(graphics, world, camera, image.getWidth(), image.getHeight());
-        }
-
-        setStationary(ships);
-        double predictionStationary = timeMillis(3000, () -> ClientPrediction.update(world, DT));
-
-        setStationary(ships);
-        final int[] orbitStep = {0};
-        double predictionOrbiting = timeMillis(3000, () -> {
-            retargetOrbit(ships, ++orbitStep[0]);
-            ClientPrediction.update(world, DT);
-        });
-
-        setMoveOrders(ships);
-        double predictionMove = timeMillis(3000, () -> ClientPrediction.update(world, DT));
-
-        setStationary(ships);
-        double drawStationary = timeMillis(300, () -> world.draw(graphics));
-
-        setStationary(ships);
-        final int[] drawStep = {0};
-        double drawOrbiting = timeMillis(300, () -> {
-            retargetOrbit(ships, ++drawStep[0]);
-            ClientPrediction.update(world, DT);
-            world.draw(graphics);
-        });
-
-        setMoveOrders(ships);
-        double drawMove = timeMillis(300, () -> world.draw(graphics));
-
-        setStationary(ships);
         FogOfWarView.clearCachedStateForTest(world);
         FogOfWarView.forceRefreshForTest(world);
-        double fogStationary = timeMillis(300, () -> FogOfWarView.drawWorld(graphics, world));
+        FogOfWarView.drawWorld(graphics, world);
+        FogOfWarView.clearDirtyFogTilesForTest(world);
+        return new Scenario(world, ships, graphics);
+    }
 
-        setStationary(ships);
-        FogOfWarView.clearCachedStateForTest(world);
-        FogOfWarView.forceRefreshForTest(world);
-        final int[] fogStep = {0};
-        double fogOrbiting = timeMillis(300, () -> {
-            retargetOrbit(ships, ++fogStep[0]);
-            ClientPrediction.update(world, DT);
-            world.systemTime += DT;
-            FogOfWarView.forceRefreshForTest(world);
-            FogOfWarView.drawWorld(graphics, world);
-        });
+    private static void enforceGates(List<Result> results) {
+        Result twenty = find(results, 20);
+        Result fifty = find(results, 50);
+        Result hundred = find(results, 100);
+        Result twoFifty = find(results, 250);
 
-        setStationary(ships);
-        FogOfWarView.clearCachedStateForTest(world);
-        double minimapStationary = timeMillis(300, () -> minimap.draw(
-                graphics, world, camera, image.getWidth(), image.getHeight()));
+        require(twenty.ratio() <= AUTOMATED_MOVING_RATIO_LIMIT,
+                "20-ship moving/stationary CPU ratio regressed to " + decimal(twenty.ratio())
+                        + "x (limit " + AUTOMATED_MOVING_RATIO_LIMIT + "x).");
 
-        setStationary(ships);
-        FogOfWarView.clearCachedStateForTest(world);
-        final int[] minimapStep = {0};
-        double minimapOrbiting = timeMillis(300, () -> {
-            retargetOrbit(ships, ++minimapStep[0]);
-            ClientPrediction.update(world, DT);
-            world.systemTime += DT;
-            FogOfWarView.forceRefreshForTest(world);
-            minimap.draw(graphics, world, camera, image.getWidth(), image.getHeight());
-        });
+        double hundredVsTwenty = hundred.movingMillis / Math.max(0.001, twenty.movingMillis);
+        require(hundredVsTwenty <= AUTOMATED_SCALING_LIMIT,
+                "100-ship moving fog cost scales too sharply vs 20 ships: "
+                        + decimal(hundredVsTwenty) + "x.");
 
-        setStationary(ships);
-        FogOfWarView.clearCachedStateForTest(world);
-        double fullFrameStationary = timeMillis(180, () -> {
-            world.draw(graphics);
-            FogOfWarView.drawWorld(graphics, world);
-            minimap.draw(graphics, world, camera, image.getWidth(), image.getHeight());
-        });
+        double twoFiftyVsFifty = twoFifty.movingMillis / Math.max(0.001, fifty.movingMillis);
+        require(twoFiftyVsFifty <= AUTOMATED_SCALING_LIMIT,
+                "250-ship moving fog cost scales too sharply vs 50 ships: "
+                        + decimal(twoFiftyVsFifty) + "x.");
 
-        setMoveOrders(ships);
-        FogOfWarView.clearCachedStateForTest(world);
-        final int[] fullMoveStep = {0};
-        double fullFrameMove = timeMillis(180, () -> {
-            ClientPrediction.update(world, DT);
-            world.systemTime += DT;
-            FogOfWarView.forceRefreshForTest(world);
-            world.draw(graphics);
-            FogOfWarView.drawWorld(graphics, world);
-            minimap.draw(graphics, world, camera, image.getWidth(), image.getHeight());
-            fullMoveStep[0]++;
-        });
+        require(twenty.tileRebuildsPerMove <= 8.0,
+                "20 moving ships rebuilt too many visual fog tiles per update: "
+                        + decimal(twenty.tileRebuildsPerMove));
 
-        graphics.dispose();
+        System.out.println("Movement performance gate passed.");
+    }
 
-        System.out.printf("movement-profiler ships=%d%n", SHIPS);
-        report("client prediction stationary", predictionStationary, 3000);
-        report("client prediction orbiting", predictionOrbiting, 3000);
-        report("client prediction MOVE", predictionMove, 3000);
-        report("world draw stationary", drawStationary, 300);
-        report("world draw orbiting", drawOrbiting, 300);
-        report("world draw MOVE", drawMove, 300);
-        report("fog draw stationary", fogStationary, 300);
-        report("fog draw orbiting", fogOrbiting, 300);
-        report("minimap stationary", minimapStationary, 300);
-        report("minimap orbiting", minimapOrbiting, 300);
-        report("frame subset stationary", fullFrameStationary, 180);
-        report("frame subset MOVE", fullFrameMove, 180);
+    private static Result find(List<Result> results, int ships) {
+        for (Result result : results) if (result.ships == ships) return result;
+        throw new IllegalStateException("Missing profiler result for " + ships + " ships.");
     }
 
     private static void setStationary(List<Unit> ships) {
@@ -153,23 +147,14 @@ public final class MovementPerformanceProfiler {
         }
     }
 
-    private static void setMoveOrders(List<Unit> ships) {
-        for (int i = 0; i < ships.size(); i++) {
-            Unit unit = ships.get(i);
-            unit.task = UnitTask.MOVE;
-            unit.targetX = Math.min(3000, unit.x + 1200 + i * 7);
-            unit.targetY = Math.min(2200, unit.y + 800 + i * 5);
-        }
-    }
-
     private static void retargetOrbit(List<Unit> ships, int step) {
         double t = step * DT * 0.35;
         for (int i = 0; i < ships.size(); i++) {
             Unit unit = ships.get(i);
             unit.task = UnitTask.IDLE;
             double angle = t * ((i & 1) == 0 ? 1 : -1) + i * 0.63;
-            unit.targetX = 600 + Math.cos(angle) * 180;
-            unit.targetY = 500 + Math.sin(angle) * 180;
+            unit.targetX = 760 + Math.cos(angle) * (180 + (i % 5) * 8);
+            unit.targetY = 500 + Math.sin(angle) * (180 + (i % 7) * 6);
         }
     }
 
@@ -179,8 +164,20 @@ public final class MovementPerformanceProfiler {
         return (System.nanoTime() - started) / 1_000_000.0;
     }
 
-    private static void report(String label, double totalMillis, int iterations) {
-        System.out.printf("%-30s total=%9.3f ms avg=%8.5f ms/op%n",
-                label, totalMillis, totalMillis / Math.max(1, iterations));
+    private static String decimal(double value) {
+        return String.format(java.util.Locale.ROOT, "%.3f", value);
+    }
+
+    private static void require(boolean condition, String message) {
+        if (!condition) throw new IllegalStateException(message);
+    }
+
+    private record Scenario(World world, List<Unit> ships, Graphics2D graphics) { }
+
+    private record Result(int ships, double stationaryMillis, double movingMillis,
+                          double tileRebuildsPerMove) {
+        double ratio() {
+            return movingMillis / Math.max(0.05, stationaryMillis);
+        }
     }
 }
