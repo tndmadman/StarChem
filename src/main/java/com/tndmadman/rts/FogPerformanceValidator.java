@@ -1,12 +1,13 @@
 package com.tndmadman.rts;
 
 import java.awt.Graphics2D;
+import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
-/** Regression coverage for movement-driven fog/intel performance fixes. */
+/** Deterministic regression coverage for movement-driven fog/intel performance fixes. */
 public final class FogPerformanceValidator {
     private FogPerformanceValidator() { }
 
@@ -25,11 +26,13 @@ public final class FogPerformanceValidator {
         List<Unit> friendly = new ArrayList<>();
         List<Unit> enemies = new ArrayList<>();
         for (int i = 0; i < 20; i++) {
-            Unit sensor = new Unit("P1", i + 1, "frigate", 320 + (i % 5) * 90, 260 + (i / 5) * 90);
+            Unit sensor = new Unit("P1", i + 1, "frigate",
+                    320 + (i % 5) * 90, 260 + (i / 5) * 90);
             world.units.put(sensor.key(), sensor);
             friendly.add(sensor);
 
-            Unit enemy = new Unit("P2", i + 1, "frigate", 520 + (i % 5) * 105, 410 + (i / 5) * 105);
+            Unit enemy = new Unit("P2", i + 1, "frigate",
+                    520 + (i % 5) * 105, 410 + (i / 5) * 105);
             if ((i & 1) == 0) enemy.task = UnitTask.MOVE;
             world.units.put(enemy.key(), enemy);
             enemies.add(enemy);
@@ -39,8 +42,10 @@ public final class FogPerformanceValidator {
 
         validateFrameEquivalence(world, enemies, enemyBase);
         validateIncrementalSensorCoverage(world, friendly);
-        validatePartialFogComposition(world, friendly.get(0));
-        validateFleetVisualFogAggregation(world, friendly);
+        validateOverlapAccounting(world, friendly);
+        validateLocalizedTileRebuild(world, friendly.get(0));
+        validateCameraCacheReuse(world);
+        validateMinimapSharesTiles(world, friendly.get(1));
 
         System.out.println("Fog performance validator passed.");
     }
@@ -48,8 +53,7 @@ public final class FogPerformanceValidator {
     private static void validateFrameEquivalence(World world, List<Unit> enemies, Base enemyBase) {
         VisibilityRules.Frame frame = VisibilityRules.frame(world, "P1");
         require(frame.sensors().size() == 20, "Expected one stable fog sensor per friendly ship.");
-        for (int i = 0; i < frame.sensors().size(); i++) {
-            VisibilityRules.Sensor sensor = frame.sensors().get(i);
+        for (VisibilityRules.Sensor sensor : frame.sensors()) {
             require(sensor.sourceKey() != null && sensor.sourceKey().startsWith("U:"),
                     "Fog sensor lost its stable source identity.");
         }
@@ -99,59 +103,115 @@ public final class FogPerformanceValidator {
                 "Moving the fleet did not rebuild coverage exactly once per changed sensor.");
     }
 
-    private static void validatePartialFogComposition(World world, Unit movingSensor) {
+    private static void validateOverlapAccounting(World world, List<Unit> friendly) {
+        FogOfWarView.clearCachedStateForTest(world);
+        FogOfWarView.forceRefreshForTest(world);
+
+        Unit first = friendly.get(0);
+        Unit second = friendly.get(1);
+        double probeX = (first.x + second.x) * 0.5;
+        double probeY = (first.y + second.y) * 0.5;
+        int before = FogOfWarView.currentCoverageCountForTest(world, probeX, probeY);
+        require(before >= 2, "Expected overlapping friendly sensor coverage at the overlap probe.");
+
+        world.units.remove(first.key());
+        world.systemTime += 0.1;
+        FogOfWarView.forceRefreshForTest(world);
+        int afterOneLeaves = FogOfWarView.currentCoverageCountForTest(world, probeX, probeY);
+        require(afterOneLeaves >= 1 && afterOneLeaves < before,
+                "Removing one overlapping sensor did not preserve the remaining coverage.");
+
+        world.units.put(first.key(), first);
+        world.systemTime += 0.1;
+        FogOfWarView.forceRefreshForTest(world);
+        int restored = FogOfWarView.currentCoverageCountForTest(world, probeX, probeY);
+        require(restored == before,
+                "Re-adding an overlapping sensor did not restore the exact coverage count.");
+    }
+
+    private static void validateLocalizedTileRebuild(World world, Unit movingSensor) {
+        FogOfWarView.clearCachedStateForTest(world);
         BufferedImage image = new BufferedImage(1000, 800, BufferedImage.TYPE_INT_ARGB_PRE);
         Graphics2D g = image.createGraphics();
         g.setClip(0, 0, image.getWidth(), image.getHeight());
         FogOfWarView.drawWorld(g, world);
-        long fullBefore = FogOfWarView.fullFogCompositionCountForTest(world);
-        long partialBefore = FogOfWarView.partialFogCompositionCountForTest(world);
-        require(fullBefore > 0, "Initial fog draw did not build a complete buffer.");
+        long initialRebuilds = FogOfWarView.visualFogRebuildCountForTest(world);
+        int totalTiles = FogOfWarView.fogTileCountForTest(world);
+        require(initialRebuilds > 0, "Initial viewport did not build fog tiles.");
+        FogOfWarView.clearDirtyFogTilesForTest(world);
 
         movingSensor.x += 14;
         movingSensor.y += 7;
         world.systemTime += 0.1;
         FogOfWarView.forceRefreshForTest(world);
+        int dirty = FogOfWarView.dirtyFogTileCountForTest(world);
+        require(dirty > 0, "Moving a sensor did not dirty any world-space fog tile.");
+        require(dirty < Math.max(8, totalTiles / 8),
+                "One moving sensor dirtied too much of the world: " + dirty + " of " + totalTiles + " tiles.");
+
+        long fullBefore = FogOfWarView.fullFogCompositionCountForTest(world);
+        long partialBefore = FogOfWarView.partialFogCompositionCountForTest(world);
         FogOfWarView.drawWorld(g, world);
         long fullAfter = FogOfWarView.fullFogCompositionCountForTest(world);
         long partialAfter = FogOfWarView.partialFogCompositionCountForTest(world);
         g.dispose();
 
         require(fullAfter == fullBefore,
-                "A moving sensor forced a full fog-buffer composition with an unchanged viewport.");
+                "A moving sensor caused a new uncached/full viewport fog composition.");
         require(partialAfter > partialBefore,
-                "A moving sensor did not use the dirty-region fog-buffer update path.");
+                "A moving sensor did not rebuild a cached dirty tile.");
+        require(FogOfWarView.visualFogRebuildCountForTest(world) - initialRebuilds <= dirty,
+                "Rendering rebuilt more fog tiles than were dirtied.");
     }
 
-    private static void validateFleetVisualFogAggregation(World world, List<Unit> friendly) {
+    private static void validateCameraCacheReuse(World world) {
         FogOfWarView.clearCachedStateForTest(world);
-        BufferedImage image = new BufferedImage(1000, 800, BufferedImage.TYPE_INT_ARGB_PRE);
+        BufferedImage image = new BufferedImage(900, 700, BufferedImage.TYPE_INT_ARGB_PRE);
         Graphics2D g = image.createGraphics();
-        g.setClip(0, 0, image.getWidth(), image.getHeight());
 
+        g.setClip(0, 0, 900, 700);
         FogOfWarView.drawWorld(g, world);
-        long initialVisualRebuilds = FogOfWarView.visualFogRebuildCountForTest(world);
-        require(initialVisualRebuilds == 1,
-                "Initial fog draw did not build exactly one shared visual fog mask.");
+        long first = FogOfWarView.visualFogRebuildCountForTest(world);
 
-        for (int i = 0; i < friendly.size(); i++) {
-            Unit unit = friendly.get(i);
-            unit.x += 11 + (i % 3);
-            unit.y += 7 + (i % 2);
-        }
-        world.systemTime += 0.1;
-        FogOfWarView.forceRefreshForTest(world);
-        long beforeDraw = FogOfWarView.visualFogRebuildCountForTest(world);
-        require(beforeDraw == initialVisualRebuilds,
-                "Sensor-state refresh rebuilt the visual fog raster before a render was requested.");
-
+        g.setClip(1100, 0, 900, 700);
         FogOfWarView.drawWorld(g, world);
-        long afterDraw = FogOfWarView.visualFogRebuildCountForTest(world);
+        long second = FogOfWarView.visualFogRebuildCountForTest(world);
+        require(second >= first, "Camera movement produced an invalid tile rebuild count.");
+
+        g.setClip(0, 0, 900, 700);
+        FogOfWarView.drawWorld(g, world);
+        long returned = FogOfWarView.visualFogRebuildCountForTest(world);
         g.dispose();
 
-        require(afterDraw == initialVisualRebuilds + 1,
-                "Moving the whole fleet rebuilt the shared visual fog raster more than once: expected +1, got +"
-                        + (afterDraw - initialVisualRebuilds));
+        require(returned == second,
+                "Returning the camera to already cached world tiles recomputed fog.");
+    }
+
+    private static void validateMinimapSharesTiles(World world, Unit movingSensor) {
+        FogOfWarView.clearCachedStateForTest(world);
+        BufferedImage image = new BufferedImage(400, 300, BufferedImage.TYPE_INT_ARGB_PRE);
+        Graphics2D g = image.createGraphics();
+        Rectangle map = new Rectangle(0, 0, 320, 220);
+
+        FogOfWarView.forceMinimapRefreshForTest(world);
+        FogOfWarView.drawMinimap(g, world, map);
+        long initialPatches = FogOfWarView.minimapPatchCountForTest(world);
+        require(initialPatches == FogOfWarView.fogTileCountForTest(world),
+                "Initial minimap did not consume each world fog tile exactly once.");
+
+        movingSensor.x += 13;
+        movingSensor.y += 5;
+        world.systemTime += 0.1;
+        FogOfWarView.forceRefreshForTest(world);
+        int dirty = FogOfWarView.dirtyFogTileCountForTest(world);
+        FogOfWarView.forceMinimapRefreshForTest(world);
+        FogOfWarView.drawMinimap(g, world, map);
+        long changedPatches = FogOfWarView.minimapPatchCountForTest(world) - initialPatches;
+        g.dispose();
+
+        require(changedPatches > 0 && changedPatches <= Math.max(1, dirty),
+                "Minimap recomposed unrelated fog tiles after one sensor moved: patches="
+                        + changedPatches + ", dirty=" + dirty);
     }
 
     private static void require(boolean condition, String message) {
