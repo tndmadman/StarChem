@@ -6,6 +6,8 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.Stroke;
 import java.awt.geom.Path2D;
+import java.util.Map;
+import java.util.WeakHashMap;
 
 /** Draws bounded, aggregate command intent for large selections. */
 final class FleetSelectionOverlay {
@@ -13,12 +15,29 @@ final class FleetSelectionOverlay {
             1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
             0, new float[]{10f, 8f}, 0);
     private static final double FORMATION_EXTENT_MIN = 56.0;
+    private static final long REDRAW_NANOS = 16_000_000L;
+    private static final Map<World, Long> LAST_DRAW = new WeakHashMap<>();
 
     private FleetSelectionOverlay() { }
 
-    static void draw(Graphics2D g2, World world) {
+    /**
+     * World currently invokes order rendering per visible unit. Throttle the aggregate
+     * pass so the first visible selected unit draws it and the remaining selected
+     * units become constant-time no-ops. Command intent does not need a higher update
+     * rate than the screen refresh cadence.
+     */
+    static void drawOnce(Graphics2D g2, World world) {
         if (g2 == null || world == null || !SelectionRenderPolicy.aggregate(world)) return;
+        long now = System.nanoTime();
+        synchronized (LAST_DRAW) {
+            Long last = LAST_DRAW.get(world);
+            if (last != null && now - last < REDRAW_NANOS) return;
+            LAST_DRAW.put(world, now);
+        }
+        draw(g2, world);
+    }
 
+    private static void draw(Graphics2D g2, World world) {
         int slots = UnitTask.values().length * UnitOrderType.values().length;
         Group[] groups = new Group[slots];
         int groupCount = 0;
