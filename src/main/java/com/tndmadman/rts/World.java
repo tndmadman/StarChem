@@ -280,7 +280,7 @@ final class World {
     void syncEnvironment(long seed, double hostTime) { syncEnvironment(systemId(), seed, hostTime); }
     void syncEnvironment(String newSystemId, long seed, double hostTime) { boolean changed = !StarSystems.get(newSystemId).id().equals(systemId()); if (changed) setStarSystem(newSystemId); if (changed || seed != systemSeed) setSystemSeed(seed); double delta = hostTime - systemTime; if (Math.abs(delta) > 0.02) advanceEnvironment(delta); else { systemTime = hostTime; galaxy.setActiveSystemTime(hostTime); } }
     private void setStarSystem(String systemId) { starSystem = StarSystems.get(systemId); }
-    private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); clearNpcAiRuntimeState(); LogisticsRouteSystem.clear(this); remoteGalaxyMapSnapshot = null; celestials = galaxy.rebuild(this, starSystem, seed); }
+    private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); clearNpcAiRuntimeState(); SimulationCadence.clear(this); LogisticsRouteSystem.clear(this); remoteGalaxyMapSnapshot = null; celestials = galaxy.rebuild(this, starSystem, seed); }
     private Point2D startShipPoint(Point2D basePoint) { return new Point2D.Double(basePoint.getX() + 180, basePoint.getY() - 80); }
 
     private void clearNpcAiRuntimeState() {
@@ -358,23 +358,40 @@ final class World {
     private void updateItems(double dt) { Iterator<WorldItem> it = items.iterator(); while (it.hasNext()) { WorldItem item = it.next(); item.update(dt, width, height); if (item.empty()) it.remove(); } }
     void update(double dt) { SystemAudio.listenTo(this); updateEnvironment(dt); updateSimulation(dt); updateInactiveSystems(dt); }
     void updateCurrentSystem(double dt) { if (dt <= 0) return; updateEnvironment(dt); double step = SystemSimulationScheduler.step(this, dt); if (step > 0) updateSimulation(step); else saveActiveSystem(); }
+
     private void updateSimulation(double dt) {
         SystemModifierRules.applyEnvironment(this, dt);
         resourceRespawnSystem.update(this, dt);
         StationFuelRules.consume(this, dt);
         ProductionSystem.updateRefitRecalls(this);
-        logisticsSystem.update(this, dt);
-        LogisticsRouteSystem.update(this, dt);
-        itemPickupSystem.update(this);
-        scoutSystem.update(this);
-        npcSystemForActiveSystem().update(this, dt);
-        GalaxyEventDirector.enforceEncounterOrders(this);
-        updateOrganizedNpcFactions(dt);
+
+        double logisticsDt = SimulationCadence.consume(this, "logistics", dt, 0.10);
+        if (logisticsDt > 0) logisticsSystem.update(this, logisticsDt);
+        double routeDt = SimulationCadence.consume(this, "logistics-routes", dt, 0.10);
+        if (routeDt > 0) LogisticsRouteSystem.update(this, routeDt);
+        double pickupDt = SimulationCadence.consume(this, "item-pickup", dt, 0.05);
+        if (pickupDt > 0) itemPickupSystem.update(this);
+        double scoutDt = SimulationCadence.consume(this, "scout", dt, 0.10);
+        if (scoutDt > 0) scoutSystem.update(this);
+        double npcDt = SimulationCadence.consume(this, "npc-local", dt, 0.20);
+        if (npcDt > 0) npcSystemForActiveSystem().update(this, npcDt);
+        if (SimulationCadence.consume(this, "encounter-orders", dt, 0.10) > 0) {
+            GalaxyEventDirector.enforceEncounterOrders(this);
+        }
+        double organizedNpcDt = SimulationCadence.consume(this, "npc-organized", dt, 0.20);
+        if (organizedNpcDt > 0) updateOrganizedNpcFactions(organizedNpcDt);
         npcGalaxyDirector.update(this, dt);
-        for (Unit unit : new ArrayList<>(units.values())) updateUnit(unit, dt);
+
+        ShipModuleRules.beginUpdateCycle(this);
+        double movementScale = SystemModifierRules.movementSpeed(this);
+        long unitStarted = System.nanoTime();
+        for (Unit unit : units.values()) updateUnit(unit, dt, movementScale);
+        PerformanceTrace.recordMovement(System.nanoTime() - unitStarted);
+
         transferTouchingShips();
         weaponSystem.update(this, dt);
         cleanupDestroyed();
+        if (!WorldSpatialIndex.forWorld(this).matches(this)) WorldSpatialIndex.rebuild(this);
         saveActiveSystem();
     }
 
@@ -480,7 +497,7 @@ final class World {
         }
     }
 
-    private void updateUnit(Unit unit, double dt) {
+    private void updateUnit(Unit unit, double dt, double movementScale) {
         unit.unloadingThisFrame = false;
         if (unit.hp <= 0) return;
         unit.wormholeCooldown = Math.max(0, unit.wormholeCooldown - dt);
@@ -497,7 +514,7 @@ final class World {
         }
         if (ProductionSystem.refitReserved(this, unit.key())) {
             ShipModuleRules.update(this, unit, dt);
-            unit.updatePosition(dt * SystemModifierRules.movementSpeed(this), width, height);
+            unit.updatePosition(dt * movementScale, width, height);
             return;
         }
         boolean recoveryOwned = NpcRecoverySystem.ownsUnit(this, unit)
@@ -512,9 +529,13 @@ final class World {
         UnitOrderSystem.update(this, unit, dt);
         if (!recoveryOwned && !logisticsRouteOwned && unit.task == UnitTask.RETURN_TO_STATION) updateReturn(unit);
         if (!recoveryOwned && !logisticsRouteOwned && unit.task == UnitTask.IDLE && unit.orderType == UnitOrderType.NONE) idleNearBase(unit, dt);
-        if (unit.task == UnitTask.MOVE && Calc.distance(unit.x, unit.y, unit.targetX, unit.targetY) < 5) unit.task = UnitTask.IDLE;
+        if (unit.task == UnitTask.MOVE) {
+            double dx = unit.targetX - unit.x;
+            double dy = unit.targetY - unit.y;
+            if (dx * dx + dy * dy < 25) unit.task = UnitTask.IDLE;
+        }
         ShipModuleRules.update(this, unit, dt);
-        unit.updatePosition(dt * SystemModifierRules.movementSpeed(this), width, height);
+        unit.updatePosition(dt * movementScale, width, height);
     }
     private void sendFullHarvestCargoToUnload(Unit unit) { if (unit.type().harvestKinds.isEmpty() || unit.task == UnitTask.RETURN_TO_STATION || unit.cargoUsed() <= 0.05 || unit.freeCargo() > 0.05) return; sendToNearestBase(unit); }
     private void updateReturn(Unit unit) { Base base = nearestBase(unit.playerId, unit.x, unit.y); Unit depot = MobileDepot.preferredFor(this, unit, base); if (base == null && depot == null) { unit.task = UnitTask.IDLE; return; } if (unit.cargoUsed() <= 0.05) { ResourceNode resume = findResource(unit.automationResourceId); if (resume != null && resume.active) unit.task = UnitTask.AUTO_HARVEST; else if (!returnToMiningAnchor(unit)) unit.task = UnitTask.IDLE; return; } if (depot != null) moveTowardOrbit(unit, depot.x, depot.y, MobileDepot.range(depot) * 0.55); else moveTowardOrbit(unit, base.x, base.y, base.type().unloadRange * 0.55); }
@@ -534,7 +555,33 @@ final class World {
     boolean placePackage(Unit unit) { return buildSystem.placePackage(this, unit); }
     boolean craftItem(String baseId, String craftableId) { return buildSystem.craftItem(this, baseId, craftableId); }
     boolean research(String baseId, String topicId) { return buildSystem.research(this, baseId, topicId); }
-    void draw(Graphics2D g2) { drawMap(g2); galaxy.draw(this, g2); for (Base base : bases.values()) base.draw(g2, localColor, stockpile, true); for (ResourceNode node : resources) node.draw(g2, node.id == selectedResourceId); for (WorldItem item : items) item.draw(g2); for (Unit unit : units.values()) { ResourceNode node = findResource(unit.automationResourceId); if (MiningBeam.visible(unit, node)) UnitRenderer.drawWorkLine(g2, unit, node); if (shouldDrawRoute(unit)) UnitRenderer.drawRoute(g2, unit, localColor); UnitOrderRenderer.draw(g2, this, unit); } weaponSystem.draw(g2, this); ShipModuleRules.draw(g2, this); for (ExplosionEffect explosion : explosions) explosion.draw(g2); for (Unit unit : units.values()) UnitRenderer.draw(g2, unit, localColor, true); }
+
+    void draw(Graphics2D g2) {
+        long started = System.nanoTime();
+        drawMap(g2);
+        galaxy.draw(this, g2);
+
+        Iterable<Base> visibleBases = WorldRenderCandidates.bases(this, g2);
+        Iterable<ResourceNode> visibleResources = WorldRenderCandidates.resources(this, g2);
+        Iterable<WorldItem> visibleItems = WorldRenderCandidates.items(this, g2);
+        Iterable<Unit> visibleUnits = WorldRenderCandidates.units(this, g2);
+
+        for (Base base : visibleBases) base.draw(g2, localColor, stockpile, true);
+        for (ResourceNode node : visibleResources) node.draw(g2, node.id == selectedResourceId);
+        for (WorldItem item : visibleItems) item.draw(g2);
+        for (Unit unit : visibleUnits) {
+            ResourceNode node = findResource(unit.automationResourceId);
+            if (MiningBeam.visible(unit, node)) UnitRenderer.drawWorkLine(g2, unit, node);
+            if (shouldDrawRoute(unit)) UnitRenderer.drawRoute(g2, unit, localColor);
+            UnitOrderRenderer.draw(g2, this, unit);
+        }
+        weaponSystem.draw(g2, this);
+        ShipModuleRules.draw(g2, this);
+        for (ExplosionEffect explosion : explosions) explosion.draw(g2);
+        for (Unit unit : visibleUnits) UnitRenderer.draw(g2, unit, localColor, true);
+        PerformanceTrace.recordWorldDraw(System.nanoTime() - started);
+    }
+
     private boolean shouldDrawRoute(Unit unit) { return PlayerRegistry.isLocal(unit.playerId) && (unit.task == UnitTask.MOVE || unit.task == UnitTask.RETURN_TO_STATION || unit.task == UnitTask.ATTACK); }
     private void drawMap(Graphics2D g2) { galaxy.drawMap(g2, width, height); }
     void selectAt(double x, double y) { ResourceNode node = resourceAt(x, y); ResourceNetDebug.select(this, x, y, node); if (node != null) { selectedResourceId = node.id; status = "Targeted " + node.name + ". Right-click to auto-harvest."; return; } Unit unit = unitAt(x, y); for (Unit u : units.values()) u.selected = false; if (unit != null && PlayerRegistry.isLocal(unit.playerId)) { unit.selected = true; status = "Selected " + unit.type().name + " #" + unit.unitId + "."; } }
