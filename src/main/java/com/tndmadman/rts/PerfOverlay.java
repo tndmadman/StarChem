@@ -7,7 +7,7 @@ import java.util.Locale;
 
 final class PerfOverlay {
     private static final long REFRESH_NANOS = 250_000_000L;
-    private static final int PANEL_WIDTH = 500;
+    private static final int PANEL_WIDTH = 760;
     private long nextRefreshNanos;
     private List<String> lines = List.of("Collecting performance samples...");
 
@@ -15,24 +15,25 @@ final class PerfOverlay {
               PerfSnapshot frame, PerfSnapshot network, PerfSnapshot host) {
         long now = System.nanoTime();
         if (now >= nextRefreshNanos) {
-            lines = buildLines(world, updateLabel, frame, network, host, PerformanceTrace.snapshot());
+            lines = buildLines(world, updateLabel, frame, network, host,
+                    PerformanceTrace.snapshot(), ThreadPerformanceMonitor.snapshot());
             nextRefreshNanos = now + REFRESH_NANOS;
         }
 
         int x = Math.max(14, screenWidth - PANEL_WIDTH - 14);
-        int y = 132;
-        int lineHeight = 16;
-        int height = 34 + lines.size() * lineHeight;
-        g2.setColor(new Color(0, 0, 0, 190));
+        int y = 48;
+        int lineHeight = 14;
+        int height = 32 + lines.size() * lineHeight;
+        g2.setColor(new Color(0, 0, 0, 205));
         g2.fillRoundRect(x, y, PANEL_WIDTH, height, 12, 12);
         g2.setColor(new Color(80, 180, 255, 190));
         g2.drawRoundRect(x, y, PANEL_WIDTH, height, 12, 12);
-        g2.setFont(g2.getFont().deriveFont(Font.BOLD, 12f));
+        g2.setFont(g2.getFont().deriveFont(Font.BOLD, 11f));
         g2.setColor(Color.WHITE);
-        g2.drawString("DEV PERFORMANCE (F4)", x + 12, y + 20);
-        g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f));
+        g2.drawString("DEV PERFORMANCE (F4)", x + 12, y + 18);
+        g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 11f));
         g2.setColor(new Color(220, 238, 250));
-        int textY = y + 40;
+        int textY = y + 34;
         for (String line : lines) {
             g2.drawString(line, x + 12, textY);
             textY += lineHeight;
@@ -41,7 +42,8 @@ final class PerfOverlay {
 
     private List<String> buildLines(World world, String updateLabel,
                                     PerfSnapshot frame, PerfSnapshot network, PerfSnapshot host,
-                                    PerformanceTrace.TraceSnapshot trace) {
+                                    PerformanceTrace.TraceSnapshot trace,
+                                    ThreadPerformanceMonitor.ThreadSnapshot threadSnapshot) {
         List<String> out = new ArrayList<>();
         out.add(String.format(Locale.ROOT,
                 "FPS %.1f | frame %.2f ms avg / %.2f max | draw %.2f / %.2f",
@@ -61,7 +63,7 @@ final class PerfOverlay {
                 "Spatial rebuild %.3f ms | candidates %.0f/s | indexed %.0f/s",
                 trace.spatialRebuildMs(), trace.spatialCandidatesPerSecond(), trace.indexedEntitiesPerSecond()));
         out.add(String.format(Locale.ROOT,
-                "Target candidates %.0f/s | PD candidates %.0f/s | snapshot filter %.3f ms (% .0f ent/s)",
+                "Target candidates %.0f/s | PD candidates %.0f/s | snapshot filter %.3f ms (%.0f ent/s)",
                 trace.targetCandidatesPerSecond(), trace.pointDefenseCandidatesPerSecond(),
                 trace.snapshotFilterMs(), trace.snapshotFilterEntitiesPerSecond()));
         out.add("Entities U " + world.units.size() + " | B " + world.bases.size() + " | R " + world.resources.size()
@@ -79,6 +81,18 @@ final class PerfOverlay {
             out.add(String.format(Locale.ROOT, "Host simulation %.2f ms avg / %.2f max",
                     host.serverUpdateAvgMs(), host.serverUpdateMaxMs()));
             addNetworkLines(out, "Host", host);
+        }
+
+        out.add("--- THREAD CPU (250 ms samples; hottest first) ---");
+        out.add(threadSnapshot.summary());
+        if (threadSnapshot.supported()) {
+            int rank = 1;
+            for (ThreadPerformanceMonitor.ThreadSample sample : threadSnapshot.threads()) {
+                out.add(String.format(Locale.ROOT,
+                        "%2d  %-32s %8.3f ms | %6.1f%% core | total %10.1f ms | %s",
+                        rank++, ThreadPerformanceMonitor.compactName(sample.name(), 32), sample.sampleCpuMs(),
+                        sample.corePercent(), sample.totalCpuMs(), ThreadPerformanceMonitor.compactState(sample.state())));
+            }
         }
         return out;
     }
