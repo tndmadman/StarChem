@@ -21,6 +21,8 @@ final class SelectionRenderPolicy {
 
     private static final long SNAPSHOT_NANOS = 50_000_000L;
     private static final Map<World, CachedSnapshot> CACHE = new WeakHashMap<>();
+    private static volatile World fastWorld;
+    private static volatile CachedSnapshot fastSnapshot;
 
     enum Tier { FULL, COMPACT, FLEET, MASS }
 
@@ -29,14 +31,19 @@ final class SelectionRenderPolicy {
     static Snapshot snapshot(World world) {
         if (world == null) return Snapshot.EMPTY;
         long now = System.nanoTime();
+        CachedSnapshot fast = fastSnapshot;
+        if (fastWorld == world && valid(world, fast, now)) return fast.snapshot;
+
         synchronized (CACHE) {
             CachedSnapshot cached = CACHE.get(world);
-            if (cached != null && cached.unitCount == world.units.size() && now < cached.expiresAtNanos) {
-                return cached.snapshot;
+            if (!valid(world, cached, now)) {
+                Snapshot snapshot = build(world);
+                cached = new CachedSnapshot(world.units.size(), now + SNAPSHOT_NANOS, snapshot);
+                CACHE.put(world, cached);
             }
-            Snapshot snapshot = build(world);
-            CACHE.put(world, new CachedSnapshot(world.units.size(), now + SNAPSHOT_NANOS, snapshot));
-            return snapshot;
+            fastWorld = world;
+            fastSnapshot = cached;
+            return cached.snapshot;
         }
     }
 
@@ -62,7 +69,8 @@ final class SelectionRenderPolicy {
      */
     static boolean forceCheapSelectedHull(World world, Unit unit) {
         if (unit == null || !unit.selected || !PlayerRegistry.isLocal(unit.playerId)) return false;
-        return snapshot(world).selectedCount() > COMPACT_LIMIT && snapshot(world).primary() != unit;
+        Snapshot snapshot = snapshot(world);
+        return snapshot.selectedCount() > COMPACT_LIMIT && snapshot.primary() != unit;
     }
 
     static boolean compactMarker(World world) {
@@ -76,7 +84,17 @@ final class SelectionRenderPolicy {
 
     static void invalidate(World world) {
         if (world == null) return;
-        synchronized (CACHE) { CACHE.remove(world); }
+        synchronized (CACHE) {
+            CACHE.remove(world);
+            if (fastWorld == world) {
+                fastWorld = null;
+                fastSnapshot = null;
+            }
+        }
+    }
+
+    private static boolean valid(World world, CachedSnapshot cached, long now) {
+        return cached != null && cached.unitCount == world.units.size() && now < cached.expiresAtNanos;
     }
 
     private static Snapshot build(World world) {
