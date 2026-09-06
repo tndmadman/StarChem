@@ -2,29 +2,39 @@ package com.tndmadman.rts;
 
 /** Coordinates organized-faction strategy, construction, expeditions, combat, logistics, and recovery. */
 final class NpcGalaxyDirector {
+    private static final double DECISION_INTERVAL_SECONDS = 0.20;
+
     void update(World world, double dt) {
         if (world == null || dt <= 0) return;
+        double decisionDt = SimulationCadence.consume(world, "npc-galaxy-director", dt, DECISION_INTERVAL_SECONDS);
+        if (decisionDt <= 0) return;
+
         for (NpcFaction faction : NpcRules.factions()) {
             if (!faction.enabled() || faction.behavior() != NpcBehavior.FACTION) continue;
 
-            NpcStrategicState strategy = NpcStrategicDirector.update(world, faction, dt);
+            NpcStrategicState strategy = NpcStrategicDirector.update(world, faction, decisionDt);
             NpcExpeditionReadinessSystem.ensureInfrastructureBuilder(world, faction, strategy);
             NpcStationDeployerRecoverySystem.update(world, faction, strategy);
-            NpcStationConstructionSystem.update(world, faction, dt);
+            NpcStationConstructionSystem.update(world, faction, decisionDt);
             if (NpcFactionRuntime.homeSystemIdFor(faction).equals(world.activeSystemId())) {
                 NpcWorkerProductionSystem.update(world, faction);
             }
-            updateExpedition(world, faction, strategy, dt);
-            NpcSquadCombatSystem.update(world, faction, strategy, dt);
+            updateExpedition(world, faction, strategy, decisionDt);
+            NpcSquadCombatSystem.update(world, faction, strategy, decisionDt);
             NpcMobileDepotSystem.update(world, faction);
 
-            boolean hasLocalStation = world.bases.values().stream()
-                    .anyMatch(base -> faction.id().equals(base.playerId) && base.hp > 0);
+            boolean hasLocalStation = false;
+            for (Base base : world.bases.values()) {
+                if (faction.id().equals(base.playerId) && base.hp > 0) {
+                    hasLocalStation = true;
+                    break;
+                }
+            }
             if (hasLocalStation
                     || !NpcExpeditionSystem.protectsStationlessCurrentSystem(world, faction)) {
                 NpcRecoverySystem.update(world, faction);
             }
-            NpcRepairEvacuationSystem.update(world, faction, dt);
+            NpcRepairEvacuationSystem.update(world, faction, decisionDt);
         }
         AiBrainLog.observe(world);
     }
