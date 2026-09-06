@@ -249,11 +249,10 @@ final class UnitOrderRenderer {
     static void draw(Graphics2D g2, World world, Unit unit) {
         if (g2 == null || world == null || unit == null || !unit.selected || !PlayerRegistry.isLocal(unit.playerId)) return;
 
-        if (SelectionRenderPolicy.aggregate(world)) {
-            // This call is effectively once per frame; subsequent selected units hit the
-            // cheap cadence guard. Only the primary ship keeps exact queue/order detail.
-            FleetSelectionOverlay.drawOnce(g2, world);
-            if (!SelectionRenderPolicy.primary(world, unit)) return;
+        SelectionRenderPolicy.Snapshot selection = SelectionRenderPolicy.snapshot(world);
+        if (selection.selectedCount() > SelectionRenderPolicy.FULL_LIMIT) {
+            FleetSelectionOverlay.drawForUnit(g2, world, unit, selection);
+            if (selection.primary() != unit) return;
         }
 
         UnitCommandQueueRenderer.draw(g2, world, unit);
