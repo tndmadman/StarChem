@@ -1,6 +1,10 @@
 package com.tndmadman.rts;
 
-import java.awt.*;
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.Shape;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.Rectangle2D;
@@ -47,20 +51,22 @@ final class WorldItem {
     }
 
     void draw(Graphics2D g2) {
-        if (empty()) return;
-        Color c = material.color;
+        if (empty() || g2 == null) return;
         double r = radius();
-        Graphics2D g = (Graphics2D) g2.create();
+        if (!RenderCulling.visible(g2, x, y, r * 2.0 + 80)) return;
+        Color c = material.color;
+        Graphics2D g = (Graphics2D)g2.create();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 45));
         g.fill(new Ellipse2D.Double(x - r * 1.8, y - r * 1.8, r * 3.6, r * 3.6));
         g.translate(x, y);
         g.rotate(angle);
         g.setColor(new Color(12, 17, 22, 230));
-        g.fill(shape(r));
+        Shape shape = shape(r);
+        g.fill(shape);
         g.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 225));
         g.setStroke(new BasicStroke(2.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-        g.draw(shape(r));
+        g.draw(shape);
         g.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 165));
         g.fill(new Rectangle2D.Double(-r * 0.32, -r * 0.32, r * 0.64, r * 0.64));
         g.dispose();
