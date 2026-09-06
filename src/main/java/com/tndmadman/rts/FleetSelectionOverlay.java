@@ -4,7 +4,6 @@ import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
-import java.awt.RenderingHints;
 import java.awt.Stroke;
 import java.awt.geom.Path2D;
 import java.util.Map;
@@ -172,13 +171,6 @@ final class FleetSelectionOverlay {
         if (!cache.geometryReady || (cache.markerCount == 0 && cache.path.getCurrentPoint() == null)) return;
         Color oldColor = g2.getColor();
         Stroke oldStroke = g2.getStroke();
-        Object oldAa = null;
-        boolean cheapAa = cache.selectedCount > SelectionRenderPolicy.COMPACT_LIMIT;
-        if (cheapAa) {
-            oldAa = g2.getRenderingHint(RenderingHints.KEY_ANTIALIASING);
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
-        }
-
         g2.setColor(cache.color);
         g2.setStroke(INTENT_STROKE);
         g2.draw(cache.path);
@@ -189,10 +181,8 @@ final class FleetSelectionOverlay {
             g2.drawLine(x - 13, y, x + 13, y);
             g2.drawLine(x, y - 13, x, y + 13);
         }
-
         g2.setStroke(oldStroke);
         g2.setColor(oldColor);
-        if (cheapAa && oldAa != null) g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, oldAa);
     }
 
     private static void addFormationExtent(Path2D.Double path, Group group) {
