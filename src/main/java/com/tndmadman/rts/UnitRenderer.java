@@ -15,6 +15,13 @@ final class UnitRenderer {
             new BasicStroke(3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
     private static final Stroke WEAPON_RANGE_STROKE =
             new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 0, new float[]{12f, 7f}, 0);
+    private static final Color SELECTED_COLOR = new Color(255, 245, 120);
+    private static final Color FAR_SHADOW = new Color(0, 0, 0, 165);
+    private static final Color PACKAGE_COLOR = new Color(255, 230, 130);
+    private static final Color BAR_BACKGROUND = new Color(20, 20, 20);
+    private static final Color HP_COLOR = new Color(80, 230, 90);
+    private static final Color CARGO_COLOR = new Color(110, 200, 255);
+    private static final Color CARGO_TEXT = new Color(220, 238, 250);
     private static boolean miningRangeOverlayVisible;
 
     private UnitRenderer() { }
@@ -31,55 +38,112 @@ final class UnitRenderer {
         boolean owner = PlayerRegistry.isLocal(unit.playerId);
         boolean selectedOwner = unit.selected && owner;
         World world = PlayerRegistry.activeWorld();
+        double scale = SelectionRenderPolicy.scale(g2);
 
-        double cullRadius = 96;
-        if (selectedOwner) cullRadius = Math.max(cullRadius, displayedWeaponRange(world, unit) + 8);
-        if (owner && unit.type().scoutRange > 0 && shouldDrawScoutCircle(unit)) {
-            cullRadius = Math.max(cullRadius,
-                    world == null ? unit.type().scoutRange : VisibilityRules.unitSensorRange(world, unit));
+        boolean aggregateSelection = selectedOwner && world != null && SelectionRenderPolicy.aggregate(world);
+        boolean primarySelection = selectedOwner && (world == null || SelectionRenderPolicy.primary(world, unit));
+        boolean exactSelectedDetail = selectedOwner
+                && (world == null || SelectionRenderPolicy.exactSelectedDetail(world, unit));
+        boolean forceCheapHull = selectedOwner && world != null
+                && SelectionRenderPolicy.forceCheapSelectedHull(world, unit);
+
+        // Body culling is intentionally independent of huge tactical overlays. A weapon
+        // range intersecting the viewport must not force an off-screen ship hull, text,
+        // bars and cargo panel through the renderer.
+        boolean bodyVisible = RenderCulling.visible(g2, unit.x, unit.y, 96);
+
+        double weaponRange = 0;
+        boolean weaponRangeVisible = false;
+        if (exactSelectedDetail) {
+            weaponRange = displayedWeaponRange(world, unit);
+            weaponRangeVisible = weaponRange > 0
+                    && RenderCulling.visible(g2, unit.x, unit.y, weaponRange + 8);
         }
-        if (owner && shouldDrawTractorCircle(unit)) cullRadius = Math.max(cullRadius, unit.type().tractorRange);
-        if (!RenderCulling.visible(g2, unit.x, unit.y, cullRadius)) return;
 
-        double scale = Math.max(Math.abs(g2.getTransform().getScaleX()), Math.abs(g2.getTransform().getScaleY()));
-        if (!selectedOwner && scale < 0.24) {
-            drawFarMarker(g2, unit, playerColor, scale);
+        boolean scoutRequested = owner && unit.type().scoutRange > 0 && shouldDrawScoutCircle(unit)
+                && (!aggregateSelection || exactSelectedDetail);
+        double scoutRange = 0;
+        boolean scoutVisible = false;
+        if (scoutRequested) {
+            scoutRange = world == null ? unit.type().scoutRange : VisibilityRules.unitSensorRange(world, unit);
+            scoutVisible = RenderCulling.visible(g2, unit.x, unit.y, scoutRange + 4);
+        }
+
+        boolean tractorRequested = owner && shouldDrawTractorCircle(unit)
+                && (!aggregateSelection || exactSelectedDetail);
+        double tractorRange = tractorRequested ? unit.type().tractorRange : 0;
+        boolean tractorVisible = tractorRequested
+                && RenderCulling.visible(g2, unit.x, unit.y, tractorRange + 4);
+
+        if (!bodyVisible) {
+            drawVisibleOverlays(g2, world, unit, playerColor, weaponRange, weaponRangeVisible,
+                    scoutRange, scoutVisible, tractorRange, tractorVisible);
             return;
         }
 
-        if (!selectedOwner && scale < 0.78) {
+        // Selection no longer disables the same hull LOD used by unselected fleets.
+        // Large selections go one step further and keep non-primary selected ships on
+        // the cached sprite path even at close zoom.
+        if (scale < 0.24) {
+            drawFarMarker(g2, unit, playerColor, scale);
+        } else if (forceCheapHull || scale < 0.78) {
             drawCachedHull(g2, unit, playerColor);
         } else {
             drawDetailedHull(g2, unit, playerColor);
         }
 
         boolean damaged = unit.hp < unit.type().maxHp * 0.995;
-        if (selectedOwner || damaged || scale >= 0.52) drawBars(g2, unit);
-        if (selectedOwner || scale >= 0.62) drawName(g2, unit, playerColor);
-        if (!unit.basePackageType.isBlank() && (selectedOwner || scale >= 0.62)) {
-            g2.setColor(new Color(255, 230, 130));
+        boolean fleetSecondary = aggregateSelection && !primarySelection;
+        if (exactSelectedDetail || damaged || (!fleetSecondary && scale >= 0.52)) drawBars(g2, unit);
+        if (exactSelectedDetail || (!fleetSecondary && scale >= 0.62)) drawName(g2, unit, playerColor);
+        if (!unit.basePackageType.isBlank() && (exactSelectedDetail || (!fleetSecondary && scale >= 0.62))) {
+            g2.setColor(PACKAGE_COLOR);
             g2.drawString("PKG", (int)unit.x - 12, (int)unit.y + 45);
         }
+
         if (selectedOwner) {
-            Stroke oldStroke = g2.getStroke();
-            g2.setColor(new Color(255, 245, 120));
-            g2.setStroke(SELECTED_STROKE);
-            g2.drawOval((int)unit.x - 26, (int)unit.y - 26, 52, 52);
-            g2.setStroke(oldStroke);
-            drawCargo(g2, unit);
-            double weaponRange = displayedWeaponRange(world, unit);
-            if (weaponRange > 0) {
-                boolean fill = world == null || world.selectedCount() <= 1;
-                drawWeaponRangeCircle(g2, unit, weaponRange, weaponRangeColor(world, unit), fill);
-            }
+            drawSelectionMarker(g2, unit, world, primarySelection);
+            if (exactSelectedDetail) drawCargo(g2, unit);
         }
-        if (owner && unit.type().scoutRange > 0 && shouldDrawScoutCircle(unit)) {
-            double range = world == null ? unit.type().scoutRange : VisibilityRules.unitSensorRange(world, unit);
-            drawRangeCircle(g2, unit, playerColor, range);
+
+        drawVisibleOverlays(g2, world, unit, playerColor, weaponRange, weaponRangeVisible,
+                scoutRange, scoutVisible, tractorRange, tractorVisible);
+    }
+
+    private static void drawVisibleOverlays(Graphics2D g2, World world, Unit unit, Color playerColor,
+                                            double weaponRange, boolean weaponRangeVisible,
+                                            double scoutRange, boolean scoutVisible,
+                                            double tractorRange, boolean tractorVisible) {
+        if (weaponRangeVisible) {
+            boolean fill = world == null || SelectionRenderPolicy.selectedCount(world) <= 1;
+            drawWeaponRangeCircle(g2, unit, weaponRange, weaponRangeColor(world, unit), fill);
         }
-        if (owner && shouldDrawTractorCircle(unit)) {
-            drawRangeCircle(g2, unit, playerColor, unit.type().tractorRange);
+        if (scoutVisible) drawRangeCircle(g2, unit, playerColor, scoutRange);
+        if (tractorVisible) drawRangeCircle(g2, unit, playerColor, tractorRange);
+    }
+
+    private static void drawSelectionMarker(Graphics2D g2, Unit unit, World world, boolean primary) {
+        if (world != null && SelectionRenderPolicy.compactMarker(world) && !primary) {
+            int x = (int)Math.round(unit.x);
+            int y = (int)Math.round(unit.y);
+            int radius = 24;
+            int corner = 7;
+            g2.setColor(SELECTED_COLOR);
+            g2.drawLine(x - radius, y - radius, x - radius + corner, y - radius);
+            g2.drawLine(x - radius, y - radius, x - radius, y - radius + corner);
+            g2.drawLine(x + radius, y - radius, x + radius - corner, y - radius);
+            g2.drawLine(x + radius, y - radius, x + radius, y - radius + corner);
+            g2.drawLine(x - radius, y + radius, x - radius + corner, y + radius);
+            g2.drawLine(x - radius, y + radius, x - radius, y + radius - corner);
+            g2.drawLine(x + radius, y + radius, x + radius - corner, y + radius);
+            g2.drawLine(x + radius, y + radius, x + radius, y + radius - corner);
+            return;
         }
+        Stroke oldStroke = g2.getStroke();
+        g2.setColor(SELECTED_COLOR);
+        g2.setStroke(SELECTED_STROKE);
+        g2.drawOval((int)unit.x - 26, (int)unit.y - 26, 52, 52);
+        g2.setStroke(oldStroke);
     }
 
     private static void drawDetailedHull(Graphics2D g2, Unit unit, Color playerColor) {
@@ -103,9 +167,8 @@ final class UnitRenderer {
     }
 
     private static void drawFarMarker(Graphics2D g2, Unit unit, Color playerColor, double scale) {
-        // Keep the final screen footprint readable while avoiding vector hull/name/bar work.
         int radius = scale < 0.12 ? 8 : 6;
-        g2.setColor(new Color(0, 0, 0, 165));
+        g2.setColor(FAR_SHADOW);
         g2.fillOval((int)unit.x - radius - 2, (int)unit.y - radius - 2,
                 (radius + 2) * 2, (radius + 2) * 2);
         g2.setColor(playerColor);
@@ -118,6 +181,9 @@ final class UnitRenderer {
 
     static void drawRoute(Graphics2D g2, Unit unit, Color ignoredColor) {
         if (g2 == null || unit == null || !PlayerRegistry.isLocal(unit.playerId) || !unit.selected) return;
+        World world = PlayerRegistry.activeWorld();
+        // Large selections use one bounded aggregate intent pass instead of N route lines.
+        if (world != null && SelectionRenderPolicy.aggregate(world)) return;
         double dx = unit.targetX - unit.x;
         double dy = unit.targetY - unit.y;
         if (dx * dx + dy * dy <= 16) return;
@@ -197,21 +263,21 @@ final class UnitRenderer {
         int y = (int)unit.y + 55;
         g2.setColor(new Color(0, 0, 0, 170));
         g2.fillRoundRect(x - 6, y - 13, tw + 12, 18, 8, 8);
-        g2.setColor(new Color(220, 238, 250));
+        g2.setColor(CARGO_TEXT);
         g2.drawString(text, x, y);
     }
 
     private static void drawBars(Graphics2D g2, Unit unit) {
         int barW = 36;
-        g2.setColor(new Color(20, 20, 20));
+        g2.setColor(BAR_BACKGROUND);
         g2.fillRect((int)unit.x - barW / 2, (int)unit.y - 30, barW, 5);
-        g2.setColor(new Color(80, 230, 90));
+        g2.setColor(HP_COLOR);
         g2.fillRect((int)unit.x - barW / 2, (int)unit.y - 30,
                 (int)(barW * unit.hp / Math.max(1, unit.type().maxHp)), 5);
         if (unit.type().cargoCapacity > 0) {
-            g2.setColor(new Color(20, 20, 20));
+            g2.setColor(BAR_BACKGROUND);
             g2.fillRect((int)unit.x - barW / 2, (int)unit.y + 27, barW, 4);
-            g2.setColor(new Color(110, 200, 255));
+            g2.setColor(CARGO_COLOR);
             g2.fillRect((int)unit.x - barW / 2, (int)unit.y + 27,
                     (int)(barW * unit.cargoUsed() / unit.type().cargoCapacity), 4);
         }
