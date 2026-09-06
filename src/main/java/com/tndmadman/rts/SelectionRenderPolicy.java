@@ -8,10 +8,9 @@ import java.util.WeakHashMap;
  * Central policy for selected-fleet rendering. Large selections must not turn
  * every ship into an expensive detailed UI surface.
  *
- * The snapshot is intentionally short lived: selection changes are interactive,
- * but counting every selected unit from every renderer call creates O(N^2)
- * work on large fleets. A short cache keeps the render hot path O(N) while any
- * tier/primary change is visible within a couple of frames.
+ * The snapshot is intentionally only a paint-burst cache: selection changes
+ * should affect the next frame, while counting every selected unit from every
+ * renderer call would create O(N^2) work on large fleets.
  */
 final class SelectionRenderPolicy {
     static final int FULL_LIMIT = 8;
@@ -19,7 +18,7 @@ final class SelectionRenderPolicy {
     static final int FLEET_LIMIT = 96;
     static final int MAX_AGGREGATE_GROUPS = 8;
 
-    private static final long SNAPSHOT_NANOS = 50_000_000L;
+    private static final long SNAPSHOT_NANOS = 8_000_000L;
     private static final Map<World, CachedSnapshot> CACHE = new WeakHashMap<>();
     private static volatile World fastWorld;
     private static volatile CachedSnapshot fastSnapshot;
