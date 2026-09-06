@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -22,9 +23,12 @@ final class ShipModuleRules {
     static final Map<String, ShipModuleDefinition> MODULES = new LinkedHashMap<>();
     private static final Map<String, Integer> HULL_SLOTS = new LinkedHashMap<>();
     private static final Map<String, List<String>> LOADOUT_MODULES = new LinkedHashMap<>();
+    private static final Map<List<String>, List<ShipModuleDefinition>> MODULE_LIST_CACHE = new LinkedHashMap<>();
     private static final double MICRO_JUMP_CHARGE_SECONDS = 1.6;
     private static final double MICRO_JUMP_TUNNEL_SECONDS = 1.15;
     private static final Map<Unit, JumpVisual> JUMP_VISUALS =
+            Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Map<World, TackleContext> TACKLE_CONTEXTS =
             Collections.synchronizedMap(new WeakHashMap<>());
 
     static {
@@ -77,12 +81,20 @@ final class ShipModuleRules {
     }
 
     static List<ShipModuleDefinition> modules(List<String> ids) {
-        List<ShipModuleDefinition> out = new ArrayList<>();
-        for (String id : normalized(ids)) {
+        if (ids == null || ids.isEmpty()) return List.of();
+        List<ShipModuleDefinition> cached = MODULE_LIST_CACHE.get(ids);
+        if (cached != null) return cached;
+        List<String> clean = normalized(ids);
+        cached = MODULE_LIST_CACHE.get(clean);
+        if (cached != null) return cached;
+        List<ShipModuleDefinition> out = new ArrayList<>(clean.size());
+        for (String id : clean) {
             ShipModuleDefinition module = MODULES.get(id);
             if (module != null) out.add(module);
         }
-        return List.copyOf(out);
+        List<ShipModuleDefinition> resolved = List.copyOf(out);
+        MODULE_LIST_CACHE.put(clean, resolved);
+        return resolved;
     }
 
     static List<ShipModuleDefinition> allowedModules(String hullId) {
@@ -147,17 +159,73 @@ final class ShipModuleRules {
         return has(PlayerRegistry.activeWorld(), unit, kind);
     }
 
+    /**
+     * Build the tackle candidate map once before a prediction/simulation pass. Candidate membership
+     * is stable for the pass; range checks still read the live unit coordinates so movement remains exact.
+     */
+    static void beginUpdateCycle(World world) {
+        if (world != null) rebuildTackleContext(world);
+    }
+
     static boolean tackled(World world, Unit target) {
         if (world == null || target == null || target.hp <= 0) return false;
         String targetKey = CombatTarget.unit(target);
-        for (Unit tackler : world.units.values()) {
+        TackleContext context = tackleContext(world);
+        List<TackleCandidate> candidates = context.byTarget.get(targetKey);
+        if (candidates == null || candidates.isEmpty()) return false;
+        for (TackleCandidate candidate : candidates) {
+            Unit tackler = candidate.unit;
             if (tackler == null || tackler.hp <= 0 || tackler == target
                     || !targetKey.equals(tackler.attackTarget)
                     || !CombatTarget.enemy(world, tackler, targetKey)) continue;
-            ShipModuleDefinition module = first(world, tackler, ShipModuleKind.TACKLE);
-            if (module != null && Calc.distance(tackler.x, tackler.y, target.x, target.y) <= module.range()) return true;
+            double dx = tackler.x - target.x;
+            double dy = tackler.y - target.y;
+            if (dx * dx + dy * dy <= candidate.rangeSquared) return true;
         }
         return false;
+    }
+
+    static long tackleIndexBuildCountForTest(World world) {
+        TackleContext context = world == null ? null : TACKLE_CONTEXTS.get(world);
+        return context == null ? 0 : context.buildCount;
+    }
+
+    static int tackleCandidateCountForTest(World world, Unit target) {
+        if (world == null || target == null) return 0;
+        List<TackleCandidate> candidates = tackleContext(world).byTarget.get(CombatTarget.unit(target));
+        return candidates == null ? 0 : candidates.size();
+    }
+
+    private static TackleContext tackleContext(World world) {
+        TackleContext context = TACKLE_CONTEXTS.get(world);
+        String systemId = world.activeSystemId();
+        boolean systemChanged = context == null
+                || (systemId == null ? context.systemId != null : !systemId.equals(context.systemId));
+        if (context == null || context.unitCount != world.units.size() || systemChanged) {
+            context = rebuildTackleContext(world);
+        }
+        return context;
+    }
+
+    private static TackleContext rebuildTackleContext(World world) {
+        TackleContext previous = TACKLE_CONTEXTS.get(world);
+        long buildCount = previous == null ? 1 : previous.buildCount + 1;
+        Map<String, List<TackleCandidate>> mutable = new LinkedHashMap<>();
+        for (Unit tackler : world.units.values()) {
+            if (tackler == null || tackler.hp <= 0 || tackler.attackTarget == null || tackler.attackTarget.isBlank()) continue;
+            ShipModuleDefinition module = first(world, tackler, ShipModuleKind.TACKLE);
+            if (module == null || module.range() <= 0) continue;
+            mutable.computeIfAbsent(tackler.attackTarget, ignored -> new ArrayList<>())
+                    .add(new TackleCandidate(tackler, module.range() * module.range()));
+        }
+        Map<String, List<TackleCandidate>> frozen = new LinkedHashMap<>();
+        for (Map.Entry<String, List<TackleCandidate>> entry : mutable.entrySet()) {
+            frozen.put(entry.getKey(), List.copyOf(entry.getValue()));
+        }
+        TackleContext context = new TackleContext(world.activeSystemId(), world.units.size(),
+                Map.copyOf(frozen), buildCount);
+        TACKLE_CONTEXTS.put(world, context);
+        return context;
     }
 
     static double preferredApproachRange(World world, Unit unit, double weaponRange) {
@@ -290,27 +358,34 @@ final class ShipModuleRules {
         if (g2 == null || world == null) return;
         Stroke oldStroke = g2.getStroke();
         for (Unit unit : world.units.values()) {
+            if (unit == null) continue;
             drawJumpTunnel(g2, unit);
-            if (unit.afterburnerActive) {
+            boolean visible = RenderCulling.visible(g2, unit.x, unit.y, 190);
+            if (visible && unit.afterburnerActive) {
                 double length = 34 * unit.type().size.scale;
                 double bx = unit.x - Math.cos(unit.heading) * length;
                 double by = unit.y - Math.sin(unit.heading) * length;
-                g2.setStroke(new BasicStroke((float)Math.max(2, 3 * unit.type().size.scale), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.setStroke(new BasicStroke((float)Math.max(2, 3 * unit.type().size.scale),
+                        BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
                 g2.setColor(new Color(80, 205, 255, 190));
-                g2.drawLine((int)Math.round(unit.x), (int)Math.round(unit.y), (int)Math.round(bx), (int)Math.round(by));
+                g2.drawLine((int)Math.round(unit.x), (int)Math.round(unit.y),
+                        (int)Math.round(bx), (int)Math.round(by));
             }
-            drawJumpCharge(g2, world, unit);
-            if (unit.microJumpFlashTimer > 0) {
-                int alpha = (int)Calc.clamp(70 + unit.microJumpFlashTimer * 260, 0, 235);
-                double radius = (1.0 - Math.min(1.0, unit.microJumpFlashTimer / 0.72)) * 118 + 28;
-                g2.setStroke(new BasicStroke(3f));
-                g2.setColor(new Color(115, 225, 255, alpha));
-                g2.drawOval((int)Math.round(unit.x - radius), (int)Math.round(unit.y - radius),
-                        (int)Math.round(radius * 2), (int)Math.round(radius * 2));
+            if (visible) {
+                drawJumpCharge(g2, world, unit);
+                if (unit.microJumpFlashTimer > 0) {
+                    int alpha = (int)Calc.clamp(70 + unit.microJumpFlashTimer * 260, 0, 235);
+                    double radius = (1.0 - Math.min(1.0, unit.microJumpFlashTimer / 0.72)) * 118 + 28;
+                    g2.setStroke(new BasicStroke(3f));
+                    g2.setColor(new Color(115, 225, 255, alpha));
+                    g2.drawOval((int)Math.round(unit.x - radius), (int)Math.round(unit.y - radius),
+                            (int)Math.round(radius * 2), (int)Math.round(radius * 2));
+                }
             }
             ShipModuleDefinition tackle = first(world, unit, ShipModuleKind.TACKLE);
             Unit target = targetUnit(world, unit.attackTarget);
             if (tackle != null && target != null
+                    && RenderCulling.segmentVisible(g2, unit.x, unit.y, target.x, target.y, 16)
                     && Calc.distance(unit.x, unit.y, target.x, target.y) <= tackle.range()) {
                 g2.setStroke(new BasicStroke(2f));
                 g2.setColor(moduleColor(tackle, 175));
@@ -362,6 +437,7 @@ final class ShipModuleRules {
     private static void drawJumpTunnel(Graphics2D g2, Unit unit) {
         JumpVisual visual = JUMP_VISUALS.get(unit);
         if (visual == null || visual.remaining <= 0) return;
+        if (!RenderCulling.segmentVisible(g2, visual.startX, visual.startY, visual.endX, visual.endY, 120)) return;
         double fade = Calc.clamp(visual.remaining / MICRO_JUMP_TUNNEL_SECONDS, 0, 1);
         double dx = visual.endX - visual.startX;
         double dy = visual.endY - visual.startY;
@@ -524,6 +600,7 @@ final class ShipModuleRules {
 
             MODULES.clear();
             MODULES.putAll(modules);
+            MODULE_LIST_CACHE.clear();
             HULL_SLOTS.clear();
             HULL_SLOTS.putAll(slots);
         } catch (RuleConfigurationException ex) {
@@ -671,6 +748,9 @@ final class ShipModuleRules {
     }
 
     private record Objective(double x, double y, boolean valid) { }
+    private record TackleCandidate(Unit unit, double rangeSquared) { }
+    private record TackleContext(String systemId, int unitCount,
+                                 Map<String, List<TackleCandidate>> byTarget, long buildCount) { }
 
     private static final class JumpVisual {
         final double startX;
