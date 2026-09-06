@@ -7,6 +7,13 @@ import java.util.Set;
 final class VisibilityRules {
     private static final double WORMHOLE_DISCOVERY_RADIUS = 18.0;
 
+    // These thresholds intentionally mirror IntelWarfareSystem. Keeping the calculations in the
+    // immutable frame avoids rebuilding the complete sensor list once for every contact query.
+    private static final double CONTACT_THRESHOLD = 0.62;
+    private static final double CLASSIFIED_THRESHOLD = 0.84;
+    private static final double IDENTIFIED_THRESHOLD = 1.10;
+    private static final double DETAILED_THRESHOLD = 1.52;
+
     private VisibilityRules() { }
 
     static double unitSensorRange(World world, Unit unit) {
@@ -52,6 +59,7 @@ final class VisibilityRules {
     static final class Frame {
         private final World world;
         private final String playerId;
+        private final List<IntelWarfareSystem.IntelSensor> detectionSensors;
         private final List<Sensor> sensors;
         private final List<ResourceRadar> resourceRadars;
         private final List<ResourceHarvester> resourceHarvesters;
@@ -59,10 +67,14 @@ final class VisibilityRules {
         private Frame(World world, String playerId) {
             this.world = world;
             this.playerId = playerId == null ? "" : playerId;
+
+            List<IntelWarfareSystem.IntelSensor> rawSensors = IntelWarfareSystem.sensors(world, this.playerId);
+            detectionSensors = rawSensors;
+
             List<Sensor> found = new ArrayList<>();
-            for (IntelWarfareSystem.IntelSensor sensor : IntelWarfareSystem.sensors(world, this.playerId)) {
+            for (IntelWarfareSystem.IntelSensor sensor : rawSensors) {
                 if (focusedRadarSensor(sensor)) continue;
-                found.add(sensor(sensor.x(), sensor.y(), sensor.range()));
+                found.add(sensor(sensor.sourceKey(), sensor.x(), sensor.y(), sensor.range()));
             }
             addFocusedWormholeSensors(found);
             sensors = List.copyOf(found);
@@ -111,18 +123,28 @@ final class VisibilityRules {
         }
 
         IntelWarfareSystem.DetectionStage unitStage(Unit unit) {
-            IntelWarfareSystem.DetectionStage stage = VisibilityRules.unitStage(world, playerId, unit);
-            if (unit == null || stage == IntelWarfareSystem.DetectionStage.NONE
-                    || IntelWarfareSystem.allied(world, playerId, unit.playerId)) return stage;
+            if (unit == null || unit.hp <= 0) return IntelWarfareSystem.DetectionStage.NONE;
+            if (IntelWarfareSystem.allied(world, playerId, unit.playerId)) {
+                return IntelWarfareSystem.DetectionStage.DETAILED;
+            }
+            IntelWarfareSystem.DetectionStage stage = stageFor(unit.x, unit.y, unitSignature(unit), false);
+            if (stage == IntelWarfareSystem.DetectionStage.NONE) return stage;
             if (StationControls.focusedAreaScanWouldCover(world, playerId, unit.x, unit.y)
                     && !pointVisible(unit.x, unit.y)) return IntelWarfareSystem.DetectionStage.NONE;
             return stage;
         }
 
         IntelWarfareSystem.DetectionStage baseStage(Base base) {
-            IntelWarfareSystem.DetectionStage stage = VisibilityRules.baseStage(world, playerId, base);
-            if (base == null || stage == IntelWarfareSystem.DetectionStage.NONE
-                    || IntelWarfareSystem.allied(world, playerId, base.playerId)) return stage;
+            if (base == null || base.hp <= 0) return IntelWarfareSystem.DetectionStage.NONE;
+            if (IntelWarfareSystem.allied(world, playerId, base.playerId)) {
+                return IntelWarfareSystem.DetectionStage.DETAILED;
+            }
+            IntelWarfareSystem.DetectionStage stage = stageFor(base.x, base.y, baseSignature(base), true);
+            if (IntelWarfareSystem.isDecoy(base.typeId)
+                    && stage == IntelWarfareSystem.DetectionStage.IDENTIFIED) {
+                stage = IntelWarfareSystem.DetectionStage.CLASSIFIED;
+            }
+            if (stage == IntelWarfareSystem.DetectionStage.NONE) return stage;
             if (StationControls.focusedAreaScanWouldCover(world, playerId, base.x, base.y)
                     && !pointVisible(base.x, base.y)) return IntelWarfareSystem.DetectionStage.NONE;
             return stage;
@@ -187,6 +209,49 @@ final class VisibilityRules {
             return base != null && baseIdentified(base);
         }
 
+        private IntelWarfareSystem.DetectionStage stageFor(double x, double y, double signature, boolean station) {
+            if (world == null || playerId.isBlank()) return IntelWarfareSystem.DetectionStage.NONE;
+            double best = 0;
+            double safeSignature = Math.max(0.15, signature);
+            for (IntelWarfareSystem.IntelSensor sensor : detectionSensors) {
+                double dx = x - sensor.x();
+                double dy = y - sensor.y();
+                double distance = Math.max(1, Math.hypot(dx, dy));
+                double quality = sensor.range() / distance * safeSignature
+                        + sensor.identificationBonus() + (station ? 0.04 : 0);
+                if (quality > best) best = quality;
+            }
+            if (best >= DETAILED_THRESHOLD) return IntelWarfareSystem.DetectionStage.DETAILED;
+            if (best >= IDENTIFIED_THRESHOLD) return IntelWarfareSystem.DetectionStage.IDENTIFIED;
+            if (best >= CLASSIFIED_THRESHOLD) return IntelWarfareSystem.DetectionStage.CLASSIFIED;
+            if (best >= CONTACT_THRESHOLD) return IntelWarfareSystem.DetectionStage.CONTACT;
+            return IntelWarfareSystem.DetectionStage.NONE;
+        }
+
+        private double unitSignature(Unit unit) {
+            double signature = 0.48 + Math.max(0.35, unit.type().size.scale) * 0.24;
+            signature += Math.min(0.40, Math.max(0, unit.type().speed) / 900.0);
+            if (unit.weaponFlashTimer > 0) signature += 1.15;
+            if (unit.task == UnitTask.ATTACK) signature += 0.55;
+            else if (unit.task == UnitTask.AUTO_HARVEST) signature += 0.30;
+            else if (unit.task == UnitTask.MOVE) signature += 0.12;
+            if (!unit.basePackageType.isBlank()) signature += 0.28;
+            if (unit.shipTypeId.startsWith("sensor_contact_")) signature = 0.8;
+            return signature;
+        }
+
+        private double baseSignature(Base base) {
+            IntelWarfareSystem.StructureIntelRule rule = IntelWarfareSystem.rule(base.typeId);
+            double signature = 1.0 + Math.min(1.2, Math.max(0, base.type().maxHp) / 2500.0);
+            signature *= Math.max(0.25, rule.signatureMultiplier());
+            if (IntelWarfareSystem.isRadar(base.typeId)) {
+                signature *= IntelWarfareSystem.radarMode(world, base).emissionMultiplier;
+            }
+            if (IntelWarfareSystem.isJammer(base.typeId)) signature *= 2.25;
+            if (!base.productionQueue.isEmpty()) signature += 0.30;
+            return signature;
+        }
+
         private boolean focusedRadarSensor(IntelWarfareSystem.IntelSensor sensor) {
             if (world == null || sensor == null || sensor.sourceKey() == null || !sensor.sourceKey().startsWith("B:")) {
                 return false;
@@ -200,17 +265,23 @@ final class VisibilityRules {
             if (world == null || found == null || world.wormholes.isEmpty()) return;
             for (WormholeGate gate : world.wormholes) {
                 if (gate == null || !StationControls.focusedWormholeSearchCovers(world, playerId, gate.x, gate.y)) continue;
-                found.add(sensor(gate.x, gate.y, WORMHOLE_DISCOVERY_RADIUS));
+                String gateId = gate.id == null || gate.id.isBlank()
+                        ? gate.toSystemId + ':' + Math.round(gate.x) + ':' + Math.round(gate.y) : gate.id;
+                found.add(sensor("W:" + gateId, gate.x, gate.y, WORMHOLE_DISCOVERY_RADIUS));
             }
         }
 
-        private Sensor sensor(double x, double y, double range) {
+        private Sensor sensor(String sourceKey, double x, double y, double range) {
             double safeRange = Double.isFinite(range) ? Math.max(0, range) : 0;
-            return new Sensor(x, y, safeRange, safeRange * safeRange);
+            String key = sourceKey == null || sourceKey.isBlank()
+                    ? "S:" + Double.doubleToLongBits(x) + ':' + Double.doubleToLongBits(y) + ':'
+                    + Double.doubleToLongBits(safeRange)
+                    : sourceKey;
+            return new Sensor(key, x, y, safeRange, safeRange * safeRange);
         }
     }
 
-    record Sensor(double x, double y, double range, double rangeSquared) { }
+    record Sensor(String sourceKey, double x, double y, double range, double rangeSquared) { }
     private record ResourceRadar(double x, double y, double range, int surveyPower) { }
     private record ResourceHarvester(double x, double y, double identifiedRange, double detailedRange,
                                      Set<NodeKind> harvestKinds) { }

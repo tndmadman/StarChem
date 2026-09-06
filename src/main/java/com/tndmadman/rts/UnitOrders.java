@@ -1,7 +1,6 @@
 package com.tndmadman.rts;
 
 import java.awt.*;
-import java.awt.geom.Line2D;
 
 final class UnitOrderSystem {
     private static final double ARRIVAL_DISTANCE = 8.0;
@@ -241,45 +240,65 @@ final class AUnitOrder {
 }
 
 final class UnitOrderRenderer {
+    private static final Stroke ORDER_STROKE = new BasicStroke(
+            1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
+            0, new float[]{10f, 8f}, 0);
+
     private UnitOrderRenderer() { }
 
     static void draw(Graphics2D g2, World world, Unit unit) {
         if (g2 == null || world == null || unit == null || !unit.selected || !PlayerRegistry.isLocal(unit.playerId)) return;
+
+        SelectionRenderPolicy.Snapshot selection = SelectionRenderPolicy.snapshot(world);
+        if (selection.selectedCount() > SelectionRenderPolicy.FULL_LIMIT) {
+            FleetSelectionOverlay.drawForUnit(g2, world, unit, selection);
+            if (selection.primary() != unit) return;
+        }
+
         UnitCommandQueueRenderer.draw(g2, world, unit);
         if (UnitCommandQueueSystem.hasPlayerIntent(world, unit) || unit.orderType == UnitOrderType.NONE) return;
+
         Color color = PlayerRegistry.color(unit.playerId);
-        Graphics2D r = (Graphics2D) g2.create();
-        r.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), 185));
-        r.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 0, new float[]{10f, 8f}, 0));
+        Color oldColor = g2.getColor();
+        Stroke oldStroke = g2.getStroke();
+        g2.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), 185));
+        g2.setStroke(ORDER_STROKE);
         switch (unit.orderType) {
             case PATROL -> {
-                r.draw(new Line2D.Double(unit.orderX1, unit.orderY1, unit.orderX2, unit.orderY2));
-                marker(r, unit.orderX1, unit.orderY1, 8);
-                marker(r, unit.orderX2, unit.orderY2, 8);
+                drawSegment(g2, unit.orderX1, unit.orderY1, unit.orderX2, unit.orderY2);
+                marker(g2, unit.orderX1, unit.orderY1, 8);
+                marker(g2, unit.orderX2, unit.orderY2, 8);
                 double tx = unit.orderPhase == 0 ? unit.orderX1 : unit.orderX2;
                 double ty = unit.orderPhase == 0 ? unit.orderY1 : unit.orderY2;
-                r.draw(new Line2D.Double(unit.x, unit.y, tx, ty));
+                drawSegment(g2, unit.x, unit.y, tx, ty);
             }
             case GUARD -> {
                 double x = UnitOrderSystem.anchorX(world, unit);
                 double y = UnitOrderSystem.anchorY(world, unit);
-                circle(r, x, y, unit.orderRadius);
-                r.draw(new Line2D.Double(unit.x, unit.y, x, y));
+                if (RenderCulling.visible(g2, x, y, unit.orderRadius + 8)) circle(g2, x, y, unit.orderRadius);
+                drawSegment(g2, unit.x, unit.y, x, y);
             }
             case ESCORT -> {
                 double x = UnitOrderSystem.anchorX(world, unit);
                 double y = UnitOrderSystem.anchorY(world, unit);
-                r.draw(new Line2D.Double(unit.x, unit.y, x, y));
-                marker(r, x, y, 10);
+                drawSegment(g2, unit.x, unit.y, x, y);
+                marker(g2, x, y, 10);
             }
-            case HOLD -> marker(r, unit.orderX1, unit.orderY1, 13);
+            case HOLD -> marker(g2, unit.orderX1, unit.orderY1, 13);
             case ATTACK_MOVE -> {
-                r.draw(new Line2D.Double(unit.x, unit.y, unit.orderX2, unit.orderY2));
-                marker(r, unit.orderX2, unit.orderY2, 12);
+                drawSegment(g2, unit.x, unit.y, unit.orderX2, unit.orderY2);
+                marker(g2, unit.orderX2, unit.orderY2, 12);
             }
             case NONE -> { }
         }
-        r.dispose();
+        g2.setStroke(oldStroke);
+        g2.setColor(oldColor);
+    }
+
+    private static void drawSegment(Graphics2D g2, double x1, double y1, double x2, double y2) {
+        if (!RenderCulling.segmentVisible(g2, x1, y1, x2, y2, 20)) return;
+        g2.drawLine((int)Math.round(x1), (int)Math.round(y1),
+                (int)Math.round(x2), (int)Math.round(y2));
     }
 
     private static void circle(Graphics2D g2, double x, double y, double radius) {
@@ -288,6 +307,7 @@ final class UnitOrderRenderer {
     }
 
     private static void marker(Graphics2D g2, double x, double y, int radius) {
+        if (!RenderCulling.visible(g2, x, y, radius + 6)) return;
         int cx = (int)Math.round(x);
         int cy = (int)Math.round(y);
         g2.drawOval(cx - radius, cy - radius, radius * 2, radius * 2);

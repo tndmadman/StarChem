@@ -3,25 +3,60 @@ package com.tndmadman.rts;
 import java.awt.*;
 import java.awt.geom.Line2D;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.WeakHashMap;
 
 final class WeaponSystem {
+    private static final double AUTO_ACQUIRE_INTERVAL_SECONDS = 0.16;
+    private static final BasicStroke MOVING_SHOT_STROKE =
+            new BasicStroke(2.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
+    private static final BasicStroke BEAM_STROKE =
+            new BasicStroke(2.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
+    private static final BasicStroke PROJECTILE_GUIDE_STROKE =
+            new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 0, new float[]{18f, 12f}, 0);
+
+    private final Map<Unit, Double> acquisitionCooldowns = new WeakHashMap<>();
+    private final List<Unit> unitCandidates = new ArrayList<>();
+    private final List<Base> baseCandidates = new ArrayList<>();
+    private final List<ProjectileShot> shotCandidates = new ArrayList<>();
+    private final List<Unit> visibleUnits = new ArrayList<>();
+
     void update(World world, double dt) {
+        long weaponStarted = System.nanoTime();
         ShieldSystem.update(world, dt);
         for (Unit unit : world.units.values()) {
             unit.weaponCooldown = Math.max(0, unit.weaponCooldown - dt);
             unit.weaponFlashTimer = Math.max(0, unit.weaponFlashTimer - dt);
         }
         AiDevSettings settings = world.aiDevSettings;
-        if (settings.disableAttacks) return;
-        for (Unit unit : new ArrayList<>(world.units.values())) {
+        if (settings.disableAttacks) {
+            PerformanceTrace.recordWeapons(System.nanoTime() - weaponStarted);
+            return;
+        }
+
+        // Movement has already completed when WeaponSystem runs. Build one shared grid for every
+        // combat proximity query instead of making each ship rescan the complete world.
+        WorldSpatialIndex spatial = WorldSpatialIndex.rebuild(world);
+        Set<ProjectileShot> consumedShots = Collections.newSetFromMap(new IdentityHashMap<>());
+
+        long pointDefenseStarted = System.nanoTime();
+        int pointDefenseCandidateCount = 0;
+        for (Unit unit : world.units.values()) {
             if (settings.freezeNpcCombat && NpcRules.isNpcFaction(unit.playerId)) continue;
             if (ProductionSystem.refitReserved(world, unit.key())) continue;
-            if (CombatPolicySystem.pointDefenseAllowed(world, unit)
-                    && !WeaponRules.screenWeapons(world, unit).isEmpty()) screenShots(world, unit);
+            if (!CombatPolicySystem.pointDefenseAllowed(world, unit)) continue;
+            List<WeaponType> screens = WeaponRules.screenWeapons(world, unit);
+            if (screens.isEmpty()) continue;
+            pointDefenseCandidateCount += screenShots(world, spatial, unit, screens.get(0), consumedShots);
         }
-        for (Unit unit : new ArrayList<>(world.units.values())) {
+        PerformanceTrace.recordPointDefense(System.nanoTime() - pointDefenseStarted, pointDefenseCandidateCount);
+
+        for (Unit unit : world.units.values()) {
             if (settings.freezeNpcCombat && NpcRules.isNpcFaction(unit.playerId)) continue;
             if (ProductionSystem.refitReserved(world, unit.key())) {
                 clearIllegalAttack(world, unit);
@@ -31,29 +66,68 @@ final class WeaponSystem {
                 clearIllegalAttack(world, unit);
                 continue;
             }
-            if (UnitOrderSystem.canAcquire(unit) && CombatPolicySystem.mayAutoAcquire(world, unit)) {
-                acquireTarget(world, unit);
+            if (UnitOrderSystem.canAcquire(unit) && CombatPolicySystem.mayAutoAcquire(world, unit)
+                    && acquisitionDue(unit, dt)) {
+                acquireTarget(world, spatial, unit);
             }
             if (unit.task == UnitTask.ATTACK) updateAttack(world, unit);
         }
+
+        long projectileStarted = System.nanoTime();
         updateShots(world, dt);
+        PerformanceTrace.recordProjectiles(System.nanoTime() - projectileStarted);
+        PerformanceTrace.recordWeapons(System.nanoTime() - weaponStarted);
     }
 
     void draw(Graphics2D g2, World world) {
-        for (Unit unit : world.units.values()) drawUnitShieldBar(g2, unit);
-        for (ProjectileShot shot : world.shots) drawMovingShot(g2, shot);
-        for (Unit unit : world.units.values()) {
+        long started = System.nanoTime();
+        WorldSpatialIndex spatial = WorldSpatialIndex.forWorld(world);
+        Rectangle clip = g2.getClipBounds();
+        Iterable<Unit> unitsToDraw = world.units.values();
+        if (clip != null && spatial.matches(world)) {
+            unitsToDraw = spatial.unitsIn(clip, 160, visibleUnits);
+        }
+
+        for (Unit unit : unitsToDraw) {
+            if (!RenderCulling.visible(g2, unit.x, unit.y, 90)) continue;
+            drawUnitShieldBar(g2, unit);
+        }
+        for (ProjectileShot shot : world.shots) {
+            if (!RenderCulling.segmentVisible(g2, shot.lastX, shot.lastY, shot.x, shot.y, 18)) continue;
+            drawMovingShot(g2, shot);
+        }
+        for (Unit unit : unitsToDraw) {
             if (unit.attackTarget.isBlank()) continue;
             if (!CombatTarget.enemy(world, unit, unit.attackTarget)) continue;
             double tx = CombatTarget.x(world, unit.attackTarget);
             double ty = CombatTarget.y(world, unit.attackTarget);
-            double dist = Calc.distance(unit.x, unit.y, tx, ty);
+            if (!RenderCulling.segmentVisible(g2, unit.x, unit.y, tx, ty, 24)) continue;
+            double dx = tx - unit.x;
+            double dy = ty - unit.y;
+            double dist = Math.sqrt(dx * dx + dy * dy);
             WeaponVolley volley = WeaponRules.directVolley(world, unit, AttackRangeRules.definitionDistance(world, dist));
             WeaponType visual = volley.visualWeapon();
             if (visual == null) continue;
             float alpha = (float)(unit.weaponFlashTimer > 0 ? 0.85 : 0.18);
             drawShot(g2, unit.x, unit.y, tx, ty, visual, alpha);
         }
+        PerformanceTrace.recordWeaponDraw(System.nanoTime() - started);
+    }
+
+    private boolean acquisitionDue(Unit unit, double dt) {
+        Double remaining = acquisitionCooldowns.get(unit);
+        if (remaining == null) {
+            // Deterministic phase offset spreads a newly-created fleet over the acquisition interval.
+            int phase = Math.floorMod(unit.unitId * 31 + unit.playerId.hashCode(), 1000);
+            remaining = AUTO_ACQUIRE_INTERVAL_SECONDS * phase / 1000.0;
+        }
+        remaining -= dt;
+        if (remaining > 0) {
+            acquisitionCooldowns.put(unit, remaining);
+            return false;
+        }
+        acquisitionCooldowns.put(unit, AUTO_ACQUIRE_INTERVAL_SECONDS);
+        return true;
     }
 
     private void clearIllegalAttack(World world, Unit unit) {
@@ -63,10 +137,21 @@ final class WeaponSystem {
         CombatPolicySystem.clearAttackIntent(world, unit);
     }
 
-    private void acquireTarget(World world, Unit unit) {
+    private void acquireTarget(World world, WorldSpatialIndex spatial, Unit unit) {
+        long started = System.nanoTime();
+        double range = CombatPolicySystem.acquisitionRange(world, unit);
+        if (!(range > 0) || !Double.isFinite(range)) {
+            PerformanceTrace.recordAcquisition(System.nanoTime() - started, 0);
+            return;
+        }
+
         String best = "";
         double bestScore = Double.POSITIVE_INFINITY;
-        for (Unit target : world.units.values()) {
+        spatial.unitsWithin(unit.x, unit.y, range, unitCandidates);
+        spatial.basesWithin(unit.x, unit.y, range, baseCandidates);
+        int candidates = unitCandidates.size() + baseCandidates.size();
+
+        for (Unit target : unitCandidates) {
             if (target == unit || target.hp <= 0) continue;
             String key = CombatTarget.unit(target);
             double score = CombatPolicySystem.scoreTarget(world, unit, key);
@@ -75,7 +160,7 @@ final class WeaponSystem {
                 bestScore = score;
             }
         }
-        for (Base target : world.bases.values()) {
+        for (Base target : baseCandidates) {
             if (target.hp <= 0) continue;
             String key = CombatTarget.base(target);
             double score = CombatPolicySystem.scoreTarget(world, unit, key);
@@ -89,6 +174,7 @@ final class WeaponSystem {
             unit.attackTarget = best;
             unit.task = UnitTask.ATTACK;
         }
+        PerformanceTrace.recordAcquisition(System.nanoTime() - started, candidates);
     }
 
     private boolean better(double score, String key, double bestScore, String bestKey) {
@@ -105,7 +191,9 @@ final class WeaponSystem {
         }
         double tx = CombatTarget.x(world, unit.attackTarget);
         double ty = CombatTarget.y(world, unit.attackTarget);
-        double dist = Calc.distance(unit.x, unit.y, tx, ty);
+        double dx = tx - unit.x;
+        double dy = ty - unit.y;
+        double dist = Math.sqrt(dx * dx + dy * dy);
         double effectiveRange = AttackRangeRules.effectiveWeaponRange(world, unit);
         double approachRange = AttackRangeRules.approachThreshold(world, unit);
         double orbitRange = AttackRangeRules.orbitRange(world, unit);
@@ -157,7 +245,9 @@ final class WeaponSystem {
                     || !CombatTarget.mayDamage(world, shot.ownerId, shot.targetKey)) { it.remove(); continue; }
             double tx = CombatTarget.x(world, shot.targetKey);
             double ty = CombatTarget.y(world, shot.targetKey);
-            double dist = Calc.distance(shot.x, shot.y, tx, ty);
+            double dx = tx - shot.x;
+            double dy = ty - shot.y;
+            double dist = Math.sqrt(dx * dx + dy * dy);
             double step = Math.max(1, weapon.shotSpeed * dt);
             shot.lastX = shot.x;
             shot.lastY = shot.y;
@@ -168,26 +258,29 @@ final class WeaponSystem {
                 it.remove();
                 continue;
             }
-            double a = Math.atan2(ty - shot.y, tx - shot.x);
+            double a = Math.atan2(dy, dx);
             shot.x += Math.cos(a) * step;
             shot.y += Math.sin(a) * step;
         }
     }
 
-    private void screenShots(World world, Unit unit) {
-        if (unit.weaponCooldown > 0) return;
-        List<WeaponType> screens = WeaponRules.screenWeapons(world, unit);
-        if (screens.isEmpty()) return;
-        WeaponType screen = screens.get(0);
+    private int screenShots(World world, WorldSpatialIndex spatial, Unit unit, WeaponType screen,
+                            Set<ProjectileShot> consumedShots) {
+        if (unit.weaponCooldown > 0 || screen == null) return 0;
+        double range = AttackRangeRules.effectiveRange(world, screen.range);
+        spatial.shotsWithin(unit.x, unit.y, range, shotCandidates);
+        int candidateCount = shotCandidates.size();
         ProjectileShot best = null;
         double bestDist = Double.MAX_VALUE;
         double bestScore = Double.POSITIVE_INFINITY;
-        for (ProjectileShot shot : world.shots) {
+        for (ProjectileShot shot : shotCandidates) {
+            if (consumedShots.contains(shot)) continue;
             WeaponType weapon = shot.weapon();
             if (weapon == null || !weapon.stoppable
                     || !DiplomacySystem.hostile(world, unit.playerId, shot.ownerId)) continue;
-            double d = Calc.distance(unit.x, unit.y, shot.x, shot.y);
-            if (d > AttackRangeRules.effectiveRange(world, screen.range)) continue;
+            double dx = shot.x - unit.x;
+            double dy = shot.y - unit.y;
+            double d = Math.sqrt(dx * dx + dy * dy);
             double score = CombatPolicySystem.screenScore(world, unit, shot, d);
             if (score < bestScore) {
                 best = shot;
@@ -195,13 +288,15 @@ final class WeaponSystem {
                 bestScore = score;
             }
         }
-        if (best == null) return;
+        if (best == null) return candidateCount;
+        consumedShots.add(best);
         world.shots.remove(best);
         SystemAudio.playWeaponFire(world, screen, bestDist);
         SystemAudio.playWeaponImpact(world, best.weapon());
         unit.weaponCooldown = screen.cooldownSeconds;
         unit.weaponFlashTimer = 0.12;
         unit.heading = Math.atan2(best.y - unit.y, best.x - unit.x);
+        return candidateCount;
     }
 
     private double hitScale(World world, String key, WeaponType weapon) {
@@ -217,6 +312,10 @@ final class WeaponSystem {
 
     private void drawUnitShieldBar(Graphics2D g2, Unit unit) {
         if (unit.type().maxShield <= 0) return;
+        // At fleet-scale zoom the bar costs more pixels than the ship and adds no useful information.
+        double scale = Math.abs(g2.getTransform().getScaleX());
+        if (!unit.selected && scale < 0.42) return;
+        if (!unit.selected && unit.shield >= unit.type().maxShield * 0.995 && scale < 0.8) return;
         int w = 36;
         int x = (int)unit.x - w / 2;
         int y = (int)unit.y - 36;
@@ -229,30 +328,34 @@ final class WeaponSystem {
     private void drawMovingShot(Graphics2D g2, ProjectileShot shot) {
         WeaponType weapon = shot.weapon();
         if (weapon == null) return;
-        Graphics2D s = (Graphics2D) g2.create();
+        Color oldColor = g2.getColor();
+        Stroke oldStroke = g2.getStroke();
         Color c = weapon.color;
-        s.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 230));
-        s.setStroke(new BasicStroke(2.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-        s.draw(new Line2D.Double(shot.lastX, shot.lastY, shot.x, shot.y));
+        g2.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 230));
+        g2.setStroke(MOVING_SHOT_STROKE);
+        g2.drawLine((int)shot.lastX, (int)shot.lastY, (int)shot.x, (int)shot.y);
         int r = weapon.damage >= 200 ? 7 : weapon.damage >= 100 ? 5 : 4;
-        s.fillOval((int)shot.x - r, (int)shot.y - r, r * 2, r * 2);
-        s.dispose();
+        g2.fillOval((int)shot.x - r, (int)shot.y - r, r * 2, r * 2);
+        g2.setStroke(oldStroke);
+        g2.setColor(oldColor);
     }
 
-    private void drawShot(Graphics2D s, double x1, double y1, double x2, double y2, WeaponType weapon, float alpha) {
-        Graphics2D shot = (Graphics2D) s.create();
+    private void drawShot(Graphics2D g2, double x1, double y1, double x2, double y2, WeaponType weapon, float alpha) {
+        Color oldColor = g2.getColor();
+        Stroke oldStroke = g2.getStroke();
         Color c = weapon.color;
-        shot.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), Math.max(25, Math.min(230, (int)(alpha * 255)))));
+        g2.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), Math.max(25, Math.min(230, (int)(alpha * 255)))));
         if (weapon.beam) {
-            shot.setStroke(new BasicStroke(2.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            shot.draw(new Line2D.Double(x1, y1, x2, y2));
+            g2.setStroke(BEAM_STROKE);
+            g2.drawLine((int)x1, (int)y1, (int)x2, (int)y2);
         } else {
-            shot.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 0, new float[]{18f, 12f}, 0));
-            shot.draw(new Line2D.Double(x1, y1, x2, y2));
+            g2.setStroke(PROJECTILE_GUIDE_STROKE);
+            g2.drawLine((int)x1, (int)y1, (int)x2, (int)y2);
             double mx = x1 + (x2 - x1) * 0.62;
             double my = y1 + (y2 - y1) * 0.62;
-            shot.fillOval((int)mx - 4, (int)my - 4, 8, 8);
+            g2.fillOval((int)mx - 4, (int)my - 4, 8, 8);
         }
-        shot.dispose();
+        g2.setStroke(oldStroke);
+        g2.setColor(oldColor);
     }
 }

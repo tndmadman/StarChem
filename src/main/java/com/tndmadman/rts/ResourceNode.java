@@ -1,6 +1,10 @@
 package com.tndmadman.rts;
 
-import java.awt.*;
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.Polygon;
+import java.awt.RenderingHints;
 import java.util.Map;
 
 final class ResourceNode {
@@ -81,8 +85,10 @@ final class ResourceNode {
     }
 
     void draw(Graphics2D g2, boolean selected) {
-        if (!active) return;
-        Graphics2D r = (Graphics2D) g2.create();
+        if (!active || g2 == null) return;
+        double vr = visualRadius();
+        if (!RenderCulling.visible(g2, x, y, vr + (selected ? 18 : 10))) return;
+        Graphics2D r = (Graphics2D)g2.create();
         r.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         if (kind == NodeKind.GAS_CLOUD) drawGas(r, selected); else drawRock(r, selected);
         drawAmountBar(r);
@@ -95,12 +101,14 @@ final class ResourceNode {
         for (int i = 0; i < 9; i++) {
             double a = -Math.PI / 2 + i * Math.PI * 2 / 9;
             double wobble = 0.78 + (Math.floorMod(id * 31 + i * 17, 30) / 100.0);
-            poly.addPoint((int)Math.round(x + Math.cos(a) * visualRadius * wobble), (int)Math.round(y + Math.sin(a) * visualRadius * wobble));
+            poly.addPoint((int)Math.round(x + Math.cos(a) * visualRadius * wobble),
+                    (int)Math.round(y + Math.sin(a) * visualRadius * wobble));
         }
         g2.setColor(new Color(70, 68, 63)); g2.fillPolygon(poly);
         g2.setColor(material.color); g2.setStroke(new BasicStroke(1f)); g2.drawPolygon(poly);
         g2.setColor(new Color(material.color.getRed(), material.color.getGreen(), material.color.getBlue(), 85));
-        g2.fillOval((int)(x - visualRadius * .45), (int)(y - visualRadius * .45), (int)visualRadius, (int)visualRadius);
+        g2.fillOval((int)(x - visualRadius * .45), (int)(y - visualRadius * .45),
+                (int)visualRadius, (int)visualRadius);
         if (selected) drawSelected(g2, visualRadius);
     }
 
@@ -110,25 +118,29 @@ final class ResourceNode {
             double a = i * Math.PI * 2 / 7.0;
             double ox = Math.cos(a) * visualRadius * .25, oy = Math.sin(a) * visualRadius * .22;
             g2.setColor(new Color(material.color.getRed(), material.color.getGreen(), material.color.getBlue(), 42 + i * 8));
-            g2.fillOval((int)(x + ox - visualRadius * .55), (int)(y + oy - visualRadius * .42), (int)(visualRadius * 1.1), (int)(visualRadius * .84));
+            g2.fillOval((int)(x + ox - visualRadius * .55), (int)(y + oy - visualRadius * .42),
+                    (int)(visualRadius * 1.1), (int)(visualRadius * .84));
         }
         g2.setColor(new Color(material.color.getRed(), material.color.getGreen(), material.color.getBlue(), 150));
         g2.setStroke(new BasicStroke(1f));
-        g2.drawOval((int)(x - visualRadius * .8), (int)(y - visualRadius * .62), (int)(visualRadius * 1.6), (int)(visualRadius * 1.24));
+        g2.drawOval((int)(x - visualRadius * .8), (int)(y - visualRadius * .62),
+                (int)(visualRadius * 1.6), (int)(visualRadius * 1.24));
         if (selected) drawSelected(g2, visualRadius);
     }
 
     private void drawSelected(Graphics2D g2, double visualRadius) {
-        g2.setColor(new Color(255,245,140,210));
+        g2.setColor(new Color(255, 245, 140, 210));
         g2.setStroke(new BasicStroke(1.8f));
-        g2.drawOval((int)(x - visualRadius - 8), (int)(y - visualRadius - 8), (int)(visualRadius * 2 + 16), (int)(visualRadius * 2 + 16));
+        g2.drawOval((int)(x - visualRadius - 8), (int)(y - visualRadius - 8),
+                (int)(visualRadius * 2 + 16), (int)(visualRadius * 2 + 16));
     }
 
     private void drawAmountBar(Graphics2D g2) {
         double visualRadius = visualRadius();
-        int w = Math.max(12, (int)Math.round(visualRadius * 6.0)), h = 3, bx = (int)(x - w / 2.0), by = (int)(y + visualRadius + 4);
+        int w = Math.max(12, (int)Math.round(visualRadius * 6.0)), h = 3;
+        int bx = (int)(x - w / 2.0), by = (int)(y + visualRadius + 4);
         double pct = amountPercent();
-        g2.setColor(new Color(0,0,0,130)); g2.fillRoundRect(bx, by, w, h, 3, 3);
+        g2.setColor(new Color(0, 0, 0, 130)); g2.fillRoundRect(bx, by, w, h, 3, 3);
         g2.setColor(material.color); g2.fillRoundRect(bx, by, (int)Math.round(w * pct), h, 3, 3);
     }
 
