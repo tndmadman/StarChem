@@ -1,10 +1,15 @@
 package com.tndmadman.rts;
 
-import java.awt.*;
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.Stroke;
 import java.awt.geom.Line2D;
 
 final class UnitRenderer {
-    private static final Stroke ROUTE_STROKE = new BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
+    private static final Stroke ROUTE_STROKE =
+            new BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
     private static boolean miningRangeOverlayVisible;
 
     private UnitRenderer() { }
@@ -16,23 +21,35 @@ final class UnitRenderer {
     }
 
     static void draw(Graphics2D g2, Unit unit, Color ignoredColor, boolean ignoredOwner) {
+        if (g2 == null || unit == null) return;
         Color playerColor = PlayerRegistry.color(unit.playerId);
         boolean owner = PlayerRegistry.isLocal(unit.playerId);
         World world = PlayerRegistry.activeWorld();
-        Graphics2D s = (Graphics2D) g2.create();
+
+        double cullRadius = 96;
+        if (unit.selected && owner) cullRadius = Math.max(cullRadius, displayedWeaponRange(world, unit) + 8);
+        if (owner && unit.type().scoutRange > 0 && shouldDrawScoutCircle(unit)) {
+            cullRadius = Math.max(cullRadius,
+                    world == null ? unit.type().scoutRange : VisibilityRules.unitSensorRange(world, unit));
+        }
+        if (owner && shouldDrawTractorCircle(unit)) cullRadius = Math.max(cullRadius, unit.type().tractorRange);
+        if (!RenderCulling.visible(g2, unit.x, unit.y, cullRadius)) return;
+
+        Graphics2D s = (Graphics2D)g2.create();
         s.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         s.translate(unit.x, unit.y);
         s.rotate(unit.heading);
         ShipShape.draw(s, unit.type(), playerColor);
         s.dispose();
+
         drawBars(g2, unit);
         drawName(g2, unit, playerColor);
         if (!unit.basePackageType.isBlank()) {
-            g2.setColor(new Color(255,230,130));
+            g2.setColor(new Color(255, 230, 130));
             g2.drawString("PKG", (int)unit.x - 12, (int)unit.y + 45);
         }
         if (unit.selected && owner) {
-            g2.setColor(new Color(255,245,120));
+            g2.setColor(new Color(255, 245, 120));
             g2.setStroke(new BasicStroke(2f));
             g2.drawOval((int)unit.x - 26, (int)unit.y - 26, 52, 52);
             drawCargo(g2, unit);
@@ -46,7 +63,9 @@ final class UnitRenderer {
             double range = world == null ? unit.type().scoutRange : VisibilityRules.unitSensorRange(world, unit);
             drawRangeCircle(g2, unit, playerColor, range);
         }
-        if (owner && shouldDrawTractorCircle(unit)) drawRangeCircle(g2, unit, playerColor, unit.type().tractorRange);
+        if (owner && shouldDrawTractorCircle(unit)) {
+            drawRangeCircle(g2, unit, playerColor, unit.type().tractorRange);
+        }
     }
 
     static double displayedWeaponRange(World world, Unit unit) {
@@ -54,8 +73,9 @@ final class UnitRenderer {
     }
 
     static void drawRoute(Graphics2D g2, Unit unit, Color ignoredColor) {
-        if (!unit.selected || !PlayerRegistry.isLocal(unit.playerId)) return;
+        if (g2 == null || unit == null || !PlayerRegistry.isLocal(unit.playerId)) return;
         if (Calc.distance(unit.x, unit.y, unit.targetX, unit.targetY) <= 4) return;
+        if (!RenderCulling.segmentVisible(g2, unit.x, unit.y, unit.targetX, unit.targetY, 24)) return;
         Color color = PlayerRegistry.color(unit.playerId);
         Stroke oldStroke = g2.getStroke();
         Color oldColor = g2.getColor();
@@ -68,7 +88,9 @@ final class UnitRenderer {
     }
 
     static void drawWorkLine(Graphics2D g2, Unit unit, ResourceNode node) {
-        Graphics2D b = (Graphics2D) g2.create();
+        if (g2 == null || unit == null || node == null) return;
+        if (!RenderCulling.segmentVisible(g2, unit.x, unit.y, node.x, node.y, 18)) return;
+        Graphics2D b = (Graphics2D)g2.create();
         b.setStroke(new BasicStroke(3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
         Color m = node.material.color;
         b.setColor(new Color(m.getRed(), m.getGreen(), m.getBlue(), 150));
@@ -135,15 +157,17 @@ final class UnitRenderer {
 
     private static void drawBars(Graphics2D g2, Unit unit) {
         int barW = 36;
-        g2.setColor(new Color(20,20,20));
-        g2.fillRect((int)unit.x - barW/2, (int)unit.y - 30, barW, 5);
-        g2.setColor(new Color(80,230,90));
-        g2.fillRect((int)unit.x - barW/2, (int)unit.y - 30, (int)(barW * unit.hp / Math.max(1, unit.type().maxHp)), 5);
+        g2.setColor(new Color(20, 20, 20));
+        g2.fillRect((int)unit.x - barW / 2, (int)unit.y - 30, barW, 5);
+        g2.setColor(new Color(80, 230, 90));
+        g2.fillRect((int)unit.x - barW / 2, (int)unit.y - 30,
+                (int)(barW * unit.hp / Math.max(1, unit.type().maxHp)), 5);
         if (unit.type().cargoCapacity > 0) {
-            g2.setColor(new Color(20,20,20));
-            g2.fillRect((int)unit.x - barW/2, (int)unit.y + 27, barW, 4);
-            g2.setColor(new Color(110,200,255));
-            g2.fillRect((int)unit.x - barW/2, (int)unit.y + 27, (int)(barW * unit.cargoUsed() / unit.type().cargoCapacity), 4);
+            g2.setColor(new Color(20, 20, 20));
+            g2.fillRect((int)unit.x - barW / 2, (int)unit.y + 27, barW, 4);
+            g2.setColor(new Color(110, 200, 255));
+            g2.fillRect((int)unit.x - barW / 2, (int)unit.y + 27,
+                    (int)(barW * unit.cargoUsed() / unit.type().cargoCapacity), 4);
         }
     }
 
