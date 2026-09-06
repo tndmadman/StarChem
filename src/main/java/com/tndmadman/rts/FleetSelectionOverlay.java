@@ -3,6 +3,7 @@ package com.tndmadman.rts;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.Stroke;
 import java.awt.geom.Path2D;
@@ -15,43 +16,77 @@ final class FleetSelectionOverlay {
             1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
             0, new float[]{10f, 8f}, 0);
     private static final double FORMATION_EXTENT_MIN = 56.0;
-    // Aggregate route/order geometry is informational, not simulation state. Updating it
-    // at 20 Hz keeps motion visually responsive while guaranteeing it cannot be rebuilt
-    // multiple times inside a slow render frame.
-    private static final long REDRAW_NANOS = 50_000_000L;
+    private static final long CACHE_NANOS = 50_000_000L;
     private static final int ORDER_TYPE_COUNT = UnitOrderType.values().length;
     private static final int SLOT_COUNT = UnitTask.values().length * ORDER_TYPE_COUNT;
-    private static final Map<World, Long> LAST_DRAW = new WeakHashMap<>();
+    private static final Map<World, OverlayCache> CACHES = new WeakHashMap<>();
     private static volatile World fastWorld;
-    private static volatile long fastDrawNanos;
+    private static volatile OverlayCache fastCache;
 
     private FleetSelectionOverlay() { }
 
     /**
-     * World currently invokes order rendering per visible unit. The lock-free fast
-     * path makes every call after the first selected unit a constant-time no-op.
+     * World invokes order rendering once per visible unit. Pick one visible selected
+     * unit as the render anchor, so aggregate intent is painted exactly once per pass.
+     * Geometry itself is rebuilt at 20 Hz but the cached geometry is painted every
+     * frame; immediate-mode rendering must never skip the paint just because geometry
+     * did not change.
      */
-    static void drawOnce(Graphics2D g2, World world) {
-        if (g2 == null || world == null || !SelectionRenderPolicy.aggregate(world)) return;
+    static void drawForUnit(Graphics2D g2, World world, Unit unit,
+                            SelectionRenderPolicy.Snapshot selection) {
+        if (g2 == null || world == null || unit == null || selection == null
+                || selection.selectedCount() <= SelectionRenderPolicy.FULL_LIMIT
+                || !unit.selected || !PlayerRegistry.isLocal(unit.playerId)) return;
+
         long now = System.nanoTime();
-        if (fastWorld == world && now - fastDrawNanos < REDRAW_NANOS) return;
-        synchronized (LAST_DRAW) {
-            Long last = LAST_DRAW.get(world);
-            if (last != null && now - last < REDRAW_NANOS) {
-                fastWorld = world;
-                fastDrawNanos = last;
-                return;
-            }
-            LAST_DRAW.put(world, now);
-            fastWorld = world;
-            fastDrawNanos = now;
+        OverlayCache cache = cache(world);
+        if (cache.anchor == null || now >= cache.anchorExpiresNanos
+                || !cache.anchor.selected || !PlayerRegistry.isLocal(cache.anchor.playerId)) {
+            refreshAnchor(g2, world, cache, now);
         }
-        draw(g2, world);
+        if (cache.anchor != unit) return;
+
+        if (!cache.geometryReady || now >= cache.geometryExpiresNanos
+                || cache.selectedCount != selection.selectedCount()) {
+            rebuildGeometry(world, cache, selection.selectedCount(), now);
+        }
+        drawCached(g2, cache);
     }
 
-    private static void draw(Graphics2D g2, World world) {
-        Group[] groups = new Group[SLOT_COUNT];
+    private static OverlayCache cache(World world) {
+        OverlayCache fast = fastCache;
+        if (fastWorld == world && fast != null) return fast;
+        synchronized (CACHES) {
+            OverlayCache cache = CACHES.computeIfAbsent(world, ignored -> new OverlayCache());
+            fastWorld = world;
+            fastCache = cache;
+            return cache;
+        }
+    }
+
+    private static void refreshAnchor(Graphics2D g2, World world, OverlayCache cache, long now) {
+        Rectangle clip = g2.getClipBounds();
+        Unit anchor = null;
+        for (Unit candidate : world.units.values()) {
+            if (!candidate.selected || !PlayerRegistry.isLocal(candidate.playerId)) continue;
+            if (clip == null || visible(clip, candidate.x, candidate.y, 96.0)) {
+                anchor = candidate;
+                break;
+            }
+        }
+        cache.anchor = anchor;
+        cache.anchorExpiresNanos = now + CACHE_NANOS;
+    }
+
+    private static boolean visible(Rectangle clip, double x, double y, double radius) {
+        return x + radius >= clip.getMinX() && x - radius <= clip.getMaxX()
+                && y + radius >= clip.getMinY() && y - radius <= clip.getMaxY();
+    }
+
+    private static void rebuildGeometry(World world, OverlayCache cache, int selectedCount, long now) {
+        for (Group group : cache.groups) group.reset();
         int groupCount = 0;
+
         for (Unit unit : world.units.values()) {
             if (!unit.selected || !PlayerRegistry.isLocal(unit.playerId)) continue;
 
@@ -100,53 +135,64 @@ final class FleetSelectionOverlay {
             if (!hasTarget || !GameplayCommandNumbers.finite(targetX, targetY)) continue;
 
             int slot = unit.task.ordinal() * ORDER_TYPE_COUNT + unit.orderType.ordinal();
-            Group group = groups[slot];
-            if (group == null) {
+            Group group = cache.groups[slot];
+            if (!group.used) {
                 if (groupCount >= SelectionRenderPolicy.MAX_AGGREGATE_GROUPS) continue;
-                group = new Group();
-                groups[slot] = group;
+                group.used = true;
                 groupCount++;
             }
             group.add(unit.x, unit.y, targetX, targetY);
         }
-        if (groupCount == 0) return;
 
-        Graphics2D overlay = (Graphics2D)g2.create();
-        Color owner = PlayerRegistry.color(PlayerRegistry.localId());
-        overlay.setColor(new Color(owner.getRed(), owner.getGreen(), owner.getBlue(), 180));
-        overlay.setStroke(INTENT_STROKE);
-        if (SelectionRenderPolicy.selectedCount(world) > SelectionRenderPolicy.COMPACT_LIMIT) {
-            overlay.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
-        }
-
-        Path2D.Double path = new Path2D.Double();
-        double[] markersX = new double[groupCount];
-        double[] markersY = new double[groupCount];
-        int markerCount = 0;
-        for (Group group : groups) {
-            if (group == null || group.count == 0) continue;
+        Path2D.Double path = cache.path;
+        path.reset();
+        cache.markerCount = 0;
+        for (Group group : cache.groups) {
+            if (!group.used || group.count == 0) continue;
             double fromX = group.fromX / group.count;
             double fromY = group.fromY / group.count;
             double toX = group.toX / group.count;
             double toY = group.toY / group.count;
-            if (RenderCulling.segmentVisible(overlay, fromX, fromY, toX, toY, 28)) {
-                path.moveTo(fromX, fromY);
-                path.lineTo(toX, toY);
-            }
+            path.moveTo(fromX, fromY);
+            path.lineTo(toX, toY);
             addFormationExtent(path, group);
-            markersX[markerCount] = toX;
-            markersY[markerCount] = toY;
-            markerCount++;
+            int marker = cache.markerCount++;
+            cache.markersX[marker] = toX;
+            cache.markersY[marker] = toY;
         }
-        overlay.draw(path);
-        for (int i = 0; i < markerCount; i++) {
-            int x = (int)Math.round(markersX[i]);
-            int y = (int)Math.round(markersY[i]);
-            overlay.drawOval(x - 9, y - 9, 18, 18);
-            overlay.drawLine(x - 13, y, x + 13, y);
-            overlay.drawLine(x, y - 13, x, y + 13);
+
+        Color owner = PlayerRegistry.color(PlayerRegistry.localId());
+        cache.color = new Color(owner.getRed(), owner.getGreen(), owner.getBlue(), 180);
+        cache.selectedCount = selectedCount;
+        cache.geometryReady = true;
+        cache.geometryExpiresNanos = now + CACHE_NANOS;
+    }
+
+    private static void drawCached(Graphics2D g2, OverlayCache cache) {
+        if (!cache.geometryReady || (cache.markerCount == 0 && cache.path.getCurrentPoint() == null)) return;
+        Color oldColor = g2.getColor();
+        Stroke oldStroke = g2.getStroke();
+        Object oldAa = null;
+        boolean cheapAa = cache.selectedCount > SelectionRenderPolicy.COMPACT_LIMIT;
+        if (cheapAa) {
+            oldAa = g2.getRenderingHint(RenderingHints.KEY_ANTIALIASING);
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
         }
-        overlay.dispose();
+
+        g2.setColor(cache.color);
+        g2.setStroke(INTENT_STROKE);
+        g2.draw(cache.path);
+        for (int i = 0; i < cache.markerCount; i++) {
+            int x = (int)Math.round(cache.markersX[i]);
+            int y = (int)Math.round(cache.markersY[i]);
+            g2.drawOval(x - 9, y - 9, 18, 18);
+            g2.drawLine(x - 13, y, x + 13, y);
+            g2.drawLine(x, y - 13, x, y + 13);
+        }
+
+        g2.setStroke(oldStroke);
+        g2.setColor(oldColor);
+        if (cheapAa && oldAa != null) g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, oldAa);
     }
 
     private static void addFormationExtent(Path2D.Double path, Group group) {
@@ -171,16 +217,48 @@ final class FleetSelectionOverlay {
         }
     }
 
+    private static final class OverlayCache {
+        final Group[] groups = new Group[SLOT_COUNT];
+        final Path2D.Double path = new Path2D.Double();
+        final double[] markersX = new double[SelectionRenderPolicy.MAX_AGGREGATE_GROUPS];
+        final double[] markersY = new double[SelectionRenderPolicy.MAX_AGGREGATE_GROUPS];
+        Unit anchor;
+        long anchorExpiresNanos;
+        long geometryExpiresNanos;
+        boolean geometryReady;
+        int selectedCount;
+        int markerCount;
+        Color color = Color.WHITE;
+
+        OverlayCache() {
+            for (int i = 0; i < groups.length; i++) groups[i] = new Group();
+        }
+    }
+
     private static final class Group {
+        boolean used;
         int count;
         double fromX;
         double fromY;
         double toX;
         double toY;
-        double minX = Double.POSITIVE_INFINITY;
-        double minY = Double.POSITIVE_INFINITY;
-        double maxX = Double.NEGATIVE_INFINITY;
-        double maxY = Double.NEGATIVE_INFINITY;
+        double minX;
+        double minY;
+        double maxX;
+        double maxY;
+
+        void reset() {
+            used = false;
+            count = 0;
+            fromX = 0;
+            fromY = 0;
+            toX = 0;
+            toY = 0;
+            minX = Double.POSITIVE_INFINITY;
+            minY = Double.POSITIVE_INFINITY;
+            maxX = Double.NEGATIVE_INFINITY;
+            maxY = Double.NEGATIVE_INFINITY;
+        }
 
         void add(double x, double y, double targetX, double targetY) {
             count++;
