@@ -7,7 +7,7 @@ import java.util.Locale;
 
 final class PerfOverlay {
     private static final long REFRESH_NANOS = 250_000_000L;
-    private static final int PANEL_WIDTH = 450;
+    private static final int PANEL_WIDTH = 500;
     private long nextRefreshNanos;
     private List<String> lines = List.of("Collecting performance samples...");
 
@@ -15,7 +15,7 @@ final class PerfOverlay {
               PerfSnapshot frame, PerfSnapshot network, PerfSnapshot host) {
         long now = System.nanoTime();
         if (now >= nextRefreshNanos) {
-            lines = buildLines(world, updateLabel, frame, network, host);
+            lines = buildLines(world, updateLabel, frame, network, host, PerformanceTrace.snapshot());
             nextRefreshNanos = now + REFRESH_NANOS;
         }
 
@@ -40,13 +40,30 @@ final class PerfOverlay {
     }
 
     private List<String> buildLines(World world, String updateLabel,
-                                    PerfSnapshot frame, PerfSnapshot network, PerfSnapshot host) {
+                                    PerfSnapshot frame, PerfSnapshot network, PerfSnapshot host,
+                                    PerformanceTrace.TraceSnapshot trace) {
         List<String> out = new ArrayList<>();
         out.add(String.format(Locale.ROOT,
                 "FPS %.1f | frame %.2f ms avg / %.2f max | draw %.2f / %.2f",
                 frame.fps(), frame.frameAvgMs(), frame.frameMaxMs(), frame.drawAvgMs(), frame.drawMaxMs()));
         out.add(String.format(Locale.ROOT, "%s %.2f ms avg / %.2f max",
                 updateLabel, frame.updateAvgMs(), frame.updateMaxMs()));
+        out.add(String.format(Locale.ROOT,
+                "Prediction movement %.3f ms | modules %.3f ms | weapons %.3f ms",
+                trace.movementMs(), trace.modulesMs(), trace.weaponsMs()));
+        out.add(String.format(Locale.ROOT,
+                "Combat acquire %.3f ms | point defense %.3f ms | projectiles %.3f ms",
+                trace.acquisitionMs(), trace.pointDefenseMs(), trace.projectilesMs()));
+        out.add(String.format(Locale.ROOT,
+                "Render world %.3f ms | weapon FX %.3f ms | fog %.3f ms",
+                trace.worldDrawMs(), trace.weaponDrawMs(), trace.fogDrawMs()));
+        out.add(String.format(Locale.ROOT,
+                "Spatial rebuild %.3f ms | candidates %.0f/s | indexed %.0f/s",
+                trace.spatialRebuildMs(), trace.spatialCandidatesPerSecond(), trace.indexedEntitiesPerSecond()));
+        out.add(String.format(Locale.ROOT,
+                "Target candidates %.0f/s | PD candidates %.0f/s | snapshot filter %.3f ms (% .0f ent/s)",
+                trace.targetCandidatesPerSecond(), trace.pointDefenseCandidatesPerSecond(),
+                trace.snapshotFilterMs(), trace.snapshotFilterEntitiesPerSecond()));
         out.add("Entities U " + world.units.size() + " | B " + world.bases.size() + " | R " + world.resources.size()
                 + " | shots " + world.shots.size() + " | FX " + world.explosions.size() + " | items " + world.items.size());
         GalaxyMapSnapshot galaxy = world.galaxyMapSnapshot();
