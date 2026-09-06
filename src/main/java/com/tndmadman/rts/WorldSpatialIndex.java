@@ -27,6 +27,8 @@ final class WorldSpatialIndex {
     private int indexedUnits;
     private int indexedBases;
     private int indexedShots;
+    private int indexedResources;
+    private int indexedItems;
 
     private WorldSpatialIndex() { }
 
@@ -47,9 +49,7 @@ final class WorldSpatialIndex {
         long started = System.nanoTime();
         cells.clear();
         systemId = world.activeSystemId() == null ? "" : world.activeSystemId();
-        indexedUnits = 0;
-        indexedBases = 0;
-        indexedShots = 0;
+        indexedUnits = indexedBases = indexedShots = indexedResources = indexedItems = 0;
 
         for (Unit unit : world.units.values()) {
             if (unit == null || unit.hp <= 0) continue;
@@ -66,8 +66,19 @@ final class WorldSpatialIndex {
             cell(shot.x, shot.y).shots.add(shot);
             indexedShots++;
         }
+        for (ResourceNode resource : world.resources) {
+            if (resource == null) continue;
+            cell(resource.x, resource.y).resources.add(resource);
+            indexedResources++;
+        }
+        for (WorldItem item : world.items) {
+            if (item == null || item.empty()) continue;
+            cell(item.x, item.y).items.add(item);
+            indexedItems++;
+        }
         revision++;
-        PerformanceTrace.recordSpatialRebuild(System.nanoTime() - started, indexedUnits + indexedBases + indexedShots);
+        PerformanceTrace.recordSpatialRebuild(System.nanoTime() - started,
+                indexedUnits + indexedBases + indexedShots + indexedResources + indexedItems);
     }
 
     List<Unit> unitsWithin(double x, double y, double radius, List<Unit> out) {
@@ -148,18 +159,33 @@ final class WorldSpatialIndex {
     List<Unit> unitsIn(Rectangle2D bounds, double margin, List<Unit> out) {
         out.clear();
         if (bounds == null) return out;
-        collectRectangle(bounds, margin, out, null);
+        rectangle(bounds, margin, cell -> cell.units, unit -> unit.x, unit -> unit.y, out);
         return out;
     }
 
     List<Base> basesIn(Rectangle2D bounds, double margin, List<Base> out) {
         out.clear();
         if (bounds == null) return out;
-        collectRectangle(bounds, margin, null, out);
+        rectangle(bounds, margin, cell -> cell.bases, base -> base.x, base -> base.y, out);
         return out;
     }
 
-    private void collectRectangle(Rectangle2D bounds, double margin, List<Unit> unitOut, List<Base> baseOut) {
+    List<ResourceNode> resourcesIn(Rectangle2D bounds, double margin, List<ResourceNode> out) {
+        out.clear();
+        if (bounds == null) return out;
+        rectangle(bounds, margin, cell -> cell.resources, resource -> resource.x, resource -> resource.y, out);
+        return out;
+    }
+
+    List<WorldItem> itemsIn(Rectangle2D bounds, double margin, List<WorldItem> out) {
+        out.clear();
+        if (bounds == null) return out;
+        rectangle(bounds, margin, cell -> cell.items, item -> item.x, item -> item.y, out);
+        return out;
+    }
+
+    private <T> void rectangle(Rectangle2D bounds, double margin, CellList<T> list,
+                               Coordinate<T> x, Coordinate<T> y, List<T> out) {
         double minWorldX = bounds.getMinX() - margin;
         double maxWorldX = bounds.getMaxX() + margin;
         double minWorldY = bounds.getMinY() - margin;
@@ -173,19 +199,12 @@ final class WorldSpatialIndex {
             for (int cx = minX; cx <= maxX; cx++) {
                 Cell cell = cells.get(key(cx, cy));
                 if (cell == null) continue;
-                if (unitOut != null) {
-                    candidates += cell.units.size();
-                    for (Unit unit : cell.units) {
-                        if (unit.x >= minWorldX && unit.x <= maxWorldX
-                                && unit.y >= minWorldY && unit.y <= maxWorldY) unitOut.add(unit);
-                    }
-                }
-                if (baseOut != null) {
-                    candidates += cell.bases.size();
-                    for (Base base : cell.bases) {
-                        if (base.x >= minWorldX && base.x <= maxWorldX
-                                && base.y >= minWorldY && base.y <= maxWorldY) baseOut.add(base);
-                    }
+                List<T> values = list.get(cell);
+                candidates += values.size();
+                for (T value : values) {
+                    double vx = x.get(value);
+                    double vy = y.get(value);
+                    if (vx >= minWorldX && vx <= maxWorldX && vy >= minWorldY && vy <= maxWorldY) out.add(value);
                 }
             }
         }
@@ -196,7 +215,8 @@ final class WorldSpatialIndex {
         if (world == null) return false;
         String active = world.activeSystemId() == null ? "" : world.activeSystemId();
         return active.equals(systemId) && indexedUnits == aliveUnitCount(world)
-                && indexedBases == aliveBaseCount(world) && indexedShots == world.shots.size();
+                && indexedBases == aliveBaseCount(world) && indexedShots == world.shots.size()
+                && indexedResources == world.resources.size() && indexedItems == liveItemCount(world);
     }
 
     long revision() { return revision; }
@@ -227,9 +247,20 @@ final class WorldSpatialIndex {
         return count;
     }
 
+    private static int liveItemCount(World world) {
+        int count = 0;
+        for (WorldItem item : world.items) if (item != null && !item.empty()) count++;
+        return count;
+    }
+
+    private interface CellList<T> { List<T> get(Cell cell); }
+    private interface Coordinate<T> { double get(T value); }
+
     private static final class Cell {
         final List<Unit> units = new ArrayList<>();
         final List<Base> bases = new ArrayList<>();
         final List<ProjectileShot> shots = new ArrayList<>();
+        final List<ResourceNode> resources = new ArrayList<>();
+        final List<WorldItem> items = new ArrayList<>();
     }
 }
