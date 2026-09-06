@@ -16,36 +16,87 @@ final class FleetSelectionOverlay {
             0, new float[]{10f, 8f}, 0);
     private static final double FORMATION_EXTENT_MIN = 56.0;
     private static final long REDRAW_NANOS = 16_000_000L;
+    private static final int ORDER_TYPE_COUNT = UnitOrderType.values().length;
+    private static final int SLOT_COUNT = UnitTask.values().length * ORDER_TYPE_COUNT;
     private static final Map<World, Long> LAST_DRAW = new WeakHashMap<>();
+    private static volatile World fastWorld;
+    private static volatile long fastDrawNanos;
 
     private FleetSelectionOverlay() { }
 
     /**
-     * World currently invokes order rendering per visible unit. Throttle the aggregate
-     * pass so the first visible selected unit draws it and the remaining selected
-     * units become constant-time no-ops. Command intent does not need a higher update
-     * rate than the screen refresh cadence.
+     * World currently invokes order rendering per visible unit. The lock-free fast
+     * path makes every call after the first selected unit a constant-time no-op.
      */
     static void drawOnce(Graphics2D g2, World world) {
         if (g2 == null || world == null || !SelectionRenderPolicy.aggregate(world)) return;
         long now = System.nanoTime();
+        if (fastWorld == world && now - fastDrawNanos < REDRAW_NANOS) return;
         synchronized (LAST_DRAW) {
             Long last = LAST_DRAW.get(world);
-            if (last != null && now - last < REDRAW_NANOS) return;
+            if (last != null && now - last < REDRAW_NANOS) {
+                fastWorld = world;
+                fastDrawNanos = last;
+                return;
+            }
             LAST_DRAW.put(world, now);
+            fastWorld = world;
+            fastDrawNanos = now;
         }
         draw(g2, world);
     }
 
     private static void draw(Graphics2D g2, World world) {
-        int slots = UnitTask.values().length * UnitOrderType.values().length;
-        Group[] groups = new Group[slots];
+        Group[] groups = new Group[SLOT_COUNT];
         int groupCount = 0;
         for (Unit unit : world.units.values()) {
             if (!unit.selected || !PlayerRegistry.isLocal(unit.playerId)) continue;
-            Target target = target(world, unit);
-            if (target == null) continue;
-            int slot = unit.task.ordinal() * UnitOrderType.values().length + unit.orderType.ordinal();
+
+            double targetX;
+            double targetY;
+            boolean hasTarget = false;
+            if (unit.task == UnitTask.MOVE || unit.task == UnitTask.RETURN_TO_STATION || unit.task == UnitTask.ATTACK) {
+                targetX = unit.targetX;
+                targetY = unit.targetY;
+                hasTarget = GameplayCommandNumbers.finite(targetX, targetY);
+            } else if (unit.task == UnitTask.AUTO_HARVEST && unit.automationResourceId >= 0) {
+                ResourceNode node = world.findResource(unit.automationResourceId);
+                targetX = node == null ? 0 : node.x;
+                targetY = node == null ? 0 : node.y;
+                hasTarget = node != null;
+            } else {
+                targetX = 0;
+                targetY = 0;
+            }
+
+            if (!hasTarget) {
+                switch (unit.orderType) {
+                    case PATROL -> {
+                        targetX = unit.orderPhase == 0 ? unit.orderX1 : unit.orderX2;
+                        targetY = unit.orderPhase == 0 ? unit.orderY1 : unit.orderY2;
+                        hasTarget = true;
+                    }
+                    case GUARD, ESCORT -> {
+                        targetX = UnitOrderSystem.anchorX(world, unit);
+                        targetY = UnitOrderSystem.anchorY(world, unit);
+                        hasTarget = true;
+                    }
+                    case HOLD -> {
+                        targetX = unit.orderX1;
+                        targetY = unit.orderY1;
+                        hasTarget = true;
+                    }
+                    case ATTACK_MOVE -> {
+                        targetX = unit.orderX2;
+                        targetY = unit.orderY2;
+                        hasTarget = true;
+                    }
+                    case NONE -> { }
+                }
+            }
+            if (!hasTarget || !GameplayCommandNumbers.finite(targetX, targetY)) continue;
+
+            int slot = unit.task.ordinal() * ORDER_TYPE_COUNT + unit.orderType.ordinal();
             Group group = groups[slot];
             if (group == null) {
                 if (groupCount >= SelectionRenderPolicy.MAX_AGGREGATE_GROUPS) continue;
@@ -53,7 +104,7 @@ final class FleetSelectionOverlay {
                 groups[slot] = group;
                 groupCount++;
             }
-            group.add(unit.x, unit.y, target.x, target.y);
+            group.add(unit.x, unit.y, targetX, targetY);
         }
         if (groupCount == 0) return;
 
@@ -116,27 +167,6 @@ final class FleetSelectionOverlay {
             path.closePath();
         }
     }
-
-    private static Target target(World world, Unit unit) {
-        if (unit.task == UnitTask.MOVE || unit.task == UnitTask.RETURN_TO_STATION || unit.task == UnitTask.ATTACK) {
-            if (GameplayCommandNumbers.finite(unit.targetX, unit.targetY)) return new Target(unit.targetX, unit.targetY);
-        }
-        if (unit.task == UnitTask.AUTO_HARVEST && unit.automationResourceId >= 0) {
-            ResourceNode node = world.findResource(unit.automationResourceId);
-            if (node != null) return new Target(node.x, node.y);
-        }
-        return switch (unit.orderType) {
-            case PATROL -> unit.orderPhase == 0
-                    ? new Target(unit.orderX1, unit.orderY1)
-                    : new Target(unit.orderX2, unit.orderY2);
-            case GUARD, ESCORT -> new Target(UnitOrderSystem.anchorX(world, unit), UnitOrderSystem.anchorY(world, unit));
-            case HOLD -> new Target(unit.orderX1, unit.orderY1);
-            case ATTACK_MOVE -> new Target(unit.orderX2, unit.orderY2);
-            case NONE -> null;
-        };
-    }
-
-    private record Target(double x, double y) { }
 
     private static final class Group {
         int count;
