@@ -10,13 +10,18 @@ final class PeerSyncBatch {
     static long send(World world, ClientViewCache views, ServerPeer[] peers, long sequence,
                      boolean fullResources, NetOutbound out) {
         long next = sequence;
-        for (ServerPeer peer : peers) {
-            next = PeerSyncSender.sendOne(world, views, peer, next, SyncKind.REGULAR, fullResources, out);
-            sendQueueState(world, peer, false, out);
-            sendNotices(world, peer, out);
-            sendAudio(world, views, peer, out);
+        SnapshotBatchCache.begin();
+        try {
+            for (ServerPeer peer : peers) {
+                next = PeerSyncSender.sendOne(world, views, peer, next, SyncKind.REGULAR, fullResources, out);
+                sendQueueState(world, peer, false, out);
+                sendNotices(world, peer, out);
+                sendAudio(world, views, peer, out);
+            }
+            return next;
+        } finally {
+            SnapshotBatchCache.end();
         }
-        return next;
     }
 
     static long sendInitial(World world, ClientViewCache views, ServerPeer peer, long sequence, NetOutbound out) {
