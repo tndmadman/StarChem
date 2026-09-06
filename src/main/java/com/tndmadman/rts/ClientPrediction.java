@@ -6,7 +6,10 @@ final class ClientPrediction {
     private ClientPrediction() { }
 
     static void update(World world, double dt) {
-        if (world == null || !Double.isFinite(dt) || dt <= 0) return;
+        // A zero-dt prediction pass is intentional: callers use it to refresh local
+        // attack/orbit targets immediately without advancing simulation time. Preserve
+        // that behavior while still rejecting invalid/negative time steps.
+        if (world == null || !Double.isFinite(dt) || dt < 0) return;
         ShipModuleRules.beginUpdateCycle(world);
         long moduleNanos = 0;
         long movementNanos = 0;
