@@ -20,6 +20,7 @@ final class UnitRenderer {
     private static final Color PACKAGE_COLOR = new Color(255, 230, 130);
     private static final Color BAR_BACKGROUND = new Color(20, 20, 20);
     private static final Color HP_COLOR = new Color(80, 230, 90);
+    private static final Color DAMAGE_COLOR = new Color(255, 112, 88);
     private static final Color CARGO_COLOR = new Color(110, 200, 255);
     private static final Color CARGO_TEXT = new Color(220, 238, 250);
     private static boolean miningRangeOverlayVisible;
@@ -87,20 +88,31 @@ final class UnitRenderer {
             return;
         }
 
+        boolean damaged = unit.hp < unit.type().maxHp * 0.995;
+
         // Selection no longer disables the same hull LOD used by unselected fleets.
-        // Large selections go one step further and keep non-primary selected ships on
-        // the cached sprite path even at close zoom.
+        // At far zoom mass-selection secondaries stop after a far marker + one selection
+        // rectangle instead of falling through into text/bar/range work.
         if (scale < 0.24) {
             drawFarMarker(g2, unit, playerColor, scale);
+            if (!selectedOwner) return;
+            if (!exactSelectedDetail) {
+                drawSelectionMarker(g2, unit, compactMarker);
+                if (damaged) drawDamageMarker(g2, unit);
+                return;
+            }
         } else if (forceCheapHull || scale < 0.78) {
             drawCachedHull(g2, unit, playerColor);
         } else {
             drawDetailedHull(g2, unit, playerColor);
         }
 
-        boolean damaged = unit.hp < unit.type().maxHp * 0.995;
         boolean fleetSecondary = aggregateSelection && !primarySelection;
-        if (exactSelectedDetail || damaged || (!fleetSecondary && scale >= 0.52)) drawBars(g2, unit);
+        if (fleetSecondary) {
+            if (damaged) drawDamageMarker(g2, unit);
+        } else if (exactSelectedDetail || damaged || scale >= 0.52) {
+            drawBars(g2, unit);
+        }
         if (exactSelectedDetail || (!fleetSecondary && scale >= 0.62)) drawName(g2, unit, playerColor);
         if (!unit.basePackageType.isBlank() && (exactSelectedDetail || (!fleetSecondary && scale >= 0.62))) {
             g2.setColor(PACKAGE_COLOR);
@@ -132,17 +144,9 @@ final class UnitRenderer {
         if (compact) {
             int x = (int)Math.round(unit.x);
             int y = (int)Math.round(unit.y);
-            int radius = 24;
-            int corner = 7;
             g2.setColor(SELECTED_COLOR);
-            g2.drawLine(x - radius, y - radius, x - radius + corner, y - radius);
-            g2.drawLine(x - radius, y - radius, x - radius, y - radius + corner);
-            g2.drawLine(x + radius, y - radius, x + radius - corner, y - radius);
-            g2.drawLine(x + radius, y - radius, x + radius, y - radius + corner);
-            g2.drawLine(x - radius, y + radius, x - radius + corner, y + radius);
-            g2.drawLine(x - radius, y + radius, x - radius, y + radius - corner);
-            g2.drawLine(x + radius, y + radius, x + radius - corner, y + radius);
-            g2.drawLine(x + radius, y + radius, x + radius, y + radius - corner);
+            // One primitive per mass-selected ship instead of eight corner-line calls.
+            g2.drawRect(x - 24, y - 24, 48, 48);
             return;
         }
         Stroke oldStroke = g2.getStroke();
@@ -150,6 +154,11 @@ final class UnitRenderer {
         g2.setStroke(SELECTED_STROKE);
         g2.drawOval((int)unit.x - 26, (int)unit.y - 26, 52, 52);
         g2.setStroke(oldStroke);
+    }
+
+    private static void drawDamageMarker(Graphics2D g2, Unit unit) {
+        g2.setColor(DAMAGE_COLOR);
+        g2.fillRect((int)Math.round(unit.x) - 6, (int)Math.round(unit.y) - 31, 12, 3);
     }
 
     private static void drawDetailedHull(Graphics2D g2, Unit unit, Color playerColor) {
