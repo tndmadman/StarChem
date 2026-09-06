@@ -14,16 +14,31 @@ final class WorldNetAccess {
         for (PlayerInfo player : PlayerRegistry.snapshotPlayers()) {
             if (realPlayerId(player.id()) || includeSolo && "SOLO".equals(player.id())) players.add(player);
         }
-        List<UnitState> units = new ArrayList<>();
-        for (Unit u : world.units.values()) units.add(new UnitState(u.playerId, u.unitId, u.shipTypeId, u.x, u.y, u.targetX, u.targetY, u.heading, u.task.name(), u.automationResourceId, u.basePackageType, CargoCodec.write(u.inventory), u.hp, u.shield, u.attackTarget, u.weaponFlashTimer, u.orderType.name(), u.orderX1, u.orderY1, u.orderX2, u.orderY2, u.orderRadius, u.orderTarget, u.orderPhase, u.loadoutId));
+
+        SnapshotBatchCache.CommonState common = SnapshotBatchCache.common(world);
+        List<UnitState> units;
+        List<BaseState> bases;
+        List<ShotState> shots;
+        List<ItemState> items;
+        if (common != null) {
+            units = common.units();
+            bases = common.bases();
+            shots = common.shots();
+            items = common.items();
+        } else {
+            units = new ArrayList<>();
+            for (Unit u : world.units.values()) units.add(new UnitState(u.playerId, u.unitId, u.shipTypeId, u.x, u.y, u.targetX, u.targetY, u.heading, u.task.name(), u.automationResourceId, u.basePackageType, CargoCodec.write(u.inventory), u.hp, u.shield, u.attackTarget, u.weaponFlashTimer, u.orderType.name(), u.orderX1, u.orderY1, u.orderX2, u.orderY2, u.orderRadius, u.orderTarget, u.orderPhase, u.loadoutId));
+            bases = new ArrayList<>();
+            for (Base b : world.bases.values()) bases.add(NetBaseSync.toState(b));
+            shots = new ArrayList<>();
+            for (ProjectileShot shot : world.shots) shots.add(new ShotState(shot.id, shot.ownerId, shot.weaponId, shot.targetKey, shot.x, shot.y, shot.lastX, shot.lastY));
+            items = new ArrayList<>();
+            for (WorldItem item : world.items) items.add(new ItemState(item.id, item.material.name(), item.amount, item.x, item.y, item.vx, item.vy, item.angle, item.spin));
+        }
+
+        // ResourceSync remains per-viewer: its partial/tombstone context must never be shared.
         List<ResourceState> resources = ResourceSync.snapshot(world);
-        List<BaseState> bases = new ArrayList<>();
-        for (Base b : world.bases.values()) bases.add(NetBaseSync.toState(b));
         List<StockState> stocks = List.of(new StockState(PlayerRegistry.localId(), CargoCodec.write(world.stockpile)));
-        List<ShotState> shots = new ArrayList<>();
-        for (ProjectileShot shot : world.shots) shots.add(new ShotState(shot.id, shot.ownerId, shot.weaponId, shot.targetKey, shot.x, shot.y, shot.lastX, shot.lastY));
-        List<ItemState> items = new ArrayList<>();
-        for (WorldItem item : world.items) items.add(new ItemState(item.id, item.material.name(), item.amount, item.x, item.y, item.vx, item.vy, item.angle, item.spin));
         List<ResearchState> research = researchSnapshot(world);
         return new Snapshot(sequence, players, units, resources, bases, stocks, shots, items,
                 CelestialPacketCache.pack(world.activeSystemId()), world.systemTime(), "", research,
