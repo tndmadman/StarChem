@@ -5,11 +5,16 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.Stroke;
-import java.awt.geom.Line2D;
+import java.awt.image.BufferedImage;
 
 final class UnitRenderer {
     private static final Stroke ROUTE_STROKE =
             new BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
+    private static final Stroke SELECTED_STROKE = new BasicStroke(2f);
+    private static final Stroke WORK_STROKE =
+            new BasicStroke(3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
+    private static final Stroke WEAPON_RANGE_STROKE =
+            new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 0, new float[]{12f, 7f}, 0);
     private static boolean miningRangeOverlayVisible;
 
     private UnitRenderer() { }
@@ -24,10 +29,11 @@ final class UnitRenderer {
         if (g2 == null || unit == null) return;
         Color playerColor = PlayerRegistry.color(unit.playerId);
         boolean owner = PlayerRegistry.isLocal(unit.playerId);
+        boolean selectedOwner = unit.selected && owner;
         World world = PlayerRegistry.activeWorld();
 
         double cullRadius = 96;
-        if (unit.selected && owner) cullRadius = Math.max(cullRadius, displayedWeaponRange(world, unit) + 8);
+        if (selectedOwner) cullRadius = Math.max(cullRadius, displayedWeaponRange(world, unit) + 8);
         if (owner && unit.type().scoutRange > 0 && shouldDrawScoutCircle(unit)) {
             cullRadius = Math.max(cullRadius,
                     world == null ? unit.type().scoutRange : VisibilityRules.unitSensorRange(world, unit));
@@ -35,23 +41,31 @@ final class UnitRenderer {
         if (owner && shouldDrawTractorCircle(unit)) cullRadius = Math.max(cullRadius, unit.type().tractorRange);
         if (!RenderCulling.visible(g2, unit.x, unit.y, cullRadius)) return;
 
-        Graphics2D s = (Graphics2D)g2.create();
-        s.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        s.translate(unit.x, unit.y);
-        s.rotate(unit.heading);
-        ShipShape.draw(s, unit.type(), playerColor);
-        s.dispose();
+        double scale = Math.max(Math.abs(g2.getTransform().getScaleX()), Math.abs(g2.getTransform().getScaleY()));
+        if (!selectedOwner && scale < 0.24) {
+            drawFarMarker(g2, unit, playerColor, scale);
+            return;
+        }
 
-        drawBars(g2, unit);
-        drawName(g2, unit, playerColor);
-        if (!unit.basePackageType.isBlank()) {
+        if (!selectedOwner && scale < 0.78) {
+            drawCachedHull(g2, unit, playerColor);
+        } else {
+            drawDetailedHull(g2, unit, playerColor);
+        }
+
+        boolean damaged = unit.hp < unit.type().maxHp * 0.995;
+        if (selectedOwner || damaged || scale >= 0.52) drawBars(g2, unit);
+        if (selectedOwner || scale >= 0.62) drawName(g2, unit, playerColor);
+        if (!unit.basePackageType.isBlank() && (selectedOwner || scale >= 0.62)) {
             g2.setColor(new Color(255, 230, 130));
             g2.drawString("PKG", (int)unit.x - 12, (int)unit.y + 45);
         }
-        if (unit.selected && owner) {
+        if (selectedOwner) {
+            Stroke oldStroke = g2.getStroke();
             g2.setColor(new Color(255, 245, 120));
-            g2.setStroke(new BasicStroke(2f));
+            g2.setStroke(SELECTED_STROKE);
             g2.drawOval((int)unit.x - 26, (int)unit.y - 26, 52, 52);
+            g2.setStroke(oldStroke);
             drawCargo(g2, unit);
             double weaponRange = displayedWeaponRange(world, unit);
             if (weaponRange > 0) {
@@ -68,13 +82,45 @@ final class UnitRenderer {
         }
     }
 
+    private static void drawDetailedHull(Graphics2D g2, Unit unit, Color playerColor) {
+        Graphics2D s = (Graphics2D)g2.create();
+        s.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        s.translate(unit.x, unit.y);
+        s.rotate(unit.heading);
+        ShipShape.draw(s, unit.type(), playerColor);
+        s.dispose();
+    }
+
+    private static void drawCachedHull(Graphics2D g2, Unit unit, Color playerColor) {
+        BufferedImage sprite = ShipSpriteCache.sprite(unit, playerColor);
+        if (sprite == null) {
+            drawDetailedHull(g2, unit, playerColor);
+            return;
+        }
+        int size = ShipSpriteCache.imageSize();
+        g2.drawImage(sprite, (int)Math.round(unit.x - size / 2.0),
+                (int)Math.round(unit.y - size / 2.0), null);
+    }
+
+    private static void drawFarMarker(Graphics2D g2, Unit unit, Color playerColor, double scale) {
+        // Keep the final screen footprint readable while avoiding vector hull/name/bar work.
+        int radius = scale < 0.12 ? 8 : 6;
+        g2.setColor(new Color(0, 0, 0, 165));
+        g2.fillOval((int)unit.x - radius - 2, (int)unit.y - radius - 2,
+                (radius + 2) * 2, (radius + 2) * 2);
+        g2.setColor(playerColor);
+        g2.fillOval((int)unit.x - radius, (int)unit.y - radius, radius * 2, radius * 2);
+    }
+
     static double displayedWeaponRange(World world, Unit unit) {
         return AttackRangeRules.effectiveWeaponRange(world, unit);
     }
 
     static void drawRoute(Graphics2D g2, Unit unit, Color ignoredColor) {
-        if (g2 == null || unit == null || !PlayerRegistry.isLocal(unit.playerId)) return;
-        if (Calc.distance(unit.x, unit.y, unit.targetX, unit.targetY) <= 4) return;
+        if (g2 == null || unit == null || !PlayerRegistry.isLocal(unit.playerId) || !unit.selected) return;
+        double dx = unit.targetX - unit.x;
+        double dy = unit.targetY - unit.y;
+        if (dx * dx + dy * dy <= 16) return;
         if (!RenderCulling.segmentVisible(g2, unit.x, unit.y, unit.targetX, unit.targetY, 24)) return;
         Color color = PlayerRegistry.color(unit.playerId);
         Stroke oldStroke = g2.getStroke();
@@ -90,12 +136,14 @@ final class UnitRenderer {
     static void drawWorkLine(Graphics2D g2, Unit unit, ResourceNode node) {
         if (g2 == null || unit == null || node == null) return;
         if (!RenderCulling.segmentVisible(g2, unit.x, unit.y, node.x, node.y, 18)) return;
-        Graphics2D b = (Graphics2D)g2.create();
-        b.setStroke(new BasicStroke(3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        Stroke oldStroke = g2.getStroke();
+        Color oldColor = g2.getColor();
+        g2.setStroke(WORK_STROKE);
         Color m = node.material.color;
-        b.setColor(new Color(m.getRed(), m.getGreen(), m.getBlue(), 150));
-        b.draw(new Line2D.Double(unit.x, unit.y, node.x, node.y));
-        b.dispose();
+        g2.setColor(new Color(m.getRed(), m.getGreen(), m.getBlue(), 150));
+        g2.drawLine((int)unit.x, (int)unit.y, (int)node.x, (int)node.y);
+        g2.setStroke(oldStroke);
+        g2.setColor(oldColor);
     }
 
     private static boolean shouldDrawScoutCircle(Unit unit) {
@@ -117,20 +165,18 @@ final class UnitRenderer {
     }
 
     private static void drawWeaponRangeCircle(Graphics2D g2, Unit unit, double range, Color color, boolean fill) {
-        Graphics2D r = (Graphics2D)g2.create();
-        r.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         int diameter = (int)Math.round(range * 2);
         int x = (int)Math.round(unit.x - range);
         int y = (int)Math.round(unit.y - range);
         if (fill) {
-            r.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), 18));
-            r.fillOval(x, y, diameter, diameter);
+            g2.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), 18));
+            g2.fillOval(x, y, diameter, diameter);
         }
-        r.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), 155));
-        r.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
-                0, new float[]{12f, 7f}, 0));
-        r.drawOval(x, y, diameter, diameter);
-        r.dispose();
+        Stroke oldStroke = g2.getStroke();
+        g2.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), 155));
+        g2.setStroke(WEAPON_RANGE_STROKE);
+        g2.drawOval(x, y, diameter, diameter);
+        g2.setStroke(oldStroke);
     }
 
     private static void drawName(Graphics2D g2, Unit unit, Color color) {
