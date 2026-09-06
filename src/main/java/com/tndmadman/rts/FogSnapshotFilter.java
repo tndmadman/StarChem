@@ -12,11 +12,14 @@ final class FogSnapshotFilter {
 
     static Snapshot forPlayer(World world, String playerId, Snapshot source) {
         if (world == null || source == null || playerId == null || playerId.isBlank() || "WAIT".equals(playerId)) return source;
+        long started = System.nanoTime();
+        int sourceEntities = source.units().size() + source.resources().size() + source.bases().size()
+                + source.shots().size() + source.items().size();
         VisibilityRules.Frame visibility = VisibilityRules.frame(world, playerId);
         Set<String> revealedPlayers = new LinkedHashSet<>();
         revealedPlayers.add(playerId);
 
-        List<UnitState> units = new ArrayList<>();
+        List<UnitState> units = new ArrayList<>(source.units().size());
         for (UnitState state : source.units()) {
             Unit unit = world.units.get(Unit.key(state.playerId(), state.unitId()));
             IntelWarfareSystem.DetectionStage stage = visibility.unitStage(unit);
@@ -25,7 +28,7 @@ final class FogSnapshotFilter {
             units.add(sanitizeUnit(world, playerId, visibility, unit, state, stage));
         }
 
-        List<ResourceState> resources = new ArrayList<>();
+        List<ResourceState> resources = new ArrayList<>(source.resources().size());
         for (ResourceState state : source.resources()) {
             if (!state.active() && ResourceSync.authorizedTombstone(playerId, state.id())) {
                 resources.add(state);
@@ -37,7 +40,7 @@ final class FogSnapshotFilter {
             resources.add(sanitizeResource(world, state, stage));
         }
 
-        List<BaseState> bases = new ArrayList<>();
+        List<BaseState> bases = new ArrayList<>(source.bases().size());
         for (BaseState state : source.bases()) {
             Base base = world.bases.get(state.id());
             IntelWarfareSystem.DetectionStage stage = visibility.baseStage(base);
@@ -46,7 +49,7 @@ final class FogSnapshotFilter {
             bases.add(sanitizeBase(world, playerId, base, state, stage));
         }
 
-        List<ShotState> shots = new ArrayList<>();
+        List<ShotState> shots = new ArrayList<>(source.shots().size());
         for (ShotState state : source.shots()) {
             if (visibility.pointVisible(state.x(), state.y())
                     || visibility.pointVisible(state.lastX(), state.lastY())
@@ -57,23 +60,25 @@ final class FogSnapshotFilter {
             }
         }
 
-        List<ItemState> items = new ArrayList<>();
+        List<ItemState> items = new ArrayList<>(source.items().size());
         for (ItemState state : source.items()) {
             if (visibility.pointVisible(state.x(), state.y())) items.add(state);
         }
 
-        List<PlayerInfo> players = new ArrayList<>();
+        List<PlayerInfo> players = new ArrayList<>(source.players().size());
         for (PlayerInfo player : source.players()) {
             if (playerId.equals(player.id()) || IntelWarfareSystem.allied(world, playerId, player.id())
                     || revealedPlayers.contains(player.id())) players.add(player);
         }
 
-        List<ResearchState> research = new ArrayList<>();
+        List<ResearchState> research = new ArrayList<>(source.research().size());
         for (ResearchState state : source.research()) if (playerId.equals(state.playerId())) research.add(state);
 
-        return new Snapshot(source.sequence(), List.copyOf(players), List.copyOf(units), List.copyOf(resources),
+        Snapshot filtered = new Snapshot(source.sequence(), List.copyOf(players), List.copyOf(units), List.copyOf(resources),
                 List.copyOf(bases), source.stocks(), List.copyOf(shots), List.copyOf(items), source.systemId(),
                 source.systemTime(), source.celestialState(), List.copyOf(research), source.objective());
+        PerformanceTrace.recordSnapshotFilter(System.nanoTime() - started, sourceEntities);
+        return filtered;
     }
 
     private static UnitState sanitizeUnit(World world, String playerId, VisibilityRules.Frame visibility,
