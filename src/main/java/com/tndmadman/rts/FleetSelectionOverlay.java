@@ -15,7 +15,10 @@ final class FleetSelectionOverlay {
             1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
             0, new float[]{10f, 8f}, 0);
     private static final double FORMATION_EXTENT_MIN = 56.0;
-    private static final long REDRAW_NANOS = 16_000_000L;
+    // Aggregate route/order geometry is informational, not simulation state. Updating it
+    // at 20 Hz keeps motion visually responsive while guaranteeing it cannot be rebuilt
+    // multiple times inside a slow render frame.
+    private static final long REDRAW_NANOS = 50_000_000L;
     private static final int ORDER_TYPE_COUNT = UnitOrderType.values().length;
     private static final int SLOT_COUNT = UnitTask.values().length * ORDER_TYPE_COUNT;
     private static final Map<World, Long> LAST_DRAW = new WeakHashMap<>();
