@@ -40,12 +40,17 @@ final class UnitRenderer {
         World world = PlayerRegistry.activeWorld();
         double scale = SelectionRenderPolicy.scale(g2);
 
-        boolean aggregateSelection = selectedOwner && world != null && SelectionRenderPolicy.aggregate(world);
-        boolean primarySelection = selectedOwner && (world == null || SelectionRenderPolicy.primary(world, unit));
+        SelectionRenderPolicy.Snapshot selection = selectedOwner && world != null
+                ? SelectionRenderPolicy.snapshot(world) : null;
+        int selectedCount = selection == null ? (selectedOwner ? 1 : 0) : selection.selectedCount();
+        boolean aggregateSelection = selectedOwner && selectedCount > SelectionRenderPolicy.FULL_LIMIT;
+        boolean primarySelection = selectedOwner && (selection == null || selection.primary() == unit);
         boolean exactSelectedDetail = selectedOwner
-                && (world == null || SelectionRenderPolicy.exactSelectedDetail(world, unit));
-        boolean forceCheapHull = selectedOwner && world != null
-                && SelectionRenderPolicy.forceCheapSelectedHull(world, unit);
+                && (selection == null || selectedCount <= SelectionRenderPolicy.FULL_LIMIT || primarySelection);
+        boolean forceCheapHull = selectedOwner && selection != null
+                && selectedCount > SelectionRenderPolicy.COMPACT_LIMIT && !primarySelection;
+        boolean compactMarker = selectedOwner && selection != null
+                && selectedCount > SelectionRenderPolicy.COMPACT_LIMIT && !primarySelection;
 
         // Body culling is intentionally independent of huge tactical overlays. A weapon
         // range intersecting the viewport must not force an off-screen ship hull, text,
@@ -74,10 +79,11 @@ final class UnitRenderer {
         double tractorRange = tractorRequested ? unit.type().tractorRange : 0;
         boolean tractorVisible = tractorRequested
                 && RenderCulling.visible(g2, unit.x, unit.y, tractorRange + 4);
+        boolean fillWeaponRange = selectedCount <= 1;
 
         if (!bodyVisible) {
             drawVisibleOverlays(g2, world, unit, playerColor, weaponRange, weaponRangeVisible,
-                    scoutRange, scoutVisible, tractorRange, tractorVisible);
+                    fillWeaponRange, scoutRange, scoutVisible, tractorRange, tractorVisible);
             return;
         }
 
@@ -102,28 +108,28 @@ final class UnitRenderer {
         }
 
         if (selectedOwner) {
-            drawSelectionMarker(g2, unit, world, primarySelection);
+            drawSelectionMarker(g2, unit, compactMarker);
             if (exactSelectedDetail) drawCargo(g2, unit);
         }
 
         drawVisibleOverlays(g2, world, unit, playerColor, weaponRange, weaponRangeVisible,
-                scoutRange, scoutVisible, tractorRange, tractorVisible);
+                fillWeaponRange, scoutRange, scoutVisible, tractorRange, tractorVisible);
     }
 
     private static void drawVisibleOverlays(Graphics2D g2, World world, Unit unit, Color playerColor,
                                             double weaponRange, boolean weaponRangeVisible,
+                                            boolean fillWeaponRange,
                                             double scoutRange, boolean scoutVisible,
                                             double tractorRange, boolean tractorVisible) {
         if (weaponRangeVisible) {
-            boolean fill = world == null || SelectionRenderPolicy.selectedCount(world) <= 1;
-            drawWeaponRangeCircle(g2, unit, weaponRange, weaponRangeColor(world, unit), fill);
+            drawWeaponRangeCircle(g2, unit, weaponRange, weaponRangeColor(world, unit), fillWeaponRange);
         }
         if (scoutVisible) drawRangeCircle(g2, unit, playerColor, scoutRange);
         if (tractorVisible) drawRangeCircle(g2, unit, playerColor, tractorRange);
     }
 
-    private static void drawSelectionMarker(Graphics2D g2, Unit unit, World world, boolean primary) {
-        if (world != null && SelectionRenderPolicy.compactMarker(world) && !primary) {
+    private static void drawSelectionMarker(Graphics2D g2, Unit unit, boolean compact) {
+        if (compact) {
             int x = (int)Math.round(unit.x);
             int y = (int)Math.round(unit.y);
             int radius = 24;
@@ -182,8 +188,7 @@ final class UnitRenderer {
     static void drawRoute(Graphics2D g2, Unit unit, Color ignoredColor) {
         if (g2 == null || unit == null || !PlayerRegistry.isLocal(unit.playerId) || !unit.selected) return;
         World world = PlayerRegistry.activeWorld();
-        // Large selections use one bounded aggregate intent pass instead of N route lines.
-        if (world != null && SelectionRenderPolicy.aggregate(world)) return;
+        if (world != null && SelectionRenderPolicy.snapshot(world).selectedCount() > SelectionRenderPolicy.FULL_LIMIT) return;
         double dx = unit.targetX - unit.x;
         double dy = unit.targetY - unit.y;
         if (dx * dx + dy * dy <= 16) return;
