@@ -63,6 +63,11 @@ final class PerfOverlay {
                 "Selection ctx %.3f ms | batch %.3f ms | selected %.0f (visible %.0f) | markers %.0f | groups %.1f",
                 trace.selectionContextMs(), trace.selectionDrawMs(), trace.selectedPerFrame(),
                 trace.visibleSelectedPerFrame(), trace.selectionMarkersPerFrame(), trace.selectionGroupsPerFrame()));
+        SelectionRenderPolicy.Frame selectionFrame = SelectionRenderPolicy.current(world);
+        if (selectionFrame != null) {
+            out.add("Selection unit draws detail " + selectionFrame.detailedSelectedDraws()
+                    + " | fleet-secondary cheap " + selectionFrame.fleetSecondaryDraws());
+        }
         out.add(String.format(Locale.ROOT,
                 "Spatial rebuild %.3f ms | candidates %.0f/s | indexed %.0f/s",
                 trace.spatialRebuildMs(), trace.spatialCandidatesPerSecond(), trace.indexedEntitiesPerSecond()));
