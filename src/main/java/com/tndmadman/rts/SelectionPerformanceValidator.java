@@ -58,6 +58,7 @@ public final class SelectionPerformanceValidator {
             setSelected(world, true);
             warmUp(world, g2);
             validateSingleFrameStructure(world, g2, count, primary, secondary);
+            validateDifferentRegistryWorld(world, g2, count, primary);
             double selectedMs = medianDrawMs(world, g2);
 
             // The old per-unit cache/overlay path measured roughly 10.8x at 400 and
@@ -72,6 +73,7 @@ public final class SelectionPerformanceValidator {
                     "Selection render %d: unselected %.3f ms, selected %.3f ms, ratio %.2fx%n",
                     count, unselectedMs, selectedMs, selectedMs / Math.max(0.001, unselectedMs));
         } finally {
+            PlayerRegistry.activate(world);
             g2.dispose();
         }
     }
@@ -98,10 +100,40 @@ public final class SelectionPerformanceValidator {
         require(frame.primary() == primary, "Primary selected ship changed during frame context build.");
         require(frame.exactSelectedDetail(primary), "Primary ship lost detailed selection rendering.");
         require(!frame.exactSelectedDetail(secondary), "Fleet secondary incorrectly retained detailed selection rendering.");
+        require(frame.detailedSelectedDraws() == 1,
+                "Expected exactly one detailed selected draw, got " + frame.detailedSelectedDraws());
+        require(frame.fleetSecondaryDraws() == count - 1,
+                "Expected " + (count - 1) + " cheap fleet-secondary draws, got " + frame.fleetSecondaryDraws());
         require(FleetSelectionOverlay.lastMarkerCountForTest() == count - 1,
                 "Expected one batched marker per visible secondary ship.");
         require(FleetSelectionOverlay.lastGroupCountForTest() == 1,
                 "Expected the shared MOVE intent to collapse into one aggregate order group.");
+    }
+
+    /**
+     * Real clients can paint a World that is not PlayerRegistry.activeWorld(). The old
+     * renderer looked the frame up through that global pointer, missed the real frame,
+     * and treated every selected ship as a detailed single selection.
+     */
+    private static void validateDifferentRegistryWorld(World renderedWorld, Graphics2D g2,
+                                                       int count, Unit primary) {
+        World registryWorld = new World("Selection registry decoy", Set.of(),
+                StarSystems.DEFAULT_SYSTEM_ID, false);
+        PlayerRegistry.activate(registryWorld);
+        try {
+            renderedWorld.draw(g2);
+            SelectionRenderPolicy.Frame frame = SelectionRenderPolicy.current(renderedWorld);
+            require(frame != null, "Render frame disappeared when active registry world differed.");
+            require(frame.primary() == primary, "Primary selection changed with a different registry world.");
+            require(frame.detailedSelectedDraws() == 1,
+                    "Different registry world forced " + frame.detailedSelectedDraws()
+                            + " detailed selected draws; expected one.");
+            require(frame.fleetSecondaryDraws() == count - 1,
+                    "Different registry world bypassed fleet-secondary rendering: expected "
+                            + (count - 1) + ", got " + frame.fleetSecondaryDraws());
+        } finally {
+            PlayerRegistry.activate(renderedWorld);
+        }
     }
 
     private static void setSelected(World world, boolean selected) {
