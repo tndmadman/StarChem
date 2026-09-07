@@ -49,10 +49,21 @@ final class SelectionRenderPolicy {
         return frame;
     }
 
-    /** O(1) lookup used by per-unit renderers after beginFrame. */
+    /** O(1) lookup for code that already has the exact world being rendered. */
     static Frame current(World world) {
         Frame frame = FRAME.get();
         return frame.world == world ? frame : null;
+    }
+
+    /**
+     * O(1) render-thread lookup for per-unit drawing. WorldRenderCandidates.units builds
+     * this immediately before World paints those units, so consulting the process-global
+     * PlayerRegistry.activeWorld() here is both unnecessary and incorrect for client
+     * render worlds that are not the registry's currently active simulation world.
+     */
+    static Frame currentFrame() {
+        Frame frame = FRAME.get();
+        return frame.world == null ? null : frame;
     }
 
     static double scale(Graphics2D g2) {
@@ -80,6 +91,8 @@ final class SelectionRenderPolicy {
         private Tier tier = Tier.FULL;
         private double scale = 1.0;
         private long serial;
+        private int detailedSelectedDraws;
+        private int fleetSecondaryDraws;
         private final List<Unit> selectedUnits = new ArrayList<>();
         private final List<Unit> visibleSelectedUnits = new ArrayList<>();
 
@@ -92,10 +105,13 @@ final class SelectionRenderPolicy {
             tier = Tier.FULL;
             scale = newScale;
             serial = 0;
+            detailedSelectedDraws = 0;
+            fleetSecondaryDraws = 0;
             selectedUnits.clear();
             visibleSelectedUnits.clear();
         }
 
+        World world() { return world; }
         int selectedCount() { return selectedCount; }
         Unit primary() { return primary; }
         Tier tier() { return tier; }
@@ -109,5 +125,13 @@ final class SelectionRenderPolicy {
             return unit != null && unit.selected && PlayerRegistry.isLocal(unit.playerId)
                     && (selectedCount <= FULL_LIMIT || primary == unit);
         }
+
+        void noteSelectedDraw(boolean detailed) {
+            if (detailed) detailedSelectedDraws++;
+            else fleetSecondaryDraws++;
+        }
+
+        int detailedSelectedDraws() { return detailedSelectedDraws; }
+        int fleetSecondaryDraws() { return fleetSecondaryDraws; }
     }
 }
