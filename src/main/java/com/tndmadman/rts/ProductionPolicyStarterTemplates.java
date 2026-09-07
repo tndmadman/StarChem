@@ -1,7 +1,6 @@
 package com.tndmadman.rts;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -41,33 +40,17 @@ final class ProductionPolicyStarterTemplates {
             return false;
         }
 
-        Map<String,Object> before = new LinkedHashMap<>(ProductionPolicySystem.capture(world));
-        int playerPolicies = 0;
-        int stationPolicies = 0;
-        for (Object item : ServerSaveStore.list(before.get("policies"))) {
-            Map<String,Object> row = ServerSaveStore.object(item);
-            if (!playerId.equals(ServerSaveStore.string(row, "ownerId", ""))) continue;
-            playerPolicies++;
-            if (world.activeSystemId().equals(ServerSaveStore.string(row, "systemId", ""))
-                    && base.id.equals(ServerSaveStore.string(row, "stationId", ""))) stationPolicies++;
-        }
-        if (playerPolicies + entries.size() > ProductionPolicySystem.MAX_POLICIES_PER_PLAYER
-                || stationPolicies + entries.size() > ProductionPolicySystem.MAX_POLICIES_PER_STATION) {
-            world.status = "Applying that starter template would exceed the production policy limit.";
-            return false;
-        }
-
+        List<String> encoded = new ArrayList<>(entries.size());
         for (Entry entry : entries) {
-            String encoded = ProductionPolicyWire.encodeSpec("", entry.type, entry.kind, entry.itemId,
+            encoded.add(ProductionPolicyWire.encodeSpec("", entry.type, entry.kind, entry.itemId,
                     entry.loadoutId, entry.target, entry.batch, entry.priority, entry.maxOutstanding,
-                    0, Map.of(), Map.of());
-            if (!ProductionPolicySystem.applyCommand(world, playerId, base.id,
-                    ProductionPolicySystem.COMMAND_CREATE, encoded)) {
-                ProductionPolicySystem.restore(world, before);
-                ProductionPolicySystem.refreshCurrentSystem(world);
+                    0, Map.of(), Map.of()));
+        }
+        if (!ProductionPolicySystem.createBatch(world, playerId, base.id, encoded)) {
+            if (world.status == null || world.status.isBlank()) {
                 world.status = "Starter template could not be applied atomically.";
-                return false;
             }
+            return false;
         }
         world.status = "Applied starter production template " + displayName(starterId) + ".";
         return true;
