@@ -31,6 +31,14 @@ final class PerformanceTrace {
     private static final LongAdder snapshotFilterNanos = new LongAdder();
     private static final LongAdder snapshotFilterSamples = new LongAdder();
     private static final LongAdder snapshotFilterEntities = new LongAdder();
+    private static final LongAdder selectionContextNanos = new LongAdder();
+    private static final LongAdder selectionContextSamples = new LongAdder();
+    private static final LongAdder selectionDrawNanos = new LongAdder();
+    private static final LongAdder selectionDrawSamples = new LongAdder();
+    private static final LongAdder selectionSelectedTotal = new LongAdder();
+    private static final LongAdder selectionVisibleSelectedTotal = new LongAdder();
+    private static final LongAdder selectionMarkersTotal = new LongAdder();
+    private static final LongAdder selectionGroupsTotal = new LongAdder();
     private static volatile TraceSnapshot last = TraceSnapshot.empty();
     private static volatile long lastSnapshotNanos = System.nanoTime();
 
@@ -60,6 +68,16 @@ final class PerformanceTrace {
         add(snapshotFilterNanos, snapshotFilterSamples, nanos);
         snapshotFilterEntities.add(Math.max(0, entities));
     }
+    static void recordSelectionContext(long nanos, int selected, int visibleSelected) {
+        add(selectionContextNanos, selectionContextSamples, nanos);
+        selectionSelectedTotal.add(Math.max(0, selected));
+        selectionVisibleSelectedTotal.add(Math.max(0, visibleSelected));
+    }
+    static void recordSelectionDraw(long nanos, int markers, int groups) {
+        add(selectionDrawNanos, selectionDrawSamples, nanos);
+        selectionMarkersTotal.add(Math.max(0, markers));
+        selectionGroupsTotal.add(Math.max(0, groups));
+    }
 
     static TraceSnapshot snapshot() {
         long now = System.nanoTime();
@@ -86,7 +104,13 @@ final class PerformanceTrace {
                     rate(targetCandidates, seconds),
                     rate(pointDefenseCandidates, seconds),
                     averageMs(snapshotFilterNanos, snapshotFilterSamples),
-                    rate(snapshotFilterEntities, seconds));
+                    rate(snapshotFilterEntities, seconds),
+                    averageMs(selectionContextNanos, selectionContextSamples),
+                    averageMs(selectionDrawNanos, selectionDrawSamples),
+                    averageValue(selectionSelectedTotal, selectionContextSamples),
+                    averageValue(selectionVisibleSelectedTotal, selectionContextSamples),
+                    averageValue(selectionMarkersTotal, selectionDrawSamples),
+                    averageValue(selectionGroupsTotal, selectionDrawSamples));
             reset();
             lastSnapshotNanos = now;
             return last;
@@ -101,6 +125,11 @@ final class PerformanceTrace {
     private static double averageMs(LongAdder nanos, LongAdder samples) {
         long count = samples.sum();
         return count <= 0 ? 0 : nanos.sum() / (double)count / 1_000_000.0;
+    }
+
+    private static double averageValue(LongAdder value, LongAdder samples) {
+        long count = samples.sum();
+        return count <= 0 ? 0 : value.sum() / (double)count;
     }
 
     private static double rate(LongAdder value, double seconds) {
@@ -120,6 +149,10 @@ final class PerformanceTrace {
         spatialRebuildNanos.reset(); spatialRebuildSamples.reset(); spatialEntities.reset();
         spatialCandidates.reset(); targetCandidates.reset(); pointDefenseCandidates.reset();
         snapshotFilterNanos.reset(); snapshotFilterSamples.reset(); snapshotFilterEntities.reset();
+        selectionContextNanos.reset(); selectionContextSamples.reset();
+        selectionDrawNanos.reset(); selectionDrawSamples.reset();
+        selectionSelectedTotal.reset(); selectionVisibleSelectedTotal.reset();
+        selectionMarkersTotal.reset(); selectionGroupsTotal.reset();
     }
 
     record TraceSnapshot(
@@ -138,9 +171,15 @@ final class PerformanceTrace {
             double targetCandidatesPerSecond,
             double pointDefenseCandidatesPerSecond,
             double snapshotFilterMs,
-            double snapshotFilterEntitiesPerSecond) {
+            double snapshotFilterEntitiesPerSecond,
+            double selectionContextMs,
+            double selectionDrawMs,
+            double selectedPerFrame,
+            double visibleSelectedPerFrame,
+            double selectionMarkersPerFrame,
+            double selectionGroupsPerFrame) {
         static TraceSnapshot empty() {
-            return new TraceSnapshot(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+            return new TraceSnapshot(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         }
     }
 }

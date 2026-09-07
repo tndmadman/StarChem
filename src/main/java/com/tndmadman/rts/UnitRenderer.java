@@ -38,20 +38,22 @@ final class UnitRenderer {
         Color playerColor = PlayerRegistry.color(unit.playerId);
         boolean owner = PlayerRegistry.isLocal(unit.playerId);
         boolean selectedOwner = unit.selected && owner;
-        World world = PlayerRegistry.activeWorld();
-        double scale = SelectionRenderPolicy.scale(g2);
 
-        SelectionRenderPolicy.Snapshot selection = selectedOwner && world != null
-                ? SelectionRenderPolicy.snapshot(world) : null;
-        int selectedCount = selection == null ? (selectedOwner ? 1 : 0) : selection.selectedCount();
+        // Selection context belongs to the render thread/frame, not to the process-global
+        // active-world pointer. In multiplayer/client rendering those may be different World
+        // instances; using activeWorld() here made every selected unit fall back to detailed
+        // single-ship rendering even though World.draw had already built a fleet context.
+        SelectionRenderPolicy.Frame frame = SelectionRenderPolicy.currentFrame();
+        World world = frame == null ? PlayerRegistry.activeWorld() : frame.world();
+        double scale = frame == null ? SelectionRenderPolicy.scale(g2) : frame.scale();
+
+        int selectedCount = selectedOwner && frame != null ? frame.selectedCount() : (selectedOwner ? 1 : 0);
         boolean aggregateSelection = selectedOwner && selectedCount > SelectionRenderPolicy.FULL_LIMIT;
-        boolean primarySelection = selectedOwner && (selection == null || selection.primary() == unit);
-        boolean exactSelectedDetail = selectedOwner
-                && (selection == null || selectedCount <= SelectionRenderPolicy.FULL_LIMIT || primarySelection);
-        boolean forceCheapHull = selectedOwner && selection != null
+        boolean primarySelection = selectedOwner && (frame == null || frame.primary() == unit);
+        boolean exactSelectedDetail = selectedOwner && (frame == null || frame.exactSelectedDetail(unit));
+        boolean forceCheapHull = selectedOwner && frame != null
                 && selectedCount > SelectionRenderPolicy.COMPACT_LIMIT && !primarySelection;
-        boolean compactMarker = selectedOwner && selection != null
-                && selectedCount > SelectionRenderPolicy.COMPACT_LIMIT && !primarySelection;
+        if (selectedOwner && frame != null) frame.noteSelectedDraw(exactSelectedDetail);
 
         // Body culling is intentionally independent of huge tactical overlays. A weapon
         // range intersecting the viewport must not force an off-screen ship hull, text,
@@ -91,13 +93,11 @@ final class UnitRenderer {
         boolean damaged = unit.hp < unit.type().maxHp * 0.995;
 
         // Selection no longer disables the same hull LOD used by unselected fleets.
-        // At far zoom mass-selection secondaries stop after a far marker + one selection
-        // rectangle instead of falling through into text/bar/range work.
+        // Fleet secondary selection markers are painted by the frame-level batch pass.
         if (scale < 0.24) {
             drawFarMarker(g2, unit, playerColor, scale);
             if (!selectedOwner) return;
             if (!exactSelectedDetail) {
-                drawSelectionMarker(g2, unit, compactMarker);
                 if (damaged) drawDamageMarker(g2, unit);
                 return;
             }
@@ -119,9 +119,11 @@ final class UnitRenderer {
             g2.drawString("PKG", (int)unit.x - 12, (int)unit.y + 45);
         }
 
-        if (selectedOwner) {
-            drawSelectionMarker(g2, unit, compactMarker);
-            if (exactSelectedDetail) drawCargo(g2, unit);
+        // Small selections retain per-ship detailed rings. At fleet scale only the
+        // primary ship keeps this detailed treatment; all secondary rings are batched.
+        if (exactSelectedDetail) {
+            drawSelectionMarker(g2, unit);
+            drawCargo(g2, unit);
         }
 
         drawVisibleOverlays(g2, world, unit, playerColor, weaponRange, weaponRangeVisible,
@@ -140,15 +142,7 @@ final class UnitRenderer {
         if (tractorVisible) drawRangeCircle(g2, unit, playerColor, tractorRange);
     }
 
-    private static void drawSelectionMarker(Graphics2D g2, Unit unit, boolean compact) {
-        if (compact) {
-            int x = (int)Math.round(unit.x);
-            int y = (int)Math.round(unit.y);
-            g2.setColor(SELECTED_COLOR);
-            // One primitive per mass-selected ship instead of eight corner-line calls.
-            g2.drawRect(x - 24, y - 24, 48, 48);
-            return;
-        }
+    private static void drawSelectionMarker(Graphics2D g2, Unit unit) {
         Stroke oldStroke = g2.getStroke();
         g2.setColor(SELECTED_COLOR);
         g2.setStroke(SELECTED_STROKE);
@@ -196,8 +190,8 @@ final class UnitRenderer {
 
     static void drawRoute(Graphics2D g2, Unit unit, Color ignoredColor) {
         if (g2 == null || unit == null || !PlayerRegistry.isLocal(unit.playerId) || !unit.selected) return;
-        World world = PlayerRegistry.activeWorld();
-        if (world != null && SelectionRenderPolicy.snapshot(world).selectedCount() > SelectionRenderPolicy.FULL_LIMIT) return;
+        SelectionRenderPolicy.Frame selection = SelectionRenderPolicy.currentFrame();
+        if (selection != null && selection.aggregate()) return;
         double dx = unit.targetX - unit.x;
         double dy = unit.targetY - unit.y;
         if (dx * dx + dy * dy <= 16) return;

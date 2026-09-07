@@ -25,6 +25,7 @@ run_java() {
 run_java com.tndmadman.rts.FogOfWarValidator
 run_java com.tndmadman.rts.FogPerformanceValidator
 run_java com.tndmadman.rts.MovementPerformanceProfiler --gate
+run_java com.tndmadman.rts.SelectionPerformanceValidator
 run_java com.tndmadman.rts.RadarTowerValidator
 run_java com.tndmadman.rts.IntelWarfareValidator
 run_java com.tndmadman.rts.StationControlValidator
