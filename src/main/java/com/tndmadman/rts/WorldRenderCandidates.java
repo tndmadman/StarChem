@@ -21,9 +21,19 @@ final class WorldRenderCandidates {
     static Iterable<Unit> units(World world, Graphics2D g2) {
         Rectangle clip = g2 == null ? null : g2.getClipBounds();
         WorldSpatialIndex index = index(world, clip);
-        if (index == null) return world.units.values();
-        Scratch scratch = scratch(world);
-        return index.unitsIn(clip, UNIT_MARGIN, scratch.units);
+        Iterable<Unit> visible;
+        if (index == null) {
+            visible = world.units.values();
+        } else {
+            Scratch scratch = scratch(world);
+            visible = index.unitsIn(clip, UNIT_MARGIN, scratch.units);
+        }
+
+        // World.draw asks for visible units once. Use that point as the frame boundary:
+        // build selection state once, then paint all fleet-scale selection UI once.
+        SelectionRenderPolicy.Frame selection = SelectionRenderPolicy.beginFrame(world, g2, visible);
+        FleetSelectionOverlay.drawFrame(g2, world, selection);
+        return visible;
     }
 
     static Iterable<Base> bases(World world, Graphics2D g2) {
