@@ -94,6 +94,12 @@ final class GalaxyCoordinator {
         state.items.clear(); state.items.addAll(world.items);
     }
 
+    /** Live system objects for read-only simulation queries; avoids save-format serialization. */
+    List<WorldSystemState> systemStates(World world) {
+        saveActive(world);
+        return List.copyOf(systems.values());
+    }
+
     CelestialSystem activate(World world, String systemId) {
         saveActive(world);
         WorldSystemState state = systems.get(systemId);

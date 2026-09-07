@@ -118,6 +118,7 @@ final class World {
     String playerHomeSystemId(String playerId) { return galaxy.playerHomeSystemId(this, playerId, starSystem); }
     void activateSystem(String systemId) { celestials = galaxy.activate(this, systemId); systemTime = galaxy.activeSystemTime(); }
     void saveActiveSystem() { galaxy.saveActive(this); }
+    List<WorldSystemState> policySystemStates() { return galaxy.systemStates(this); }
     Map<String,Object> captureServerSaveGalaxy() { return galaxy.captureSave(this); }
     void restoreServerSaveGalaxy(Map<String,Object> save) { celestials = galaxy.restoreSave(this, save); systemTime = galaxy.activeSystemTime(); selectedResourceId = -1; }
     Map<String,Object> captureServerSaveRuntime() {

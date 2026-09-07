@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -65,6 +64,10 @@ final class ProductionPolicySystem {
 
     record TemplateView(String id, String name, int entryCount) { }
 
+    /** Lightweight counters used by regression validators and host-side diagnostics. */
+    record PerfView(long evaluations, long refreshes, long ledgerCaptures,
+                    long evaluationNanos, long refreshNanos, long ledgerNanos) { }
+
     static synchronized boolean applyCommand(World world, String playerId, String baseId,
                                              String commandValue, String payload) {
         if (world == null || !validToken(playerId, 64) || !validToken(baseId, 128)
@@ -92,20 +95,71 @@ final class ProductionPolicySystem {
         return changed;
     }
 
+    /** Atomically creates a bounded set of policies and performs one status refresh. */
+    static synchronized boolean createBatch(World world, String playerId, String baseId,
+                                            List<String> encodedSpecs) {
+        if (world == null || !validToken(playerId, 64) || !validToken(baseId, 128)
+                || encodedSpecs == null || encodedSpecs.isEmpty()
+                || encodedSpecs.size() > MAX_TEMPLATE_ENTRIES) return false;
+        Base base = world.bases.get(baseId);
+        if (base == null || base.hp <= 0 || !playerId.equals(base.playerId)
+                || StationControls.nonProduction(base.typeId)) return false;
+
+        RuntimeState state = state(world);
+        String systemId = clean(world.activeSystemId());
+        if (countPlayerPolicies(state, playerId) + encodedSpecs.size() > MAX_POLICIES_PER_PLAYER
+                || countStationPolicies(state, playerId, systemId, base.id) + encodedSpecs.size()
+                > MAX_POLICIES_PER_STATION) {
+            world.status = "Applying those production policies would exceed the production policy limit.";
+            return false;
+        }
+
+        List<PolicySpec> specs = new ArrayList<>(encodedSpecs.size());
+        for (String encoded : encodedSpecs) {
+            if (encoded == null || encoded.length() > MAX_COMMAND_CHARS) return false;
+            PolicySpec spec = parseSpec(encoded.trim());
+            if (spec == null || !spec.policyId.isBlank()) return false;
+            String error = validateSpec(world, playerId, base, spec);
+            if (!error.isBlank()) {
+                world.status = error;
+                return false;
+            }
+            specs.add(spec);
+        }
+
+        for (PolicySpec spec : specs) {
+            ProductionPolicy policy = fromSpec("PP" + state.nextPolicyId++, playerId, systemId, base.id, spec);
+            state.policies.put(policy.id, policy);
+        }
+        world.status = specs.size() == 1 ? "Created production policy." : "Created " + specs.size() + " production policies.";
+        refreshCurrentSystem(world, state);
+        return true;
+    }
+
+    static synchronized PerfView perfView(World world) {
+        RuntimeState state = world == null ? null : STATES.get(world);
+        if (state == null) return new PerfView(0, 0, 0, 0, 0, 0);
+        return new PerfView(state.evaluations, state.refreshes, state.ledgerCaptures,
+                state.evaluationNanos, state.refreshNanos, state.ledgerNanos);
+    }
+
     static synchronized void update(World world, double dt) {
         if (world == null || !Double.isFinite(dt) || dt < 0) return;
         RuntimeState state = STATES.get(world);
         if (state == null || state.policies.isEmpty()) return;
         String systemId = clean(world.activeSystemId());
         if (systemId.isBlank()) return;
-        reconcileFinishedLinks(world, state, systemId);
+
         double elapsed = state.systemTimers.getOrDefault(systemId, 0.0) + Math.min(1.0, dt);
         if (elapsed + 0.000001 < UPDATE_INTERVAL) {
             state.systemTimers.put(systemId, elapsed);
-            refreshCurrentSystem(world, state);
             return;
         }
         state.systemTimers.put(systemId, 0.0);
+
+        long evaluationStarted = System.nanoTime();
+        state.evaluations++;
+        EvaluationIndex evaluationIndex = EvaluationIndex.reconcileAndCapture(world, state, systemId);
 
         List<ProductionPolicy> ordered = new ArrayList<>();
         for (ProductionPolicy policy : state.policies.values()) {
@@ -113,17 +167,24 @@ final class ProductionPolicySystem {
         }
         if (ordered.isEmpty()) {
             refreshCurrentSystem(world, state);
+            state.evaluationNanos += System.nanoTime() - evaluationStarted;
             return;
         }
         ordered.sort(Comparator.comparingInt((ProductionPolicy policy) -> policy.priority).reversed()
                 .thenComparing(policy -> policy.id));
+
+        long ledgerStarted = System.nanoTime();
         SupplyLedger ledger = SupplyLedger.capture(world);
+        state.ledgerCaptures++;
+        state.ledgerNanos += System.nanoTime() - ledgerStarted;
+
         int enqueueBudget = MAX_ENQUEUES_PER_EVALUATION;
         for (ProductionPolicy policy : ordered) {
-            enqueueBudget -= evaluate(world, state, policy, ledger, enqueueBudget);
+            enqueueBudget -= evaluate(world, state, policy, ledger, evaluationIndex, enqueueBudget);
             if (enqueueBudget < 0) enqueueBudget = 0;
         }
         refreshCurrentSystem(world, state);
+        state.evaluationNanos += System.nanoTime() - evaluationStarted;
     }
 
     static synchronized void onManualJobCancelled(World world, Base base, ProductionJob job) {
@@ -433,7 +494,7 @@ final class ProductionPolicySystem {
     }
 
     private static int evaluate(World world, RuntimeState state, ProductionPolicy policy,
-                                SupplyLedger ledger, int enqueueBudget) {
+                                SupplyLedger ledger, EvaluationIndex evaluationIndex, int enqueueBudget) {
         Base station = world.bases.get(policy.stationId);
         if (station == null || station.hp <= 0 || !policy.ownerId.equals(station.playerId)) {
             policy.status = PolicyStatus.ORPHANED;
@@ -457,7 +518,7 @@ final class ProductionPolicySystem {
             return 0;
         }
 
-        int outstanding = linkedJobCount(state, policy.id);
+        int outstanding = evaluationIndex.linkedJobCount(policy.id);
         int capacity = Math.max(0, policy.maxOutstandingJobs - outstanding);
         int desiredJobs;
         if (policy.type == PolicyType.MAINTAIN_STOCK) {
@@ -486,7 +547,7 @@ final class ProductionPolicySystem {
                 return 0;
             }
             if (outstanding > 0) {
-                policy.status = jobsWaiting(world, state, policy) ? PolicyStatus.WAITING_FOR_RESOURCES : PolicyStatus.PRODUCING;
+                policy.status = evaluationIndex.jobsWaiting(policy.id) ? PolicyStatus.WAITING_FOR_RESOURCES : PolicyStatus.PRODUCING;
                 policy.reason = "repeat job active";
                 return 0;
             }
@@ -497,14 +558,14 @@ final class ProductionPolicySystem {
 
         int jobs = Math.min(Math.min(desiredJobs, policy.batchSize), capacity);
         if (jobs <= 0 || enqueueBudget <= 0) {
-            policy.status = jobsWaiting(world, state, policy) ? PolicyStatus.WAITING_FOR_RESOURCES : PolicyStatus.PRODUCING;
+            policy.status = evaluationIndex.jobsWaiting(policy.id) ? PolicyStatus.WAITING_FOR_RESOURCES : PolicyStatus.PRODUCING;
             policy.reason = outstanding > 0 ? "waiting for existing policy work" : "outstanding-job limit reached";
             return 0;
         }
         jobs = Math.min(jobs, enqueueBudget);
         int queued = 0;
         for (int i = 0; i < jobs; i++) {
-            QueueResult result = queueOne(world, state, policy, station, ledger);
+            QueueResult result = queueOne(world, state, policy, station, ledger, evaluationIndex);
             if (!result.queued) {
                 policy.status = result.status;
                 policy.reason = result.reason;
@@ -514,14 +575,14 @@ final class ProductionPolicySystem {
             ledger.noteQueued(policy, station);
         }
         if (queued > 0) {
-            policy.status = jobsWaiting(world, state, policy) ? PolicyStatus.WAITING_FOR_RESOURCES : PolicyStatus.PRODUCING;
+            policy.status = evaluationIndex.jobsWaiting(policy.id) ? PolicyStatus.WAITING_FOR_RESOURCES : PolicyStatus.PRODUCING;
             policy.reason = queued == 1 ? "queued 1 policy job" : "queued " + queued + " policy jobs";
         }
         return queued;
     }
 
     private static QueueResult queueOne(World world, RuntimeState state, ProductionPolicy policy, Base station,
-                                        SupplyLedger ledger) {
+                                        SupplyLedger ledger, EvaluationIndex evaluationIndex) {
         List<Cost> cost = policyCost(world, policy);
         boolean free = world.devFreeBuildFor(policy.ownerId);
         boolean reservedPolicy = !policy.stationReserve.isEmpty() || !policy.networkReserve.isEmpty();
@@ -530,8 +591,7 @@ final class ProductionPolicySystem {
             if (!decision.allowed) return new QueueResult(false, decision.status, decision.reason);
         }
 
-        Set<String> before = new HashSet<>();
-        for (ProductionJob job : station.productionQueue) before.add(job.id);
+        long expectedJobNumber = station.nextProductionJobId;
         boolean accepted;
         if (policy.kind == ProductionJobKind.SHIP) {
             ShipType ship = Rules.findShip(policy.itemId);
@@ -555,14 +615,13 @@ final class ProductionPolicySystem {
                     ? PolicyStatus.BLOCKED_RESEARCH : PolicyStatus.WAITING_FOR_RESOURCES;
             return new QueueResult(false, status, boundedReason(reason));
         }
-        ProductionJob created = null;
-        for (ProductionJob job : station.productionQueue) {
-            if (!before.contains(job.id)) created = job;
-        }
+
+        ProductionJob created = ProductionSystem.findJob(station, "P" + expectedJobNumber);
         if (created == null) return new QueueResult(false, PolicyStatus.WAITING_FOR_RESOURCES,
                 "production request created no queue job");
         if (!free) ledger.noteSpent(policy.ownerId, cost);
         state.jobPolicies.put(new JobKey(clean(world.activeSystemId()), station.id, created.id), policy.id);
+        evaluationIndex.noteQueued(policy.id, created);
         return new QueueResult(true,
                 ProductionSystem.waitingForResources(created) ? PolicyStatus.WAITING_FOR_RESOURCES : PolicyStatus.PRODUCING,
                 ProductionSystem.waitingForResources(created) ? "waiting for resources" : "producing");
@@ -639,41 +698,6 @@ final class ProductionPolicySystem {
         if (policy.kind == ProductionJobKind.SHIP) return 1;
         CraftableItem item = CraftingRules.item(policy.itemId);
         return item == null ? 0 : item.outputAmount;
-    }
-
-    private static boolean jobsWaiting(World world, RuntimeState state, ProductionPolicy policy) {
-        if (world == null) return false;
-        for (Map.Entry<JobKey,String> entry : state.jobPolicies.entrySet()) {
-            if (!policy.id.equals(entry.getValue()) || !policy.systemId.equals(entry.getKey().systemId())) continue;
-            Base base = world.bases.get(entry.getKey().baseId());
-            ProductionJob job = base == null ? null : ProductionSystem.findJob(base, entry.getKey().jobId());
-            if (ProductionSystem.waitingForResources(job)) return true;
-        }
-        return false;
-    }
-
-    private static void reconcileFinishedLinks(World world, RuntimeState state, String systemId) {
-        List<JobKey> remove = new ArrayList<>();
-        for (Map.Entry<JobKey,String> entry : state.jobPolicies.entrySet()) {
-            JobKey key = entry.getKey();
-            if (!systemId.equals(key.systemId())) continue;
-            Base base = world.bases.get(key.baseId());
-            if (base == null) {
-                remove.add(key);
-                continue;
-            }
-            if (ProductionSystem.findJob(base, key.jobId()) != null) continue;
-            ProductionPolicy policy = state.policies.get(entry.getValue());
-            if (policy != null && policy.type == PolicyType.REPEAT) policy.completedBatches++;
-            remove.add(key);
-        }
-        for (JobKey key : remove) state.jobPolicies.remove(key);
-    }
-
-    private static int linkedJobCount(RuntimeState state, String policyId) {
-        int count = 0;
-        for (String value : state.jobPolicies.values()) if (policyId.equals(value)) count++;
-        return count;
     }
 
     private static String validateSpec(World world, String playerId, Base base, PolicySpec spec) {
@@ -904,6 +928,10 @@ final class ProductionPolicySystem {
                     && policy.stationId.equals(entry.getKey().baseId())) jobs.add(entry.getKey().jobId());
         }
         jobs.sort(String::compareTo);
+        return policyView(policy, jobs);
+    }
+
+    private static PolicyView policyView(ProductionPolicy policy, List<String> jobs) {
         return new PolicyView(policy.id, policy.type, policy.kind, policy.itemId, policy.loadoutId,
                 policy.targetAmount, policy.batchSize, policy.priority, policy.maxOutstandingJobs,
                 policy.repeatLimit, policy.completedBatches, policy.enabled, policy.status,
@@ -912,41 +940,77 @@ final class ProductionPolicySystem {
 
     private static void refreshCurrentSystem(World world, RuntimeState state) {
         if (world == null || state == null) return;
-        String systemId = clean(world.activeSystemId());
-        for (Base base : world.bases.values()) {
-            String existing = stripOwnStatus(base.logisticsStatus);
-            List<ProductionPolicy> policies = stationPolicies(state, base.playerId, systemId, base.id);
-            List<ProductionTemplate> templates = playerTemplates(state, base.playerId);
-            StringBuilder extra = new StringBuilder();
-            if (!policies.isEmpty()) {
-                extra.append(POLICY_MARKER);
-                for (int i = 0; i < policies.size(); i++) {
-                    if (i > 0) extra.append(';');
-                    extra.append(statusRow(state, policies.get(i)));
-                }
+        long started = System.nanoTime();
+        state.refreshes++;
+        try {
+            String systemId = clean(world.activeSystemId());
+            Map<StationKey,List<ProductionPolicy>> policiesByStation = new LinkedHashMap<>();
+            for (ProductionPolicy policy : state.policies.values()) {
+                if (!systemId.equals(policy.systemId)) continue;
+                policiesByStation.computeIfAbsent(new StationKey(policy.ownerId, policy.stationId),
+                        ignored -> new ArrayList<>()).add(policy);
             }
-            if (!templates.isEmpty()) {
-                if (!extra.isEmpty()) extra.append(" | ");
-                extra.append(TEMPLATE_MARKER);
-                for (int i = 0; i < templates.size(); i++) {
-                    if (i > 0) extra.append(';');
-                    ProductionTemplate template = templates.get(i);
-                    extra.append(token(template.id)).append('~').append(token(template.name))
-                            .append('~').append(template.entries.size());
-                }
+            Comparator<ProductionPolicy> policyOrder = Comparator
+                    .comparingInt((ProductionPolicy policy) -> policy.priority).reversed()
+                    .thenComparing(policy -> policy.id);
+            for (List<ProductionPolicy> policies : policiesByStation.values()) policies.sort(policyOrder);
+
+            Map<String,List<ProductionTemplate>> templatesByOwner = new LinkedHashMap<>();
+            for (ProductionTemplate template : state.templates.values()) {
+                templatesByOwner.computeIfAbsent(template.ownerId, ignored -> new ArrayList<>()).add(template);
             }
-            base.logisticsStatus = existing.isBlank() ? extra.toString()
-                    : extra.isEmpty() ? existing : existing + " | " + extra;
+            Comparator<ProductionTemplate> templateOrder = Comparator
+                    .comparing((ProductionTemplate template) -> template.name, String.CASE_INSENSITIVE_ORDER)
+                    .thenComparing(template -> template.id);
+            for (List<ProductionTemplate> templates : templatesByOwner.values()) templates.sort(templateOrder);
+
+            Map<String,List<String>> jobsByPolicy = new LinkedHashMap<>();
+            for (Map.Entry<JobKey,String> entry : state.jobPolicies.entrySet()) {
+                if (!systemId.equals(entry.getKey().systemId())) continue;
+                jobsByPolicy.computeIfAbsent(entry.getValue(), ignored -> new ArrayList<>())
+                        .add(entry.getKey().jobId());
+            }
+            for (List<String> jobs : jobsByPolicy.values()) jobs.sort(String::compareTo);
+
+            for (Base base : world.bases.values()) {
+                String existing = stripOwnStatus(base.logisticsStatus);
+                List<ProductionPolicy> policies = policiesByStation.getOrDefault(
+                        new StationKey(base.playerId, base.id), List.of());
+                List<ProductionTemplate> templates = templatesByOwner.getOrDefault(base.playerId, List.of());
+                StringBuilder extra = new StringBuilder();
+                if (!policies.isEmpty()) {
+                    extra.append(POLICY_MARKER);
+                    for (int i = 0; i < policies.size(); i++) {
+                        if (i > 0) extra.append(';');
+                        ProductionPolicy policy = policies.get(i);
+                        extra.append(statusRow(policy, jobsByPolicy.getOrDefault(policy.id, List.of())));
+                    }
+                }
+                if (!templates.isEmpty()) {
+                    if (!extra.isEmpty()) extra.append(" | ");
+                    extra.append(TEMPLATE_MARKER);
+                    for (int i = 0; i < templates.size(); i++) {
+                        if (i > 0) extra.append(';');
+                        ProductionTemplate template = templates.get(i);
+                        extra.append(token(template.id)).append('~').append(token(template.name))
+                                .append('~').append(template.entries.size());
+                    }
+                }
+                String updated = existing.isBlank() ? extra.toString()
+                        : extra.isEmpty() ? existing : existing + " | " + extra;
+                if (!updated.equals(base.logisticsStatus)) base.logisticsStatus = updated;
+            }
+        } finally {
+            state.refreshNanos += System.nanoTime() - started;
         }
     }
 
-    private static String statusRow(RuntimeState state, ProductionPolicy policy) {
-        PolicyView view = view(state, policy);
-        return token(view.id()) + '~' + view.type().name() + '~' + view.kind().name() + '~'
-                + token(view.itemId()) + '~' + token(view.loadoutId()) + '~' + view.targetAmount() + '~'
-                + view.batchSize() + '~' + view.priority() + '~' + view.maxOutstandingJobs() + '~'
-                + view.repeatLimit() + '~' + view.completedBatches() + '~' + (view.enabled() ? '1' : '0') + '~'
-                + view.status().name() + '~' + token(view.reason()) + '~' + String.join(",", view.jobIds());
+    private static String statusRow(ProductionPolicy policy, List<String> jobIds) {
+        return token(policy.id) + '~' + policy.type.name() + '~' + policy.kind.name() + '~'
+                + token(policy.itemId) + '~' + token(policy.loadoutId) + '~' + policy.targetAmount + '~'
+                + policy.batchSize + '~' + policy.priority + '~' + policy.maxOutstandingJobs + '~'
+                + policy.repeatLimit + '~' + policy.completedBatches + '~' + (policy.enabled ? '1' : '0') + '~'
+                + policy.status.name() + '~' + token(policy.reason) + '~' + String.join(",", jobIds);
     }
 
     private static List<PolicyView> parseStatusViews(String status) {
@@ -1113,6 +1177,12 @@ final class ProductionPolicySystem {
         final Map<String,ProductionTemplate> templates = new LinkedHashMap<>();
         final Map<JobKey,String> jobPolicies = new LinkedHashMap<>();
         final Map<String,Double> systemTimers = new LinkedHashMap<>();
+        long evaluations;
+        long refreshes;
+        long ledgerCaptures;
+        long evaluationNanos;
+        long refreshNanos;
+        long ledgerNanos;
     }
 
     private static final class ProductionPolicy {
@@ -1165,11 +1235,56 @@ final class ProductionPolicySystem {
                               EnumMap<Material,Double> networkReserve) { }
 
     private record JobKey(String systemId, String baseId, String jobId) { }
+    private record StationKey(String ownerId, String stationId) { }
 
     private record QueueResult(boolean queued, PolicyStatus status, String reason) { }
 
     private record ReserveDecision(boolean allowed, PolicyStatus status, String reason) {
         static ReserveDecision permit() { return new ReserveDecision(true, PolicyStatus.PRODUCING, ""); }
+    }
+
+    /** One-pass index for policy job links during the 2 Hz policy evaluation. */
+    private static final class EvaluationIndex {
+        private final Map<String,Integer> linkedCounts = new LinkedHashMap<>();
+        private final Set<String> waitingPolicies = new LinkedHashSet<>();
+
+        static EvaluationIndex reconcileAndCapture(World world, RuntimeState state, String systemId) {
+            EvaluationIndex index = new EvaluationIndex();
+            Map<String,Map<String,ProductionJob>> jobsByBase = new LinkedHashMap<>();
+            for (Base base : world.bases.values()) {
+                if (base.productionQueue.isEmpty()) continue;
+                Map<String,ProductionJob> jobs = new LinkedHashMap<>();
+                for (ProductionJob job : base.productionQueue) jobs.put(job.id, job);
+                jobsByBase.put(base.id, jobs);
+            }
+
+            var iterator = state.jobPolicies.entrySet().iterator();
+            while (iterator.hasNext()) {
+                Map.Entry<JobKey,String> entry = iterator.next();
+                JobKey key = entry.getKey();
+                if (!systemId.equals(key.systemId())) continue;
+                Base base = world.bases.get(key.baseId());
+                ProductionJob job = base == null ? null
+                        : jobsByBase.getOrDefault(key.baseId(), Map.of()).get(key.jobId());
+                if (job == null) {
+                    ProductionPolicy policy = state.policies.get(entry.getValue());
+                    if (policy != null && policy.type == PolicyType.REPEAT) policy.completedBatches++;
+                    iterator.remove();
+                    continue;
+                }
+                index.linkedCounts.merge(entry.getValue(), 1, Integer::sum);
+                if (ProductionSystem.waitingForResources(job)) index.waitingPolicies.add(entry.getValue());
+            }
+            return index;
+        }
+
+        int linkedJobCount(String policyId) { return linkedCounts.getOrDefault(policyId, 0); }
+        boolean jobsWaiting(String policyId) { return waitingPolicies.contains(policyId); }
+
+        void noteQueued(String policyId, ProductionJob job) {
+            linkedCounts.merge(policyId, 1, Integer::sum);
+            if (ProductionSystem.waitingForResources(job)) waitingPolicies.add(policyId);
+        }
     }
 
     private static final class SupplyLedger {
@@ -1182,53 +1297,45 @@ final class ProductionPolicySystem {
         static SupplyLedger capture(World world) {
             SupplyLedger ledger = new SupplyLedger();
             Map<String,Destination> routes = routeDestinations(world);
-            Map<String,Object> galaxy = world.captureServerSaveGalaxy();
-            for (Object systemItem : ServerSaveStore.list(galaxy.get("systems"))) {
-                Map<String,Object> system = ServerSaveStore.object(systemItem);
-                String systemId = ServerSaveStore.string(system, "systemId", "");
-                for (Object unitItem : ServerSaveStore.list(system.get("units"))) {
-                    Map<String,Object> unit = ServerSaveStore.object(unitItem);
-                    String ownerId = ServerSaveStore.string(unit, "playerId", "");
-                    String shipId = ServerSaveStore.string(unit, "shipTypeId", "");
-                    if (ServerSaveStore.doubleValue(unit, "hp", 0) > 0 && !ownerId.isBlank() && !shipId.isBlank()) {
+            for (WorldSystemState system : world.policySystemStates()) {
+                String systemId = system.id == null ? "" : system.id;
+                for (Unit unit : system.units.values()) {
+                    String ownerId = unit.playerId == null ? "" : unit.playerId;
+                    String shipId = unit.shipTypeId == null ? "" : unit.shipTypeId;
+                    if (unit.hp > 0 && !ownerId.isBlank() && !shipId.isBlank()) {
                         ledger.livingShips.merge(ownerId + '|' + shipId, 1, Integer::sum);
                     }
-                    String targetBase = ServerSaveStore.string(unit, "logisticsTargetBaseId", "");
-                    String request = ServerSaveStore.string(unit, "logisticsRequestId", "");
+                    String targetBase = unit.logisticsTargetBaseId == null ? "" : unit.logisticsTargetBaseId;
+                    String request = unit.logisticsRequestId == null ? "" : unit.logisticsRequestId;
                     if (targetBase.isBlank() || request.startsWith("LR")) continue;
                     Destination destination;
                     if (request.startsWith("ROUTE:")) destination = routes.get(request.substring("ROUTE:".length()));
                     else destination = new Destination(ownerId, systemId, targetBase);
                     if (destination == null || !ownerId.equals(destination.ownerId)) continue;
-                    EnumMap<Material,Double> cargo = ServerSaveStore.restoreMaterialMap(unit.get("inventory"));
-                    for (Map.Entry<Material,Double> entry : cargo.entrySet()) {
-                        if (entry.getValue() != null && entry.getValue() > EPSILON) {
-                            ledger.inboundMaterials.merge(destination.key(entry.getKey()), entry.getValue(), Double::sum);
+                    for (Map.Entry<Material,Double> entry : unit.inventory.entrySet()) {
+                        double amount = entry.getValue() == null ? 0 : entry.getValue();
+                        if (amount > EPSILON) {
+                            ledger.inboundMaterials.merge(destination.key(entry.getKey()), amount, Double::sum);
                         }
                     }
                 }
-                for (Object baseItem : ServerSaveStore.list(system.get("bases"))) {
-                    Map<String,Object> base = ServerSaveStore.object(baseItem);
-                    String ownerId = ServerSaveStore.string(base, "playerId", "");
-                    String baseId = ServerSaveStore.string(base, "id", "");
-                    if (ServerSaveStore.doubleValue(base, "hp", 0) <= 0) continue;
-                    EnumMap<Material,Double> inventory = ServerSaveStore.restoreMaterialMap(base.get("inventory"));
+                for (Base base : system.bases.values()) {
+                    if (base.hp <= 0) continue;
+                    String ownerId = base.playerId == null ? "" : base.playerId;
+                    String baseId = base.id == null ? "" : base.id;
                     if (!ownerId.isBlank()) {
-                        for (Map.Entry<Material,Double> entry : inventory.entrySet()) {
+                        for (Map.Entry<Material,Double> entry : base.inventory.entrySet()) {
                             double amount = entry.getValue() == null ? 0 : entry.getValue();
                             if (amount > EPSILON) {
                                 ledger.networkMaterials.merge(networkKey(ownerId, entry.getKey()), amount, Double::sum);
                             }
                         }
                     }
-                    for (Object jobItem : ServerSaveStore.list(base.get("productionQueue"))) {
-                        Map<String,Object> job = ServerSaveStore.object(jobItem);
-                        ProductionJobKind kind = ServerSaveStore.enumValue(ProductionJobKind.class, job.get("kind"), null);
-                        String itemId = ServerSaveStore.string(job, "itemId", "");
-                        if (kind == ProductionJobKind.SHIP && !itemId.isBlank()) {
-                            ledger.queuedShips.merge(ownerId + '|' + itemId, 1, Integer::sum);
-                        } else if (kind == ProductionJobKind.CRAFTABLE) {
-                            CraftableItem item = CraftingRules.item(itemId);
+                    for (ProductionJob job : base.productionQueue) {
+                        if (job.kind == ProductionJobKind.SHIP && job.itemId != null && !job.itemId.isBlank()) {
+                            ledger.queuedShips.merge(ownerId + '|' + job.itemId, 1, Integer::sum);
+                        } else if (job.kind == ProductionJobKind.CRAFTABLE) {
+                            CraftableItem item = CraftingRules.item(job.itemId);
                             if (item != null) {
                                 ledger.queuedMaterials.merge(stockKey(ownerId, systemId, baseId, item.outputMaterial),
                                         item.outputAmount, Double::sum);
