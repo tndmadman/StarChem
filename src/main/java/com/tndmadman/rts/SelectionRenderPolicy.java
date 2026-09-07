@@ -1,79 +1,58 @@
 package com.tndmadman.rts;
 
 import java.awt.Graphics2D;
-import java.util.Map;
-import java.util.WeakHashMap;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * Central policy for selected-fleet rendering. Large selections must not turn
- * every ship into an expensive detailed UI surface.
- *
- * The snapshot is a short render cache only: actual selection state is unchanged.
- * A 50 ms visual-policy cadence is effectively invisible to input while ensuring a
- * slow paint cannot rescan the entire unit collection several times in one frame.
- */
+/** Frame-scoped policy and reusable context for selected-fleet rendering. */
 final class SelectionRenderPolicy {
     static final int FULL_LIMIT = 8;
     static final int COMPACT_LIMIT = 24;
     static final int FLEET_LIMIT = 96;
     static final int MAX_AGGREGATE_GROUPS = 8;
 
-    private static final long SNAPSHOT_NANOS = 50_000_000L;
-    private static final Map<World, CachedSnapshot> CACHE = new WeakHashMap<>();
-    private static volatile World fastWorld;
-    private static volatile CachedSnapshot fastSnapshot;
+    private static final ThreadLocal<Frame> FRAME = ThreadLocal.withInitial(Frame::new);
+    private static final AtomicLong FRAME_BUILDS = new AtomicLong();
 
     enum Tier { FULL, COMPACT, FLEET, MASS }
 
     private SelectionRenderPolicy() { }
 
-    static Snapshot snapshot(World world) {
-        if (world == null) return Snapshot.EMPTY;
-        long now = System.nanoTime();
-        CachedSnapshot fast = fastSnapshot;
-        if (fastWorld == world && valid(world, fast, now)) return fast.snapshot;
-
-        synchronized (CACHE) {
-            CachedSnapshot cached = CACHE.get(world);
-            if (!valid(world, cached, now)) {
-                Snapshot snapshot = build(world);
-                cached = new CachedSnapshot(world.units.size(), now + SNAPSHOT_NANOS, snapshot);
-                CACHE.put(world, cached);
-            }
-            fastWorld = world;
-            fastSnapshot = cached;
-            return cached.snapshot;
-        }
-    }
-
-    static Tier tier(World world) { return snapshot(world).tier(); }
-
-    static int selectedCount(World world) { return snapshot(world).selectedCount(); }
-
-    static boolean aggregate(World world) { return selectedCount(world) > FULL_LIMIT; }
-
-    static boolean primary(World world, Unit unit) {
-        return unit != null && snapshot(world).primary() == unit;
-    }
-
-    /** Exact per-ship text/range/order detail is deliberately bounded. */
-    static boolean exactSelectedDetail(World world, Unit unit) {
-        Snapshot snapshot = snapshot(world);
-        return snapshot.selectedCount() <= FULL_LIMIT || snapshot.primary() == unit;
-    }
-
     /**
-     * At fleet scale selected ships use cached sprites even when zoomed in.
-     * Selection is a UI overlay, not a reason to force vector hull rendering.
+     * Build the selection state exactly once for a World.draw pass. The selected list and
+     * visible-selected list are scratch-backed and reused by the render thread.
      */
-    static boolean forceCheapSelectedHull(World world, Unit unit) {
-        if (unit == null || !unit.selected || !PlayerRegistry.isLocal(unit.playerId)) return false;
-        Snapshot snapshot = snapshot(world);
-        return snapshot.selectedCount() > COMPACT_LIMIT && snapshot.primary() != unit;
+    static Frame beginFrame(World world, Graphics2D g2, Iterable<Unit> visibleUnits) {
+        Frame frame = FRAME.get();
+        long started = System.nanoTime();
+        frame.reset(world, scale(g2));
+        if (world != null) {
+            for (Unit unit : world.units.values()) {
+                if (!unit.selected || !PlayerRegistry.isLocal(unit.playerId)) continue;
+                if (frame.primary == null) frame.primary = unit;
+                frame.selectedUnits.add(unit);
+            }
+            frame.selectedCount = frame.selectedUnits.size();
+            frame.tier = tierFor(frame.selectedCount);
+            if (visibleUnits != null) {
+                for (Unit unit : visibleUnits) {
+                    if (unit.selected && PlayerRegistry.isLocal(unit.playerId)) {
+                        frame.visibleSelectedUnits.add(unit);
+                    }
+                }
+            }
+        }
+        frame.serial = FRAME_BUILDS.incrementAndGet();
+        PerformanceTrace.recordSelectionContext(System.nanoTime() - started,
+                frame.selectedCount, frame.visibleSelectedUnits.size());
+        return frame;
     }
 
-    static boolean compactMarker(World world) {
-        return snapshot(world).selectedCount() > COMPACT_LIMIT;
+    /** O(1) lookup used by per-unit renderers after beginFrame. */
+    static Frame current(World world) {
+        Frame frame = FRAME.get();
+        return frame.world == world ? frame : null;
     }
 
     static double scale(Graphics2D g2) {
@@ -82,37 +61,53 @@ final class SelectionRenderPolicy {
     }
 
     static void invalidate(World world) {
-        if (world == null) return;
-        synchronized (CACHE) {
-            CACHE.remove(world);
-            if (fastWorld == world) {
-                fastWorld = null;
-                fastSnapshot = null;
-            }
-        }
+        Frame frame = FRAME.get();
+        if (frame.world == world) frame.reset(null, 1.0);
     }
 
-    private static boolean valid(World world, CachedSnapshot cached, long now) {
-        return cached != null && cached.unitCount == world.units.size() && now < cached.expiresAtNanos;
-    }
+    static long frameBuildCountForTest() { return FRAME_BUILDS.get(); }
 
-    private static Snapshot build(World world) {
-        int count = 0;
-        Unit primary = null;
-        for (Unit unit : world.units.values()) {
-            if (!unit.selected || !PlayerRegistry.isLocal(unit.playerId)) continue;
-            if (primary == null) primary = unit;
-            count++;
-        }
-        Tier tier = count <= FULL_LIMIT ? Tier.FULL
+    private static Tier tierFor(int count) {
+        return count <= FULL_LIMIT ? Tier.FULL
                 : count <= COMPACT_LIMIT ? Tier.COMPACT
                 : count <= FLEET_LIMIT ? Tier.FLEET : Tier.MASS;
-        return new Snapshot(count, primary, tier);
     }
 
-    record Snapshot(int selectedCount, Unit primary, Tier tier) {
-        private static final Snapshot EMPTY = new Snapshot(0, null, Tier.FULL);
-    }
+    static final class Frame {
+        private World world;
+        private int selectedCount;
+        private Unit primary;
+        private Tier tier = Tier.FULL;
+        private double scale = 1.0;
+        private long serial;
+        private final List<Unit> selectedUnits = new ArrayList<>();
+        private final List<Unit> visibleSelectedUnits = new ArrayList<>();
 
-    private record CachedSnapshot(int unitCount, long expiresAtNanos, Snapshot snapshot) { }
+        private Frame() { }
+
+        private void reset(World newWorld, double newScale) {
+            world = newWorld;
+            selectedCount = 0;
+            primary = null;
+            tier = Tier.FULL;
+            scale = newScale;
+            serial = 0;
+            selectedUnits.clear();
+            visibleSelectedUnits.clear();
+        }
+
+        int selectedCount() { return selectedCount; }
+        Unit primary() { return primary; }
+        Tier tier() { return tier; }
+        double scale() { return scale; }
+        long serial() { return serial; }
+        List<Unit> selectedUnits() { return selectedUnits; }
+        List<Unit> visibleSelectedUnits() { return visibleSelectedUnits; }
+        boolean aggregate() { return selectedCount > FULL_LIMIT; }
+        boolean compactMarkers() { return selectedCount > COMPACT_LIMIT; }
+        boolean exactSelectedDetail(Unit unit) {
+            return unit != null && unit.selected && PlayerRegistry.isLocal(unit.playerId)
+                    && (selectedCount <= FULL_LIMIT || primary == unit);
+        }
+    }
 }
