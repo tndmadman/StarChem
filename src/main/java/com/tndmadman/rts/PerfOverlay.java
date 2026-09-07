@@ -60,6 +60,10 @@ final class PerfOverlay {
                 "Render world %.3f ms | weapon FX %.3f ms | fog %.3f ms",
                 trace.worldDrawMs(), trace.weaponDrawMs(), trace.fogDrawMs()));
         out.add(String.format(Locale.ROOT,
+                "Selection ctx %.3f ms | batch %.3f ms | selected %.0f (visible %.0f) | markers %.0f | groups %.1f",
+                trace.selectionContextMs(), trace.selectionDrawMs(), trace.selectedPerFrame(),
+                trace.visibleSelectedPerFrame(), trace.selectionMarkersPerFrame(), trace.selectionGroupsPerFrame()));
+        out.add(String.format(Locale.ROOT,
                 "Spatial rebuild %.3f ms | candidates %.0f/s | indexed %.0f/s",
                 trace.spatialRebuildMs(), trace.spatialCandidatesPerSecond(), trace.indexedEntitiesPerSecond()));
         out.add(String.format(Locale.ROOT,
