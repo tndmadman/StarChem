@@ -38,8 +38,13 @@ final class UnitRenderer {
         Color playerColor = PlayerRegistry.color(unit.playerId);
         boolean owner = PlayerRegistry.isLocal(unit.playerId);
         boolean selectedOwner = unit.selected && owner;
-        World world = PlayerRegistry.activeWorld();
-        SelectionRenderPolicy.Frame frame = world == null ? null : SelectionRenderPolicy.current(world);
+
+        // Selection context belongs to the render thread/frame, not to the process-global
+        // active-world pointer. In multiplayer/client rendering those may be different World
+        // instances; using activeWorld() here made every selected unit fall back to detailed
+        // single-ship rendering even though World.draw had already built a fleet context.
+        SelectionRenderPolicy.Frame frame = SelectionRenderPolicy.currentFrame();
+        World world = frame == null ? PlayerRegistry.activeWorld() : frame.world();
         double scale = frame == null ? SelectionRenderPolicy.scale(g2) : frame.scale();
 
         int selectedCount = selectedOwner && frame != null ? frame.selectedCount() : (selectedOwner ? 1 : 0);
@@ -48,6 +53,7 @@ final class UnitRenderer {
         boolean exactSelectedDetail = selectedOwner && (frame == null || frame.exactSelectedDetail(unit));
         boolean forceCheapHull = selectedOwner && frame != null
                 && selectedCount > SelectionRenderPolicy.COMPACT_LIMIT && !primarySelection;
+        if (selectedOwner && frame != null) frame.noteSelectedDraw(exactSelectedDetail);
 
         // Body culling is intentionally independent of huge tactical overlays. A weapon
         // range intersecting the viewport must not force an off-screen ship hull, text,
@@ -114,7 +120,7 @@ final class UnitRenderer {
         }
 
         // Small selections retain per-ship detailed rings. At fleet scale only the
-        // primary ship keeps this detailed treatment; all secondary rings were batched.
+        // primary ship keeps this detailed treatment; all secondary rings are batched.
         if (exactSelectedDetail) {
             drawSelectionMarker(g2, unit);
             drawCargo(g2, unit);
@@ -184,8 +190,7 @@ final class UnitRenderer {
 
     static void drawRoute(Graphics2D g2, Unit unit, Color ignoredColor) {
         if (g2 == null || unit == null || !PlayerRegistry.isLocal(unit.playerId) || !unit.selected) return;
-        World world = PlayerRegistry.activeWorld();
-        SelectionRenderPolicy.Frame selection = world == null ? null : SelectionRenderPolicy.current(world);
+        SelectionRenderPolicy.Frame selection = SelectionRenderPolicy.currentFrame();
         if (selection != null && selection.aggregate()) return;
         double dx = unit.targetX - unit.x;
         double dy = unit.targetY - unit.y;
