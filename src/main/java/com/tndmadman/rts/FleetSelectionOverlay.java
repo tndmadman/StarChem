@@ -3,92 +3,53 @@ package com.tndmadman.rts;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
-import java.awt.Rectangle;
 import java.awt.Stroke;
 import java.awt.geom.Path2D;
-import java.util.Map;
-import java.util.WeakHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
-/** Draws bounded, aggregate command intent for large selections. */
+/** Draws all fleet-scale selection UI in one frame-level pass. */
 final class FleetSelectionOverlay {
     private static final Stroke INTENT_STROKE = new BasicStroke(
             1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
             0, new float[]{10f, 8f}, 0);
+    private static final Stroke SELECTED_STROKE = new BasicStroke(2f);
+    private static final Color SELECTED_COLOR = new Color(255, 245, 120);
     private static final double FORMATION_EXTENT_MIN = 56.0;
-    private static final long CACHE_NANOS = 50_000_000L;
     private static final int ORDER_TYPE_COUNT = UnitOrderType.values().length;
     private static final int SLOT_COUNT = UnitTask.values().length * ORDER_TYPE_COUNT;
-    private static final Map<World, OverlayCache> CACHES = new WeakHashMap<>();
-    private static volatile World fastWorld;
-    private static volatile OverlayCache fastCache;
+    private static final ThreadLocal<Scratch> SCRATCH = ThreadLocal.withInitial(Scratch::new);
+    private static final AtomicLong FRAME_PASSES = new AtomicLong();
+    private static volatile int lastMarkerCount;
+    private static volatile int lastGroupCount;
 
     private FleetSelectionOverlay() { }
 
-    /**
-     * World invokes order rendering once per visible unit. Pick one visible selected
-     * unit as the render anchor, so aggregate intent is painted exactly once per pass.
-     * Geometry itself is rebuilt at 20 Hz but the cached geometry is painted every
-     * frame; immediate-mode rendering must never skip the paint just because geometry
-     * did not change.
-     */
-    static void drawForUnit(Graphics2D g2, World world, Unit unit,
-                            SelectionRenderPolicy.Snapshot selection) {
-        if (g2 == null || world == null || unit == null || selection == null
-                || selection.selectedCount() <= SelectionRenderPolicy.FULL_LIMIT
-                || !unit.selected || !PlayerRegistry.isLocal(unit.playerId)) return;
-
-        long now = System.nanoTime();
-        OverlayCache cache = cache(world);
-        if (cache.anchor == null || now >= cache.anchorExpiresNanos
-                || !cache.anchor.selected || !PlayerRegistry.isLocal(cache.anchor.playerId)) {
-            refreshAnchor(g2, world, cache, now);
+    static void drawFrame(Graphics2D g2, World world, SelectionRenderPolicy.Frame selection) {
+        long started = System.nanoTime();
+        FRAME_PASSES.incrementAndGet();
+        if (g2 == null || world == null || selection == null
+                || selection.selectedCount() <= SelectionRenderPolicy.FULL_LIMIT) {
+            lastMarkerCount = 0;
+            lastGroupCount = 0;
+            PerformanceTrace.recordSelectionDraw(System.nanoTime() - started, 0, 0);
+            return;
         }
-        if (cache.anchor != unit) return;
 
-        if (!cache.geometryReady || now >= cache.geometryExpiresNanos
-                || cache.selectedCount != selection.selectedCount()) {
-            rebuildGeometry(world, cache, selection.selectedCount(), now);
-        }
-        drawCached(g2, cache);
+        Scratch scratch = SCRATCH.get();
+        scratch.reset();
+        int groupCount = buildOrderGeometry(world, selection, scratch);
+        int markerCount = buildSelectionMarkers(selection, scratch);
+        drawOrderGeometry(g2, scratch, groupCount);
+        drawSelectionMarkers(g2, selection, scratch, markerCount);
+
+        lastMarkerCount = markerCount;
+        lastGroupCount = groupCount;
+        PerformanceTrace.recordSelectionDraw(System.nanoTime() - started, markerCount, groupCount);
     }
 
-    private static OverlayCache cache(World world) {
-        OverlayCache fast = fastCache;
-        if (fastWorld == world && fast != null) return fast;
-        synchronized (CACHES) {
-            OverlayCache cache = CACHES.computeIfAbsent(world, ignored -> new OverlayCache());
-            fastWorld = world;
-            fastCache = cache;
-            return cache;
-        }
-    }
-
-    private static void refreshAnchor(Graphics2D g2, World world, OverlayCache cache, long now) {
-        Rectangle clip = g2.getClipBounds();
-        Unit anchor = null;
-        for (Unit candidate : world.units.values()) {
-            if (!candidate.selected || !PlayerRegistry.isLocal(candidate.playerId)) continue;
-            if (clip == null || visible(clip, candidate.x, candidate.y, 96.0)) {
-                anchor = candidate;
-                break;
-            }
-        }
-        cache.anchor = anchor;
-        cache.anchorExpiresNanos = now + CACHE_NANOS;
-    }
-
-    private static boolean visible(Rectangle clip, double x, double y, double radius) {
-        return x + radius >= clip.getMinX() && x - radius <= clip.getMaxX()
-                && y + radius >= clip.getMinY() && y - radius <= clip.getMaxY();
-    }
-
-    private static void rebuildGeometry(World world, OverlayCache cache, int selectedCount, long now) {
-        for (Group group : cache.groups) group.reset();
+    private static int buildOrderGeometry(World world, SelectionRenderPolicy.Frame selection, Scratch scratch) {
         int groupCount = 0;
-
-        for (Unit unit : world.units.values()) {
-            if (!unit.selected || !PlayerRegistry.isLocal(unit.playerId)) continue;
-
+        for (Unit unit : selection.selectedUnits()) {
             double targetX;
             double targetY;
             boolean hasTarget = false;
@@ -134,7 +95,7 @@ final class FleetSelectionOverlay {
             if (!hasTarget || !GameplayCommandNumbers.finite(targetX, targetY)) continue;
 
             int slot = unit.task.ordinal() * ORDER_TYPE_COUNT + unit.orderType.ordinal();
-            Group group = cache.groups[slot];
+            Group group = scratch.groups[slot];
             if (!group.used) {
                 if (groupCount >= SelectionRenderPolicy.MAX_AGGREGATE_GROUPS) continue;
                 group.used = true;
@@ -143,10 +104,8 @@ final class FleetSelectionOverlay {
             group.add(unit.x, unit.y, targetX, targetY);
         }
 
-        Path2D.Double path = cache.path;
-        path.reset();
-        cache.markerCount = 0;
-        for (Group group : cache.groups) {
+        Path2D.Double path = scratch.orderPath;
+        for (Group group : scratch.groups) {
             if (!group.used || group.count == 0) continue;
             double fromX = group.fromX / group.count;
             double fromY = group.fromY / group.count;
@@ -155,31 +114,67 @@ final class FleetSelectionOverlay {
             path.moveTo(fromX, fromY);
             path.lineTo(toX, toY);
             addFormationExtent(path, group);
-            int marker = cache.markerCount++;
-            cache.markersX[marker] = toX;
-            cache.markersY[marker] = toY;
+            int marker = scratch.orderMarkerCount++;
+            scratch.orderMarkersX[marker] = toX;
+            scratch.orderMarkersY[marker] = toY;
         }
-
-        Color owner = PlayerRegistry.color(PlayerRegistry.localId());
-        cache.color = new Color(owner.getRed(), owner.getGreen(), owner.getBlue(), 180);
-        cache.selectedCount = selectedCount;
-        cache.geometryReady = true;
-        cache.geometryExpiresNanos = now + CACHE_NANOS;
+        return groupCount;
     }
 
-    private static void drawCached(Graphics2D g2, OverlayCache cache) {
-        if (!cache.geometryReady || (cache.markerCount == 0 && cache.path.getCurrentPoint() == null)) return;
+    private static int buildSelectionMarkers(SelectionRenderPolicy.Frame selection, Scratch scratch) {
+        int markerCount = 0;
+        boolean compact = selection.compactMarkers();
+        Unit primary = selection.primary();
+        for (Unit unit : selection.visibleSelectedUnits()) {
+            if (unit == primary) continue;
+            markerCount++;
+            if (!compact) continue;
+            double x = Math.rint(unit.x);
+            double y = Math.rint(unit.y);
+            scratch.selectionPath.moveTo(x - 24, y - 24);
+            scratch.selectionPath.lineTo(x + 24, y - 24);
+            scratch.selectionPath.lineTo(x + 24, y + 24);
+            scratch.selectionPath.lineTo(x - 24, y + 24);
+            scratch.selectionPath.closePath();
+        }
+        return markerCount;
+    }
+
+    private static void drawOrderGeometry(Graphics2D g2, Scratch scratch, int groupCount) {
+        if (groupCount <= 0) return;
+        Color owner = PlayerRegistry.color(PlayerRegistry.localId());
         Color oldColor = g2.getColor();
         Stroke oldStroke = g2.getStroke();
-        g2.setColor(cache.color);
+        g2.setColor(new Color(owner.getRed(), owner.getGreen(), owner.getBlue(), 180));
         g2.setStroke(INTENT_STROKE);
-        g2.draw(cache.path);
-        for (int i = 0; i < cache.markerCount; i++) {
-            int x = (int)Math.round(cache.markersX[i]);
-            int y = (int)Math.round(cache.markersY[i]);
+        g2.draw(scratch.orderPath);
+        for (int i = 0; i < scratch.orderMarkerCount; i++) {
+            int x = (int)Math.round(scratch.orderMarkersX[i]);
+            int y = (int)Math.round(scratch.orderMarkersY[i]);
             g2.drawOval(x - 9, y - 9, 18, 18);
             g2.drawLine(x - 13, y, x + 13, y);
             g2.drawLine(x, y - 13, x, y + 13);
+        }
+        g2.setStroke(oldStroke);
+        g2.setColor(oldColor);
+    }
+
+    private static void drawSelectionMarkers(Graphics2D g2, SelectionRenderPolicy.Frame selection,
+                                             Scratch scratch, int markerCount) {
+        if (markerCount <= 0) return;
+        Color oldColor = g2.getColor();
+        Stroke oldStroke = g2.getStroke();
+        g2.setColor(SELECTED_COLOR);
+        g2.setStroke(SELECTED_STROKE);
+        if (selection.compactMarkers()) {
+            // Hundreds of secondary selection rectangles become one Java2D path draw.
+            g2.draw(scratch.selectionPath);
+        } else {
+            Unit primary = selection.primary();
+            for (Unit unit : selection.visibleSelectedUnits()) {
+                if (unit == primary) continue;
+                g2.drawOval((int)Math.round(unit.x) - 26, (int)Math.round(unit.y) - 26, 52, 52);
+            }
         }
         g2.setStroke(oldStroke);
         g2.setColor(oldColor);
@@ -207,21 +202,27 @@ final class FleetSelectionOverlay {
         }
     }
 
-    private static final class OverlayCache {
-        final Group[] groups = new Group[SLOT_COUNT];
-        final Path2D.Double path = new Path2D.Double();
-        final double[] markersX = new double[SelectionRenderPolicy.MAX_AGGREGATE_GROUPS];
-        final double[] markersY = new double[SelectionRenderPolicy.MAX_AGGREGATE_GROUPS];
-        Unit anchor;
-        long anchorExpiresNanos;
-        long geometryExpiresNanos;
-        boolean geometryReady;
-        int selectedCount;
-        int markerCount;
-        Color color = Color.WHITE;
+    static long framePassCountForTest() { return FRAME_PASSES.get(); }
+    static int lastMarkerCountForTest() { return lastMarkerCount; }
+    static int lastGroupCountForTest() { return lastGroupCount; }
 
-        OverlayCache() {
+    private static final class Scratch {
+        final Group[] groups = new Group[SLOT_COUNT];
+        final Path2D.Double orderPath = new Path2D.Double();
+        final Path2D.Double selectionPath = new Path2D.Double();
+        final double[] orderMarkersX = new double[SelectionRenderPolicy.MAX_AGGREGATE_GROUPS];
+        final double[] orderMarkersY = new double[SelectionRenderPolicy.MAX_AGGREGATE_GROUPS];
+        int orderMarkerCount;
+
+        Scratch() {
             for (int i = 0; i < groups.length; i++) groups[i] = new Group();
+        }
+
+        void reset() {
+            for (Group group : groups) group.reset();
+            orderPath.reset();
+            selectionPath.reset();
+            orderMarkerCount = 0;
         }
     }
 
