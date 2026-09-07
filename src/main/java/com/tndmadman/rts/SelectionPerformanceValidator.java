@@ -120,6 +120,7 @@ public final class SelectionPerformanceValidator {
         World registryWorld = new World("Selection registry decoy", Set.of(),
                 StarSystems.DEFAULT_SYSTEM_ID, false);
         PlayerRegistry.activate(registryWorld);
+        PlayerRegistry.reset("P1", "Observer", 0x50BEFF);
         try {
             renderedWorld.draw(g2);
             SelectionRenderPolicy.Frame frame = SelectionRenderPolicy.current(renderedWorld);
