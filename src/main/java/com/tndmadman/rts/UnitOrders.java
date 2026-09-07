@@ -249,11 +249,8 @@ final class UnitOrderRenderer {
     static void draw(Graphics2D g2, World world, Unit unit) {
         if (g2 == null || world == null || unit == null || !unit.selected || !PlayerRegistry.isLocal(unit.playerId)) return;
 
-        SelectionRenderPolicy.Snapshot selection = SelectionRenderPolicy.snapshot(world);
-        if (selection.selectedCount() > SelectionRenderPolicy.FULL_LIMIT) {
-            FleetSelectionOverlay.drawForUnit(g2, world, unit, selection);
-            if (selection.primary() != unit) return;
-        }
+        SelectionRenderPolicy.Frame selection = SelectionRenderPolicy.current(world);
+        if (selection != null && selection.aggregate() && selection.primary() != unit) return;
 
         UnitCommandQueueRenderer.draw(g2, world, unit);
         if (UnitCommandQueueSystem.hasPlayerIntent(world, unit) || unit.orderType == UnitOrderType.NONE) return;
