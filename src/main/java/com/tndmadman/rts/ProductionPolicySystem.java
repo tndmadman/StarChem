@@ -1297,53 +1297,45 @@ final class ProductionPolicySystem {
         static SupplyLedger capture(World world) {
             SupplyLedger ledger = new SupplyLedger();
             Map<String,Destination> routes = routeDestinations(world);
-            Map<String,Object> galaxy = world.captureServerSaveGalaxy();
-            for (Object systemItem : ServerSaveStore.list(galaxy.get("systems"))) {
-                Map<String,Object> system = ServerSaveStore.object(systemItem);
-                String systemId = ServerSaveStore.string(system, "systemId", "");
-                for (Object unitItem : ServerSaveStore.list(system.get("units"))) {
-                    Map<String,Object> unit = ServerSaveStore.object(unitItem);
-                    String ownerId = ServerSaveStore.string(unit, "playerId", "");
-                    String shipId = ServerSaveStore.string(unit, "shipTypeId", "");
-                    if (ServerSaveStore.doubleValue(unit, "hp", 0) > 0 && !ownerId.isBlank() && !shipId.isBlank()) {
+            for (WorldSystemState system : world.policySystemStates()) {
+                String systemId = system.id == null ? "" : system.id;
+                for (Unit unit : system.units.values()) {
+                    String ownerId = unit.playerId == null ? "" : unit.playerId;
+                    String shipId = unit.shipTypeId == null ? "" : unit.shipTypeId;
+                    if (unit.hp > 0 && !ownerId.isBlank() && !shipId.isBlank()) {
                         ledger.livingShips.merge(ownerId + '|' + shipId, 1, Integer::sum);
                     }
-                    String targetBase = ServerSaveStore.string(unit, "logisticsTargetBaseId", "");
-                    String request = ServerSaveStore.string(unit, "logisticsRequestId", "");
+                    String targetBase = unit.logisticsTargetBaseId == null ? "" : unit.logisticsTargetBaseId;
+                    String request = unit.logisticsRequestId == null ? "" : unit.logisticsRequestId;
                     if (targetBase.isBlank() || request.startsWith("LR")) continue;
                     Destination destination;
                     if (request.startsWith("ROUTE:")) destination = routes.get(request.substring("ROUTE:".length()));
                     else destination = new Destination(ownerId, systemId, targetBase);
                     if (destination == null || !ownerId.equals(destination.ownerId)) continue;
-                    EnumMap<Material,Double> cargo = ServerSaveStore.restoreMaterialMap(unit.get("inventory"));
-                    for (Map.Entry<Material,Double> entry : cargo.entrySet()) {
-                        if (entry.getValue() != null && entry.getValue() > EPSILON) {
-                            ledger.inboundMaterials.merge(destination.key(entry.getKey()), entry.getValue(), Double::sum);
+                    for (Map.Entry<Material,Double> entry : unit.inventory.entrySet()) {
+                        double amount = entry.getValue() == null ? 0 : entry.getValue();
+                        if (amount > EPSILON) {
+                            ledger.inboundMaterials.merge(destination.key(entry.getKey()), amount, Double::sum);
                         }
                     }
                 }
-                for (Object baseItem : ServerSaveStore.list(system.get("bases"))) {
-                    Map<String,Object> base = ServerSaveStore.object(baseItem);
-                    String ownerId = ServerSaveStore.string(base, "playerId", "");
-                    String baseId = ServerSaveStore.string(base, "id", "");
-                    if (ServerSaveStore.doubleValue(base, "hp", 0) <= 0) continue;
-                    EnumMap<Material,Double> inventory = ServerSaveStore.restoreMaterialMap(base.get("inventory"));
+                for (Base base : system.bases.values()) {
+                    if (base.hp <= 0) continue;
+                    String ownerId = base.playerId == null ? "" : base.playerId;
+                    String baseId = base.id == null ? "" : base.id;
                     if (!ownerId.isBlank()) {
-                        for (Map.Entry<Material,Double> entry : inventory.entrySet()) {
+                        for (Map.Entry<Material,Double> entry : base.inventory.entrySet()) {
                             double amount = entry.getValue() == null ? 0 : entry.getValue();
                             if (amount > EPSILON) {
                                 ledger.networkMaterials.merge(networkKey(ownerId, entry.getKey()), amount, Double::sum);
                             }
                         }
                     }
-                    for (Object jobItem : ServerSaveStore.list(base.get("productionQueue"))) {
-                        Map<String,Object> job = ServerSaveStore.object(jobItem);
-                        ProductionJobKind kind = ServerSaveStore.enumValue(ProductionJobKind.class, job.get("kind"), null);
-                        String itemId = ServerSaveStore.string(job, "itemId", "");
-                        if (kind == ProductionJobKind.SHIP && !itemId.isBlank()) {
-                            ledger.queuedShips.merge(ownerId + '|' + itemId, 1, Integer::sum);
-                        } else if (kind == ProductionJobKind.CRAFTABLE) {
-                            CraftableItem item = CraftingRules.item(itemId);
+                    for (ProductionJob job : base.productionQueue) {
+                        if (job.kind == ProductionJobKind.SHIP && job.itemId != null && !job.itemId.isBlank()) {
+                            ledger.queuedShips.merge(ownerId + '|' + job.itemId, 1, Integer::sum);
+                        } else if (job.kind == ProductionJobKind.CRAFTABLE) {
+                            CraftableItem item = CraftingRules.item(job.itemId);
                             if (item != null) {
                                 ledger.queuedMaterials.merge(stockKey(ownerId, systemId, baseId, item.outputMaterial),
                                         item.outputAmount, Double::sum);
