@@ -85,6 +85,12 @@ final class ManufacturingPolicyManager {
         dialog.setSize(980, 760);
         dialog.setLocationRelativeTo(owner);
         dialog.setContentPane(buildRoot());
+
+        refreshTimer = new Timer(500, event -> {
+            if (dialog.isVisible()) refreshContents();
+        });
+        refreshTimer.setCoalesce(true);
+
         dialog.addWindowListener(new WindowAdapter() {
             @Override public void windowClosed(WindowEvent event) {
                 refreshTimer.stop();
@@ -95,14 +101,10 @@ final class ManufacturingPolicyManager {
 
         stationCombo.addActionListener(event -> {
             BaseOption option = (BaseOption)stationCombo.getSelectedItem();
-            if (option != null) preferredBaseId = option.base.id;
+            if (option != null) this.preferredBaseId = option.base.id;
             refreshContents();
         });
 
-        refreshTimer = new Timer(500, event -> {
-            if (dialog.isVisible()) refreshContents();
-        });
-        refreshTimer.setCoalesce(true);
         refreshTimer.start();
         refreshAll();
     }
