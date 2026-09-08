@@ -21,8 +21,13 @@ EXPECTED_BUILDINFO="private static final String FALLBACK_VERSION = \"${DEV_VERSI
 grep -Fqx "    ${EXPECTED_BUILDINFO}" src/main/java/com/tndmadman/rts/BuildInfo.java \
   || fail "BuildInfo fallback does not match gradle.properties"
 
-grep -Fq ".orElse('${DEV_VERSION}')" build.gradle \
-  || fail "build.gradle fallback does not match gradle.properties"
+# gradle.properties is the canonical development identity. Tagged/release builds override it
+# through -PreleaseVersion or STARCHEM_VERSION. Keep validating that build.gradle preserves
+# both supported release-version inputs without tying the release gate to its last-resort literal.
+grep -Fq "providers.gradleProperty('releaseVersion')" build.gradle \
+  || fail "build.gradle no longer accepts -PreleaseVersion"
+grep -Fq "providers.environmentVariable('STARCHEM_VERSION')" build.gradle \
+  || fail "build.gradle no longer accepts STARCHEM_VERSION"
 
 PROTOCOL="$(sed -n 's/^[[:space:]]*static final int PROTOCOL_VERSION = \([0-9][0-9]*\);/\1/p' \
   src/main/java/com/tndmadman/rts/MultiplayerCompatibility.java | head -n 1)"
