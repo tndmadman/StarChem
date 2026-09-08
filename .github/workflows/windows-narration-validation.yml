@@ -51,4 +51,4 @@ jobs:
         run: gradle classes --no-daemon
 
       - name: Validate narration process and Windows speech backend
-        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.NarrationProcessValidator
+        run: java -cp build/classes/java/main com.tndmadman.rts.NarrationProcessValidator
