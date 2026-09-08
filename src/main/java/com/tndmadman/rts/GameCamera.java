@@ -11,7 +11,9 @@ import java.util.WeakHashMap;
 
 final class GameCamera {
     private static final double MIN_ZOOM = 0.36;
-    private static final double MAX_ZOOM = 2.2;
+    // Keep the tactical view from zooming closer than the useful fleet-scale view.
+    // This is approximately seven wheel steps out from the previous 2.2x maximum.
+    private static final double MAX_ZOOM = 1.0;
     private static final Map<World, GameCamera> ACTIVE = Collections.synchronizedMap(new WeakHashMap<>());
     private double x;
     private double y;
