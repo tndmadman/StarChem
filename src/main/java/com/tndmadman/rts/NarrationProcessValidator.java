@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 
@@ -17,12 +18,39 @@ public final class NarrationProcessValidator {
             runHelper(args);
             return;
         }
+        validateNarrationDefaultAndWindowsProbe();
+        validateWindowsSystemSpeechWhenRunningOnWindows();
         validateCapturedOutputIsDrainedAndBounded();
         validateDiscardedOutputCannotBlock();
         validateTimeoutKillsDescendants();
         validateRunnerRemainsUsableAfterTimeout();
         validateIoThreadCountIsBounded();
         System.out.println("StarChem narration process validation passed.");
+    }
+
+    private static void validateNarrationDefaultAndWindowsProbe() {
+        require(!NarrationService.DEFAULT_ENABLED, "narration must be disabled by default");
+        require("enabled.v2".equals(NarrationService.ENABLED_PREF_KEY),
+                "narration must use the new opt-in preference key so legacy enabled=true does not keep TTS on");
+        List<String> command = NarrationService.windowsSpeechProbeCommand("powershell.exe");
+        require(command.size() == 5, "Windows narration probe command shape changed unexpectedly");
+        require("powershell.exe".equals(command.get(0)), "Windows narration probe lost its requested shell");
+        require(command.contains("-NoProfile"), "Windows narration probe must disable profile loading");
+        require(command.contains("-NonInteractive"), "Windows narration probe must be non-interactive");
+        require(command.contains("-Command"), "Windows narration probe must execute a PowerShell command");
+        require(!command.contains("--version"), "Windows narration probe must not use unsupported --version detection");
+        String script = command.get(command.size() - 1);
+        require(script.contains("System.Speech"), "Windows narration probe must validate System.Speech itself");
+        require(script.contains("SpeechSynthesizer"), "Windows narration probe must construct the speech synthesizer");
+    }
+
+    private static void validateWindowsSystemSpeechWhenRunningOnWindows() throws Exception {
+        if (!System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")) return;
+        NarrationProcessRunner.ExitResult result = NarrationProcessRunner.runDiscarding(
+                new ProcessBuilder(NarrationService.windowsSpeechProbeCommand("powershell.exe")), 10);
+        require(!result.timedOut(), "Windows System.Speech backend probe timed out");
+        require(result.exitCode() == 0,
+                "Windows System.Speech backend probe failed on the Windows validation runner");
     }
 
     private static void validateCapturedOutputIsDrainedAndBounded() throws Exception {

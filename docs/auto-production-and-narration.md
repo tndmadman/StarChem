@@ -38,7 +38,7 @@ Repeated identical notices are rate-limited.
 
 ## Narration
 
-Narration is a client presentation option. The dedicated server never opens an audio device or runs a speech engine.
+Narration is a client presentation option. The dedicated server never opens an audio device or runs a speech engine. Narration is **disabled by default** and remains opt-in. The current narration preference uses a new opt-in preference key so older saved `enabled=true` values cannot silently carry forward and leave narration on after this change. After the user explicitly enables or disables narration under the new setting, that choice is respected on later launches.
 
 Press **F8** in the graphical client to configure:
 
@@ -48,10 +48,12 @@ Press **F8** in the graphical client to configure:
 - speech speed
 - voice test
 
-Settings persist per operating-system user. StarChem uses installed platform speech support:
+The voice test can be used while narration itself is disabled. Settings persist per operating-system user. StarChem detects and validates installed platform speech support before reporting a backend as available:
 
-- Windows System Speech through PowerShell
+- Windows System Speech through Windows PowerShell or PowerShell when `System.Speech` is available
 - macOS `say`
 - Linux `espeak-ng` or `espeak` when installed
 
-Text and narration priority are selected by the authoritative server notice; only speech playback occurs locally.
+Backend detection is cached for the client session. If speech startup fails, StarChem reports the backend/process failure to stderr instead of silently dropping the request.
+
+The authoritative notice marks whether a message is eligible for narration. That flag is preserved for remote clients over the ordered notice packet; actual speech playback still happens only on the graphical client and only when the local user has narration enabled.
