@@ -11,7 +11,6 @@ final class ProductionPolicyMenu {
 
     static void show(Component invoker, World world, PeerNetwork network, Base base, int x, int y) {
         if (world == null || base == null || StationControls.nonProduction(base.typeId)) return;
-        ManufacturingOverlay.openForStation(world, base.id);
-        ManufacturingPolicyManager.show(invoker, world, network, base);
+        ManufacturingOverlay.openPoliciesForStation(world, base.id);
     }
 }

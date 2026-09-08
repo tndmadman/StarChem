@@ -70,8 +70,9 @@ final class StationControlMenu {
             content.add(Box.createVerticalStrut(5));
             JButton policies = actionButton("MANAGE PRODUCTION POLICIES", () -> {
                 popup.setVisible(false);
-                ManufacturingOverlay.openForStation(world, base.id);
-                ManufacturingPolicyManager.show(invoker, world, network, base);
+                if (!ManufacturingOverlay.openPoliciesForStation(world, base.id)) {
+                    world.status = "Manufacturing policy console is unavailable.";
+                }
             });
             policies.setAlignmentX(Component.LEFT_ALIGNMENT);
             content.add(policies);

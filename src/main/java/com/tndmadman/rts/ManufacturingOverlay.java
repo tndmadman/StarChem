@@ -50,9 +50,15 @@ final class ManufacturingOverlay extends JPanel {
     private static final Color STATION = new Color(167, 119, 71);
     private static final Color REFIT = new Color(125, 135, 143);
 
+    private static final String VIEW_PRODUCTION = "production";
+    private static final String VIEW_POLICIES = "policies";
+
     private final GamePanel returnFocus;
     private final World world;
     private final PeerNetwork network;
+    private final CardLayout viewLayout = new CardLayout();
+    private final JPanel viewDeck = new JPanel(viewLayout);
+    private final ManufacturingPolicyPanel policyPanel;
 
     private final DefaultListModel<Section> sectionModel = new DefaultListModel<>();
     private final JList<Section> sectionList = new JList<>(sectionModel);
@@ -93,6 +99,7 @@ final class ManufacturingOverlay extends JPanel {
         this.returnFocus = returnFocus;
         this.world = world;
         this.network = network;
+        this.policyPanel = new ManufacturingPolicyPanel(world, network, this::showProductionView, this::close);
         setOpaque(false);
         setVisible(false);
         setFocusable(true);
@@ -101,6 +108,11 @@ final class ManufacturingOverlay extends JPanel {
         sectionList.setSelectedValue(Section.ALL, true);
 
         JPanel card = buildCard();
+        viewDeck.setOpaque(false);
+        viewDeck.add(card, VIEW_PRODUCTION);
+        viewDeck.add(policyPanel, VIEW_POLICIES);
+        viewLayout.show(viewDeck, VIEW_PRODUCTION);
+
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.gridx = 0;
         gbc.gridy = 0;
@@ -108,7 +120,7 @@ final class ManufacturingOverlay extends JPanel {
         gbc.weighty = 1;
         gbc.fill = GridBagConstraints.BOTH;
         gbc.insets = new Insets(20, 24, 20, 24);
-        add(card, gbc);
+        add(viewDeck, gbc);
 
         search.getDocument().addDocumentListener(new DocumentListener() {
             @Override public void insertUpdate(DocumentEvent event) { refreshCatalog(); }
@@ -145,13 +157,27 @@ final class ManufacturingOverlay extends JPanel {
         ManufacturingOverlay overlay = reference == null ? null : reference.get();
         if (overlay == null) return false;
         overlay.preferStation(baseId);
+        overlay.showProductionView();
         overlay.open();
+        return true;
+    }
+
+    static boolean openPoliciesForStation(World world, String baseId) {
+        WeakReference<ManufacturingOverlay> reference = INSTANCES.get(world);
+        ManufacturingOverlay overlay = reference == null ? null : reference.get();
+        if (overlay == null) return false;
+        overlay.preferStation(baseId);
+        overlay.open();
+        overlay.showPolicyView(baseId);
         return true;
     }
 
     void toggle() {
         if (isVisible()) close();
-        else open();
+        else {
+            showProductionView();
+            open();
+        }
     }
 
     void open() {
@@ -169,6 +195,7 @@ final class ManufacturingOverlay extends JPanel {
 
     void close() {
         if (!isVisible()) return;
+        policyPanel.deactivate();
         setVisible(false);
         if (world.status != null && world.status.startsWith("Manufacturing console open.")) {
             world.status = previousStatus;
@@ -181,6 +208,7 @@ final class ManufacturingOverlay extends JPanel {
 
     void disposeOverlay() {
         liveTimer.stop();
+        policyPanel.disposePanel();
         close();
         WeakReference<ManufacturingOverlay> reference = INSTANCES.get(world);
         if (reference != null && reference.get() == this) INSTANCES.remove(world);
@@ -193,6 +221,29 @@ final class ManufacturingOverlay extends JPanel {
     void preferStation(String baseId) {
         preferredBaseId = baseId == null ? "" : baseId;
         if (isVisible()) populateStations(choiceList.getSelectedValue());
+    }
+
+    private void showProductionView() {
+        policyPanel.deactivate();
+        viewLayout.show(viewDeck, VIEW_PRODUCTION);
+        if (isVisible()) {
+            refreshCatalogPreservingSelection();
+            refreshLiveData();
+            SwingUtilities.invokeLater(() -> search.requestFocusInWindow());
+        }
+    }
+
+    private void showPolicyView(String baseId) {
+        String stationId = baseId == null ? "" : baseId;
+        if (stationId.isBlank()) {
+            ProductionChoice choice = choiceList.getSelectedValue();
+            Base selected = choice == null ? null : selectedStation(choice);
+            if (selected != null) stationId = selected.id;
+            else stationId = preferredBaseId;
+        }
+        policyPanel.activate(stationId);
+        viewLayout.show(viewDeck, VIEW_POLICIES);
+        SwingUtilities.invokeLater(() -> policyPanel.requestFocusInWindow());
     }
 
     private JPanel buildCard() {
@@ -246,6 +297,10 @@ final class ManufacturingOverlay extends JPanel {
         systemLabel.setForeground(BRONZE);
         systemLabel.setFont(systemLabel.getFont().deriveFont(Font.BOLD, 11f));
         right.add(systemLabel);
+        JButton policies = button("POLICIES", new Color(89, 112, 92));
+        policies.setToolTipText("Manage production policies, templates, reserves, and recovery");
+        policies.addActionListener(event -> showPolicyView(preferredBaseId));
+        right.add(policies);
         JButton close = button("CLOSE", BRONZE_DARK);
         close.addActionListener(event -> close());
         right.add(close);
