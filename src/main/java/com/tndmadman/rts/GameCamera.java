@@ -11,13 +11,14 @@ import java.util.WeakHashMap;
 
 final class GameCamera {
     private static final double MIN_ZOOM = 0.36;
-    // Keep the tactical view from zooming closer than the useful fleet-scale view.
-    // This is approximately seven wheel steps out from the previous 2.2x maximum.
-    private static final double MAX_ZOOM = 1.0;
+    // Keep the tactical view at fleet scale. 0.712 is approximately three additional
+    // 1.12x wheel steps farther out than the previous 1.0x cap (about ten steps out
+    // from the original 2.2x maximum).
+    private static final double MAX_ZOOM = 0.712;
     private static final Map<World, GameCamera> ACTIVE = Collections.synchronizedMap(new WeakHashMap<>());
     private double x;
     private double y;
-    private double zoom = 0.9;
+    private double zoom = MAX_ZOOM;
     private boolean initialized;
     private Set<String> lastLocalEntityKeys = Set.of();
 
@@ -26,6 +27,8 @@ final class GameCamera {
     }
 
     void update(World world, int screenW, int screenH, double dt) {
+        // Enforce camera bounds even for restored/legacy camera state, not only wheel input.
+        zoom = Calc.clamp(zoom, MIN_ZOOM, MAX_ZOOM);
         if (world != null) {
             ACTIVE.put(world, this);
             EmpireOverviewOverlay.ensureInstalled(world, null);
