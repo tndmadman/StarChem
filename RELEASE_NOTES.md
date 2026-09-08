@@ -1,4 +1,17 @@
-# StarChem v1.8.1
+# StarChem v1.8.2
+
+StarChem v1.8.2 is a multiplayer join/reconnect hotfix for the v1.8 line. It keeps **protocol 17**, **rules version 27**, and **save format 6** unchanged, so v1.8.1 saves continue to load directly. Multiplayer still requires the exact application version, so servers and clients should update to v1.8.2 together.
+
+## v1.8.2 Multiplayer Hotfix
+
+- Prevented owner-scoped galaxy/strategic state from mutating client state during generic packet decoding before the client identity has been validated.
+- Ignore stale or wrong-owner galaxy projections during join/reconnect instead of repeatedly rejecting strategic summaries against the current local player.
+- Bind accepted server packets to the current TCP connection identity in addition to the configured endpoint, hardening reconnects against stale connection frames.
+- Reuse an already-derived in-memory server-scoped credential when the same verified TLS identity and salt re-challenge during a transient bootstrap retry, avoiding unnecessary password re-entry.
+- Improved malformed server-packet diagnostics to retain the exception detail and type instead of logging only `IllegalStateException`.
+- Added galaxy-wire regression coverage proving decode no longer applies owner-scoped strategic state as a side effect.
+
+## v1.8.1 Changes Carried Forward
 
 StarChem v1.8.1 is the fleet-scalability, manufacturing-workflow, multiplayer-stability, and narration reliability update to the v1.8 release line. It is built from the published v1.8.0 baseline plus the completed work for moving-fleet fog/intel performance (#372), production-policy WAN desynchronization (#371), the centralized Manufacturing Command interface (#376), and narration backend reliability (#377).
 

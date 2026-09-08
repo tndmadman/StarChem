@@ -137,8 +137,11 @@ final class GalaxyMapWire {
             if (!ownerMarker || !ownerId.equals(strategic.ownerId())) {
                 throw new SnapshotDecodeException("Strategic empire summary does not match the owner projection.");
             }
-            World activeWorld = PlayerRegistry.activeWorld();
-            if (activeWorld != null) StrategicSummaryRegistry.replace(activeWorld, strategic);
+            World strategicWorld = PlayerRegistry.activeWorld();
+            String localOwner = PlayerRegistry.localId();
+            if (strategicWorld != null && localOwner != null && localOwner.equals(ownerId)) {
+                StrategicSummaryRegistry.replace(strategicWorld, strategic);
+            }
         }
         World activeWorld = PlayerRegistry.activeWorld();
         if (activeWorld != null && ownerMarker) GalaxyEventDirector.replaceRemoteViews(activeWorld, eventViews);
