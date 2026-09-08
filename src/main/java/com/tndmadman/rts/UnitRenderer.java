@@ -113,7 +113,15 @@ final class UnitRenderer {
         } else if (exactSelectedDetail || damaged || scale >= 0.52) {
             drawBars(g2, unit);
         }
-        if (exactSelectedDetail || (!fleetSecondary && scale >= 0.62)) drawName(g2, unit, playerColor);
+
+        // Owner/name labels are one of the most expensive visual details in a dense fleet:
+        // each one measures text, paints a translucent rounded box and rasterizes glyphs.
+        // Keep exact selected detail readable, but ordinary ships share a sparse per-frame
+        // label grid with a hard density-based cap instead of drawing hundreds of duplicates.
+        boolean drawOrdinaryName = scale >= 0.62 && !fleetSecondary
+                && (frame == null || frame.claimNameLabel(unit));
+        if (exactSelectedDetail || drawOrdinaryName) drawName(g2, unit, playerColor);
+
         if (!unit.basePackageType.isBlank() && (exactSelectedDetail || (!fleetSecondary && scale >= 0.62))) {
             g2.setColor(PACKAGE_COLOR);
             g2.drawString("PKG", (int)unit.x - 12, (int)unit.y + 45);
