@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 
@@ -18,6 +19,7 @@ public final class NarrationProcessValidator {
             return;
         }
         validateNarrationDefaultAndWindowsProbe();
+        validateWindowsSystemSpeechWhenRunningOnWindows();
         validateCapturedOutputIsDrainedAndBounded();
         validateDiscardedOutputCannotBlock();
         validateTimeoutKillsDescendants();
@@ -38,6 +40,15 @@ public final class NarrationProcessValidator {
         String script = command.get(command.size() - 1);
         require(script.contains("System.Speech"), "Windows narration probe must validate System.Speech itself");
         require(script.contains("SpeechSynthesizer"), "Windows narration probe must construct the speech synthesizer");
+    }
+
+    private static void validateWindowsSystemSpeechWhenRunningOnWindows() throws Exception {
+        if (!System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")) return;
+        NarrationProcessRunner.ExitResult result = NarrationProcessRunner.runDiscarding(
+                new ProcessBuilder(NarrationService.windowsSpeechProbeCommand("powershell.exe")), 10);
+        require(!result.timedOut(), "Windows System.Speech backend probe timed out");
+        require(result.exitCode() == 0,
+                "Windows System.Speech backend probe failed on the Windows validation runner");
     }
 
     private static void validateCapturedOutputIsDrainedAndBounded() throws Exception {
