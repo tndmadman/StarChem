@@ -26,7 +26,9 @@ jobs:
           gradle-version: '8.10.2'
 
       - name: Apply hotfix
-        run: python .github/scripts/v182_hotfix.py
+        run: |
+          python .github/scripts/v182_hotfix.py
+          python .github/scripts/v182_hotfix_followup.py
 
       - name: Focused multiplayer regressions
         run: |
@@ -39,7 +41,7 @@ jobs:
 
       - name: Commit validated hotfix
         run: |
-          rm -f .github/workflows/v182-hotfix-bootstrap.yml .github/scripts/v182_hotfix.py
+          rm -f .github/workflows/v182-hotfix-bootstrap.yml .github/scripts/v182_hotfix.py .github/scripts/v182_hotfix_followup.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
