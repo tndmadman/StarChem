@@ -12,7 +12,6 @@ on:
   push:
     branches:
       - main
-      - fix/tts-backend-detection
     paths:
       - '.github/workflows/windows-narration-validation.yml'
       - 'src/main/java/com/tndmadman/rts/NarrationProcessRunner.java'
