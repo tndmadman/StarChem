@@ -30,6 +30,8 @@ public final class NarrationProcessValidator {
 
     private static void validateNarrationDefaultAndWindowsProbe() {
         require(!NarrationService.DEFAULT_ENABLED, "narration must be disabled by default");
+        require("enabled.v2".equals(NarrationService.ENABLED_PREF_KEY),
+                "narration must use the new opt-in preference key so legacy enabled=true does not keep TTS on");
         List<String> command = NarrationService.windowsSpeechProbeCommand("powershell.exe");
         require(command.size() == 5, "Windows narration probe command shape changed unexpectedly");
         require("powershell.exe".equals(command.get(0)), "Windows narration probe lost its requested shell");
