@@ -1,5 +1,6 @@
 package com.tndmadman.rts;
 
+import java.util.Map;
 import java.util.Set;
 
 public final class GalaxyMapWireValidator {
@@ -24,6 +25,19 @@ public final class GalaxyMapWireValidator {
         GalaxyMapSystem decodedCorsair = system(decoded.snapshot(), StarSystems.CORSAIR_SYSTEM_ID);
         require(originalCorsair.controllerId().equals(decodedCorsair.controllerId()), "controller identity changed on wire");
         require(originalCorsair.controlColorRgb() == decodedCorsair.controlColorRgb(), "controller color changed on wire");
+
+        PlayerRegistry.activate(world);
+        PlayerRegistry.reset("WAIT", "Wire Validator", 0x50BEFF);
+        StrategicSummaryRegistry.clear(world);
+        String ownerEncoded = GalaxyMapWire.encode(2, original, "P1", Map.of());
+        GalaxyMapWire.Decoded ownerDecoded = GalaxyMapWire.decode(ownerEncoded);
+        require(ownerDecoded.ownerProjection().present(), "owner projection was lost on wire");
+        require("P1".equals(ownerDecoded.ownerProjection().ownerId()), "owner projection identity changed on wire");
+        require(ownerDecoded.strategicSummary() != null, "strategic summary was lost on wire");
+        require("P1".equals(ownerDecoded.strategicSummary().ownerId()), "strategic summary owner changed on wire");
+        require(!StrategicSummaryRegistry.state(world).initialized(),
+                "galaxy decoder must not apply owner-scoped strategic state before client identity validation");
+
         expectRejected("GALAXY|3|bad", "out-of-range copy count was accepted");
         expectRejected("GALAXY|1||S,bad", "malformed system row was accepted");
         expectRejected("GALAXY|1||L,YQ,YQ", "self-link was accepted");

@@ -256,8 +256,11 @@ final class PeerClientSide {
             rejectSnapshot(snapshotError);
             return;
         }
-        world.status = "Rejected malformed server packet.";
-        System.err.println(world.status + " " + ex.getClass().getSimpleName());
+        String detail = ex == null ? "" : ex.getMessage();
+        world.status = detail == null || detail.isBlank()
+                ? "Rejected malformed server packet."
+                : "Rejected malformed server packet: " + detail.trim();
+        System.err.println(world.status + " [" + (ex == null ? "RuntimeException" : ex.getClass().getSimpleName()) + "]");
     }
 
     void queue(UnitQueueMutation mutation) { sendCommandToServer(UnitQueueWire.mutationPacket(mutation)); }
@@ -458,9 +461,26 @@ final class PeerClientSide {
     private boolean readGalaxy(String message) {
         if (message == null || !message.startsWith("GALAXY|")) return false;
         GalaxyMapWire.Decoded decoded = GalaxyMapWire.decode(message);
+        if (decoded.ownerProjection().present()) {
+            String ownerId = decoded.ownerProjection().ownerId();
+            boolean localAssigned = localPlayerId != null && !localPlayerId.isBlank()
+                    && !"WAIT".equals(localPlayerId) && !"SOLO".equals(localPlayerId);
+            if (!localAssigned) {
+                System.err.println("Ignored owner-scoped GALAXY packet before local player assignment: " + ownerId + ".");
+                return true;
+            }
+            if (!localPlayerId.equals(ownerId)) {
+                System.err.println("Ignored stale GALAXY packet for owner " + ownerId
+                        + " while local player is " + localPlayerId + ".");
+                return true;
+            }
+        }
         world.configureGalaxyCopies(decoded.copiesPerTemplate());
         if (decoded.ownerProjection().present()) {
             OwnerFleetLocationRegistry.replace(world, decoded.ownerProjection().ownerId(), decoded.ownerUnitLocations());
+            if (decoded.strategicSummary() != null) {
+                StrategicSummaryRegistry.replace(world, decoded.strategicSummary());
+            }
         }
         world.applyRemoteGalaxyMapSnapshot(decoded.snapshot());
         return true;
@@ -748,9 +768,12 @@ final class PeerClientSide {
     }
 
     private boolean fromConfiguredServer(NetPacket packet) {
-        return packet != null && config.serverAddress != null && config.serverAddress.getAddress() != null
-                && config.serverAddress.getPort() == packet.port()
-                && config.serverAddress.getAddress().equals(packet.address());
+        if (packet == null || config.serverAddress == null || config.serverAddress.getAddress() == null
+                || config.serverAddress.getPort() != packet.port()
+                || !config.serverAddress.getAddress().equals(packet.address())) return false;
+        ConnectionId current = transport.clientConnectionId();
+        ConnectionId incoming = packet.connectionId();
+        return current == null || !current.valid() || incoming == null || !incoming.valid() || current.equals(incoming);
     }
 
     private String joinMessage() {
@@ -788,6 +811,13 @@ final class PeerClientSide {
         if (!PasswordAuth.validVerifier(fingerprint) || PasswordAuth.decodeHex(scopedSalt).length != 16) {
             failConnection("The verified TLS server identity is unavailable; refusing to derive a login credential.");
             return false;
+        }
+        String normalizedFingerprint = fingerprint.toLowerCase(java.util.Locale.ROOT);
+        String normalizedScopedSalt = scopedSalt.toLowerCase(java.util.Locale.ROOT);
+        if (PasswordAuth.validVerifier(scopedPasswordVerifier)
+                && normalizedFingerprint.equals(authServerFingerprint)
+                && normalizedScopedSalt.equals(authScopedSalt)) {
+            return true;
         }
         SessionTokenStore.ScopedCredential stored = SessionTokenStore.scopedCredential(config);
         if (stored.matches(fingerprint, scopedSalt)) {
