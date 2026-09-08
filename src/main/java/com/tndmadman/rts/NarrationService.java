@@ -15,6 +15,7 @@ import java.util.prefs.Preferences;
 final class NarrationService {
     static final String SYSTEM_DEFAULT = "System default";
     static final boolean DEFAULT_ENABLED = false;
+    static final String ENABLED_PREF_KEY = "enabled.v2";
     private static final int BACKEND_PROBE_TIMEOUT_SECONDS = 4;
     private static final Preferences PREFS = Preferences.userNodeForPackage(NarrationService.class);
     private static final ThreadPoolExecutor EXECUTOR = new ThreadPoolExecutor(
@@ -24,7 +25,7 @@ final class NarrationService {
         return thread;
     }, new ThreadPoolExecutor.DiscardOldestPolicy());
 
-    private static volatile boolean enabled = PREFS.getBoolean("enabled", DEFAULT_ENABLED);
+    private static volatile boolean enabled = PREFS.getBoolean(ENABLED_PREF_KEY, DEFAULT_ENABLED);
     private static volatile int volume = clamp(PREFS.getInt("volume", 75), 0, 100);
     private static volatile double speed = clamp(PREFS.getDouble("speed", 1.5), 0.5, 2.0);
     private static volatile String voice = PREFS.get("voice", SYSTEM_DEFAULT);
@@ -40,7 +41,7 @@ final class NarrationService {
 
     static void setEnabled(boolean value) {
         enabled = value;
-        putBoolean("enabled", value);
+        putBoolean(ENABLED_PREF_KEY, value);
     }
 
     static void toggle() { setEnabled(!enabled); }
