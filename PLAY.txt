@@ -1,4 +1,4 @@
-StarChem v1.8.0 quick start
+StarChem v1.8.1 quick start
 
 Requirements
 - Java 17 or newer.
@@ -44,10 +44,16 @@ Do NOT run:
 The -jar flag is required for a direct Java launch.
 
 Current release documents
-- README.md                         Main player/server guide.
-- RELEASE_NOTES.md                  StarChem v1.8.0 changes and compatibility.
+- README.md                         Main player/server guide for the v1.8 release line.
+- RELEASE_NOTES.md                  StarChem v1.8.1 changes and compatibility.
 - AUTHENTICATION.md                 Multiplayer account/sign-in behavior.
 - TLS_IDENTITY_SECURITY.md          Server certificate identity and key storage.
 - UPGRADING_TO_1.8.0.md             Required reading before upgrading a v1.7.0 persistent server.
 
-StarChem v1.8.0 multiplayer uses protocol 17 and rules version 27. Dedicated-server save format 6 is current. Published v1.7.0 clients/servers are not multiplayer-compatible with v1.8.0.
+StarChem v1.8.1 multiplayer uses protocol 17 and rules version 27. Dedicated-server save format 6 is current.
+
+Important multiplayer update rule: v1.8.0 and v1.8.1 do not connect to each other because the compatibility handshake also requires an exact matching application version. Update the server and all clients together.
+
+Existing v1.8.0 save-format-6 server data does not require a new save migration for v1.8.1. Back up the complete server-data directory before updating anyway.
+
+Historical note: this file supersedes the StarChem v1.8.0 quick start shipped with the previous package.
