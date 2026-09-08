@@ -56,4 +56,4 @@ The voice test can be used while narration itself is disabled. Settings persist 
 
 Backend detection is cached for the client session. If speech startup fails, StarChem reports the backend/process failure to stderr instead of silently dropping the request.
 
-Text and narration priority are selected by the authoritative server notice; only speech playback occurs locally.
+The authoritative notice marks whether a message is eligible for narration. That flag is preserved for remote clients over the ordered notice packet; actual speech playback still happens only on the graphical client and only when the local user has narration enabled.
