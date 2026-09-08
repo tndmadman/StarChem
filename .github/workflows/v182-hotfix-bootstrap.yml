@@ -9,8 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  patch-and-validate:
-    if: ${{ !contains(github.event.head_commit.message, '[v182-hotfix-applied]') }}
+  hotfix:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,201 +25,21 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Apply v1.8.2 multiplayer hotfix
-        shell: python
-        run: |
-          from pathlib import Path
+      - name: Apply hotfix
+        run: python .github/scripts/v182_hotfix.py
 
-          def replace(path, old, new):
-              p = Path(path)
-              text = p.read_text(encoding='utf-8')
-              if old not in text:
-                  raise SystemExit(f'Expected patch context not found in {path}')
-              p.write_text(text.replace(old, new, 1), encoding='utf-8')
-
-          replace(
-              'src/main/java/com/tndmadman/rts/GalaxyMapWire.java',
-              '''        if (strategic != null) {
-            if (!ownerMarker || !ownerId.equals(strategic.ownerId())) {
-                throw new SnapshotDecodeException("Strategic empire summary does not match the owner projection.");
-            }
-            World activeWorld = PlayerRegistry.activeWorld();
-            if (activeWorld != null) StrategicSummaryRegistry.replace(activeWorld, strategic);
-        }
-        World activeWorld = PlayerRegistry.activeWorld();''',
-              '''        if (strategic != null && (!ownerMarker || !ownerId.equals(strategic.ownerId()))) {
-            throw new SnapshotDecodeException("Strategic empire summary does not match the owner projection.");
-        }
-        World activeWorld = PlayerRegistry.activeWorld();''')
-
-          replace(
-              'src/main/java/com/tndmadman/rts/PeerClientSide.java',
-              '''    void rejectPacket(RuntimeException ex) {
-        if (ex instanceof SnapshotDecodeException snapshotError) {
-            rejectSnapshot(snapshotError);
-            return;
-        }
-        world.status = "Rejected malformed server packet.";
-        System.err.println(world.status + " " + ex.getClass().getSimpleName());
-    }''',
-              '''    void rejectPacket(RuntimeException ex) {
-        if (ex instanceof SnapshotDecodeException snapshotError) {
-            rejectSnapshot(snapshotError);
-            return;
-        }
-        String detail = ex == null ? "" : ex.getMessage();
-        world.status = detail == null || detail.isBlank()
-                ? "Rejected malformed server packet."
-                : "Rejected malformed server packet: " + detail.trim();
-        System.err.println(world.status + " [" + (ex == null ? "RuntimeException" : ex.getClass().getSimpleName()) + "]");
-    }''')
-
-          replace(
-              'src/main/java/com/tndmadman/rts/PeerClientSide.java',
-              '''    private boolean readGalaxy(String message) {
-        if (message == null || !message.startsWith("GALAXY|")) return false;
-        GalaxyMapWire.Decoded decoded = GalaxyMapWire.decode(message);
-        world.configureGalaxyCopies(decoded.copiesPerTemplate());
-        if (decoded.ownerProjection().present()) {
-            OwnerFleetLocationRegistry.replace(world, decoded.ownerProjection().ownerId(), decoded.ownerUnitLocations());
-        }
-        world.applyRemoteGalaxyMapSnapshot(decoded.snapshot());
-        return true;
-    }''',
-              '''    private boolean readGalaxy(String message) {
-        if (message == null || !message.startsWith("GALAXY|")) return false;
-        GalaxyMapWire.Decoded decoded = GalaxyMapWire.decode(message);
-        if (decoded.ownerProjection().present()) {
-            String ownerId = decoded.ownerProjection().ownerId();
-            boolean localAssigned = localPlayerId != null && !localPlayerId.isBlank()
-                    && !"WAIT".equals(localPlayerId) && !"SOLO".equals(localPlayerId);
-            if (!localAssigned) {
-                System.err.println("Ignored owner-scoped GALAXY packet before local player assignment: " + ownerId + ".");
-                return true;
-            }
-            if (!localPlayerId.equals(ownerId)) {
-                System.err.println("Ignored stale GALAXY packet for owner " + ownerId
-                        + " while local player is " + localPlayerId + ".");
-                return true;
-            }
-        }
-        world.configureGalaxyCopies(decoded.copiesPerTemplate());
-        if (decoded.ownerProjection().present()) {
-            OwnerFleetLocationRegistry.replace(world, decoded.ownerProjection().ownerId(), decoded.ownerUnitLocations());
-            if (decoded.strategicSummary() != null) {
-                StrategicSummaryRegistry.replace(world, decoded.strategicSummary());
-            }
-        }
-        world.applyRemoteGalaxyMapSnapshot(decoded.snapshot());
-        return true;
-    }''')
-
-          replace(
-              'src/main/java/com/tndmadman/rts/PeerClientSide.java',
-              '''    private boolean fromConfiguredServer(NetPacket packet) {
-        return packet != null && config.serverAddress != null && config.serverAddress.getAddress() != null
-                && config.serverAddress.getPort() == packet.port()
-                && config.serverAddress.getAddress().equals(packet.address());
-    }''',
-              '''    private boolean fromConfiguredServer(NetPacket packet) {
-        if (packet == null || config.serverAddress == null || config.serverAddress.getAddress() == null
-                || config.serverAddress.getPort() != packet.port()
-                || !config.serverAddress.getAddress().equals(packet.address())) return false;
-        ConnectionId current = transport.clientConnectionId();
-        ConnectionId incoming = packet.connectionId();
-        return current == null || !current.valid() || incoming == null || !incoming.valid() || current.equals(incoming);
-    }''')
-
-          replace(
-              'src/main/java/com/tndmadman/rts/PeerClientSide.java',
-              '''        String fingerprint = SessionTokenStore.serverFingerprint(config);
-        if (!PasswordAuth.validVerifier(fingerprint) || PasswordAuth.decodeHex(scopedSalt).length != 16) {
-            failConnection("The verified TLS server identity is unavailable; refusing to derive a login credential.");
-            return false;
-        }
-        SessionTokenStore.ScopedCredential stored = SessionTokenStore.scopedCredential(config);''',
-              '''        String fingerprint = SessionTokenStore.serverFingerprint(config);
-        if (!PasswordAuth.validVerifier(fingerprint) || PasswordAuth.decodeHex(scopedSalt).length != 16) {
-            failConnection("The verified TLS server identity is unavailable; refusing to derive a login credential.");
-            return false;
-        }
-        String normalizedFingerprint = fingerprint.toLowerCase(java.util.Locale.ROOT);
-        String normalizedScopedSalt = scopedSalt.toLowerCase(java.util.Locale.ROOT);
-        if (PasswordAuth.validVerifier(scopedPasswordVerifier)
-                && normalizedFingerprint.equals(authServerFingerprint)
-                && normalizedScopedSalt.equals(authScopedSalt)) {
-            return true;
-        }
-        SessionTokenStore.ScopedCredential stored = SessionTokenStore.scopedCredential(config);''')
-
-          replace(
-              'src/main/java/com/tndmadman/rts/GalaxyMapWireValidator.java',
-              'import java.util.Set;\n',
-              'import java.util.Map;\nimport java.util.Set;\n')
-
-          replace(
-              'src/main/java/com/tndmadman/rts/GalaxyMapWireValidator.java',
-              '''        require(originalCorsair.controllerId().equals(decodedCorsair.controllerId()), "controller identity changed on wire");
-        require(originalCorsair.controlColorRgb() == decodedCorsair.controlColorRgb(), "controller color changed on wire");
-        expectRejected("GALAXY|3|bad", "out-of-range copy count was accepted");''',
-              '''        require(originalCorsair.controllerId().equals(decodedCorsair.controllerId()), "controller identity changed on wire");
-        require(originalCorsair.controlColorRgb() == decodedCorsair.controlColorRgb(), "controller color changed on wire");
-
-        PlayerRegistry.activate(world);
-        PlayerRegistry.reset("WAIT", "Wire Validator", 0x50BEFF);
-        StrategicSummaryRegistry.clear(world);
-        String ownerEncoded = GalaxyMapWire.encode(2, original, "P1", Map.of());
-        GalaxyMapWire.Decoded ownerDecoded = GalaxyMapWire.decode(ownerEncoded);
-        require(ownerDecoded.ownerProjection().present(), "owner projection was lost on wire");
-        require("P1".equals(ownerDecoded.ownerProjection().ownerId()), "owner projection identity changed on wire");
-        require(ownerDecoded.strategicSummary() != null, "strategic summary was lost on wire");
-        require("P1".equals(ownerDecoded.strategicSummary().ownerId()), "strategic summary owner changed on wire");
-        require(!StrategicSummaryRegistry.state(world).initialized(),
-                "galaxy decoder must not apply owner-scoped strategic state before client identity validation");
-
-        expectRejected("GALAXY|3|bad", "out-of-range copy count was accepted");''')
-
-          replace('gradle.properties', 'releaseVersion=1.8.1-dev\n', 'releaseVersion=1.8.2-dev\n')
-          replace(
-              'src/main/java/com/tndmadman/rts/BuildInfo.java',
-              '    private static final String FALLBACK_VERSION = "1.8.1-dev";\n',
-              '    private static final String FALLBACK_VERSION = "1.8.2-dev";\n')
-
-          notes = Path('RELEASE_NOTES.md')
-          text = notes.read_text(encoding='utf-8')
-          old_prefix = '# StarChem v1.8.1\n\n'
-          if not text.startswith(old_prefix):
-              raise SystemExit('Unexpected RELEASE_NOTES.md heading')
-          hotfix = '''# StarChem v1.8.2
-
-StarChem v1.8.2 is a multiplayer join/reconnect hotfix for the v1.8 line. It keeps **protocol 17**, **rules version 27**, and **save format 6** unchanged, so v1.8.1 saves continue to load directly. Multiplayer still requires the exact application version, so servers and clients should update to v1.8.2 together.
-
-## v1.8.2 Multiplayer Hotfix
-
-- Prevented owner-scoped galaxy/strategic state from mutating client state during generic packet decoding before the client identity has been validated.
-- Ignore stale or wrong-owner galaxy projections during join/reconnect instead of repeatedly rejecting strategic summaries against the current local player.
-- Bind accepted server packets to the current TCP connection identity in addition to the configured endpoint, hardening reconnects against stale connection frames.
-- Reuse an already-derived in-memory server-scoped credential when the same verified TLS identity and salt re-challenge during a transient bootstrap retry, avoiding unnecessary password re-entry.
-- Improved malformed server-packet diagnostics to retain the exception detail and type instead of logging only `IllegalStateException`.
-- Added galaxy-wire regression coverage proving decode no longer applies owner-scoped strategic state as a side effect.
-
-## v1.8.1 Changes Carried Forward
-
-'''
-          notes.write_text(hotfix + text[len(old_prefix):], encoding='utf-8')
-
-      - name: Compile and run focused multiplayer regression suite
+      - name: Focused multiplayer regressions
         run: |
           gradle clean classes --no-daemon -PreleaseVersion=1.8.2-dev
           gradle validateGalaxyMapWire validateNetworkSecurity validateTcpConnectionIdentity validateTcpMultiplayer validateTcpReconnect validateSessionRecovery --no-daemon -PreleaseVersion=1.8.2-dev
           bash validation/validate-release-metadata.sh
 
-      - name: Run full verification
+      - name: Full verification
         run: gradle check --no-daemon -PreleaseVersion=1.8.2-dev
 
       - name: Commit validated hotfix
         run: |
-          rm -f .github/workflows/v182-hotfix-bootstrap.yml
+          rm -f .github/workflows/v182-hotfix-bootstrap.yml .github/scripts/v182_hotfix.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
