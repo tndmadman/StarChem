@@ -7,22 +7,13 @@ import java.awt.RenderingHints;
 import java.awt.Stroke;
 import java.awt.image.BufferedImage;
 
+/** Renders ship hulls and deliberate gameplay effects, never per-ship status UI. */
 final class UnitRenderer {
     private static final Stroke ROUTE_STROKE =
             new BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
-    private static final Stroke SELECTED_STROKE = new BasicStroke(2f);
     private static final Stroke WORK_STROKE =
             new BasicStroke(3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
-    private static final Stroke WEAPON_RANGE_STROKE =
-            new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 0, new float[]{12f, 7f}, 0);
-    private static final Color SELECTED_COLOR = new Color(255, 245, 120);
     private static final Color FAR_SHADOW = new Color(0, 0, 0, 165);
-    private static final Color PACKAGE_COLOR = new Color(255, 230, 130);
-    private static final Color BAR_BACKGROUND = new Color(20, 20, 20);
-    private static final Color HP_COLOR = new Color(80, 230, 90);
-    private static final Color DAMAGE_COLOR = new Color(255, 112, 88);
-    private static final Color CARGO_COLOR = new Color(110, 200, 255);
-    private static final Color CARGO_TEXT = new Color(220, 238, 250);
     private static boolean miningRangeOverlayVisible;
 
     private UnitRenderer() { }
@@ -36,131 +27,39 @@ final class UnitRenderer {
     static void draw(Graphics2D g2, Unit unit, Color ignoredColor, boolean ignoredOwner) {
         if (g2 == null || unit == null) return;
         Color playerColor = PlayerRegistry.color(unit.playerId);
-        boolean owner = PlayerRegistry.isLocal(unit.playerId);
-        boolean selectedOwner = unit.selected && owner;
-
-        // Selection context belongs to the render thread/frame, not to the process-global
-        // active-world pointer. In multiplayer/client rendering those may be different World
-        // instances; using activeWorld() here made every selected unit fall back to detailed
-        // single-ship rendering even though World.draw had already built a fleet context.
         SelectionRenderPolicy.Frame frame = SelectionRenderPolicy.currentFrame();
-        World world = frame == null ? PlayerRegistry.activeWorld() : frame.world();
         double scale = frame == null ? SelectionRenderPolicy.scale(g2) : frame.scale();
 
-        int selectedCount = selectedOwner && frame != null ? frame.selectedCount() : (selectedOwner ? 1 : 0);
-        boolean aggregateSelection = selectedOwner && selectedCount > SelectionRenderPolicy.FULL_LIMIT;
-        boolean primarySelection = selectedOwner && (frame == null || frame.primary() == unit);
-        boolean exactSelectedDetail = selectedOwner && (frame == null || frame.exactSelectedDetail(unit));
-        boolean forceCheapHull = selectedOwner && frame != null
-                && selectedCount > SelectionRenderPolicy.COMPACT_LIMIT && !primarySelection;
-        if (selectedOwner && frame != null) frame.noteSelectedDraw(exactSelectedDetail);
-
-        // Body culling is intentionally independent of huge tactical overlays. A weapon
-        // range intersecting the viewport must not force an off-screen ship hull, text,
-        // bars and cargo panel through the renderer.
-        boolean bodyVisible = RenderCulling.visible(g2, unit.x, unit.y, 96);
-
-        double weaponRange = 0;
-        boolean weaponRangeVisible = false;
-        if (exactSelectedDetail) {
-            weaponRange = displayedWeaponRange(world, unit);
-            weaponRangeVisible = weaponRange > 0
-                    && RenderCulling.visible(g2, unit.x, unit.y, weaponRange + 8);
+        // Selection deliberately does not change the ship renderer. Hundreds of selected
+        // ships therefore cost essentially the same to paint as hundreds of unselected ships.
+        if (frame != null && unit.selected && PlayerRegistry.isLocal(unit.playerId)) {
+            frame.noteSelectedDraw(false);
         }
 
-        boolean scoutRequested = owner && unit.type().scoutRange > 0 && shouldDrawScoutCircle(unit)
-                && (!aggregateSelection || exactSelectedDetail);
-        double scoutRange = 0;
-        boolean scoutVisible = false;
-        if (scoutRequested) {
-            scoutRange = world == null ? unit.type().scoutRange : VisibilityRules.unitSensorRange(world, unit);
-            scoutVisible = RenderCulling.visible(g2, unit.x, unit.y, scoutRange + 4);
-        }
-
-        boolean tractorRequested = owner && shouldDrawTractorCircle(unit)
-                && (!aggregateSelection || exactSelectedDetail);
-        double tractorRange = tractorRequested ? unit.type().tractorRange : 0;
-        boolean tractorVisible = tractorRequested
-                && RenderCulling.visible(g2, unit.x, unit.y, tractorRange + 4);
-        boolean fillWeaponRange = selectedCount <= 1;
-
-        if (!bodyVisible) {
-            drawVisibleOverlays(g2, world, unit, playerColor, weaponRange, weaponRangeVisible,
-                    fillWeaponRange, scoutRange, scoutVisible, tractorRange, tractorVisible);
-            return;
-        }
-
-        boolean damaged = unit.hp < unit.type().maxHp * 0.995;
-
-        // Selection no longer disables the same hull LOD used by unselected fleets.
-        // Fleet secondary selection markers are painted by the frame-level batch pass.
-        if (scale < 0.24) {
-            drawFarMarker(g2, unit, playerColor, scale);
-            if (!selectedOwner) return;
-            if (!exactSelectedDetail) {
-                if (damaged) drawDamageMarker(g2, unit);
-                return;
+        if (RenderCulling.visible(g2, unit.x, unit.y, 96)) {
+            if (scale < 0.24) {
+                drawFarMarker(g2, unit, playerColor, scale);
+            } else if (scale < 0.78) {
+                drawCachedHull(g2, unit, playerColor);
+            } else {
+                drawDetailedHull(g2, unit, playerColor);
             }
-        } else if (forceCheapHull || scale < 0.78) {
-            drawCachedHull(g2, unit, playerColor);
-        } else {
-            drawDetailedHull(g2, unit, playerColor);
         }
 
-        boolean fleetSecondary = aggregateSelection && !primarySelection;
-        if (fleetSecondary) {
-            if (damaged) drawDamageMarker(g2, unit);
-        } else if (exactSelectedDetail || damaged || scale >= 0.52) {
-            drawBars(g2, unit);
+        // Sensor/mining ranges are still available when explicitly toggled. Selection by
+        // itself never turns on a ring, name, HP/cargo bar, weapon range, or status label.
+        if (miningRangeOverlayVisible && PlayerRegistry.isLocal(unit.playerId)) {
+            World world = frame == null ? PlayerRegistry.activeWorld() : frame.world();
+            double scoutRange = unit.type().scoutRange > 0
+                    ? (world == null ? unit.type().scoutRange : VisibilityRules.unitSensorRange(world, unit)) : 0;
+            if (scoutRange > 0 && RenderCulling.visible(g2, unit.x, unit.y, scoutRange + 4)) {
+                drawRangeCircle(g2, unit, playerColor, scoutRange);
+            }
+            double tractorRange = unit.type().tractorBeamCount > 0 ? unit.type().tractorRange : 0;
+            if (tractorRange > 0 && RenderCulling.visible(g2, unit.x, unit.y, tractorRange + 4)) {
+                drawRangeCircle(g2, unit, playerColor, tractorRange);
+            }
         }
-
-        // Owner/name labels are one of the most expensive visual details in a dense fleet:
-        // each one measures text, paints a translucent rounded box and rasterizes glyphs.
-        // Keep exact selected detail readable, but ordinary ships share a sparse per-frame
-        // label grid with a hard density-based cap instead of drawing hundreds of duplicates.
-        boolean drawOrdinaryName = scale >= 0.62 && !fleetSecondary
-                && (frame == null || frame.claimNameLabel(unit));
-        if (exactSelectedDetail || drawOrdinaryName) drawName(g2, unit, playerColor);
-
-        if (!unit.basePackageType.isBlank() && (exactSelectedDetail || (!fleetSecondary && scale >= 0.62))) {
-            g2.setColor(PACKAGE_COLOR);
-            g2.drawString("PKG", (int)unit.x - 12, (int)unit.y + 45);
-        }
-
-        // Small selections retain per-ship detailed rings. At fleet scale only the
-        // primary ship keeps this detailed treatment; all secondary rings are batched.
-        if (exactSelectedDetail) {
-            drawSelectionMarker(g2, unit);
-            drawCargo(g2, unit);
-        }
-
-        drawVisibleOverlays(g2, world, unit, playerColor, weaponRange, weaponRangeVisible,
-                fillWeaponRange, scoutRange, scoutVisible, tractorRange, tractorVisible);
-    }
-
-    private static void drawVisibleOverlays(Graphics2D g2, World world, Unit unit, Color playerColor,
-                                            double weaponRange, boolean weaponRangeVisible,
-                                            boolean fillWeaponRange,
-                                            double scoutRange, boolean scoutVisible,
-                                            double tractorRange, boolean tractorVisible) {
-        if (weaponRangeVisible) {
-            drawWeaponRangeCircle(g2, unit, weaponRange, weaponRangeColor(world, unit), fillWeaponRange);
-        }
-        if (scoutVisible) drawRangeCircle(g2, unit, playerColor, scoutRange);
-        if (tractorVisible) drawRangeCircle(g2, unit, playerColor, tractorRange);
-    }
-
-    private static void drawSelectionMarker(Graphics2D g2, Unit unit) {
-        Stroke oldStroke = g2.getStroke();
-        g2.setColor(SELECTED_COLOR);
-        g2.setStroke(SELECTED_STROKE);
-        g2.drawOval((int)unit.x - 26, (int)unit.y - 26, 52, 52);
-        g2.setStroke(oldStroke);
-    }
-
-    private static void drawDamageMarker(Graphics2D g2, Unit unit) {
-        g2.setColor(DAMAGE_COLOR);
-        g2.fillRect((int)Math.round(unit.x) - 6, (int)Math.round(unit.y) - 31, 12, 3);
     }
 
     private static void drawDetailedHull(Graphics2D g2, Unit unit, Color playerColor) {
@@ -226,77 +125,6 @@ final class UnitRenderer {
         g2.drawLine((int)unit.x, (int)unit.y, (int)node.x, (int)node.y);
         g2.setStroke(oldStroke);
         g2.setColor(oldColor);
-    }
-
-    private static boolean shouldDrawScoutCircle(Unit unit) {
-        if (unit.type().harvestKinds.isEmpty()) return true;
-        return miningRangeOverlayVisible;
-    }
-
-    private static boolean shouldDrawTractorCircle(Unit unit) {
-        return miningRangeOverlayVisible && unit.type().tractorBeamCount > 0 && unit.type().tractorRange > 0;
-    }
-
-    private static Color weaponRangeColor(World world, Unit unit) {
-        WeaponType longest = null;
-        for (WeaponType weapon : WeaponRules.loadout(world, unit)) {
-            if (weapon.screenWeapon) continue;
-            if (longest == null || weapon.range > longest.range) longest = weapon;
-        }
-        return longest == null || longest.color == null ? new Color(255, 174, 84) : longest.color;
-    }
-
-    private static void drawWeaponRangeCircle(Graphics2D g2, Unit unit, double range, Color color, boolean fill) {
-        int diameter = (int)Math.round(range * 2);
-        int x = (int)Math.round(unit.x - range);
-        int y = (int)Math.round(unit.y - range);
-        if (fill) {
-            g2.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), 18));
-            g2.fillOval(x, y, diameter, diameter);
-        }
-        Stroke oldStroke = g2.getStroke();
-        g2.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), 155));
-        g2.setStroke(WEAPON_RANGE_STROKE);
-        g2.drawOval(x, y, diameter, diameter);
-        g2.setStroke(oldStroke);
-    }
-
-    private static void drawName(Graphics2D g2, Unit unit, Color color) {
-        String text = PlayerRegistry.name(unit.playerId);
-        int tw = g2.getFontMetrics().stringWidth(text);
-        int x = (int)unit.x - tw / 2;
-        int y = (int)unit.y - 42;
-        g2.setColor(new Color(0, 0, 0, 150));
-        g2.fillRoundRect(x - 5, y - 12, tw + 10, 16, 7, 7);
-        g2.setColor(color);
-        g2.drawString(text, x, y);
-    }
-
-    private static void drawCargo(Graphics2D g2, Unit unit) {
-        String text = "Cargo: " + ResourceText.shortLine(unit.inventory);
-        int tw = g2.getFontMetrics().stringWidth(text);
-        int x = (int)unit.x - tw / 2;
-        int y = (int)unit.y + 55;
-        g2.setColor(new Color(0, 0, 0, 170));
-        g2.fillRoundRect(x - 6, y - 13, tw + 12, 18, 8, 8);
-        g2.setColor(CARGO_TEXT);
-        g2.drawString(text, x, y);
-    }
-
-    private static void drawBars(Graphics2D g2, Unit unit) {
-        int barW = 36;
-        g2.setColor(BAR_BACKGROUND);
-        g2.fillRect((int)unit.x - barW / 2, (int)unit.y - 30, barW, 5);
-        g2.setColor(HP_COLOR);
-        g2.fillRect((int)unit.x - barW / 2, (int)unit.y - 30,
-                (int)(barW * unit.hp / Math.max(1, unit.type().maxHp)), 5);
-        if (unit.type().cargoCapacity > 0) {
-            g2.setColor(BAR_BACKGROUND);
-            g2.fillRect((int)unit.x - barW / 2, (int)unit.y + 27, barW, 4);
-            g2.setColor(CARGO_COLOR);
-            g2.fillRect((int)unit.x - barW / 2, (int)unit.y + 27,
-                    (int)(barW * unit.cargoUsed() / unit.type().cargoCapacity), 4);
-        }
     }
 
     private static void drawRangeCircle(Graphics2D g2, Unit unit, Color playerColor, double range) {
