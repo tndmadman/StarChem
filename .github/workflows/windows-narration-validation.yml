@@ -1,0 +1,53 @@
+name: Windows Narration Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/windows-narration-validation.yml'
+      - 'src/main/java/com/tndmadman/rts/NarrationProcessRunner.java'
+      - 'src/main/java/com/tndmadman/rts/NarrationProcessValidator.java'
+      - 'src/main/java/com/tndmadman/rts/NarrationService.java'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/windows-narration-validation.yml'
+      - 'src/main/java/com/tndmadman/rts/NarrationProcessRunner.java'
+      - 'src/main/java/com/tndmadman/rts/NarrationProcessValidator.java'
+      - 'src/main/java/com/tndmadman/rts/NarrationService.java'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-narration-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate Windows System.Speech backend
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Compile StarChem
+        run: gradle classes --no-daemon
+
+      - name: Validate narration process and Windows speech backend
+        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.NarrationProcessValidator
