@@ -17,12 +17,27 @@ public final class NarrationProcessValidator {
             runHelper(args);
             return;
         }
+        validateNarrationDefaultAndWindowsProbe();
         validateCapturedOutputIsDrainedAndBounded();
         validateDiscardedOutputCannotBlock();
         validateTimeoutKillsDescendants();
         validateRunnerRemainsUsableAfterTimeout();
         validateIoThreadCountIsBounded();
         System.out.println("StarChem narration process validation passed.");
+    }
+
+    private static void validateNarrationDefaultAndWindowsProbe() {
+        require(!NarrationService.DEFAULT_ENABLED, "narration must be disabled by default");
+        List<String> command = NarrationService.windowsSpeechProbeCommand("powershell.exe");
+        require(command.size() == 5, "Windows narration probe command shape changed unexpectedly");
+        require("powershell.exe".equals(command.get(0)), "Windows narration probe lost its requested shell");
+        require(command.contains("-NoProfile"), "Windows narration probe must disable profile loading");
+        require(command.contains("-NonInteractive"), "Windows narration probe must be non-interactive");
+        require(command.contains("-Command"), "Windows narration probe must execute a PowerShell command");
+        require(!command.contains("--version"), "Windows narration probe must not use unsupported --version detection");
+        String script = command.get(command.size() - 1);
+        require(script.contains("System.Speech"), "Windows narration probe must validate System.Speech itself");
+        require(script.contains("SpeechSynthesizer"), "Windows narration probe must construct the speech synthesizer");
     }
 
     private static void validateCapturedOutputIsDrainedAndBounded() throws Exception {
