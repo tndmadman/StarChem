@@ -7,41 +7,122 @@ on:
 
 permissions:
   contents: write
-  actions: write
+  actions: read
 
 jobs:
-  tag-and-publish:
+  finalize-release:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      RELEASE_SHA: cef09d2e8edb536e7db80fa9352746c9b4239981
+      RELEASE_TAG: v1.8.1
+      RELEASE_ZIP: StarChem-v1.8.1.zip
+      CHECKSUM_FILE: StarChem-v1.8.1.zip.sha256
     steps:
-      - name: Check out source
+      - name: Check out exact tagged source
         uses: actions/checkout@v4
         with:
+          ref: v1.8.1
           fetch-depth: 0
 
-      - name: Create exact v1.8.1 tag
-        env:
-          RELEASE_SHA: cef09d2e8edb536e7db80fa9352746c9b4239981
+      - name: Verify immutable release tag
+        shell: bash
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git rev-parse -q --verify "refs/tags/v1.8.1" >/dev/null; then
-            existing="$(git rev-list -n 1 v1.8.1)"
-            if [ "$existing" != "$RELEASE_SHA" ]; then
-              echo "v1.8.1 already points to $existing, expected $RELEASE_SHA" >&2
-              exit 1
-            fi
-          else
-            git tag -a v1.8.1 "$RELEASE_SHA" -m "StarChem v1.8.1"
-            git push origin refs/tags/v1.8.1
-          fi
+          git fetch --force origin tag "$RELEASE_TAG"
+          TAG_COMMIT="$(git rev-list -n 1 "$RELEASE_TAG")"
+          echo "Tag $RELEASE_TAG -> $TAG_COMMIT"
+          [[ "$TAG_COMMIT" == "$RELEASE_SHA" ]]
+          [[ "$(sed -n 's/^# StarChem v//p' RELEASE_NOTES.md | head -n 1 | tr -d '\r')" == "1.8.1" ]]
 
-      - name: Dispatch existing release workflow
+      - name: Find and wait for official release build
+        id: release_run
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # A tag pushed with GITHUB_TOKEN does not trigger downstream workflows,
-          # so dispatch the existing release workflow explicitly against the tag.
-          gh workflow run release.yml --ref v1.8.1 || \
-          gh workflow run "Release StarChem" --ref v1.8.1
+          RUN_ID=""
+          for _ in {1..60}; do
+            RUN_ID="$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow release.yml \
+              --event workflow_dispatch \
+              --branch "$RELEASE_TAG" \
+              --limit 20 \
+              --json databaseId,headSha,status,conclusion,createdAt \
+              --jq '[.[] | select(.headSha == env.RELEASE_SHA)] | sort_by(.createdAt) | reverse | .[0].databaseId // empty')"
+            if [[ -n "$RUN_ID" ]]; then
+              break
+            fi
+            sleep 5
+          done
+          [[ -n "$RUN_ID" ]]
+          echo "Using official Release StarChem run $RUN_ID"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status
+
+      - name: Download validated v1.8.1 artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.release_run.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          rm -rf release-artifact
+          mkdir -p release-artifact
+          gh run download "$RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "StarChem-release-${RELEASE_SHA}" \
+            --dir release-artifact
+          test -s "release-artifact/$RELEASE_ZIP"
+          test -s "release-artifact/$CHECKSUM_FILE"
+          (
+            cd release-artifact
+            sha256sum -c "$CHECKSUM_FILE"
+          )
+          rm -rf verify-release
+          unzip -q "release-artifact/$RELEASE_ZIP" -d verify-release
+          test -s verify-release/StarChem/StarChem.jar
+          test -s verify-release/StarChem/RELEASE_NOTES.md
+          grep -Fq '# StarChem v1.8.1' verify-release/StarChem/RELEASE_NOTES.md
+          EXPECTED="StarChem 1.8.1 (${RELEASE_SHA:0:12})"
+          ACTUAL="$(java -jar verify-release/StarChem/StarChem.jar --version)"
+          echo "$ACTUAL"
+          [[ "$ACTUAL" == "$EXPECTED" ]]
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; ensuring validated artifacts are attached."
+            gh release upload "$RELEASE_TAG" \
+              "release-artifact/$RELEASE_ZIP" \
+              "release-artifact/$CHECKSUM_FILE" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              "release-artifact/$RELEASE_ZIP" \
+              "release-artifact/$CHECKSUM_FILE" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "StarChem v1.8.1" \
+              --notes-file RELEASE_NOTES.md \
+              --verify-tag
+          fi
+
+      - name: Verify published release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName,name,isDraft,isPrerelease,url,assets \
+            --jq '{tagName,name,isDraft,isPrerelease,url,assets:[.assets[].name]}'
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[].name' | grep -Fx "$RELEASE_ZIP"
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[].name' | grep -Fx "$CHECKSUM_FILE"
