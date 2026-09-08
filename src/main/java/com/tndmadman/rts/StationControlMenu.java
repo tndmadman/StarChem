@@ -33,7 +33,6 @@ final class StationControlMenu {
     private static final Color TEXT = new Color(230, 242, 250);
     private static final Color MUTED = new Color(155, 180, 196);
     private static final Color ACCENT = new Color(90, 220, 255);
-    private static final BuildMenu PRODUCTION_MENU = new BuildMenu();
     private static final int LABEL_WRAP_WIDTH = 470;
 
     private StationControlMenu() { }
@@ -60,16 +59,20 @@ final class StationControlMenu {
         content.add(Box.createVerticalStrut(10));
 
         if (!nonProduction) {
-            JButton production = actionButton("OPEN PRODUCTION", () -> {
+            JButton production = actionButton("OPEN MANUFACTURING (F9)", () -> {
                 popup.setVisible(false);
-                PRODUCTION_MENU.showForBase(world, network, base, x, y);
+                if (!ManufacturingOverlay.openForStation(world, base.id)) {
+                    world.status = "Manufacturing console is unavailable.";
+                }
             });
             production.setAlignmentX(Component.LEFT_ALIGNMENT);
             content.add(production);
             content.add(Box.createVerticalStrut(5));
-            JButton policies = actionButton("PRODUCTION POLICIES & TEMPLATES", () -> {
+            JButton policies = actionButton("MANAGE PRODUCTION POLICIES", () -> {
                 popup.setVisible(false);
-                ProductionPolicyMenu.show(invoker, world, network, base, x, y);
+                if (!ManufacturingOverlay.openPoliciesForStation(world, base.id)) {
+                    world.status = "Manufacturing policy console is unavailable.";
+                }
             });
             policies.setAlignmentX(Component.LEFT_ALIGNMENT);
             content.add(policies);

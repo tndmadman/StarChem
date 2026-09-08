@@ -24,6 +24,9 @@ final class CombatPolicyHud {
         List<Unit> selected = selected(world);
         if (selected.isEmpty()) return;
 
+        // One screen-space aggregate replaces per-ship names/HP/shields/selection UI.
+        SelectionSummaryHud.draw(g2, world);
+
         Rectangle stance = stanceBounds();
         Rectangle priority = priorityBounds();
         Rectangle panel = new Rectangle(X, Y, BUTTON_W * 2 + GAP + 16, BUTTON_H + 16);

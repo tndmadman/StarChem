@@ -4,8 +4,17 @@ final class BuildSystem {
     boolean buildShip(World world, String baseId, String requestedId) {
         Base base = world.bases.get(baseId);
         if (base == null) return false;
-        ShipLoadoutDefinition requestedLoadout = WeaponRules.findLoadout(world, requestedId);
-        ShipType shipType = requestedLoadout == null ? Rules.findShip(requestedId) : Rules.findShip(requestedLoadout.hullId());
+
+        // Hull IDs and loadout IDs share the same command field. Prefer an exact hull match so a
+        // request for (for example) "prospector" can never be reinterpreted as a different hull by
+        // a colliding authored/runtime loadout ID. Variant loadout IDs are still accepted when there
+        // is no exact hull with that ID.
+        ShipType exactHull = Rules.findShip(requestedId);
+        ShipLoadoutDefinition requestedLoadout = exactHull == null
+                ? WeaponRules.findLoadout(world, requestedId) : null;
+        ShipType shipType = exactHull != null
+                ? exactHull
+                : requestedLoadout == null ? null : Rules.findShip(requestedLoadout.hullId());
         if (shipType == null) {
             world.status = "Unknown ship or loadout ID: " + requestedId + ".";
             return false;

@@ -18,6 +18,7 @@ final class GameFrame extends JFrame {
     private static final String SAVED_SIGN_IN_REFRESH_NOTICE =
             "The saved sign-in no longer matches this server. Enter the commander password again.";
     private static final String RESOURCE_CATALOG_ACTION = "toggle-resource-catalog";
+    private static final String MANUFACTURING_ACTION = "toggle-manufacturing-console";
     private static final String CODEX_ACTION = "toggle-codex";
     private static final String NARRATION_SETTINGS_ACTION = "toggle-narration-settings";
     private static final String TUTORIAL_ACTION = "toggle-first-run-tutorial";
@@ -32,6 +33,7 @@ final class GameFrame extends JFrame {
 
     private GamePanel gamePanel;
     private ResourceCatalogOverlay resourceCatalogOverlay;
+    private ManufacturingOverlay manufacturingOverlay;
     private CodexOverlay codexOverlay;
     private NarrationSettingsOverlay narrationSettingsOverlay;
     private TutorialOverlay tutorialOverlay;
@@ -148,6 +150,7 @@ final class GameFrame extends JFrame {
         soloSession = config.role() == NetworkRole.SOLO;
         gamePanel = new GamePanel(world, this, activeNetwork, config.devMode, devAuthorityNetwork);
         resourceCatalogOverlay = new ResourceCatalogOverlay(gamePanel, world);
+        manufacturingOverlay = new ManufacturingOverlay(gamePanel, world, activeNetwork);
         codexOverlay = new CodexOverlay(gamePanel);
         narrationSettingsOverlay = new NarrationSettingsOverlay();
         if (soloSession) TutorialPreferenceVersion.ensureCurrent();
@@ -161,6 +164,7 @@ final class GameFrame extends JFrame {
                 this::quitGameFromMenu);
 
         installResourceCatalogHotkey(gamePanel);
+        installManufacturingHotkey(gamePanel);
         installCodexHotkey(gamePanel);
         installNarrationSettingsHotkey(gamePanel);
         installTutorialHotkey(gamePanel);
@@ -173,6 +177,7 @@ final class GameFrame extends JFrame {
         root.removeAll();
         root.add(gamePanel, JLayeredPane.DEFAULT_LAYER);
         root.add(resourceCatalogOverlay, JLayeredPane.PALETTE_LAYER);
+        root.add(manufacturingOverlay, Integer.valueOf(JLayeredPane.PALETTE_LAYER.intValue() + 20));
         root.add(tutorialOverlay, JLayeredPane.PALETTE_LAYER);
         root.add(narrationSettingsOverlay, JLayeredPane.POPUP_LAYER);
         root.add(codexOverlay, JLayeredPane.POPUP_LAYER);
@@ -184,7 +189,7 @@ final class GameFrame extends JFrame {
 
         if (!world.status.contains("Press I")) {
             world.status = world.status
-                    + " Press I for catalog; F1 for codex; F8 for narration; ESC for menu"
+                    + " Press I for catalog; F9 manufacturing; F1 for codex; F8 for narration; ESC for menu"
                     + (soloSession
                     ? "; F2 tutorial; F3 skip step; F4 skip section; F5 restart; F6 skip tutorial."
                     : ".");
@@ -255,6 +260,7 @@ final class GameFrame extends JFrame {
     private void openSettings(SettingsPanel.Source source) {
         if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
         if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
+        if (manufacturingOverlay != null && manufacturingOverlay.isVisible()) manufacturingOverlay.close();
         if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) narrationSettingsOverlay.close();
         settingsPanel.open(source);
         settingsOverlay.setVisible(true);
@@ -286,10 +292,29 @@ final class GameFrame extends JFrame {
 
     void toggleResourceCatalogFromGame() {
         if (resourceCatalogOverlay == null || modalMenuVisible()) return;
-        if (resourceCatalogOverlay.isSearchFocused()) return;
+        if (resourceCatalogOverlay.isSearchFocused()
+                || manufacturingOverlay != null && manufacturingOverlay.isSearchFocused()) return;
+        if (manufacturingOverlay != null && manufacturingOverlay.isVisible()) manufacturingOverlay.close();
         if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
         if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) narrationSettingsOverlay.close();
         resourceCatalogOverlay.toggle();
+    }
+
+    private void installManufacturingHotkey(JComponent target) {
+        target.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_F9, 0), MANUFACTURING_ACTION);
+        target.getActionMap().put(MANUFACTURING_ACTION, new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent event) { toggleManufacturingFromGame(); }
+        });
+    }
+
+    void toggleManufacturingFromGame() {
+        if (manufacturingOverlay == null || modalMenuVisible()) return;
+        if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
+        if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
+        if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) narrationSettingsOverlay.close();
+        manufacturingOverlay.toggle();
+        if (manufacturingOverlay.isVisible()) root.moveToFront(manufacturingOverlay);
     }
 
     private void installCodexHotkey(JComponent target) {
@@ -299,6 +324,7 @@ final class GameFrame extends JFrame {
             @Override public void actionPerformed(ActionEvent event) {
                 if (codexOverlay == null || modalMenuVisible()) return;
                 if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
+                if (manufacturingOverlay != null && manufacturingOverlay.isVisible()) manufacturingOverlay.close();
                 if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) narrationSettingsOverlay.close();
                 codexOverlay.toggle();
             }
@@ -316,6 +342,7 @@ final class GameFrame extends JFrame {
     void toggleNarrationFromGame() {
         if (narrationSettingsOverlay == null || modalMenuVisible()) return;
         if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
+        if (manufacturingOverlay != null && manufacturingOverlay.isVisible()) manufacturingOverlay.close();
         if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
         narrationSettingsOverlay.toggle();
     }
@@ -357,6 +384,10 @@ final class GameFrame extends JFrame {
                 || event.getSource() instanceof JTextComponent) return false;
         if (ShipFittingWindow.closeActive()) return true;
         if (gamePanel.handleEscapeBeforeMenu()) return true;
+        if (manufacturingOverlay != null && manufacturingOverlay.isVisible()) {
+            manufacturingOverlay.close();
+            return true;
+        }
         if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) {
             resourceCatalogOverlay.close();
             return true;
@@ -385,6 +416,7 @@ final class GameFrame extends JFrame {
     private void openInGameMenu() {
         if (inGameMenuOverlay == null || modalMenuVisible()) return;
         if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
+        if (manufacturingOverlay != null && manufacturingOverlay.isVisible()) manufacturingOverlay.close();
         if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
         if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) narrationSettingsOverlay.close();
         if (tutorialOverlay != null) tutorialOverlay.stop();
@@ -441,6 +473,7 @@ final class GameFrame extends JFrame {
             KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(gameMenuDispatcher);
             gameMenuDispatcherInstalled = false;
         }
+        if (manufacturingOverlay != null) manufacturingOverlay.disposeOverlay();
         WorldRuntimeCleanup.discard(stoppingWorld);
         if (resourceCatalogOverlay != null) resourceCatalogOverlay.setVisible(false);
         if (codexOverlay != null) codexOverlay.close();
@@ -452,6 +485,7 @@ final class GameFrame extends JFrame {
         resetDeveloperSimulationState(stoppingWorld);
         gamePanel = null;
         resourceCatalogOverlay = null;
+        manufacturingOverlay = null;
         codexOverlay = null;
         narrationSettingsOverlay = null;
         tutorialOverlay = null;
@@ -477,6 +511,7 @@ final class GameFrame extends JFrame {
         if (gamePanel != null) gamePanel.setBounds(0, 0, width, height);
         settingsOverlay.setBounds(0, 0, width, height);
         if (resourceCatalogOverlay != null) resourceCatalogOverlay.setBounds(0, 0, width, height);
+        if (manufacturingOverlay != null) manufacturingOverlay.setBounds(0, 0, width, height);
         if (tutorialOverlay != null) tutorialOverlay.setBounds(0, 0, width, height);
         if (codexOverlay != null) codexOverlay.setBounds(0, 0, width, height);
         if (narrationSettingsOverlay != null) narrationSettingsOverlay.setBounds(0, 0, width, height);

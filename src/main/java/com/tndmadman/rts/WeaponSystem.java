@@ -88,10 +88,8 @@ final class WeaponSystem {
             unitsToDraw = spatial.unitsIn(clip, 160, visibleUnits);
         }
 
-        for (Unit unit : unitsToDraw) {
-            if (!RenderCulling.visible(g2, unit.x, unit.y, 90)) continue;
-            drawUnitShieldBar(g2, unit);
-        }
+        // Shields are represented in the aggregate SelectionSummaryHud. Rendering one
+        // bar per ship was a large source of dense-fleet overdraw and text/UI clutter.
         for (ProjectileShot shot : world.shots) {
             if (!RenderCulling.segmentVisible(g2, shot.lastX, shot.lastY, shot.x, shot.y, 18)) continue;
             drawMovingShot(g2, shot);
@@ -308,21 +306,6 @@ final class WeaponSystem {
         double speedFactor = Math.max(0.35, Math.min(1.15, 1.2 - unit.type().speed / 360.0));
         double trackedSpeed = weapon.tracking + (1.0 - weapon.tracking) * speedFactor;
         return Math.max(0.45, Math.min(1.65, sizeFactor * trackedSpeed));
-    }
-
-    private void drawUnitShieldBar(Graphics2D g2, Unit unit) {
-        if (unit.type().maxShield <= 0) return;
-        // At fleet-scale zoom the bar costs more pixels than the ship and adds no useful information.
-        double scale = Math.abs(g2.getTransform().getScaleX());
-        if (!unit.selected && scale < 0.42) return;
-        if (!unit.selected && unit.shield >= unit.type().maxShield * 0.995 && scale < 0.8) return;
-        int w = 36;
-        int x = (int)unit.x - w / 2;
-        int y = (int)unit.y - 36;
-        g2.setColor(new Color(20,20,20));
-        g2.fillRect(x, y, w, 4);
-        g2.setColor(new Color(80,180,255));
-        g2.fillRect(x, y, (int)(w * Math.max(0, unit.shield) / Math.max(1, unit.type().maxShield)), 4);
     }
 
     private void drawMovingShot(Graphics2D g2, ProjectileShot shot) {

@@ -201,7 +201,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
                 + " | Miner ranges: " + minerRanges + " (" + settings.bindingText("miner_range") + ")"
                 + " | Audio: " + audio + " (" + settings.bindingText("mute_audio") + ")" + perf,
                 28, 102);
-        g2.drawString(settings.hudCommandLine() + " | Mode: " + commandModeLabel(), 28, 124);
+        g2.drawString(settings.hudCommandLine() + " | Manufacturing: F9 | Mode: " + commandModeLabel(), 28, 124);
         drawFittingButton(g2);
     }
 
