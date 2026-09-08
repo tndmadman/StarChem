@@ -1,0 +1,47 @@
+name: Publish StarChem v1.8.1
+
+on:
+  push:
+    branches:
+      - release-publish/v1.8.1
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  tag-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create exact v1.8.1 tag
+        env:
+          RELEASE_SHA: cef09d2e8edb536e7db80fa9352746c9b4239981
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git rev-parse -q --verify "refs/tags/v1.8.1" >/dev/null; then
+            existing="$(git rev-list -n 1 v1.8.1)"
+            if [ "$existing" != "$RELEASE_SHA" ]; then
+              echo "v1.8.1 already points to $existing, expected $RELEASE_SHA" >&2
+              exit 1
+            fi
+          else
+            git tag -a v1.8.1 "$RELEASE_SHA" -m "StarChem v1.8.1"
+            git push origin refs/tags/v1.8.1
+          fi
+
+      - name: Dispatch existing release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # A tag pushed with GITHUB_TOKEN does not trigger downstream workflows,
+          # so dispatch the existing release workflow explicitly against the tag.
+          gh workflow run release.yml --ref v1.8.1 || \
+          gh workflow run "Release StarChem" --ref v1.8.1
