@@ -38,7 +38,7 @@ Repeated identical notices are rate-limited.
 
 ## Narration
 
-Narration is a client presentation option. The dedicated server never opens an audio device or runs a speech engine. Narration is **disabled by default** and remains opt-in; an explicitly saved user preference is still respected on later launches.
+Narration is a client presentation option. The dedicated server never opens an audio device or runs a speech engine. Narration is **disabled by default** and remains opt-in. The current narration preference uses a new opt-in preference key so older saved `enabled=true` values cannot silently carry forward and leave narration on after this change. After the user explicitly enables or disables narration under the new setting, that choice is respected on later launches.
 
 Press **F8** in the graphical client to configure:
 
