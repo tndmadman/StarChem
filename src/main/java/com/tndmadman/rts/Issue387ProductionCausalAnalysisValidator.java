@@ -20,9 +20,10 @@ public final class Issue387ProductionCausalAnalysisValidator {
         validateMissingInputsAndNoMutation();
         validateQueueBlocker();
         validateInTransitRecognition();
-        validateReachableRemoteWithoutStandingRoute();
+        validateReachableRemoteUsesDemandLogistics();
+        validateMissingDepartureGate();
         validateInaccessibleRemoteSource();
-        validateNoEligibleTransport();
+        validateCourierConfigurationBlocker();
         validateUnauthorizedRedaction();
         validateStaleStateRedaction();
         validateForeignInventoryIsNotExposed();
@@ -39,13 +40,13 @@ public final class Issue387ProductionCausalAnalysisValidator {
 
         EnumMap<Material, Double> inventoryBefore = new EnumMap<>(target.inventory);
         List<String> queueBefore = queueIds(target);
-        ProductionCausalAnalyzer.Analysis analysis = ProductionCausalAnalyzer.analyze(world, target, job);
+        ProductionCausalAnalyzer.Analysis analysis = ProductionDiagnosticService.analyze(world, target, job);
 
         require(analysis.blocked(), "waiting production job was not reported blocked");
         require(hasCause(analysis.causes(), ProductionCausalAnalyzer.CauseType.MISSING_INPUTS),
                 "missing material cause was not reported");
-        require(inventoryBefore.equals(target.inventory), "analyzer mutated station inventory");
-        require(queueBefore.equals(queueIds(target)), "analyzer mutated the production queue");
+        require(inventoryBefore.equals(target.inventory), "diagnostics mutated station inventory");
+        require(queueBefore.equals(queueIds(target)), "diagnostics mutated the production queue");
     }
 
     private static void validateQueueBlocker() {
@@ -59,7 +60,7 @@ public final class Issue387ProductionCausalAnalysisValidator {
         earlier.loadoutId = WeaponRules.defaultLoadout(ship.id).id();
         target.productionQueue.add(0, earlier);
 
-        ProductionCausalAnalyzer.Analysis analysis = ProductionCausalAnalyzer.analyze(world, target, blocked);
+        ProductionCausalAnalyzer.Analysis analysis = ProductionDiagnosticService.analyze(world, target, blocked);
         require(hasCause(analysis.causes(), ProductionCausalAnalyzer.CauseType.QUEUE_WAIT),
                 "queue position was not represented as a causal blocker");
     }
@@ -76,29 +77,58 @@ public final class Issue387ProductionCausalAnalysisValidator {
         shuttle.addCargo(first.material(), Math.max(1, first.amount() * 0.5));
         world.units.put(shuttle.key(), shuttle);
 
-        ProductionCausalAnalyzer.Analysis analysis = ProductionCausalAnalyzer.analyze(world, target, job);
+        ProductionCausalAnalyzer.Analysis analysis = ProductionDiagnosticService.analyze(world, target, job);
         require(hasCause(analysis.causes(), ProductionCausalAnalyzer.CauseType.IN_TRANSIT),
                 "in-transit material was not represented in the causal tree");
     }
 
-    private static void validateReachableRemoteWithoutStandingRoute() {
-        World world = world("Issue 387 Reachable No Route");
+    private static void validateReachableRemoteUsesDemandLogistics() {
+        World world = world("Issue 387 Demand Logistics");
         String playerId = "ISSUE_387_ROUTE";
         String targetSystemId = world.activeSystemId();
         Base target = base(world, playerId + ":B1", playerId, "shipyard", 100, 100);
         ProductionJob job = waitingProspector(world, target);
         Cost first = ProductionSystem.costFor(world, job).get(0);
 
-        String remoteSystemId = reachableOtherSystem(world, playerId, targetSystemId);
-        require(!remoteSystemId.isBlank(), "validator could not find a reachable remote system");
+        String remoteSystemId = reachableOtherSystemWithGate(world, playerId, targetSystemId);
+        require(!remoteSystemId.isBlank(), "validator could not find reachable remote stock with a departure gate");
         world.activateSystem(remoteSystemId);
-        Base remote = base(world, playerId + ":ROUTE_SOURCE", playerId, "shipyard", 320, 320);
+        Base remote = base(world, playerId + ":DEMAND_SOURCE", playerId, "shipyard", 320, 320);
         remote.inventory.put(first.material(), first.amount() * 2);
         world.activateSystem(targetSystemId);
 
-        ProductionCausalAnalyzer.Analysis analysis = ProductionCausalAnalyzer.analyze(world, target, job);
+        ProductionCausalAnalyzer.Analysis analysis = ProductionDiagnosticService.analyze(world, target, job);
+        require(!hasCause(analysis.causes(), ProductionCausalAnalyzer.CauseType.NO_ROUTE),
+                "reachable production-demand stock was incorrectly blocked on a standing route");
+        require(!hasCause(analysis.causes(), ProductionCausalAnalyzer.CauseType.NO_ELIGIBLE_TRANSPORT),
+                "reachable production-demand stock incorrectly required an idle standing-route hauler");
+        require(hasCause(analysis.causes(), ProductionCausalAnalyzer.CauseType.NO_LOCAL_SOURCE),
+                "reachable remote production-demand stock was not represented in diagnostics");
+        require(analysis.renderText().contains("no standing route or assigned hauler is required"),
+                "diagnostics did not explain production-demand logistics authority");
+    }
+
+    private static void validateMissingDepartureGate() {
+        World world = world("Issue 387 Missing Departure Gate");
+        String playerId = "ISSUE_387_GATE";
+        String targetSystemId = world.activeSystemId();
+        Base target = base(world, playerId + ":B1", playerId, "shipyard", 100, 100);
+        ProductionJob job = waitingProspector(world, target);
+        Cost first = ProductionSystem.costFor(world, job).get(0);
+
+        String remoteSystemId = reachableOtherSystemWithGate(world, playerId, targetSystemId);
+        require(!remoteSystemId.isBlank(), "validator could not find a routed remote source for gate test");
+        world.activateSystem(remoteSystemId);
+        Base remote = base(world, playerId + ":GATE_SOURCE", playerId, "shipyard", 330, 330);
+        remote.inventory.put(first.material(), first.amount() * 2);
+        world.wormholes.clear();
+        world.activateSystem(targetSystemId);
+
+        ProductionCausalAnalyzer.Analysis analysis = ProductionDiagnosticService.analyze(world, target, job);
         require(hasCause(analysis.causes(), ProductionCausalAnalyzer.CauseType.NO_ROUTE),
-                "reachable owned remote stock without a standing route was not reported as NO_ROUTE");
+                "missing production departure gate was not classified as NO_ROUTE");
+        require(!hasAction(analysis.causes(), ProductionCausalAnalyzer.ActionType.CREATE_ROUTE),
+                "production-demand gate failure incorrectly offered a standing-route mutation");
     }
 
     private static void validateInaccessibleRemoteSource() {
@@ -110,37 +140,46 @@ public final class Issue387ProductionCausalAnalysisValidator {
         Cost first = ProductionSystem.costFor(world, job).get(0);
 
         String remoteSystemId = unreachableOtherSystem(world, playerId, targetSystemId);
-        // Some generated maps make every system reachable for the owner. Do not falsify
-        // topology internals just to manufacture an inaccessible fixture.
-        if (remoteSystemId.isBlank()) return;
-        world.activateSystem(remoteSystemId);
-        Base remote = base(world, playerId + ":ISOLATED_SOURCE", playerId, "shipyard", 320, 320);
-        remote.inventory.put(first.material(), first.amount() * 2);
-        world.activateSystem(targetSystemId);
-
-        ProductionCausalAnalyzer.Analysis analysis = ProductionCausalAnalyzer.analyze(world, target, job);
+        ProductionCausalAnalyzer.Analysis analysis;
+        if (!remoteSystemId.isBlank()) {
+            world.activateSystem(remoteSystemId);
+            Base remote = base(world, playerId + ":ISOLATED_SOURCE", playerId, "shipyard", 320, 320);
+            remote.inventory.put(first.material(), first.amount() * 2);
+            world.activateSystem(targetSystemId);
+            analysis = ProductionDiagnosticService.analyze(world, target, job);
+        } else {
+            ProductionCausalAnalyzer.Cause raw = new ProductionCausalAnalyzer.Cause(
+                    ProductionCausalAnalyzer.CauseType.NO_ROUTE, "synthetic remote source", Map.of(
+                    "material", first.material().name(),
+                    "sourceSystemId", "ISSUE_387_ISOLATED_SYSTEM",
+                    "sourceStationId", "ISSUE_387_ISOLATED_STATION",
+                    "destSystemId", targetSystemId,
+                    "destStationId", target.id,
+                    "available", Double.toString(first.amount() * 2)), List.of(), List.of());
+            analysis = ProductionDiagnosticService.normalizeForTest(world, target,
+                    new ProductionCausalAnalyzer.Analysis(job.id, target.id, true,
+                            "synthetic inaccessible source", List.of(raw)));
+        }
         require(hasCause(analysis.causes(), ProductionCausalAnalyzer.CauseType.INACCESSIBLE_TOPOLOGY),
                 "unreachable owned remote stock was not reported as inaccessible topology");
     }
 
-    private static void validateNoEligibleTransport() {
-        World world = world("Issue 387 No Transport");
-        String playerId = "ISSUE_387_TRANSPORT";
-        String targetSystemId = world.activeSystemId();
+    private static void validateCourierConfigurationBlocker() {
+        World world = world("Issue 387 Courier Configuration");
+        String playerId = "ISSUE_387_COURIER";
         Base target = base(world, playerId + ":B1", playerId, "shipyard", 100, 100);
-        ProductionJob job = waitingProspector(world, target);
-        Cost first = ProductionSystem.costFor(world, job).get(0);
-
-        String remoteSystemId = reachableOtherSystem(world, playerId, targetSystemId);
-        require(!remoteSystemId.isBlank(), "validator could not find a reachable remote system for transport test");
-        world.activateSystem(remoteSystemId);
-        Base remote = base(world, playerId + ":TRANSPORT_SOURCE", playerId, "shipyard", 350, 350);
-        remote.inventory.put(first.material(), first.amount() * 2);
-        world.activateSystem(targetSystemId);
-
-        ProductionCausalAnalyzer.Analysis analysis = ProductionCausalAnalyzer.analyze(world, target, job);
+        ProductionCausalAnalyzer.Cause raw = new ProductionCausalAnalyzer.Cause(
+                ProductionCausalAnalyzer.CauseType.NO_COURIER,
+                "raw courier configuration blocker",
+                Map.of("playerId", playerId, "courierType", LogisticsSystem.SHUTTLE_TYPE),
+                List.of(), List.of());
+        ProductionCausalAnalyzer.Analysis analysis = ProductionDiagnosticService.normalizeForTest(
+                world, target, new ProductionCausalAnalyzer.Analysis("P387", target.id, true,
+                        "courier unavailable", List.of(raw)));
         require(hasCause(analysis.causes(), ProductionCausalAnalyzer.CauseType.NO_ELIGIBLE_TRANSPORT),
-                "reachable remote supply with no available route transport was not classified separately");
+                "missing production courier hull was not classified as no eligible transport");
+        require(!hasCause(analysis.causes(), ProductionCausalAnalyzer.CauseType.NO_COURIER),
+                "internal courier classification leaked through canonical diagnostics");
     }
 
     private static void validateUnauthorizedRedaction() {
@@ -152,7 +191,7 @@ public final class Issue387ProductionCausalAnalysisValidator {
         Cost first = ProductionSystem.costFor(world, job).get(0);
         target.inventory.put(first.material(), 12_345.0);
 
-        ProductionCausalAnalyzer.Analysis analysis = ProductionCausalAnalyzer.analyzeForPlayer(
+        ProductionCausalAnalyzer.Analysis analysis = ProductionDiagnosticService.analyzeForPlayer(
                 world, target, job, viewer);
         require(hasCause(analysis.causes(), ProductionCausalAnalyzer.CauseType.UNAUTHORIZED),
                 "foreign production diagnostics were not owner-gated");
@@ -168,7 +207,7 @@ public final class Issue387ProductionCausalAnalysisValidator {
         Base replacement = new Base(oldTarget.id, playerId, "shipyard", 110, 110);
         world.bases.put(replacement.id, replacement);
 
-        ProductionCausalAnalyzer.Analysis analysis = ProductionCausalAnalyzer.analyzeForPlayer(
+        ProductionCausalAnalyzer.Analysis analysis = ProductionDiagnosticService.analyzeForPlayer(
                 world, oldTarget, oldJob, playerId);
         require(hasCause(analysis.causes(), ProductionCausalAnalyzer.CauseType.STALE_STATE),
                 "stale client production objects were not rejected before analysis");
@@ -184,7 +223,7 @@ public final class Issue387ProductionCausalAnalysisValidator {
         Base enemy = base(world, "TOP_SECRET_ENEMY_DEPOT", enemyId, "shipyard", 140, 140);
         enemy.inventory.put(first.material(), first.amount() * 100);
 
-        ProductionCausalAnalyzer.Analysis analysis = ProductionCausalAnalyzer.analyzeForPlayer(
+        ProductionCausalAnalyzer.Analysis analysis = ProductionDiagnosticService.analyzeForPlayer(
                 world, target, job, playerId);
         require(!analysis.renderText().contains(enemy.id),
                 "owner diagnostics leaked a foreign station identifier");
@@ -240,7 +279,8 @@ public final class Issue387ProductionCausalAnalysisValidator {
         Base target = base(world, playerId + ":B1", playerId, "shipyard", 100, 100);
         Material[] materials = Material.values();
         int limit = ProductionCausalAnalyzer.dependencyDepthLimitForTest();
-        if (materials.length < limit + 2) return;
+        require(materials.length >= limit + 2,
+                "material catalog is too small to exercise the mandatory deep-chain depth bound");
 
         Map<Material,List<CraftableItem>> recipes = new LinkedHashMap<>();
         for (int i = 0; i < limit + 1; i++) {
@@ -305,16 +345,25 @@ public final class Issue387ProductionCausalAnalysisValidator {
         return List.copyOf(ids);
     }
 
-    private static String reachableOtherSystem(World world, String playerId, String activeSystemId) {
-        String fallback = "";
-        for (GalaxyMapSystem system : world.authoritativeGalaxyMapSnapshot().systems()) {
-            if (system == null || system.id() == null || system.id().isBlank()
-                    || system.id().equals(activeSystemId)) continue;
-            List<String> path = LogisticsRouteSystem.pathForTest(world, playerId, system.id(), activeSystemId);
-            if (path.size() == 2) return system.id();
-            if (path.size() >= 2 && fallback.isBlank()) fallback = system.id();
+    private static String reachableOtherSystemWithGate(World world, String playerId, String activeSystemId) {
+        String original = world.activeSystemId();
+        try {
+            for (GalaxyMapSystem system : world.authoritativeGalaxyMapSnapshot().systems()) {
+                if (system == null || system.id() == null || system.id().isBlank()
+                        || system.id().equals(activeSystemId)) continue;
+                List<String> path = LogisticsRouteSystem.pathForTest(world, playerId, system.id(), activeSystemId);
+                if (path.size() < 2) continue;
+                world.activateSystem(system.id());
+                String nextHop = path.get(1);
+                for (WormholeGate gate : world.wormholes) {
+                    if (gate != null && nextHop.equals(gate.remoteSystemId)) return system.id();
+                }
+                world.activateSystem(activeSystemId);
+            }
+            return "";
+        } finally {
+            if (!world.activeSystemId().equals(original)) world.activateSystem(original);
         }
-        return fallback;
     }
 
     private static String unreachableOtherSystem(World world, String playerId, String activeSystemId) {
