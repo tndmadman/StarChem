@@ -51,9 +51,9 @@ final class GalaxyPlanner {
 
     static GalaxyPlan standard(String primaryTemplateId, int requestedCopies, long galaxySeed,
                                GalaxyTopologyRules topology) {
-        GalaxyGenerationSettings generation = GalaxyGenerationSettings.load(requestedCopies);
+        GalaxyGenerationSettings generation = GalaxyRuntimeOptions.generationSettings();
         if (generation.procedural()) {
-            long effectiveSeed = GalaxyGenerationSettings.configuredSeed(galaxySeed);
+            long effectiveSeed = GalaxyRuntimeOptions.generationSeed(galaxySeed);
             return procedural(primaryTemplateId, generation, effectiveSeed, topology);
         }
         return legacyStandard(primaryTemplateId, requestedCopies, galaxySeed, topology);
