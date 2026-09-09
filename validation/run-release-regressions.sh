@@ -32,6 +32,7 @@ run_java com.tndmadman.rts.CelestialRenderValidator
 run_java com.tndmadman.rts.CelestialContinuityValidator
 run_java com.tndmadman.rts.StationControlValidator
 run_java com.tndmadman.rts.StationPresentationValidator
+run_java com.tndmadman.rts.Issue396StationVisualValidator
 run_java com.tndmadman.rts.ProductionLogisticsSourcingValidator
 run_java com.tndmadman.rts.ShipyardStationPackageValidator
 run_java com.tndmadman.rts.MenuOverflowValidator
