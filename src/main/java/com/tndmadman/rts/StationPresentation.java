@@ -71,14 +71,6 @@ final class StationPresentation {
         syncOverlayBounds();
         ScreenHit current = registerScreenHit(g2, base, radius);
 
-        // Re-resolve after each registration, but never paint hover UI in world space. The Swing
-        // overlay paints after the world, so only the final nearest visible result can be shown.
-        FocusKey nextHovered = isOffscreen(pointer) ? null : hitAt(pointer);
-        if (!java.util.Objects.equals(nextHovered, hoveredBase)) {
-            hoveredBase = nextHovered;
-            repaintOverlay();
-        }
-
         drawOwnershipCue(g2, base, radius, playerColor);
         String warning = criticalWarning(base, def);
         if (warning != null) drawWarningBadge(g2, base, radius, warning);
@@ -153,7 +145,7 @@ final class StationPresentation {
         switch (mouse.getID()) {
             case MouseEvent.MOUSE_MOVED, MouseEvent.MOUSE_DRAGGED, MouseEvent.MOUSE_ENTERED -> {
                 pointer = eligible ? mouse.getPoint() : offscreenPoint();
-                hoveredBase = eligible ? hitAt(pointer) : null;
+                hoveredBase = eligible ? resolveHover() : null;
                 repaintOverlay();
             }
             case MouseEvent.MOUSE_EXITED -> {
@@ -163,7 +155,7 @@ final class StationPresentation {
             }
             case MouseEvent.MOUSE_PRESSED -> {
                 pointer = eligible ? mouse.getPoint() : offscreenPoint();
-                hoveredBase = eligible ? hitAt(pointer) : null;
+                hoveredBase = eligible ? resolveHover() : null;
                 if (mouse.getButton() == MouseEvent.BUTTON1 && eligible) {
                     pressPoint = mouse.getPoint();
                     pressSystemId = currentSystemId();
@@ -174,7 +166,7 @@ final class StationPresentation {
             }
             case MouseEvent.MOUSE_RELEASED -> {
                 pointer = eligible ? mouse.getPoint() : offscreenPoint();
-                hoveredBase = eligible ? hitAt(pointer) : null;
+                hoveredBase = eligible ? resolveHover() : null;
                 if (mouse.getButton() == MouseEvent.BUTTON1 && pressPoint != null) {
                     boolean sameSystem = pressSystemId.equals(currentSystemId());
                     if (eligible && sameSystem && pressPoint.distance(mouse.getPoint()) <= CLICK_DRAG_TOLERANCE_PX) {
@@ -217,7 +209,6 @@ final class StationPresentation {
         if (base == null) return false;
         World world = PlayerRegistry.activeWorld();
         if (world == null) return true;
-        if (!currentSystemId().equals(FocusKey.of(base).systemId())) return false;
         return PlayerRegistry.isLocal(base.playerId)
                 || FogOfWarView.currentlyVisible(world, base.x, base.y);
     }
@@ -295,12 +286,26 @@ final class StationPresentation {
         return hit;
     }
 
+    private static void pruneHits() {
+        long now = System.nanoTime();
+        String systemId = currentSystemId();
+        SCREEN_HITS.entrySet().removeIf(entry -> now - entry.getValue().seenNanos() > HIT_STALE_NANOS
+                || !entry.getKey().systemId().equals(systemId)
+                || !contextVisible(entry.getValue().base()));
+    }
+
+    private static FocusKey resolveHover() {
+        pruneHits();
+        return isOffscreen(pointer) ? null : nearestAt(pointer);
+    }
+
     private static FocusKey hitAt(Point point) {
         if (point == null || isOffscreen(point)) return null;
-        long now = System.nanoTime();
-        SCREEN_HITS.entrySet().removeIf(entry -> now - entry.getValue().seenNanos() > HIT_STALE_NANOS
-                || !entry.getKey().systemId().equals(currentSystemId())
-                || !contextVisible(entry.getValue().base()));
+        pruneHits();
+        return nearestAt(point);
+    }
+
+    private static FocusKey nearestAt(Point point) {
         ScreenHit best = null;
         double bestDistanceSq = Double.POSITIVE_INFINITY;
         for (ScreenHit hit : SCREEN_HITS.values()) {
@@ -668,6 +673,7 @@ final class StationPresentation {
             try {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
+                hoveredBase = resolveHover();
                 ScreenHit hovered = hoveredBase == null ? null : SCREEN_HITS.get(hoveredBase);
                 if (hovered != null && !hovered.key().equals(focusedBase)) {
                     drawHoverCard(g2, hovered, getWidth(), getHeight());
