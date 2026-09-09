@@ -17,6 +17,7 @@ import java.util.Random;
 final class ExplosionEffect {
     private static final double MAX_EFFECT_SCALE = 7.0;
     private static final double MAX_VISUAL_RADIUS = 560.0;
+    private static final int MAX_ACTIVE_EFFECTS = 96;
 
     private final double x;
     private final double y;
@@ -59,10 +60,12 @@ final class ExplosionEffect {
                 ^ Double.doubleToLongBits(unit.x * 31.0 + unit.y * 17.0)
                 ^ ((long)unit.key().hashCode() << 32)
                 ^ unit.shipTypeId.hashCode();
-        World world = PlayerRegistry.activeWorld();
+        World world = owningWorld(unit);
         String systemId = world == null ? "" : world.activeSystemId();
+        DestructionProfile profile = DestructionProfile.forShipSize(unit.type().size);
+        trimForAdmission(world == null ? null : world.explosions, systemId);
         return new ExplosionEffect(unit.x, unit.y, unit.heading, scale, PlayerRegistry.color(unit.playerId),
-                DestructionProfile.forShipSize(unit.type().size), world, systemId, seed);
+                profile, world, systemId, seed);
     }
 
     static ExplosionEffect fromBase(Base base) {
@@ -71,15 +74,60 @@ final class ExplosionEffect {
                 ^ Double.doubleToLongBits(base.x * 19.0 + base.y * 23.0)
                 ^ ((long)base.id.hashCode() << 32)
                 ^ base.typeId.hashCode();
-        World world = PlayerRegistry.activeWorld();
+        World world = owningWorld(base);
         String systemId = world == null ? "" : world.activeSystemId();
+        trimForAdmission(world == null ? null : world.explosions, systemId);
         return new ExplosionEffect(base.x, base.y, 0, scale, PlayerRegistry.color(base.playerId),
                 DestructionProfile.STATION, world, systemId, seed);
+    }
+
+    private static World owningWorld(Unit unit) {
+        World world = PlayerRegistry.activeWorld();
+        if (world == null || unit == null) return null;
+        return world.units.get(unit.key()) == unit ? world : null;
+    }
+
+    private static World owningWorld(Base base) {
+        World world = PlayerRegistry.activeWorld();
+        if (world == null || base == null) return null;
+        return world.bases.containsValue(base) ? world : null;
+    }
+
+    private static void trimForAdmission(List<ExplosionEffect> effects, String incomingSystemId) {
+        if (effects == null) return;
+        String system = incomingSystemId == null ? "" : incomingSystemId;
+        while (effects.size() >= MAX_ACTIVE_EFFECTS) {
+            int removeIndex = 0;
+            int bestScore = Integer.MAX_VALUE;
+            for (int i = 0; i < effects.size(); i++) {
+                ExplosionEffect effect = effects.get(i);
+                if (effect == null) {
+                    removeIndex = i;
+                    break;
+                }
+                int priority = effect.profile.ordinal();
+                int sameSystemPenalty = system.equals(effect.systemId) ? 1 : 0;
+                int score = priority * 4 + sameSystemPenalty;
+                if (score < bestScore) {
+                    bestScore = score;
+                    removeIndex = i;
+                }
+            }
+            effects.remove(removeIndex);
+        }
     }
 
     static ExplosionEffect validationEffect(DestructionProfile profile) {
         return new ExplosionEffect(240, 180, -Math.PI / 2, 3.2, new Color(80, 190, 255),
                 profile, null, "", 405L);
+    }
+
+    static int maxActiveEffectsForTest() { return MAX_ACTIVE_EFFECTS; }
+
+    static void admitValidationEffect(List<ExplosionEffect> effects, DestructionProfile profile) {
+        if (effects == null) return;
+        trimForAdmission(effects, "");
+        effects.add(validationEffect(profile));
     }
 
     boolean update(double dt) {
