@@ -17,9 +17,7 @@ final class SideAJoin {
                 InetAddress realAddress = packet == null ? null : packet.address();
                 int realPort = packet == null ? 0 : packet.port();
                 String source = realAddress == null ? "unknown" : realAddress.getHostAddress() + ':' + realPort;
-                RemoteRegistrationBridge.JoinAddress joinAddress =
-                        RemoteRegistrationBridge.select(server, name, realAddress);
-                boolean remoteRegistration = joinAddress.remoteRegistration();
+                boolean remoteRegistration = RemoteRegistrationBridge.allowed(server, name, realAddress);
                 String phase = !registrationVerifier.isBlank() ? "registration response"
                         : !proof.isBlank() ? "authentication proof"
                         : remoteRegistration ? "remote registration request" : "initial join";
@@ -32,14 +30,12 @@ final class SideAJoin {
                 }
                 try {
                     server.join(connectionId,
-                            joinAddress.address(),
+                            realAddress,
                             realPort,
                             name, registrationVerifier, proofNonce, proof,
                             remoteRegistration ? false : server.requestedDev(parts),
-                            remoteRegistration ? "" : server.requestedDevToken(parts));
-                    if (remoteRegistration) {
-                        RemoteRegistrationBridge.restoreRealAddress(server, connectionId, realAddress, realPort);
-                    }
+                            remoteRegistration ? "" : server.requestedDevToken(parts),
+                            remoteRegistration);
                     ObserverSessions.finishAuthentication(server, connectionId);
                     System.out.println("[CONNECTION][SERVER][AUTH] JOIN " + phase
                             + " processed name=" + Config.clean(name) + " connection=" + connectionId + '.');

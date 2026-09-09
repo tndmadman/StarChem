@@ -7,7 +7,7 @@ import java.net.Socket;
 import java.util.Map;
 import java.util.Set;
 
-/** Validates previous-token recovery after a rotated WELCOME response is lost. */
+/** Validates previous-token proof recovery after a rotated WELCOME response is lost. */
 public final class PreviousTokenProofRecoveryValidator {
     private static final String TEST_SERVER_FINGERPRINT = "66".repeat(32);
     private static final String PLAYER_NAME = "Previous Token Client";
@@ -51,13 +51,15 @@ public final class PreviousTokenProofRecoveryValidator {
             server.removePeer(initialEndpoint);
 
             ConnectionId rotatedEndpoint = transport.connectionId(loopback, rotated.getLocalPort());
-            require(server.resume(rotatedEndpoint, loopback, rotated.getLocalPort(), PLAYER_ID, tokenA, false, ""),
+            require(resumeWithProof(server, rotatedEndpoint, loopback, rotated.getLocalPort(),
+                            PLAYER_ID, tokenA, rotated),
                     "token A did not perform the first reconnect");
             require(server.owns(rotatedEndpoint, PLAYER_ID), "first reconnect did not bind the rotated connection");
             // Intentionally do not read the WELCOME containing token B.
 
             ConnectionId activeProbeEndpoint = transport.connectionId(loopback, activeProbe.getLocalPort());
-            require(!server.resume(activeProbeEndpoint, loopback, activeProbe.getLocalPort(), PLAYER_ID, tokenA, false, ""),
+            require(!server.resume(activeProbeEndpoint, loopback, activeProbe.getLocalPort(), PLAYER_ID,
+                            sessionReference(tokenA), "", "", false, ""),
                     "the previous token displaced a separately active connection");
             receivePayload(activeProbe, "SESSION_DENIED|");
             require(server.owns(rotatedEndpoint, PLAYER_ID), "stale previous token displaced the active owner");
@@ -66,7 +68,8 @@ public final class PreviousTokenProofRecoveryValidator {
             require(!server.owns(rotatedEndpoint, PLAYER_ID), "lost-WELCOME connection remained bound after disconnect");
 
             ConnectionId recoveryEndpoint = transport.connectionId(loopback, recovery.getLocalPort());
-            require(server.resume(recoveryEndpoint, loopback, recovery.getLocalPort(), PLAYER_ID, tokenA, false, ""),
+            require(resumeWithProof(server, recoveryEndpoint, loopback, recovery.getLocalPort(),
+                            PLAYER_ID, tokenA, recovery),
                     "previous token was rejected inside the rotation grace window");
             String recoveredWelcome = receivePayload(recovery, "WELCOME|");
             String tokenC = markerValue(recoveredWelcome, "SESSION");
@@ -75,11 +78,13 @@ public final class PreviousTokenProofRecoveryValidator {
             server.removePeer(recoveryEndpoint);
 
             ConnectionId reuseEndpoint = transport.connectionId(loopback, reuse.getLocalPort());
-            require(!server.resume(reuseEndpoint, loopback, reuse.getLocalPort(), PLAYER_ID, tokenA, false, ""),
+            require(!server.resume(reuseEndpoint, loopback, reuse.getLocalPort(), PLAYER_ID,
+                            sessionReference(tokenA), "", "", false, ""),
                     "successfully consumed previous token remained reusable");
             receivePayload(reuse, "SESSION_DENIED|");
 
-            require(server.resume(reuseEndpoint, loopback, reuse.getLocalPort(), PLAYER_ID, tokenC, false, ""),
+            require(resumeWithProof(server, reuseEndpoint, loopback, reuse.getLocalPort(),
+                            PLAYER_ID, tokenC, reuse),
                     "current replacement token failed after old-token rejection");
             String currentWelcome = receivePayload(reuse, "WELCOME|");
             String tokenD = markerValue(currentWelcome, "SESSION");
@@ -89,11 +94,13 @@ public final class PreviousTokenProofRecoveryValidator {
 
             expirePreviousToken(server, PLAYER_ID);
             ConnectionId expiryEndpoint = transport.connectionId(loopback, expiry.getLocalPort());
-            require(!server.resume(expiryEndpoint, loopback, expiry.getLocalPort(), PLAYER_ID, tokenC, false, ""),
+            require(!server.resume(expiryEndpoint, loopback, expiry.getLocalPort(), PLAYER_ID,
+                            sessionReference(tokenC), "", "", false, ""),
                     "expired previous token reclaimed the session");
             receivePayload(expiry, "SESSION_DENIED|");
 
-            require(server.resume(expiryEndpoint, loopback, expiry.getLocalPort(), PLAYER_ID, tokenD, false, ""),
+            require(resumeWithProof(server, expiryEndpoint, loopback, expiry.getLocalPort(),
+                            PLAYER_ID, tokenD, expiry),
                     "current token failed after previous-token expiry");
             String latestWelcome = receivePayload(expiry, "WELCOME|");
             require(validToken(markerValue(latestWelcome, "SESSION")),
@@ -116,6 +123,35 @@ public final class PreviousTokenProofRecoveryValidator {
                 TEST_SERVER_FINGERPRINT, PasswordAuth.decodeHex(parts[2]));
         server.join(connectionId, address, port, PLAYER_NAME, verifier, false, "");
         return receivePayload(socket, "WELCOME|");
+    }
+
+    private static boolean resumeWithProof(PeerServerSide server, ConnectionId connectionId,
+                                           InetAddress address, int port, String playerId,
+                                           String token, Socket socket) throws Exception {
+        String reference = sessionReference(token);
+        require(!server.resume(connectionId, address, port, playerId, reference, "", "", false, ""),
+                "phase-one previous-token resume unexpectedly bound without proof");
+        String challenge = receivePayload(socket, "SESSION_CHALLENGE|");
+        String[] parts = challenge.split("\\|", -1);
+        require(parts.length >= 3 && "SESSION_CHALLENGE".equals(parts[0])
+                        && playerId.equals(parts[1]) && PasswordAuth.validNonce(parts[2]),
+                "previous-token resume did not receive a valid challenge");
+        byte[] tokenDigest = PasswordAuth.tokenDigest(token);
+        try {
+            String proof = PasswordAuth.sessionProof(tokenDigest, playerId, parts[2]);
+            return server.resume(connectionId, address, port, playerId, reference, parts[2], proof, false, "");
+        } finally {
+            java.util.Arrays.fill(tokenDigest, (byte)0);
+        }
+    }
+
+    private static String sessionReference(String token) {
+        byte[] tokenDigest = PasswordAuth.tokenDigest(token);
+        try {
+            return PasswordAuth.sessionReference(tokenDigest);
+        } finally {
+            java.util.Arrays.fill(tokenDigest, (byte)0);
+        }
     }
 
     private static void expirePreviousToken(PeerServerSide server, String playerId) throws Exception {

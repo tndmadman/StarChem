@@ -99,16 +99,52 @@ public final class ObserverSessionValidator {
             require(world.hasLiveAssets("P1"), "normal player did not receive gameplay assets before conversion");
             world.completeResearch("P1", "observer-conversion-marker");
 
+            require(!ObserverSessions.convertConnectedPlayer(server, connectionId, "P2"),
+                    "conversion trusted a forged packet player identity");
+            require(!ObserverSessions.isObserver(world, "P1"),
+                    "forged conversion request changed the authenticated player's role");
+
+            require(!ObserverSessions.convertConnectedPlayer(server, connectionId, "P1"),
+                    "active player with live assets was allowed to convert");
+            String activeDenied = receivePayload(socket, "OBSERVER_DENIED|");
+            require(activeDenied.contains("|ACTIVE|"), "active conversion rejection did not identify live assets");
+            require(world.hasLiveAssets("P1"), "rejected conversion destroyed active gameplay assets");
+            require(world.hasResearch("P1", "observer-conversion-marker"),
+                    "rejected conversion destroyed private research state");
+            require(!ObserverSessions.isObserver(world, "P1"), "rejected active player became an observer");
+            require(ObserverSessions.normalPlayerSessionCount(server) == 1,
+                    "rejected active player stopped consuming a normal player slot");
+
+            ObserverSessions.stripGameplayIdentity(world, "P1");
+            world.completeResearch("P1", "observer-conversion-marker");
+            require(!world.hasLiveAssets("P1"), "defeat setup retained gameplay assets");
+            require(!ObserverSessions.convertConnectedPlayer(server, connectionId, "P1"),
+                    "defeated player bypassed observer invitation authorization");
+            String inviteDenied = receivePayload(socket, "OBSERVER_DENIED|");
+            require(inviteDenied.contains("|INVITE|"), "uninvited conversion rejection did not identify authorization");
+            require(world.hasResearch("P1", "observer-conversion-marker"),
+                    "uninvited conversion rejection destroyed private research state");
+            require(!ObserverSessions.isObserver(world, "P1"), "uninvited defeated player became an observer");
+
+            setInvitation(world, new ObserverSessions.Invitation("Converted Observer",
+                    ObserverSessions.VisibilityMode.FULL, "", 4102444800000L));
             require(ObserverSessions.convertConnectedPlayer(server, connectionId, "P1"),
-                    "authenticated defeated-player conversion was rejected");
+                    "defeated invited-player conversion was rejected");
             String observerState = receivePayload(socket, "OBSERVER_STATE|");
-            require(observerState.contains("MODE|PUBLIC"), "conversion did not publish PUBLIC observer state");
+            require(observerState.contains("MODE|FULL"),
+                    "conversion ignored the operator-authorized invitation visibility mode");
             require(ObserverSessions.isObserver(world, "P1"), "converted identity was not server-authoritative observer");
             require(!world.hasLiveAssets("P1"), "observer conversion retained gameplay assets");
             require(!world.hasResearch("P1", "observer-conversion-marker"), "observer conversion retained private research");
             require(ObserverSessions.normalPlayerSessionCount(server) == 0,
                     "observer identity still consumed the normal player-session count");
             require(!server.devAllowed(connectionId, "P1"), "observer retained developer authority");
+
+            require(ObserverSessions.convertConnectedPlayer(server, connectionId, "P1"),
+                    "duplicate observer conversion request was not idempotent");
+            String duplicateState = receivePayload(socket, "OBSERVER_STATE|");
+            require(duplicateState.contains("MODE|FULL"),
+                    "duplicate conversion changed the retained observer visibility mode");
 
             String[][] mutations = {
                     {"MOVE", "P1", "1", "20", "20"},
@@ -142,6 +178,8 @@ public final class ObserverSessionValidator {
             ObserverSessions.configure(config, restored);
             require(ObserverSessions.isObserver(restored, "P1"),
                     "observer grant did not survive server-side permission reload");
+            require(ObserverSessions.mode(restored, "P1") == ObserverSessions.VisibilityMode.FULL,
+                    "persisted conversion lost the invitation-authorized visibility mode");
         } finally {
             transport.shutdown();
             deleteTree(saveDir);
@@ -177,8 +215,10 @@ public final class ObserverSessionValidator {
 
         setGrant(world, new ObserverSessions.Grant("P9", "Observer", ObserverSessions.VisibilityMode.PUBLIC, ""));
         Snapshot publicView = ObserverSessions.sanitizeSnapshot(world, "P9", source);
-        require(hasUnit(publicView, "P2"), "PUBLIC observer did not use the deterministic public anchor");
-        require(!hasUnit(publicView, "P3"), "PUBLIC observer leaked a distant hidden fleet");
+        require(ObserverSessions.visibilityOwner(world, "P9").isBlank(),
+                "PUBLIC observer silently inherited a real player's visibility identity");
+        require(publicView.units().isEmpty() && publicView.bases().isEmpty(),
+                "PUBLIC observer exposed a live player's tactical perspective");
         require(publicView.research().isEmpty(), "PUBLIC observer leaked private research");
 
         GalaxyMapSnapshot publicMap = ObserverSessions.emptyPublicGalaxy(world.authoritativeGalaxyMapSnapshot(), world.activeSystemId());
@@ -225,6 +265,20 @@ public final class ObserverSessionValidator {
         grantsField.setAccessible(true);
         Map<String, ObserverSessions.Grant> grants = (Map<String, ObserverSessions.Grant>) grantsField.get(state);
         grants.put(grant.playerId(), grant);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void setInvitation(World world, ObserverSessions.Invitation invitation) throws Exception {
+        Field statesField = ObserverSessions.class.getDeclaredField("STATES");
+        statesField.setAccessible(true);
+        Map<World, Object> states = (Map<World, Object>) statesField.get(null);
+        Object state = states.get(world);
+        require(state != null, "observer server state was not configured");
+        Field invitationsField = state.getClass().getDeclaredField("invitations");
+        invitationsField.setAccessible(true);
+        Map<String, ObserverSessions.Invitation> invitations =
+                (Map<String, ObserverSessions.Invitation>) invitationsField.get(state);
+        invitations.put(Config.clean(invitation.name()).toLowerCase(java.util.Locale.ROOT), invitation);
     }
 
     private static boolean hasUnit(Snapshot snapshot, String playerId) {

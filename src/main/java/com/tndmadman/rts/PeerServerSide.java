@@ -137,6 +137,10 @@ final class PeerServerSide {
         return session != null && session.connected;
     }
 
+    boolean retainedAccountExists(String name) {
+        return sessionByName(name) != null;
+    }
+
     void setAdmissionGate(ServerAdmissionGate gate) {
         admissionGate = gate == null ? ServerAdmissionGate.open() : gate;
     }
@@ -239,6 +243,13 @@ final class PeerServerSide {
 
     void join(ConnectionId connectionId, InetAddress address, int port, String name, String passwordVerifier,
               String proofNonce, String proof, boolean requestedDev, String suppliedDevToken) {
+        join(connectionId, address, port, name, passwordVerifier, proofNonce, proof,
+                requestedDev, suppliedDevToken, false);
+    }
+
+    void join(ConnectionId connectionId, InetAddress address, int port, String name, String passwordVerifier,
+              String proofNonce, String proof, boolean requestedDev, String suppliedDevToken,
+              boolean allowRemoteRegistration) {
         String cleanName = Config.clean(name);
         ServerPeer existingPeer = peers.get(connectionId);
         if (existingPeer != null) {
@@ -259,7 +270,7 @@ final class PeerServerSide {
             issueAuthChallenge(connectionId, cleanName, namedSession);
             return;
         }
-        if (!registrationAllowed(address)) {
+        if (!registrationAllowed(address, allowRemoteRegistration)) {
             issueAuthChallenge(connectionId, cleanName, null);
             return;
         }
@@ -311,7 +322,11 @@ final class PeerServerSide {
     }
 
     private boolean registrationAllowed(InetAddress address) {
-        return address != null && address.isLoopbackAddress();
+        return registrationAllowed(address, false);
+    }
+
+    private boolean registrationAllowed(InetAddress address, boolean allowRemoteRegistration) {
+        return allowRemoteRegistration || (address != null && address.isLoopbackAddress());
     }
 
     private void issueRegistrationChallenge(ConnectionId connectionId, String cleanName) {
@@ -440,35 +455,41 @@ final class PeerServerSide {
         world.status = "Reclaimed " + session.name + " as " + session.playerId + ".";
     }
 
-    boolean resume(ConnectionId connectionId, InetAddress address, int port, String playerId, String token,
-                   boolean requestedDev, String suppliedDevToken) {
+    boolean resume(ConnectionId connectionId, InetAddress address, int port, String playerId, String tokenReference,
+                   String proofNonce, String proof, boolean requestedDev, String suppliedDevToken) {
         long now = System.currentTimeMillis();
         PlayerSession session = sessions.get(playerId);
-        if (session == null || !tokenMatches(session, token, connectionId, now)) {
+        if (session == null || !tokenReferenceMatches(session, tokenReference, connectionId, now)) {
+            sessionChallenges.remove(connectionId);
             transport.sendOrdered(sessionDenied("Session token was rejected."), connectionId);
             return false;
         }
 
+        // Once this exact TCP connection has already proved possession and owns the
+        // session, a repeated RESUME is only delivery recovery for a lost WELCOME.
+        // Do not rotate again and do not require a second challenge.
         if (session.connected && connectionId.equals(session.connectionId)) {
             ServerPeer currentPeer = peers.get(connectionId);
             if (currentPeer != null && playerId.equals(currentPeer.playerId())) {
+                sessionChallenges.remove(connectionId);
                 sendSessionState(session, currentPeer, session.currentToken);
                 return true;
             }
         }
 
-        if (session.connected && session.connectionId != null && session.connectionId.valid()
-                && !session.connectionId.equals(connectionId)) {
-            transport.sendOrdered(sessionBusy("Session is already active on another connection."), connectionId);
+        boolean hasNonce = PasswordAuth.validNonce(proofNonce);
+        boolean hasProof = PasswordAuth.validVerifier(proof);
+        if (!hasNonce && (proof == null || proof.isBlank())) {
+            issueSessionChallenge(connectionId, session);
             return false;
         }
-
-        return bindResumedSession(connectionId, address, port, session, requestedDev, suppliedDevToken, now);
-    }
-
-    boolean resume(ConnectionId connectionId, InetAddress address, int port, String playerId, String token,
-                   String proofNonce, String proof, boolean requestedDev, String suppliedDevToken) {
-        return resume(connectionId, address, port, playerId, token, requestedDev, suppliedDevToken);
+        if (!hasNonce || !hasProof) {
+            sessionChallenges.remove(connectionId);
+            transport.sendOrdered(sessionDenied("Session token was rejected."), connectionId);
+            return false;
+        }
+        return resumeByProof(connectionId, address, port, session, proofNonce, proof,
+                requestedDev, suppliedDevToken);
     }
 
     private void issueSessionChallenge(ConnectionId connectionId, PlayerSession session) {
@@ -477,9 +498,15 @@ final class PeerServerSide {
             transport.sendOrdered(sessionDenied("Session token was rejected."), connectionId);
             return;
         }
-        String nonce = PasswordAuth.newNonce();
-        sessionChallenges.put(connectionId, new SessionChallenge(session.playerId, nonce, System.currentTimeMillis()));
-        transport.sendOrdered("SESSION_CHALLENGE|" + packetPart(session.playerId) + "|" + nonce, connectionId);
+        long now = System.currentTimeMillis();
+        SessionChallenge challenge = sessionChallenges.get(connectionId);
+        if (challenge == null || !session.playerId.equals(challenge.playerId)
+                || now - challenge.createdAt > AUTH_CHALLENGE_MS) {
+            challenge = new SessionChallenge(session.playerId, PasswordAuth.newNonce(), now);
+            sessionChallenges.put(connectionId, challenge);
+        }
+        transport.sendOrdered("SESSION_CHALLENGE|" + packetPart(session.playerId) + "|" + challenge.nonce,
+                connectionId);
     }
 
     private boolean resumeByProof(ConnectionId connectionId, InetAddress address, int port, PlayerSession session,
@@ -717,7 +744,6 @@ final class PeerServerSide {
             if (peer != null && now - peer.lastSeen() > TIMEOUT_MS) disconnectPeer(connectionId, now, "timed out");
         }
     }
-
     private void removeExpiredAuthChallenges(long now) {
         authChallenges.entrySet().removeIf(entry -> now - entry.getValue().createdAt > AUTH_CHALLENGE_MS);
         registrationChallenges.entrySet().removeIf(entry -> now - entry.getValue().createdAt > AUTH_CHALLENGE_MS);
@@ -750,13 +776,14 @@ final class PeerServerSide {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
-    private boolean tokenMatches(PlayerSession session, String token, ConnectionId connectionId, long now) {
-        if (session == null || token == null || token.isBlank()) return false;
-        if (PasswordAuth.sessionTokenMatches(session.tokenDigest, token)) return true;
+    private boolean tokenReferenceMatches(PlayerSession session, String reference,
+                                          ConnectionId connectionId, long now) {
+        if (session == null || !PasswordAuth.validVerifier(reference)) return false;
+        if (PasswordAuth.sessionReferenceMatches(session.tokenDigest, reference)) return true;
         boolean sameConnection = session.connected && connectionId != null && connectionId.equals(session.connectionId);
         return session.previousTokenDigest != null && now <= session.previousTokenValidUntil
                 && (!session.connected || sameConnection)
-                && PasswordAuth.sessionTokenMatches(session.previousTokenDigest, token);
+                && PasswordAuth.sessionReferenceMatches(session.previousTokenDigest, reference);
     }
 
     private byte[] digestToken(String token) {
