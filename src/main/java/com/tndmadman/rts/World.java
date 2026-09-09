@@ -25,6 +25,7 @@ final class World {
     final AiDevSettings aiDevSettings = new AiDevSettings();
     private final Set<String> devFreeBuildPlayers = new LinkedHashSet<>();
     private final GalaxyCoordinator galaxy = new GalaxyCoordinator();
+    private final GalaxyInactiveSimulationScheduler proceduralInactiveScheduler = new GalaxyInactiveSimulationScheduler();
     private final Set<String> disabledNpcFactionIds;
     private final Map<String, NpcSystem> npcSystems = new LinkedHashMap<>();
     private final Map<String, NpcSystem> organizedNpcSystems = new LinkedHashMap<>();
@@ -116,11 +117,12 @@ final class World {
     boolean hasLiveAssets(String playerId) { return galaxy.hasLiveAssets(this, playerId); }
     Map<String,String> ownerUnitLocations(String playerId) { return galaxy.ownerUnitLocations(this, playerId); }
     String playerHomeSystemId(String playerId) { return galaxy.playerHomeSystemId(this, playerId, starSystem); }
+    String playerStartRegionSystemId(String playerId) { return galaxy.playerStartRegionSystemId(playerId); }
     void activateSystem(String systemId) { celestials = galaxy.activate(this, systemId); systemTime = galaxy.activeSystemTime(); }
     void saveActiveSystem() { galaxy.saveActive(this); }
     List<WorldSystemState> policySystemStates() { return galaxy.systemStates(this); }
     Map<String,Object> captureServerSaveGalaxy() { return galaxy.captureSave(this); }
-    void restoreServerSaveGalaxy(Map<String,Object> save) { celestials = galaxy.restoreSave(this, save); systemTime = galaxy.activeSystemTime(); selectedResourceId = -1; }
+    void restoreServerSaveGalaxy(Map<String,Object> save) { proceduralInactiveScheduler.reset(); celestials = galaxy.restoreSave(this, save); systemTime = galaxy.activeSystemTime(); selectedResourceId = -1; }
     Map<String,Object> captureServerSaveRuntime() {
         Map<String,Object> out = new LinkedHashMap<>();
         out.put("simulationScheduler", SystemSimulationScheduler.capture(this));
@@ -281,7 +283,7 @@ final class World {
     void syncEnvironment(long seed, double hostTime) { syncEnvironment(systemId(), seed, hostTime); }
     void syncEnvironment(String newSystemId, long seed, double hostTime) { boolean changed = !StarSystems.get(newSystemId).id().equals(systemId()); if (changed) setStarSystem(newSystemId); if (changed || seed != systemSeed) setSystemSeed(seed); double delta = hostTime - systemTime; if (Math.abs(delta) > 0.02) advanceEnvironment(delta); else { systemTime = hostTime; galaxy.setActiveSystemTime(hostTime); } }
     private void setStarSystem(String systemId) { starSystem = StarSystems.get(systemId); }
-    private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); clearNpcAiRuntimeState(); SimulationCadence.clear(this); LogisticsRouteSystem.clear(this); remoteGalaxyMapSnapshot = null; celestials = galaxy.rebuild(this, starSystem, seed); }
+    private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); proceduralInactiveScheduler.reset(); clearNpcAiRuntimeState(); SimulationCadence.clear(this); LogisticsRouteSystem.clear(this); remoteGalaxyMapSnapshot = null; celestials = galaxy.rebuild(this, starSystem, seed); }
     private Point2D startShipPoint(Point2D basePoint) { return new Point2D.Double(basePoint.getX() + 180, basePoint.getY() - 80); }
 
     private void clearNpcAiRuntimeState() {
@@ -482,6 +484,10 @@ final class World {
 
     private void updateInactiveSystems(double dt) {
         if (dt == 0) return;
+        if (GalaxyRuntimeOptions.generationSettings().procedural()) {
+            proceduralInactiveScheduler.update(this, dt, authoritativeGalaxyMapSnapshot());
+            return;
+        }
         String previousSystemId = activeSystemId();
         String previousStatus = status;
         GalaxyMapSnapshot snapshot = galaxyMapSnapshot();
@@ -497,6 +503,8 @@ final class World {
             status = previousStatus;
         }
     }
+
+    int proceduralInactiveSystemsUpdatedLastFrame() { return proceduralInactiveScheduler.lastBatchSize(); }
 
     private void updateUnit(Unit unit, double dt, double movementScale) {
         unit.unloadingThisFrame = false;
