@@ -12,10 +12,20 @@ public final class SessionRecoveryValidator {
     private SessionRecoveryValidator() { }
 
     public static void main(String[] args) throws Exception {
+        validateResumeApiRequiresProof();
         validateServerSessionRecovery();
         validateServerPersistentSessionReclaim();
         validateClientReconnectStateAndPersistence();
+        PreviousTokenProofRecoveryValidator.validate();
         System.out.println("StarChem TCP session recovery validation passed.");
+    }
+
+    private static void validateResumeApiRequiresProof() {
+        for (java.lang.reflect.Method method : PeerServerSide.class.getDeclaredMethods()) {
+            if ("resume".equals(method.getName()) && method.getParameterCount() == 7) {
+                throw new IllegalStateException("bearer-token-only resume overload is present");
+            }
+        }
     }
 
     private static void validateServerSessionRecovery() throws Exception {
@@ -49,8 +59,24 @@ public final class SessionRecoveryValidator {
             world.completeResearch("P1", "session-recovery-marker");
 
             ConnectionId reboundEndpoint = transport.connectionId(loopback, reboundClient.getLocalPort());
-            require(!server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1", firstToken, false, ""),
-                    "a second TCP connection displaced an active player session");
+            String activeReference = sessionReference(firstToken);
+            require(!server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1",
+                            activeReference, "", "", false, ""),
+                    "an active session was rebound from its non-secret reference without proof");
+            String activeChallenge = receivePayload(reboundClient, "SESSION_CHALLENGE|");
+            String activeNonce = sessionChallengeNonce(activeChallenge, "P1");
+            require(PasswordAuth.validNonce(activeNonce),
+                    "active-session resume did not require a valid proof challenge");
+            byte[] activeTokenDigest = PasswordAuth.tokenDigest(firstToken);
+            String activeProof;
+            try {
+                activeProof = PasswordAuth.sessionProof(activeTokenDigest, "P1", activeNonce);
+            } finally {
+                java.util.Arrays.fill(activeTokenDigest, (byte)0);
+            }
+            require(!server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1",
+                            activeReference, activeNonce, activeProof, false, ""),
+                    "a second TCP connection displaced an active player session after proof");
             String busyResponse = receivePayload(reboundClient, "SESSION_BUSY|");
             require(busyResponse.contains("already active"), "active-session rejection did not explain the conflict");
             require(server.owns(firstEndpoint, "P1"), "active connection lost ownership after takeover attempt");
@@ -64,29 +90,80 @@ public final class SessionRecoveryValidator {
             require(world.hasLiveAssets("P1"), "timeout deleted P1 assets");
             require(world.hasResearch("P1", "session-recovery-marker"), "timeout deleted P1 research");
             ConnectionId rawTokenEndpoint = transport.connectionId(loopback, rawTokenClient.getLocalPort());
-            PacketSideA.handle(server, "RESUME|P1|" + firstToken + "|NODEV|",
-                    new NetPacket("RESUME|P1|" + firstToken + "|NODEV|", rawTokenEndpoint, loopback, rawTokenClient.getLocalPort()));
+            String rawBearerResume = "RESUME|P1|" + firstToken + "|NODEV|";
+            PacketSideA.handle(server, rawBearerResume,
+                    new NetPacket(rawBearerResume, rawTokenEndpoint, loopback, rawTokenClient.getLocalPort()));
+            receivePayload(rawTokenClient, "SESSION_DENIED|");
+            require(!server.owns(rawTokenEndpoint, "P1"), "raw bearer token was accepted by the live resume path");
+
+            String rawResume = "RESUME|P1|" + sessionReference(firstToken) + "|NODEV|";
+            PacketSideA.handle(server, rawResume,
+                    new NetPacket(rawResume, rawTokenEndpoint, loopback, rawTokenClient.getLocalPort()));
+            String firstChallenge = receivePayload(rawTokenClient, "SESSION_CHALLENGE|");
+            String firstChallengeNonce = sessionChallengeNonce(firstChallenge, "P1");
+            require(PasswordAuth.validNonce(firstChallengeNonce), "raw resume did not receive a valid session challenge");
+            require(!server.owns(rawTokenEndpoint, "P1"), "session reference alone reclaimed the player session");
+
+            PacketSideA.handle(server, rawResume,
+                    new NetPacket(rawResume, rawTokenEndpoint, loopback, rawTokenClient.getLocalPort()));
+            String repeatedChallenge = receivePayload(rawTokenClient, "SESSION_CHALLENGE|");
+            require(firstChallengeNonce.equals(sessionChallengeNonce(repeatedChallenge, "P1")),
+                    "a live resume challenge changed during an ordinary retry");
+
+            server.tick(System.currentTimeMillis() + 31_000);
+            String staleProofMessage = resumeProofMessage(firstToken, "P1", firstChallengeNonce);
+            PacketSideA.handle(server, staleProofMessage,
+                    new NetPacket(staleProofMessage, rawTokenEndpoint, loopback, rawTokenClient.getLocalPort()));
+            receivePayload(rawTokenClient, "SESSION_DENIED|");
+            require(!server.owns(rawTokenEndpoint, "P1"), "expired resume challenge reclaimed the session");
+
+            PacketSideA.handle(server, rawResume,
+                    new NetPacket(rawResume, rawTokenEndpoint, loopback, rawTokenClient.getLocalPort()));
+            String wrongSessionChallenge = receivePayload(rawTokenClient, "SESSION_CHALLENGE|");
+            String wrongSessionNonce = sessionChallengeNonce(wrongSessionChallenge, "P1");
+            String wrongSessionProof = resumeProofMessage(firstToken, "P999", wrongSessionNonce)
+                    .replace("RESUME|P999|", "RESUME|P1|");
+            PacketSideA.handle(server, wrongSessionProof,
+                    new NetPacket(wrongSessionProof, rawTokenEndpoint, loopback, rawTokenClient.getLocalPort()));
+            receivePayload(rawTokenClient, "SESSION_DENIED|");
+            require(!server.owns(rawTokenEndpoint, "P1"), "proof bound to another session reclaimed P1");
+
+            PacketSideA.handle(server, rawResume,
+                    new NetPacket(rawResume, rawTokenEndpoint, loopback, rawTokenClient.getLocalPort()));
+            String validChallenge = receivePayload(rawTokenClient, "SESSION_CHALLENGE|");
+            String validNonce = sessionChallengeNonce(validChallenge, "P1");
+            String validProofMessage = resumeProofMessage(firstToken, "P1", validNonce);
+            PacketSideA.handle(server, validProofMessage,
+                    new NetPacket(validProofMessage, rawTokenEndpoint, loopback, rawTokenClient.getLocalPort()));
             String rawTokenWelcome = receivePayload(rawTokenClient, "WELCOME|");
             String rawNetworkToken = markerValue(rawTokenWelcome, "SESSION");
-            require(validToken(rawNetworkToken),
-                    "raw network resume token did not receive a rotated token");
-            require(server.owns(rawTokenEndpoint, "P1"), "raw network resume token did not reclaim the player session");
+            require(validToken(rawNetworkToken) && !rawNetworkToken.equals(firstToken),
+                    "proved network resume did not receive a rotated token");
+            require(server.owns(rawTokenEndpoint, "P1"), "valid one-time proof did not reclaim the player session");
             server.removePeer(rawTokenEndpoint);
-            require(server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1", rawNetworkToken, false, ""),
+
+            PacketSideA.handle(server, validProofMessage,
+                    new NetPacket(validProofMessage, reboundEndpoint, loopback, reboundClient.getLocalPort()));
+            receivePayload(reboundClient, "SESSION_DENIED|");
+            require(!server.owns(reboundEndpoint, "P1"), "consumed resume proof was replayable on a new connection");
+            require(resumeWithProof(server, reboundEndpoint, loopback, reboundClient.getLocalPort(),
+                            "P1", rawNetworkToken, reboundClient),
                     "valid session could not rebind to a new TCP connection");
             String reboundWelcome = receivePayload(reboundClient, "WELCOME|");
             String reboundToken = markerValue(reboundWelcome, "SESSION");
-            require(validToken(reboundToken) && !reboundToken.equals(firstToken), "resume token was not rotated");
+            require(validToken(reboundToken) && !reboundToken.equals(rawNetworkToken), "resume token was not rotated");
             require(server.owns(reboundEndpoint, "P1"), "rebound connection did not own P1");
             require(!server.owns(firstEndpoint, "P1"), "old connection retained P1 ownership after rebind");
 
-            require(server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1", rawNetworkToken, false, ""),
+            require(server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1",
+                            sessionReference(rawNetworkToken), "", "", false, ""),
                     "duplicate resume retry was not idempotent");
             String retryWelcome = receivePayload(reboundClient, "WELCOME|");
             require(reboundToken.equals(markerValue(retryWelcome, "SESSION")),
                     "duplicate resume retry changed the active token again");
 
-            require(!server.resume(firstEndpoint, loopback, firstClient.getLocalPort(), "P1", firstToken, false, ""),
+            require(!server.resume(firstEndpoint, loopback, firstClient.getLocalPort(), "P1",
+                            sessionReference(firstToken), "", "", false, ""),
                     "stale connection reclaimed the session with an old token");
             require(server.owns(reboundEndpoint, "P1"), "stale resume attempt displaced the valid connection");
 
@@ -96,36 +173,38 @@ public final class SessionRecoveryValidator {
             require(world.hasResearch("P1", "session-recovery-marker"), "explicit leave deleted P1 research");
 
             ConnectionId restartedEndpoint = transport.connectionId(loopback, restartedClient.getLocalPort());
-            require(server.resume(restartedEndpoint, loopback, restartedClient.getLocalPort(), "P1", reboundToken, false, ""),
+            require(resumeWithProof(server, restartedEndpoint, loopback, restartedClient.getLocalPort(),
+                            "P1", reboundToken, restartedClient),
                     "saved session could not resume after a client restart");
             String restartedWelcome = receivePayload(restartedClient, "WELCOME|");
             String restartedToken = markerValue(restartedWelcome, "SESSION");
-            require(validToken(restartedToken), "client restart did not receive a replacement token");
+            require(validToken(restartedToken) && !restartedToken.equals(reboundToken),
+                    "client restart did not receive a replacement token");
             require(world.hasLiveAssets("P1"), "client restart changed P1 assets");
             require(world.hasResearch("P1", "session-recovery-marker"), "client restart changed P1 research");
 
             server.removePeer(restartedEndpoint);
-    long longOfflineNow = System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000;
-    server.tick(longOfflineNow);
-    require(world.hasLiveAssets("P1"), "long offline period deleted P1 assets");
-    require(world.hasResearch("P1", "session-recovery-marker"),
-            "long offline period deleted P1 research");
-    require(server.persistentSessions().stream()
-                    .anyMatch(saved -> "P1".equals(saved.playerId())),
-            "long offline period deleted the persistent P1 identity");
+            long longOfflineNow = System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000;
+            server.tick(longOfflineNow);
+            require(world.hasLiveAssets("P1"), "long offline period deleted P1 assets");
+            require(world.hasResearch("P1", "session-recovery-marker"),
+                    "long offline period deleted P1 research");
+            require(server.persistentSessions().stream()
+                            .anyMatch(saved -> "P1".equals(saved.playerId())),
+                    "long offline period deleted the persistent P1 identity");
 
-    ConnectionId longOfflineEndpoint = transport.connectionId(
-            loopback, longOfflineClient.getLocalPort());
-    String longOfflineWelcome = reclaim(server, longOfflineEndpoint, loopback,
-            longOfflineClient.getLocalPort(), "Recovery Client", "validator-password", longOfflineClient);
-    require(longOfflineWelcome.startsWith("WELCOME|P1|"),
-            "same name and password received a new player slot after a long offline period");
-    require(server.owns(longOfflineEndpoint, "P1"),
-            "long-offline password reclaim did not restore P1 ownership");
-    require(world.hasLiveAssets("P1"),
-            "long-offline password reclaim changed P1 assets");
-    require(world.hasResearch("P1", "session-recovery-marker"),
-            "long-offline password reclaim changed P1 research");
+            ConnectionId longOfflineEndpoint = transport.connectionId(
+                    loopback, longOfflineClient.getLocalPort());
+            String longOfflineWelcome = reclaim(server, longOfflineEndpoint, loopback,
+                    longOfflineClient.getLocalPort(), "Recovery Client", "validator-password", longOfflineClient);
+            require(longOfflineWelcome.startsWith("WELCOME|P1|"),
+                    "same name and password received a new player slot after a long offline period");
+            require(server.owns(longOfflineEndpoint, "P1"),
+                    "long-offline password reclaim did not restore P1 ownership");
+            require(world.hasLiveAssets("P1"),
+                    "long-offline password reclaim changed P1 assets");
+            require(world.hasResearch("P1", "session-recovery-marker"),
+                    "long-offline password reclaim changed P1 research");
         } finally {
             transport.shutdown();
         }
@@ -175,7 +254,8 @@ public final class SessionRecoveryValidator {
             require(!restoredServer.owns(restoredEndpoint, "P1"),
                     "wrong password reclaimed the saved player session");
 
-            require(restoredServer.resume(restoredEndpoint, loopback, restoredClient.getLocalPort(), "P1", firstToken, false, ""),
+            require(resumeWithProof(restoredServer, restoredEndpoint, loopback, restoredClient.getLocalPort(),
+                            "P1", firstToken, restoredClient),
                     "saved server session could not be reclaimed after restart");
             String restoredWelcome = receivePayload(restoredClient, "WELCOME|");
             String restoredToken = markerValue(restoredWelcome, "SESSION");
@@ -338,6 +418,51 @@ public final class SessionRecoveryValidator {
             if (frame.message().startsWith(prefix)) return frame.message();
         }
         throw new IllegalStateException("Did not receive TCP frame starting with " + prefix);
+    }
+
+    private static String sessionChallengeNonce(String message, String playerId) {
+        if (message == null) return "";
+        String[] parts = message.split("\\|", -1);
+        return parts.length >= 3 && "SESSION_CHALLENGE".equals(parts[0]) && playerId.equals(parts[1])
+                ? parts[2] : "";
+    }
+
+    private static boolean resumeWithProof(PeerServerSide server, ConnectionId connectionId,
+                                           InetAddress address, int port, String playerId,
+                                           String token, Socket socket) throws Exception {
+        String reference = sessionReference(token);
+        require(!server.resume(connectionId, address, port, playerId, reference, "", "", false, ""),
+                "phase-one resume unexpectedly bound the session without proof");
+        String challenge = receivePayload(socket, "SESSION_CHALLENGE|");
+        String nonce = sessionChallengeNonce(challenge, playerId);
+        require(PasswordAuth.validNonce(nonce), "resume did not receive a valid proof challenge");
+        byte[] tokenDigest = PasswordAuth.tokenDigest(token);
+        try {
+            String proof = PasswordAuth.sessionProof(tokenDigest, playerId, nonce);
+            return server.resume(connectionId, address, port, playerId, reference, nonce, proof, false, "");
+        } finally {
+            java.util.Arrays.fill(tokenDigest, (byte)0);
+        }
+    }
+
+    private static String sessionReference(String token) {
+        byte[] tokenDigest = PasswordAuth.tokenDigest(token);
+        try {
+            return PasswordAuth.sessionReference(tokenDigest);
+        } finally {
+            java.util.Arrays.fill(tokenDigest, (byte)0);
+        }
+    }
+
+    private static String resumeProofMessage(String token, String playerId, String nonce) {
+        byte[] tokenDigest = PasswordAuth.tokenDigest(token);
+        try {
+            String proof = PasswordAuth.sessionProof(tokenDigest, playerId, nonce);
+            return "RESUME|" + playerId + "|" + PasswordAuth.sessionReference(tokenDigest)
+                    + "|NODEV||SESSION_PROOF_NONCE|" + nonce + "|SESSION_PROOF|" + proof;
+        } finally {
+            java.util.Arrays.fill(tokenDigest, (byte)0);
+        }
     }
 
     private static String markerValue(String message, String marker) {

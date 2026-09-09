@@ -48,12 +48,21 @@ If a retained commander with the requested name already exists, the connection u
 
 ## Session resume
 
-After successful authentication, the server may issue a random reusable session token over the verified TLS connection.
+After successful authentication, the server may issue a random reusable session token over the verified TLS connection. A disconnected session is not rebound from that bearer token alone: resume uses a two-phase challenge/proof exchange inside the verified TLS channel.
 
-- A remembered token is returned only through a later verified TLS connection.
+1. The client derives a domain-separated, one-way session reference from its saved token and sends the player identity plus that non-secret reference in the initial `RESUME` request. The reusable token and its HMAC key digest are not sent on the resume wire path.
+2. After matching that reference to retained current or bounded previous-token state, the server returns `SESSION_CHALLENGE` with a fresh random nonce and does not bind the connection yet.
+3. The client derives the stored token digest, computes the existing HMAC-SHA256 session proof over the player identity and nonce, and returns `SESSION_PROOF_NONCE` plus `SESSION_PROOF`.
+4. The server requires the challenge to belong to that connection and player, remain inside the authentication challenge lifetime, and match the expected HMAC before it binds the session.
+5. A challenge is consumed by a proof attempt. Successful resume rotates reusable token state; replaying the consumed proof on another connection is rejected.
+
+A still-live challenge is reused when the same reconnecting connection repeats its phase-one request. This keeps ordinary network retries from replacing a nonce while the client is answering it. Once an already-proved TCP connection owns the session, a duplicate `RESUME` may resend the current `WELCOME` without rotating again so loss of the first rotated response does not strand the client.
+
+- A remembered token is returned only through a later verified TLS connection and is not retransmitted as the live `RESUME` identifier.
 - The server keeps protected verifier state rather than treating save-extracted digest material as a valid session credential.
 - Current and bounded previous-token state support reconnect recovery without making old tokens valid indefinitely.
 - Successful resume rotates reusable state.
+- Expired, mismatched, malformed, or replayed resume proofs are rejected.
 - Stale or invalid remembered sign-ins fall back to password authentication instead of creating a second commander identity.
 - Admission and moderation rules still apply to resumed sessions.
 
