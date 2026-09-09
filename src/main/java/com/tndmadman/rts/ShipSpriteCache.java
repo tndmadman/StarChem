@@ -114,6 +114,7 @@ final class ShipSpriteCache {
         double rasterScale = rasterScale(unit.type());
         g.scale(rasterScale, rasterScale);
         ShipShape.draw(g, unit.type(), color, variant);
+        ShipSurfaceArt.draw(g, unit.type());
         g.dispose();
         int worldSize = Math.max(IMAGE_SIZE, (int)Math.ceil(IMAGE_SIZE / rasterScale));
         return new Sprite(image, worldSize);
