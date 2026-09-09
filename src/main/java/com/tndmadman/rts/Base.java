@@ -39,16 +39,10 @@ final class Base {
 
     void draw(Graphics2D g2, Color ignoredColor, EnumMap<Material, Double> ignoredStockpile, boolean ignoredLocal) {
         Color playerColor = PlayerRegistry.color(playerId);
-        boolean local = PlayerRegistry.isLocal(playerId);
         Graphics2D s = (Graphics2D) g2.create();
         s.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         BaseType def = type();
         double radius = radius();
-        s.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), local ? 42 : 22));
-        s.fillOval((int)(x - def.unloadRange), (int)(y - def.unloadRange), (int)(def.unloadRange * 2), (int)(def.unloadRange * 2));
-        s.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), local ? 120 : 72));
-        s.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 0, new float[]{10f,8f}, 0));
-        s.drawOval((int)(x - def.unloadRange), (int)(y - def.unloadRange), (int)(def.unloadRange * 2), (int)(def.unloadRange * 2));
         Polygon hull = new Polygon();
         for (int i = 0; i < 6; i++) {
             double a = Math.PI / 6 + i * Math.PI * 2 / 6.0;
@@ -57,14 +51,7 @@ final class Base {
         s.setColor(new Color(20,29,42)); s.fillPolygon(hull);
         s.setColor(playerColor); s.setStroke(new BasicStroke(3f)); s.drawPolygon(hull);
         drawCore(s, playerColor);
-        s.setFont(s.getFont().deriveFont(Font.BOLD, 12f));
-        drawBars(s, def, radius);
-        drawLabel(s, def, radius, playerColor);
-        drawFuelState(s, radius);
-        drawLogistics(s, radius);
-        drawProduction(s, radius);
-        if (local) drawHangar(s, radius);
-        IntelStructureRenderer.drawStatus(s, this, radius);
+        StationPresentation.draw(s, this, def, radius, playerColor);
         s.dispose();
     }
 
