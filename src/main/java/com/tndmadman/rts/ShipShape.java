@@ -8,12 +8,14 @@ final class ShipShape {
     private ShipShape() { }
 
     static Path2D create(ShipType type) {
-        return hull(type, family(type), new Random(type.seed));
+        ShipVisualDefinition visual = VisualCatalog.ship(type.id);
+        return hull(type, family(visual), new Random(visual.seed()));
     }
 
     static void draw(Graphics2D g2, ShipType type, Color playerColor) {
-        VisualFamily family = family(type);
-        Random r = new Random(type.seed);
+        ShipVisualDefinition visual = VisualCatalog.ship(type.id);
+        VisualFamily family = family(visual);
+        Random r = new Random(visual.seed());
         Path2D hull = hull(type, family, r);
         double s = type.size.scale;
         Graphics2D ship = (Graphics2D) g2.create();
@@ -23,21 +25,13 @@ final class ShipShape {
         ship.fill(hull);
         ship.setColor(playerColor);
         ship.draw(hull);
-        drawDetails(ship, type, family, playerColor, new Random(type.seed ^ 0x5EEDBEEF));
+        drawDetails(ship, type, visual, family, playerColor, new Random(visual.seed() ^ 0x5EEDBEEFL));
         ship.dispose();
     }
 
-    private static VisualFamily family(ShipType type) {
-        String id = type.id.toLowerCase();
-        if (id.contains("monolith")) return VisualFamily.MONOLITH;
-        if (type.baseBuilder || id.contains("builder") || id.contains("deployer")) return VisualFamily.BUILDER;
-        if (id.contains("scout") || type.scoutRange > 0) return VisualFamily.SCOUT;
-        if (id.contains("gas")) return VisualFamily.GAS;
-        if (type.harvestRange > 0 && type.harvestKinds.contains(NodeKind.SILICATE_ROCK)) return VisualFamily.MINER;
-        if (id.contains("hauler") || id.contains("freighter") || type.cargoCapacity >= 300) return VisualFamily.CARGO;
-        if (id.contains("carrier")) return VisualFamily.CARRIER;
-        if (id.contains("dread") || id.contains("titan")) return VisualFamily.SIEGE;
-        return VisualFamily.COMBAT;
+    private static VisualFamily family(ShipVisualDefinition visual) {
+        if (visual == null || visual.family() == null) return VisualFamily.COMBAT;
+        return VisualFamily.valueOf(visual.family().name());
     }
 
     private static Path2D hull(ShipType type, VisualFamily family, Random r) {
@@ -201,7 +195,8 @@ final class ShipShape {
         return p;
     }
 
-    private static void drawDetails(Graphics2D g, ShipType type, VisualFamily family, Color color, Random r) {
+    private static void drawDetails(Graphics2D g, ShipType type, ShipVisualDefinition visual,
+                                    VisualFamily family, Color color, Random r) {
         double s = type.size.scale;
         Color glow = new Color(220, 245, 255, 150);
         Color dim = new Color(color.getRed(), color.getGreen(), color.getBlue(), 95);
@@ -238,18 +233,18 @@ final class ShipShape {
                 drawEngine(g, 30 * s, 0, 17 * s, color);
             }
             case COMBAT -> {
-                drawTurrets(g, s, Math.max(1, Math.min(4, 1 + (int)(type.maxHp / 350))), glow);
+                drawTurrets(g, s, visual.detailCount(), glow);
                 drawSymLine(g, -12 * s, 14 * s, 28 * s, 21 * s, dim);
                 drawEngine(g, 29 * s, 0, 15 * s, color);
             }
             case CARRIER -> {
                 drawHangar(g, -10 * s, -18 * s, 44 * s, 11 * s, glow);
                 drawHangar(g, -10 * s, 7 * s, 44 * s, 11 * s, glow);
-                drawTurrets(g, s, 3, new Color(255, 240, 180, 140));
+                drawTurrets(g, s, Math.min(5, visual.detailCount()), new Color(255, 240, 180, 140));
                 drawEngine(g, 40 * s, 0, 22 * s, color);
             }
             case SIEGE -> {
-                drawTurrets(g, s, 5, new Color(255, 225, 155, 150));
+                drawTurrets(g, s, Math.min(6, visual.detailCount()), new Color(255, 225, 155, 150));
                 g.setColor(new Color(255, 235, 170, 145));
                 g.drawLine((int)(-43 * s), 0, (int)(-12 * s), 0);
                 drawSymLine(g, 6 * s, 18 * s, 38 * s, 25 * s, dim);
@@ -258,7 +253,7 @@ final class ShipShape {
             case MONOLITH -> {
                 drawHangar(g, -36 * s, -24 * s, 72 * s, 12 * s, new Color(170, 235, 255, 120));
                 drawHangar(g, -36 * s, 12 * s, 72 * s, 12 * s, new Color(170, 235, 255, 120));
-                drawPodRow(g, -40 * s, 5, 21 * s, 15 * s, dim);
+                drawPodRow(g, -40 * s, Math.min(6, visual.detailCount()), 21 * s, 15 * s, dim);
                 drawEngine(g, 64 * s, 0, 30 * s, color);
             }
         }
