@@ -33,6 +33,7 @@ run_java com.tndmadman.rts.ProductionLogisticsSourcingValidator
 run_java com.tndmadman.rts.ShipyardStationPackageValidator
 run_java com.tndmadman.rts.MenuOverflowValidator
 run_java com.tndmadman.rts.ShipyardScrollHotfixValidator
+run_java com.tndmadman.rts.Issue391SpaceBackgroundValidator
 run_java com.tndmadman.rts.SessionEndpointIdentityValidator
 run_java com.tndmadman.rts.NumericCommandValidationValidator authenticated
 run_java com.tndmadman.rts.NumericCommandValidationValidator repair
