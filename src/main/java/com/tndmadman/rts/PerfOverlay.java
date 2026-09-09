@@ -59,6 +59,17 @@ final class PerfOverlay {
         out.add(String.format(Locale.ROOT,
                 "Render world %.3f ms | weapon FX %.3f ms | fog %.3f ms",
                 trace.worldDrawMs(), trace.weaponDrawMs(), trace.fogDrawMs()));
+
+        ShipSpriteCache.Snapshot spriteCache = ShipSpriteCache.snapshot();
+        out.add(String.format(Locale.ROOT,
+                "Ship sprite cache %d/%d (peak %d) | hit %.1f%% | miss %d | evict %d | %.1f MiB | gen %.3f ms avg",
+                spriteCache.entries(), spriteCache.maxEntries(), spriteCache.peakEntries(),
+                spriteCache.hitRate() * 100.0, spriteCache.misses(), spriteCache.evictions(),
+                spriteCache.estimatedBytes() / 1024.0 / 1024.0, spriteCache.averageGenerationMs()));
+        out.add("Destruction VFX " + ExplosionEffect.activeEffectCount() + "/" + ExplosionEffect.maxActiveEffects()
+                + " effects | <= " + ExplosionEffect.maxParticlesPerEffect() + " particles/effect"
+                + " | <= " + (ExplosionEffect.maxActiveEffects() * ExplosionEffect.maxParticlesPerEffect()) + " particles total");
+
         out.add(String.format(Locale.ROOT,
                 "Selection ctx %.3f ms | batch %.3f ms | selected %.0f (visible %.0f) | markers %.0f | groups %.1f",
                 trace.selectionContextMs(), trace.selectionDrawMs(), trace.selectedPerFrame(),
