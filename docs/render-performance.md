@@ -8,7 +8,7 @@ StarChem should target smooth 60 FPS play at 1080p on the supported desktop clie
 
 A 60 FPS frame is 16.67 ms, so ordinary gameplay should keep total client render p95 at or below 16.67 ms when practical. The developer F4 overlay remains the source of truth for the complete Swing client frame because it includes `GamePanel`, fog, HUDs, minimap, overlays, and world rendering.
 
-The headless `RenderPerformanceValidator` is the repeatable regression harness for the production world renderer. It uses fixed 1600x900 off-screen rendering, deterministic scene placement, fixed explosion seeds, warm-up frames, and p50/p95/max samples. Shared CI hardware is not stable enough for unconditional absolute millisecond gates, so structural limits always fail closed while absolute timing gates are opt-in for a controlled reference runner.
+The headless `RenderPerformanceValidator` is the repeatable regression harness for the production world renderer. It uses fixed 1600x900 off-screen rendering, deterministic scene placement, deterministic validation destruction profiles, warm-up frames, and p50/p95/max samples. Shared CI hardware is not stable enough for unconditional absolute millisecond gates, so structural limits always fail closed while absolute timing gates are opt-in for a controlled reference runner.
 
 ## Initial p95 world-render budgets
 
@@ -24,7 +24,7 @@ These are the initial controlled-runner limits encoded in `RenderPerformanceVali
 | 100 selected ships | 28.0 ms |
 | 9 large production stations | 20.0 ms |
 | 180 mixed asteroid/rock + gas resource nodes | 22.0 ms |
-| heavy combat: 80 ships, 220 projectiles, 56 explosions | 33.33 ms |
+| heavy combat: 80 ships, 220 projectiles, 56 destruction effects | 33.33 ms |
 | capital/station destruction: titans, large stations, projectiles, VFX cap | 33.33 ms |
 | Nebula Expanse background/celestial stack | 12.0 ms |
 
@@ -38,12 +38,14 @@ The following limits are enforced regardless of machine speed:
 
 - Ship medium-LOD sprite cache: maximum **1,536** retained entries.
 - Cache telemetry records requests, hits, misses, generation count/time, evictions, peak entries, and estimated retained pixel memory.
-- Destruction VFX: maximum **96 active rendered explosion effects**.
-- Destruction VFX: maximum **192 particles per explosion**, or **18,432 particles** across all active explosion effects.
-- Effects rejected because the active-effect budget is full become zero-cost suppressed effects and are removed on the next normal effect update.
-- The active-effect registry uses weak keys so abandoned worlds or system views cannot permanently consume VFX budget slots.
+- Destruction VFX: maximum **96 active effects** admitted to a world.
+- Destruction profiles: maximum **240 particles of total burst budget per effect**.
+- Destruction profiles: maximum **28 debris fragments per effect**.
+- Destruction profiles: maximum **8 vent effects per effect**.
+- Destruction lifetime: maximum **75 seconds** before cleanup.
+- When destruction admission is full, the production admission policy removes lower-priority existing effects before admitting the incoming effect so the world list remains bounded at 96.
 
-These limits are render-side only. They do not add simulation or network messages.
+The destruction limits are shared with the staged destruction system introduced by issue #405 rather than duplicating a second performance-only VFX implementation. They are render-side only and do not add simulation or network messages.
 
 ## Stress coverage
 
@@ -54,13 +56,13 @@ These limits are render-side only. They do not add simulation or network message
 - 100 selected ships;
 - nine large production stations cycling Shipyard, Manufacturing Plant, and Research Lab visuals;
 - a dense 180-node field split between `SILICATE_ROCK` and `GAS_CLOUD`, exercising both asteroid/rock and gas rendering paths;
-- active combat with ships, projectile shots, and destruction effects;
+- active combat with ships, projectile shots, and bounded staged destruction effects;
 - a capital/station destruction scene containing Titans, large stations, projectile load, and the active destruction-VFX cap;
 - Nebula Expanse with its authored celestial/background configuration;
 - far, medium, and close zoom for every scene;
 - cold-cache first render and warmed steady-state render samples.
 
-The validator also asserts that the required fixtures retain those properties, so a future refactor cannot accidentally turn the >100-ship, large-station, mixed-resource, or capital-destruction cases into weaker tests while leaving the scenario name unchanged.
+The validator also asserts that the required fixtures retain those properties, so a future refactor cannot accidentally turn the >100-ship, large-station, mixed-resource, or capital-destruction cases into weaker tests while leaving the scenario name unchanged. It separately validates the production destruction-profile particle/debris/vent/lifetime budgets and the 96-effect admission cap.
 
 ## Render-cost attribution
 
@@ -131,7 +133,7 @@ During normal gameplay, enable the developer F4 performance overlay to correlate
 
 Graphics work should be treated as a performance regression when any of the following is true:
 
-1. A hard cache or VFX bound is violated.
+1. A hard cache or VFX/debris bound is violated.
 2. A controlled-runner scenario exceeds its p95 budget without an explicitly reviewed budget change.
 3. A matching base/baseline scene and zoom regresses by more than the agreed threshold (20% by default).
 4. A required stress fixture no longer exercises its documented entity/type coverage.
