@@ -49,6 +49,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private Point dragStart;
     private Point dragNow;
     private long lastNanos = System.nanoTime();
+    private long formationOrderSequence;
     private long lastControlGroupLocationRefreshNanos;
     private Map<String, String> controlGroupLocations = Map.of();
     private boolean controlGroupLocationsReady;
@@ -607,11 +608,28 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     private int queueMoveSelected(Point2D point, boolean append) {
         List<String> keys = commandUnitKeys(append);
         if (keys.isEmpty()) return 0;
+        double forwardX = 0, forwardY = 0;
+        if (append && !keys.isEmpty()) {
+            List<QueuedUnitCommand> existing = UnitCommandQueueSystem.commands(world, keys.get(0));
+            if (!existing.isEmpty()) {
+                QueuedUnitCommand tail = existing.get(existing.size() - 1);
+                double previousX = FormationIntent.claims(tail) ? tail.x2() : tail.x1();
+                double previousY = FormationIntent.claims(tail) ? tail.y2() : tail.y1();
+                forwardX = point.getX() - previousX;
+                forwardY = point.getY() - previousY;
+            }
+        }
+        FleetFormationPlanner.Plan plan = FleetFormationPlanner.plan(world, keys, formation,
+                point.getX(), point.getY(), forwardX, forwardY);
+        String intent = nextFormationIntent(plan);
         int applied = 0;
-        for (int i = 0; i < keys.size(); i++) {
-            Point2D target = queuedFormationTarget(point.getX(), point.getY(), i, keys.size());
-            QueuedUnitCommand command = QueuedUnitCommand.move(world.activeSystemId(), target.getX(), target.getY());
-            if (issueQueueMutation(keys.get(i), command, append ? UnitQueueOperation.APPEND : UnitQueueOperation.REPLACE)) applied++;
+        for (String key : keys) {
+            FleetFormationPlanner.Target target = plan.target(key);
+            if (target == null) continue;
+            QueuedUnitCommand command = QueuedUnitCommand.formationMove(world.activeSystemId(),
+                    target.x(), target.y(), point.getX(), point.getY(), plan.pace(), intent);
+            if (issueQueueMutation(key, command,
+                    append ? UnitQueueOperation.APPEND : UnitQueueOperation.REPLACE)) applied++;
         }
         return applied;
     }
@@ -647,9 +665,16 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         if (gate == null) return 0;
         List<String> keys = commandUnitKeys(append);
         if (keys.isEmpty()) return 0;
+        WormholeRegroup regroup = wormholeRegroup(gate, keys);
+        String intent = nextFormationIntent(regroup.plan());
         int applied = 0;
         for (String key : keys) {
-            if (issueQueueMutation(key, QueuedUnitCommand.wormhole(world.activeSystemId(), gate.id, gate.toSystemId),
+            FleetFormationPlanner.Target target = regroup.plan().target(key);
+            QueuedUnitCommand command = target == null
+                    ? QueuedUnitCommand.wormhole(world.activeSystemId(), gate.id, gate.toSystemId)
+                    : QueuedUnitCommand.formationWormhole(world.activeSystemId(), gate.id, gate.toSystemId,
+                    target.x(), target.y(), regroup.anchorX(), regroup.anchorY(), regroup.plan().pace(), intent);
+            if (issueQueueMutation(key, command,
                     append ? UnitQueueOperation.APPEND : UnitQueueOperation.REPLACE)) applied++;
         }
         return applied;
@@ -659,28 +684,79 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
                                       double x2, double y2, String targetKey, boolean append) {
         List<String> keys = commandUnitKeys(append);
         if (keys.isEmpty()) return 0;
+
+        FleetFormationPlanner.Plan primary = null;
+        FleetFormationPlanner.Plan secondary = null;
+        if (type == UnitOrderType.ATTACK_MOVE) {
+            primary = FleetFormationPlanner.plan(world, keys, formation, x2, y2);
+        } else if (type == UnitOrderType.PATROL) {
+            double fx = x2 - x1;
+            double fy = y2 - y1;
+            primary = FleetFormationPlanner.plan(world, keys, formation, x1, y1, fx, fy);
+            secondary = FleetFormationPlanner.plan(world, keys, formation, x2, y2, fx, fy);
+        } else if (type == UnitOrderType.GUARD && (targetKey == null || targetKey.isBlank())) {
+            primary = FleetFormationPlanner.plan(world, keys, formation, x1, y1);
+        }
+
         int applied = 0;
-        for (int i = 0; i < keys.size(); i++) {
+        for (String key : keys) {
             double ax = x1, ay = y1, bx = x2, by = y2;
             if (type == UnitOrderType.ATTACK_MOVE) {
-                Point2D end = queuedFormationTarget(x2, y2, i, keys.size());
-                ax = bx = end.getX(); ay = by = end.getY();
+                FleetFormationPlanner.Target end = primary == null ? null : primary.target(key);
+                if (end == null) continue;
+                ax = bx = end.x(); ay = by = end.y();
             } else if (type == UnitOrderType.PATROL) {
-                Point2D start = queuedFormationTarget(x1, y1, i, keys.size());
-                Point2D end = queuedFormationTarget(x2, y2, i, keys.size());
-                ax = start.getX(); ay = start.getY(); bx = end.getX(); by = end.getY();
+                FleetFormationPlanner.Target start = primary == null ? null : primary.target(key);
+                FleetFormationPlanner.Target end = secondary == null ? null : secondary.target(key);
+                if (start == null || end == null) continue;
+                ax = start.x(); ay = start.y(); bx = end.x(); by = end.y();
             } else if (type == UnitOrderType.GUARD && (targetKey == null || targetKey.isBlank())) {
-                Point2D anchor = queuedFormationTarget(x1, y1, i, keys.size());
-                ax = bx = anchor.getX(); ay = by = anchor.getY();
+                FleetFormationPlanner.Target anchor = primary == null ? null : primary.target(key);
+                if (anchor == null) continue;
+                ax = bx = anchor.x(); ay = by = anchor.y();
             }
             double radius = UnitOrderSystem.defaultRadius(type);
+            double movementPace = primary == null ? 0 : primary.pace();
             QueuedUnitCommand command = QueuedUnitCommand.tactical(world.activeSystemId(), type,
-                    ax, ay, bx, by, radius, targetKey);
-            if (issueQueueMutation(keys.get(i), command,
+                    ax, ay, bx, by, radius, targetKey, movementPace);
+            if (issueQueueMutation(key, command,
                     append ? UnitQueueOperation.APPEND : UnitQueueOperation.REPLACE)) applied++;
         }
         return applied;
     }
+
+    private String nextFormationIntent(FleetFormationPlanner.Plan plan) {
+        String token = Long.toUnsignedString(++formationOrderSequence, 36) + "-"
+                + Long.toUnsignedString(System.nanoTime(), 36);
+        return FormationIntent.encode(token, formation, plan.forwardX(), plan.forwardY());
+    }
+
+    private WormholeRegroup wormholeRegroup(WormholeGate gate, List<String> keys) {
+        double cx = 0, cy = 0;
+        int count = 0;
+        for (String key : keys) {
+            Unit unit = world.units.get(key);
+            if (unit == null || unit.hp <= 0) continue;
+            cx += unit.x;
+            cy += unit.y;
+            count++;
+        }
+        if (count > 0) { cx /= count; cy /= count; }
+        else { cx = gate.x; cy = gate.y; }
+        double fx = gate.x - cx;
+        double fy = gate.y - cy;
+        double length = Math.hypot(fx, fy);
+        if (!Double.isFinite(length) || length < 1.0e-9) { fx = 1; fy = 0; }
+        else { fx /= length; fy /= length; }
+        double clearance = 180 + Math.min(260, Math.sqrt(Math.max(1, keys.size())) * 18);
+        double anchorX = Calc.clamp(gate.exitX + fx * clearance, 0, world.width);
+        double anchorY = Calc.clamp(gate.exitY + fy * clearance, 0, world.height);
+        FleetFormationPlanner.Plan plan = FleetFormationPlanner.plan(world, keys, formation,
+                anchorX, anchorY, fx, fy);
+        return new WormholeRegroup(plan, anchorX, anchorY);
+    }
+
+    private record WormholeRegroup(FleetFormationPlanner.Plan plan, double anchorX, double anchorY) { }
 
     private int applyCombatPolicy(CombatStance stance, TargetPriorityPolicy priority) {
         List<String> keys = commandUnitKeys(false);
@@ -742,31 +818,6 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         queuedPlanningUnits.clear();
         world.status = cleared > 0 ? "Stopped and cleared orders for " + cleared + " ship(s)." : "No queued ships to stop.";
         ProceduralAudio.play(cleared > 0 ? SoundCue.SELECT : SoundCue.ERROR);
-    }
-
-    private Point2D queuedFormationTarget(double x, double y, int index, int count) {
-        double spacing = 54, ox = 0, oy = 0;
-        switch (formation) {
-            case LINE -> ox = (index - (count - 1) / 2.0) * spacing;
-            case COLUMN -> oy = (index - (count - 1) / 2.0) * spacing;
-            case WEDGE -> {
-                if (index > 0) {
-                    int rank = (index + 1) / 2;
-                    int side = index % 2 == 1 ? -1 : 1;
-                    ox = side * rank * spacing;
-                    oy = rank * spacing;
-                }
-            }
-            case GRID -> {
-                int cols = (int)Math.ceil(Math.sqrt(count));
-                double rows = Math.ceil(count / (double)cols);
-                int col = index % cols;
-                int row = index / cols;
-                ox = (col - (cols - 1) / 2.0) * 42;
-                oy = (row - (rows - 1) / 2.0) * 42;
-            }
-        }
-        return new Point2D.Double(Calc.clamp(x + ox, 0, world.width), Calc.clamp(y + oy, 0, world.height));
     }
 
     private int unitIdFromKey(String key) {

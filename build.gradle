@@ -147,6 +147,19 @@ tasks.register('validateIssue291CommandQueues', JavaExec) {
     jvmArgs '-Djava.awt.headless=true'
 }
 
+tasks.register('validateIssue386Formations', JavaExec) {
+    group = 'verification'
+    description = 'Validate oriented, deterministic, role-aware fleet formation planning and cohesion pacing.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.Issue386FormationValidator'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('validateIssue386Formations')
+}
+
 tasks.register('validateIssue293LogisticsRoutes', JavaExec) {
     group = 'verification'
     description = 'Validate persistent inter-system logistics routes, reservations, recovery, and authority.'
