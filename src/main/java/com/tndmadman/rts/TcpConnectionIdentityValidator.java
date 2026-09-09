@@ -40,7 +40,20 @@ public final class TcpConnectionIdentityValidator {
 
             server.connectionClosed(new NetPacket(PeerTransport.DISCONNECT_EVENT, firstId, loopback, first.getLocalPort()));
             TcpIntegrationHarness.require(!server.owns(firstId, "P1"), "first connection remained attached after close");
-            TcpIntegrationHarness.require(server.resume(secondId, loopback, second.getLocalPort(), "P1", token, false, ""),
+
+            byte[] tokenDigest = PasswordAuth.tokenDigest(token);
+            String tokenReference = PasswordAuth.sessionReference(tokenDigest);
+            TcpIntegrationHarness.require(!server.resume(secondId, loopback, second.getLocalPort(), "P1",
+                            tokenReference, "", "", false, ""),
+                    "resume unexpectedly bypassed the session possession challenge");
+            String challenge = receive(second, "SESSION_CHALLENGE|");
+            String[] challengeParts = challenge.split("\\|", -1);
+            TcpIntegrationHarness.require(challengeParts.length == 3 && "P1".equals(challengeParts[1])
+                            && PasswordAuth.validNonce(challengeParts[2]),
+                    "server did not issue a valid session resume challenge");
+            String proof = PasswordAuth.sessionProof(tokenDigest, "P1", challengeParts[2]);
+            TcpIntegrationHarness.require(server.resume(secondId, loopback, second.getLocalPort(), "P1",
+                            tokenReference, challengeParts[2], proof, false, ""),
                     "session did not attach to the replacement connection");
             receive(second, "WELCOME|");
             TcpIntegrationHarness.require(server.owns(secondId, "P1"), "replacement connection did not own the session");
