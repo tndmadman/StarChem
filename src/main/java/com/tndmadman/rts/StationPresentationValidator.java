@@ -2,6 +2,7 @@ package com.tndmadman.rts;
 
 import java.awt.Color;
 import java.awt.Graphics2D;
+import java.awt.Point;
 import java.awt.image.BufferedImage;
 
 /** Headless regression coverage for the contextual station presentation introduced by issue #398. */
@@ -12,6 +13,8 @@ public final class StationPresentationValidator {
         validateNormalStationsStayClean();
         validateCriticalWarningPriority();
         validatePresentationDoesNotMutateStationState();
+        validateDenseHoverChoosesNearestStation();
+        validateForeignContextDoesNotLeakOperations();
         System.out.println("Station presentation validation passed.");
     }
 
@@ -84,6 +87,30 @@ public final class StationPresentationValidator {
         require(base.shield == shield, "Presentation mutated station shield.");
         require(base.inventory.get(Material.IRON) == iron, "Presentation mutated station inventory.");
         require(base.productionQueue.size() == queueSize, "Presentation mutated production state.");
+    }
+
+    private static void validateDenseHoverChoosesNearestStation() {
+        Base farther = new Base("TEST:FAR", "TEST", Rules.DEFAULT_BASE, 180, 180);
+        Base nearer = new Base("TEST:NEAR", "TEST", Rules.DEFAULT_BASE, 198, 180);
+        BufferedImage image = new BufferedImage(320, 320, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = image.createGraphics();
+        try {
+            String selected = StationPresentation.resolveNearestHoverIdForTest(
+                    g2, new Point(196, 180), farther, nearer);
+            require("TEST:NEAR".equals(selected),
+                    "Dense station hover did not resolve to exactly the nearest station.");
+        } finally {
+            g2.dispose();
+        }
+    }
+
+    private static void validateForeignContextDoesNotLeakOperations() {
+        Base foreign = new Base("FOREIGN:B1", "FOREIGN", Rules.DEFAULT_BASE, 0, 0);
+        foreign.logisticsStatus = "SECRET ROUTE TO ALPHA";
+        foreign.inventory.put(Material.IRON, 9999.0);
+        String summary = StationPresentation.conciseStatus(foreign, foreign.type());
+        require("Operational".equals(summary),
+                "Foreign station hover exposed private operational information: " + summary);
     }
 
     private static int alpha(int argb) {
