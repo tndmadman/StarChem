@@ -40,8 +40,28 @@ public final class TcpConnectionIdentityValidator {
 
             server.connectionClosed(new NetPacket(PeerTransport.DISCONNECT_EVENT, firstId, loopback, first.getLocalPort()));
             TcpIntegrationHarness.require(!server.owns(firstId, "P1"), "first connection remained attached after close");
-            TcpIntegrationHarness.require(server.resume(secondId, loopback, second.getLocalPort(), "P1", token, false, ""),
-                    "session did not attach to the replacement connection");
+
+            String reference = sessionReference(token);
+            TcpIntegrationHarness.require(!server.resume(secondId, loopback, second.getLocalPort(), "P1",
+                            reference, "", "", false, ""),
+                    "session reference attached the replacement connection without proof");
+            String challenge = receive(second, "SESSION_CHALLENGE|");
+            String[] challengeParts = challenge.split("\\|", -1);
+            TcpIntegrationHarness.require(challengeParts.length == 3
+                            && "P1".equals(challengeParts[1])
+                            && PasswordAuth.validNonce(challengeParts[2]),
+                    "replacement connection did not receive a valid resume challenge");
+            String nonce = challengeParts[2];
+            byte[] tokenDigest = PasswordAuth.tokenDigest(token);
+            String proof;
+            try {
+                proof = PasswordAuth.sessionProof(tokenDigest, "P1", nonce);
+            } finally {
+                java.util.Arrays.fill(tokenDigest, (byte) 0);
+            }
+            TcpIntegrationHarness.require(server.resume(secondId, loopback, second.getLocalPort(), "P1",
+                            reference, nonce, proof, false, ""),
+                    "proved session did not attach to the replacement connection");
             receive(second, "WELCOME|");
             TcpIntegrationHarness.require(server.owns(secondId, "P1"), "replacement connection did not own the session");
 
@@ -57,6 +77,15 @@ public final class TcpConnectionIdentityValidator {
             System.out.println("StarChem TCP connection identity validation passed.");
         } finally {
             transport.shutdown();
+        }
+    }
+
+    private static String sessionReference(String token) {
+        byte[] digest = PasswordAuth.tokenDigest(token);
+        try {
+            return PasswordAuth.sessionReference(digest);
+        } finally {
+            java.util.Arrays.fill(digest, (byte) 0);
         }
     }
 
