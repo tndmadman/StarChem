@@ -97,11 +97,20 @@ final class ProductionDiagnosticsDialog {
         for (ProductionCausalAnalyzer.Cause cause : causes) {
             if (cause == null) continue;
             for (ProductionCausalAnalyzer.RecoveryAction action : cause.actions()) {
+                if (!canInvoke(action)) continue;
                 String key = action.type().name() + '|' + action.parameters();
                 if (seen.add(key)) out.add(action);
             }
             collectActions(cause.children(), out, seen);
         }
+    }
+
+    private static boolean canInvoke(ProductionCausalAnalyzer.RecoveryAction action) {
+        if (action == null) return false;
+        if (action.type() == ProductionCausalAnalyzer.ActionType.CREATE_ROUTE) {
+            return !action.parameters().getOrDefault("sourceSystemId", "").isBlank();
+        }
+        return true;
     }
 
     private static String buttonLabel(ProductionCausalAnalyzer.ActionType type) {
