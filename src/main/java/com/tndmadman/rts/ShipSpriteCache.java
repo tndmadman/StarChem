@@ -45,7 +45,6 @@ final class ShipSpriteCache {
                 hits++;
                 return cached;
             }
-
             misses++;
             long started = System.nanoTime();
             Sprite sprite = render(unit, color, variant, bucket);
@@ -79,8 +78,7 @@ final class ShipSpriteCache {
             double hitRate = totalRequests <= 0 ? 0.0 : hits / (double) totalRequests;
             double generationMs = generationNanos / 1_000_000.0;
             double averageGenerationMs = generations <= 0 ? 0.0 : generationMs / generations;
-            return new Snapshot(
-                    CACHE.size(), peakEntries, MAX_ENTRIES, totalRequests, hits, misses,
+            return new Snapshot(CACHE.size(), peakEntries, MAX_ENTRIES, totalRequests, hits, misses,
                     generations, evictions, hitRate, generationMs, averageGenerationMs,
                     CACHE.size() * ESTIMATED_BYTES_PER_IMAGE);
         }
@@ -88,7 +86,6 @@ final class ShipSpriteCache {
 
     static void clear() { resetForTest(); }
 
-    /** Clears cached sprites and counters so deterministic performance validators can measure cold/warm behavior. */
     static void resetForTest() {
         synchronized (CACHE) {
             CACHE.clear();
@@ -112,6 +109,7 @@ final class ShipSpriteCache {
         double rasterScale = rasterScale(unit.type());
         g.scale(rasterScale, rasterScale);
         ShipShape.draw(g, unit.type(), color, variant);
+        ShipSurfaceArt.draw(g, unit.type());
         g.dispose();
         int worldSize = Math.max(IMAGE_SIZE, (int)Math.ceil(IMAGE_SIZE / rasterScale));
         return new Sprite(image, worldSize);
@@ -123,19 +121,9 @@ final class ShipSpriteCache {
         return Math.floorMod((int)Math.round(turns * BUCKETS), BUCKETS);
     }
 
-    record Snapshot(
-            int entries,
-            int peakEntries,
-            int maxEntries,
-            long requests,
-            long hits,
-            long misses,
-            long generations,
-            long evictions,
-            double hitRate,
-            double generationMs,
-            double averageGenerationMs,
-            long estimatedBytes) { }
+    record Snapshot(int entries, int peakEntries, int maxEntries, long requests, long hits, long misses,
+                    long generations, long evictions, double hitRate, double generationMs,
+                    double averageGenerationMs, long estimatedBytes) { }
 
     record Sprite(BufferedImage image, int worldSize) { }
     private record Key(String typeId, int rgb, int visualVariant, int headingBucket) { }
