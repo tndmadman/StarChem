@@ -104,29 +104,34 @@ final class StationVisualRenderer {
         g.setStroke(new BasicStroke((float)(1.8 * s)));
         g.draw(new Ellipse2D.Double(-core, -core, core * 2, core * 2));
 
-        drawRings(g, Math.max(2, v.ringCount()), 30 * s, accent, s);
+        // The lab deliberately extends beyond the common station footprint: a broad instrument ring,
+        // radial experiment pods, and a long sensor mast make its silhouette readable at a glance.
+        drawRings(g, Math.max(2, v.ringCount()), 39 * s, accent, s);
         int modules = Math.max(3, v.moduleCount());
         for (int i = 0; i < modules; i++) {
             double angle = i * Math.PI * 2 / modules + .35;
-            double r = 46 * s;
+            double r = 68 * s;
             double x = Math.cos(angle) * r;
             double y = Math.sin(angle) * r;
             g.setColor(new Color(35, 63, 74));
-            g.fill(new Ellipse2D.Double(x - 8 * s, y - 6 * s, 16 * s, 12 * s));
+            g.fill(new Ellipse2D.Double(x - 9 * s, y - 7 * s, 18 * s, 14 * s));
             g.setColor(alpha(player, 190));
-            g.draw(new Ellipse2D.Double(x - 8 * s, y - 6 * s, 16 * s, 12 * s));
+            g.draw(new Ellipse2D.Double(x - 9 * s, y - 7 * s, 18 * s, 14 * s));
+            g.setStroke(new BasicStroke((float)Math.max(1.2, 1.7 * s)));
             g.drawLine((int)(Math.cos(angle) * core), (int)(Math.sin(angle) * core), (int)x, (int)y);
         }
 
         Graphics2D dish = (Graphics2D)g.create();
         dish.rotate(-.55);
         dish.setColor(new Color(91, 122, 139));
-        dish.fill(new Arc2D.Double(-13 * s, -48 * s, 26 * s, 16 * s, 180, 180, Arc2D.PIE));
+        dish.fill(new Arc2D.Double(-15 * s, -78 * s, 30 * s, 18 * s, 180, 180, Arc2D.PIE));
         dish.setColor(alpha(accent, 230));
-        dish.draw(new Arc2D.Double(-13 * s, -48 * s, 26 * s, 16 * s, 180, 180, Arc2D.OPEN));
-        dish.drawLine(0, (int)(-36 * s), 0, (int)(-24 * s));
+        dish.draw(new Arc2D.Double(-15 * s, -78 * s, 30 * s, 18 * s, 180, 180, Arc2D.OPEN));
+        dish.setStroke(new BasicStroke((float)Math.max(1.2, 1.6 * s)));
+        dish.drawLine(0, (int)(-64 * s), 0, (int)(-34 * s));
+        dish.fill(new Ellipse2D.Double(-3 * s, -69 * s, 6 * s, 6 * s));
         dish.dispose();
-        drawLights(g, v.lightCount(), 42 * s, accent, s);
+        drawLights(g, v.lightCount(), 60 * s, accent, s);
     }
 
     private static void drawFactory(Graphics2D g, StationVisualDefinition v, Color player, Color accent, double s) {
@@ -149,29 +154,43 @@ final class StationVisualRenderer {
             g.draw(new Rectangle2D.Double(x - 6 * s, y - 7 * s, 12 * s, 14 * s));
         }
 
+        // Long service pylons and refinery stacks break the inherited hex outline and make the
+        // manufacturing plant read as an industrial complex rather than another generic station.
         for (int i = 0; i < Math.max(2, v.armCount()); i++) {
-            double y = (-1 + (i % 2) * 2) * (h * .5 + 8 * s);
-            double x0 = (i / 2 - .5) * 24 * s;
+            int side = (i & 1) == 0 ? -1 : 1;
+            double y = side * (h * .5 + 32 * s);
+            double x0 = (i / 2 - .5) * 30 * s;
             g.setColor(new Color(78, 71, 62));
             g.fill(new Rectangle2D.Double(x0 - 5 * s, Math.min(0, y), 10 * s, Math.abs(y)));
             g.setColor(alpha(accent, 150));
             g.draw(new Rectangle2D.Double(x0 - 5 * s, Math.min(0, y), 10 * s, Math.abs(y)));
         }
 
+        for (int side : new int[]{-1, 1}) {
+            double x = side * 34 * s;
+            double y = -70 * s;
+            g.setColor(new Color(58, 54, 50));
+            g.fill(new Rectangle2D.Double(x - 6 * s, y, 12 * s, 42 * s));
+            g.setColor(alpha(player, 150));
+            g.draw(new Rectangle2D.Double(x - 6 * s, y, 12 * s, 42 * s));
+            g.setColor(alpha(accent, 210));
+            g.fill(new Ellipse2D.Double(x - 8 * s, y - 4 * s, 16 * s, 8 * s));
+        }
+
         Path2D conveyor = new Path2D.Double();
-        conveyor.moveTo(-52 * s, 8 * s);
-        conveyor.lineTo(-28 * s, 8 * s);
-        conveyor.lineTo(-20 * s, 15 * s);
-        conveyor.lineTo(20 * s, 15 * s);
-        conveyor.lineTo(28 * s, 8 * s);
-        conveyor.lineTo(52 * s, 8 * s);
+        conveyor.moveTo(-78 * s, 8 * s);
+        conveyor.lineTo(-38 * s, 8 * s);
+        conveyor.lineTo(-24 * s, 15 * s);
+        conveyor.lineTo(24 * s, 15 * s);
+        conveyor.lineTo(38 * s, 8 * s);
+        conveyor.lineTo(78 * s, 8 * s);
         g.setColor(new Color(84, 76, 64));
         g.setStroke(new BasicStroke((float)(5 * s)));
         g.draw(conveyor);
         g.setColor(alpha(accent, 190));
         g.setStroke(new BasicStroke((float)(1.1 * s)));
         g.draw(conveyor);
-        drawLights(g, v.lightCount(), 38 * s, accent, s);
+        drawLights(g, v.lightCount(), 58 * s, accent, s);
     }
 
     private static void drawRings(Graphics2D g, int count, double baseRadius, Color accent, double s) {
