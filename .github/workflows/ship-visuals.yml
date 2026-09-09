@@ -7,6 +7,7 @@ on:
       - 'src/main/java/com/tndmadman/rts/ShipVisual*.java'
       - 'src/main/java/com/tndmadman/rts/ShipSpriteCache.java'
       - 'src/main/java/com/tndmadman/rts/UnitRenderer.java'
+      - 'src/main/java/com/tndmadman/rts/Issue394ShipMaterialValidator.java'
       - 'config/ships/**'
       - '.github/workflows/ship-visuals.yml'
   pull_request:
@@ -15,6 +16,7 @@ on:
       - 'src/main/java/com/tndmadman/rts/ShipVisual*.java'
       - 'src/main/java/com/tndmadman/rts/ShipSpriteCache.java'
       - 'src/main/java/com/tndmadman/rts/UnitRenderer.java'
+      - 'src/main/java/com/tndmadman/rts/Issue394ShipMaterialValidator.java'
       - 'config/ships/**'
       - '.github/workflows/ship-visuals.yml'
 
@@ -35,3 +37,5 @@ jobs:
         run: gradle classes --no-daemon
       - name: Validate authored ship visuals
         run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.ShipVisualValidator
+      - name: Validate ship materials and controlled variation
+        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue394ShipMaterialValidator
