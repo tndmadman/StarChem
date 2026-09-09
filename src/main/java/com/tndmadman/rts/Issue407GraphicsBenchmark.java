@@ -6,6 +6,7 @@ import java.awt.Graphics2D;
 import java.awt.Polygon;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
@@ -28,6 +29,7 @@ final class Issue407GraphicsBenchmark {
         for (String id : SHIPS) require(ShipVisualCatalog.forType(Rules.ship(id)) != null, "Missing ship visual: " + id);
         for (String id : STATIONS) require(Rules.base(id) != null, "Missing station: " + id);
 
+        PlayerRegistry.reset("SOLO", "Nebula Expanse Benchmark", 0x55B9F5);
         Scene scene = new Scene(definition);
         for (int i = 0; i < WARMUP; i++) { scene.renderLegacy(); scene.renderCurrent(); }
 
@@ -63,12 +65,20 @@ final class Issue407GraphicsBenchmark {
         private final StarSystemDefinition definition;
         private final CelestialSystem celestial;
         private final List<ResourceNode> gas;
-        private final List<ShipType> ships;
+        private final List<Unit> ships;
 
         Scene(StarSystemDefinition definition) {
             this.definition = definition;
             celestial = new CelestialSystem(definition, new Random(407));
-            ships = Arrays.stream(SHIPS).map(Rules::ship).toList();
+            ArrayList<Unit> units = new ArrayList<>(SHIPS.length);
+            for (int i = 0; i < SHIPS.length; i++) {
+                Unit unit = new Unit("SOLO", 407_000 + i, SHIPS[i], 175 + i * 225, 565);
+                unit.heading = -0.35 + i * 0.17;
+                unit.afterburnerActive = (i & 1) == 0;
+                units.add(unit);
+            }
+            ships = List.copyOf(units);
+
             Random random = new Random(4070);
             Material[] materials = {Material.HYDROGEN, Material.HELIUM, Material.METHANE, Material.AMMONIA};
             java.util.ArrayList<ResourceNode> nodes = new java.util.ArrayList<>();
@@ -91,16 +101,11 @@ final class Issue407GraphicsBenchmark {
             world.translate((visibleW - definition.width()) * 0.5, (visibleH - definition.height()) * 0.5);
             celestial.draw(world);
             world.dispose();
+
+            // Exercise the same production entry points used during normal play. The benchmark owns
+            // only scene setup and the legacy comparison; it does not maintain a showcase renderer.
             for (ResourceNode node : gas) node.draw(g, false);
-            for (int i = 0; i < ships.size(); i++) {
-                ShipType type = ships.get(i);
-                Graphics2D ship = (Graphics2D) g.create();
-                ship.translate(175 + i * 225, 565);
-                ship.rotate(-0.35 + i * 0.17);
-                ShipShape.draw(ship, type, new Color(85, 185, 245), i % ShipVisualStyle.VARIANT_COUNT);
-                ShipSurfaceArt.draw(ship, type);
-                ship.dispose();
-            }
+            for (Unit unit : ships) UnitRenderer.draw(g, unit, Color.CYAN, true);
             for (int i = 0; i < STATIONS.length; i++) {
                 Base base = new Base("issue407-" + STATIONS[i], "SOLO", STATIONS[i], 260 + i * 375, 360);
                 base.draw(g, Color.CYAN, base.inventory, true);
