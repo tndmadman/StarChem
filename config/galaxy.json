@@ -4,6 +4,7 @@
   },
   "generation": {
     "enabled": false,
+    "seed": "random",
     "size": "medium",
     "targetSystemCount": 24,
     "topology": "mixed",
