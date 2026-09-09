@@ -15,6 +15,10 @@ final class StationVisualRenderer {
 
     static boolean draw(Graphics2D source, Base base, Color playerColor) {
         if (source == null || base == null || playerColor == null) return false;
+        if (IntelWarfareSystem.radarTier(base.typeId) > 0
+                || IntelWarfareSystem.isJammer(base.typeId)
+                || IntelWarfareSystem.isDecoy(base.typeId)
+                || IntelWarfareSystem.CONTACT_STATION.equals(base.typeId)) return false;
         StationVisualDefinition v = StationVisualCatalog.resolve(base.typeId);
         if (v == null) return false;
         Graphics2D g = (Graphics2D)source.create();
