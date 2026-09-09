@@ -15,7 +15,17 @@ record GalaxyInstanceSpec(
         String initialControllerId
 ) { }
 
-record GalaxyLinkSpec(String fromSystemId, String toSystemId) { }
+enum GalaxyLinkKind { PERMANENT, WANDERING }
+
+record GalaxyLinkSpec(String fromSystemId, String toSystemId, GalaxyLinkKind kind) {
+    GalaxyLinkSpec(String fromSystemId, String toSystemId) {
+        this(fromSystemId, toSystemId, GalaxyLinkKind.PERMANENT);
+    }
+
+    GalaxyLinkSpec {
+        kind = kind == null ? GalaxyLinkKind.PERMANENT : kind;
+    }
+}
 
 record GalaxyPlan(
         int copiesPerTemplate,
@@ -42,7 +52,10 @@ final class GalaxyPlanner {
     static GalaxyPlan standard(String primaryTemplateId, int requestedCopies, long galaxySeed,
                                GalaxyTopologyRules topology) {
         GalaxyGenerationSettings generation = GalaxyGenerationSettings.load(requestedCopies);
-        if (generation.procedural()) return procedural(primaryTemplateId, generation, galaxySeed, topology);
+        if (generation.procedural()) {
+            long effectiveSeed = GalaxyGenerationSettings.configuredSeed(galaxySeed);
+            return procedural(primaryTemplateId, generation, effectiveSeed, topology);
+        }
         return legacyStandard(primaryTemplateId, requestedCopies, galaxySeed, topology);
     }
 
@@ -268,7 +281,7 @@ final class GalaxyPlanner {
         if (from == null || to == null || from.equals(to)) return;
         String a = from.compareTo(to) <= 0 ? from : to;
         String b = from.compareTo(to) <= 0 ? to : from;
-        if (seen.add(key(a, b))) links.add(new GalaxyLinkSpec(a, b));
+        if (seen.add(key(a, b))) links.add(new GalaxyLinkSpec(a, b, GalaxyLinkKind.PERMANENT));
     }
 
     private static String key(String from, String to) {
