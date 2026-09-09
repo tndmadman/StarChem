@@ -623,6 +623,8 @@ final class PeerClientSide {
     private boolean readSessionBusy(String message) {
         if (message == null || !message.startsWith("SESSION_BUSY|")) return false;
         String reason = message.length() > 13 ? message.substring(13).trim() : "Saved session is already active.";
+        sessionChallengeNonce = "";
+        lastHandshake = 0;
         world.status = (reason.isBlank() ? "Saved session is already active." : reason) + " Waiting to resume.";
         return true;
     }
@@ -878,8 +880,20 @@ final class PeerClientSide {
         boolean observer = observerRequest.requested() || ObserverSessions.clientObserver(world);
         String request = !observer && config.devMode ? "DEV" : "NODEV";
         String devToken = !observer && config.devMode ? config.devToken : "";
-        return "RESUME|" + cleanPacketPart(localPlayerId) + "|" + cleanPacketPart(sessionToken)
-                + "|" + request + "|" + devToken + (observer ? "|OBSERVER|1" : "");
+        byte[] tokenDigest = PasswordAuth.tokenDigest(sessionToken);
+        try {
+            String reference = PasswordAuth.sessionReference(tokenDigest);
+            String message = "RESUME|" + cleanPacketPart(localPlayerId) + "|" + cleanPacketPart(reference)
+                    + "|" + request + "|" + devToken + (observer ? "|OBSERVER|1" : "");
+            if (!PasswordAuth.validNonce(sessionChallengeNonce)) return message;
+
+            String proof = PasswordAuth.sessionProof(tokenDigest, localPlayerId, sessionChallengeNonce);
+            if (!PasswordAuth.validVerifier(proof)) return message;
+            return message + "|SESSION_PROOF_NONCE|" + cleanPacketPart(sessionChallengeNonce)
+                    + "|SESSION_PROOF|" + cleanPacketPart(proof);
+        } finally {
+            java.util.Arrays.fill(tokenDigest, (byte)0);
+        }
     }
 
     private boolean canIssueCommands() {
