@@ -11,6 +11,7 @@ final class CelestialSystem {
     private final List<Body> bodies = new ArrayList<>();
     private final double sunX;
     private final double sunY;
+    private final SystemVisualDefinition systemVisual;
 
     CelestialSystem(int worldW, int worldH, Random random) {
         this(StarSystems.defaultSystem(), random);
@@ -23,6 +24,7 @@ final class CelestialSystem {
     CelestialSystem(StarSystemDefinition definition, Random random, double offsetX, double offsetY) {
         sunX = offsetX + definition.width() / 2.0;
         sunY = offsetY + definition.height() / 2.0;
+        systemVisual = VisualCatalog.system(definition.id());
         buildBodies(definition, random);
         update(0);
     }
@@ -34,13 +36,16 @@ final class CelestialSystem {
             double x = parent == null ? sunX : 0;
             double y = parent == null ? sunY : 0;
             double angle = bodyDef.orbitRadius() <= 0 ? 0 : random.nextDouble() * Math.PI * 2;
+            CelestialVisualDefinition visual = VisualCatalog.celestial(definition.id(), bodyDef.id());
             Body body = new Body(bodyDef.id(), bodyDef.name(), parent, x, y, bodyDef.orbitRadius(), angle,
-                    bodyDef.orbitSpeed(), bodyDef.radius(), bodyDef.color());
+                    bodyDef.orbitSpeed(), bodyDef.radius(), visual.colorOr(bodyDef.color()), visual);
             bodies.add(body);
             byId.put(bodyDef.id(), body);
         }
         if (bodies.isEmpty()) {
-            Body sun = new Body("sun", "Sun", null, sunX, sunY, 0, 0, 0, 210, new Color(255, 205, 80));
+            CelestialVisualDefinition visual = VisualCatalog.celestial(definition.id(), "sun");
+            Body sun = new Body("sun", "Sun", null, sunX, sunY, 0, 0, 0, 210,
+                    visual.colorOr(new Color(255, 205, 80)), visual);
             bodies.add(sun);
         }
     }
@@ -65,7 +70,7 @@ final class CelestialSystem {
         double cx = body.parent.x;
         double cy = body.parent.y;
         int d = (int)Math.round(body.orbitRadius * 2);
-        g2.setColor(new Color(120, 155, 190, body.parent.parent == null ? 42 : 32));
+        g2.setColor(systemVisual.orbitColor(body.parent.parent == null ? 0 : -10));
         g2.drawOval((int)Math.round(cx - body.orbitRadius), (int)Math.round(cy - body.orbitRadius), d, d);
     }
 
@@ -77,11 +82,13 @@ final class CelestialSystem {
         final double orbitSpeed;
         final double radius;
         final Color color;
+        final CelestialVisualDefinition visual;
         double x;
         double y;
         double angle;
 
-        Body(String id, String name, Body parent, double x, double y, double orbitRadius, double angle, double orbitSpeed, double radius, Color color) {
+        Body(String id, String name, Body parent, double x, double y, double orbitRadius, double angle,
+             double orbitSpeed, double radius, Color color, CelestialVisualDefinition visual) {
             this.id = id;
             this.name = name;
             this.parent = parent;
@@ -92,6 +99,7 @@ final class CelestialSystem {
             this.orbitSpeed = orbitSpeed;
             this.radius = radius;
             this.color = color;
+            this.visual = visual == null ? CelestialVisualDefinition.FALLBACK : visual;
         }
 
         void update(double dt) {
@@ -102,10 +110,19 @@ final class CelestialSystem {
 
         void draw(Graphics2D g2) {
             int r = (int)Math.round(radius);
+            double glowRadius = radius * visual.glowScale();
             g2.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), parent == null ? 80 : 35));
-            g2.fillOval((int)(x - radius * 2.2), (int)(y - radius * 2.2), (int)(radius * 4.4), (int)(radius * 4.4));
+            g2.fillOval((int)(x - glowRadius), (int)(y - glowRadius),
+                    (int)(glowRadius * 2), (int)(glowRadius * 2));
             g2.setColor(color);
             g2.fillOval((int)(x - radius), (int)(y - radius), r * 2, r * 2);
+
+            // Cosmetic detail placement derives only from authored visual seed, so clients agree
+            // without replicating any additional state in snapshots.
+            int highlight = Math.floorMod((int)visual.seed(), 360);
+            g2.setColor(new Color(255, 255, 255, parent == null ? 90 : 55));
+            g2.drawArc((int)(x - radius * 0.72), (int)(y - radius * 0.72),
+                    (int)(radius * 1.44), (int)(radius * 1.44), highlight, 42);
             g2.setColor(new Color(255,255,255,150));
             g2.drawString(name, (int)(x + radius + 8), (int)(y - radius - 4));
         }
