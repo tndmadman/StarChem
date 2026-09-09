@@ -54,6 +54,9 @@ final class AuthoritativeSystemScheduler {
             if (previousSystem != null && !previousSystem.isBlank()) world.activateSystem(previousSystem);
         }
 
+        // Maintain respawn eligibility from authoritative galaxy state, independently
+        // of any client RESPawn request or currently viewed system.
+        RespawnAuthority.observeRegisteredPlayers(world);
         lastUpdatedSystems = List.copyOf(updated);
         stats = snapshotStats(updated.size());
     }
