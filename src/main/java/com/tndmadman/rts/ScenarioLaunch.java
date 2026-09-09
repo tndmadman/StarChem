@@ -48,6 +48,7 @@ final class ScenarioLaunch {
 
     static boolean selected() { return !selectedId.isBlank(); }
     static String selectedId() { return selectedId; }
+    static void consume() { selectedId = ""; }
 
     static ScenarioDefinition definition() {
         return selected() ? ScenarioRules.require(selectedId) : null;
