@@ -8,6 +8,7 @@ final class SystemSimulationScheduler {
     private static final double WARM_STEP_SECONDS = 0.12;
     private static final double COLD_STEP_SECONDS = 0.75;
     private static final double DORMANT_STEP_SECONDS = 5.0;
+    private static final String SCENARIO_SAVE_KEY = "$scenario";
     private static final Map<World, Map<String, Double>> ACCUMULATED = new WeakHashMap<>();
 
     private SystemSimulationScheduler() { }
@@ -65,6 +66,8 @@ final class SystemSimulationScheduler {
         if (!events.isEmpty()) out.put(GalaxyEventDirector.saveKey(), events);
         Map<String,Object> advanced = GalaxyEventExtensions.capture(world);
         if (!advanced.isEmpty()) out.put(GalaxyEventExtensions.saveKey(), advanced);
+        Map<String,Object> scenario = ScenarioDirector.capture(world);
+        if (!scenario.isEmpty()) out.put(SCENARIO_SAVE_KEY, scenario);
         return out;
     }
 
@@ -74,7 +77,8 @@ final class SystemSimulationScheduler {
         Map<String, Double> bySystem = new LinkedHashMap<>();
         for (Map.Entry<String,Object> entry : saved.entrySet()) {
             if (GalaxyEventDirector.saveKey().equals(entry.getKey())
-                    || GalaxyEventExtensions.saveKey().equals(entry.getKey())) continue;
+                    || GalaxyEventExtensions.saveKey().equals(entry.getKey())
+                    || SCENARIO_SAVE_KEY.equals(entry.getKey())) continue;
             double value = ServerSaveStore.asDouble(entry.getValue(), 0);
             if (entry.getKey() != null && !entry.getKey().isBlank() && value > 0) {
                 bySystem.put(entry.getKey(), value);
@@ -84,6 +88,7 @@ final class SystemSimulationScheduler {
         else ACCUMULATED.put(world, bySystem);
         GalaxyEventDirector.restore(world, saved.get(GalaxyEventDirector.saveKey()));
         GalaxyEventExtensions.restore(world, saved.get(GalaxyEventExtensions.saveKey()));
+        ScenarioDirector.restore(world, saved.get(SCENARIO_SAVE_KEY));
     }
 
     static SimulationTier tier(World world) {
