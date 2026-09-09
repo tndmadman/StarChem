@@ -14,6 +14,7 @@ public final class ShipVisualValidator {
     private static final Color TEST_COLOR = new Color(72, 164, 224);
     private static final List<String> COMBAT = List.of("frigate", "destroyer", "cruiser", "battle_cruiser", "battleship");
     private static final List<String> CAPITALS = List.of("carrier", "dreadnought", "supercarrier", "titan", "monolith");
+    private static final List<String> SENSOR_CONTACTS = List.of("sensor_contact_small", "sensor_contact_medium", "sensor_contact_large");
 
     private ShipVisualValidator() { }
 
@@ -28,9 +29,10 @@ public final class ShipVisualValidator {
     static List<String> validate() {
         List<String> errors = new ArrayList<>();
         validateCoverage(errors);
-        validateHardpoints(errors);
+        validateAuthoredMounts(errors);
         validateCombatSilhouettes(errors);
         validateIndustrialIdentity(errors);
+        validateAnonymousContacts(errors);
         validateCapitalHierarchy(errors);
         validateDeterminismAndCacheBounds(errors);
         return List.copyOf(errors);
@@ -42,14 +44,18 @@ public final class ShipVisualValidator {
         }
     }
 
-    private static void validateHardpoints(List<String> errors) {
+    private static void validateAuthoredMounts(List<String> errors) {
         for (ShipType type : Rules.SHIPS.values()) {
             ShipVisualDefinition visual = ShipVisualCatalog.forType(type);
             if (visual.hasFeature(ShipVisualDefinition.Feature.ANONYMOUS_CONTACT)) continue;
+
             int visualHardpoints = visual.mountCount(ShipVisualDefinition.MountKind.HARDPOINT);
             if (visualHardpoints != type.weaponHardpoints) {
                 errors.add(type.id + " has " + type.weaponHardpoints + " gameplay hardpoints but "
                         + visualHardpoints + " authored hardpoint locations.");
+            }
+            if (visual.mountCount(ShipVisualDefinition.MountKind.ENGINE) < 1) {
+                errors.add(type.id + " is missing an authored engine location.");
             }
         }
     }
@@ -63,21 +69,51 @@ public final class ShipVisualValidator {
                 continue;
             }
             String fingerprint = normalizedFingerprint(ShipVisualCatalog.forType(type));
-            if (!fingerprints.add(fingerprint)) errors.add("Combat silhouette is only a normalized variant of another class: " + id + ".");
+            if (!fingerprints.add(fingerprint)) {
+                errors.add("Combat silhouette is only a normalized variant of another class: " + id + ".");
+            }
         }
     }
 
     private static void validateIndustrialIdentity(List<String> errors) {
-        requireFeature(errors, "hauler", ShipVisualDefinition.Feature.CARGO_MODULES);
-        requireFeature(errors, "freighter", ShipVisualDefinition.Feature.CARGO_MODULES);
-        requireFeature(errors, "deep_miner", ShipVisualDefinition.Feature.MINING_GEAR);
-        requireFeature(errors, "gas_harvester", ShipVisualDefinition.Feature.GAS_GEAR);
-        requireFeature(errors, "station_builder", ShipVisualDefinition.Feature.CONSTRUCTION_GEAR);
-        requireFeature(errors, "salvager", ShipVisualDefinition.Feature.SALVAGE_GEAR);
+        requireRoleHardware(errors, "prospector", ShipVisualDefinition.Feature.MINING_GEAR,
+                ShipVisualDefinition.MountKind.MINING_HEAD);
+        requireRoleHardware(errors, "hauler", ShipVisualDefinition.Feature.CARGO_MODULES,
+                ShipVisualDefinition.MountKind.CARGO_POD);
+        requireRoleHardware(errors, "freighter", ShipVisualDefinition.Feature.CARGO_MODULES,
+                ShipVisualDefinition.MountKind.CARGO_POD);
+        requireRoleHardware(errors, "deep_miner", ShipVisualDefinition.Feature.MINING_GEAR,
+                ShipVisualDefinition.MountKind.MINING_HEAD);
+        requireRoleHardware(errors, "gas_harvester", ShipVisualDefinition.Feature.GAS_GEAR,
+                ShipVisualDefinition.MountKind.GAS_TANK);
+        requireRoleHardware(errors, "station_builder", ShipVisualDefinition.Feature.CONSTRUCTION_GEAR,
+                ShipVisualDefinition.MountKind.CONSTRUCTION_ARM);
+        requireRoleHardware(errors, "salvager", ShipVisualDefinition.Feature.SALVAGE_GEAR,
+                ShipVisualDefinition.MountKind.SALVAGE_BOOM);
+    }
+
+    private static void validateAnonymousContacts(List<String> errors) {
+        for (String id : SENSOR_CONTACTS) {
+            ShipType type = Rules.findShip(id);
+            if (type == null) {
+                errors.add("Anonymous sensor-contact visual is missing from rules: " + id + ".");
+                continue;
+            }
+            ShipVisualDefinition visual = ShipVisualCatalog.forType(type);
+            if (!visual.hasFeature(ShipVisualDefinition.Feature.ANONYMOUS_CONTACT)) {
+                errors.add(id + " must remain anonymous and must not expose a real ship silhouette.");
+            }
+            if (visual.mountCount(ShipVisualDefinition.MountKind.HARDPOINT) != 0
+                    || visual.mountCount(ShipVisualDefinition.MountKind.HANGAR) != 0
+                    || visual.mountCount(ShipVisualDefinition.MountKind.ENGINE) != 0) {
+                errors.add(id + " must not expose authored ship equipment through sensor contacts.");
+            }
+        }
     }
 
     private static void validateCapitalHierarchy(List<String> errors) {
         int previousRank = -1;
+        double previousRadius = -1;
         for (String id : CAPITALS) {
             ShipType type = Rules.findShip(id);
             if (type == null) {
@@ -85,10 +121,31 @@ public final class ShipVisualValidator {
                 continue;
             }
             ShipVisualDefinition visual = ShipVisualCatalog.forType(type);
-            if (!visual.hasFeature(ShipVisualDefinition.Feature.CAPITAL)) errors.add(id + " is missing CAPITAL visual identity.");
-            if (visual.complexityRank() <= previousRank) errors.add("Capital visual complexity does not increase at " + id + ".");
+            if (!visual.hasFeature(ShipVisualDefinition.Feature.CAPITAL)) {
+                errors.add(id + " is missing CAPITAL visual identity.");
+            }
+            if (visual.complexityRank() <= previousRank) {
+                errors.add("Capital visual complexity does not increase at " + id + ".");
+            }
+            double radius = visual.renderRadius(type.size.scale);
+            if (!Double.isFinite(radius) || radius <= previousRadius) {
+                errors.add("Capital visual scale does not increase at " + id + ".");
+            }
             previousRank = visual.complexityRank();
+            previousRadius = radius;
         }
+
+        requireRoleHardware(errors, "carrier", ShipVisualDefinition.Feature.HANGAR,
+                ShipVisualDefinition.MountKind.HANGAR);
+        requireRoleHardware(errors, "supercarrier", ShipVisualDefinition.Feature.HANGAR,
+                ShipVisualDefinition.MountKind.HANGAR);
+        requireRoleHardware(errors, "dreadnought", ShipVisualDefinition.Feature.SIEGE_WEAPON,
+                ShipVisualDefinition.MountKind.LANCE);
+        requireRoleHardware(errors, "titan", ShipVisualDefinition.Feature.SIEGE_WEAPON,
+                ShipVisualDefinition.MountKind.LANCE);
+        requireRoleHardware(errors, "monolith", ShipVisualDefinition.Feature.HANGAR,
+                ShipVisualDefinition.MountKind.HANGAR);
+
         ShipType monolith = Rules.findShip("monolith");
         if (monolith != null && !ShipVisualCatalog.forType(monolith).hasFeature(ShipVisualDefinition.Feature.MEGASTRUCTURE)) {
             errors.add("monolith is missing MEGASTRUCTURE visual identity.");
@@ -110,13 +167,17 @@ public final class ShipVisualValidator {
         }
     }
 
-    private static void requireFeature(List<String> errors, String id, ShipVisualDefinition.Feature feature) {
+    private static void requireRoleHardware(List<String> errors, String id,
+                                            ShipVisualDefinition.Feature feature,
+                                            ShipVisualDefinition.MountKind mountKind) {
         ShipType type = Rules.findShip(id);
         if (type == null) {
-            errors.add("Industrial visual acceptance ship is missing from rules: " + id + ".");
+            errors.add("Visual acceptance ship is missing from rules: " + id + ".");
             return;
         }
-        if (!ShipVisualCatalog.forType(type).hasFeature(feature)) errors.add(id + " is missing visual feature " + feature + ".");
+        ShipVisualDefinition visual = ShipVisualCatalog.forType(type);
+        if (!visual.hasFeature(feature)) errors.add(id + " is missing visual feature " + feature + ".");
+        if (visual.mountCount(mountKind) < 1) errors.add(id + " is missing authored " + mountKind + " hardware.");
     }
 
     private static BufferedImage render(ShipType type, double rasterScale) {
