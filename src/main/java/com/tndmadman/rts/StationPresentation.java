@@ -11,8 +11,10 @@ import java.awt.geom.AffineTransform;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.NoninvertibleTransformException;
 import java.awt.geom.Point2D;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * View-only station presentation policy for issue #398.
@@ -32,16 +34,15 @@ final class StationPresentation {
     private static final Color WARNING = new Color(255, 102, 88);
     private static final Color PRODUCTION = new Color(255, 198, 96);
     private static final int CLICK_DRAG_TOLERANCE_PX = 8;
-    private static final long FOCUS_RESOLVE_NANOS = 120_000_000L;
-    private static final long FOCUS_STALE_NANOS = 250_000_000L;
+    private static final long HIT_STALE_NANOS = 500_000_000L;
+    private static final long FOCUS_STALE_NANOS = 1_000_000_000L;
 
+    private static final Map<FocusKey, ScreenHit> SCREEN_HITS = new LinkedHashMap<>();
     private static GamePanel surface;
     private static Point pointer = offscreenPoint();
     private static Point pressPoint;
-    private static Point pendingFocusPoint;
-    private static long pendingFocusUntil;
+    private static FocusKey hoveredBase;
     private static FocusKey focusedBase;
-    private static double focusedDistanceSq = Double.POSITIVE_INFINITY;
     private static Base focusedBaseView;
     private static long focusedBaseSeenNanos;
     private static InspectorOverlay inspectorOverlay;
@@ -63,19 +64,22 @@ final class StationPresentation {
     static void draw(Graphics2D g2, Base base, BaseType def, double radius, Color playerColor) {
         if (g2 == null || base == null || def == null || playerColor == null) return;
         syncInspectorBounds();
-        Presentation state = presentationFor(g2, base, radius);
+        ScreenHit current = registerScreenHit(g2, base, radius);
+        if (!isOffscreen(pointer)) hoveredBase = hitAt(pointer);
+        boolean hovered = current.key().equals(hoveredBase);
+        boolean focused = current.key().equals(focusedBase);
 
-        if (state.focused()) drawRange(g2, base, def, playerColor);
+        if (focused) drawRange(g2, base, def, playerColor);
         drawOwnershipCue(g2, base, radius, playerColor);
 
         String warning = criticalWarning(base, def);
         if (warning != null) drawWarningBadge(g2, base, radius, warning);
 
-        if (state.hovered() || state.focused()) {
-            drawContextLabel(g2, base, def, radius, playerColor, state.focused());
+        if (hovered || focused) {
+            drawContextLabel(g2, base, def, radius, playerColor, focused);
             IntelStructureRenderer.drawStatus(g2, base, radius);
         }
-        if (state.focused()) {
+        if (focused) {
             drawFocusedBars(g2, base, def, radius, playerColor);
             focusedBaseView = base;
             focusedBaseSeenNanos = System.nanoTime();
@@ -99,33 +103,41 @@ final class StationPresentation {
         if (surface != panel) {
             detachInspectorOverlay();
             surface = panel;
+            SCREEN_HITS.clear();
+            hoveredBase = null;
             focusedBase = null;
             focusedBaseView = null;
-            pendingFocusPoint = null;
-            focusedDistanceSq = Double.POSITIVE_INFINITY;
             installInspectorOverlay(panel);
         }
         syncInspectorBounds();
         switch (mouse.getID()) {
-            case MouseEvent.MOUSE_MOVED, MouseEvent.MOUSE_DRAGGED, MouseEvent.MOUSE_ENTERED ->
-                    pointer = mouse.getPoint();
-            case MouseEvent.MOUSE_EXITED -> pointer = offscreenPoint();
+            case MouseEvent.MOUSE_MOVED, MouseEvent.MOUSE_DRAGGED, MouseEvent.MOUSE_ENTERED -> {
+                pointer = mouse.getPoint();
+                hoveredBase = hitAt(pointer);
+            }
+            case MouseEvent.MOUSE_EXITED -> {
+                pointer = offscreenPoint();
+                hoveredBase = null;
+            }
             case MouseEvent.MOUSE_PRESSED -> {
                 pointer = mouse.getPoint();
                 if (mouse.getButton() == MouseEvent.BUTTON1) pressPoint = mouse.getPoint();
             }
             case MouseEvent.MOUSE_RELEASED -> {
                 pointer = mouse.getPoint();
+                hoveredBase = hitAt(pointer);
                 if (mouse.getButton() == MouseEvent.BUTTON1 && pressPoint != null) {
                     if (pressPoint.distance(mouse.getPoint()) <= CLICK_DRAG_TOLERANCE_PX) {
+                        focusedBase = hitAt(mouse.getPoint());
+                        ScreenHit selected = focusedBase == null ? null : SCREEN_HITS.get(focusedBase);
+                        focusedBaseView = selected == null ? null : selected.base();
+                        if (selected != null) focusedBaseSeenNanos = System.nanoTime();
+                    } else {
                         focusedBase = null;
                         focusedBaseView = null;
-                        focusedDistanceSq = Double.POSITIVE_INFINITY;
-                        pendingFocusPoint = mouse.getPoint();
-                        pendingFocusUntil = System.nanoTime() + FOCUS_RESOLVE_NANOS;
-                        if (inspectorOverlay != null) inspectorOverlay.repaint();
                     }
                     pressPoint = null;
+                    if (inspectorOverlay != null) inspectorOverlay.repaint();
                 }
             }
             default -> { }
@@ -139,7 +151,7 @@ final class StationPresentation {
         JLayeredPane layeredPane = root.getLayeredPane();
         if (layeredPane == null) return;
         inspectorOverlay = new InspectorOverlay();
-        layeredPane.add(inspectorOverlay, JLayeredPane.DRAG_LAYER);
+        layeredPane.add(inspectorOverlay, JLayeredPane.PALETTE_LAYER);
         syncInspectorBounds();
     }
 
@@ -165,26 +177,33 @@ final class StationPresentation {
         }
     }
 
-    private static Presentation presentationFor(Graphics2D g2, Base base, double radius) {
+    private static ScreenHit registerScreenHit(Graphics2D g2, Base base, double radius) {
         AffineTransform tx = componentTransform(g2);
         Point2D center = tx.transform(new Point2D.Double(base.x, base.y), null);
         double scaleX = Math.hypot(tx.getScaleX(), tx.getShearY());
         double scaleY = Math.hypot(tx.getShearX(), tx.getScaleY());
         double hitRadius = Math.max(18.0, radius * Math.max(0.01, Math.max(scaleX, scaleY)));
-        boolean hovered = center.distanceSq(pointer) <= hitRadius * hitRadius;
+        FocusKey key = FocusKey.of(base);
+        ScreenHit hit = new ScreenHit(key, base, center.getX(), center.getY(), hitRadius, System.nanoTime());
+        SCREEN_HITS.put(key, hit);
+        return hit;
+    }
 
+    private static FocusKey hitAt(Point point) {
+        if (point == null || isOffscreen(point)) return null;
         long now = System.nanoTime();
-        if (pendingFocusPoint != null && now <= pendingFocusUntil) {
-            double clickDistanceSq = center.distanceSq(pendingFocusPoint);
-            if (clickDistanceSq <= hitRadius * hitRadius && clickDistanceSq < focusedDistanceSq) {
-                focusedBase = FocusKey.of(base);
-                focusedDistanceSq = clickDistanceSq;
-            }
-        } else if (pendingFocusPoint != null) {
-            pendingFocusPoint = null;
-            focusedDistanceSq = Double.POSITIVE_INFINITY;
+        SCREEN_HITS.entrySet().removeIf(entry -> now - entry.getValue().seenNanos() > HIT_STALE_NANOS);
+        ScreenHit best = null;
+        double bestDistanceSq = Double.POSITIVE_INFINITY;
+        for (ScreenHit hit : SCREEN_HITS.values()) {
+            double dx = point.x - hit.centerX();
+            double dy = point.y - hit.centerY();
+            double distanceSq = dx * dx + dy * dy;
+            if (distanceSq > hit.radius() * hit.radius() || distanceSq >= bestDistanceSq) continue;
+            best = hit;
+            bestDistanceSq = distanceSq;
         }
-        return new Presentation(hovered, FocusKey.of(base).equals(focusedBase));
+        return best == null ? null : best.key();
     }
 
     private static AffineTransform componentTransform(Graphics2D g2) {
@@ -495,6 +514,10 @@ final class StationPresentation {
         return new Point(Integer.MIN_VALUE / 4, Integer.MIN_VALUE / 4);
     }
 
+    private static boolean isOffscreen(Point point) {
+        return point == null || point.x <= Integer.MIN_VALUE / 8 || point.y <= Integer.MIN_VALUE / 8;
+    }
+
     private static final class InspectorOverlay extends JComponent {
         private InspectorOverlay() {
             setOpaque(false);
@@ -510,15 +533,17 @@ final class StationPresentation {
             if (base == null || System.nanoTime() - focusedBaseSeenNanos > FOCUS_STALE_NANOS) return;
             Graphics2D g2 = (Graphics2D) graphics.create();
             try {
-                drawInspector(g2, base, base.type(), PlayerRegistry.color(base.playerId),
-                        criticalWarning(base, base.type()), getWidth(), getHeight());
+                BaseType def = base.type();
+                drawInspector(g2, base, def, PlayerRegistry.color(base.playerId),
+                        criticalWarning(base, def), getWidth(), getHeight());
             } finally {
                 g2.dispose();
             }
         }
     }
 
-    private record Presentation(boolean hovered, boolean focused) { }
+    private record ScreenHit(FocusKey key, Base base, double centerX, double centerY,
+                             double radius, long seenNanos) { }
 
     private record FocusKey(String id, String playerId, String typeId, long xBits, long yBits) {
         static FocusKey of(Base base) {
