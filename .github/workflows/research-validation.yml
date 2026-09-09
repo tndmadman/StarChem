@@ -1,0 +1,45 @@
+name: Research validation
+
+on:
+  push:
+    paths:
+      - 'config/research.json'
+      - 'config/npcs.json'
+      - 'config/stations.json'
+      - 'config/modules.json'
+      - 'config/weapons.json'
+      - 'config/craftables/**'
+      - 'config/ships/**'
+      - 'src/main/java/com/tndmadman/rts/Research*.java'
+      - 'src/main/java/com/tndmadman/rts/BuildSystem.java'
+      - 'src/main/java/com/tndmadman/rts/World.java'
+      - 'src/main/java/com/tndmadman/rts/StrategicSummary.java'
+      - 'scripts/validate_research.py'
+      - '.github/workflows/research-validation.yml'
+  pull_request:
+    paths:
+      - 'config/research.json'
+      - 'config/npcs.json'
+      - 'config/stations.json'
+      - 'config/modules.json'
+      - 'config/weapons.json'
+      - 'config/craftables/**'
+      - 'config/ships/**'
+      - 'src/main/java/com/tndmadman/rts/Research*.java'
+      - 'src/main/java/com/tndmadman/rts/BuildSystem.java'
+      - 'src/main/java/com/tndmadman/rts/World.java'
+      - 'src/main/java/com/tndmadman/rts/StrategicSummary.java'
+      - 'scripts/validate_research.py'
+      - '.github/workflows/research-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate branching research configuration
+        run: python3 scripts/validate_research.py
