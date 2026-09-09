@@ -6,7 +6,8 @@ final class GalaxyRuntimeOptions {
     private GalaxyRuntimeOptions() { }
 
     static void configure(Config config) {
-        configureCopies(config == null ? 1 : config.galaxyCopies);
+        int configured = config == null ? 1 : config.galaxyCopies;
+        configureCopies(ScenarioLaunch.galaxyCopies(configured));
     }
 
     static void configureCopies(int copies) {
