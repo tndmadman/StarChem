@@ -193,12 +193,11 @@ public final class GalaxyEventMultiplayerValidator {
                 "PLAYER_FOLLOW observer did not inherit the followed player's temporary topology");
 
         setObserverGrant(world, new ObserverSessions.Grant("P9", "Observer", ObserverSessions.VisibilityMode.PUBLIC, ""));
-        require(hasEvent(GalaxyEventDirector.viewsFor(world, "P9"), "EV-OBS-RICH")
-                        && hasEvent(GalaxyEventDirector.viewsFor(world, "P9"), "EV-OBS-WORM")
-                        && !hasEvent(GalaxyEventDirector.viewsFor(world, "P9"), "EV-OBS-HIDDEN"),
-                "PUBLIC observer did not use the deterministic public anchor's event visibility");
-        require(containsLink(GalaxyEventDirector.temporaryLinksFor(world, "P9"), source, target),
-                "PUBLIC observer did not use the public anchor's temporary event topology");
+        require(ObserverSessions.visibilityOwner(world, "P9").isBlank(),
+                "PUBLIC observer silently inherited a real player's event-visibility identity");
+        require(GalaxyEventDirector.viewsFor(world, "P9").isEmpty()
+                        && GalaxyEventDirector.temporaryLinksFor(world, "P9").isEmpty(),
+                "PUBLIC observer inherited private event intel or temporary topology");
     }
 
     @SuppressWarnings("unchecked")
