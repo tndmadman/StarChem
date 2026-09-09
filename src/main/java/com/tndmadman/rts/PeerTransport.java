@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicReference;
 /** Framed TCP transport with per-connection identity, bounded queues, and asynchronous I/O. */
 final class PeerTransport {
     static final String DISCONNECT_EVENT = "\u0000TCP_DISCONNECT";
+    static final int MAX_PRE_AUTH_FRAME_BYTES = MultiplayerCompatibility.MAX_CLIENT_HANDSHAKE_CHARS * 4;
     private static final int MAX_CONNECTIONS = 128;
     private static final int MAX_CONTROL_FRAMES = 256;
     private static final int MAX_OUTBOUND_BYTES = 8 * 1024 * 1024;
@@ -752,7 +753,10 @@ final class PeerTransport {
         private void readerLoop() {
             try (DataInputStream input = new DataInputStream(new BufferedInputStream(socket.getInputStream()))) {
                 while (open.get()) {
-                    TcpFrameCodec.DecodedFrame frame = TcpFrameCodec.read(input);
+                    int maxFrameBytes = serverMode && !authenticated()
+                            ? MAX_PRE_AUTH_FRAME_BYTES
+                            : TcpFrameCodec.MAX_FRAME_BYTES;
+                    TcpFrameCodec.DecodedFrame frame = TcpFrameCodec.read(input, maxFrameBytes);
                     if (frame == null) break;
                     receive(this, frame);
                 }
