@@ -5,7 +5,6 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.Stroke;
-import java.awt.image.BufferedImage;
 
 /** Renders ship hulls and deliberate gameplay effects, never per-ship status UI. */
 final class UnitRenderer {
@@ -29,6 +28,7 @@ final class UnitRenderer {
         Color playerColor = PlayerRegistry.color(unit.playerId);
         SelectionRenderPolicy.Frame frame = SelectionRenderPolicy.currentFrame();
         double scale = frame == null ? SelectionRenderPolicy.scale(g2) : frame.scale();
+        ShipType shipType = unit.type();
 
         // Selection deliberately does not change the ship renderer. Hundreds of selected
         // ships therefore cost essentially the same to paint as hundreds of unselected ships.
@@ -36,7 +36,9 @@ final class UnitRenderer {
             frame.noteSelectedDraw(false);
         }
 
-        if (RenderCulling.visible(g2, unit.x, unit.y, 96)) {
+        double visualRadius = Math.max(96,
+                ShipVisualCatalog.forType(shipType).renderRadius(shipType.size.scale));
+        if (RenderCulling.visible(g2, unit.x, unit.y, visualRadius)) {
             if (scale < 0.24) {
                 drawFarMarker(g2, unit, playerColor, scale);
             } else if (scale < 0.78) {
@@ -44,18 +46,19 @@ final class UnitRenderer {
             } else {
                 drawDetailedHull(g2, unit, playerColor);
             }
+            DamageStateEffects.drawUnit(g2, unit, scale);
         }
 
         // Sensor/mining ranges are still available when explicitly toggled. Selection by
         // itself never turns on a ring, name, HP/cargo bar, weapon range, or status label.
         if (miningRangeOverlayVisible && PlayerRegistry.isLocal(unit.playerId)) {
             World world = frame == null ? PlayerRegistry.activeWorld() : frame.world();
-            double scoutRange = unit.type().scoutRange > 0
-                    ? (world == null ? unit.type().scoutRange : VisibilityRules.unitSensorRange(world, unit)) : 0;
+            double scoutRange = shipType.scoutRange > 0
+                    ? (world == null ? shipType.scoutRange : VisibilityRules.unitSensorRange(world, unit)) : 0;
             if (scoutRange > 0 && RenderCulling.visible(g2, unit.x, unit.y, scoutRange + 4)) {
                 drawRangeCircle(g2, unit, playerColor, scoutRange);
             }
-            double tractorRange = unit.type().tractorBeamCount > 0 ? unit.type().tractorRange : 0;
+            double tractorRange = shipType.tractorBeamCount > 0 ? shipType.tractorRange : 0;
             if (tractorRange > 0 && RenderCulling.visible(g2, unit.x, unit.y, tractorRange + 4)) {
                 drawRangeCircle(g2, unit, playerColor, tractorRange);
             }
@@ -72,14 +75,15 @@ final class UnitRenderer {
     }
 
     private static void drawCachedHull(Graphics2D g2, Unit unit, Color playerColor) {
-        BufferedImage sprite = ShipSpriteCache.sprite(unit, playerColor);
+        ShipSpriteCache.Sprite sprite = ShipSpriteCache.sprite(unit, playerColor);
         if (sprite == null) {
             drawDetailedHull(g2, unit, playerColor);
             return;
         }
-        int size = ShipSpriteCache.imageSize();
-        g2.drawImage(sprite, (int)Math.round(unit.x - size / 2.0),
-                (int)Math.round(unit.y - size / 2.0), null);
+        int size = sprite.worldSize();
+        int x = (int)Math.round(unit.x - size / 2.0);
+        int y = (int)Math.round(unit.y - size / 2.0);
+        g2.drawImage(sprite.image(), x, y, size, size, null);
     }
 
     private static void drawFarMarker(Graphics2D g2, Unit unit, Color playerColor, double scale) {

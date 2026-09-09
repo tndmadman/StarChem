@@ -1,5 +1,6 @@
 package com.tndmadman.rts;
 
+import java.io.DataOutputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.Socket;
@@ -12,6 +13,9 @@ final class PreAuthConnectionGateValidator {
         validateConcurrentLimitsAndRelease();
         validateAttemptRateLimits();
         validateIpv6SubnetLimit();
+        validateHandshakeParsingBounds();
+        validateHandshakeRateCost();
+        validatePreAuthFrameSizeLimit();
         validateAbsoluteTransportDeadline();
     }
 
@@ -85,6 +89,109 @@ final class PreAuthConnectionGateValidator {
         require(gate.tryAcquire(new ConnectionId(31), InetAddress.getByName("2001:db8:1:2::2"), 8_001).rejection()
                         == PreAuthConnectionGate.Rejection.SUBNET_LIMIT,
                 "IPv6 /64 concurrent subnet limit was not enforced");
+    }
+
+    private static void validateHandshakeParsingBounds() {
+        MultiplayerCompatibility.Descriptor local = MultiplayerCompatibility.local();
+
+        String join = "JOIN_V1|Issue 404 Validator|NODEV||" + local.wireFields();
+        MultiplayerCompatibility.WireResult joinResult = MultiplayerCompatibility.inspectClientHandshake(join);
+        require(joinResult.action() == MultiplayerCompatibility.WireAction.ACCEPT,
+                "bounded parser rejected a valid JOIN_V1 handshake");
+        require("JOIN|Issue 404 Validator|NODEV|".equals(joinResult.message()),
+                "bounded parser changed JOIN_V1 normalization");
+
+        String resume = "RESUME_V1|P1|session-token|NODEV||" + local.wireFields();
+        MultiplayerCompatibility.WireResult resumeResult = MultiplayerCompatibility.inspectClientHandshake(resume);
+        require(resumeResult.action() == MultiplayerCompatibility.WireAction.ACCEPT,
+                "bounded parser rejected a valid RESUME_V1 handshake");
+        require("RESUME|P1|session-token|NODEV|".equals(resumeResult.message()),
+                "bounded parser changed RESUME_V1 normalization");
+
+        String prefix = "JOIN_V1|";
+        String oversized = prefix + "x".repeat(
+                MultiplayerCompatibility.MAX_CLIENT_HANDSHAKE_CHARS - prefix.length() + 1);
+        require(oversized.length() == MultiplayerCompatibility.MAX_CLIENT_HANDSHAKE_CHARS + 1,
+                "oversized handshake fixture did not cross the configured limit");
+        MultiplayerCompatibility.WireResult oversizedResult =
+                MultiplayerCompatibility.inspectClientHandshake(oversized);
+        require(oversizedResult.action() == MultiplayerCompatibility.WireAction.REJECT
+                        && oversizedResult.detail().contains("MALFORMED_HANDSHAKE")
+                        && oversizedResult.detail().contains("maximum size"),
+                "oversized JOIN_V1 handshake was not rejected before normal parsing");
+
+        String delimiterStorm = "JOIN_V1|" + "|".repeat(
+                MultiplayerCompatibility.MAX_CLIENT_HANDSHAKE_FIELDS + 8);
+        require(delimiterStorm.length() < MultiplayerCompatibility.MAX_CLIENT_HANDSHAKE_CHARS,
+                "delimiter-storm fixture unexpectedly hit the size ceiling first");
+        MultiplayerCompatibility.WireResult delimiterResult =
+                MultiplayerCompatibility.inspectClientHandshake(delimiterStorm);
+        require(delimiterResult.action() == MultiplayerCompatibility.WireAction.REJECT
+                        && delimiterResult.detail().contains("MALFORMED_HANDSHAKE")
+                        && delimiterResult.detail().contains("too many fields"),
+                "delimiter-storm JOIN_V1 handshake was not rejected by the bounded field parser");
+
+        String oversizedField = "JOIN_V1|" + "n".repeat(
+                MultiplayerCompatibility.MAX_CLIENT_HANDSHAKE_FIELD_CHARS + 1)
+                + "|NODEV||" + local.wireFields();
+        require(oversizedField.length() < MultiplayerCompatibility.MAX_CLIENT_HANDSHAKE_CHARS,
+                "oversized-field fixture unexpectedly hit the whole-handshake ceiling first");
+        MultiplayerCompatibility.WireResult fieldResult =
+                MultiplayerCompatibility.inspectClientHandshake(oversizedField);
+        require(fieldResult.action() == MultiplayerCompatibility.WireAction.REJECT
+                        && fieldResult.detail().contains("MALFORMED_HANDSHAKE")
+                        && fieldResult.detail().contains("handshake field exceeds"),
+                "oversized individual handshake field was not rejected before normalization");
+
+        String largeNonHandshake = "BULK|" + "z".repeat(
+                MultiplayerCompatibility.MAX_CLIENT_HANDSHAKE_CHARS + 1024);
+        MultiplayerCompatibility.WireResult passResult =
+                MultiplayerCompatibility.inspectClientHandshake(largeNonHandshake);
+        require(passResult.action() == MultiplayerCompatibility.WireAction.PASS
+                        && largeNonHandshake.equals(passResult.message()),
+                "handshake-specific limits leaked into ordinary application traffic");
+    }
+
+    private static void validateHandshakeRateCost() {
+        InetAddress loopback = InetAddress.getLoopbackAddress();
+        InboundCommandScheduler.Limits limits = new InboundCommandScheduler.Limits(
+                8, 8, 8, 1_000_000, 0, 8, 2, 10_000_000_000L);
+
+        InboundCommandScheduler small = new InboundCommandScheduler(limits, true, () -> 1_000L);
+        require(small.offer(new NetPacket("JOIN_V1|small", new ConnectionId(40), loopback, 50040)).accepted(),
+                "size-weighted rate limit rejected a small handshake");
+
+        String nearLimit = "JOIN_V1|" + "x".repeat(2_048);
+        require(nearLimit.length() < MultiplayerCompatibility.MAX_CLIENT_HANDSHAKE_CHARS,
+                "rate-limit fixture unexpectedly exceeded the handshake parser ceiling");
+        InboundCommandScheduler heavy = new InboundCommandScheduler(limits, true, () -> 1_000L);
+        NetPacket hostile = new NetPacket(nearLimit, new ConnectionId(41), loopback, 50041);
+        require(heavy.offer(hostile) == InboundCommandScheduler.OfferResult.THROTTLED,
+                "large pre-auth handshake was priced like a tiny command");
+        require(heavy.offer(hostile) == InboundCommandScheduler.OfferResult.ABUSIVE,
+                "repeated large pre-auth handshakes did not escalate through abuse throttling");
+
+        InboundCommandScheduler ordinary = new InboundCommandScheduler(limits, true, () -> 1_000L);
+        String largeApplicationMessage = "BULK|" + "z".repeat(2_048);
+        require(ordinary.offer(new NetPacket(largeApplicationMessage, new ConnectionId(42), loopback, 50042)).accepted(),
+                "handshake size surcharge leaked into ordinary application command pricing");
+    }
+
+    private static void validatePreAuthFrameSizeLimit() throws Exception {
+        InetAddress loopback = InetAddress.getLoopbackAddress();
+        PeerTransport server = PeerTransport.server(0, new PerfStats());
+        server.start();
+        try (Socket socket = new Socket(loopback, server.localPort())) {
+            waitFor(() -> server.hasConnection(loopback, socket.getLocalPort()), 3_000,
+                    "server did not register the pre-auth frame-size test connection");
+            DataOutputStream output = new DataOutputStream(socket.getOutputStream());
+            output.writeInt(PeerTransport.MAX_PRE_AUTH_FRAME_BYTES + 1);
+            output.flush();
+            waitFor(() -> !server.hasConnection(loopback, socket.getLocalPort()), 1_000,
+                    "oversized pre-auth frame length was not rejected before reading its payload");
+        } finally {
+            server.shutdown();
+        }
     }
 
     private static void validateAbsoluteTransportDeadline() throws Exception {
