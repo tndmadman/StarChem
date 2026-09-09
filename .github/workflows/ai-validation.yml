@@ -44,6 +44,13 @@ jobs:
           fi
           echo 'AI validator suite passed.'
 
+      - name: Validate strategic system control
+        shell: bash
+        run: |
+          java -Djava.awt.headless=true \
+            -cp 'build/classes/java/main:build/resources/main' \
+            com.tndmadman.rts.SystemControlValidator
+
       - name: Archive AI validation log
         if: always()
         uses: actions/upload-artifact@v4
