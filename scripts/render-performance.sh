@@ -1,9 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-./gradlew classes
+gradle_args=(-I gradle/render-performance.gradle validateRenderPerformance --no-daemon)
+for arg in "$@"; do
+  case "$arg" in
+    --enforce-timing)
+      gradle_args+=(-PrenderPerfEnforceTiming=true)
+      ;;
+    --baseline=*)
+      gradle_args+=("-PrenderPerfBaseline=${arg#--baseline=}")
+      ;;
+    --max-regression=*)
+      gradle_args+=("-PrenderPerfMaxRegression=${arg#--max-regression=}")
+      ;;
+    *)
+      echo "Unknown render-performance argument: $arg" >&2
+      exit 2
+      ;;
+  esac
+done
 
-classpath="build/classes/java/main:build/resources/main"
-java -Djava.awt.headless=true -cp "$classpath" \
-  com.tndmadman.rts.RenderPerformanceValidator \
-  --output=build/reports/render-performance.csv "$@"
+./gradlew "${gradle_args[@]}"
