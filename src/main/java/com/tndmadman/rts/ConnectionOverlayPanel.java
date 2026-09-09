@@ -34,7 +34,7 @@ final class ConnectionOverlayPanel extends JPanel {
         progress.setValue(0);
 
         trust.setVisible(false);
-        trust.addActionListener(e -> trustChangedCertificate());
+        trust.addActionListener(e -> trustServerCertificate());
         cancel.addActionListener(e -> {
             System.out.println("[CONNECTION][CLIENT][CANCELLED] User cancelled the connection attempt.");
             owner.showLobby("Connection cancelled.");
@@ -90,27 +90,39 @@ final class ConnectionOverlayPanel extends JPanel {
         timer.stop();
     }
 
-    private void trustChangedCertificate() {
+    private void trustServerCertificate() {
         if (network == null || !network.serverCertificateTrustRequired()) return;
-        System.err.println("[CONNECTION][CLIENT][TLS] Server certificate changed; waiting for user verification.");
-        int choice = JOptionPane.showConfirmDialog(this,
+        boolean firstUse = network.serverCertificateFirstUseTrustRequired();
+        System.err.println(firstUse
+                ? "[CONNECTION][CLIENT][TLS] First server certificate requires user verification."
+                : "[CONNECTION][CLIENT][TLS] Server certificate changed; waiting for user verification.");
+        String trustLabel = firstUse ? "TRUST SERVER CERTIFICATE" : "TRUST NEW CERTIFICATE";
+        Object[] options = {"DO NOT TRUST", trustLabel};
+        int choice = JOptionPane.showOptionDialog(this,
                 network.serverCertificateTrustPrompt(),
-                "Server Certificate Changed",
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.WARNING_MESSAGE);
-        if (choice != JOptionPane.YES_OPTION) {
-            System.err.println("[CONNECTION][CLIENT][TLS] Changed server certificate was not trusted.");
+                firstUse ? "Verify Server Certificate" : "Server Certificate Changed",
+                JOptionPane.DEFAULT_OPTION,
+                JOptionPane.WARNING_MESSAGE,
+                null,
+                options,
+                options[0]);
+        if (choice != 1) {
+            System.err.println(firstUse
+                    ? "[CONNECTION][CLIENT][TLS] First server certificate was not trusted."
+                    : "[CONNECTION][CLIENT][TLS] Changed server certificate was not trusted.");
             return;
         }
-        if (!network.trustChangedServerCertificate()) {
-            System.err.println("[CONNECTION][CLIENT][TLS][FAILURE] Changed server certificate could not be stored.");
+        if (!network.trustServerCertificate()) {
+            System.err.println("[CONNECTION][CLIENT][TLS][FAILURE] Server certificate trust could not be stored.");
             JOptionPane.showMessageDialog(this,
                     "The pending certificate changed again or could not be stored. Reconnect and verify it again.",
                     "Certificate Trust Failed",
                     JOptionPane.ERROR_MESSAGE);
             return;
         }
-        System.out.println("[CONNECTION][CLIENT][TLS] Changed server certificate trusted; reconnecting.");
+        System.out.println(firstUse
+                ? "[CONNECTION][CLIENT][TLS] First server certificate trusted; reconnecting."
+                : "[CONNECTION][CLIENT][TLS] Changed server certificate trusted; reconnecting.");
     }
 
     private void refresh() {
@@ -130,7 +142,13 @@ final class ConnectionOverlayPanel extends JPanel {
         progress.setValue(state.stage());
         progress.setString("Step " + state.stage() + " of " + state.stageCount());
         elapsed.setText(String.format("Elapsed: %.1fs", state.elapsedMillis() / 1000.0));
-        trust.setVisible(network.serverCertificateTrustRequired());
+        boolean trustRequired = network.serverCertificateTrustRequired();
+        trust.setVisible(trustRequired);
+        if (trustRequired) {
+            trust.setText(network.serverCertificateFirstUseTrustRequired()
+                    ? "TRUST SERVER CERTIFICATE"
+                    : "TRUST NEW CERTIFICATE");
+        }
         showModal();
         revalidate();
         repaint();
@@ -171,8 +189,8 @@ final class ConnectionOverlayPanel extends JPanel {
         String cleanDetail = clean(state.detail());
         String traceKey = state.phase() + "|" + state.stage() + "|" + cleanTitle + "|" + cleanDetail;
         boolean changed = !traceKey.equals(lastTraceKey);
-        boolean retryHeartbeat = (state.phase() == ConnectionPhase.CONNECTING
-                || state.phase() == ConnectionPhase.RECONNECTING)
+        boolean retryHeartbeat = !network.serverCertificateTrustRequired()
+                && (state.phase() == ConnectionPhase.CONNECTING || state.phase() == ConnectionPhase.RECONNECTING)
                 && now - lastRetryTraceAt >= RETRY_TRACE_INTERVAL_MS;
         if (!changed && !retryHeartbeat) return;
 

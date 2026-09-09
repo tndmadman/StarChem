@@ -1,0 +1,91 @@
+name: Render Performance
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/main/java/com/tndmadman/rts/**'
+      - 'config/**'
+      - 'gradle/render-performance.gradle'
+      - 'scripts/render-performance.*'
+      - '.github/workflows/render-performance.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/main/java/com/tndmadman/rts/**'
+      - 'config/**'
+      - 'gradle/render-performance.gradle'
+      - 'scripts/render-performance.*'
+      - '.github/workflows/render-performance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-render-performance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out proposed source
+        uses: actions/checkout@v4
+        with:
+          path: head
+
+      - name: Check out pull-request base
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Capture base render baseline
+        id: baseline
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          if [[ -f base/gradle/render-performance.gradle \
+                && -f base/src/main/java/com/tndmadman/rts/RenderPerformanceValidator.java ]]; then
+            (
+              cd base
+              gradle -I gradle/render-performance.gradle validateRenderPerformance \
+                --no-daemon --stacktrace
+            )
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+            echo 'Base branch does not yet contain the render validator; skipping relative comparison for this bootstrap PR.'
+          fi
+
+      - name: Run render regression suite
+        shell: bash
+        working-directory: head
+        run: |
+          gradle_args=(-I gradle/render-performance.gradle validateRenderPerformance --no-daemon --stacktrace)
+          if [[ '${{ steps.baseline.outputs.available }}' == 'true' ]]; then
+            gradle_args+=("-PrenderPerfBaseline=../base/build/reports/render-performance.csv")
+          fi
+          gradle "${gradle_args[@]}"
+
+      - name: Archive render performance reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-performance-${{ github.sha }}
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            head/build/reports/render-performance.csv
+            base/build/reports/render-performance.csv

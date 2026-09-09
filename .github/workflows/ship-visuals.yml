@@ -1,0 +1,41 @@
+name: Ship Visual Validation
+
+on:
+  push:
+    paths:
+      - 'src/main/java/com/tndmadman/rts/ShipShape.java'
+      - 'src/main/java/com/tndmadman/rts/ShipVisual*.java'
+      - 'src/main/java/com/tndmadman/rts/ShipSpriteCache.java'
+      - 'src/main/java/com/tndmadman/rts/UnitRenderer.java'
+      - 'src/main/java/com/tndmadman/rts/Issue394ShipMaterialValidator.java'
+      - 'config/ships/**'
+      - '.github/workflows/ship-visuals.yml'
+  pull_request:
+    paths:
+      - 'src/main/java/com/tndmadman/rts/ShipShape.java'
+      - 'src/main/java/com/tndmadman/rts/ShipVisual*.java'
+      - 'src/main/java/com/tndmadman/rts/ShipSpriteCache.java'
+      - 'src/main/java/com/tndmadman/rts/UnitRenderer.java'
+      - 'src/main/java/com/tndmadman/rts/Issue394ShipMaterialValidator.java'
+      - 'config/ships/**'
+      - '.github/workflows/ship-visuals.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  authored-hulls:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Compile StarChem
+        run: gradle classes --no-daemon
+      - name: Validate authored ship visuals
+        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.ShipVisualValidator
+      - name: Validate ship materials and controlled variation
+        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue394ShipMaterialValidator

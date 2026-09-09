@@ -1,0 +1,14 @@
+gradle.afterProject { project, state ->
+    if (state.failure != null || project != project.rootProject) return
+
+    if (project.tasks.findByName('validateIssue409AmbientEnvironment') == null) {
+        project.tasks.register('validateIssue409AmbientEnvironment', JavaExec) {
+            group = 'verification'
+            description = 'Validate deterministic, bounded ambient environment rendering for issue #409.'
+            dependsOn project.tasks.named('classes')
+            classpath = project.sourceSets.main.runtimeClasspath
+            mainClass = 'com.tndmadman.rts.Issue409AmbientEnvironmentValidator'
+            jvmArgs '-Djava.awt.headless=true'
+        }
+    }
+}

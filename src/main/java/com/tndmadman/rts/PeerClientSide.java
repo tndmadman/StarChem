@@ -99,15 +99,26 @@ final class PeerClientSide {
     long pendingViewRevision() { return pendingViewRevision; }
     boolean viewSwitchPending() { return viewRequestPending; }
     boolean serverCertificateTrustRequired() { return transport.serverCertificateTrustRequired(); }
+    boolean serverCertificateFirstUseTrustRequired() {
+        TlsIdentity.FingerprintChange change = transport.pendingServerFingerprintChange();
+        return change != null && change.valid() && change.firstUse();
+    }
     String serverCertificateTrustPrompt() {
         TlsIdentity.FingerprintChange change = transport.pendingServerFingerprintChange();
-        if (change == null || !change.valid()) return "No pending server certificate change.";
+        if (change == null || !change.valid()) return "No pending server certificate trust request.";
+        if (change.firstUse()) {
+            return "The server at " + config.serverAddress + " has not been trusted before.\n\n"
+                    + "Presented TLS fingerprint:\n" + change.presented() + "\n\n"
+                    + "Verify this fingerprint with the server owner before trusting it. "
+                    + "If you cannot verify it, choose No.";
+        }
         return "The server at " + config.serverAddress + " presented a different TLS certificate.\n\n"
                 + "Previously trusted fingerprint:\n" + change.expected() + "\n\n"
                 + "Newly presented fingerprint:\n" + change.presented() + "\n\n"
                 + "Only trust it if you expected the server identity to change or verified it with the server owner.";
     }
-    boolean trustChangedServerCertificate() {
+    boolean trustServerCertificate() {
+        boolean firstUse = serverCertificateFirstUseTrustRequired();
         if (!transport.trustPendingServerCertificate()) return false;
         long now = System.currentTimeMillis();
         failureMessage = "";
@@ -118,12 +129,23 @@ final class PeerClientSide {
         lastServerPacket = now;
         syncingResume = !sessionToken.isBlank();
         state = sessionToken.isBlank() ? ConnectionState.JOINING : ConnectionState.RECONNECTING;
-        world.status = "Trusted the new server certificate. Reconnecting to " + config.serverAddress + ".";
+        world.status = (firstUse ? "Trusted the server certificate. " : "Trusted the replacement server certificate. ")
+                + "Reconnecting to " + config.serverAddress + ".";
         return true;
     }
+    boolean trustChangedServerCertificate() { return trustServerCertificate(); }
 
     ClientConnectionProgress connectionProgress() {
         long elapsed = Math.max(0, System.currentTimeMillis() - attemptStarted);
+        if (serverCertificateTrustRequired()) {
+            boolean firstUse = serverCertificateFirstUseTrustRequired();
+            return new ClientConnectionProgress(ConnectionPhase.CONNECTING,
+                    firstUse ? "VERIFY SERVER CERTIFICATE" : "SERVER CERTIFICATE CHANGED",
+                    firstUse
+                            ? "Connection paused before login. Verify the server TLS fingerprint, then explicitly trust it to continue."
+                            : "Reconnect blocked before login because the pinned TLS identity changed. Verify both fingerprints before trusting the replacement.",
+                    1, 4, elapsed);
+        }
         return switch (state) {
             case JOINING -> transport.connected()
                     ? new ClientConnectionProgress(ConnectionPhase.HANDSHAKING, "NEGOTIATING CONNECTION",
@@ -153,14 +175,12 @@ final class PeerClientSide {
     void tick(long now) {
         PlayerRegistry.activate(world);
         String transportFailure = transport.consumeClientConnectFailure();
-        if (!transportFailure.isBlank()) {
-            lastTransportFailure = transportFailure;
-            String lower = transportFailure.toLowerCase(java.util.Locale.ROOT);
-            if (lower.contains("tls fingerprint changed") || lower.contains("refusing to send login secrets")) {
-                failConnection("Server identity changed. StarChem blocked login secrets. "
-                        + "Verify the fingerprints, then choose TRUST NEW CERTIFICATE to reconnect.");
-                return;
-            }
+        if (!transportFailure.isBlank()) lastTransportFailure = transportFailure;
+        if (serverCertificateTrustRequired()) {
+            world.status = serverCertificateFirstUseTrustRequired()
+                    ? "Connection paused before login until the server TLS fingerprint is verified."
+                    : "Server TLS identity changed. Login is blocked until the replacement fingerprint is verified.";
+            return;
         }
         boolean connectionDropped = transport.consumeClientDisconnect();
         if ((state == ConnectionState.CONNECTED || state == ConnectionState.SYNCING) && connectionDropped) {
@@ -603,6 +623,8 @@ final class PeerClientSide {
     private boolean readSessionBusy(String message) {
         if (message == null || !message.startsWith("SESSION_BUSY|")) return false;
         String reason = message.length() > 13 ? message.substring(13).trim() : "Saved session is already active.";
+        sessionChallengeNonce = "";
+        lastHandshake = 0;
         world.status = (reason.isBlank() ? "Saved session is already active." : reason) + " Waiting to resume.";
         return true;
     }
@@ -858,8 +880,20 @@ final class PeerClientSide {
         boolean observer = observerRequest.requested() || ObserverSessions.clientObserver(world);
         String request = !observer && config.devMode ? "DEV" : "NODEV";
         String devToken = !observer && config.devMode ? config.devToken : "";
-        return "RESUME|" + cleanPacketPart(localPlayerId) + "|" + cleanPacketPart(sessionToken)
-                + "|" + request + "|" + devToken + (observer ? "|OBSERVER|1" : "");
+        byte[] tokenDigest = PasswordAuth.tokenDigest(sessionToken);
+        try {
+            String reference = PasswordAuth.sessionReference(tokenDigest);
+            String message = "RESUME|" + cleanPacketPart(localPlayerId) + "|" + cleanPacketPart(reference)
+                    + "|" + request + "|" + devToken + (observer ? "|OBSERVER|1" : "");
+            if (!PasswordAuth.validNonce(sessionChallengeNonce)) return message;
+
+            String proof = PasswordAuth.sessionProof(tokenDigest, localPlayerId, sessionChallengeNonce);
+            if (!PasswordAuth.validVerifier(proof)) return message;
+            return message + "|SESSION_PROOF_NONCE|" + cleanPacketPart(sessionChallengeNonce)
+                    + "|SESSION_PROOF|" + cleanPacketPart(proof);
+        } finally {
+            java.util.Arrays.fill(tokenDigest, (byte)0);
+        }
     }
 
     private boolean canIssueCommands() {

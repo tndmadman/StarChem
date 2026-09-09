@@ -6,11 +6,16 @@ on:
       - main
     paths:
       - 'src/main/java/com/tndmadman/rts/TlsIdentity.java'
+      - 'src/main/java/com/tndmadman/rts/TlsFirstUseTrustValidator.java'
+      - 'src/main/java/com/tndmadman/rts/SessionTokenStore.java'
+      - 'src/main/java/com/tndmadman/rts/PeerTransport.java'
+      - 'src/main/java/com/tndmadman/rts/PeerClientSide.java'
+      - 'src/main/java/com/tndmadman/rts/PeerNetworkFacade.java'
+      - 'src/main/java/com/tndmadman/rts/ConnectionOverlayPanel.java'
       - 'src/main/java/com/tndmadman/rts/PrivateFileSecurity.java'
       - 'src/main/java/com/tndmadman/rts/PrivateFileSecurityValidator.java'
       - 'src/main/java/com/tndmadman/rts/DefaultStoragePaths.java'
       - 'src/main/java/com/tndmadman/rts/Config.java'
-      - 'src/main/java/com/tndmadman/rts/PeerClientSide.java'
       - 'src/main/java/com/tndmadman/rts/WindowsHostStartupValidator.java'
       - 'src/main/java/com/tndmadman/rts/ClientCredentialVault.java'
       - 'src/main/java/com/tndmadman/rts/ClientCredentialVaultValidator.java'
@@ -56,6 +61,10 @@ jobs:
         env:
           JAVA_TOOL_OPTIONS: -Djava.io.tmpdir=build/private-validation-temp
         run: java -cp build/classes/java/main com.tndmadman.rts.TlsIdentityValidator
+      - name: Validate explicit TLS first-use trust
+        env:
+          JAVA_TOOL_OPTIONS: -Djava.io.tmpdir=build/private-validation-temp
+        run: java -cp build/classes/java/main com.tndmadman.rts.TlsFirstUseTrustValidator
       - name: Validate protected client credential storage
         env:
           JAVA_TOOL_OPTIONS: -Djava.io.tmpdir=build/private-validation-temp
