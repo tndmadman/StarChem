@@ -44,6 +44,7 @@ final class UnitRenderer {
             } else {
                 drawDetailedHull(g2, unit, playerColor);
             }
+            DamageStateEffects.drawUnit(g2, unit, scale);
         }
 
         // Sensor/mining ranges are still available when explicitly toggled. Selection by
