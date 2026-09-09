@@ -47,8 +47,8 @@ public final class VisualDefinitionCatalogValidator {
         for (ShipVisualDefinition visual : catalog.shipDefinitions()) {
             ShipType ship = Rules.findShip(visual.id());
             require(ship != null, "Visual definition references unknown ship: " + visual.id());
-            require(visual.hardpointCount() <= ship.weaponHardpoints,
-                    "Visual hardpoint count exceeds gameplay hardpoints for " + visual.id()
+            require(visual.hardpointCount() == ship.weaponHardpoints,
+                    "Visual hardpoint count must match gameplay hardpoints for " + visual.id()
                             + ": visual=" + visual.hardpointCount() + " gameplay=" + ship.weaponHardpoints);
         }
         for (StationVisualDefinition visual : catalog.stationDefinitions()) {
