@@ -38,8 +38,21 @@ record QueuedUnitCommand(long stepId, QueuedCommandKind kind, String systemId,
     }
 
     static QueuedUnitCommand move(String systemId, double x, double y) {
+        return move(systemId, x, y, 0);
+    }
+
+    static QueuedUnitCommand move(String systemId, double x, double y, double speedCap) {
+        double cap = Double.isFinite(speedCap) && speedCap > 0 ? Math.min(1200.0, speedCap) : 0;
         return new QueuedUnitCommand(0, QueuedCommandKind.MOVE, systemId,
-                x, y, x, y, 0, "", -1, "", "", UnitOrderType.NONE);
+                x, y, x, y, cap, "", -1, "", "", UnitOrderType.NONE);
+    }
+
+    static QueuedUnitCommand formationMove(String systemId, double x, double y,
+                                           double anchorX, double anchorY, double speedCap,
+                                           String formationIntent) {
+        double cap = Double.isFinite(speedCap) && speedCap > 0 ? Math.min(1200.0, speedCap) : 0;
+        return new QueuedUnitCommand(0, QueuedCommandKind.MOVE, systemId,
+                x, y, anchorX, anchorY, cap, formationIntent, -1, "", "", UnitOrderType.NONE);
     }
 
     static QueuedUnitCommand attack(String systemId, String targetKey) {
@@ -55,13 +68,36 @@ record QueuedUnitCommand(long stepId, QueuedCommandKind kind, String systemId,
     static QueuedUnitCommand tactical(String systemId, UnitOrderType type,
                                       double x1, double y1, double x2, double y2,
                                       double radius, String targetKey) {
+        return tactical(systemId, type, x1, y1, x2, y2, radius, targetKey, 0);
+    }
+
+    static QueuedUnitCommand tactical(String systemId, UnitOrderType type,
+                                      double x1, double y1, double x2, double y2,
+                                      double radius, String targetKey, double movementPace) {
+        int encodedPace = Double.isFinite(movementPace) && movementPace > 0
+                ? (int)Math.round(Math.min(1200.0, movementPace) * 100.0) : -1;
         return new QueuedUnitCommand(0, QueuedCommandKind.TACTICAL, systemId,
-                x1, y1, x2, y2, radius, targetKey, -1, "", "", type);
+                x1, y1, x2, y2, radius, targetKey, encodedPace, "", "", type);
+    }
+
+    static double tacticalMovementPace(QueuedUnitCommand command) {
+        if (command == null || command.kind() != QueuedCommandKind.TACTICAL || command.resourceId() <= 0) return 0;
+        return Math.min(1200.0, command.resourceId() / 100.0);
     }
 
     static QueuedUnitCommand wormhole(String sourceSystemId, String gateId, String destinationSystemId) {
         return new QueuedUnitCommand(0, QueuedCommandKind.WORMHOLE, sourceSystemId,
                 0, 0, 0, 0, 0, "", -1, gateId, destinationSystemId, UnitOrderType.NONE);
+    }
+
+    static QueuedUnitCommand formationWormhole(String sourceSystemId, String gateId, String destinationSystemId,
+                                               double regroupX, double regroupY,
+                                               double anchorX, double anchorY, double speedCap,
+                                               String formationIntent) {
+        double cap = Double.isFinite(speedCap) && speedCap > 0 ? Math.min(1200.0, speedCap) : 0;
+        return new QueuedUnitCommand(0, QueuedCommandKind.WORMHOLE, sourceSystemId,
+                regroupX, regroupY, anchorX, anchorY, cap, formationIntent, -1,
+                gateId, destinationSystemId, UnitOrderType.NONE);
     }
 
     static QueuedUnitCommand policy(String systemId, CombatStance stance, TargetPriorityPolicy priority) {
@@ -118,6 +154,23 @@ final class UnitCommandQueueSystem {
     static synchronized List<QueuedUnitCommand> commands(World world, String unitKey) {
         QueueState state = lookup(world, unitKey);
         return state == null ? List.of() : List.copyOf(state.queue);
+    }
+
+    static synchronized QueuedUnitCommand activeCommand(World world, String unitKey) {
+        QueueState state = lookup(world, unitKey);
+        return state == null ? null : state.queue.peekFirst();
+    }
+
+    static synchronized List<String> formationMemberKeys(World world, String token) {
+        if (world == null || token == null || token.isBlank()) return List.of();
+        List<String> keys = new ArrayList<>();
+        for (Map.Entry<String, QueueState> entry : states(world).entrySet()) {
+            QueuedUnitCommand command = entry.getValue().queue.peekFirst();
+            FormationIntent intent = FormationIntent.parse(command);
+            if (intent != null && token.equals(intent.token())) keys.add(entry.getKey());
+        }
+        Collections.sort(keys);
+        return List.copyOf(keys);
     }
 
     static synchronized CombatStance combatStance(World world, String unitKey) {
@@ -222,6 +275,7 @@ final class UnitCommandQueueSystem {
             state.activeStarted = false;
             state.revision++;
             if (unit != null) clearRuntime(world, unit);
+            FormationController.invalidate(world);
             return UnitQueueApplyResult.APPLIED;
         }
         QueuedUnitCommand command = mutation.command();
@@ -241,6 +295,7 @@ final class UnitCommandQueueSystem {
         if (state.queue.size() >= MAX_QUEUE) return UnitQueueApplyResult.REJECTED;
         state.queue.addLast(command.withStepId(state.nextStepId++));
         state.revision++;
+        FormationController.invalidate(world);
         if (unit != null && !state.activeStarted) update(world, unit, 0);
         return UnitQueueApplyResult.APPLIED;
     }
@@ -259,6 +314,7 @@ final class UnitCommandQueueSystem {
             state.activeStarted = false;
             state.revision++;
             clearRuntime(world, unit);
+            FormationController.invalidate(world);
             markDirty(world, unit.key());
             return UnitQueueApplyResult.APPLIED;
         }
@@ -286,6 +342,7 @@ final class UnitCommandQueueSystem {
         }
         state.queue.addLast(command.withStepId(state.nextStepId++));
         state.revision++;
+        FormationController.invalidate(world);
         markDirty(world, unit.key());
         if (!state.activeStarted) update(world, unit, 0);
         return UnitQueueApplyResult.APPLIED;
@@ -340,6 +397,7 @@ final class UnitCommandQueueSystem {
         state.attackIntent = AttackIntentSource.NONE;
         state.engagementAnchorSet = false;
         state.revision++;
+        FormationController.invalidate(world);
         markDirty(world, unit.key());
     }
 
@@ -351,6 +409,7 @@ final class UnitCommandQueueSystem {
         state.activeStarted = false;
         state.revision++;
         clearRuntime(world, unit);
+        FormationController.invalidate(world);
         markDirty(world, unit.key());
     }
 
@@ -364,6 +423,7 @@ final class UnitCommandQueueSystem {
         QueueState removed = states(world).remove(key);
         long revision = removed == null ? 1 : removed.revision + 1;
         tombstones(world).put(key, revision);
+        FormationController.invalidate(world);
         markDirty(world, key);
     }
 
@@ -379,6 +439,7 @@ final class UnitCommandQueueSystem {
         STATES.remove(world);
         DIRTY.remove(world);
         TOMBSTONES.remove(world);
+        FormationController.clear(world);
     }
 
     static synchronized void update(World world, Unit unit, double dt) {
@@ -390,6 +451,20 @@ final class UnitCommandQueueSystem {
             if (command == null) return;
             if (command.kind() == QueuedCommandKind.WORMHOLE
                     && command.destinationSystemId().equals(world.activeSystemId())) {
+                if (FormationIntent.claims(command)) {
+                    FormationController.RuntimeTarget target = FormationController.target(world, unit, command);
+                    if (target == null) {
+                        haltChain(world, unit, state);
+                        return;
+                    }
+                    double remaining = Calc.distance(unit.x, unit.y, target.x(), target.y());
+                    if (!target.groupReady() || remaining > ARRIVAL_DISTANCE) {
+                        if (remaining > ARRIVAL_DISTANCE) {
+                            unit.moveToWithSpeedCap(target.x(), target.y(), target.pace());
+                        }
+                        return;
+                    }
+                }
                 completeHead(world, unit, state, command);
                 continue;
             }
@@ -419,7 +494,9 @@ final class UnitCommandQueueSystem {
     private static QueueStartResult startCommand(World world, Unit unit, QueuedUnitCommand command) {
         return switch (command.kind()) {
             case MOVE -> {
-                unit.issueMove(command.x1(), command.y1());
+                FormationController.RuntimeTarget target = FormationController.target(world, unit, command);
+                if (target == null) yield QueueStartResult.HALT;
+                unit.issueMove(target.x(), target.y(), target.pace());
                 yield QueueStartResult.STARTED;
             }
             case ATTACK -> {
@@ -442,7 +519,9 @@ final class UnitCommandQueueSystem {
                 WormholeGate gate = gate(world, command.gateId());
                 if (gate == null || !command.systemId().equals(gate.fromSystemId)
                         || !command.destinationSystemId().equals(gate.toSystemId)) yield QueueStartResult.HALT;
-                unit.issueMove(gate.x, gate.y);
+                FormationController.RuntimeTarget target = FormationController.target(world, unit, command);
+                if (target == null) yield QueueStartResult.HALT;
+                unit.issueMove(target.x(), target.y(), target.pace());
                 yield QueueStartResult.STARTED;
             }
         };
@@ -461,16 +540,18 @@ final class UnitCommandQueueSystem {
         }
         unit.setOrder(new UnitOrderCommand(unit.playerId, unit.unitId, type,
                 x1, y1, x2, y2, command.radius(), command.targetKey(), 0));
+        if (unit.orderType == type) unit.setMovementSpeedCap(QueuedUnitCommand.tacticalMovementPace(command));
         return unit.orderType == type ? QueueStartResult.STARTED : QueueStartResult.SKIP;
     }
 
     private static void maintainActive(World world, Unit unit, QueuedUnitCommand command) {
         switch (command.kind()) {
             case MOVE -> {
-                if (Calc.distance(unit.x, unit.y, command.x1(), command.y1()) > ARRIVAL_DISTANCE
+                FormationController.RuntimeTarget target = FormationController.target(world, unit, command);
+                if (target != null && Calc.distance(unit.x, unit.y, target.x(), target.y()) > ARRIVAL_DISTANCE
                         && (unit.task != UnitTask.MOVE
-                        || Calc.distance(unit.targetX, unit.targetY, command.x1(), command.y1()) > 2)) {
-                    unit.moveTo(command.x1(), command.y1());
+                        || Calc.distance(unit.targetX, unit.targetY, target.x(), target.y()) > 2)) {
+                    unit.moveToWithSpeedCap(target.x(), target.y(), target.pace());
                 }
             }
             case ATTACK -> {
@@ -490,10 +571,11 @@ final class UnitCommandQueueSystem {
             }
             case TACTICAL -> { }
             case WORMHOLE -> {
-                WormholeGate gate = gate(world, command.gateId());
-                if (gate != null && Calc.distance(unit.x, unit.y, gate.x, gate.y) > ARRIVAL_DISTANCE
-                        && (unit.task != UnitTask.MOVE || Calc.distance(unit.targetX, unit.targetY, gate.x, gate.y) > 2)) {
-                    unit.moveTo(gate.x, gate.y);
+                FormationController.RuntimeTarget target = FormationController.target(world, unit, command);
+                if (target != null && Calc.distance(unit.x, unit.y, target.x(), target.y()) > ARRIVAL_DISTANCE
+                        && (unit.task != UnitTask.MOVE
+                        || Calc.distance(unit.targetX, unit.targetY, target.x(), target.y()) > 2)) {
+                    unit.moveToWithSpeedCap(target.x(), target.y(), target.pace());
                 }
             }
         }
@@ -501,7 +583,11 @@ final class UnitCommandQueueSystem {
 
     private static boolean complete(World world, Unit unit, QueuedUnitCommand command) {
         return switch (command.kind()) {
-            case MOVE -> Calc.distance(unit.x, unit.y, command.x1(), command.y1()) <= ARRIVAL_DISTANCE;
+            case MOVE -> {
+                FormationController.RuntimeTarget target = FormationController.target(world, unit, command);
+                yield target != null && target.groupReady()
+                        && Calc.distance(unit.x, unit.y, target.x(), target.y()) <= ARRIVAL_DISTANCE;
+            }
             case ATTACK -> !CombatTarget.alive(world, command.targetKey())
                     || !CombatTarget.enemy(world, unit, command.targetKey())
                     || unit.task != UnitTask.ATTACK && unit.attackTarget.isBlank();
@@ -525,6 +611,7 @@ final class UnitCommandQueueSystem {
         finishRuntime(world, unit, command);
         state.queue.pollFirst();
         state.activeStarted = false;
+        FormationController.invalidate(world);
         markDirty(world, unit.key());
     }
 
@@ -566,6 +653,7 @@ final class UnitCommandQueueSystem {
         state.activeStarted = false;
         state.revision++;
         clearRuntime(world, unit);
+        FormationController.invalidate(world);
         markDirty(world, unit.key());
     }
 
@@ -616,7 +704,7 @@ final class UnitCommandQueueSystem {
         return expectedSystem.equals(command.systemId());
     }
 
-    private static boolean validateStructural(QueuedUnitCommand command) {
+    static boolean validateStructural(QueuedUnitCommand command) {
         if (command == null || command.systemId().isBlank() || command.systemId().length() > 128) return false;
         if (!finite(command.x1(), command.y1(), command.x2(), command.y2(), command.radius())) return false;
         if (Math.abs(command.x1()) > MAX_ABS_COORDINATE || Math.abs(command.y1()) > MAX_ABS_COORDINATE
@@ -626,9 +714,11 @@ final class UnitCommandQueueSystem {
                 || command.destinationSystemId().length() > 128) return false;
         if (containsControl(command.systemId()) || containsControl(command.targetKey())
                 || containsControl(command.gateId()) || containsControl(command.destinationSystemId())) return false;
+        if (FormationIntent.claims(command) && !FormationIntent.structurallyValid(command)) return false;
         if (command.kind() == QueuedCommandKind.HARVEST && command.resourceId() < 0) return false;
         if (command.kind() == QueuedCommandKind.TACTICAL
                 && (command.tacticalType() == null || command.tacticalType() == UnitOrderType.NONE)) return false;
+        if (command.kind() == QueuedCommandKind.TACTICAL && command.resourceId() > 120000) return false;
         if (command.kind() == QueuedCommandKind.WORMHOLE
                 && (command.gateId().isBlank() || command.destinationSystemId().isBlank())) return false;
         return true;
@@ -640,7 +730,9 @@ final class UnitCommandQueueSystem {
         try {
             if (!command.systemId().equals(world.activeSystemId())) return false;
             return switch (command.kind()) {
-                case MOVE -> GameplayCommandNumbers.worldCoordinate(world, command.x1(), command.y1());
+                case MOVE -> GameplayCommandNumbers.worldCoordinate(world, command.x1(), command.y1())
+                        && (!FormationIntent.claims(command)
+                        || GameplayCommandNumbers.worldCoordinate(world, command.x2(), command.y2()));
                 case ATTACK -> CombatTarget.alive(world, command.targetKey())
                         && CombatTarget.enemy(world, unit, command.targetKey())
                         && WeaponRules.armed(world, unit)
@@ -654,8 +746,14 @@ final class UnitCommandQueueSystem {
                 case TACTICAL -> validateTactical(world, unit, command);
                 case WORMHOLE -> {
                     WormholeGate gate = gate(world, command.gateId());
-                    yield gate != null && command.systemId().equals(gate.fromSystemId)
+                    boolean valid = gate != null && command.systemId().equals(gate.fromSystemId)
                             && command.destinationSystemId().equals(gate.toSystemId);
+                    if (valid && FormationIntent.claims(command)) {
+                        valid = GameplayCommandNumbers.worldCoordinate(world, command.x1(), command.y1())
+                                && GameplayCommandNumbers.worldCoordinate(world, command.x2(), command.y2())
+                                && Calc.distance(command.x2(), command.y2(), gate.exitX, gate.exitY) <= 900;
+                    }
+                    yield valid;
                 }
             };
         } finally {

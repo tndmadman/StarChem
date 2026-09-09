@@ -21,6 +21,7 @@ final class Unit {
     double hp, shield, shieldDelayTimer;
     double miningAnchorX, miningAnchorY;
     double orderX1, orderY1, orderX2, orderY2, orderRadius;
+    private double movementSpeedCap;
     int automationResourceId = -1;
     int orderPhase;
     boolean selected, unloadingThisFrame, miningAnchorSet, afterburnerActive;
@@ -48,19 +49,37 @@ final class Unit {
     boolean contains(double wx, double wy) { return Calc.distance(wx, wy, x, y) <= 28 * type().size.scale; }
 
     void issueMove(double tx, double ty) {
+        issueMove(tx, ty, 0);
+    }
+
+    void issueMove(double tx, double ty, double speedCap) {
         if (refitLocked() || !GameplayCommandNumbers.finite(tx, ty)) return;
         clearOrder();
         if (canAutoMineLocally()) setMiningAnchor(tx, ty);
-        moveTo(tx, ty);
+        moveToWithSpeedCap(tx, ty, speedCap);
     }
 
     void moveTo(double tx, double ty) {
+        moveToWithSpeedCap(tx, ty, 0);
+    }
+
+    void moveToWithSpeedCap(double tx, double ty, double speedCap) {
         if (!GameplayCommandNumbers.finite(tx, ty)) return;
+        setMovementSpeedCap(speedCap);
         targetX = tx;
         targetY = ty;
         task = UnitTask.MOVE;
         automationResourceId = -1;
         attackTarget = "";
+    }
+
+    void setMovementSpeedCap(double speedCap) {
+        movementSpeedCap = Double.isFinite(speedCap) && speedCap > 0
+                ? Math.min(1200.0, speedCap) : 0;
+    }
+
+    void clearMovementSpeedCap() {
+        movementSpeedCap = 0;
     }
 
     void issueAttack(String targetKey) {
@@ -103,6 +122,7 @@ final class Unit {
             String targetOwner = CombatTarget.owner(world, command.targetKey());
             if (!DiplomacySystem.allied(world, playerId, targetOwner)) return;
         }
+        clearMovementSpeedCap();
         orderType = command.type();
         orderX1 = command.x1();
         orderY1 = command.y1();
@@ -127,6 +147,7 @@ final class Unit {
         orderX1 = orderY1 = orderX2 = orderY2 = orderRadius = 0;
         orderTarget = "";
         orderPhase = 0;
+        clearMovementSpeedCap();
     }
 
     void setMiningAnchor(double x, double y) {
@@ -212,7 +233,9 @@ final class Unit {
             } else {
                 heading = desiredHeading;
             }
-            double step = Math.min(dist, type().speed * ShipModuleRules.speedMultiplier(this) * dt);
+            double effectiveSpeed = type().speed * ShipModuleRules.speedMultiplier(this);
+            if (task == UnitTask.MOVE && movementSpeedCap > 0) effectiveSpeed = Math.min(effectiveSpeed, movementSpeedCap);
+            double step = Math.min(dist, effectiveSpeed * dt);
             x += Math.cos(heading) * step;
             y += Math.sin(heading) * step;
         }

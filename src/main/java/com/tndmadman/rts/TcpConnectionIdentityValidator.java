@@ -40,7 +40,7 @@ public final class TcpConnectionIdentityValidator {
 
             server.connectionClosed(new NetPacket(PeerTransport.DISCONNECT_EVENT, firstId, loopback, first.getLocalPort()));
             TcpIntegrationHarness.require(!server.owns(firstId, "P1"), "first connection remained attached after close");
-            TcpIntegrationHarness.require(server.resume(secondId, loopback, second.getLocalPort(), "P1", token, false, ""),
+            TcpIntegrationHarness.require(resumeWithProof(server, secondId, loopback, second.getLocalPort(), "P1", token, second),
                     "session did not attach to the replacement connection");
             receive(second, "WELCOME|");
             TcpIntegrationHarness.require(server.owns(secondId, "P1"), "replacement connection did not own the session");
@@ -57,6 +57,28 @@ public final class TcpConnectionIdentityValidator {
             System.out.println("StarChem TCP connection identity validation passed.");
         } finally {
             transport.shutdown();
+        }
+    }
+
+    private static boolean resumeWithProof(PeerServerSide server, ConnectionId connectionId,
+                                           InetAddress address, int port, String playerId,
+                                           String token, Socket socket) throws Exception {
+        byte[] tokenDigest = PasswordAuth.tokenDigest(token);
+        try {
+            String reference = PasswordAuth.sessionReference(tokenDigest);
+            TcpIntegrationHarness.require(!server.resume(connectionId, address, port, playerId,
+                            reference, "", "", false, ""),
+                    "phase-one session resume unexpectedly bound without proof");
+            String challenge = receive(socket, "SESSION_CHALLENGE|");
+            String[] parts = challenge.split("\\|", -1);
+            TcpIntegrationHarness.require(parts.length >= 3 && "SESSION_CHALLENGE".equals(parts[0])
+                            && playerId.equals(parts[1]) && PasswordAuth.validNonce(parts[2]),
+                    "session resume did not receive a valid proof challenge");
+            String proof = PasswordAuth.sessionProof(tokenDigest, playerId, parts[2]);
+            return server.resume(connectionId, address, port, playerId,
+                    reference, parts[2], proof, false, "");
+        } finally {
+            java.util.Arrays.fill(tokenDigest, (byte)0);
         }
     }
 

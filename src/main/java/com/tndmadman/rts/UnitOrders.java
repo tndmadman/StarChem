@@ -2,6 +2,7 @@ package com.tndmadman.rts;
 
 import java.awt.*;
 
+
 final class UnitOrderSystem {
     private static final double ARRIVAL_DISTANCE = 8.0;
 
@@ -124,11 +125,15 @@ final class UnitOrderSystem {
             holdHere(unit);
             return;
         }
-        double angle = Math.floorMod(unit.unitId, 12) * (Math.PI * 2.0 / 12.0);
-        double followDistance = 105 + unit.type().size.scale * 18;
-        double tx = escorted.x + Math.cos(angle) * followDistance;
-        double ty = escorted.y + Math.sin(angle) * followDistance;
-        moveOrStop(world, unit, tx, ty, 28);
+        FleetFormationPlanner.Target slot = FormationController.escortTarget(world, unit, escorted);
+        if (slot == null) {
+            double angle = Math.floorMod(unit.unitId, 12) * (Math.PI * 2.0 / 12.0);
+            double followDistance = 105 + unit.type().size.scale * 18;
+            slot = new FleetFormationPlanner.Target(
+                    escorted.x + Math.cos(angle) * followDistance,
+                    escorted.y + Math.sin(angle) * followDistance);
+        }
+        moveOrStop(world, unit, slot.x(), slot.y(), 28);
     }
 
     private static void updateAttackMove(World world, Unit unit) {
@@ -149,6 +154,7 @@ final class UnitOrderSystem {
         unit.orderRadius = 0;
         unit.orderTarget = "";
         unit.orderPhase = 0;
+        unit.clearMovementSpeedCap();
         clearTemporaryAttack(unit);
     }
 
