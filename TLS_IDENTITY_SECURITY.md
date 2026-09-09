@@ -2,6 +2,16 @@
 
 StarChem dedicated servers use a persistent PKCS#12 private key and certificate so clients can pin the server fingerprint. Anyone who obtains both the keystore and its password can impersonate that server without producing a changed-fingerprint warning.
 
+## Client trust and first connection
+
+Remote clients do not silently trust a previously unseen server certificate. On the first connection to a remote server, StarChem completes the TLS handshake only far enough to read the server certificate, calculates its SHA-256 fingerprint, and blocks the multiplayer connection before login or session secrets are sent. The client must explicitly approve that fingerprint before it is stored and the connection is retried.
+
+Verify a first-seen fingerprint with the server operator through a separate trusted channel before approving it. If the displayed fingerprint cannot be verified, cancel the connection.
+
+After approval, trust is stored per server endpoint rather than per commander/player identity. Future connections require the presented fingerprint to match the stored value. If the server certificate changes, StarChem blocks the connection again and shows both the previously trusted and newly presented fingerprints. An existing remote pin is never silently replaced.
+
+Graphical same-machine and explicit loopback connections retain automatic certificate trust so local hosting and development do not require repeated certificate prompts. That exception does not apply to normal remote server addresses.
+
 ## Managed identity
 
 By default, StarChem creates these files in the configured save directory:
