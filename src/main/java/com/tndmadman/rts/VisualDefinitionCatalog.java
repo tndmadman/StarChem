@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -62,6 +63,10 @@ final class VisualDefinitionCatalog {
     boolean containsShip(String id) { return ships.containsKey(id); }
     boolean containsStation(String id) { return stations.containsKey(id); }
     boolean containsSystem(String id) { return systems.containsKey(id); }
+    List<ShipVisualDefinition> shipDefinitions() { return List.copyOf(ships.values()); }
+    List<StationVisualDefinition> stationDefinitions() { return List.copyOf(stations.values()); }
+    List<CelestialVisualDefinition> celestialDefinitions() { return List.copyOf(celestials.values()); }
+    List<SystemVisualDefinition> systemDefinitions() { return List.copyOf(systems.values()); }
 
     private static VisualDefinitionCatalog runtime() {
         if (attempted) return cached;
