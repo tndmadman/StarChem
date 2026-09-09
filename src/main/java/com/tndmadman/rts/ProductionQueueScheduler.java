@@ -67,7 +67,8 @@ final class ProductionQueueScheduler {
         CachedDetail cached = worldCache.get(key);
         if (cached != null && now - cached.createdNanos < DIAGNOSTIC_CACHE_NANOS) return cached.text;
 
-        ProductionCausalAnalyzer.Analysis analysis = ProductionCausalAnalyzer.analyze(world, base, job);
+        ProductionCausalAnalyzer.Analysis analysis = ProductionCausalAnalyzer.analyzeForPlayer(
+                world, base, job, base.playerId);
         String text = ordinaryCause(analysis, blockedReason);
         worldCache.clear();
         worldCache.put(key, new CachedDetail(now, text));
