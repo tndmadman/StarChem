@@ -36,8 +36,16 @@ final class SystemBackdropRenderer {
         List<Star> stars = new ArrayList<>(Math.max(0, profile.starCount()));
         for (int i = 0; i < profile.starCount(); i++) {
             double depth = 0.25 + random.nextDouble() * 0.75;
+            double size = 0.45 + random.nextDouble() * 1.7;
+            double brightness = 0.40 + random.nextDouble() * 0.60;
+            boolean streak = depth > 0.72 && size > 1.2;
+            double length = streak ? 2.0 + size * 2.6 : 0;
+            Stroke stroke = streak
+                    ? new BasicStroke((float)Math.max(0.6, size * 0.55), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+                    : null;
+            Color color = withAlpha(profile.starColor(), clampAlpha(255 * brightness));
             stars.add(new Star(random.nextDouble() * width, random.nextDouble() * height,
-                    0.45 + random.nextDouble() * 1.7, depth, 0.40 + random.nextDouble() * 0.60));
+                    size, depth, color, stroke, length));
         }
 
         List<Cloud> clouds = new ArrayList<>(Math.max(0, profile.nebulaClouds()));
@@ -60,8 +68,11 @@ final class SystemBackdropRenderer {
 
         List<Dust> dust = new ArrayList<>(Math.max(0, profile.dustCount()));
         for (int i = 0; i < profile.dustCount(); i++) {
+            double depth = 0.35 + random.nextDouble() * 0.65;
+            Color base = depth > 0.64 ? profile.nebulaHighlight() : profile.backgroundAccent();
+            Color color = withAlpha(base, 18 + (int)Math.round(34 * depth));
             dust.add(new Dust(random.nextDouble() * width, random.nextDouble() * height,
-                    0.8 + random.nextDouble() * 2.4, 0.35 + random.nextDouble() * 0.65));
+                    0.8 + random.nextDouble() * 2.4, depth, color));
         }
         return new Backdrop(List.copyOf(stars), List.copyOf(clouds), List.copyOf(dust));
     }
@@ -81,9 +92,9 @@ final class SystemBackdropRenderer {
     }
 
     private record Key(String id, int width, int height, long seed, double originX, double originY) { }
-    private record Star(double x, double y, double size, double depth, double brightness) { }
+    private record Star(double x, double y, double size, double depth, Color color, Stroke stroke, double length) { }
     private record Cloud(double x, double y, double radius, Paint paint) { }
-    private record Dust(double x, double y, double size, double depth) { }
+    private record Dust(double x, double y, double size, double depth, Color color) { }
 
     private record Backdrop(List<Star> stars, List<Cloud> clouds, List<Dust> dust) {
         void draw(Graphics2D g2, double originX, double originY, int width, int height,
@@ -114,19 +125,17 @@ final class SystemBackdropRenderer {
                 double shift = profile.parallax() * star.depth();
                 double x = originX + wrap(star.x() - cameraDx * shift, width);
                 double y = originY + wrap(star.y() - cameraDy * shift, height);
-                int alpha = clampAlpha(255 * star.brightness());
-                s.setColor(withAlpha(profile.starColor(), alpha));
-                if (star.depth() > 0.72 && star.size() > 1.2) {
-                    double length = 2.0 + star.size() * 2.6;
-                    s.setStroke(new BasicStroke((float)Math.max(0.6, star.size() * 0.55),
-                            BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                    s.drawLine((int)Math.round(x - directionX * length * 0.5),
-                            (int)Math.round(y - directionY * length * 0.5),
-                            (int)Math.round(x + directionX * length * 0.5),
-                            (int)Math.round(y + directionY * length * 0.5));
+                s.setColor(star.color());
+                if (star.stroke() != null) {
+                    s.setStroke(star.stroke());
+                    s.drawLine((int)Math.round(x - directionX * star.length() * 0.5),
+                            (int)Math.round(y - directionY * star.length() * 0.5),
+                            (int)Math.round(x + directionX * star.length() * 0.5),
+                            (int)Math.round(y + directionY * star.length() * 0.5));
                 } else {
                     double size = Math.max(1.0, star.size());
-                    s.fill(new Ellipse2D.Double(x - size * 0.5, y - size * 0.5, size, size));
+                    s.fillOval((int)Math.round(x - size * 0.5), (int)Math.round(y - size * 0.5),
+                            Math.max(1, (int)Math.ceil(size)), Math.max(1, (int)Math.ceil(size)));
                 }
             }
 
@@ -135,11 +144,10 @@ final class SystemBackdropRenderer {
                 double shift = profile.parallax() * 1.55 * mote.depth();
                 double x = originX + wrap(mote.x() - cameraDx * shift, width);
                 double y = originY + wrap(mote.y() - cameraDy * shift, height);
-                int alpha = 18 + (int)Math.round(34 * mote.depth());
-                Color dustColor = mote.depth() > 0.64 ? profile.nebulaHighlight() : profile.backgroundAccent();
-                s.setColor(withAlpha(dustColor, alpha));
+                s.setColor(mote.color());
                 double size = mote.size() * (0.7 + mote.depth() * 0.7);
-                s.fill(new Ellipse2D.Double(x - size * 0.5, y - size * 0.5, size, size));
+                s.fillOval((int)Math.round(x - size * 0.5), (int)Math.round(y - size * 0.5),
+                        Math.max(1, (int)Math.ceil(size)), Math.max(1, (int)Math.ceil(size)));
             }
             s.dispose();
         }
