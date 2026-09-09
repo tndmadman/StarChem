@@ -34,7 +34,7 @@ final class ConnectionOverlayPanel extends JPanel {
         progress.setValue(0);
 
         trust.setVisible(false);
-        trust.addActionListener(e -> trustChangedCertificate());
+        trust.addActionListener(e -> trustServerCertificate());
         cancel.addActionListener(e -> {
             System.out.println("[CONNECTION][CLIENT][CANCELLED] User cancelled the connection attempt.");
             owner.showLobby("Connection cancelled.");
@@ -90,18 +90,14 @@ final class ConnectionOverlayPanel extends JPanel {
         timer.stop();
     }
 
-    private void trustChangedCertificate() {
+    private void trustServerCertificate() {
         if (network == null || !network.serverCertificateTrustRequired()) return;
-        String prompt = network.serverCertificateTrustPrompt();
-        boolean firstUse = firstUsePrompt(prompt);
-        if (firstUse) {
-            System.err.println("[CONNECTION][CLIENT][TLS] First server certificate requires user verification.");
-            prompt = firstUsePromptText(prompt);
-        } else {
-            System.err.println("[CONNECTION][CLIENT][TLS] Server certificate changed; waiting for user verification.");
-        }
+        boolean firstUse = network.serverCertificateFirstUseTrustRequired();
+        System.err.println(firstUse
+                ? "[CONNECTION][CLIENT][TLS] First server certificate requires user verification."
+                : "[CONNECTION][CLIENT][TLS] Server certificate changed; waiting for user verification.");
         int choice = JOptionPane.showConfirmDialog(this,
-                prompt,
+                network.serverCertificateTrustPrompt(),
                 firstUse ? "Verify Server Certificate" : "Server Certificate Changed",
                 JOptionPane.YES_NO_OPTION,
                 JOptionPane.WARNING_MESSAGE);
@@ -111,7 +107,7 @@ final class ConnectionOverlayPanel extends JPanel {
                     : "[CONNECTION][CLIENT][TLS] Changed server certificate was not trusted.");
             return;
         }
-        if (!network.trustChangedServerCertificate()) {
+        if (!network.trustServerCertificate()) {
             System.err.println("[CONNECTION][CLIENT][TLS][FAILURE] Server certificate trust could not be stored.");
             JOptionPane.showMessageDialog(this,
                     "The pending certificate changed again or could not be stored. Reconnect and verify it again.",
@@ -144,27 +140,13 @@ final class ConnectionOverlayPanel extends JPanel {
         boolean trustRequired = network.serverCertificateTrustRequired();
         trust.setVisible(trustRequired);
         if (trustRequired) {
-            trust.setText(firstUsePrompt(network.serverCertificateTrustPrompt())
+            trust.setText(network.serverCertificateFirstUseTrustRequired()
                     ? "TRUST SERVER CERTIFICATE"
                     : "TRUST NEW CERTIFICATE");
         }
         showModal();
         revalidate();
         repaint();
-    }
-
-    private static boolean firstUsePrompt(String prompt) {
-        return prompt != null && prompt.contains(TlsIdentity.UNVERIFIED_FIRST_USE);
-    }
-
-    private static String firstUsePromptText(String prompt) {
-        if (prompt == null) return "";
-        return prompt
-                .replace("presented a different TLS certificate.",
-                        "presented an unverified TLS certificate on this first connection.")
-                .replace("Previously trusted fingerprint:\n" + TlsIdentity.UNVERIFIED_FIRST_USE + "\n\n", "")
-                .replace("Only trust it if you expected the server identity to change or verified it with the server owner.",
-                        "Verify this fingerprint with the server owner before trusting it. If you cannot verify it, choose No.");
     }
 
     private void showModal() {

@@ -17,6 +17,7 @@ public final class TlsFirstUseTrustValidator {
         System.setProperty("starchem.sessionStore", store.toString());
         try {
             validateFirstUseRequiresConfirmation();
+            validateStaleFirstUseApprovalCannotReplaceTrust();
             validatePinnedMatchAndMismatch();
             validateEndpointScopedTrust();
             validateLoopbackConvenience();
@@ -47,6 +48,19 @@ public final class TlsFirstUseTrustValidator {
         require(FIRST_FINGERPRINT.equals(SessionTokenStore.serverFingerprint(remote)),
                 "approved first-use certificate was not persisted");
         TlsIdentity.verifyServerFingerprint(remote, FIRST_FINGERPRINT);
+    }
+
+    private static void validateStaleFirstUseApprovalCannotReplaceTrust() throws Exception {
+        Config remote = remoteConfig("Stale First Use Commander");
+        SessionTokenStore.clearServerFingerprint(remote);
+        TlsIdentity.FingerprintChange request = expectTrustRequired(remote, FIRST_FINGERPRINT).change();
+        require(request != null && request.firstUse(), "stale first-use fixture did not create a first-use request");
+
+        SessionTokenStore.saveServerFingerprint(remote, SECOND_FINGERPRINT);
+        require(!SessionTokenStore.replaceServerFingerprint(remote, request.expected(), request.presented()),
+                "stale first-use approval replaced trust established after the prompt was shown");
+        require(SECOND_FINGERPRINT.equals(SessionTokenStore.serverFingerprint(remote)),
+                "stale first-use approval changed the newer trusted fingerprint");
     }
 
     private static void validatePinnedMatchAndMismatch() throws Exception {

@@ -133,8 +133,12 @@ final class PeerNetwork implements CommandSink {
     long clientPendingViewRevision() { return client == null ? 0 : client.pendingViewRevision(); }
     boolean clientViewSwitchPending() { return client != null && client.viewSwitchPending(); }
     boolean serverCertificateTrustRequired() { return client != null && client.serverCertificateTrustRequired(); }
+    boolean serverCertificateFirstUseTrustRequired() {
+        return client != null && client.serverCertificateFirstUseTrustRequired();
+    }
     String serverCertificateTrustPrompt() { return client == null ? "" : client.serverCertificateTrustPrompt(); }
-    boolean trustChangedServerCertificate() { return client != null && client.trustChangedServerCertificate(); }
+    boolean trustServerCertificate() { return client != null && client.trustServerCertificate(); }
+    boolean trustChangedServerCertificate() { return trustServerCertificate(); }
     void forceClientDisconnectForTest() { if (client != null) transport.forceDisconnectClientForTest(); }
     ConnectionId clientConnectionId() { return transport.clientConnectionId(); }
     ConnectionId connectionIdForPlayer(String playerId) { return server == null ? ConnectionId.NONE : server.connectionIdForPlayer(playerId); }
