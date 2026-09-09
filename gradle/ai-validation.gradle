@@ -1,4 +1,5 @@
 def starchemAiValidators = [
+        validateIssue403CombatVfx              : 'com.tndmadman.rts.Issue403CombatVfxValidator',
         validateAiBrainLog                    : 'com.tndmadman.rts.AiBrainLogValidator',
         validateNpcCrossSystemOperations      : 'com.tndmadman.rts.NpcCrossSystemOperationsValidator',
         validateNpcExpeditionDefense          : 'com.tndmadman.rts.NpcExpeditionDefenseValidator',
@@ -36,7 +37,7 @@ gradle.afterProject { project, state ->
     if (project.tasks.findByName('validateNpcAiSuite') == null) {
         project.tasks.register('validateNpcAiSuite') {
             group = 'verification'
-            description = 'Run the complete organized NPC AI validation suite.'
+            description = 'Run the complete organized NPC AI validation suite plus graphics regressions required by the push gate.'
             dependsOn starchemAiValidators.keySet().collect { project.tasks.named(it) }
             dependsOn project.tasks.named('validateNpcGalaxyDirector')
             dependsOn project.tasks.named('validateNpcSystemIsolation')

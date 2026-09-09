@@ -39,6 +39,8 @@ final class UnitRenderer {
         double visualRadius = Math.max(96,
                 ShipVisualCatalog.forType(shipType).renderRadius(shipType.size.scale));
         if (RenderCulling.visible(g2, unit.x, unit.y, visualRadius)) {
+            // Propulsion is deliberately rendered before the hull so exhaust stays behind the ship.
+            CombatVfxSystem.drawPropulsion(g2, unit, scale);
             if (scale < 0.24) {
                 drawFarMarker(g2, unit, playerColor, scale);
             } else if (scale < 0.78) {
