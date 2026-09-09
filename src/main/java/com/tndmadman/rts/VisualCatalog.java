@@ -15,28 +15,33 @@ final class VisualCatalog {
     private VisualCatalog() { }
 
     static ShipVisualDefinition ship(ShipType type) {
-        if (type == null) return ShipVisualDefinition.conventional("unknown");
-        String typeId = type.id;
-        ShipVisualDefinition authored = SHIPS.get(typeId);
-        return authored != null ? authored : ShipVisualDefinition.conventional(typeId);
+        if (type == null || type.id == null || type.id.isBlank()) {
+            return ShipVisualDefinition.conventional("unknown");
+        }
+        ShipVisualDefinition authored = SHIPS.get(type.id);
+        return authored != null ? authored : ShipVisualDefinition.conventional(type.id);
     }
 
     static StationVisualDefinition station(String stationId) {
+        if (stationId == null || stationId.isBlank()) return StationVisualDefinition.conventional("unknown");
         StationVisualDefinition authored = STATIONS.get(stationId);
         return authored != null ? authored : StationVisualDefinition.conventional(stationId);
     }
 
     static SystemVisualDefinition system(String systemId) {
+        if (systemId == null || systemId.isBlank()) return SystemVisualDefinition.conventional("unknown");
         SystemVisualDefinition authored = SYSTEMS.get(systemId);
         return authored != null ? authored : SystemVisualDefinition.conventional(systemId);
     }
 
     static CelestialVisualDefinition celestial(String bodyId) {
+        if (bodyId == null || bodyId.isBlank()) return CelestialVisualDefinition.conventional("unknown");
         CelestialVisualDefinition authored = CELESTIALS.get(bodyId);
         return authored != null ? authored : CelestialVisualDefinition.conventional(bodyId);
     }
 
     static ResourceVisualDefinition resource(String resourceId) {
+        if (resourceId == null || resourceId.isBlank()) return ResourceVisualDefinition.conventional("unknown");
         ResourceVisualDefinition authored = RESOURCES.get(resourceId);
         return authored != null ? authored : ResourceVisualDefinition.conventional(resourceId);
     }
