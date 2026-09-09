@@ -2,6 +2,8 @@ package com.tndmadman.rts;
 
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
+import java.util.List;
 
 /** Regression gate for issue #405 destruction sequencing, budgets, cleanup and damaged-hull cues. */
 public final class Issue405DestructionEffectsValidator {
@@ -10,6 +12,7 @@ public final class Issue405DestructionEffectsValidator {
     public static void main(String[] args) {
         validateProfileMapping();
         validateBudgetsAndCleanup();
+        validateAdmissionCap();
         validateDamageThreshold();
         validateHeadlessRendering();
         validateStructureDamageRendering();
@@ -60,6 +63,21 @@ public final class Issue405DestructionEffectsValidator {
             require(elapsed <= profile.lifetimeSeconds * 1.10 + 0.50,
                     profile + " persisted beyond its bounded cleanup window.");
         }
+    }
+
+    private static void validateAdmissionCap() {
+        List<ExplosionEffect> effects = new ArrayList<>();
+        int cap = ExplosionEffect.maxActiveEffectsForTest();
+        require(cap >= 32 && cap <= 128, "Destruction-effect cap is outside the intended bounded range.");
+        for (int i = 0; i < cap * 3; i++) {
+            DestructionProfile profile = i % 11 == 0 ? DestructionProfile.STATION
+                    : i % 5 == 0 ? DestructionProfile.MAJOR : DestructionProfile.QUICK;
+            ExplosionEffect.admitValidationEffect(effects, profile);
+            require(effects.size() <= cap,
+                    "Simultaneous destruction effects exceeded the global admission cap.");
+        }
+        require(effects.size() == cap,
+                "Destruction admission did not retain the expected bounded working set.");
     }
 
     private static void validateDamageThreshold() {
