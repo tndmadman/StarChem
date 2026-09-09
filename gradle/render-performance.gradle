@@ -1,0 +1,26 @@
+gradle.afterProject { project, state ->
+    if (state.failure != null || project != project.rootProject) return
+
+    if (project.tasks.findByName('validateRenderPerformance') == null) {
+        project.tasks.register('validateRenderPerformance', JavaExec) {
+            group = 'verification'
+            description = 'Run the deterministic graphics render performance validator.'
+            dependsOn project.tasks.named('classes')
+            classpath = project.sourceSets.main.runtimeClasspath
+            mainClass = 'com.tndmadman.rts.RenderPerformanceValidator'
+            jvmArgs '-Djava.awt.headless=true'
+            args '--output=build/reports/render-performance.csv'
+
+            if (project.hasProperty('renderPerfBaseline')) {
+                args "--baseline=${project.property('renderPerfBaseline')}"
+            }
+            if (project.hasProperty('renderPerfMaxRegression')) {
+                args "--max-regression=${project.property('renderPerfMaxRegression')}"
+            }
+            if (project.hasProperty('renderPerfEnforceTiming')
+                    && project.property('renderPerfEnforceTiming').toString().toBoolean()) {
+                args '--enforce-timing'
+            }
+        }
+    }
+}
