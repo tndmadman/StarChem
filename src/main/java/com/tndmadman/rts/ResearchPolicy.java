@@ -15,11 +15,28 @@ final class ResearchPolicy {
         if (topic == null) return "unknown research";
         if (world.hasResearch(playerId, topic.id)) return "already researched";
 
+        String excludedBy = doctrineExclusion(world, playerId, topic, false);
+        if (!excludedBy.isBlank()) return "excluded by doctrine " + excludedBy;
+
         String missing = ResearchRules.missingPrerequisite(world, playerId, topic);
         if (!missing.isBlank()) return "requires " + missing;
+        return "";
+    }
 
-        String excludedBy = doctrineExclusion(world, playerId, topic);
+    static String blockedResearchReason(World world, Base base, ResearchTopic topic) {
+        if (world == null || base == null) return "missing player";
+        if (topic == null) return "unknown research";
+        if (!topic.canResearchAt(base.typeId)) return "requires a compatible research station";
+        if (world.hasResearch(base.playerId, topic.id)) return "already researched";
+        if (ProductionSystem.researchQueued(world, base.playerId, topic.id)) return "already queued";
+
+        String excludedBy = doctrineExclusion(world, base.playerId, topic, true);
         if (!excludedBy.isBlank()) return "excluded by doctrine " + excludedBy;
+
+        // The production queue deliberately permits a dependent topic after its
+        // prerequisite is already queued at an owned station.
+        String missing = ProductionSystem.missingResearchPrerequisite(world, base, topic);
+        if (!missing.isBlank()) return "requires " + missing;
         return "";
     }
 
@@ -27,13 +44,24 @@ final class ResearchPolicy {
         return blockedResearchReason(world, playerId, topic).isBlank();
     }
 
+    static boolean canStartResearch(World world, Base base, ResearchTopic topic) {
+        return blockedResearchReason(world, base, topic).isBlank();
+    }
+
     static String doctrineExclusion(World world, String playerId, ResearchTopic topic) {
+        return doctrineExclusion(world, playerId, topic, true);
+    }
+
+    private static String doctrineExclusion(World world, String playerId, ResearchTopic topic, boolean includeQueued) {
         if (world == null || playerId == null || playerId.isBlank() || topic == null || topic.doctrineGroup.isBlank()) {
             return "";
         }
         for (ResearchTopic candidate : ResearchRules.all()) {
             if (candidate.id.equals(topic.id) || !candidate.doctrineGroup.equals(topic.doctrineGroup)) continue;
-            if (world.hasResearch(playerId, candidate.id)) return candidate.name;
+            if (world.hasResearch(playerId, candidate.id)
+                    || includeQueued && ProductionSystem.researchQueued(world, playerId, candidate.id)) {
+                return candidate.name;
+            }
         }
         return "";
     }
