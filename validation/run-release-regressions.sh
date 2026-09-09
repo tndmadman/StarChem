@@ -10,8 +10,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CP="$1"
 cd "$ROOT"
 
-# Release identity and packaging contract. Keep this first so stale version/docs/workflow
-# metadata fails before the expensive historical fixture and network regressions run.
 bash validation/validate-release-metadata.sh
 
 run_java() {
@@ -21,8 +19,23 @@ run_java() {
   java -Djava.awt.headless=true -cp "$CP" "$class" "$@"
 }
 
-# Permanent regression validators that historically lived only as explicit CI steps.
+# Graphics epic #388: keep the subsystem acceptance checks in the release gate so future
+# renderer work cannot silently regress one of the integrated child issues.
 run_java com.tndmadman.rts.ArtAssetValidator
+run_java com.tndmadman.rts.VisualContentValidator
+run_java com.tndmadman.rts.Issue391SpaceBackgroundValidator
+run_java com.tndmadman.rts.CelestialRenderValidator
+run_java com.tndmadman.rts.Issue409AmbientEnvironmentValidator
+run_java com.tndmadman.rts.ShipVisualValidator
+run_java com.tndmadman.rts.Issue394ShipMaterialValidator
+run_java com.tndmadman.rts.Issue396StationVisualValidator
+run_java com.tndmadman.rts.StationPresentationValidator
+run_java com.tndmadman.rts.Issue399ResourceVisualValidator
+run_java com.tndmadman.rts.Issue403CombatVfxValidator
+run_java com.tndmadman.rts.Issue405DestructionEffectsValidator
+run_java com.tndmadman.rts.Issue407GraphicsBenchmark
+
+# Permanent regression validators that historically lived only as explicit CI steps.
 run_java com.tndmadman.rts.FogOfWarValidator
 run_java com.tndmadman.rts.FogPerformanceValidator
 run_java com.tndmadman.rts.MovementPerformanceProfiler --gate
@@ -41,8 +54,6 @@ run_java com.tndmadman.rts.NumericCommandValidationValidator serialization
 run_java com.tndmadman.rts.MiningCommandValidationValidator
 run_java com.tndmadman.rts.NarrationProcessValidator
 
-# Release compatibility gate: generate a real format-2 save with the published v1.7.0 code,
-# load/migrate it with the current code, exercise authentication, resave, and reload it.
 bash validation/run-v170-upgrade.sh "$CP"
 
 echo "StarChem canonical release regression gate passed."
