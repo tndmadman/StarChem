@@ -1,0 +1,44 @@
+{
+  "stations": {
+    "outpost": {
+      "preset": "OUTPOST",
+      "scale": 1.00,
+      "ringCount": 1,
+      "armCount": 3,
+      "moduleCount": 4,
+      "lightCount": 8,
+      "batteryCount": 2,
+      "accent": "#6FCBFF"
+    },
+    "shipyard": {
+      "preset": "SHIPYARD",
+      "scale": 1.16,
+      "ringCount": 1,
+      "armCount": 4,
+      "moduleCount": 6,
+      "lightCount": 12,
+      "batteryCount": 4,
+      "accent": "#67B8FF"
+    },
+    "laboratory": {
+      "preset": "LABORATORY",
+      "scale": 1.06,
+      "ringCount": 2,
+      "armCount": 3,
+      "moduleCount": 5,
+      "lightCount": 10,
+      "batteryCount": 1,
+      "accent": "#65E8F7"
+    },
+    "manufacturing": {
+      "preset": "FACTORY",
+      "scale": 1.08,
+      "ringCount": 0,
+      "armCount": 4,
+      "moduleCount": 8,
+      "lightCount": 12,
+      "batteryCount": 3,
+      "accent": "#F0A954"
+    }
+  }
+}

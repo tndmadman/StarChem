@@ -43,14 +43,16 @@ final class Base {
         s.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         BaseType def = type();
         double radius = radius();
-        Polygon hull = new Polygon();
-        for (int i = 0; i < 6; i++) {
-            double a = Math.PI / 6 + i * Math.PI * 2 / 6.0;
-            hull.addPoint((int)Math.round(x + Math.cos(a) * radius), (int)Math.round(y + Math.sin(a) * radius));
+        if (!StationVisualRenderer.draw(s, this, playerColor)) {
+            Polygon hull = new Polygon();
+            for (int i = 0; i < 6; i++) {
+                double a = Math.PI / 6 + i * Math.PI * 2 / 6.0;
+                hull.addPoint((int)Math.round(x + Math.cos(a) * radius), (int)Math.round(y + Math.sin(a) * radius));
+            }
+            s.setColor(new Color(20,29,42)); s.fillPolygon(hull);
+            s.setColor(playerColor); s.setStroke(new BasicStroke(3f)); s.drawPolygon(hull);
+            drawCore(s, playerColor);
         }
-        s.setColor(new Color(20,29,42)); s.fillPolygon(hull);
-        s.setColor(playerColor); s.setStroke(new BasicStroke(3f)); s.drawPolygon(hull);
-        drawCore(s, playerColor);
         StationPresentation.draw(s, this, def, radius, playerColor);
         s.dispose();
     }
@@ -170,7 +172,7 @@ final class Base {
         radar.setColor(new Color(175, 238, 255, 235));
         radar.setStroke(new BasicStroke(1.7f));
         radar.draw(dish);
-        radar.setColor(new Color(235, 255, 255));
+        radar.setColor(new Color(235, 255, 255, 235));
         radar.fill(new Ellipse2D.Double(-3.2, -3.2, 6.4, 6.4));
         radar.dispose();
 
