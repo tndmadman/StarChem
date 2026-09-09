@@ -42,7 +42,8 @@ final class ShipSpriteCache {
         g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_SPEED);
         g.translate(IMAGE_SIZE / 2.0, IMAGE_SIZE / 2.0);
         g.rotate(bucket * Math.PI * 2.0 / BUCKETS);
-        ShipShape.draw(g, unit.type(), color);
+        if (ShowcaseShipRenderer.supports(unit.type())) ShowcaseShipRenderer.draw(g, unit.type(), color);
+        else ShipShape.draw(g, unit.type(), color);
         ShipLighting.draw(g, unit.type());
         g.dispose();
         return image;
