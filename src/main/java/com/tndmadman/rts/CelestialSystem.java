@@ -11,8 +11,8 @@ final class CelestialSystem {
     private final List<Body> bodies = new ArrayList<>();
     private final double sunX;
     private final double sunY;
-    private final SystemVisualDefinition systemVisual;
     private final SpaceBackgroundRenderer background;
+    private final String visualSystemId;
 
     CelestialSystem(int worldW, int worldH, Random random) {
         this(StarSystems.defaultSystem(), random);
@@ -23,9 +23,9 @@ final class CelestialSystem {
     }
 
     CelestialSystem(StarSystemDefinition definition, Random random, double offsetX, double offsetY) {
+        visualSystemId = definition == null ? "" : definition.id();
         sunX = offsetX + definition.width() / 2.0;
         sunY = offsetY + definition.height() / 2.0;
-        systemVisual = VisualCatalog.system(definition.id());
         background = new SpaceBackgroundRenderer(definition);
         buildBodies(definition, random);
         update(0);
@@ -38,16 +38,18 @@ final class CelestialSystem {
             double x = parent == null ? sunX : 0;
             double y = parent == null ? sunY : 0;
             double angle = bodyDef.orbitRadius() <= 0 ? 0 : random.nextDouble() * Math.PI * 2;
-            CelestialVisualDefinition visual = VisualCatalog.celestial(definition.id(), bodyDef.id());
+            CelestialVisualDefinition visual = CelestialVisualCatalog.resolve(visualSystemId, bodyDef);
+            long detailSeed = detailSeed(visualSystemId, bodyDef.id(), visual.id(), angle);
             Body body = new Body(bodyDef.id(), bodyDef.name(), parent, x, y, bodyDef.orbitRadius(), angle,
-                    bodyDef.orbitSpeed(), bodyDef.radius(), visual.colorOr(bodyDef.color()), visual);
+                    bodyDef.orbitSpeed(), bodyDef.radius(), bodyDef.color(), visual, detailSeed);
             bodies.add(body);
             byId.put(bodyDef.id(), body);
         }
         if (bodies.isEmpty()) {
-            CelestialVisualDefinition visual = VisualCatalog.celestial(definition.id(), "sun");
+            CelestialVisualDefinition visual = CelestialVisualCatalog.resolve(visualSystemId,
+                    new CelestialBodyDefinition("sun", "Sun", null, 0, 210, 0, new Color(255, 205, 80)));
             Body sun = new Body("sun", "Sun", null, sunX, sunY, 0, 0, 0, 210,
-                    visual.colorOr(new Color(255, 205, 80)), visual);
+                    new Color(255, 205, 80), visual, detailSeed(visualSystemId, "sun", visual.id(), 0));
             bodies.add(sun);
         }
     }
@@ -62,19 +64,51 @@ final class CelestialSystem {
         background.draw(c);
         c.setStroke(new BasicStroke(1f));
         for (Body body : bodies) if (body.parent != null) drawOrbit(c, body);
-        for (Body body : bodies) body.draw(c);
+        Body light = primaryLight();
+        double lightX = light == null ? sunX : light.x;
+        double lightY = light == null ? sunY : light.y;
+        for (Body body : bodies) body.draw(c, lightX, lightY);
         c.dispose();
     }
 
     double sunX() { return sunX; }
     double sunY() { return sunY; }
 
+    private Body primaryLight() {
+        for (Body body : bodies) if (body.visual.visualClass() == CelestialVisualClass.STAR && body.parent == null) return body;
+        for (Body body : bodies) if (body.visual.visualClass() == CelestialVisualClass.STAR) return body;
+        return bodies.isEmpty() ? null : bodies.get(0);
+    }
+
     private void drawOrbit(Graphics2D g2, Body body) {
         double cx = body.parent.x;
         double cy = body.parent.y;
         int d = (int)Math.round(body.orbitRadius * 2);
-        g2.setColor(systemVisual.orbitColor(body.parent.parent == null ? 0 : -10));
+        g2.setColor(new Color(120, 155, 190, body.parent.parent == null ? 42 : 32));
         g2.drawOval((int)Math.round(cx - body.orbitRadius), (int)Math.round(cy - body.orbitRadius), d, d);
+    }
+
+    private static long detailSeed(String systemId, String bodyId, String visualId, double seedAngle) {
+        long hash = 0xcbf29ce484222325L;
+        hash = hashText(hash, systemId);
+        hash = hashText(hash, bodyId);
+        hash = hashText(hash, visualId);
+        hash ^= Double.doubleToLongBits(seedAngle);
+        hash *= 0x100000001b3L;
+        hash ^= hash >>> 33;
+        hash *= 0xff51afd7ed558ccdL;
+        hash ^= hash >>> 33;
+        hash *= 0xc4ceb9fe1a85ec53L;
+        return hash ^ (hash >>> 33);
+    }
+
+    private static long hashText(long hash, String value) {
+        String text = value == null ? "" : value;
+        for (int i = 0; i < text.length(); i++) {
+            hash ^= text.charAt(i);
+            hash *= 0x100000001b3L;
+        }
+        return hash;
     }
 
     private static final class Body {
@@ -86,12 +120,13 @@ final class CelestialSystem {
         final double radius;
         final Color color;
         final CelestialVisualDefinition visual;
+        final long detailSeed;
         double x;
         double y;
         double angle;
 
         Body(String id, String name, Body parent, double x, double y, double orbitRadius, double angle,
-             double orbitSpeed, double radius, Color color, CelestialVisualDefinition visual) {
+             double orbitSpeed, double radius, Color color, CelestialVisualDefinition visual, long detailSeed) {
             this.id = id;
             this.name = name;
             this.parent = parent;
@@ -102,7 +137,8 @@ final class CelestialSystem {
             this.orbitSpeed = orbitSpeed;
             this.radius = radius;
             this.color = color;
-            this.visual = visual == null ? CelestialVisualDefinition.FALLBACK : visual;
+            this.visual = visual;
+            this.detailSeed = detailSeed;
         }
 
         void update(double dt) {
@@ -111,23 +147,8 @@ final class CelestialSystem {
             y = parent.y + Math.sin(angle) * orbitRadius;
         }
 
-        void draw(Graphics2D g2) {
-            int r = (int)Math.round(radius);
-            double glowRadius = radius * visual.glowScale();
-            g2.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), parent == null ? 80 : 35));
-            g2.fillOval((int)(x - glowRadius), (int)(y - glowRadius),
-                    (int)(glowRadius * 2), (int)(glowRadius * 2));
-            g2.setColor(color);
-            g2.fillOval((int)(x - radius), (int)(y - radius), r * 2, r * 2);
-
-            // Cosmetic detail placement derives only from authored visual seed, so clients agree
-            // without replicating any additional state in snapshots.
-            int highlight = Math.floorMod((int)visual.seed(), 360);
-            g2.setColor(new Color(255, 255, 255, parent == null ? 90 : 55));
-            g2.drawArc((int)(x - radius * 0.72), (int)(y - radius * 0.72),
-                    (int)(radius * 1.44), (int)(radius * 1.44), highlight, 42);
-            g2.setColor(new Color(255,255,255,150));
-            g2.drawString(name, (int)(x + radius + 8), (int)(y - radius - 4));
+        void draw(Graphics2D g2, double lightX, double lightY) {
+            CelestialRenderer.draw(g2, name, x, y, radius, lightX, lightY, visual, detailSeed);
         }
     }
 }
