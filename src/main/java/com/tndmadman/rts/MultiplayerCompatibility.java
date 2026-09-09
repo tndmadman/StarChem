@@ -19,6 +19,7 @@ final class MultiplayerCompatibility {
     static final int PROTOCOL_VERSION = 17;
     static final int MAX_CLIENT_HANDSHAKE_CHARS = 4096;
     static final int MAX_CLIENT_HANDSHAKE_FIELDS = 32;
+    static final int MAX_CLIENT_HANDSHAKE_FIELD_CHARS = 512;
     private static final Path DEFAULT_MANIFEST = Path.of("config/starchem.json");
     private static final String CONFIG_HASH_SCHEMA = "StarChemConfigFingerprint/v1";
     private static final int WIRE_FIELD_COUNT = 10;
@@ -106,11 +107,14 @@ final class MultiplayerCompatibility {
                         "handshake contains too many fields");
             }
             int delimiter = message.indexOf('|', start);
-            if (delimiter < 0) {
-                fields[count++] = message.substring(start);
-                return Arrays.copyOf(fields, count);
+            int end = delimiter < 0 ? message.length() : delimiter;
+            if (end - start > MAX_CLIENT_HANDSHAKE_FIELD_CHARS) {
+                throw new WireFormatException("MALFORMED_HANDSHAKE",
+                        "handshake field exceeds maximum size of "
+                                + MAX_CLIENT_HANDSHAKE_FIELD_CHARS + " characters");
             }
-            fields[count++] = message.substring(start, delimiter);
+            fields[count++] = message.substring(start, end);
+            if (delimiter < 0) return Arrays.copyOf(fields, count);
             start = delimiter + 1;
         }
     }
