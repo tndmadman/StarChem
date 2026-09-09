@@ -5,11 +5,7 @@ final class ResearchSystem {
 
     static void start(World world, Base base, ResearchTopic topic) {
         if (world == null || base == null || topic == null) return;
-        if (!topic.canResearchAt(base.typeId)) {
-            world.status = topic.name + " cannot be researched at " + base.type().name + ".";
-            return;
-        }
-        String blocked = ResearchPolicy.blockedResearchReason(world, base.playerId, topic);
+        String blocked = ResearchPolicy.blockedResearchReason(world, base, topic);
         if (!blocked.isBlank()) {
             world.status = topic.name + " is blocked: " + blocked + ".";
             return;
