@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 
 /** Startup-only scenario selection kept separate from the generic Config surface. */
@@ -78,7 +77,7 @@ final class ScenarioLaunch {
     static SkirmishSettings adjustSkirmish(SkirmishSettings fallback) {
         SkirmishSettings base = fallback == null ? SkirmishSettings.standard() : fallback;
         ScenarioDefinition definition = definition();
-        if (definition == null || definition.enabledNpcFactions().isEmpty()) return base;
+        if (definition == null) return base;
 
         Set<String> enabled = new LinkedHashSet<>();
         for (String raw : definition.enabledNpcFactions()) enabled.add(canonicalFactionId(raw, definition.id()));
