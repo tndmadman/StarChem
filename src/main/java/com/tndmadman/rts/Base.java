@@ -44,28 +44,117 @@ final class Base {
         s.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         BaseType def = type();
         double radius = radius();
+        SelectionRenderPolicy.Frame frame = SelectionRenderPolicy.currentFrame();
+        double scale = frame == null ? SelectionRenderPolicy.scale(s) : frame.scale();
+
+        // Service-area rings are useful up close, but become the dominant visual at tactical zoom.
+        if (scale >= 0.72) drawServiceRange(s, def, playerColor, local);
+        drawHull(s, playerColor, radius);
+        drawCore(s, playerColor);
+
+        s.setFont(s.getFont().deriveFont(Font.BOLD, 12f));
+        if (scale >= 0.38) {
+            drawBars(s, def, radius);
+            drawLabel(s, def, radius, playerColor);
+        }
+        if (scale >= 0.76) {
+            drawFuelState(s, radius);
+            drawLogistics(s, radius);
+            drawProduction(s, radius);
+            IntelStructureRenderer.drawStatus(s, this, radius);
+        }
+        // The hangar inventory is intentionally a close inspection overlay rather than permanent world text.
+        if (local && scale >= 0.96) drawHangar(s, radius);
+        s.dispose();
+    }
+
+    private void drawServiceRange(Graphics2D s, BaseType def, Color playerColor, boolean local) {
         s.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), local ? 42 : 22));
         s.fillOval((int)(x - def.unloadRange), (int)(y - def.unloadRange), (int)(def.unloadRange * 2), (int)(def.unloadRange * 2));
         s.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), local ? 120 : 72));
         s.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 0, new float[]{10f,8f}, 0));
         s.drawOval((int)(x - def.unloadRange), (int)(y - def.unloadRange), (int)(def.unloadRange * 2), (int)(def.unloadRange * 2));
+    }
+
+    private void drawHull(Graphics2D s, Color playerColor, double radius) {
+        Shape hull = switch (typeId) {
+            case "outpost" -> outpostHull(radius);
+            case "shipyard" -> shipyardHull(radius);
+            case "manufacturing" -> manufacturingHull(radius);
+            default -> genericHull(radius);
+        };
+        s.setColor(new Color(20,29,42));
+        s.fill(hull);
+        s.setColor(playerColor);
+        s.setStroke(new BasicStroke(3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        s.draw(hull);
+
+        // Structural seams reinforce station identity without changing gameplay geometry.
+        s.setStroke(new BasicStroke(1.2f));
+        s.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), 92));
+        if ("outpost".equals(typeId)) {
+            s.drawLine((int)(x-radius*.62), (int)y, (int)(x+radius*.62), (int)y);
+            s.drawLine((int)x, (int)(y-radius*.62), (int)x, (int)(y+radius*.62));
+        } else if ("shipyard".equals(typeId)) {
+            s.drawLine((int)(x-radius*.58), (int)(y-radius*.38), (int)(x+radius*.58), (int)(y-radius*.38));
+            s.drawLine((int)(x-radius*.58), (int)(y+radius*.38), (int)(x+radius*.58), (int)(y+radius*.38));
+            s.drawLine((int)(x-radius*.18), (int)(y-radius*.68), (int)(x-radius*.18), (int)(y+radius*.68));
+            s.drawLine((int)(x+radius*.18), (int)(y-radius*.68), (int)(x+radius*.18), (int)(y+radius*.68));
+        } else if ("manufacturing".equals(typeId)) {
+            for (int i = -1; i <= 1; i++) {
+                int px = (int)Math.round(x + i * radius * .36);
+                s.drawRect(px - (int)(radius*.11), (int)(y-radius*.52), (int)(radius*.22), (int)(radius*1.04));
+            }
+        }
+    }
+
+    private Shape genericHull(double radius) {
         Polygon hull = new Polygon();
         for (int i = 0; i < 6; i++) {
             double a = Math.PI / 6 + i * Math.PI * 2 / 6.0;
-            hull.addPoint((int)Math.round(x + Math.cos(a) * radius), (int)Math.round(y + Math.sin(a) * radius));
+            hull.addPoint((int)Math.round(x + Math.cos(a) * radius),
+                    (int)Math.round(y + Math.sin(a) * radius));
         }
-        s.setColor(new Color(20,29,42)); s.fillPolygon(hull);
-        s.setColor(playerColor); s.setStroke(new BasicStroke(3f)); s.drawPolygon(hull);
-        drawCore(s, playerColor);
-        s.setFont(s.getFont().deriveFont(Font.BOLD, 12f));
-        drawBars(s, def, radius);
-        drawLabel(s, def, radius, playerColor);
-        drawFuelState(s, radius);
-        drawLogistics(s, radius);
-        drawProduction(s, radius);
-        if (local) drawHangar(s, radius);
-        IntelStructureRenderer.drawStatus(s, this, radius);
-        s.dispose();
+        return hull;
+    }
+
+    private Shape outpostHull(double r) {
+        Path2D p = new Path2D.Double();
+        p.moveTo(x-r*.26, y-r*.92); p.lineTo(x+r*.26, y-r*.92);
+        p.lineTo(x+r*.32, y-r*.48); p.lineTo(x+r*.82, y-r*.38);
+        p.lineTo(x+r*.92, y-r*.16); p.lineTo(x+r*.92, y+r*.16);
+        p.lineTo(x+r*.82, y+r*.38); p.lineTo(x+r*.32, y+r*.48);
+        p.lineTo(x+r*.26, y+r*.92); p.lineTo(x-r*.26, y+r*.92);
+        p.lineTo(x-r*.32, y+r*.48); p.lineTo(x-r*.82, y+r*.38);
+        p.lineTo(x-r*.92, y+r*.16); p.lineTo(x-r*.92, y-r*.16);
+        p.lineTo(x-r*.82, y-r*.38); p.lineTo(x-r*.32, y-r*.48); p.closePath();
+        return p;
+    }
+
+    private Shape shipyardHull(double r) {
+        Path2D p = new Path2D.Double();
+        p.moveTo(x-r*.76, y-r*.76); p.lineTo(x-r*.12, y-r*.76);
+        p.lineTo(x-r*.12, y-r*.38); p.lineTo(x+r*.12, y-r*.38);
+        p.lineTo(x+r*.12, y-r*.76); p.lineTo(x+r*.76, y-r*.76);
+        p.lineTo(x+r*.92, y-r*.56); p.lineTo(x+r*.92, y+r*.56);
+        p.lineTo(x+r*.76, y+r*.76); p.lineTo(x+r*.12, y+r*.76);
+        p.lineTo(x+r*.12, y+r*.38); p.lineTo(x-r*.12, y+r*.38);
+        p.lineTo(x-r*.12, y+r*.76); p.lineTo(x-r*.76, y+r*.76);
+        p.lineTo(x-r*.92, y+r*.56); p.lineTo(x-r*.92, y-r*.56); p.closePath();
+        return p;
+    }
+
+    private Shape manufacturingHull(double r) {
+        Path2D p = new Path2D.Double();
+        p.moveTo(x-r*.70, y-r*.72); p.lineTo(x-r*.20, y-r*.72);
+        p.lineTo(x-r*.10, y-r*.90); p.lineTo(x+r*.18, y-r*.90);
+        p.lineTo(x+r*.28, y-r*.68); p.lineTo(x+r*.72, y-r*.68);
+        p.lineTo(x+r*.90, y-r*.42); p.lineTo(x+r*.84, y+r*.48);
+        p.lineTo(x+r*.62, y+r*.76); p.lineTo(x+r*.12, y+r*.72);
+        p.lineTo(x, y+r*.90); p.lineTo(x-r*.28, y+r*.76);
+        p.lineTo(x-r*.72, y+r*.70); p.lineTo(x-r*.90, y+r*.42);
+        p.lineTo(x-r*.88, y-r*.42); p.closePath();
+        return p;
     }
 
     private double radius() {
