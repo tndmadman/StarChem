@@ -4,19 +4,15 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.util.EnumSet;
-import java.util.List;
 
 /** Headless regression checks for issue #392 celestial visual generation and compositing. */
 public final class CelestialRenderValidator {
-    private static final List<String> AUTHORED_SYSTEMS = List.of(
-            "sol_standard", "gas_giant_frontier", "nebula_expanse", "binary_forge", "ancient_graveyard");
-
     private CelestialRenderValidator() { }
 
     public static void main(String[] args) {
         require(CelestialVisualCatalog.configuredPresetCount() > CelestialVisualClass.values().length,
                 "authored celestial visual config did not load");
-        validateVisualClasses();
+        validateVisualClassesAndCoverage();
         validateConfiguredFeatures();
         validateDeterminism();
         validateVariation();
@@ -29,18 +25,23 @@ public final class CelestialRenderValidator {
         System.out.println("StarChem celestial render validation passed.");
     }
 
-    private static void validateVisualClasses() {
+    private static void validateVisualClassesAndCoverage() {
         EnumSet<CelestialVisualClass> classes = EnumSet.noneOf(CelestialVisualClass.class);
-        for (String systemId : AUTHORED_SYSTEMS) {
-            StarSystemDefinition system = StarSystems.get(systemId);
+        int configuredBodies = 0;
+        for (StarSystemDefinition system : StarSystems.options()) {
             for (CelestialBodyDefinition body : system.bodies()) {
-                classes.add(CelestialVisualCatalog.resolve(systemId, body).visualClass());
+                CelestialVisualDefinition visual = CelestialVisualCatalog.resolve(system.id(), body);
+                require(!visual.id().startsWith("fallback-"),
+                        "configured celestial body is missing an authored visual mapping: " + system.id() + "/" + body.id());
+                classes.add(visual.visualClass());
+                configuredBodies++;
             }
         }
+        require(configuredBodies > 0, "no configured celestial bodies were validated");
+
+        // Desert is supported even though the current system roster has no authored desert world yet.
         classes.add(CelestialVisualCatalog.resolve("unconfigured",
                 body("dune", "Desert World", "sun", new Color(188, 126, 68))).visualClass());
-        classes.add(CelestialVisualCatalog.resolve("unconfigured",
-                body("toxic", "Toxic Cloud World", "sun", new Color(124, 143, 76))).visualClass());
         require(classes.containsAll(EnumSet.allOf(CelestialVisualClass.class)),
                 "not every supported celestial visual class resolves from authored/fallback content: " + classes);
     }
@@ -50,6 +51,7 @@ public final class CelestialRenderValidator {
         CelestialVisualDefinition gasGiant = visual("sol_standard", "giant");
         CelestialVisualDefinition industrial = visual("gas_giant_frontier", "moon_a");
         CelestialVisualDefinition star = visual("sol_standard", "sun");
+        CelestialVisualDefinition toxic = visual("carbon_basin", "mire");
 
         require(terrestrial.visualClass() == CelestialVisualClass.TERRESTRIAL,
                 "Sol inner planet is not authored as terrestrial");
@@ -62,6 +64,8 @@ public final class CelestialRenderValidator {
                 "industrial moon emissive configuration is missing");
         require(star.visualClass() == CelestialVisualClass.STAR && star.emissive(),
                 "star visual/emissive configuration is missing");
+        require(toxic.visualClass() == CelestialVisualClass.TOXIC && toxic.hasAtmosphere() && toxic.hasClouds(),
+                "toxic-world atmosphere/cloud configuration is missing");
     }
 
     private static void validateDeterminism() {
