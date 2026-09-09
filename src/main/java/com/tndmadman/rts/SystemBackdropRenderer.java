@@ -3,13 +3,13 @@ package com.tndmadman.rts;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
-import java.awt.Paint;
 import java.awt.RadialGradientPaint;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.Stroke;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Point2D;
+import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -17,6 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /** Cached, deterministic deep-space presentation for authored system visual profiles. */
 final class SystemBackdropRenderer {
+    private static final int NEBULA_TEXTURE_MAX_DIMENSION = 1024;
     private static final ConcurrentHashMap<Key, Backdrop> CACHE = new ConcurrentHashMap<>();
 
     private SystemBackdropRenderer() { }
@@ -26,12 +27,11 @@ final class SystemBackdropRenderer {
         if (g2 == null || definition == null || profile == null) return;
         Key key = new Key(definition.id(), definition.width(), definition.height(), profile.seed(), originX, originY);
         Backdrop backdrop = CACHE.computeIfAbsent(key,
-                ignored -> build(definition.width(), definition.height(), profile, originX, originY));
+                ignored -> build(definition.width(), definition.height(), profile));
         backdrop.draw(g2, originX, originY, definition.width(), definition.height(), profile);
     }
 
-    private static Backdrop build(int width, int height, SystemVisualProfile profile,
-                                  double originX, double originY) {
+    private static Backdrop build(int width, int height, SystemVisualProfile profile) {
         Random random = new Random(profile.seed());
         List<Star> stars = new ArrayList<>(Math.max(0, profile.starCount()));
         for (int i = 0; i < profile.starCount(); i++) {
@@ -48,23 +48,7 @@ final class SystemBackdropRenderer {
                     size, depth, color, stroke, length));
         }
 
-        List<Cloud> clouds = new ArrayList<>(Math.max(0, profile.nebulaClouds()));
-        for (int i = 0; i < profile.nebulaClouds(); i++) {
-            double x = originX + random.nextDouble() * width;
-            double y = originY + random.nextDouble() * height;
-            double radius = Math.min(width, height) * (0.08 + random.nextDouble() * 0.18);
-            Color base = switch (i % 3) {
-                case 0 -> profile.nebulaPrimary();
-                case 1 -> profile.nebulaSecondary();
-                default -> profile.nebulaHighlight();
-            };
-            int innerAlpha = clampAlpha(255 * profile.nebulaOpacity() * (0.18 + random.nextDouble() * 0.18));
-            int middleAlpha = Math.max(0, innerAlpha / 2);
-            Paint paint = new RadialGradientPaint(new Point2D.Double(x, y), (float)radius,
-                    new float[]{0f, 0.48f, 1f},
-                    new Color[]{withAlpha(base, innerAlpha), withAlpha(base, middleAlpha), withAlpha(base, 0)});
-            clouds.add(new Cloud(x, y, radius, paint));
-        }
+        BufferedImage nebulaTexture = buildNebulaTexture(width, height, profile, random);
 
         List<Dust> dust = new ArrayList<>(Math.max(0, profile.dustCount()));
         for (int i = 0; i < profile.dustCount(); i++) {
@@ -74,7 +58,47 @@ final class SystemBackdropRenderer {
             dust.add(new Dust(random.nextDouble() * width, random.nextDouble() * height,
                     0.8 + random.nextDouble() * 2.4, depth, color));
         }
-        return new Backdrop(List.copyOf(stars), List.copyOf(clouds), List.copyOf(dust));
+        return new Backdrop(List.copyOf(stars), nebulaTexture, List.copyOf(dust));
+    }
+
+    /**
+     * Nebula clouds are static presentation data. Rasterize their expensive radial gradients once
+     * into a bounded diffuse texture instead of repainting multi-thousand-unit gradients every frame.
+     */
+    private static BufferedImage buildNebulaTexture(int width, int height, SystemVisualProfile profile, Random random) {
+        if (profile.nebulaClouds() <= 0 || width <= 0 || height <= 0) return null;
+        double scale = Math.min(1.0, NEBULA_TEXTURE_MAX_DIMENSION / (double)Math.max(width, height));
+        int textureWidth = Math.max(1, (int)Math.round(width * scale));
+        int textureHeight = Math.max(1, (int)Math.round(height * scale));
+        double textureScaleX = textureWidth / (double)width;
+        double textureScaleY = textureHeight / (double)height;
+        double radiusScale = Math.min(textureScaleX, textureScaleY);
+
+        BufferedImage texture = new BufferedImage(textureWidth, textureHeight, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D t = texture.createGraphics();
+        t.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        t.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        for (int i = 0; i < profile.nebulaClouds(); i++) {
+            double worldX = random.nextDouble() * width;
+            double worldY = random.nextDouble() * height;
+            double worldRadius = Math.min(width, height) * (0.08 + random.nextDouble() * 0.18);
+            Color base = switch (i % 3) {
+                case 0 -> profile.nebulaPrimary();
+                case 1 -> profile.nebulaSecondary();
+                default -> profile.nebulaHighlight();
+            };
+            int innerAlpha = clampAlpha(255 * profile.nebulaOpacity() * (0.18 + random.nextDouble() * 0.18));
+            int middleAlpha = Math.max(0, innerAlpha / 2);
+            double x = worldX * textureScaleX;
+            double y = worldY * textureScaleY;
+            double radius = Math.max(1.0, worldRadius * radiusScale);
+            t.setPaint(new RadialGradientPaint(new Point2D.Double(x, y), (float)radius,
+                    new float[]{0f, 0.48f, 1f},
+                    new Color[]{withAlpha(base, innerAlpha), withAlpha(base, middleAlpha), withAlpha(base, 0)}));
+            t.fill(new Ellipse2D.Double(x - radius, y - radius, radius * 2, radius * 2));
+        }
+        t.dispose();
+        return texture;
     }
 
     private static int clampAlpha(double value) {
@@ -93,10 +117,9 @@ final class SystemBackdropRenderer {
 
     private record Key(String id, int width, int height, long seed, double originX, double originY) { }
     private record Star(double x, double y, double size, double depth, Color color, Stroke stroke, double length) { }
-    private record Cloud(double x, double y, double radius, Paint paint) { }
     private record Dust(double x, double y, double size, double depth, Color color) { }
 
-    private record Backdrop(List<Star> stars, List<Cloud> clouds, List<Dust> dust) {
+    private record Backdrop(List<Star> stars, BufferedImage nebulaTexture, List<Dust> dust) {
         void draw(Graphics2D g2, double originX, double originY, int width, int height,
                   SystemVisualProfile profile) {
             Graphics2D s = (Graphics2D)g2.create();
@@ -109,14 +132,14 @@ final class SystemBackdropRenderer {
 
             s.setColor(profile.background());
             s.fillRect((int)Math.floor(originX), (int)Math.floor(originY), width, height);
-
-            Paint oldPaint = s.getPaint();
-            for (Cloud cloud : clouds) {
-                s.setPaint(cloud.paint());
-                s.fill(new Ellipse2D.Double(cloud.x() - cloud.radius(), cloud.y() - cloud.radius(),
-                        cloud.radius() * 2, cloud.radius() * 2));
+            if (nebulaTexture != null) {
+                Object oldInterpolation = s.getRenderingHint(RenderingHints.KEY_INTERPOLATION);
+                s.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                s.drawImage(nebulaTexture,
+                        (int)Math.floor(originX), (int)Math.floor(originY), width, height, null);
+                if (oldInterpolation != null) s.setRenderingHint(RenderingHints.KEY_INTERPOLATION, oldInterpolation);
+                else s.getRenderingHints().remove(RenderingHints.KEY_INTERPOLATION);
             }
-            s.setPaint(oldPaint);
 
             Stroke oldStroke = s.getStroke();
             double directionX = 0.92;
