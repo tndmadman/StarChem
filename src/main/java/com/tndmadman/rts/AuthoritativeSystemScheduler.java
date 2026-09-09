@@ -15,6 +15,7 @@ import java.util.function.Supplier;
 final class AuthoritativeSystemScheduler {
     static final int MAX_INACTIVE_UPDATES_PER_TICK = 4;
     private static final double DISCOVERY_INTERVAL_SECONDS = 1.0;
+    private static final double SCENARIO_EVALUATION_INTERVAL_SECONDS = 0.2;
     private static final double EPSILON = 0.000001;
 
     private final Map<String, Slot> slots = new LinkedHashMap<>();
@@ -26,6 +27,7 @@ final class AuthoritativeSystemScheduler {
     private Set<String> viewedSystems = Set.of();
     private double clock;
     private double nextDiscovery;
+    private double nextScenarioEvaluation;
     private long nextGeneration = 1;
     private List<String> lastUpdatedSystems = List.of();
     private Stats stats = Stats.empty();
@@ -57,6 +59,12 @@ final class AuthoritativeSystemScheduler {
         // Maintain respawn eligibility from authoritative galaxy state, independently
         // of any client RESPawn request or currently viewed system.
         RespawnAuthority.observeRegisteredPlayers(world);
+        if (ScenarioDirector.active(world) && clock + EPSILON >= nextScenarioEvaluation) {
+            ScenarioDirector.evaluateAuthoritative(world);
+            nextScenarioEvaluation = clock + SCENARIO_EVALUATION_INTERVAL_SECONDS;
+        } else if (!ScenarioDirector.active(world)) {
+            nextScenarioEvaluation = clock;
+        }
         lastUpdatedSystems = List.copyOf(updated);
         stats = snapshotStats(updated.size());
     }
