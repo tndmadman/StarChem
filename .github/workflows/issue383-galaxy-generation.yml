@@ -7,11 +7,17 @@ on:
   pull_request:
     paths:
       - 'config/galaxy.json'
+      - 'docs/issue-383-procedural-galaxy.md'
       - 'src/main/java/com/tndmadman/rts/GalaxyGenerationSettings.java'
+      - 'src/main/java/com/tndmadman/rts/GalaxyGenerationWire.java'
+      - 'src/main/java/com/tndmadman/rts/GalaxyMapWire.java'
+      - 'src/main/java/com/tndmadman/rts/GalaxyMatchSetup.java'
       - 'src/main/java/com/tndmadman/rts/GalaxyPlan.java'
       - 'src/main/java/com/tndmadman/rts/GalaxyPreview.java'
+      - 'src/main/java/com/tndmadman/rts/GalaxyPreviewPanel.java'
       - 'src/main/java/com/tndmadman/rts/GalaxyRuntimeOptions.java'
       - 'src/main/java/com/tndmadman/rts/GalaxySystemIdentity.java'
+      - 'src/main/java/com/tndmadman/rts/LobbyPanel.java'
       - 'src/main/java/com/tndmadman/rts/WanderingWormholePlanner.java'
       - 'src/main/java/com/tndmadman/rts/Issue383GalaxyGenerationValidator.java'
       - '.github/workflows/issue383-galaxy-generation.yml'
