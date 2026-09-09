@@ -24,22 +24,26 @@ final class ResearchRules {
         return List.copyOf(out);
     }
 
-    static boolean shipUnlocked(World world, String playerId, String shipTypeId) {
-        boolean gated = false;
+    static List<ResearchTopic> topicsUnlocking(ResearchUnlockKind kind, String targetId) {
+        if (kind == null || targetId == null || targetId.isBlank()) return List.of();
+        List<ResearchTopic> out = new ArrayList<>();
         for (ResearchTopic topic : TOPICS.values()) {
-            if (!topic.unlocks.ships.contains(shipTypeId)) continue;
-            gated = true;
-            if (world.hasResearch(playerId, topic.id)) return true;
+            if (topic.unlocks.contains(kind, targetId)) out.add(topic);
         }
-        return !gated;
+        return List.copyOf(out);
+    }
+
+    static boolean shipUnlocked(World world, String playerId, String shipTypeId) {
+        return ResearchPolicy.unlocked(world, playerId, ResearchUnlockKind.SHIP, shipTypeId);
     }
 
     static ResearchTopic firstTopicUnlockingShip(String shipTypeId) {
-        for (ResearchTopic topic : TOPICS.values()) if (topic.unlocks.ships.contains(shipTypeId)) return topic;
-        return null;
+        List<ResearchTopic> topics = topicsUnlocking(ResearchUnlockKind.SHIP, shipTypeId);
+        return topics.isEmpty() ? null : topics.get(0);
     }
 
     static String missingPrerequisite(World world, String playerId, ResearchTopic topic) {
+        if (world == null || playerId == null || playerId.isBlank() || topic == null) return "unknown prerequisite";
         for (String required : topic.requires) {
             if (!world.hasResearch(playerId, required)) {
                 ResearchTopic missing = topic(required);
@@ -59,8 +63,11 @@ final class ResearchRules {
             }
             if (researchFile != null) parseResearchFiles(researchFile, out);
             else if (Files.exists(Path.of("config/research.json"))) parseTopics(readObject(Path.of("config/research.json")), out);
+            validate(out);
+        } catch (RuleConfigurationException ex) {
+            throw ex;
         } catch (Exception ex) {
-            System.err.println("Could not load research rules: " + ex.getMessage());
+            throw new RuleConfigurationException("Could not load research rules: " + ex.getMessage());
         }
         if (out.isEmpty()) out.putAll(defaultTopics());
         return Collections.unmodifiableMap(out);
@@ -102,6 +109,7 @@ final class ResearchRules {
         for (Map.Entry<String,Object> e : source.entrySet()) {
             Map<String,Object> r = object(e.getValue());
             if (r.isEmpty()) continue;
+            if (out.containsKey(e.getKey())) throw new RuleConfigurationException("Duplicate research topic ID: " + e.getKey());
             Map<String,Object> unlocks = object(r.get("unlocks"));
             out.put(e.getKey(), new ResearchTopic(
                     e.getKey(),
@@ -111,8 +119,67 @@ final class ResearchRules {
                     stringList(r.get("requires")),
                     number(r, "timeSeconds", 30),
                     costs(r.getOrDefault("requiredResources", r.get("cost"))),
-                    new ResearchUnlocks(stringList(unlocks.get("ships")))));
+                    ResearchUnlocks.parse(unlocks),
+                    string(r, "branch", ""),
+                    string(r, "doctrineGroup", "")));
         }
+    }
+
+    private static void validate(Map<String, ResearchTopic> topics) {
+        if (topics.isEmpty()) return;
+        for (ResearchTopic topic : topics.values()) {
+            if (topic.id.isBlank()) throw new RuleConfigurationException("Research topic ID cannot be blank.");
+            if (topic.stationTypes.isEmpty()) throw new RuleConfigurationException("Research topic " + topic.id + " has no research stationTypes.");
+            for (String stationId : topic.stationTypes) {
+                if (!Rules.BASES.containsKey(stationId)) {
+                    throw new RuleConfigurationException("Research topic " + topic.id + " references unknown station type: " + stationId);
+                }
+            }
+            for (String required : topic.requires) {
+                if (!topics.containsKey(required)) {
+                    throw new RuleConfigurationException("Research topic " + topic.id + " requires unknown topic: " + required);
+                }
+                if (required.equals(topic.id)) {
+                    throw new RuleConfigurationException("Research topic " + topic.id + " cannot require itself.");
+                }
+            }
+            validateTargets(topic);
+        }
+
+        Map<String,Integer> state = new HashMap<>();
+        Deque<String> path = new ArrayDeque<>();
+        for (String id : topics.keySet()) detectCycle(id, topics, state, path);
+    }
+
+    private static void validateTargets(ResearchTopic topic) {
+        for (String shipId : topic.unlocks.values(ResearchUnlockKind.SHIP)) {
+            if (!Rules.SHIPS.containsKey(shipId)) {
+                throw new RuleConfigurationException("Research topic " + topic.id + " unlocks unknown ship: " + shipId);
+            }
+        }
+        for (ResearchUnlockKind kind : List.of(ResearchUnlockKind.STATION, ResearchUnlockKind.STATION_PACKAGE)) {
+            for (String stationId : topic.unlocks.values(kind)) {
+                if (!Rules.BASES.containsKey(stationId)) {
+                    throw new RuleConfigurationException("Research topic " + topic.id + " unlocks unknown station: " + stationId);
+                }
+            }
+        }
+    }
+
+    private static void detectCycle(String id, Map<String, ResearchTopic> topics, Map<String,Integer> state, Deque<String> path) {
+        int current = state.getOrDefault(id, 0);
+        if (current == 2) return;
+        if (current == 1) {
+            List<String> cycle = new ArrayList<>(path);
+            Collections.reverse(cycle);
+            cycle.add(id);
+            throw new RuleConfigurationException("Research dependency cycle: " + String.join(" -> ", cycle));
+        }
+        state.put(id, 1);
+        path.push(id);
+        for (String required : topics.get(id).requires) detectCycle(required, topics, state, path);
+        path.pop();
+        state.put(id, 2);
     }
 
     private static Map<String,Object> readObject(Path path) throws IOException {
@@ -132,7 +199,10 @@ final class ResearchRules {
 
     private static List<String> stringList(Object value) {
         List<String> out = new ArrayList<>();
-        for (Object v : array(value)) out.add(String.valueOf(v));
+        for (Object v : array(value)) {
+            String id = String.valueOf(v).trim();
+            if (!id.isBlank()) out.add(id);
+        }
         return List.copyOf(out);
     }
 
@@ -148,7 +218,7 @@ final class ResearchRules {
 
     private static String string(Map<String,Object> map, String key, String fallback) {
         Object v = map.get(key);
-        return v == null ? fallback : String.valueOf(v);
+        return v == null ? fallback : String.valueOf(v).trim();
     }
 
     private static double number(Map<String,Object> map, String key, double fallback) {
@@ -168,9 +238,17 @@ final class ResearchTopic {
     final double timeSeconds;
     final List<Cost> requiredResources;
     final ResearchUnlocks unlocks;
+    final String branch;
+    final String doctrineGroup;
 
     ResearchTopic(String id, String name, String description, List<String> stationTypes, List<String> requires,
                   double timeSeconds, List<Cost> requiredResources, ResearchUnlocks unlocks) {
+        this(id, name, description, stationTypes, requires, timeSeconds, requiredResources, unlocks, "", "");
+    }
+
+    ResearchTopic(String id, String name, String description, List<String> stationTypes, List<String> requires,
+                  double timeSeconds, List<Cost> requiredResources, ResearchUnlocks unlocks,
+                  String branch, String doctrineGroup) {
         this.id = id;
         this.name = name;
         this.description = description;
@@ -178,7 +256,9 @@ final class ResearchTopic {
         this.requires = List.copyOf(requires);
         this.timeSeconds = Math.max(1.0, timeSeconds);
         this.requiredResources = List.copyOf(requiredResources);
-        this.unlocks = unlocks;
+        this.unlocks = unlocks == null ? ResearchUnlocks.empty() : unlocks;
+        this.branch = branch == null ? "" : branch.trim();
+        this.doctrineGroup = doctrineGroup == null ? "" : doctrineGroup.trim();
     }
 
     boolean canResearchAt(String stationTypeId) {
@@ -186,21 +266,114 @@ final class ResearchTopic {
     }
 
     String unlockLabel() {
-        if (unlocks.ships.isEmpty()) return "Unlocks: none";
-        StringBuilder b = new StringBuilder("Unlocks: ");
-        for (int i = 0; i < unlocks.ships.size(); i++) {
-            if (i > 0) b.append(", ");
-            ShipType ship = Rules.ship(unlocks.ships.get(i));
-            b.append(ship == null ? unlocks.ships.get(i) : ship.name);
+        if (unlocks.isEmpty()) return "Unlocks: none";
+        List<String> labels = new ArrayList<>();
+        for (ResearchUnlockKind kind : ResearchUnlockKind.values()) {
+            for (String id : unlocks.values(kind)) {
+                String label = id;
+                if (kind == ResearchUnlockKind.SHIP) {
+                    ShipType ship = Rules.ship(id);
+                    label = ship == null ? id : ship.name;
+                }
+                labels.add(kind.label + ": " + label);
+            }
         }
-        return b.toString();
+        return "Unlocks: " + String.join(", ", labels);
+    }
+}
+
+enum ResearchUnlockKind {
+    SHIP("ships", "Ship"),
+    STATION("stations", "Station"),
+    STATION_PACKAGE("stationPackages", "Station package"),
+    MODULE("modules", "Module"),
+    WEAPON("weapons", "Weapon"),
+    CRAFTABLE("craftables", "Craftable"),
+    PRODUCTION_POLICY("productionPolicies", "Production policy"),
+    COMBAT_POLICY("combatPolicies", "Combat policy"),
+    FLEET_CAPABILITY("fleetCapabilities", "Fleet capability"),
+    STRATEGIC_INFRASTRUCTURE("strategicInfrastructure", "Strategic infrastructure"),
+    RADAR_CAPABILITY("radarCapabilities", "Radar capability"),
+    FORMATION_CAPABILITY("formationCapabilities", "Formation capability"),
+    CAPABILITY("capabilities", "Capability"),
+    MODIFIER("modifiers", "Modifier");
+
+    final String configKey;
+    final String label;
+
+    ResearchUnlockKind(String configKey, String label) {
+        this.configKey = configKey;
+        this.label = label;
+    }
+
+    static ResearchUnlockKind fromConfigKey(String key) {
+        if (key == null) return null;
+        String normalized = key.replace("_", "").replace("-", "").toLowerCase(Locale.ROOT);
+        for (ResearchUnlockKind kind : values()) {
+            String candidate = kind.configKey.replace("_", "").replace("-", "").toLowerCase(Locale.ROOT);
+            if (candidate.equals(normalized)) return kind;
+        }
+        if (normalized.equals("stationpackages")) return STATION_PACKAGE;
+        return null;
     }
 }
 
 final class ResearchUnlocks {
     final List<String> ships;
+    private final EnumMap<ResearchUnlockKind, List<String>> values;
 
     ResearchUnlocks(List<String> ships) {
-        this.ships = List.copyOf(ships);
+        this(Map.of(ResearchUnlockKind.SHIP, ships == null ? List.of() : ships));
+    }
+
+    ResearchUnlocks(Map<ResearchUnlockKind, List<String>> values) {
+        this.values = new EnumMap<>(ResearchUnlockKind.class);
+        if (values != null) {
+            for (Map.Entry<ResearchUnlockKind, List<String>> entry : values.entrySet()) {
+                LinkedHashSet<String> unique = new LinkedHashSet<>();
+                if (entry.getValue() != null) {
+                    for (String id : entry.getValue()) {
+                        if (id != null && !id.isBlank()) unique.add(id.trim());
+                    }
+                }
+                if (!unique.isEmpty()) this.values.put(entry.getKey(), List.copyOf(unique));
+            }
+        }
+        this.ships = this.values.getOrDefault(ResearchUnlockKind.SHIP, List.of());
+    }
+
+    static ResearchUnlocks empty() {
+        return new ResearchUnlocks(Map.of());
+    }
+
+    static ResearchUnlocks parse(Map<String,Object> config) {
+        if (config == null || config.isEmpty()) return empty();
+        EnumMap<ResearchUnlockKind, List<String>> parsed = new EnumMap<>(ResearchUnlockKind.class);
+        for (Map.Entry<String,Object> entry : config.entrySet()) {
+            ResearchUnlockKind kind = ResearchUnlockKind.fromConfigKey(entry.getKey());
+            if (kind == null) throw new RuleConfigurationException("Unknown research unlock category: " + entry.getKey());
+            if (!(entry.getValue() instanceof List<?> list)) {
+                throw new RuleConfigurationException("Research unlock category " + entry.getKey() + " must be an array.");
+            }
+            List<String> ids = new ArrayList<>();
+            for (Object value : list) {
+                String id = String.valueOf(value).trim();
+                if (!id.isBlank()) ids.add(id);
+            }
+            parsed.put(kind, List.copyOf(ids));
+        }
+        return new ResearchUnlocks(parsed);
+    }
+
+    List<String> values(ResearchUnlockKind kind) {
+        return kind == null ? List.of() : values.getOrDefault(kind, List.of());
+    }
+
+    boolean contains(ResearchUnlockKind kind, String id) {
+        return kind != null && id != null && values(kind).contains(id);
+    }
+
+    boolean isEmpty() {
+        return values.isEmpty();
     }
 }
