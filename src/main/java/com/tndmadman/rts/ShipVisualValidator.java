@@ -3,7 +3,6 @@ package com.tndmadman.rts;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
-import java.awt.geom.Path2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -98,8 +97,13 @@ public final class ShipVisualValidator {
 
     private static void validateDeterminismAndCacheBounds(List<String> errors) {
         for (ShipType type : Rules.SHIPS.values()) {
-            BufferedImage first = render(type);
-            BufferedImage second = render(type);
+            double rasterScale = ShipSpriteCache.rasterScale(type);
+            if (!Double.isFinite(rasterScale) || rasterScale <= 0 || rasterScale > 1.0) {
+                errors.add(type.id + " has invalid medium-LOD raster scale " + rasterScale + ".");
+                continue;
+            }
+            BufferedImage first = render(type, rasterScale);
+            BufferedImage second = render(type, rasterScale);
             if (!samePixels(first, second)) errors.add(type.id + " visual rendering is not deterministic.");
             if (isEmpty(first)) errors.add(type.id + " rendered no visible pixels.");
             if (touchesCacheEdge(first, 2)) errors.add(type.id + " risks clipping in the 144px medium-LOD sprite cache.");
@@ -115,12 +119,13 @@ public final class ShipVisualValidator {
         if (!ShipVisualCatalog.forType(type).hasFeature(feature)) errors.add(id + " is missing visual feature " + feature + ".");
     }
 
-    private static BufferedImage render(ShipType type) {
+    private static BufferedImage render(ShipType type, double rasterScale) {
         int size = ShipSpriteCache.imageSize();
         BufferedImage image = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = image.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.translate(size / 2.0, size / 2.0);
+        g.scale(rasterScale, rasterScale);
         ShipShape.draw(g, type, TEST_COLOR);
         g.dispose();
         return image;
