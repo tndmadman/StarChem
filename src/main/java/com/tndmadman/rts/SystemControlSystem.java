@@ -22,6 +22,7 @@ final class SystemControlSystem {
             return;
         }
         if (eligible.size() > 1) {
+            if (state.control.status() != SystemControlStatus.CONTESTED) StrategicSupplyService.invalidate(world);
             state.control.contested();
             return;
         }
@@ -30,6 +31,7 @@ final class SystemControlSystem {
         if (ownerId.equals(state.control.controllerId())) {
             if (state.control.status() != SystemControlStatus.CONTROLLED) {
                 state.control.controlled(ownerId, state.systemTime);
+                StrategicSupplyService.invalidate(world);
             }
             return;
         }
@@ -37,6 +39,8 @@ final class SystemControlSystem {
         state.control.capture(ownerId, dt / CAPTURE_SECONDS);
         if (state.control.captureComplete()) {
             state.control.controlled(ownerId, state.systemTime);
+            StrategicSupplyService.invalidate(world);
+            StrategicSummaryService.invalidate(world);
             world.status = PlayerRegistry.name(ownerId) + " secured control of " + state.definition.name() + ".";
         }
     }
@@ -45,7 +49,7 @@ final class SystemControlSystem {
         Map<String, Double> scores = new LinkedHashMap<>();
         for (Base base : world.bases.values()) {
             if (base.hp <= 0 || invalidOwner(base.playerId) || !state.controlPoint.contains(base.x, base.y)) continue;
-            scores.merge(base.playerId, 4.0, Double::sum);
+            scores.merge(base.playerId, 4.0 + StrategicInfrastructureRules.controlInfluence(base), Double::sum);
         }
         for (Unit unit : world.units.values()) {
             if (unit.hp <= 0 || invalidOwner(unit.playerId) || !state.controlPoint.contains(unit.x, unit.y)) continue;
