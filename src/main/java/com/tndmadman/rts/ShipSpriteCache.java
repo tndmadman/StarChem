@@ -12,9 +12,21 @@ final class ShipSpriteCache {
     private static final int BUCKETS = 48;
     private static final int IMAGE_SIZE = 144;
     private static final int MAX_ENTRIES = 1536;
+    private static final long ESTIMATED_BYTES_PER_IMAGE = (long) IMAGE_SIZE * IMAGE_SIZE * Integer.BYTES;
+
+    private static long requests;
+    private static long hits;
+    private static long misses;
+    private static long generations;
+    private static long generationNanos;
+    private static long evictions;
+    private static int peakEntries;
+
     private static final Map<Key, BufferedImage> CACHE = new LinkedHashMap<>(256, 0.75f, true) {
         @Override protected boolean removeEldestEntry(Map.Entry<Key, BufferedImage> eldest) {
-            return size() > MAX_ENTRIES;
+            boolean remove = size() > MAX_ENTRIES;
+            if (remove) evictions++;
+            return remove;
         }
     };
 
@@ -25,15 +37,62 @@ final class ShipSpriteCache {
         int bucket = headingBucket(unit.heading);
         Key key = new Key(unit.shipTypeId, color.getRGB(), bucket);
         synchronized (CACHE) {
+            requests++;
             BufferedImage cached = CACHE.get(key);
-            if (cached != null) return cached;
+            if (cached != null) {
+                hits++;
+                return cached;
+            }
+
+            misses++;
+            long started = System.nanoTime();
             BufferedImage image = render(unit, color, bucket);
+            generationNanos += Math.max(0L, System.nanoTime() - started);
+            generations++;
             CACHE.put(key, image);
+            peakEntries = Math.max(peakEntries, CACHE.size());
             return image;
         }
     }
 
     static int imageSize() { return IMAGE_SIZE; }
+    static int maxEntries() { return MAX_ENTRIES; }
+
+    static Snapshot snapshot() {
+        synchronized (CACHE) {
+            long totalRequests = requests;
+            double hitRate = totalRequests <= 0 ? 0.0 : hits / (double) totalRequests;
+            double generationMs = generationNanos / 1_000_000.0;
+            double averageGenerationMs = generations <= 0 ? 0.0 : generationMs / generations;
+            return new Snapshot(
+                    CACHE.size(),
+                    peakEntries,
+                    MAX_ENTRIES,
+                    totalRequests,
+                    hits,
+                    misses,
+                    generations,
+                    evictions,
+                    hitRate,
+                    generationMs,
+                    averageGenerationMs,
+                    CACHE.size() * ESTIMATED_BYTES_PER_IMAGE);
+        }
+    }
+
+    /** Clears cached sprites and counters so deterministic performance validators can measure cold/warm behavior. */
+    static void resetForTest() {
+        synchronized (CACHE) {
+            CACHE.clear();
+            requests = 0;
+            hits = 0;
+            misses = 0;
+            generations = 0;
+            generationNanos = 0;
+            evictions = 0;
+            peakEntries = 0;
+        }
+    }
 
     private static BufferedImage render(Unit unit, Color color, int bucket) {
         BufferedImage image = new BufferedImage(IMAGE_SIZE, IMAGE_SIZE, BufferedImage.TYPE_INT_ARGB);
@@ -52,6 +111,20 @@ final class ShipSpriteCache {
         double turns = heading / (Math.PI * 2.0);
         return Math.floorMod((int)Math.round(turns * BUCKETS), BUCKETS);
     }
+
+    record Snapshot(
+            int entries,
+            int peakEntries,
+            int maxEntries,
+            long requests,
+            long hits,
+            long misses,
+            long generations,
+            long evictions,
+            double hitRate,
+            double generationMs,
+            double averageGenerationMs,
+            long estimatedBytes) { }
 
     private record Key(String typeId, int rgb, int headingBucket) { }
 }
