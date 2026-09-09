@@ -58,3 +58,5 @@ jobs:
         run: gradle validateTcpMultiplayer --no-daemon
       - name: Run current-main respawn authority regression
         run: java -cp 'build/classes/java/main:build/resources/main' com.tndmadman.rts.Issue395RespawnAuthorityValidator
+      - name: Run current-main resource visual regression
+        run: java -Djava.awt.headless=true -cp 'build/classes/java/main:build/resources/main' com.tndmadman.rts.Issue399ResourceVisualValidator
