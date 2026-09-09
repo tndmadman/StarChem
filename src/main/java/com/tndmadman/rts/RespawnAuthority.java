@@ -98,9 +98,16 @@ final class RespawnAuthority {
                 states.put(playerId, Lifecycle.ACTIVE);
                 return Result.SPAWNED;
             } catch (RuntimeException ex) {
-                // A failed transaction remains eligible for a clean retry rather than
-                // getting stuck in RESPAWNING forever.
-                states.put(playerId, Lifecycle.DEFEATED);
+                // Roll back any partially-created force before making the defeat retryable.
+                // If rollback itself fails, fail closed as ACTIVE; the authoritative observer
+                // will only return the player to DEFEATED once the galaxy is actually asset-free.
+                boolean rolledBack = true;
+                try {
+                    clearDefeatedCombatState(world, playerId);
+                } catch (RuntimeException rollbackFailure) {
+                    rolledBack = false;
+                }
+                states.put(playerId, rolledBack ? Lifecycle.DEFEATED : Lifecycle.ACTIVE);
                 return Result.SPAWN_FAILED;
             }
         }
