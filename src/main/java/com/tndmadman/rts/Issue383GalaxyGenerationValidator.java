@@ -16,11 +16,16 @@ public final class Issue383GalaxyGenerationValidator {
     }
 
     static void validateOrThrow() {
-        validateDeterminism();
-        validateTopologyStyles();
-        validateStableGeneratedIds();
-        validatePreviewAndStarts();
-        validateBounds();
+        try {
+            validateDeterminism();
+            validateTopologyStyles();
+            validateStableGeneratedIds();
+            validatePreviewAndStarts();
+            validateBounds();
+            validateMultiplayerGenerationSync();
+        } finally {
+            GalaxyRuntimeOptions.configureCopies(1);
+        }
     }
 
     private static void validateDeterminism() {
@@ -97,6 +102,35 @@ public final class Issue383GalaxyGenerationValidator {
         require(connected(plan), "maximum supported galaxy was disconnected");
     }
 
+    private static void validateMultiplayerGenerationSync() {
+        GalaxyGenerationSettings settings = settings(24, GalaxyTopologyStyle.CLUSTERED, 0.42, 0.20, 2);
+        long generationSeed = 383_2026L;
+        GalaxyRuntimeOptions.configureGeneration(settings, generationSeed);
+        PlayerRegistry.reset("WAIT", "Issue 383 Server", 0x50BEFF);
+        World server = new World("Issue 383 Server", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        PlayerRegistry.activate(server);
+        GalaxyMapSnapshot serverMap = server.authoritativeGalaxyMapSnapshot();
+        String packet = GalaxyMapWire.encode(1, serverMap);
+        require(packet.contains("|G,"), "procedural server galaxy packet omitted generation descriptor");
+        long serverWorldSeed = server.systemSeed();
+        String serverSignature = snapshotSignature(serverMap);
+
+        GalaxyRuntimeOptions.configureGeneration(GalaxyGenerationSettings.legacy(1), 0L);
+        PlayerRegistry.reset("WAIT", "Issue 383 Client", 0x50BEFF);
+        World client = new World("Issue 383 Client", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        PlayerRegistry.activate(client);
+        GalaxyMapWire.decode(packet);
+
+        require(client.systemSeed() == serverWorldSeed,
+                "procedural client did not adopt the authoritative server world seed");
+        require(GalaxyRuntimeOptions.generationSettings().equals(settings),
+                "procedural client did not adopt the authoritative server generation settings");
+        require(GalaxyRuntimeOptions.generationSeed(client.systemSeed()) == generationSeed,
+                "procedural client did not adopt the authoritative server generation seed");
+        require(snapshotSignature(client.authoritativeGalaxyMapSnapshot()).equals(serverSignature),
+                "procedural client permanent topology does not match the authoritative server");
+    }
+
     private static GalaxyGenerationSettings settings(int count, GalaxyTopologyStyle style,
                                                      double connectivity, double frontier,
                                                      int startSeparation) {
@@ -144,6 +178,22 @@ public final class Issue383GalaxyGenerationValidator {
         }
         out.append('|');
         plan.links().stream()
+                .map(link -> link.fromSystemId().compareTo(link.toSystemId()) <= 0
+                        ? link.fromSystemId() + "->" + link.toSystemId()
+                        : link.toSystemId() + "->" + link.fromSystemId())
+                .sorted()
+                .forEach(link -> out.append(link).append(';'));
+        return out.toString();
+    }
+
+    private static String snapshotSignature(GalaxyMapSnapshot snapshot) {
+        StringBuilder out = new StringBuilder();
+        snapshot.systems().stream()
+                .map(system -> system.id() + ':' + system.templateId())
+                .sorted()
+                .forEach(system -> out.append(system).append(';'));
+        out.append('|');
+        snapshot.links().stream()
                 .map(link -> link.fromSystemId().compareTo(link.toSystemId()) <= 0
                         ? link.fromSystemId() + "->" + link.toSystemId()
                         : link.toSystemId() + "->" + link.fromSystemId())
