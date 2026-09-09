@@ -92,25 +92,36 @@ final class ConnectionOverlayPanel extends JPanel {
 
     private void trustChangedCertificate() {
         if (network == null || !network.serverCertificateTrustRequired()) return;
-        System.err.println("[CONNECTION][CLIENT][TLS] Server certificate changed; waiting for user verification.");
+        String prompt = network.serverCertificateTrustPrompt();
+        boolean firstUse = firstUsePrompt(prompt);
+        if (firstUse) {
+            System.err.println("[CONNECTION][CLIENT][TLS] First server certificate requires user verification.");
+            prompt = firstUsePromptText(prompt);
+        } else {
+            System.err.println("[CONNECTION][CLIENT][TLS] Server certificate changed; waiting for user verification.");
+        }
         int choice = JOptionPane.showConfirmDialog(this,
-                network.serverCertificateTrustPrompt(),
-                "Server Certificate Changed",
+                prompt,
+                firstUse ? "Verify Server Certificate" : "Server Certificate Changed",
                 JOptionPane.YES_NO_OPTION,
                 JOptionPane.WARNING_MESSAGE);
         if (choice != JOptionPane.YES_OPTION) {
-            System.err.println("[CONNECTION][CLIENT][TLS] Changed server certificate was not trusted.");
+            System.err.println(firstUse
+                    ? "[CONNECTION][CLIENT][TLS] First server certificate was not trusted."
+                    : "[CONNECTION][CLIENT][TLS] Changed server certificate was not trusted.");
             return;
         }
         if (!network.trustChangedServerCertificate()) {
-            System.err.println("[CONNECTION][CLIENT][TLS][FAILURE] Changed server certificate could not be stored.");
+            System.err.println("[CONNECTION][CLIENT][TLS][FAILURE] Server certificate trust could not be stored.");
             JOptionPane.showMessageDialog(this,
                     "The pending certificate changed again or could not be stored. Reconnect and verify it again.",
                     "Certificate Trust Failed",
                     JOptionPane.ERROR_MESSAGE);
             return;
         }
-        System.out.println("[CONNECTION][CLIENT][TLS] Changed server certificate trusted; reconnecting.");
+        System.out.println(firstUse
+                ? "[CONNECTION][CLIENT][TLS] First server certificate trusted; reconnecting."
+                : "[CONNECTION][CLIENT][TLS] Changed server certificate trusted; reconnecting.");
     }
 
     private void refresh() {
@@ -130,10 +141,30 @@ final class ConnectionOverlayPanel extends JPanel {
         progress.setValue(state.stage());
         progress.setString("Step " + state.stage() + " of " + state.stageCount());
         elapsed.setText(String.format("Elapsed: %.1fs", state.elapsedMillis() / 1000.0));
-        trust.setVisible(network.serverCertificateTrustRequired());
+        boolean trustRequired = network.serverCertificateTrustRequired();
+        trust.setVisible(trustRequired);
+        if (trustRequired) {
+            trust.setText(firstUsePrompt(network.serverCertificateTrustPrompt())
+                    ? "TRUST SERVER CERTIFICATE"
+                    : "TRUST NEW CERTIFICATE");
+        }
         showModal();
         revalidate();
         repaint();
+    }
+
+    private static boolean firstUsePrompt(String prompt) {
+        return prompt != null && prompt.contains(TlsIdentity.UNVERIFIED_FIRST_USE);
+    }
+
+    private static String firstUsePromptText(String prompt) {
+        if (prompt == null) return "";
+        return prompt
+                .replace("presented a different TLS certificate.",
+                        "presented an unverified TLS certificate on this first connection.")
+                .replace("Previously trusted fingerprint:\n" + TlsIdentity.UNVERIFIED_FIRST_USE + "\n\n", "")
+                .replace("Only trust it if you expected the server identity to change or verified it with the server owner.",
+                        "Verify this fingerprint with the server owner before trusting it. If you cannot verify it, choose No.");
     }
 
     private void showModal() {
