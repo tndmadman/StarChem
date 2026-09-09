@@ -7,7 +7,7 @@ import java.awt.image.BufferedImage;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Pre-renders medium-LOD ship hulls into bounded orientation buckets. */
+/** Pre-renders medium-LOD ship hulls into bounded orientation and visual-variant buckets. */
 final class ShipSpriteCache {
     private static final int BUCKETS = 48;
     private static final int IMAGE_SIZE = 144;
@@ -24,11 +24,12 @@ final class ShipSpriteCache {
     static Sprite sprite(Unit unit, Color color) {
         if (unit == null || color == null) return null;
         int bucket = headingBucket(unit.heading);
-        Key key = new Key(unit.shipTypeId, color.getRGB(), bucket);
+        int variant = ShipVisualStyle.variantIndex(unit);
+        Key key = new Key(unit.shipTypeId, color.getRGB(), variant, bucket);
         synchronized (CACHE) {
             Sprite cached = CACHE.get(key);
             if (cached != null) return cached;
-            Sprite sprite = render(unit, color, bucket);
+            Sprite sprite = render(unit, color, variant, bucket);
             CACHE.put(key, sprite);
             return sprite;
         }
@@ -44,7 +45,7 @@ final class ShipSpriteCache {
         return Math.max(0.20, safeRadius / radius);
     }
 
-    private static Sprite render(Unit unit, Color color, int bucket) {
+    private static Sprite render(Unit unit, Color color, int variant, int bucket) {
         BufferedImage image = new BufferedImage(IMAGE_SIZE, IMAGE_SIZE, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = image.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -53,7 +54,7 @@ final class ShipSpriteCache {
         g.rotate(bucket * Math.PI * 2.0 / BUCKETS);
         double rasterScale = rasterScale(unit.type());
         g.scale(rasterScale, rasterScale);
-        ShipShape.draw(g, unit.type(), color);
+        ShipShape.draw(g, unit.type(), color, variant);
         g.dispose();
         int worldSize = Math.max(IMAGE_SIZE, (int)Math.ceil(IMAGE_SIZE / rasterScale));
         return new Sprite(image, worldSize);
@@ -66,5 +67,5 @@ final class ShipSpriteCache {
     }
 
     record Sprite(BufferedImage image, int worldSize) { }
-    private record Key(String typeId, int rgb, int headingBucket) { }
+    private record Key(String typeId, int rgb, int visualVariant, int headingBucket) { }
 }
