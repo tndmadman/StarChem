@@ -13,9 +13,11 @@ final class SystemControlPoint {
     SystemControlPoint(StarSystemDefinition definition) {
         int width = definition == null ? 16000 : definition.width();
         int height = definition == null ? 14000 : definition.height();
-        x = width * 0.5;
-        y = height * 0.5;
-        radius = Math.max(900, Math.min(width, height) * 0.24);
+        SystemStrategicDefinition strategic = definition == null
+                ? SystemStrategicDefinition.STANDARD : definition.strategic();
+        x = width * strategic.controlX();
+        y = height * strategic.controlY();
+        radius = Math.max(300, Math.min(width, height) * strategic.controlRadius());
     }
 
     boolean contains(double px, double py) {
