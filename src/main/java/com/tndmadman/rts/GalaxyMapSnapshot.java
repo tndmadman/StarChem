@@ -36,17 +36,28 @@ record GalaxyMapSystem(
     boolean staticSystem() { return lifetime == SystemLifetime.STATIC; }
 
     String controlLabel() {
-        return switch (controlStatus) {
+        String control = switch (controlStatus) {
             case NEUTRAL -> "Neutral";
             case CONTESTED -> "Contested";
             case CAPTURING -> "Capturing " + Math.max(0, Math.min(100, (int)Math.round(captureProgress * 100))) + "%";
             case CONTROLLED -> "Controlled by " + safeControllerName();
             case PROTECTED -> "Protected home";
         };
+        String strategic = strategicBenefitLabel();
+        return strategic.isBlank() ? control : control + " • " + strategic;
+    }
+
+    String strategicBenefitLabel() {
+        if (home) return "";
+        StarSystemDefinition definition = StarSystems.get(templateId);
+        if (definition == null || definition.strategic().standardBenefits()) return "";
+        return definition.strategic().summary();
     }
 
     private String safeControllerName() {
-        return controllerName == null || controllerName.isBlank() ? controllerId == null || controllerId.isBlank() ? "Unknown" : controllerId : controllerName;
+        return controllerName == null || controllerName.isBlank()
+                ? controllerId == null || controllerId.isBlank() ? "Unknown" : controllerId
+                : controllerName;
     }
 }
 
