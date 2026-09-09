@@ -66,9 +66,10 @@ final class PerfOverlay {
                 spriteCache.entries(), spriteCache.maxEntries(), spriteCache.peakEntries(),
                 spriteCache.hitRate() * 100.0, spriteCache.misses(), spriteCache.evictions(),
                 spriteCache.estimatedBytes() / 1024.0 / 1024.0, spriteCache.averageGenerationMs()));
-        out.add("Destruction VFX " + ExplosionEffect.activeEffectCount() + "/" + ExplosionEffect.maxActiveEffects()
-                + " effects | <= " + ExplosionEffect.maxParticlesPerEffect() + " particles/effect"
-                + " | <= " + (ExplosionEffect.maxActiveEffects() * ExplosionEffect.maxParticlesPerEffect()) + " particles total");
+        out.add("Destruction VFX " + world.explosions.size() + "/" + ExplosionEffect.maxActiveEffectsForTest()
+                + " effects | <= " + DestructionProfile.STATION.particleBudget + " particle budget/effect"
+                + " | <= " + DestructionProfile.STATION.debrisFragments + " debris/effect"
+                + " | <= " + DestructionProfile.STATION.vents + " vents/effect");
 
         out.add(String.format(Locale.ROOT,
                 "Selection ctx %.3f ms | batch %.3f ms | selected %.0f (visible %.0f) | markers %.0f | groups %.1f",
