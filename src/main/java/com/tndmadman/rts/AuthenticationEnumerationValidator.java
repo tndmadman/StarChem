@@ -54,7 +54,8 @@ public final class AuthenticationEnumerationValidator {
                  TestConnection missing = connect(transport, loopback);
                  TestConnection missingRepeat = connect(transport, loopback);
                  TestConnection existingRepeat = connect(transport, loopback);
-                 TestConnection localRegistration = connect(transport, loopback)) {
+                 TestConnection localRegistration = connect(transport, loopback);
+                 TestConnection remoteRegistration = connect(transport, loopback)) {
 
                 Challenge existingChallenge = challenge(server, existing, remote, EXISTING_NAME);
                 Challenge missingChallenge = challenge(server, missing, remote, MISSING_NAME);
@@ -121,6 +122,44 @@ public final class AuthenticationEnumerationValidator {
                 String localWelcome = receivePayload(localRegistration, "WELCOME|");
                 require(localWelcome.startsWith("WELCOME|P2|"),
                         "trusted loopback provisioning did not create the next player identity");
+
+                InetAddress remoteRegistrationAddress = InetAddress.getByName("198.51.100.24");
+                InetAddress secondRemoteAddress = InetAddress.getByName("198.51.100.25");
+                String remoteName = "Remote Provisioning";
+                require(RemoteRegistrationBridge.allowed(server, remoteName, remoteRegistrationAddress),
+                        "unused remote identity was not authorized for registration");
+                require(RemoteRegistrationBridge.allowed(server, "Second Remote Provisioning", secondRemoteAddress),
+                        "second remote source was not independently authorized for registration");
+                require(!RemoteRegistrationBridge.allowed(server, EXISTING_NAME, remoteRegistrationAddress),
+                        "retained remote identity was incorrectly routed into registration");
+                require(!RemoteRegistrationBridge.allowed(server, remoteName, loopback),
+                        "loopback provisioning was incorrectly marked as remote registration");
+
+                server.setAdmissionGate((candidateConnection, playerId, playerName, candidateAddress,
+                                         newIdentity, now) ->
+                        remoteRegistrationAddress.equals(candidateAddress)
+                                ? "" : "Unexpected registration source.");
+                server.join(remoteRegistration.connectionId, remoteRegistrationAddress,
+                        remoteRegistration.socket.getLocalPort(), remoteName,
+                        "", "", "", false, "", true);
+                String remoteRegistrationChallenge = receivePayload(remoteRegistration, "AUTH_REQUIRED|");
+                String[] remoteRegistrationParts = remoteRegistrationChallenge.split("\\|", -1);
+                require(remoteRegistrationParts.length == 3
+                                && PasswordAuth.decodeHex(remoteRegistrationParts[2]).length == 16,
+                        "authorized remote registration did not receive a scoped registration salt");
+                String remoteRegistrationVerifier = PasswordAuth.scopedVerifier(remoteName, "remote-password",
+                        TEST_SERVER_FINGERPRINT, PasswordAuth.decodeHex(remoteRegistrationParts[2]));
+                server.join(remoteRegistration.connectionId, remoteRegistrationAddress,
+                        remoteRegistration.socket.getLocalPort(), remoteName,
+                        remoteRegistrationVerifier, "", "", false, "", true);
+                String remoteWelcome = receivePayload(remoteRegistration, "WELCOME|");
+                require(remoteWelcome.startsWith("WELCOME|P3|"),
+                        "authorized remote registration did not create the next player identity");
+                require(server.owns(remoteRegistration.connectionId, "P3"),
+                        "authorized remote registration did not bind the created identity");
+                require(server.persistentSessions().size() == 3,
+                        "authorized remote registration did not persist exactly one identity");
+                server.setAdmissionGate(ServerAdmissionGate.open());
             }
         } finally {
             transport.shutdown();
@@ -158,17 +197,24 @@ public final class AuthenticationEnumerationValidator {
     }
 
     private static void validateAttemptLimiter() throws Exception {
-        AuthAttemptLimiter limiter = new AuthAttemptLimiter(2, 1, 1_000);
         InetAddress firstSource = InetAddress.getByName("198.51.100.10");
         InetAddress secondSource = InetAddress.getByName("198.51.100.11");
-        require(limiter.allow(firstSource, "Alpha", 1_000), "first authentication attempt was rejected");
-        require(!limiter.allow(secondSource, "Alpha", 1_001),
-                "per-identity authentication limit did not cover another source");
-        require(limiter.allow(firstSource, "Beta", 1_002), "second source-scoped attempt was rejected early");
-        require(!limiter.allow(firstSource, "Gamma", 1_003),
+
+        AuthAttemptLimiter sourceLimiter = new AuthAttemptLimiter(2, 10, 1_000);
+        require(sourceLimiter.allow(firstSource, "Alpha", 1_000), "first authentication attempt was rejected");
+        require(sourceLimiter.allow(firstSource, "Beta", 1_001), "second source-scoped attempt was rejected early");
+        require(!sourceLimiter.allow(firstSource, "Gamma", 1_002),
                 "per-source authentication limit did not cover many identities");
-        require(limiter.allow(firstSource, "Alpha", 2_001),
+        require(sourceLimiter.allow(secondSource, "Gamma", 1_003),
+                "exhausting one source incorrectly blocked an unrelated source");
+        require(sourceLimiter.allow(firstSource, "Alpha", 2_001),
                 "authentication attempt window did not expire");
+
+        AuthAttemptLimiter identityLimiter = new AuthAttemptLimiter(10, 1, 1_000);
+        require(identityLimiter.allow(firstSource, "Shared Identity", 3_000),
+                "first identity-scoped attempt was rejected");
+        require(!identityLimiter.allow(secondSource, "Shared Identity", 3_001),
+                "per-identity authentication limit did not cover another source");
     }
 
     private static Challenge challenge(PeerServerSide server, TestConnection connection,

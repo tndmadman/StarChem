@@ -137,6 +137,10 @@ final class PeerServerSide {
         return session != null && session.connected;
     }
 
+    boolean retainedAccountExists(String name) {
+        return sessionByName(name) != null;
+    }
+
     void setAdmissionGate(ServerAdmissionGate gate) {
         admissionGate = gate == null ? ServerAdmissionGate.open() : gate;
     }
@@ -239,6 +243,13 @@ final class PeerServerSide {
 
     void join(ConnectionId connectionId, InetAddress address, int port, String name, String passwordVerifier,
               String proofNonce, String proof, boolean requestedDev, String suppliedDevToken) {
+        join(connectionId, address, port, name, passwordVerifier, proofNonce, proof,
+                requestedDev, suppliedDevToken, false);
+    }
+
+    void join(ConnectionId connectionId, InetAddress address, int port, String name, String passwordVerifier,
+              String proofNonce, String proof, boolean requestedDev, String suppliedDevToken,
+              boolean allowRemoteRegistration) {
         String cleanName = Config.clean(name);
         ServerPeer existingPeer = peers.get(connectionId);
         if (existingPeer != null) {
@@ -259,7 +270,7 @@ final class PeerServerSide {
             issueAuthChallenge(connectionId, cleanName, namedSession);
             return;
         }
-        if (!registrationAllowed(address)) {
+        if (!registrationAllowed(address, allowRemoteRegistration)) {
             issueAuthChallenge(connectionId, cleanName, null);
             return;
         }
@@ -311,7 +322,11 @@ final class PeerServerSide {
     }
 
     private boolean registrationAllowed(InetAddress address) {
-        return address != null && address.isLoopbackAddress();
+        return registrationAllowed(address, false);
+    }
+
+    private boolean registrationAllowed(InetAddress address, boolean allowRemoteRegistration) {
+        return allowRemoteRegistration || (address != null && address.isLoopbackAddress());
     }
 
     private void issueRegistrationChallenge(ConnectionId connectionId, String cleanName) {
@@ -717,7 +732,6 @@ final class PeerServerSide {
             if (peer != null && now - peer.lastSeen() > TIMEOUT_MS) disconnectPeer(connectionId, now, "timed out");
         }
     }
-
     private void removeExpiredAuthChallenges(long now) {
         authChallenges.entrySet().removeIf(entry -> now - entry.getValue().createdAt > AUTH_CHALLENGE_MS);
         registrationChallenges.entrySet().removeIf(entry -> now - entry.getValue().createdAt > AUTH_CHALLENGE_MS);
