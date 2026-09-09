@@ -44,6 +44,12 @@ final class ProductionDiagnosticService {
         return normalize(world, target, raw);
     }
 
+    /** Package-private deterministic seam for issue regression fixtures. */
+    static ProductionCausalAnalyzer.Analysis normalizeForTest(World world, Base target,
+                                                               ProductionCausalAnalyzer.Analysis raw) {
+        return normalize(world, target, raw);
+    }
+
     private static ProductionCausalAnalyzer.Analysis normalize(World world, Base target,
                                                                 ProductionCausalAnalyzer.Analysis raw) {
         if (raw == null || world == null || target == null) return raw;
