@@ -17,13 +17,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * Deterministic, headless graphics stress harness for issue #408.
- *
- * <p>Normal runs always enforce structural limits (bounded caches/VFX) and report timings.
- * Absolute timing budgets are opt-in because shared CI runners are not stable performance
- * hardware. Use -Dstarchem.renderPerf.enforceTiming=true on the documented reference runner.
- */
+/** Deterministic, headless graphics stress harness for issue #408. */
 public final class RenderPerformanceValidator {
     private static final int IMAGE_WIDTH = 1600;
     private static final int IMAGE_HEIGHT = 900;
@@ -33,6 +27,9 @@ public final class RenderPerformanceValidator {
     private static final String NEBULA_EXPANSE = "nebula_expanse";
     private static final String[] LARGE_STATION_TYPES = {"shipyard", "manufacturing", "laboratory"};
     private static final double DEFAULT_MAX_REGRESSION_PERCENT = 20.0;
+    private static final int MAX_PARTICLE_BUDGET_PER_EFFECT = 240;
+    private static final int MAX_DEBRIS_PER_EFFECT = 28;
+    private static final int MAX_VENTS_PER_EFFECT = 8;
 
     private RenderPerformanceValidator() { }
 
@@ -40,7 +37,7 @@ public final class RenderPerformanceValidator {
         System.setProperty("java.awt.headless", "true");
         Options options = Options.parse(args);
 
-        validateVfxBounds();
+        validateDestructionBudgets();
         validateSpriteCacheBound();
 
         List<Scenario> scenarios = scenarios();
@@ -52,9 +49,8 @@ public final class RenderPerformanceValidator {
             for (double zoom : ZOOMS) {
                 Result result = measure(scenario, zoom);
                 results.add(result);
-                String backgroundKey = backgroundKey(scenario.systemId, zoom);
                 if (scenario.backgroundOnly()) {
-                    backgroundMedianBySystemAndZoom.put(backgroundKey, result.p50Ms);
+                    backgroundMedianBySystemAndZoom.put(backgroundKey(scenario.systemId, zoom), result.p50Ms);
                 }
             }
         }
@@ -80,17 +76,17 @@ public final class RenderPerformanceValidator {
     private static List<Scenario> scenarios() {
         String defaultSystem = StarSystems.DEFAULT_SYSTEM_ID;
         return List.of(
-                new Scenario("background-default", defaultSystem, 0, false, 0, 0, 0, 0, 0, 6.0),
-                new Scenario("fleet-20", defaultSystem, 20, false, 0, 0, 0, 0, 0, 12.0),
-                new Scenario("fleet-50", defaultSystem, 50, false, 0, 0, 0, 0, 0, 16.67),
-                new Scenario("fleet-100", defaultSystem, 100, false, 0, 0, 0, 0, 0, 25.0),
-                new Scenario("fleet-150", defaultSystem, 150, false, 0, 0, 0, 0, 0, 30.0),
-                new Scenario("fleet-100-selected", defaultSystem, 100, true, 0, 0, 0, 0, 0, 28.0),
-                new Scenario("multi-large-station", defaultSystem, 0, false, 9, 0, 0, 0, 0, 20.0),
-                new Scenario("resource-field", defaultSystem, 0, false, 0, 180, 0, 0, 0, 22.0),
-                new Scenario("heavy-combat", defaultSystem, 80, false, 0, 0, 220, 56, 2.2, 33.33),
-                new Scenario("capital-station-destruction", defaultSystem, 20, false, 6, 0, 60, 96, 8.0, 33.33),
-                new Scenario("background-nebula-expanse", NEBULA_EXPANSE, 0, false, 0, 0, 0, 0, 0, 12.0));
+                new Scenario("background-default", defaultSystem, 0, false, 0, 0, 0, 0, 6.0),
+                new Scenario("fleet-20", defaultSystem, 20, false, 0, 0, 0, 0, 12.0),
+                new Scenario("fleet-50", defaultSystem, 50, false, 0, 0, 0, 0, 16.67),
+                new Scenario("fleet-100", defaultSystem, 100, false, 0, 0, 0, 0, 25.0),
+                new Scenario("fleet-150", defaultSystem, 150, false, 0, 0, 0, 0, 30.0),
+                new Scenario("fleet-100-selected", defaultSystem, 100, true, 0, 0, 0, 0, 28.0),
+                new Scenario("multi-large-station", defaultSystem, 0, false, 9, 0, 0, 0, 20.0),
+                new Scenario("resource-field", defaultSystem, 0, false, 0, 180, 0, 0, 22.0),
+                new Scenario("heavy-combat", defaultSystem, 80, false, 0, 0, 220, 56, 33.33),
+                new Scenario("capital-station-destruction", defaultSystem, 20, false, 6, 0, 60, 96, 33.33),
+                new Scenario("background-nebula-expanse", NEBULA_EXPANSE, 0, false, 0, 0, 0, 0, 12.0));
     }
 
     private static Result measure(Scenario scenario, double zoom) {
@@ -124,8 +120,8 @@ public final class RenderPerformanceValidator {
                     "Ship sprite cache request accounting is inconsistent.");
             require(cache.generations() == cache.misses(),
                     "Ship sprite cache generation accounting is inconsistent.");
-            require(ExplosionEffect.activeEffectCount() <= ExplosionEffect.maxActiveEffects(),
-                    "Active explosion VFX exceeded hard limit.");
+            require(world.explosions.size() <= ExplosionEffect.maxActiveEffectsForTest(),
+                    "Destruction VFX exceeded the production admission cap.");
 
             return new Result(
                     scenario,
@@ -154,6 +150,8 @@ public final class RenderPerformanceValidator {
 
     private static World buildWorld(Scenario scenario) {
         World world = new World("Render performance validator", Set.of(), scenario.systemId, false);
+        PlayerRegistry.activate(world);
+        PlayerRegistry.reset("P1", "RenderPerf", 0x50BEFF);
         world.units.clear();
         world.bases.clear();
         world.resources.clear();
@@ -215,14 +213,19 @@ public final class RenderPerformanceValidator {
         }
 
         for (int i = 0; i < scenario.explosions; i++) {
-            double angle = i * 0.73;
-            double radius = 100 + (i % 10) * 45;
-            double x = cx + Math.cos(angle) * radius;
-            double y = cy + Math.sin(angle) * radius;
-            world.explosions.add(ExplosionEffect.forPerformanceTest(
-                    x, y, scenario.explosionScale, 0x40800000L + i));
+            ExplosionEffect.admitValidationEffect(world.explosions, destructionProfileFor(scenario, i));
         }
         return world;
+    }
+
+    private static DestructionProfile destructionProfileFor(Scenario scenario, int index) {
+        if (scenario.name.equals("capital-station-destruction")) {
+            return index % 4 == 0 ? DestructionProfile.STATION : DestructionProfile.MAJOR;
+        }
+        if (scenario.name.equals("heavy-combat")) {
+            return index % 5 == 0 ? DestructionProfile.CAPITAL : DestructionProfile.STANDARD;
+        }
+        return DestructionProfile.QUICK;
     }
 
     private static String largeStationType(int index) {
@@ -296,32 +299,28 @@ public final class RenderPerformanceValidator {
         throw new IllegalStateException("Missing render performance scenario: " + name);
     }
 
-    private static void validateVfxBounds() {
-        require(ExplosionEffect.activeEffectCount() == 0,
-                "Explosion VFX registry was not empty before structural validation.");
-        List<ExplosionEffect> effects = new ArrayList<>();
-        int enabled = 0;
-        int suppressed = 0;
-        int peakParticles = 0;
-        int requested = ExplosionEffect.maxActiveEffects() + 32;
-        for (int i = 0; i < requested; i++) {
-            ExplosionEffect effect = ExplosionEffect.forPerformanceTest(i * 2.0, 0, 20.0, 0x40810000L + i);
-            effects.add(effect);
-            if (effect.renderEnabledForTest()) enabled++;
-            else suppressed++;
-            peakParticles = Math.max(peakParticles, effect.particleCountForTest());
-            require(effect.particleCountForTest() <= ExplosionEffect.maxParticlesPerEffect(),
-                    "Explosion particle limit exceeded: " + effect.particleCountForTest());
+    private static void validateDestructionBudgets() {
+        for (DestructionProfile profile : DestructionProfile.values()) {
+            require(profile.particleBudget <= MAX_PARTICLE_BUDGET_PER_EFFECT,
+                    profile + " exceeds the render-performance particle budget.");
+            require(profile.debrisFragments <= MAX_DEBRIS_PER_EFFECT,
+                    profile + " exceeds the render-performance debris budget.");
+            require(profile.vents <= MAX_VENTS_PER_EFFECT,
+                    profile + " exceeds the render-performance vent budget.");
+            require(profile.lifetimeSeconds <= 75.0,
+                    profile + " exceeds the bounded destruction lifetime.");
         }
-        require(enabled == ExplosionEffect.maxActiveEffects(),
-                "Explosion VFX active-effect budget was not enforced exactly: " + enabled);
-        require(suppressed == requested - ExplosionEffect.maxActiveEffects(),
-                "Explosion VFX overflow was not suppressed deterministically: " + suppressed);
-        require(peakParticles == ExplosionEffect.maxParticlesPerEffect(),
-                "Explosion stress fixture did not exercise the per-effect particle cap.");
+
+        List<ExplosionEffect> effects = new ArrayList<>();
+        int cap = ExplosionEffect.maxActiveEffectsForTest();
+        for (int i = 0; i < cap + 32; i++) {
+            DestructionProfile profile = i % 4 == 0 ? DestructionProfile.STATION : DestructionProfile.MAJOR;
+            ExplosionEffect.admitValidationEffect(effects, profile);
+            require(effects.size() <= cap, "Destruction admission exceeded its active-effect cap.");
+        }
+        require(effects.size() == cap, "Destruction admission cap did not retain the expected bounded set.");
         for (ExplosionEffect effect : effects) effect.update(1000);
-        require(ExplosionEffect.activeEffectCount() == 0,
-                "Explosion VFX budget did not release completed effects.");
+        effects.clear();
     }
 
     private static void validateSpriteCacheBound() {
@@ -344,8 +343,7 @@ public final class RenderPerformanceValidator {
             ShipSpriteCache.sprite(unit, new Color(rgb, true));
         }
         ShipSpriteCache.Snapshot snapshot = ShipSpriteCache.snapshot();
-        require(snapshot.entries() <= ShipSpriteCache.maxEntries(),
-                "Ship sprite cache exceeded hard limit.");
+        require(snapshot.entries() <= ShipSpriteCache.maxEntries(), "Ship sprite cache exceeded hard limit.");
         require(snapshot.requests() == requested && snapshot.hits() == 0
                         && snapshot.misses() == requested && snapshot.generations() == requested,
                 "Ship sprite cache overflow accounting is inconsistent.");
@@ -471,7 +469,6 @@ public final class RenderPerformanceValidator {
             int resources,
             int shots,
             int explosions,
-            double explosionScale,
             double p95BudgetMs) {
         boolean backgroundOnly() {
             return ships == 0 && stations == 0 && resources == 0 && shots == 0 && explosions == 0;
