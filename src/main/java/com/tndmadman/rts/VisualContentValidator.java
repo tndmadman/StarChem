@@ -53,7 +53,7 @@ public final class VisualContentValidator {
         require(VisualCatalog.system("__missing_system__").equals(SystemVisualDefinition.FALLBACK),
                 "Unknown system visual must fail safely to fallback.");
         require(VisualCatalog.celestial("__missing_system__", "__missing_body__")
-                        .equals(CelestialVisualDefinition.FALLBACK),
+                        .equals(CatalogCelestialVisualDefinition.FALLBACK),
                 "Unknown celestial visual must fail safely to fallback.");
 
         validateSpriteCacheInvalidation();
