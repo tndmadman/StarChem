@@ -9,10 +9,12 @@ import java.util.Random;
 
 final class CelestialSystem {
     private final List<Body> bodies = new ArrayList<>();
+    private final StarSystemDefinition definition;
     private final double sunX;
     private final double sunY;
     private final SpaceBackgroundRenderer background;
     private final String visualSystemId;
+    private double visualTime;
 
     CelestialSystem(int worldW, int worldH, Random random) {
         this(StarSystems.defaultSystem(), random);
@@ -23,11 +25,13 @@ final class CelestialSystem {
     }
 
     CelestialSystem(StarSystemDefinition definition, Random random, double offsetX, double offsetY) {
-        visualSystemId = definition == null ? "" : definition.id();
-        sunX = offsetX + definition.width() / 2.0;
-        sunY = offsetY + definition.height() / 2.0;
-        background = new SpaceBackgroundRenderer(definition);
-        buildBodies(definition, random);
+        this.definition = definition == null ? StarSystems.defaultSystem() : definition;
+        Random source = random == null ? new Random(this.definition.id().hashCode()) : random;
+        visualSystemId = this.definition.id();
+        sunX = offsetX + this.definition.width() / 2.0;
+        sunY = offsetY + this.definition.height() / 2.0;
+        background = new SpaceBackgroundRenderer(this.definition);
+        buildBodies(this.definition, source);
         update(0);
     }
 
@@ -55,6 +59,7 @@ final class CelestialSystem {
     }
 
     void update(double dt) {
+        if (Double.isFinite(dt) && dt > 0) visualTime += dt;
         for (Body body : bodies) if (body.parent != null) body.update(dt);
     }
 
@@ -62,12 +67,14 @@ final class CelestialSystem {
         Graphics2D c = (Graphics2D) g2.create();
         c.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         background.draw(c);
+        AmbientSystemRenderer.drawBackdrop(c, definition, visualTime);
         c.setStroke(new BasicStroke(1f));
         for (Body body : bodies) if (body.parent != null) drawOrbit(c, body);
         Body light = primaryLight();
         double lightX = light == null ? sunX : light.x;
         double lightY = light == null ? sunY : light.y;
         for (Body body : bodies) body.draw(c, lightX, lightY);
+        AmbientSystemRenderer.drawForeground(c, definition, visualTime);
         c.dispose();
     }
 
