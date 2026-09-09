@@ -38,7 +38,7 @@ final class UnitRenderer {
         }
 
         if (RenderCulling.visible(g2, unit.x, unit.y, 120)) {
-            if (scale >= 0.24) drawPropulsionEffect(g2, unit, scale);
+            if (scale >= 0.24) drawPropulsionEffect(g2, unit);
             if (scale < 0.24) {
                 drawFarMarker(g2, unit, playerColor, scale);
             } else if (scale < 0.78) {
@@ -46,7 +46,7 @@ final class UnitRenderer {
             } else {
                 drawDetailedHull(g2, unit, playerColor);
             }
-            if (scale >= 0.24 && unit.weaponFlashTimer > 0) drawWeaponFlash(g2, unit, scale);
+            if (scale >= 0.24 && unit.weaponFlashTimer > 0) drawWeaponFlash(g2, unit);
         }
 
         // Sensor/mining ranges are still available when explicitly toggled. Selection by
@@ -94,7 +94,7 @@ final class UnitRenderer {
         g2.fillOval((int)unit.x - radius, (int)unit.y - radius, radius * 2, radius * 2);
     }
 
-    private static void drawPropulsionEffect(Graphics2D g2, Unit unit, double zoom) {
+    private static void drawPropulsionEffect(Graphics2D g2, Unit unit) {
         double remaining = Math.hypot(unit.targetX - unit.x, unit.targetY - unit.y);
         boolean moving = unit.afterburnerActive || (unit.task != UnitTask.IDLE && remaining > 2.0);
         if (!moving) return;
@@ -106,10 +106,11 @@ final class UnitRenderer {
         double trailLength = (unit.afterburnerActive ? 34.0 : 17.0) * shipScale;
         double cos = Math.cos(unit.heading);
         double sin = Math.sin(unit.heading);
-        double rearX = unit.x - cos * rearDistance;
-        double rearY = unit.y - sin * rearDistance;
-        double tailX = rearX - cos * trailLength;
-        double tailY = rearY - sin * trailLength;
+        // ShipShape's engine modules live on +X in local hull space.
+        double rearX = unit.x + cos * rearDistance;
+        double rearY = unit.y + sin * rearDistance;
+        double tailX = rearX + cos * trailLength;
+        double tailY = rearY + sin * trailLength;
 
         fx.setStroke(new BasicStroke((float)(unit.afterburnerActive ? 7.0 : 4.2),
                 BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
@@ -120,23 +121,24 @@ final class UnitRenderer {
                 BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
         fx.setColor(new Color(130, 210, 255, unit.afterburnerActive ? 190 : 135));
         fx.drawLine((int)Math.round(rearX), (int)Math.round(rearY),
-                (int)Math.round(tailX + cos * trailLength * 0.25),
-                (int)Math.round(tailY + sin * trailLength * 0.25));
+                (int)Math.round(tailX - cos * trailLength * 0.25),
+                (int)Math.round(tailY - sin * trailLength * 0.25));
         double core = Math.max(2.2, 3.4 * shipScale);
         fx.setColor(new Color(228, 248, 255, 220));
         fx.fill(new Ellipse2D.Double(rearX - core * 0.5, rearY - core * 0.5, core, core));
         fx.dispose();
     }
 
-    private static void drawWeaponFlash(Graphics2D g2, Unit unit, double zoom) {
+    private static void drawWeaponFlash(Graphics2D g2, Unit unit) {
         Graphics2D fx = (Graphics2D)g2.create();
         fx.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         double shipScale = Math.max(0.7, unit.type().size.scale);
         double noseDistance = 23.0 * shipScale;
         double cos = Math.cos(unit.heading);
         double sin = Math.sin(unit.heading);
-        double x = unit.x + cos * noseDistance;
-        double y = unit.y + sin * noseDistance;
+        // Turret barrels and cockpits project toward -X in ShipShape local space.
+        double x = unit.x - cos * noseDistance;
+        double y = unit.y - sin * noseDistance;
         double flash = (6.0 + Math.min(1.0, unit.weaponFlashTimer * 8.0) * 7.0) * shipScale;
 
         fx.setColor(new Color(255, 180, 65, 72));
@@ -144,8 +146,8 @@ final class UnitRenderer {
         fx.setStroke(new BasicStroke((float)Math.max(1.0, 1.7 * shipScale),
                 BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
         fx.setColor(new Color(255, 236, 164, 215));
-        fx.drawLine((int)Math.round(x - cos * flash * 0.35), (int)Math.round(y - sin * flash * 0.35),
-                (int)Math.round(x + cos * flash), (int)Math.round(y + sin * flash));
+        fx.drawLine((int)Math.round(x + cos * flash * 0.35), (int)Math.round(y + sin * flash * 0.35),
+                (int)Math.round(x - cos * flash), (int)Math.round(y - sin * flash));
         fx.dispose();
     }
 
