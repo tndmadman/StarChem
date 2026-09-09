@@ -20,4 +20,4 @@ for arg in "$@"; do
   esac
 done
 
-./gradlew "${gradle_args[@]}"
+gradle "${gradle_args[@]}"
