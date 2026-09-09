@@ -101,10 +101,16 @@ final class VisualDefinitionCatalog {
                         number(row, "asymmetry", 0, -0.45, 0.45),
                         integer(row, "armorSections", 2, 0, 12),
                         integer(row, "engineCount", 2, 1, 8),
+                        number(row, "engineScale", 1, 0.5, 2.0),
+                        number(row, "engineSpread", 1, 0.0, 1.6),
                         integer(row, "podCount", 0, 0, 12),
                         integer(row, "hardpointCount", 0, 0, 16),
+                        enumValue(HardpointLayout.class, text(row, "hardpointLayout", "DISTRIBUTED"), "hardpoint layout for " + id),
                         integer(row, "hangarCount", 0, 0, 6),
                         integer(row, "antennaCount", 0, 0, 8),
+                        enumValue(ShipDesignLanguage.class, text(row, "designLanguage", "CIVILIAN"), "design language for " + id),
+                        enumValue(ShipEquipment.class, text(row, "equipment", "NONE"), "equipment for " + id),
+                        number(row, "damageDetail", 0, 0, 1),
                         rgb(text(row, "accent", "#7CCFFF"), id, "accent"),
                         rgb(text(row, "glow", "#8EEBFF"), id, "glow"),
                         enumValue(ShipMarking.class, text(row, "marking", "NONE"), "ship marking for " + id));
@@ -165,6 +171,8 @@ final class VisualDefinitionCatalog {
                         integer(row, "nebulaLayers", 0, 0, 8),
                         integer(row, "dustCount", 0, 0, 512),
                         number(row, "galacticBand", 0, 0, 1),
+                        enumValue(SystemVfx.class, text(row, "vfx", "NONE"), "system VFX for " + id),
+                        integer(row, "vfxCount", 0, 0, 256),
                         ServerSaveStore.longValue(row, "seed", 0));
                 duplicate(systems, id, def, "system visual");
             }
@@ -229,15 +237,21 @@ final class VisualDefinitionCatalog {
     }
 }
 
-enum ShipVisualPreset { MINING_CLAW, DEPLOYER, CARGO_FRAME, INDUSTRIAL, NEEDLE, WEDGE, SPINE, BATTLESHIP, FLIGHT_DECK, DREAD_SLAB, TITAN_SPINE }
+enum ShipVisualPreset { MINING_CLAW, DEPLOYER, CARGO_FRAME, INDUSTRIAL, NEEDLE, WEDGE, SPINE, BATTLESHIP, FLIGHT_DECK, DREAD_SLAB, TITAN_SPINE, MONOLITH }
 enum ShipMarking { NONE, STRIPE, CHEVRON, INDUSTRIAL, COMMAND }
+enum ShipDesignLanguage { INDUSTRIAL, CIVILIAN, NAVAL, CAPITAL, EXOTIC }
+enum ShipEquipment { NONE, MINING, GAS, CARGO, SALVAGE, CONSTRUCTION }
+enum HardpointLayout { DISTRIBUTED, INLINE, BROADSIDE, FORE }
 enum StationVisualPreset { OUTPOST, SHIPYARD, LABORATORY, FACTORY }
 enum CelestialVisualClass { STAR, RED_STAR, PULSAR, ROCKY, DESERT, OCEAN, ICE, VOLCANIC, GAS_GIANT, MOON }
+enum SystemVfx { NONE, ION_STREAKS, EMBERS, RADIATION }
 
 record ShipVisualDefinition(String id, ShipVisualPreset preset, double lengthScale, double widthScale,
-                            double asymmetry, int armorSections, int engineCount, int podCount,
-                            int hardpointCount, int hangarCount, int antennaCount,
-                            int accentRgb, int glowRgb, ShipMarking marking) { }
+                            double asymmetry, int armorSections, int engineCount, double engineScale,
+                            double engineSpread, int podCount, int hardpointCount, HardpointLayout hardpointLayout,
+                            int hangarCount, int antennaCount, ShipDesignLanguage designLanguage,
+                            ShipEquipment equipment, double damageDetail, int accentRgb, int glowRgb,
+                            ShipMarking marking) { }
 
 record StationVisualDefinition(String id, StationVisualPreset preset, double scale, int ringCount,
                                int armCount, int moduleCount, int lightCount, int accentRgb) { }
@@ -249,4 +263,4 @@ record CelestialVisualDefinition(String systemId, String bodyId, CelestialVisual
 
 record SystemVisualDefinition(String id, int tintRgb, double tintOpacity, int starColorRgb,
                               int nebulaColorRgb, int starCount, int nebulaLayers, int dustCount,
-                              double galacticBand, long seed) { }
+                              double galacticBand, SystemVfx vfx, int vfxCount, long seed) { }
