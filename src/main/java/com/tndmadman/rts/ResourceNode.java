@@ -4,7 +4,10 @@ import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.Polygon;
+import java.awt.RadialGradientPaint;
 import java.awt.RenderingHints;
+import java.awt.geom.Ellipse2D;
+import java.awt.geom.Point2D;
 import java.util.Map;
 
 final class ResourceNode {
@@ -91,7 +94,8 @@ final class ResourceNode {
         Graphics2D r = (Graphics2D)g2.create();
         r.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         if (kind == NodeKind.GAS_CLOUD) drawGas(r, selected); else drawRock(r, selected);
-        drawAmountBar(r);
+        // Dense gas fields are much easier to read without a bar under every untouched cloud.
+        if (selected || kind != NodeKind.GAS_CLOUD || amountPercent() < 0.98) drawAmountBar(r);
         r.dispose();
     }
 
@@ -114,17 +118,35 @@ final class ResourceNode {
 
     private void drawGas(Graphics2D g2, boolean selected) {
         double visualRadius = visualRadius();
-        for (int i = 0; i < 7; i++) {
-            double a = i * Math.PI * 2 / 7.0;
-            double ox = Math.cos(a) * visualRadius * .25, oy = Math.sin(a) * visualRadius * .22;
-            g2.setColor(new Color(material.color.getRed(), material.color.getGreen(), material.color.getBlue(), 42 + i * 8));
-            g2.fillOval((int)(x + ox - visualRadius * .55), (int)(y + oy - visualRadius * .42),
-                    (int)(visualRadius * 1.1), (int)(visualRadius * .84));
+        int seed = Math.floorMod(id * 1103515245 + material.ordinal() * 12345, Integer.MAX_VALUE);
+
+        RadialGradientPaint haze = new RadialGradientPaint(
+                new Point2D.Double(x, y), (float)Math.max(1.0, visualRadius),
+                new float[]{0f, 0.42f, 0.76f, 1f},
+                new Color[]{withAlpha(material.color, 74), withAlpha(material.color, 48),
+                        withAlpha(material.color, 18), withAlpha(material.color, 0)});
+        g2.setPaint(haze);
+        g2.fill(new Ellipse2D.Double(x - visualRadius, y - visualRadius, visualRadius * 2, visualRadius * 2));
+
+        for (int i = 0; i < 8; i++) {
+            double angle = i * Math.PI * 2 / 8.0 + (seed % 37) * 0.017;
+            double distance = visualRadius * (0.24 + Math.floorMod(seed + i * 53, 20) / 100.0);
+            double lobeW = visualRadius * (0.72 + Math.floorMod(seed + i * 31, 25) / 100.0);
+            double lobeH = visualRadius * (0.42 + Math.floorMod(seed + i * 47, 24) / 100.0);
+            double ox = Math.cos(angle) * distance;
+            double oy = Math.sin(angle) * distance;
+            int alpha = 22 + Math.floorMod(seed + i * 29, 30);
+            g2.setColor(withAlpha(material.color, alpha));
+            g2.fill(new Ellipse2D.Double(x + ox - lobeW * 0.5, y + oy - lobeH * 0.5, lobeW, lobeH));
         }
-        g2.setColor(new Color(material.color.getRed(), material.color.getGreen(), material.color.getBlue(), 150));
-        g2.setStroke(new BasicStroke(1f));
-        g2.drawOval((int)(x - visualRadius * .8), (int)(y - visualRadius * .62),
-                (int)(visualRadius * 1.6), (int)(visualRadius * 1.24));
+
+        g2.setColor(withAlpha(lighten(material.color, 1.30), 125));
+        g2.setStroke(new BasicStroke(1.0f));
+        double core = Math.max(1.6, visualRadius * 0.13);
+        g2.fill(new Ellipse2D.Double(x - core * 0.5, y - core * 0.5, core, core));
+        g2.setColor(withAlpha(material.color, 92));
+        g2.draw(new Ellipse2D.Double(x - visualRadius * 0.76, y - visualRadius * 0.58,
+                visualRadius * 1.52, visualRadius * 1.16));
         if (selected) drawSelected(g2, visualRadius);
     }
 
@@ -145,11 +167,25 @@ final class ResourceNode {
     }
 
     private double visualRadius() {
-        return radius * (0.38 + 0.62 * Math.sqrt(amountPercent()));
+        double depletionScale = 0.38 + 0.62 * Math.sqrt(amountPercent());
+        double authoredScale = kind == NodeKind.GAS_CLOUD ? 2.35 : 1.0;
+        return radius * authoredScale * depletionScale;
     }
 
     private double amountPercent() {
         if (maxAmount <= 0) return 0;
         return Math.max(0, Math.min(1, amount / maxAmount));
+    }
+
+    private static Color withAlpha(Color color, int alpha) {
+        return new Color(color.getRed(), color.getGreen(), color.getBlue(), Math.max(0, Math.min(255, alpha)));
+    }
+
+    private static Color lighten(Color color, double factor) {
+        return new Color(clamp(color.getRed() * factor), clamp(color.getGreen() * factor), clamp(color.getBlue() * factor));
+    }
+
+    private static int clamp(double value) {
+        return (int)Math.max(0, Math.min(255, Math.round(value)));
     }
 }
