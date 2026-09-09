@@ -54,7 +54,10 @@ public final class StationPresentationValidator {
         require("OFFLINE".equals(StationPresentation.criticalWarning(lab, def)),
                 "Destroyed station must prioritize OFFLINE.");
 
-        lab.hp = Math.max(0, def.maxHp - 1);
+        // The presentation intentionally ignores sub-0.1% floating-point HP drift. Use a
+        // clearly visible but non-critical damage amount so this fixture exercises the
+        // UNDER ATTACK path rather than depending on the station's absolute max-HP value.
+        lab.hp = def.maxHp * 0.99;
         lab.shield = def.maxShield;
         lab.shieldDelayTimer = 1.0;
         require("UNDER ATTACK".equals(StationPresentation.criticalWarning(lab, def)),
