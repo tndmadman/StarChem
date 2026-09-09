@@ -294,7 +294,7 @@ final class IntelWarfareSystem {
 
     static String radarResponseTarget(World world, String unitKey) {
         if (world == null || unitKey == null || unitKey.isBlank()) return "";
-        RadarResponseAssignment assignment = systemRuntime(world).radarResponses.get(unit.key());
+        RadarResponseAssignment assignment = systemRuntime(world).radarResponses.get(unitKey);
         return assignment == null ? "" : assignment.targetKey;
     }
 
