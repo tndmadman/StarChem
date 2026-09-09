@@ -21,6 +21,17 @@ run_java() {
   java -Djava.awt.headless=true -cp "$CP" "$class" "$@"
 }
 
+# Graphics epic #388 acceptance coverage. Keep these on the canonical release path so
+# future renderer work cannot silently regress one of the integrated visual subsystems.
+run_java com.tndmadman.rts.ArtAssetValidator
+run_java com.tndmadman.rts.VisualContentValidator
+run_java com.tndmadman.rts.Issue409AmbientEnvironmentValidator
+run_java com.tndmadman.rts.ShipVisualValidator
+run_java com.tndmadman.rts.Issue394ShipMaterialValidator
+run_java com.tndmadman.rts.Issue396StationVisualValidator
+run_java com.tndmadman.rts.Issue403CombatVfxValidator
+run_java com.tndmadman.rts.Issue407GraphicsBenchmark
+
 # Permanent regression validators that historically lived only as explicit CI steps.
 run_java com.tndmadman.rts.FogOfWarValidator
 run_java com.tndmadman.rts.FogPerformanceValidator
