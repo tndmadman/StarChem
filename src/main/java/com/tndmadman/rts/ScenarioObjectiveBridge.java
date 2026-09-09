@@ -24,7 +24,7 @@ final class ScenarioObjectiveBridge {
     static void applyNetworkState(World world, ObjectiveState state) {
         if (world == null) return;
         ObjectiveState incoming = state == null ? ObjectiveState.disabled() : state;
-        if (scenarioState(incoming)) {
+        if (isScenarioState(incoming)) {
             NETWORK.put(world, incoming);
             return;
         }
@@ -39,12 +39,12 @@ final class ScenarioObjectiveBridge {
             return scenarioView(world, ScenarioDirector.objectiveState(world));
         }
         ObjectiveState network = NETWORK.get(world);
-        if (scenarioState(network)) return scenarioView(world, network);
+        if (isScenarioState(network)) return scenarioView(world, network);
         return ObjectiveSystem.view(world);
     }
 
     static boolean scenarioActive(World world) {
-        return ScenarioDirector.active(world) || scenarioState(NETWORK.get(world));
+        return ScenarioDirector.active(world) || isScenarioState(NETWORK.get(world));
     }
 
     static boolean scenarioFailure(World world) {
@@ -56,22 +56,46 @@ final class ScenarioObjectiveBridge {
     static String scenarioOutcome(World world) {
         if (ScenarioDirector.active(world)) return ScenarioDirector.view(world).outcomeText();
         ObjectiveState state = NETWORK.get(world);
-        if (!scenarioState(state)) return "";
-        ScenarioDefinition definition = scenarioDefinition(state.conditionId());
+        if (!isScenarioState(state)) return "";
+        ScenarioDefinition definition = definitionFor(state.conditionId());
         if (definition == null) return "";
         return scenarioFailure(world) ? definition.failureText()
                 : terminalScenarioState(state) ? definition.completionText() : "";
     }
 
+    static boolean isScenarioState(ObjectiveState state) {
+        return state != null && state.conditionId().startsWith(PREFIX);
+    }
+
+    static ScenarioDefinition definitionFor(String conditionId) {
+        if (conditionId == null || !conditionId.startsWith(PREFIX)) return null;
+        String rest = conditionId.substring(PREFIX.length());
+        int dot = rest.indexOf('.');
+        String scenarioId = dot < 0 ? rest : rest.substring(0, dot);
+        return ScenarioRules.definition(scenarioId);
+    }
+
+    static ScenarioObjective objectiveFor(String conditionId) {
+        ScenarioDefinition definition = definitionFor(conditionId);
+        if (definition == null) return null;
+        String objectiveId = objectiveId(conditionId, definition.id());
+        return objectiveId.isBlank() ? null : definition.objective(objectiveId);
+    }
+
+    static boolean terminalScenarioState(ObjectiveState state) {
+        if (!isScenarioState(state) || state.status() != ObjectiveStatus.COMPLETED) return false;
+        ScenarioDefinition definition = definitionFor(state.conditionId());
+        return definition != null && objectiveId(state.conditionId(), definition.id()).isBlank();
+    }
+
     private static ObjectiveView scenarioView(World world, ObjectiveState state) {
-        ScenarioDefinition definition = scenarioDefinition(state.conditionId());
+        ScenarioDefinition definition = definitionFor(state.conditionId());
         if (definition == null) {
             return new ObjectiveView(state.conditionId(), "Scenario objective", "",
                     state.status(), state.current(), state.target(),
                     participantName(state.completedById()), participantName(state.leaderId()));
         }
-        String objectiveId = objectiveId(state.conditionId(), definition.id());
-        ScenarioObjective objective = objectiveId.isBlank() ? null : definition.objective(objectiveId);
+        ScenarioObjective objective = objectiveFor(state.conditionId());
         if (objective == null) {
             String description = state.status() == ObjectiveStatus.COMPLETED
                     ? (state.current() == 0 ? definition.failureText() : definition.completionText())
@@ -85,29 +109,11 @@ final class ScenarioObjectiveBridge {
                 participantName(state.completedById()), participantName(state.leaderId()));
     }
 
-    private static ScenarioDefinition scenarioDefinition(String conditionId) {
-        if (conditionId == null || !conditionId.startsWith(PREFIX)) return null;
-        String rest = conditionId.substring(PREFIX.length());
-        int dot = rest.indexOf('.');
-        String scenarioId = dot < 0 ? rest : rest.substring(0, dot);
-        return ScenarioRules.definition(scenarioId);
-    }
-
     private static String objectiveId(String conditionId, String scenarioId) {
         String prefix = PREFIX + scenarioId;
         if (conditionId == null || conditionId.equals(prefix)) return "";
         String objectivePrefix = prefix + ".";
         return conditionId.startsWith(objectivePrefix) ? conditionId.substring(objectivePrefix.length()) : "";
-    }
-
-    private static boolean scenarioState(ObjectiveState state) {
-        return state != null && state.conditionId().startsWith(PREFIX);
-    }
-
-    private static boolean terminalScenarioState(ObjectiveState state) {
-        return scenarioState(state) && state.status() == ObjectiveStatus.COMPLETED
-                && scenarioDefinition(state.conditionId()) != null
-                && objectiveId(state.conditionId(), scenarioDefinition(state.conditionId()).id()).isBlank();
     }
 
     private static String participantName(String participantId) {
