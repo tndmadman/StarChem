@@ -38,7 +38,9 @@ final class IntelStructureRenderer {
     }
 
     static void drawStatus(Graphics2D source, Base base, double radius) {
-        if (source == null || base == null || !PlayerRegistry.isLocal(base.playerId)) return;
+        if (source == null || base == null) return;
+        DamageStateEffects.drawBase(source, base, radius);
+        if (!PlayerRegistry.isLocal(base.playerId)) return;
         String text = "";
         Color color = new Color(125, 225, 255);
         if (IntelWarfareSystem.isRadar(base.typeId)) {

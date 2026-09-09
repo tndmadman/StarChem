@@ -8,7 +8,6 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -244,22 +243,52 @@ final class ObserverSessions {
         return true;
     }
 
-    static boolean convertConnectedPlayer(PeerServerSide server, ConnectionId connectionId, String playerId) {
-        if (server == null || !server.owns(connectionId, playerId)) return false;
+    static boolean convertConnectedPlayer(PeerServerSide server, ConnectionId connectionId, String requestedPlayerId) {
+        if (server == null || connectionId == null || !connectionId.valid()) return false;
+        String playerId = cleanId(server.ownerId(connectionId, ""));
+        String requested = cleanId(requestedPlayerId);
+        if (!realPlayer(playerId) || (!requested.isBlank() && !playerId.equals(requested))) return false;
+
         State state = state(server.world);
         if (!state.enabled) {
             server.transport.sendOrdered("OBSERVER_DENIED|DISABLED|Observer sessions are disabled.", connectionId);
+            return false;
+        }
+
+        Grant existing = state.grants.get(playerId);
+        if (existing != null) {
+            server.transport.sendOrdered(packet(existing), connectionId);
+            server.sendInitialTo(connectionId);
+            return true;
+        }
+
+        if (hasAssetsAnywhere(server.world, playerId)) {
+            server.transport.sendOrdered("OBSERVER_DENIED|ACTIVE|Player still has live assets.", connectionId);
+            return false;
+        }
+
+        long now = System.currentTimeMillis();
+        state.pruneExpired(now);
+        String name = PlayerRegistry.baseName(playerId);
+        Invitation invite = state.invitation(name);
+        if (invite == null || invite.expired(now)) {
+            server.transport.sendOrdered("OBSERVER_DENIED|INVITE|Observer invitation is missing or expired.", connectionId);
+            return false;
+        }
+        if (invite.mode() == VisibilityMode.PLAYER_FOLLOW
+                && !validFollowTarget(server.world, invite.followPlayerId())) {
+            server.transport.sendOrdered("OBSERVER_DENIED|FOLLOW|Observer follow target is unavailable.", connectionId);
             return false;
         }
         if (connectedCount(server, state, playerId) >= state.maxObservers) {
             server.transport.sendOrdered("OBSERVER_DENIED|FULL|Observer slots are full.", connectionId);
             return false;
         }
-        Grant existing = state.grants.get(playerId);
-        VisibilityMode mode = existing == null ? VisibilityMode.PUBLIC : existing.mode();
-        String follow = existing == null ? "" : existing.followPlayerId();
-        Grant grant = new Grant(playerId, PlayerRegistry.baseName(playerId), mode, follow);
+
+        Grant grant = new Grant(playerId, name, invite.mode(), invite.followPlayerId());
         state.grants.put(playerId, grant);
+        state.invitations.remove(normalized(name));
+        state.removePendingName(name);
         state.save();
         stripGameplayIdentity(server.world, playerId);
         PlayerRegistry.remove(playerId);
@@ -291,7 +320,6 @@ final class ObserverSessions {
         if (grant.mode() == VisibilityMode.PLAYER_FOLLOW) {
             return validFollowTarget(world, grant.followPlayerId()) ? grant.followPlayerId() : "";
         }
-        if (grant.mode() == VisibilityMode.PUBLIC) return publicAnchor(world);
         return "";
     }
 
@@ -480,18 +508,6 @@ final class ObserverSessions {
         int count = 0;
         for (Grant grant : state.grants.values()) if (network.serverSessionConnected(grant.playerId())) count++;
         return count;
-    }
-
-    private static String publicAnchor(World world) {
-        if (world == null) return "";
-        ArrayList<PlayerInfo> players = new ArrayList<>(PlayerRegistry.snapshotPlayers());
-        players.sort(Comparator.comparing(PlayerInfo::id));
-        for (PlayerInfo player : players) {
-            if (!realPlayer(player.id()) || isObserver(world, player.id())) continue;
-            if (hasAssetsAnywhere(world, player.id())) return player.id();
-        }
-        for (PlayerInfo player : players) if (realPlayer(player.id()) && !isObserver(world, player.id())) return player.id();
-        return "";
     }
 
     private static boolean validFollowTarget(World world, String playerId) {
