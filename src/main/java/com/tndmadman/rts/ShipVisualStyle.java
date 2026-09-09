@@ -98,10 +98,16 @@ final class ShipVisualStyle {
                     || visual.hasFeature(ShipVisualDefinition.Feature.SALVAGE_GEAR)) {
                 return HullMaterial.INDUSTRIAL_PLATING;
             }
-            if (visual.mountCount(ShipVisualDefinition.MountKind.HARDPOINT) > 0
-                    || visual.hasFeature(ShipVisualDefinition.Feature.SIEGE_WEAPON)
+            if (visual.hasFeature(ShipVisualDefinition.Feature.SIEGE_WEAPON)
                     || visual.hasFeature(ShipVisualDefinition.Feature.CAPITAL)) {
                 return HullMaterial.CERAMIC_ARMOR;
+            }
+            // Light combat hulls deliberately keep exposed structural steel. This ensures the
+            // reusable material language is represented in production rather than existing only
+            // as an unreachable palette after every armed ship was classified as ceramic armor.
+            if (visual.mountCount(ShipVisualDefinition.MountKind.HARDPOINT) > 0) {
+                return visual.complexityRank() <= 2
+                        ? HullMaterial.STRUCTURAL_STEEL : HullMaterial.CERAMIC_ARMOR;
             }
         }
         String id = type.id == null ? "" : type.id.toLowerCase();

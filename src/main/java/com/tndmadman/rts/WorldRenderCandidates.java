@@ -11,7 +11,8 @@ import java.util.WeakHashMap;
 /** Scratch-backed visible-entity queries used by World.draw without per-frame list allocation. */
 final class WorldRenderCandidates {
     private static final double UNIT_MARGIN = 180.0;
-    private static final double BASE_MARGIN = 180.0;
+    // Issue #396 station art can extend well beyond legacy interaction bounds and its UI sits farther still.
+    private static final double BASE_MARGIN = 280.0;
     private static final double RESOURCE_MARGIN = 120.0;
     private static final double ITEM_MARGIN = 64.0;
     private static final Map<World, Scratch> SCRATCH = Collections.synchronizedMap(new WeakHashMap<>());
