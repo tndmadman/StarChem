@@ -5,7 +5,15 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import static com.tndmadman.rts.ShipVisualDefinition.Feature.*;
+import static com.tndmadman.rts.ShipVisualDefinition.Feature.ANONYMOUS_CONTACT;
+import static com.tndmadman.rts.ShipVisualDefinition.Feature.CAPITAL;
+import static com.tndmadman.rts.ShipVisualDefinition.Feature.CARGO_MODULES;
+import static com.tndmadman.rts.ShipVisualDefinition.Feature.CONSTRUCTION_GEAR;
+import static com.tndmadman.rts.ShipVisualDefinition.Feature.GAS_GEAR;
+import static com.tndmadman.rts.ShipVisualDefinition.Feature.MEGASTRUCTURE;
+import static com.tndmadman.rts.ShipVisualDefinition.Feature.MINING_GEAR;
+import static com.tndmadman.rts.ShipVisualDefinition.Feature.SALVAGE_GEAR;
+import static com.tndmadman.rts.ShipVisualDefinition.Feature.SIEGE_WEAPON;
 import static com.tndmadman.rts.ShipVisualDefinition.MountKind.*;
 
 /** Local cosmetic catalog. Gameplay/network state continues to carry only ship type ids. */
@@ -91,7 +99,7 @@ final class ShipVisualCatalog {
         // Capitals: progressively broader/longer silhouettes and more authored systems.
         add(d("carrier", 6,
                 o(-30,-9, -22,-20, 17,-20, 30,-11, 24,-3, 18,0, 24,3, 30,11, 17,20, -22,20, -30,9, -23,0),
-                f(HANGAR, CAPITAL),
+                f(ShipVisualDefinition.Feature.HANGAR, CAPITAL),
                 m(HANGAR,-8,-13,36,7), m(HANGAR,-8,13,36,7),
                 m(HARDPOINT,-21,0,7,10), m(HARDPOINT,4,-18,7,10), m(HARDPOINT,4,18,7,10),
                 m(ENGINE,23,-12,12,6), m(ENGINE,23,0,13,6), m(ENGINE,23,12,12,6), m(BRIDGE,9,0,12,7)));
@@ -102,7 +110,7 @@ final class ShipVisualCatalog {
                 m(ENGINE,23,-8,13,6), m(ENGINE,23,8,13,6), m(BRIDGE,6,0,11,6)));
         add(d("supercarrier", 8,
                 o(-31,-11, -24,-22, -3,-22, 3,-18, 17,-22, 31,-12, 27,-4, 19,0, 27,4,
-                        31,12, 17,22, 3,18, -3,22, -24,22, -31,11, -24,0), f(HANGAR, CAPITAL),
+                        31,12, 17,22, 3,18, -3,22, -24,22, -31,11, -24,0), f(ShipVisualDefinition.Feature.HANGAR, CAPITAL),
                 m(HANGAR,-14,-15,28,7), m(HANGAR,4,-15,23,7), m(HANGAR,-14,15,28,7), m(HANGAR,4,15,23,7),
                 m(HARDPOINT,-23,-6,8,12), m(HARDPOINT,-23,6,8,12), m(HARDPOINT,8,-19,8,12), m(HARDPOINT,8,19,8,12),
                 m(ENGINE,24,-13,12,6), m(ENGINE,24,0,14,7), m(ENGINE,24,13,12,6), m(BRIDGE,11,0,13,7)));
@@ -115,7 +123,7 @@ final class ShipVisualCatalog {
         add(d("monolith", 10,
                 o(-31,-19, -23,-23, -10,-21, -2,-24, 10,-21, 21,-23, 31,-17, 28,-8, 31,0, 28,8,
                         31,17, 21,23, 10,21, -2,24, -10,21, -23,23, -31,19, -28,8, -31,0, -28,-8),
-                f(HANGAR, CAPITAL, MEGASTRUCTURE),
+                f(ShipVisualDefinition.Feature.HANGAR, CAPITAL, MEGASTRUCTURE),
                 m(HANGAR,-17,-13,25,7), m(HANGAR,7,-13,22,7), m(HANGAR,-17,13,25,7), m(HANGAR,7,13,22,7),
                 m(HARDPOINT,-24,-12,8,13), m(HARDPOINT,-24,12,8,13), m(HARDPOINT,-7,-19,8,13), m(HARDPOINT,-7,19,8,13),
                 m(HARDPOINT,10,-18,8,13), m(HARDPOINT,10,18,8,13),
