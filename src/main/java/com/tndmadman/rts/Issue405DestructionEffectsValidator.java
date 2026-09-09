@@ -40,6 +40,12 @@ public final class Issue405DestructionEffectsValidator {
                 require(profile.wreckStartSeconds > 0 && profile.wreckStartSeconds < profile.lifetimeSeconds,
                         profile + " wreck lifetime is invalid.");
             }
+            if (profile.coreFlash) {
+                require(profile.coreTimeSeconds > profile.secondarySpanSeconds + 0.15,
+                        profile + " core flash must follow its secondary-failure sequence.");
+                require(profile.wreckStartSeconds > profile.coreTimeSeconds,
+                        profile + " wreck must appear after the core event.");
+            }
 
             ExplosionEffect effect = ExplosionEffect.validationEffect(profile);
             double elapsed = 0;

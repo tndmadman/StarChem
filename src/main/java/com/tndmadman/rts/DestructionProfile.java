@@ -3,9 +3,9 @@ package com.tndmadman.rts;
 enum DestructionProfile {
     QUICK(0, 4, 0, 52, false, false, 2.4, 0.0, 0.0, 0.0),
     STANDARD(2, 8, 2, 100, true, false, 18.0, 1.05, 1.05, 0.0),
-    CAPITAL(4, 16, 4, 160, true, true, 42.0, 2.25, 1.95, 1.72),
-    MAJOR(6, 24, 6, 210, true, true, 66.0, 3.35, 2.95, 2.65),
-    STATION(7, 28, 8, 240, true, true, 75.0, 4.40, 3.95, 3.55);
+    CAPITAL(4, 16, 4, 160, true, true, 42.0, 1.75, 2.45, 2.15),
+    MAJOR(6, 24, 6, 210, true, true, 66.0, 2.65, 3.55, 3.15),
+    STATION(7, 28, 8, 240, true, true, 75.0, 3.40, 4.55, 4.05);
 
     final int secondaryBursts;
     final int debrisFragments;
