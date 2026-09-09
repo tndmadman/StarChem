@@ -19,9 +19,9 @@ import java.util.Map;
 /**
  * View-only station presentation policy for issue #398.
  *
- * Ordinary stations stay visually quiet. Hover exposes a concise tactical summary, a click
- * focuses the station for HP/shield and tactical range context, and a screen-space inspector
- * carries the detailed operational information that used to surround every station.
+ * Ordinary stations stay visually quiet. Hover resolves to one nearest station and is drawn
+ * in screen space after the world pass, while selection exposes tactical range/health and a
+ * persistent inspector. No simulation, networking, persistence, or station authority lives here.
  */
 final class StationPresentation {
     private static final Color PANEL = new Color(5, 11, 16, 232);
@@ -45,7 +45,7 @@ final class StationPresentation {
     private static FocusKey focusedBase;
     private static Base focusedBaseView;
     private static long focusedBaseSeenNanos;
-    private static InspectorOverlay inspectorOverlay;
+    private static PresentationOverlay presentationOverlay;
 
     static {
         if (!GraphicsEnvironment.isHeadless()) {
@@ -63,27 +63,27 @@ final class StationPresentation {
 
     static void draw(Graphics2D g2, Base base, BaseType def, double radius, Color playerColor) {
         if (g2 == null || base == null || def == null || playerColor == null) return;
-        syncInspectorBounds();
+        syncOverlayBounds();
         ScreenHit current = registerScreenHit(g2, base, radius);
-        if (!isOffscreen(pointer)) hoveredBase = hitAt(pointer);
-        boolean hovered = current.key().equals(hoveredBase);
-        boolean focused = current.key().equals(focusedBase);
 
-        if (focused) drawRange(g2, base, def, playerColor);
+        // Re-resolve after each registration, but do not paint hover UI here. Swing paints the
+        // overlay after the world, so only the final nearest result can produce a hover card.
+        FocusKey nextHovered = isOffscreen(pointer) ? null : hitAt(pointer);
+        if (!java.util.Objects.equals(nextHovered, hoveredBase)) {
+            hoveredBase = nextHovered;
+            if (presentationOverlay != null) presentationOverlay.repaint();
+        }
+
         drawOwnershipCue(g2, base, radius, playerColor);
-
         String warning = criticalWarning(base, def);
         if (warning != null) drawWarningBadge(g2, base, radius, warning);
 
-        if (hovered || focused) {
-            drawContextLabel(g2, base, def, radius, playerColor, focused);
-            IntelStructureRenderer.drawStatus(g2, base, radius);
-        }
-        if (focused) {
+        if (current.key().equals(focusedBase)) {
+            drawRange(g2, base, def, playerColor);
             drawFocusedBars(g2, base, def, radius, playerColor);
             focusedBaseView = base;
             focusedBaseSeenNanos = System.nanoTime();
-            if (inspectorOverlay != null) inspectorOverlay.repaint();
+            if (presentationOverlay != null) presentationOverlay.repaint();
         }
     }
 
@@ -99,25 +99,59 @@ final class StationPresentation {
         return null;
     }
 
+    static String conciseStatus(Base base, BaseType def) {
+        String warning = criticalWarning(base, def);
+        if (warning != null) return warning;
+
+        // Do not turn contextual UI into an intelligence side-channel. The previous world
+        // overlays were visually noisy; moving them into a panel is not a reason to expose
+        // another player's inventory, production queue, fuel amount, or logistics details.
+        if (!PlayerRegistry.isLocal(base.playerId)) return "Operational";
+
+        ProductionJob job = ProductionQueueScheduler.active(base);
+        if (job != null && job.blockedReason != null && !job.blockedReason.isBlank()) {
+            return clip("Production blocked: " + job.blockedReason, 42);
+        }
+        if (job != null) return clip("Producing " + ProductionSystem.displayName(job), 42);
+        if (base.logisticsStatus != null && !base.logisticsStatus.isBlank()) return clip(base.logisticsStatus, 42);
+        String intel = intelStatus(base);
+        if (!intel.isBlank()) return intel;
+        StationFuelRequirement req = StationFuelRules.requirement(base.typeId);
+        if (req != null) return "Operational | Fuel " + Calc.round(base.inventory.getOrDefault(req.material(), 0.0));
+        return "Operational";
+    }
+
+    static String resolveNearestHoverIdForTest(Graphics2D g2, Point point, Base... bases) {
+        SCREEN_HITS.clear();
+        if (g2 == null || bases == null) return "";
+        for (Base base : bases) {
+            if (base != null) registerScreenHit(g2, base, 64);
+        }
+        FocusKey key = hitAt(point);
+        return key == null ? "" : key.id();
+    }
+
     private static void handleMouse(GamePanel panel, MouseEvent mouse) {
         if (surface != panel) {
-            detachInspectorOverlay();
+            detachPresentationOverlay();
             surface = panel;
             SCREEN_HITS.clear();
             hoveredBase = null;
             focusedBase = null;
             focusedBaseView = null;
-            installInspectorOverlay(panel);
+            installPresentationOverlay(panel);
         }
-        syncInspectorBounds();
+        syncOverlayBounds();
         switch (mouse.getID()) {
             case MouseEvent.MOUSE_MOVED, MouseEvent.MOUSE_DRAGGED, MouseEvent.MOUSE_ENTERED -> {
                 pointer = mouse.getPoint();
                 hoveredBase = hitAt(pointer);
+                repaintOverlay();
             }
             case MouseEvent.MOUSE_EXITED -> {
                 pointer = offscreenPoint();
                 hoveredBase = null;
+                repaintOverlay();
             }
             case MouseEvent.MOUSE_PRESSED -> {
                 pointer = mouse.getPoint();
@@ -137,37 +171,41 @@ final class StationPresentation {
                         focusedBaseView = null;
                     }
                     pressPoint = null;
-                    if (inspectorOverlay != null) inspectorOverlay.repaint();
                 }
+                repaintOverlay();
             }
             default -> { }
         }
     }
 
-    private static void installInspectorOverlay(GamePanel panel) {
+    private static void installPresentationOverlay(GamePanel panel) {
         if (panel == null) return;
         JRootPane root = SwingUtilities.getRootPane(panel);
         if (root == null) return;
         JLayeredPane layeredPane = root.getLayeredPane();
         if (layeredPane == null) return;
-        inspectorOverlay = new InspectorOverlay();
-        layeredPane.add(inspectorOverlay, JLayeredPane.PALETTE_LAYER);
-        syncInspectorBounds();
+        presentationOverlay = new PresentationOverlay();
+        layeredPane.add(presentationOverlay, JLayeredPane.PALETTE_LAYER);
+        syncOverlayBounds();
     }
 
-    private static void detachInspectorOverlay() {
-        if (inspectorOverlay == null) return;
-        Container parent = inspectorOverlay.getParent();
+    private static void detachPresentationOverlay() {
+        if (presentationOverlay == null) return;
+        Container parent = presentationOverlay.getParent();
         if (parent != null) {
-            parent.remove(inspectorOverlay);
+            parent.remove(presentationOverlay);
             parent.repaint();
         }
-        inspectorOverlay = null;
+        presentationOverlay = null;
     }
 
-    private static void syncInspectorBounds() {
+    private static void repaintOverlay() {
+        if (presentationOverlay != null) presentationOverlay.repaint();
+    }
+
+    private static void syncOverlayBounds() {
         GamePanel panel = surface;
-        InspectorOverlay overlay = inspectorOverlay;
+        PresentationOverlay overlay = presentationOverlay;
         if (panel == null || overlay == null || overlay.getParent() == null) return;
         Container parent = overlay.getParent();
         Point origin = SwingUtilities.convertPoint(panel, 0, 0, parent);
@@ -182,9 +220,9 @@ final class StationPresentation {
         Point2D center = tx.transform(new Point2D.Double(base.x, base.y), null);
         double scaleX = Math.hypot(tx.getScaleX(), tx.getShearY());
         double scaleY = Math.hypot(tx.getShearX(), tx.getScaleY());
-        double hitRadius = Math.max(18.0, radius * Math.max(0.01, Math.max(scaleX, scaleY)));
+        double screenRadius = Math.max(18.0, radius * Math.max(0.01, Math.max(scaleX, scaleY)));
         FocusKey key = FocusKey.of(base);
-        ScreenHit hit = new ScreenHit(key, base, center.getX(), center.getY(), hitRadius, System.nanoTime());
+        ScreenHit hit = new ScreenHit(key, base, center.getX(), center.getY(), screenRadius, System.nanoTime());
         SCREEN_HITS.put(key, hit);
         return hit;
     }
@@ -253,40 +291,37 @@ final class StationPresentation {
         g2.setFont(oldFont);
     }
 
-    private static void drawContextLabel(Graphics2D g2, Base base, BaseType def, double radius,
-                                         Color playerColor, boolean focused) {
-        Font oldFont = g2.getFont();
-        g2.setFont(oldFont.deriveFont(Font.BOLD, 12f));
+    private static void drawHoverCard(Graphics2D g2, ScreenHit hit, int screenWidth, int screenHeight) {
+        if (hit == null || System.nanoTime() - hit.seenNanos() > HIT_STALE_NANOS) return;
+        Base base = hit.base();
+        BaseType def = base.type();
+        Color playerColor = PlayerRegistry.color(base.playerId);
         String title = IntelWarfareSystem.CONTACT_STATION.equals(base.typeId)
                 ? def.name : def.name + " - " + PlayerRegistry.name(base.playerId);
         String summary = conciseStatus(base, def);
-        int width = Math.max(g2.getFontMetrics().stringWidth(title), g2.getFontMetrics().stringWidth(summary)) + 18;
-        int x = (int)Math.round(base.x - width / 2.0);
-        int y = (int)Math.round(base.y + radius + 20);
-        g2.setColor(new Color(0, 0, 0, focused ? 205 : 180));
+
+        Font oldFont = g2.getFont();
+        g2.setFont(oldFont.deriveFont(Font.BOLD, 12f));
+        int width = Math.max(g2.getFontMetrics().stringWidth(title),
+                g2.getFontMetrics().stringWidth(summary)) + 18;
+        width = Math.min(width, Math.max(120, screenWidth - 16));
+        int x = (int)Math.round(hit.centerX() - width / 2.0);
+        int y = (int)Math.round(hit.centerY() + hit.radius() + 12);
+        x = Math.max(8, Math.min(x, screenWidth - width - 8));
+        y = Math.max(8, Math.min(y, screenHeight - 44));
+
+        g2.setColor(new Color(0, 0, 0, 205));
         g2.fillRoundRect(x, y, width, 36, 9, 9);
-        g2.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), focused ? 230 : 180));
+        String warning = criticalWarning(base, def);
+        Color border = warning == null ? playerColor : WARNING;
+        g2.setColor(new Color(border.getRed(), border.getGreen(), border.getBlue(), 225));
         g2.drawRoundRect(x, y, width, 36, 9, 9);
         g2.setColor(playerColor);
-        g2.drawString(title, x + 9, y + 14);
+        g2.drawString(clipToWidth(g2, title, width - 18), x + 9, y + 14);
         g2.setFont(oldFont.deriveFont(Font.PLAIN, 10f));
-        g2.setColor(TEXT);
-        g2.drawString(summary, x + 9, y + 29);
+        g2.setColor(warning == null ? TEXT : WARNING);
+        g2.drawString(clipToWidth(g2, summary, width - 18), x + 9, y + 29);
         g2.setFont(oldFont);
-    }
-
-    private static String conciseStatus(Base base, BaseType def) {
-        String warning = criticalWarning(base, def);
-        if (warning != null) return warning;
-        ProductionJob job = ProductionQueueScheduler.active(base);
-        if (job != null && job.blockedReason != null && !job.blockedReason.isBlank()) {
-            return clip("Production blocked: " + job.blockedReason, 42);
-        }
-        if (job != null) return clip("Producing " + ProductionSystem.displayName(job), 42);
-        if (base.logisticsStatus != null && !base.logisticsStatus.isBlank()) return clip(base.logisticsStatus, 42);
-        StationFuelRequirement req = StationFuelRules.requirement(base.typeId);
-        if (req != null) return "Operational | Fuel " + Calc.round(base.inventory.getOrDefault(req.material(), 0.0));
-        return "Operational";
     }
 
     private static void drawFocusedBars(Graphics2D g2, Base base, BaseType def, double radius, Color playerColor) {
@@ -318,15 +353,16 @@ final class StationPresentation {
         if (screenWidth < 480 || screenHeight < 340) return;
         boolean local = PlayerRegistry.isLocal(base.playerId);
         List<String> inventoryRows = local ? ResourceText.lines(base.inventory) : List.of();
-        int queueRows = local ? Math.min(4, base.productionQueue.size()) : Math.min(1, base.productionQueue.size());
+        int queueRows = local ? Math.min(4, base.productionQueue.size()) : 0;
         int inventoryRowsShown = local ? Math.min(10, inventoryRows.size()) : 0;
-        int desiredHeight = 250 + queueRows * 15 + inventoryRowsShown * 15;
+        int warningHeight = warning == null ? 0 : 31;
+        int desiredHeight = (local ? 250 + queueRows * 15 + inventoryRowsShown * 15 : 174) + warningHeight;
 
         int x = 14;
         int y = 156;
         int panelWidth = Math.min(local && inventoryRows.size() > 8 ? 430 : 360, screenWidth - 28);
         int panelHeight = Math.min(desiredHeight, screenHeight - y - 14);
-        if (panelHeight < 170) return;
+        if (panelHeight < 150) return;
 
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g2.setColor(PANEL);
@@ -359,6 +395,19 @@ final class StationPresentation {
         }
         cursor += 61;
 
+        if (!local) {
+            g2.setFont(g2.getFont().deriveFont(Font.BOLD, 11f));
+            g2.setColor(TEXT);
+            g2.drawString("STATUS", x + 14, cursor);
+            cursor += 17;
+            g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 10f));
+            g2.setColor(MUTED);
+            g2.drawString(warning == null ? "Operational" : warning, x + 16, cursor);
+            g2.drawString(clipToWidth(g2, "Role: " + StationControls.role(base.typeId), panelWidth - 32),
+                    x + 16, cursor + 15);
+            return;
+        }
+
         g2.setFont(g2.getFont().deriveFont(Font.BOLD, 11f));
         g2.setColor(TEXT);
         g2.drawString("OPERATIONS", x + 14, cursor);
@@ -371,9 +420,9 @@ final class StationPresentation {
         g2.setColor(TEXT);
         g2.drawString("PRODUCTION QUEUE", x + 14, cursor);
         cursor += 15;
-        cursor = drawQueue(g2, base, local, x + 16, cursor, panelWidth - 32, y + panelHeight - 34);
+        cursor = drawQueue(g2, base, x + 16, cursor, panelWidth - 32, y + panelHeight - 34);
 
-        if (local && cursor < y + panelHeight - 28) {
+        if (cursor < y + panelHeight - 28) {
             g2.setFont(g2.getFont().deriveFont(Font.BOLD, 11f));
             g2.setColor(TEXT);
             g2.drawString("HANGAR", x + 14, cursor);
@@ -384,7 +433,7 @@ final class StationPresentation {
         }
     }
 
-    private static int drawQueue(Graphics2D g2, Base base, boolean local, int x, int y, int width, int bottom) {
+    private static int drawQueue(Graphics2D g2, Base base, int x, int y, int width, int bottom) {
         g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 10f));
         if (base.productionQueue.isEmpty()) {
             g2.setColor(MUTED);
@@ -392,7 +441,7 @@ final class StationPresentation {
             return y + 15;
         }
 
-        int rows = local ? Math.min(4, base.productionQueue.size()) : 1;
+        int rows = Math.min(4, base.productionQueue.size());
         int cursor = y;
         for (int i = 0; i < rows && cursor < bottom; i++) {
             ProductionJob queued = base.productionQueue.get(i);
@@ -456,7 +505,20 @@ final class StationPresentation {
 
         String role = "Role: " + StationControls.role(base.typeId)
                 + (StationControls.nonProduction(base.typeId) ? " | non-production" : " | production");
+        String intel = intelStatus(base);
+        if (!intel.isBlank()) role += " | " + intel;
         g2.drawString(clipToWidth(g2, role, maxWidth), x, y + 45);
+    }
+
+    private static String intelStatus(Base base) {
+        if (base == null || !PlayerRegistry.isLocal(base.playerId)) return "";
+        if (IntelWarfareSystem.isRadar(base.typeId)) {
+            IntelWarfareSystem.RadarMode mode = IntelWarfareSystem.radarMode(PlayerRegistry.activeWorld(), base);
+            return "Radar " + mode.name() + " | adaptive";
+        }
+        if (IntelWarfareSystem.isJammer(base.typeId)) return "ECM active";
+        if (IntelWarfareSystem.isDecoy(base.typeId)) return "False signature active";
+        return "";
     }
 
     private static void drawInventory(Graphics2D g2, List<String> rows, int x, int y, int width, int availableHeight) {
@@ -518,8 +580,8 @@ final class StationPresentation {
         return point == null || point.x <= Integer.MIN_VALUE / 8 || point.y <= Integer.MIN_VALUE / 8;
     }
 
-    private static final class InspectorOverlay extends JComponent {
-        private InspectorOverlay() {
+    private static final class PresentationOverlay extends JComponent {
+        private PresentationOverlay() {
             setOpaque(false);
             setFocusable(false);
         }
@@ -529,13 +591,21 @@ final class StationPresentation {
         }
 
         @Override protected void paintComponent(Graphics graphics) {
-            Base base = focusedBaseView;
-            if (base == null || System.nanoTime() - focusedBaseSeenNanos > FOCUS_STALE_NANOS) return;
             Graphics2D g2 = (Graphics2D) graphics.create();
             try {
-                BaseType def = base.type();
-                drawInspector(g2, base, def, PlayerRegistry.color(base.playerId),
-                        criticalWarning(base, def), getWidth(), getHeight());
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                ScreenHit hovered = hoveredBase == null ? null : SCREEN_HITS.get(hoveredBase);
+                if (hovered != null && !hovered.key().equals(focusedBase)) {
+                    drawHoverCard(g2, hovered, getWidth(), getHeight());
+                }
+
+                Base base = focusedBaseView;
+                if (base != null && System.nanoTime() - focusedBaseSeenNanos <= FOCUS_STALE_NANOS) {
+                    BaseType def = base.type();
+                    drawInspector(g2, base, def, PlayerRegistry.color(base.playerId),
+                            criticalWarning(base, def), getWidth(), getHeight());
+                }
             } finally {
                 g2.dispose();
             }
