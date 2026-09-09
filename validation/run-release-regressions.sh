@@ -39,6 +39,7 @@ run_java com.tndmadman.rts.NumericCommandValidationValidator repair
 run_java com.tndmadman.rts.NumericCommandValidationValidator serialization
 run_java com.tndmadman.rts.MiningCommandValidationValidator
 run_java com.tndmadman.rts.NarrationProcessValidator
+run_java com.tndmadman.rts.Issue395RespawnAuthorityValidator
 
 # Release compatibility gate: generate a real format-2 save with the published v1.7.0 code,
 # load/migrate it with the current code, exercise authentication, resave, and reload it.
