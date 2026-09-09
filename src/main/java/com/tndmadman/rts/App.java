@@ -25,7 +25,7 @@ public final class App {
         System.out.println(BuildInfo.display());
         Config config;
         try {
-            config = Config.parse(args);
+            config = Config.parse(ScenarioLaunch.configure(args));
         } catch (IllegalArgumentException ex) {
             System.err.println("Invalid startup arguments: " + ex.getMessage());
             System.err.println("Run with --help to view supported options.");
@@ -69,6 +69,8 @@ public final class App {
         System.out.println("  --name NAME             Player or server name");
         System.out.println("  --system SYSTEM_ID      Initial star-system template");
         System.out.println("  --galaxy-copies 1|2     Number of copies per galaxy template");
+        System.out.println("  --scenario ID           Start an authored scenario (server use also requires --new-world)");
+        System.out.println("                          " + ScenarioLaunch.ids());
         System.out.println("  --skirmish-preset ID    peaceful, standard, hostile, or sandbox");
         System.out.println("  --npc-difficulty ID     relaxed, normal, hard, or brutal");
         System.out.println("  --victory-condition ID  Select a victory preset from config/victory-conditions.json");
