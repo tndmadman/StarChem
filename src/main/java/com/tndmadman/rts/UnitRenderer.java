@@ -5,7 +5,6 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.Stroke;
-import java.awt.image.BufferedImage;
 
 /** Renders ship hulls and deliberate gameplay effects, never per-ship status UI. */
 final class UnitRenderer {
@@ -72,14 +71,15 @@ final class UnitRenderer {
     }
 
     private static void drawCachedHull(Graphics2D g2, Unit unit, Color playerColor) {
-        BufferedImage sprite = ShipSpriteCache.sprite(unit, playerColor);
+        ShipSpriteCache.Sprite sprite = ShipSpriteCache.sprite(unit, playerColor);
         if (sprite == null) {
             drawDetailedHull(g2, unit, playerColor);
             return;
         }
-        int size = ShipSpriteCache.imageSize();
-        g2.drawImage(sprite, (int)Math.round(unit.x - size / 2.0),
-                (int)Math.round(unit.y - size / 2.0), null);
+        int size = sprite.worldSize();
+        int x = (int)Math.round(unit.x - size / 2.0);
+        int y = (int)Math.round(unit.y - size / 2.0);
+        g2.drawImage(sprite.image(), x, y, size, size, null);
     }
 
     private static void drawFarMarker(Graphics2D g2, Unit unit, Color playerColor, double scale) {
