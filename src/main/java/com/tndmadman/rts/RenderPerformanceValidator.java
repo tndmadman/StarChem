@@ -30,7 +30,7 @@ public final class RenderPerformanceValidator {
     private static final int WARMUP_FRAMES = 4;
     private static final int SAMPLE_FRAMES = 15;
     private static final double[] ZOOMS = {0.45, 1.0, 1.75};
-    private static final String NEBULA_EXPANSE = "nebula-expanse";
+    private static final String NEBULA_EXPANSE = "nebula_expanse";
     private static final double DEFAULT_MAX_REGRESSION_PERCENT = 20.0;
 
     private RenderPerformanceValidator() { }
