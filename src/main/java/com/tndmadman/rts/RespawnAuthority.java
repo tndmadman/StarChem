@@ -2,42 +2,93 @@ package com.tndmadman.rts;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.WeakHashMap;
 
-/** Server-authoritative, atomic player respawn transaction. */
+/** Server-authoritative, atomic player respawn lifecycle and transaction. */
 final class RespawnAuthority {
+    enum Lifecycle {
+        ACTIVE,
+        DEFEATED,
+        RESPAWNING
+    }
+
     enum Result {
         SPAWNED,
         INVALID_PLAYER,
         LIVE_ASSETS,
+        NOT_ELIGIBLE,
         IN_PROGRESS,
         SPAWN_FAILED;
 
         boolean spawned() { return this == SPAWNED; }
     }
 
-    private static final Map<World, Set<String>> IN_FLIGHT =
+    private static final Map<World, Map<String, Lifecycle>> STATES =
             Collections.synchronizedMap(new WeakHashMap<>());
 
     private RespawnAuthority() { }
+
+    /**
+     * Observe normal authenticated players from the authoritative simulation thread.
+     * A RESPawn packet never creates eligibility; it may only consume DEFEATED state
+     * established here from the server's galaxy-wide asset state.
+     */
+    static void observeRegisteredPlayers(World world) {
+        if (world == null) return;
+        synchronized (world) {
+            Map<String, Lifecycle> states = stateMap(world);
+            for (PlayerInfo player : PlayerRegistry.snapshotPlayers()) {
+                if (player == null || !validPlayerId(player.id())) continue;
+                String playerId = player.id();
+                if (ObserverSessions.isObserver(world, playerId)) {
+                    states.remove(playerId);
+                    continue;
+                }
+
+                Lifecycle current = states.get(playerId);
+                if (current == Lifecycle.RESPAWNING) continue;
+                if (world.hasLiveAssets(playerId)) {
+                    states.put(playerId, Lifecycle.ACTIVE);
+                } else if (current == Lifecycle.ACTIVE || current == null) {
+                    states.put(playerId, Lifecycle.DEFEATED);
+                }
+            }
+        }
+    }
 
     static Result tryRespawn(World world, String playerId) {
         if (world == null || !validPlayerId(playerId)) return Result.INVALID_PLAYER;
 
         synchronized (world) {
-            if (!begin(world, playerId)) return Result.IN_PROGRESS;
-            try {
-                // Defeat is authoritative and galaxy-wide. A client view never defines eligibility.
-                if (world.hasLiveAssets(playerId)) return Result.LIVE_ASSETS;
+            Map<String, Lifecycle> states = stateMap(world);
+            Lifecycle lifecycle = states.get(playerId);
+            if (lifecycle == Lifecycle.RESPAWNING) return Result.IN_PROGRESS;
 
+            // Global live assets always win over any stale lifecycle state.
+            if (world.hasLiveAssets(playerId)) {
+                states.put(playerId, Lifecycle.ACTIVE);
+                return Result.LIVE_ASSETS;
+            }
+            if (lifecycle != Lifecycle.DEFEATED) return Result.NOT_ELIGIBLE;
+
+            states.put(playerId, Lifecycle.RESPAWNING);
+            try {
                 clearDefeatedCombatState(world, playerId);
                 WorldNetAccess.respawnPlayer(world, playerId);
-                return world.hasLiveAssets(playerId) ? Result.SPAWNED : Result.SPAWN_FAILED;
-            } finally {
-                end(world, playerId);
+                if (!world.hasLiveAssets(playerId)) {
+                    states.put(playerId, Lifecycle.DEFEATED);
+                    return Result.SPAWN_FAILED;
+                }
+                states.put(playerId, Lifecycle.ACTIVE);
+                return Result.SPAWNED;
+            } catch (RuntimeException ex) {
+                // A failed transaction remains eligible for a clean retry rather than
+                // getting stuck in RESPAWNING forever.
+                states.put(playerId, Lifecycle.DEFEATED);
+                return Result.SPAWN_FAILED;
             }
         }
     }
@@ -66,23 +117,15 @@ final class RespawnAuthority {
         LogisticsRouteSystem.removePlayer(world, playerId);
     }
 
-    private static boolean begin(World world, String playerId) {
-        synchronized (IN_FLIGHT) {
-            return IN_FLIGHT.computeIfAbsent(world, ignored -> new java.util.LinkedHashSet<>()).add(playerId);
-        }
-    }
-
-    private static void end(World world, String playerId) {
-        synchronized (IN_FLIGHT) {
-            Set<String> players = IN_FLIGHT.get(world);
-            if (players == null) return;
-            players.remove(playerId);
-            if (players.isEmpty()) IN_FLIGHT.remove(world);
+    private static Map<String, Lifecycle> stateMap(World world) {
+        synchronized (STATES) {
+            return STATES.computeIfAbsent(world, ignored -> new LinkedHashMap<>());
         }
     }
 
     private static boolean validPlayerId(String playerId) {
-        return playerId != null && !playerId.isBlank() && !"WAIT".equals(playerId)
+        return playerId != null && !playerId.isBlank()
+                && !"WAIT".equals(playerId) && !"SOLO".equals(playerId)
                 && !NpcRules.isNpcFaction(playerId);
     }
 }
