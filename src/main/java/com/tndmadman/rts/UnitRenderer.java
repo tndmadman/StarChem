@@ -20,15 +20,14 @@ final class UnitRenderer {
 
     static boolean miningRangeOverlayVisible() { return miningRangeOverlayVisible; }
 
-    static void toggleMiningRangeOverlay() {
-        miningRangeOverlayVisible = !miningRangeOverlayVisible;
-    }
+    static void toggleMiningRangeOverlay() { miningRangeOverlayVisible = !miningRangeOverlayVisible; }
 
     static void draw(Graphics2D g2, Unit unit, Color ignoredColor, boolean ignoredOwner) {
         if (g2 == null || unit == null) return;
         Color playerColor = PlayerRegistry.color(unit.playerId);
         SelectionRenderPolicy.Frame frame = SelectionRenderPolicy.currentFrame();
         double scale = frame == null ? SelectionRenderPolicy.scale(g2) : frame.scale();
+        World world = frame == null ? PlayerRegistry.activeWorld() : frame.world();
 
         // Selection deliberately does not change the ship renderer. Hundreds of selected
         // ships therefore cost essentially the same to paint as hundreds of unselected ships.
@@ -36,7 +35,7 @@ final class UnitRenderer {
             frame.noteSelectedDraw(false);
         }
 
-        if (RenderCulling.visible(g2, unit.x, unit.y, 96)) {
+        if (RenderCulling.visible(g2, unit.x, unit.y, 110)) {
             if (scale < 0.24) {
                 drawFarMarker(g2, unit, playerColor, scale);
             } else if (scale < 0.78) {
@@ -44,12 +43,12 @@ final class UnitRenderer {
             } else {
                 drawDetailedHull(g2, unit, playerColor);
             }
+            CombatVfxRenderer.drawUnit(g2, world, unit, playerColor, scale);
         }
 
         // Sensor/mining ranges are still available when explicitly toggled. Selection by
         // itself never turns on a ring, name, HP/cargo bar, weapon range, or status label.
         if (miningRangeOverlayVisible && PlayerRegistry.isLocal(unit.playerId)) {
-            World world = frame == null ? PlayerRegistry.activeWorld() : frame.world();
             double scoutRange = unit.type().scoutRange > 0
                     ? (world == null ? unit.type().scoutRange : VisibilityRules.unitSensorRange(world, unit)) : 0;
             if (scoutRange > 0 && RenderCulling.visible(g2, unit.x, unit.y, scoutRange + 4)) {
@@ -91,9 +90,7 @@ final class UnitRenderer {
         g2.fillOval((int)unit.x - radius, (int)unit.y - radius, radius * 2, radius * 2);
     }
 
-    static double displayedWeaponRange(World world, Unit unit) {
-        return AttackRangeRules.effectiveWeaponRange(world, unit);
-    }
+    static double displayedWeaponRange(World world, Unit unit) { return AttackRangeRules.effectiveWeaponRange(world, unit); }
 
     static void drawRoute(Graphics2D g2, Unit unit, Color ignoredColor) {
         if (g2 == null || unit == null || !PlayerRegistry.isLocal(unit.playerId) || !unit.selected) return;
