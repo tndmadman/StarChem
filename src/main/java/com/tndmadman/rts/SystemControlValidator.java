@@ -46,6 +46,9 @@ public final class SystemControlValidator {
         require(contested.controlStatus() == SystemControlStatus.CONTESTED,
                 "hostile presence in the command zone did not contest control");
 
+        validateSensorConsumer();
+        validateLogisticsConsumer();
+
         PlayerRegistry.reset("SOLO", "Home", 0x50BEFF);
         World home = new World("Home", NO_NPCS, StarSystems.DEFAULT_SYSTEM_ID, true);
         home.bases.put("P2:B2", new Base("P2:B2", "P2", Rules.DEFAULT_BASE, home.width * 0.5, home.height * 0.5));
@@ -71,6 +74,49 @@ public final class SystemControlValidator {
         SystemControlPoint nebula = new SystemControlPoint(StarSystems.get("nebula_expanse"));
         require(Math.abs(nebula.x - StarSystems.get("nebula_expanse").width() * 0.5) > 1,
                 "template-specific control geometry was ignored");
+    }
+
+    private static void validateSensorConsumer() {
+        PlayerRegistry.reset("P1", "Blue", 0x3388FF);
+        PlayerRegistry.register("P1", "Blue", 0x3388FF, true);
+        PlayerRegistry.register("P2", "Red", 0xFF5544, false);
+        World world = new World("Sensor Territory", NO_NPCS, "nebula_expanse", false);
+        PlayerRegistry.activate(world);
+        SystemControlPoint point = new SystemControlPoint(StarSystems.get("nebula_expanse"));
+        world.bases.put("P1:B1", new Base("P1:B1", "P1", Rules.DEFAULT_BASE, point.x, point.y));
+        world.updateCurrentSystem(76.0);
+        require("P1".equals(system(world.authoritativeGalaxyMapSnapshot(), world.activeSystemId()).controllerId()),
+                "sensor validation system was not captured");
+        Unit controller = new Unit("P1", 1, Rules.STARTING_SHIP, 100, 100);
+        Unit outsider = new Unit("P2", 1, Rules.STARTING_SHIP, 100, 100);
+        double controllerRange = IntelWarfareSystem.ordinaryUnitRange(world, controller);
+        double outsiderRange = IntelWarfareSystem.ordinaryUnitRange(world, outsider);
+        require(controllerRange > outsiderRange * 1.20,
+                "strategic sensor bonus is not applied to authoritative sensor range");
+    }
+
+    private static void validateLogisticsConsumer() {
+        PlayerRegistry.reset("P1", "Blue", 0x3388FF);
+        PlayerRegistry.register("P1", "Blue", 0x3388FF, true);
+        PlayerRegistry.register("P2", "Red", 0xFF5544, false);
+        World world = new World("Logistics Territory", NO_NPCS, "ice_belt", false);
+        PlayerRegistry.activate(world);
+        SystemControlPoint point = new SystemControlPoint(StarSystems.get("ice_belt"));
+        world.bases.put("P1:B1", new Base("P1:B1", "P1", Rules.DEFAULT_BASE, point.x, point.y));
+        world.updateCurrentSystem(76.0);
+        require("P1".equals(system(world.authoritativeGalaxyMapSnapshot(), world.activeSystemId()).controllerId()),
+                "logistics validation system was not captured");
+
+        Unit controller = new Unit("P1", 1, LogisticsSystem.SHUTTLE_TYPE, 100, 100);
+        controller.logisticsRequestId = "VALIDATOR";
+        controller.moveTo(2000, 100);
+        Unit outsider = new Unit("P2", 1, LogisticsSystem.SHUTTLE_TYPE, 100, 100);
+        outsider.logisticsRequestId = "VALIDATOR";
+        outsider.moveTo(2000, 100);
+        controller.updatePosition(1.0, world.width, world.height);
+        outsider.updatePosition(1.0, world.width, world.height);
+        require(controller.x - 100 > (outsider.x - 100) * 1.15,
+                "strategic logistics bonus is not applied to logistics movement throughput");
     }
 
     private static GalaxyMapSystem system(GalaxyMapSnapshot snapshot, String id) {
