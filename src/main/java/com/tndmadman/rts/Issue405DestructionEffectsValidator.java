@@ -12,6 +12,7 @@ public final class Issue405DestructionEffectsValidator {
         validateBudgetsAndCleanup();
         validateDamageThreshold();
         validateHeadlessRendering();
+        validateStructureDamageRendering();
         System.out.println("Issue #405 destruction effects validator passed.");
     }
 
@@ -85,16 +86,32 @@ public final class Issue405DestructionEffectsValidator {
         } finally {
             g2.dispose();
         }
-        boolean painted = false;
-        for (int y = 100; y < 300 && !painted; y += 4) {
-            for (int x = 100; x < 400; x += 4) {
-                if ((image.getRGB(x, y) >>> 24) != 0) {
-                    painted = true;
-                    break;
-                }
+        require(hasPaint(image, 100, 100, 400, 300),
+                "Destruction effect produced no visible headless render output.");
+    }
+
+    private static void validateStructureDamageRendering() {
+        BufferedImage image = new BufferedImage(800, 600, BufferedImage.TYPE_INT_ARGB_PRE);
+        Graphics2D g2 = image.createGraphics();
+        g2.setClip(0, 0, image.getWidth(), image.getHeight());
+        try {
+            Base base = new Base("B405", "SOLO", Rules.DEFAULT_BASE, 400, 300);
+            base.hp = Math.max(1, base.type().maxHp * 0.08);
+            DamageStateEffects.drawBase(g2, base, 72);
+        } finally {
+            g2.dispose();
+        }
+        require(hasPaint(image, 300, 200, 500, 400),
+                "Critical station damage state produced no visible headless render output.");
+    }
+
+    private static boolean hasPaint(BufferedImage image, int minX, int minY, int maxX, int maxY) {
+        for (int y = minY; y < maxY; y += 2) {
+            for (int x = minX; x < maxX; x += 2) {
+                if ((image.getRGB(x, y) >>> 24) != 0) return true;
             }
         }
-        require(painted, "Destruction effect produced no visible headless render output.");
+        return false;
     }
 
     private static void require(boolean condition, String message) {
