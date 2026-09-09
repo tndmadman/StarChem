@@ -1,0 +1,45 @@
+{
+  "id": "corsair_endurance",
+  "name": "Corsair Endurance",
+  "description": "Hold the line through a prolonged hostile contact without losing every operational asset.",
+  "multiplayer": "COOP",
+  "startingState": {
+    "ships": [],
+    "stations": [],
+    "completedResearch": {}
+  },
+  "enabledNpcFactions": ["corsair"],
+  "events": {
+    "scenarioEventProfile": "corsair_pressure"
+  },
+  "objectives": [
+    {
+      "id": "fleet_destroyed",
+      "title": "Fleet Destroyed",
+      "description": "Failure: all player assets have been lost.",
+      "kind": "FAILURE",
+      "hidden": true,
+      "trigger": { "type": "LIVE_ASSETS", "target": 0, "comparison": "AT_MOST" }
+    },
+    {
+      "id": "survive_contact",
+      "title": "Survive the Contact",
+      "description": "Keep at least one operational asset alive for five minutes.",
+      "kind": "PRIMARY",
+      "trigger": { "type": "SURVIVE_SECONDS", "target": 300 },
+      "actions": [
+        { "type": "NOTICE", "text": "The hostile pressure is breaking. Hold formation." },
+        { "type": "END_SCENARIO", "outcome": "victory" }
+      ]
+    },
+    {
+      "id": "combat_screen",
+      "title": "Optional: Combat Screen",
+      "description": "Field two armed combat ships during the engagement.",
+      "kind": "OPTIONAL",
+      "trigger": { "type": "OWN_COMBAT_SHIPS", "target": 2 }
+    }
+  ],
+  "completionText": "The fleet survived the Corsair pressure and retained operational control.",
+  "failureText": "All operational assets were lost before the attack could be weathered."
+}
