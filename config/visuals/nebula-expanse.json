@@ -1,0 +1,42 @@
+{
+  "seed": 407009,
+  "background": "#070812",
+  "backgroundAccent": "#15102a",
+  "starColor": "#d9e7ff",
+  "starCount": 520,
+  "parallax": 0.16,
+  "nebula": {
+    "primary": "#6949b8",
+    "secondary": "#315f8f",
+    "highlight": "#bd77d6",
+    "opacity": 0.58,
+    "clouds": 18,
+    "dustCount": 190
+  },
+  "bodies": {
+    "sun": {
+      "style": "star",
+      "accent": "#fff4ae",
+      "atmosphere": "#ff9f45"
+    },
+    "giant": {
+      "style": "gas_giant",
+      "accent": "#c0a6eb",
+      "bands": "#67518e",
+      "atmosphere": "#ad98ee",
+      "storm": "#e8b7d8"
+    },
+    "temperate": {
+      "style": "terrestrial",
+      "accent": "#a9cf8a",
+      "bands": "#416c58",
+      "atmosphere": "#86cbd0"
+    },
+    "ice": {
+      "style": "ice",
+      "accent": "#d8eef7",
+      "bands": "#78a7c9",
+      "atmosphere": "#9fc9ef"
+    }
+  }
+}
