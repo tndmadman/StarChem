@@ -153,8 +153,8 @@ final class EmpireOverviewOverlay {
             Window owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow();
             dialog = new JDialog(owner, "Strategic Empire Overview", Dialog.ModalityType.MODELESS);
             dialog.setDefaultCloseOperation(WindowConstants.HIDE_ON_CLOSE);
-            dialog.setMinimumSize(new Dimension(820, 540));
-            dialog.setSize(Math.max(820, prefs.getInt("width", 1080)), Math.max(540, prefs.getInt("height", 720)));
+            dialog.setMinimumSize(new Dimension(980, 540));
+            dialog.setSize(Math.max(980, prefs.getInt("width", 1260)), Math.max(540, prefs.getInt("height", 720)));
             int px = prefs.getInt("x", Integer.MIN_VALUE);
             int py = prefs.getInt("y", Integer.MIN_VALUE);
             if (px == Integer.MIN_VALUE || py == Integer.MIN_VALUE) dialog.setLocationRelativeTo(owner);
@@ -271,9 +271,10 @@ final class EmpireOverviewOverlay {
             int threshold = ((Number)inventoryThreshold.getValue()).intValue();
             List<RowData> rows = new ArrayList<>();
             for (StrategicSystemRow row : snapshot.systems()) rows.add(new RowData(
-                    new Object[]{row.name(), row.controlled() ? "Controlled" : "Presence", row.ships(), row.stations(),
-                            row.productionJobs(), row.damagedAssets(), row.alerts()},
-                    row.damagedAssets() > 0 || row.alerts() > 0, new NavTarget(row.systemId(), Double.NaN, Double.NaN)));
+                    new Object[]{row.name(), row.controlled() ? "Controlled" : "Presence", row.supply(), row.infrastructure(), row.benefits(),
+                            row.ships(), row.stations(), row.productionJobs(), row.damagedAssets(), row.alerts()},
+                    row.damagedAssets() > 0 || row.alerts() > 0 || "STRAINED".equals(row.supply()) || "ISOLATED".equals(row.supply()),
+                    new NavTarget(row.systemId(), Double.NaN, Double.NaN)));
             tables.get(Tab.SYSTEMS).setRows(rows);
 
             rows = new ArrayList<>();
@@ -484,7 +485,7 @@ final class EmpireOverviewOverlay {
 
         private static String[] columns(Tab tab) {
             return switch (tab) {
-                case SYSTEMS -> new String[]{"System", "Control", "Ships", "Stations", "Jobs", "Damaged", "Alerts"};
+                case SYSTEMS -> new String[]{"System", "Control", "Supply", "Infrastructure", "Benefits", "Ships", "Stations", "Jobs", "Damaged", "Alerts"};
                 case FLEETS -> new String[]{"System", "Ship", "Hull", "Status", "Hull", "Shield"};
                 case STATIONS -> new String[]{"System", "Station", "Type", "Status", "Queue", "Hull", "Inventory"};
                 case PRODUCTION -> new String[]{"System", "Station", "Queue", "Kind", "Item", "Progress", "Remaining", "Blocked"};
@@ -506,7 +507,7 @@ final class EmpireOverviewOverlay {
         private static int systemColumn(Tab tab) { return tab == Tab.RESEARCH ? 0 : 0; }
         private static int statusColumn(Tab tab) {
             return switch (tab) {
-                case SYSTEMS -> 1;
+                case SYSTEMS -> 2;
                 case FLEETS, STATIONS -> 3;
                 case PRODUCTION -> 7;
                 case RESEARCH -> 1;
