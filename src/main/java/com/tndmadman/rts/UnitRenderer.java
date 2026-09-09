@@ -30,8 +30,6 @@ final class UnitRenderer {
         double scale = frame == null ? SelectionRenderPolicy.scale(g2) : frame.scale();
         ShipType shipType = unit.type();
 
-        // Selection deliberately does not change the ship renderer. Hundreds of selected
-        // ships therefore cost essentially the same to paint as hundreds of unselected ships.
         if (frame != null && unit.selected && PlayerRegistry.isLocal(unit.playerId)) {
             frame.noteSelectedDraw(false);
         }
@@ -39,7 +37,6 @@ final class UnitRenderer {
         double visualRadius = Math.max(96,
                 ShipVisualCatalog.forType(shipType).renderRadius(shipType.size.scale));
         if (RenderCulling.visible(g2, unit.x, unit.y, visualRadius)) {
-            // Propulsion is deliberately rendered before the hull so exhaust stays behind the ship.
             CombatVfxSystem.drawPropulsion(g2, unit, scale);
             if (scale < 0.24) {
                 drawFarMarker(g2, unit, playerColor, scale);
@@ -51,8 +48,6 @@ final class UnitRenderer {
             DamageStateEffects.drawUnit(g2, unit, scale);
         }
 
-        // Sensor/mining ranges are still available when explicitly toggled. Selection by
-        // itself never turns on a ring, name, HP/cargo bar, weapon range, or status label.
         if (miningRangeOverlayVisible && PlayerRegistry.isLocal(unit.playerId)) {
             World world = frame == null ? PlayerRegistry.activeWorld() : frame.world();
             double scoutRange = shipType.scoutRange > 0
@@ -73,6 +68,7 @@ final class UnitRenderer {
         s.translate(unit.x, unit.y);
         s.rotate(unit.heading);
         ShipShape.draw(s, unit.type(), playerColor, ShipVisualStyle.variantIndex(unit));
+        ShipSurfaceArt.draw(s, unit.type());
         s.dispose();
     }
 
