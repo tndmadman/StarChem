@@ -81,8 +81,6 @@ final class StationPresentation {
                 && (base.hp < def.maxHp * 0.999 || base.shield < def.maxShield * 0.999);
         if (recentlyHit) return "UNDER ATTACK";
         if (def.maxHp > 0 && base.hp / def.maxHp <= 0.35) return "CRITICAL DAMAGE";
-        ProductionJob job = ProductionQueueScheduler.active(base);
-        if (job != null && job.blockedReason != null && !job.blockedReason.isBlank()) return "PRODUCTION BLOCKED";
         return null;
     }
 
@@ -212,6 +210,9 @@ final class StationPresentation {
         String warning = criticalWarning(base, def);
         if (warning != null) return warning;
         ProductionJob job = ProductionQueueScheduler.active(base);
+        if (job != null && job.blockedReason != null && !job.blockedReason.isBlank()) {
+            return clip("Production blocked: " + job.blockedReason, 42);
+        }
         if (job != null) return clip("Producing " + ProductionSystem.displayName(job), 42);
         if (base.logisticsStatus != null && !base.logisticsStatus.isBlank()) return clip(base.logisticsStatus, 42);
         StationFuelRequirement req = StationFuelRules.requirement(base.typeId);
