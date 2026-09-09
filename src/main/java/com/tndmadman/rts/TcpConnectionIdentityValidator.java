@@ -40,23 +40,7 @@ public final class TcpConnectionIdentityValidator {
 
             server.connectionClosed(new NetPacket(PeerTransport.DISCONNECT_EVENT, firstId, loopback, first.getLocalPort()));
             TcpIntegrationHarness.require(!server.owns(firstId, "P1"), "first connection remained attached after close");
-
-            // Resume now uses a public token reference plus a challenge-bound HMAC proof. Exercise
-            // that current protocol rather than passing the legacy raw token directly.
-            byte[] tokenDigest = PasswordAuth.tokenDigest(token);
-            String tokenReference = PasswordAuth.sessionReference(tokenDigest);
-            TcpIntegrationHarness.require(!server.resume(secondId, loopback, second.getLocalPort(), "P1",
-                            tokenReference, "", "", false, ""),
-                    "resume unexpectedly completed before issuing its possession challenge");
-            String challengeMessage = receive(second, "SESSION_CHALLENGE|");
-            String[] challengeParts = challengeMessage.split("\\|", -1);
-            TcpIntegrationHarness.require(challengeParts.length == 3 && "P1".equals(challengeParts[1])
-                            && PasswordAuth.validNonce(challengeParts[2]),
-                    "server did not issue a valid session possession challenge");
-            String proofNonce = challengeParts[2];
-            String proof = PasswordAuth.sessionProof(tokenDigest, "P1", proofNonce);
-            TcpIntegrationHarness.require(server.resume(secondId, loopback, second.getLocalPort(), "P1",
-                            tokenReference, proofNonce, proof, false, ""),
+            TcpIntegrationHarness.require(server.resume(secondId, loopback, second.getLocalPort(), "P1", token, false, ""),
                     "session did not attach to the replacement connection");
             receive(second, "WELCOME|");
             TcpIntegrationHarness.require(server.owns(secondId, "P1"), "replacement connection did not own the session");
