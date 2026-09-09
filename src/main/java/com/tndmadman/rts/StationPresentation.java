@@ -3,6 +3,7 @@ package com.tndmadman.rts;
 import javax.swing.JComponent;
 import javax.swing.JLayeredPane;
 import javax.swing.JRootPane;
+import javax.swing.MenuSelectionManager;
 import javax.swing.SwingUtilities;
 import java.awt.*;
 import java.awt.event.AWTEventListener;
@@ -19,9 +20,10 @@ import java.util.Map;
 /**
  * View-only station presentation policy for issue #398.
  *
- * Ordinary stations stay visually quiet. Hover resolves to one nearest station and is drawn
- * in screen space after the world pass, while selection exposes tactical range/health and a
- * persistent inspector. No simulation, networking, persistence, or station authority lives here.
+ * Ordinary stations stay visually quiet. Hover resolves to one nearest visible station and is
+ * drawn in screen space after the world pass, while focus exposes tactical range/health and a
+ * persistent inspector. Context hit-testing obeys fog-of-war and avoids primary HUD surfaces.
+ * No simulation, networking, persistence, or station authority lives here.
  */
 final class StationPresentation {
     private static final Color PANEL = new Color(5, 11, 16, 232);
@@ -36,11 +38,14 @@ final class StationPresentation {
     private static final int CLICK_DRAG_TOLERANCE_PX = 8;
     private static final long HIT_STALE_NANOS = 500_000_000L;
     private static final long FOCUS_STALE_NANOS = 1_000_000_000L;
+    private static final Rectangle PRIMARY_HUD = new Rectangle(12, 12, 1120, 132);
+    private static final MinimapHud MINIMAP_HIT_TEST = new MinimapHud();
 
     private static final Map<FocusKey, ScreenHit> SCREEN_HITS = new LinkedHashMap<>();
     private static GamePanel surface;
     private static Point pointer = offscreenPoint();
     private static Point pressPoint;
+    private static String pressSystemId = "";
     private static FocusKey hoveredBase;
     private static FocusKey focusedBase;
     private static Base focusedBaseView;
@@ -66,24 +71,24 @@ final class StationPresentation {
         syncOverlayBounds();
         ScreenHit current = registerScreenHit(g2, base, radius);
 
-        // Re-resolve after each registration, but do not paint hover UI here. Swing paints the
-        // overlay after the world, so only the final nearest result can produce a hover card.
+        // Re-resolve after each registration, but never paint hover UI in world space. The Swing
+        // overlay paints after the world, so only the final nearest visible result can be shown.
         FocusKey nextHovered = isOffscreen(pointer) ? null : hitAt(pointer);
         if (!java.util.Objects.equals(nextHovered, hoveredBase)) {
             hoveredBase = nextHovered;
-            if (presentationOverlay != null) presentationOverlay.repaint();
+            repaintOverlay();
         }
 
         drawOwnershipCue(g2, base, radius, playerColor);
         String warning = criticalWarning(base, def);
         if (warning != null) drawWarningBadge(g2, base, radius, warning);
 
-        if (current.key().equals(focusedBase)) {
+        if (current != null && current.key().equals(focusedBase)) {
             drawRange(g2, base, def, playerColor);
             drawFocusedBars(g2, base, def, radius, playerColor);
             focusedBaseView = base;
             focusedBaseSeenNanos = System.nanoTime();
-            if (presentationOverlay != null) presentationOverlay.repaint();
+            repaintOverlay();
         }
     }
 
@@ -103,9 +108,8 @@ final class StationPresentation {
         String warning = criticalWarning(base, def);
         if (warning != null) return warning;
 
-        // Do not turn contextual UI into an intelligence side-channel. The previous world
-        // overlays were visually noisy; moving them into a panel is not a reason to expose
-        // another player's inventory, production queue, fuel amount, or logistics details.
+        // Moving information out of permanent world labels must not create an intelligence
+        // side-channel. Foreign stations expose only public tactical state.
         if (!PlayerRegistry.isLocal(base.playerId)) return "Operational";
 
         ProductionJob job = ProductionQueueScheduler.active(base);
@@ -124,8 +128,11 @@ final class StationPresentation {
     static String resolveNearestHoverIdForTest(Graphics2D g2, Point point, Base... bases) {
         SCREEN_HITS.clear();
         if (g2 == null || bases == null) return "";
+        long now = System.nanoTime();
         for (Base base : bases) {
-            if (base != null) registerScreenHit(g2, base, 64);
+            if (base == null) continue;
+            FocusKey key = FocusKey.of(base);
+            SCREEN_HITS.put(key, new ScreenHit(key, base, base.x, base.y, 64, now));
         }
         FocusKey key = hitAt(point);
         return key == null ? "" : key.id();
@@ -142,10 +149,11 @@ final class StationPresentation {
             installPresentationOverlay(panel);
         }
         syncOverlayBounds();
+        boolean eligible = pointerEligible(panel, mouse.getPoint());
         switch (mouse.getID()) {
             case MouseEvent.MOUSE_MOVED, MouseEvent.MOUSE_DRAGGED, MouseEvent.MOUSE_ENTERED -> {
-                pointer = mouse.getPoint();
-                hoveredBase = hitAt(pointer);
+                pointer = eligible ? mouse.getPoint() : offscreenPoint();
+                hoveredBase = eligible ? hitAt(pointer) : null;
                 repaintOverlay();
             }
             case MouseEvent.MOUSE_EXITED -> {
@@ -154,28 +162,70 @@ final class StationPresentation {
                 repaintOverlay();
             }
             case MouseEvent.MOUSE_PRESSED -> {
-                pointer = mouse.getPoint();
-                if (mouse.getButton() == MouseEvent.BUTTON1) pressPoint = mouse.getPoint();
+                pointer = eligible ? mouse.getPoint() : offscreenPoint();
+                hoveredBase = eligible ? hitAt(pointer) : null;
+                if (mouse.getButton() == MouseEvent.BUTTON1 && eligible) {
+                    pressPoint = mouse.getPoint();
+                    pressSystemId = currentSystemId();
+                } else {
+                    pressPoint = null;
+                    pressSystemId = "";
+                }
             }
             case MouseEvent.MOUSE_RELEASED -> {
-                pointer = mouse.getPoint();
-                hoveredBase = hitAt(pointer);
+                pointer = eligible ? mouse.getPoint() : offscreenPoint();
+                hoveredBase = eligible ? hitAt(pointer) : null;
                 if (mouse.getButton() == MouseEvent.BUTTON1 && pressPoint != null) {
-                    if (pressPoint.distance(mouse.getPoint()) <= CLICK_DRAG_TOLERANCE_PX) {
+                    boolean sameSystem = pressSystemId.equals(currentSystemId());
+                    if (eligible && sameSystem && pressPoint.distance(mouse.getPoint()) <= CLICK_DRAG_TOLERANCE_PX) {
                         focusedBase = hitAt(mouse.getPoint());
                         ScreenHit selected = focusedBase == null ? null : SCREEN_HITS.get(focusedBase);
                         focusedBaseView = selected == null ? null : selected.base();
                         if (selected != null) focusedBaseSeenNanos = System.nanoTime();
-                    } else {
+                    } else if (eligible && sameSystem
+                            && pressPoint.distance(mouse.getPoint()) > CLICK_DRAG_TOLERANCE_PX) {
+                        // A real world-space drag selection supersedes station focus. HUD clicks do not.
                         focusedBase = null;
                         focusedBaseView = null;
                     }
                     pressPoint = null;
+                    pressSystemId = "";
                 }
                 repaintOverlay();
             }
             default -> { }
         }
+    }
+
+    private static boolean pointerEligible(GamePanel panel, Point point) {
+        if (panel == null || point == null || galaxyMapAppearsOpen()) return false;
+        if (MenuSelectionManager.defaultManager().getSelectedPath().length > 0) return false;
+        if (PRIMARY_HUD.contains(point)) return false;
+        World world = PlayerRegistry.activeWorld();
+        if (world != null && panel.getWidth() > 0 && panel.getHeight() > 0
+                && MINIMAP_HIT_TEST.bounds(world, panel.getWidth(), panel.getHeight()).contains(point)) return false;
+        return true;
+    }
+
+    private static boolean galaxyMapAppearsOpen() {
+        World world = PlayerRegistry.activeWorld();
+        if (world == null || world.status == null) return false;
+        return world.status.startsWith("Galaxy map open.");
+    }
+
+    private static boolean contextVisible(Base base) {
+        if (base == null) return false;
+        World world = PlayerRegistry.activeWorld();
+        if (world == null) return true;
+        if (!currentSystemId().equals(FocusKey.of(base).systemId())) return false;
+        return PlayerRegistry.isLocal(base.playerId)
+                || FogOfWarView.currentlyVisible(world, base.x, base.y);
+    }
+
+    private static String currentSystemId() {
+        World world = PlayerRegistry.activeWorld();
+        String id = world == null ? "" : world.activeSystemId();
+        return id == null ? "" : id;
     }
 
     private static void installPresentationOverlay(GamePanel panel) {
@@ -216,11 +266,29 @@ final class StationPresentation {
     }
 
     private static ScreenHit registerScreenHit(Graphics2D g2, Base base, double radius) {
-        AffineTransform tx = componentTransform(g2);
-        Point2D center = tx.transform(new Point2D.Double(base.x, base.y), null);
-        double scaleX = Math.hypot(tx.getScaleX(), tx.getShearY());
-        double scaleY = Math.hypot(tx.getShearX(), tx.getScaleY());
-        double screenRadius = Math.max(18.0, radius * Math.max(0.01, Math.max(scaleX, scaleY)));
+        if (!contextVisible(base)) {
+            SCREEN_HITS.remove(FocusKey.of(base));
+            return null;
+        }
+        Point2D center;
+        World world = PlayerRegistry.activeWorld();
+        GameCamera camera = GameCamera.forWorld(world);
+        if (camera != null) {
+            center = camera.worldToScreen(base.x, base.y);
+        } else {
+            AffineTransform tx = componentTransform(g2);
+            center = tx.transform(new Point2D.Double(base.x, base.y), null);
+        }
+        double screenRadius;
+        if (camera != null) {
+            Point2D edge = camera.worldToScreen(base.x + radius, base.y);
+            screenRadius = Math.max(18.0, Math.abs(edge.getX() - center.getX()));
+        } else {
+            AffineTransform tx = componentTransform(g2);
+            double scaleX = Math.hypot(tx.getScaleX(), tx.getShearY());
+            double scaleY = Math.hypot(tx.getShearX(), tx.getScaleY());
+            screenRadius = Math.max(18.0, radius * Math.max(0.01, Math.max(scaleX, scaleY)));
+        }
         FocusKey key = FocusKey.of(base);
         ScreenHit hit = new ScreenHit(key, base, center.getX(), center.getY(), screenRadius, System.nanoTime());
         SCREEN_HITS.put(key, hit);
@@ -230,7 +298,9 @@ final class StationPresentation {
     private static FocusKey hitAt(Point point) {
         if (point == null || isOffscreen(point)) return null;
         long now = System.nanoTime();
-        SCREEN_HITS.entrySet().removeIf(entry -> now - entry.getValue().seenNanos() > HIT_STALE_NANOS);
+        SCREEN_HITS.entrySet().removeIf(entry -> now - entry.getValue().seenNanos() > HIT_STALE_NANOS
+                || !entry.getKey().systemId().equals(currentSystemId())
+                || !contextVisible(entry.getValue().base()));
         ScreenHit best = null;
         double bestDistanceSq = Double.POSITIVE_INFINITY;
         for (ScreenHit hit : SCREEN_HITS.values()) {
@@ -252,7 +322,7 @@ final class StationPresentation {
             AffineTransform deviceInverse = target.getGraphicsConfiguration().getDefaultTransform().createInverse();
             tx.preConcatenate(deviceInverse);
         } catch (NoninvertibleTransformException ignored) {
-            // Fall back to the graphics transform; this still behaves correctly on ordinary 1x displays.
+            // Fall back to the graphics transform on an unusual display configuration.
         }
         return tx;
     }
@@ -292,7 +362,9 @@ final class StationPresentation {
     }
 
     private static void drawHoverCard(Graphics2D g2, ScreenHit hit, int screenWidth, int screenHeight) {
-        if (hit == null || System.nanoTime() - hit.seenNanos() > HIT_STALE_NANOS) return;
+        if (hit == null || !contextVisible(hit.base())
+                || !hit.key().systemId().equals(currentSystemId())
+                || System.nanoTime() - hit.seenNanos() > HIT_STALE_NANOS) return;
         Base base = hit.base();
         BaseType def = base.type();
         Color playerColor = PlayerRegistry.color(base.playerId);
@@ -350,7 +422,7 @@ final class StationPresentation {
 
     private static void drawInspector(Graphics2D g2, Base base, BaseType def,
                                       Color playerColor, String warning, int screenWidth, int screenHeight) {
-        if (screenWidth < 480 || screenHeight < 340) return;
+        if (screenWidth < 480 || screenHeight < 340 || !contextVisible(base)) return;
         boolean local = PlayerRegistry.isLocal(base.playerId);
         List<String> inventoryRows = local ? ResourceText.lines(base.inventory) : List.of();
         int queueRows = local ? Math.min(4, base.productionQueue.size()) : 0;
@@ -591,6 +663,7 @@ final class StationPresentation {
         }
 
         @Override protected void paintComponent(Graphics graphics) {
+            if (galaxyMapAppearsOpen()) return;
             Graphics2D g2 = (Graphics2D) graphics.create();
             try {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -601,7 +674,10 @@ final class StationPresentation {
                 }
 
                 Base base = focusedBaseView;
-                if (base != null && System.nanoTime() - focusedBaseSeenNanos <= FOCUS_STALE_NANOS) {
+                if (base != null && focusedBase != null
+                        && focusedBase.systemId().equals(currentSystemId())
+                        && contextVisible(base)
+                        && System.nanoTime() - focusedBaseSeenNanos <= FOCUS_STALE_NANOS) {
                     BaseType def = base.type();
                     drawInspector(g2, base, def, PlayerRegistry.color(base.playerId),
                             criticalWarning(base, def), getWidth(), getHeight());
@@ -615,10 +691,9 @@ final class StationPresentation {
     private record ScreenHit(FocusKey key, Base base, double centerX, double centerY,
                              double radius, long seenNanos) { }
 
-    private record FocusKey(String id, String playerId, String typeId, long xBits, long yBits) {
+    private record FocusKey(String systemId, String id, String playerId, String typeId) {
         static FocusKey of(Base base) {
-            return new FocusKey(base.id, base.playerId, base.typeId,
-                    Double.doubleToLongBits(base.x), Double.doubleToLongBits(base.y));
+            return new FocusKey(currentSystemId(), base.id, base.playerId, base.typeId);
         }
     }
 }
