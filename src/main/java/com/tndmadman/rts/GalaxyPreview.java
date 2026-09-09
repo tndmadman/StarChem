@@ -37,7 +37,11 @@ record GalaxyPreview(
                     "", "Neutral", SystemControlStatus.NEUTRAL, 0, 0x8A96A3));
         }
         List<GalaxyMapLink> links = new ArrayList<>();
-        for (GalaxyLinkSpec link : plan.links()) links.add(new GalaxyMapLink(link.fromSystemId(), link.toSystemId()));
+        for (GalaxyLinkSpec link : plan.links()) {
+            if (link.kind() == GalaxyLinkKind.PERMANENT) {
+                links.add(new GalaxyMapLink(link.fromSystemId(), link.toSystemId()));
+            }
+        }
         return new GalaxyMapSnapshot(plan.entrySystemId(), List.copyOf(systems), List.copyOf(links));
     }
 
@@ -74,6 +78,7 @@ record GalaxyPreview(
         Map<String,Set<String>> graph = new HashMap<>();
         for (GalaxyInstanceSpec system : plan.systems()) graph.put(system.id(), new LinkedHashSet<>());
         for (GalaxyLinkSpec link : plan.links()) {
+            if (link.kind() != GalaxyLinkKind.PERMANENT) continue;
             graph.computeIfAbsent(link.fromSystemId(), ignored -> new LinkedHashSet<>()).add(link.toSystemId());
             graph.computeIfAbsent(link.toSystemId(), ignored -> new LinkedHashSet<>()).add(link.fromSystemId());
         }
