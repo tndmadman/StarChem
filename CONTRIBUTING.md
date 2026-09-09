@@ -20,3 +20,9 @@ bash validation/run-release-regressions.sh 'build/classes/java/main:build/resour
 Release-facing documentation is part of the compatibility contract. Changes to application version, multiplayer protocol, rules version, save format, authentication, TLS identity handling, command-line options, packaging, launchers, or persistent-server migration must update the corresponding documentation and pass the release metadata/docs validators.
 
 The current publishing path is `.github/workflows/release.yml`. Do not re-enable historical one-shot release workflows or manually substitute artifacts for a validated tagged release.
+
+## World visual design contract
+
+Changes to ships, stations, celestial bodies, resources, world backgrounds, world-space overlays, or VFX should follow [`docs/visual-design-language.md`](docs/visual-design-language.md).
+
+Treat that document as the shared art-direction contract: authored role identity and readable silhouettes take priority over procedural variation, neutral physical materials take priority over full-hull player color, and glow should communicate actual emission or deliberate gameplay effects rather than act as a default outline. When a graphics change intentionally needs a different rule, update the visual-design contract in the same change so later graphics work does not silently diverge.
