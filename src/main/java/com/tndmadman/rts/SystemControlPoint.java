@@ -19,7 +19,7 @@ final class SystemControlPoint {
         x = width * strategic.controlX();
         y = height * strategic.controlY();
         radius = Math.max(300, Math.min(width, height) * strategic.controlRadius());
-        benefitLabel = strategic.summary();
+        benefitLabel = strategic.standardBenefits() ? "" : strategic.summary();
     }
 
     boolean contains(double px, double py) {
