@@ -97,6 +97,8 @@ final class BuildSystem {
         }
         String baseId = nextBaseId(world, carrier.playerId);
         world.bases.put(baseId, new Base(baseId, carrier.playerId, carrier.basePackageType, carrier.x, carrier.y));
+        StrategicSupplyService.invalidate(world);
+        StrategicSummaryService.invalidate(world);
         world.units.remove(carrier.key());
         world.status = "Placed " + placed.name + ". Deployer consumed.";
         SystemAudio.playForPlayer(world, carrier.playerId, SoundCue.PLACE_STATION);
