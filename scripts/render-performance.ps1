@@ -13,5 +13,5 @@ foreach ($arg in $args) {
     }
 }
 
-& .\gradlew.bat @gradleArgs
+& gradle @gradleArgs
 exit $LASTEXITCODE
