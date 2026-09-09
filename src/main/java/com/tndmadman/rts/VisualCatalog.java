@@ -20,12 +20,12 @@ final class VisualCatalog {
     private final Map<String, ShipVisualDefinition> ships;
     private final Map<String, StationVisualDefinition> stations;
     private final Map<String, SystemVisualDefinition> systems;
-    private final Map<String, CelestialVisualDefinition> celestials;
+    private final Map<String, CatalogCelestialVisualDefinition> celestials;
 
     private VisualCatalog(Map<String, ShipVisualDefinition> ships,
                           Map<String, StationVisualDefinition> stations,
                           Map<String, SystemVisualDefinition> systems,
-                          Map<String, CelestialVisualDefinition> celestials) {
+                          Map<String, CatalogCelestialVisualDefinition> celestials) {
         this.ships = Map.copyOf(ships);
         this.stations = Map.copyOf(stations);
         this.systems = Map.copyOf(systems);
@@ -44,8 +44,8 @@ final class VisualCatalog {
         return current().systems.getOrDefault(normalize(systemId), SystemVisualDefinition.FALLBACK);
     }
 
-    static CelestialVisualDefinition celestial(String systemId, String bodyId) {
-        return current().celestials.getOrDefault(celestialKey(systemId, bodyId), CelestialVisualDefinition.FALLBACK);
+    static CatalogCelestialVisualDefinition celestial(String systemId, String bodyId) {
+        return current().celestials.getOrDefault(celestialKey(systemId, bodyId), CatalogCelestialVisualDefinition.FALLBACK);
     }
 
     /** Reload cosmetic content without touching gameplay state; cached sprites are invalidated. */
@@ -134,7 +134,7 @@ final class VisualCatalog {
                 putUnique(systems, id, new SystemVisualDefinition(id, orbitColor, orbitAlpha, seed), "system visual");
             }
 
-            Map<String, CelestialVisualDefinition> celestials = new LinkedHashMap<>();
+            Map<String, CatalogCelestialVisualDefinition> celestials = new LinkedHashMap<>();
             for (Object raw : ServerSaveStore.list(root.get("celestials"))) {
                 Map<String, Object> row = ServerSaveStore.object(raw);
                 String systemId = requiredId(row, "systemId", "celestial visual system");
@@ -146,7 +146,7 @@ final class VisualCatalog {
                         systemId + "/" + bodyId);
                 int seed = ServerSaveStore.intValue(row, "seed", stableSeed(systemId + "/" + bodyId));
                 String key = celestialKey(systemId, bodyId);
-                if (celestials.putIfAbsent(key, new CelestialVisualDefinition(systemId, bodyId, style,
+                if (celestials.putIfAbsent(key, new CatalogCelestialVisualDefinition(systemId, bodyId, style,
                         color, glowScale, seed)) != null) {
                     throw new IllegalStateException("Duplicate celestial visual id: " + systemId + "/" + bodyId);
                 }
