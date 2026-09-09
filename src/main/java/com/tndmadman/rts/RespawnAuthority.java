@@ -2,9 +2,11 @@ package com.tndmadman.rts;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.WeakHashMap;
 
 /** Server-authoritative, atomic player respawn lifecycle and transaction. */
@@ -39,6 +41,17 @@ final class RespawnAuthority {
     static void observeRegisteredPlayers(World world) {
         if (world == null) return;
         synchronized (world) {
+            Set<String> liveOwners = new HashSet<>();
+            for (WorldSystemState system : world.policySystemStates()) {
+                if (system == null) continue;
+                for (Unit unit : system.units.values()) {
+                    if (unit != null && unit.hp > 0 && validPlayerId(unit.playerId)) liveOwners.add(unit.playerId);
+                }
+                for (Base base : system.bases.values()) {
+                    if (base != null && base.hp > 0 && validPlayerId(base.playerId)) liveOwners.add(base.playerId);
+                }
+            }
+
             Map<String, Lifecycle> states = stateMap(world);
             for (PlayerInfo player : PlayerRegistry.snapshotPlayers()) {
                 if (player == null || !validPlayerId(player.id())) continue;
@@ -50,7 +63,7 @@ final class RespawnAuthority {
 
                 Lifecycle current = states.get(playerId);
                 if (current == Lifecycle.RESPAWNING) continue;
-                if (world.hasLiveAssets(playerId)) {
+                if (liveOwners.contains(playerId)) {
                     states.put(playerId, Lifecycle.ACTIVE);
                 } else if (current == Lifecycle.ACTIVE || current == null) {
                     states.put(playerId, Lifecycle.DEFEATED);
