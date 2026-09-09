@@ -21,17 +21,36 @@ public final class Issue395RespawnAuthorityValidator {
     static void validateOrThrow() {
         try {
             GalaxyRuntimeOptions.configureCopies(1);
+            validateUnobservedZeroAssetsRejected();
             validateLiveAssetsRejected();
             validateRemoteAssetsRejected();
             validateOneShotHomeRespawn();
             validateConcurrentDuplicateRespawn();
+            validateLaterDefeatCanRespawnAgain();
         } finally {
             GalaxyRuntimeOptions.configureCopies(1);
         }
     }
 
+    private static void validateUnobservedZeroAssetsRejected() {
+        World world = freshWorld("Issue 395 Eligibility", false);
+        clearPlayerCombatAssets(world, PLAYER_ID);
+        require(!world.hasLiveAssets(PLAYER_ID), "validator could not establish an unobserved zero-asset state");
+
+        RespawnAuthority.Result rejected = RespawnAuthority.tryRespawn(world, PLAYER_ID);
+        require(rejected == RespawnAuthority.Result.NOT_ELIGIBLE,
+                "RESPAWN packet manufactured eligibility from an untracked zero-asset state");
+        require(liveUnitCount(world, PLAYER_ID) == 0 && liveBaseCount(world, PLAYER_ID) == 0,
+                "ineligible respawn mutated the player's force");
+
+        RespawnAuthority.observeRegisteredPlayers(world);
+        RespawnAuthority.Result accepted = RespawnAuthority.tryRespawn(world, PLAYER_ID);
+        require(accepted == RespawnAuthority.Result.SPAWNED,
+                "authoritative defeat observation did not create valid respawn eligibility");
+    }
+
     private static void validateLiveAssetsRejected() {
-        World world = freshWorld("Issue 395 Live Assets");
+        World world = freshWorld("Issue 395 Live Assets", true);
         int unitsBefore = liveUnitCount(world, PLAYER_ID);
         int basesBefore = liveBaseCount(world, PLAYER_ID);
 
@@ -43,7 +62,7 @@ public final class Issue395RespawnAuthorityValidator {
     }
 
     private static void validateRemoteAssetsRejected() {
-        World world = freshWorld("Issue 395 Remote Assets");
+        World world = freshWorld("Issue 395 Remote Assets", true);
         String home = world.playerHomeSystemId(PLAYER_ID);
         String remote = firstSystemOtherThan(world, home);
         require(!remote.isBlank(), "validator could not find a remote system");
@@ -54,6 +73,7 @@ public final class Issue395RespawnAuthorityValidator {
                 "validator setup left player assets in the viewed home system");
         require(world.hasLiveAssets(PLAYER_ID),
                 "validator setup did not retain live assets in another system");
+        RespawnAuthority.observeRegisteredPlayers(world);
 
         RespawnAuthority.Result result = RespawnAuthority.tryRespawn(world, PLAYER_ID);
         require(result == RespawnAuthority.Result.LIVE_ASSETS,
@@ -63,13 +83,14 @@ public final class Issue395RespawnAuthorityValidator {
     }
 
     private static void validateOneShotHomeRespawn() {
-        World world = freshWorld("Issue 395 One Shot");
+        World world = freshWorld("Issue 395 One Shot", true);
         String home = world.playerHomeSystemId(PLAYER_ID);
         String viewed = firstSystemOtherThan(world, home);
         require(!viewed.isBlank(), "validator could not find a non-home viewed system");
 
         clearPlayerCombatAssets(world, PLAYER_ID);
         require(!world.hasLiveAssets(PLAYER_ID), "validator could not establish a defeated player state");
+        RespawnAuthority.observeRegisteredPlayers(world);
         world.activateSystem(viewed);
 
         RespawnAuthority.Result first = RespawnAuthority.tryRespawn(world, PLAYER_ID);
@@ -90,9 +111,10 @@ public final class Issue395RespawnAuthorityValidator {
     }
 
     private static void validateConcurrentDuplicateRespawn() {
-        World world = freshWorld("Issue 395 Concurrent");
+        World world = freshWorld("Issue 395 Concurrent", true);
         clearPlayerCombatAssets(world, PLAYER_ID);
         require(!world.hasLiveAssets(PLAYER_ID), "validator could not establish concurrent defeated state");
+        RespawnAuthority.observeRegisteredPlayers(world);
 
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);
@@ -118,13 +140,29 @@ public final class Issue395RespawnAuthorityValidator {
                 "concurrent duplicate packets created more than one starter group");
     }
 
-    private static World freshWorld(String name) {
+    private static void validateLaterDefeatCanRespawnAgain() {
+        World world = freshWorld("Issue 395 Later Defeat", true);
+        clearPlayerCombatAssets(world, PLAYER_ID);
+        RespawnAuthority.observeRegisteredPlayers(world);
+        require(RespawnAuthority.tryRespawn(world, PLAYER_ID) == RespawnAuthority.Result.SPAWNED,
+                "first legitimate defeat could not respawn");
+
+        clearPlayerCombatAssets(world, PLAYER_ID);
+        RespawnAuthority.observeRegisteredPlayers(world);
+        require(RespawnAuthority.tryRespawn(world, PLAYER_ID) == RespawnAuthority.Result.SPAWNED,
+                "a later genuine defeat could not become respawn-eligible again");
+        require(liveUnitCount(world, PLAYER_ID) == 1 && liveBaseCount(world, PLAYER_ID) == 1,
+                "later legitimate respawn did not produce exactly one starter group");
+    }
+
+    private static World freshWorld(String name, boolean observeLifecycle) {
         PlayerRegistry.reset("WAIT", name, 0x50BEFF);
         World world = new World(name, Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
         PlayerRegistry.activate(world);
         PlayerRegistry.register(PLAYER_ID, name, 0xFF5F55, false);
         WorldNetAccess.addPeerGroup(world, PLAYER_ID);
         require(world.hasLiveAssets(PLAYER_ID), "validator failed to create initial player assets");
+        if (observeLifecycle) RespawnAuthority.observeRegisteredPlayers(world);
         return world;
     }
 
