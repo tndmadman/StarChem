@@ -14,6 +14,7 @@ final class CelestialSystem {
     private final double sunY;
     private final SpaceBackgroundRenderer background;
     private final String visualSystemId;
+    private final SystemVisualDefinition systemVisual;
     private double visualTime;
 
     CelestialSystem(int worldW, int worldH, Random random) {
@@ -28,6 +29,7 @@ final class CelestialSystem {
         this.definition = definition == null ? StarSystems.defaultSystem() : definition;
         Random source = random == null ? new Random(this.definition.id().hashCode()) : random;
         visualSystemId = this.definition.id();
+        systemVisual = VisualCatalog.system(visualSystemId);
         sunX = offsetX + this.definition.width() / 2.0;
         sunY = offsetY + this.definition.height() / 2.0;
         background = new SpaceBackgroundRenderer(this.definition);
@@ -42,18 +44,25 @@ final class CelestialSystem {
             double x = parent == null ? sunX : 0;
             double y = parent == null ? sunY : 0;
             double angle = bodyDef.orbitRadius() <= 0 ? 0 : random.nextDouble() * Math.PI * 2;
-            CelestialVisualDefinition visual = CelestialVisualCatalog.resolve(visualSystemId, bodyDef);
-            long detailSeed = detailSeed(visualSystemId, bodyDef.id(), visual.id(), angle);
+            CatalogCelestialVisualDefinition catalogVisual = VisualCatalog.celestial(visualSystemId, bodyDef.id());
+            CelestialVisualDefinition visual = applyCatalogMetadata(
+                    CelestialVisualCatalog.resolve(visualSystemId, bodyDef), catalogVisual);
+            long detailSeed = detailSeed(visualSystemId, bodyDef.id(), visual.id(), angle)
+                    ^ catalogSeed(catalogVisual);
             Body body = new Body(bodyDef.id(), bodyDef.name(), parent, x, y, bodyDef.orbitRadius(), angle,
-                    bodyDef.orbitSpeed(), bodyDef.radius(), bodyDef.color(), visual, detailSeed);
+                    bodyDef.orbitSpeed(), bodyDef.radius(), catalogVisual.colorOr(bodyDef.color()), visual, detailSeed);
             bodies.add(body);
             byId.put(bodyDef.id(), body);
         }
         if (bodies.isEmpty()) {
-            CelestialVisualDefinition visual = CelestialVisualCatalog.resolve(visualSystemId,
-                    new CelestialBodyDefinition("sun", "Sun", null, 0, 210, 0, new Color(255, 205, 80)));
+            CelestialBodyDefinition fallbackBody =
+                    new CelestialBodyDefinition("sun", "Sun", null, 0, 210, 0, new Color(255, 205, 80));
+            CatalogCelestialVisualDefinition catalogVisual = VisualCatalog.celestial(visualSystemId, "sun");
+            CelestialVisualDefinition visual = applyCatalogMetadata(
+                    CelestialVisualCatalog.resolve(visualSystemId, fallbackBody), catalogVisual);
             Body sun = new Body("sun", "Sun", null, sunX, sunY, 0, 0, 0, 210,
-                    new Color(255, 205, 80), visual, detailSeed(visualSystemId, "sun", visual.id(), 0));
+                    catalogVisual.colorOr(fallbackBody.color()), visual,
+                    detailSeed(visualSystemId, "sun", visual.id(), 0) ^ catalogSeed(catalogVisual));
             bodies.add(sun);
         }
     }
@@ -80,6 +89,8 @@ final class CelestialSystem {
 
     double sunX() { return sunX; }
     double sunY() { return sunY; }
+    SystemVisualDefinition systemVisualForTest() { return systemVisual; }
+    long backgroundSeedForTest() { return background.seedForTest(); }
 
     private Body primaryLight() {
         for (Body body : bodies) if (body.visual.visualClass() == CelestialVisualClass.STAR && body.parent == null) return body;
@@ -91,8 +102,24 @@ final class CelestialSystem {
         double cx = body.parent.x;
         double cy = body.parent.y;
         int d = (int)Math.round(body.orbitRadius * 2);
-        g2.setColor(new Color(120, 155, 190, body.parent.parent == null ? 42 : 32));
+        g2.setColor(systemVisual.orbitColor(body.parent.parent == null ? 0 : -10));
         g2.drawOval((int)Math.round(cx - body.orbitRadius), (int)Math.round(cy - body.orbitRadius), d, d);
+    }
+
+    private static CelestialVisualDefinition applyCatalogMetadata(
+            CelestialVisualDefinition authored, CatalogCelestialVisualDefinition catalog) {
+        if (authored == null || catalog == null || catalog.equals(CatalogCelestialVisualDefinition.FALLBACK)) return authored;
+        Color primary = catalog.colorOr(authored.primary());
+        if (primary.equals(authored.primary())) return authored;
+        return new CelestialVisualDefinition(
+                authored.id(), authored.visualClass(), primary, authored.secondary(), authored.accent(),
+                authored.atmosphere(), authored.atmosphereStrength(), authored.cloudCoverage(),
+                authored.ringInnerRadius(), authored.ringOuterRadius(), authored.ringFlattening(),
+                authored.ringAngle(), authored.ringColor(), authored.emissive());
+    }
+
+    private static long catalogSeed(CatalogCelestialVisualDefinition catalog) {
+        return catalog == null || catalog.equals(CatalogCelestialVisualDefinition.FALLBACK) ? 0L : catalog.seed();
     }
 
     private static long detailSeed(String systemId, String bodyId, String visualId, double seedAngle) {
