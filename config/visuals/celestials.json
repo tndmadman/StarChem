@@ -127,6 +127,192 @@
       "ringFlattening": 0.26,
       "ringAngle": 0.16,
       "ringColor": "#65717B"
+    },
+    "red_dwarf_star": {
+      "extends": "star",
+      "primary": "#FF5A45",
+      "secondary": "#A52625",
+      "accent": "#FFD0A8"
+    },
+    "red_slag_world": {
+      "extends": "lava",
+      "primary": "#B86B4B",
+      "secondary": "#4E2E28",
+      "accent": "#FF8C42",
+      "emissive": true
+    },
+    "red_forge_world": {
+      "extends": "industrial",
+      "primary": "#8A5A44",
+      "secondary": "#44332D",
+      "accent": "#FFB25E",
+      "atmosphere": "#C8794F",
+      "atmosphereStrength": 0.14,
+      "emissive": true
+    },
+    "blue_star": {
+      "extends": "star",
+      "primary": "#A8D8FF",
+      "secondary": "#5B92C7",
+      "accent": "#F5FCFF"
+    },
+    "frost_world": {
+      "extends": "ice",
+      "primary": "#9ED6F0",
+      "secondary": "#557F9D",
+      "accent": "#F2FDFF",
+      "atmosphere": "#B8E9FF",
+      "atmosphereStrength": 0.42
+    },
+    "glass_moon": {
+      "extends": "ice",
+      "primary": "#D2F3FF",
+      "secondary": "#8DB6C9",
+      "accent": "#FFFFFF",
+      "atmosphereStrength": 0.05
+    },
+    "ember_star": {
+      "extends": "star",
+      "primary": "#FFB347",
+      "secondary": "#C65E32",
+      "accent": "#FFE4A8"
+    },
+    "scar_world": {
+      "extends": "dead",
+      "primary": "#D15C4A",
+      "secondary": "#63342F",
+      "accent": "#F19A78"
+    },
+    "ash_moon": {
+      "extends": "dead",
+      "primary": "#777777",
+      "secondary": "#3D3D42",
+      "accent": "#AFAFAF"
+    },
+    "low_star": {
+      "extends": "star",
+      "primary": "#9B6BFF",
+      "secondary": "#4B337F",
+      "accent": "#E0D0FF"
+    },
+    "hideout_world": {
+      "extends": "industrial",
+      "primary": "#6B4A88",
+      "secondary": "#342740",
+      "accent": "#D487FF",
+      "atmosphere": "#795D9D",
+      "atmosphereStrength": 0.20,
+      "emissive": true
+    },
+    "knife_moon": {
+      "extends": "dead",
+      "primary": "#9990AA",
+      "secondary": "#4E4958",
+      "accent": "#C9C2D4"
+    },
+    "quiet_star": {
+      "extends": "star",
+      "primary": "#FFD47A",
+      "secondary": "#D68A45",
+      "accent": "#FFF2C3"
+    },
+    "homestead_world": {
+      "extends": "terrestrial",
+      "primary": "#698B72",
+      "secondary": "#526A4D",
+      "accent": "#C5D19A",
+      "atmosphere": "#8BC6D9",
+      "atmosphereStrength": 0.48,
+      "cloudCoverage": 0.28
+    },
+    "crucible_star": {
+      "extends": "star",
+      "primary": "#FF7A38",
+      "secondary": "#B73824",
+      "accent": "#FFD19A"
+    },
+    "ember_world": {
+      "extends": "lava",
+      "primary": "#B43C24",
+      "secondary": "#361C1A",
+      "accent": "#FF812B",
+      "emissive": true
+    },
+    "caldera_world": {
+      "extends": "lava",
+      "primary": "#6F3B2C",
+      "secondary": "#241919",
+      "accent": "#FF5C24",
+      "emissive": true
+    },
+    "fracture_star": {
+      "extends": "star",
+      "primary": "#F5C78B",
+      "secondary": "#B66E43",
+      "accent": "#FFF1C9"
+    },
+    "remnant_a": {
+      "extends": "dead",
+      "primary": "#786E68",
+      "secondary": "#3E3936",
+      "accent": "#A99F99"
+    },
+    "remnant_b": {
+      "extends": "dead",
+      "primary": "#8A5B52",
+      "secondary": "#46312E",
+      "accent": "#BD8174"
+    },
+    "remnant_c": {
+      "extends": "dead",
+      "primary": "#5D6978",
+      "secondary": "#303842",
+      "accent": "#8E9CAC"
+    },
+    "beacon_pulsar": {
+      "extends": "star",
+      "primary": "#B9E7FF",
+      "secondary": "#6AA8D6",
+      "accent": "#FFFFFF"
+    },
+    "pulsar_ash": {
+      "extends": "dead",
+      "primary": "#5E6072",
+      "secondary": "#30313B",
+      "accent": "#9296AC"
+    },
+    "cinder_giant": {
+      "extends": "gas_giant",
+      "primary": "#6F7898",
+      "secondary": "#40485F",
+      "accent": "#AEB8D8",
+      "atmosphere": "#8799C7",
+      "atmosphereStrength": 0.26,
+      "cloudCoverage": 0.21
+    },
+    "sootlight_star": {
+      "extends": "star",
+      "primary": "#E7B277",
+      "secondary": "#946546",
+      "accent": "#FFE5B9"
+    },
+    "basin_world": {
+      "extends": "terrestrial",
+      "primary": "#4E5A49",
+      "secondary": "#4B653F",
+      "accent": "#9EA66F",
+      "atmosphere": "#829679",
+      "atmosphereStrength": 0.55,
+      "cloudCoverage": 0.38
+    },
+    "mire_world": {
+      "extends": "toxic",
+      "primary": "#6C7150",
+      "secondary": "#3F4937",
+      "accent": "#B1B56A",
+      "atmosphere": "#A7B269",
+      "atmosphereStrength": 0.76,
+      "cloudCoverage": 0.68
     }
   },
   "systems": {
@@ -140,20 +326,65 @@
       "giant_moon_a": "broken_moon",
       "giant_moon_b": "sol_ice"
     },
+    "red_dwarf": {
+      "red_star": "red_dwarf_star",
+      "slag": "red_slag_world",
+      "forge": "red_forge_world"
+    },
     "gas_giant_frontier": {
       "white_star": "white_star",
       "leviathan": "leviathan",
       "moon_a": "refinery_moon",
       "moon_b": "broken_moon"
     },
-    "nebula_expanse": {
-      "sun": "veil_star",
-      "giant": "cloud_crown"
+    "ice_belt": {
+      "blue_star": "blue_star",
+      "frost": "frost_world",
+      "glass": "glass_moon"
+    },
+    "warzone": {
+      "ember": "ember_star",
+      "scar": "scar_world",
+      "ash": "ash_moon"
+    },
+    "corsair_den": {
+      "black_star": "low_star",
+      "hideout": "hideout_world",
+      "knife": "knife_moon"
+    },
+    "empty_frontier": {
+      "quiet_star": "quiet_star",
+      "homestead": "homestead_world"
     },
     "binary_forge": {
       "sun_a": "forge_a",
       "sun_b": "forge_b",
       "slag": "slag_world"
+    },
+    "volcanic_crucible": {
+      "sun": "crucible_star",
+      "ember": "ember_world",
+      "caldera": "caldera_world"
+    },
+    "nebula_expanse": {
+      "sun": "veil_star",
+      "giant": "cloud_crown"
+    },
+    "shattered_worlds": {
+      "sun": "fracture_star",
+      "remnant_a": "remnant_a",
+      "remnant_b": "remnant_b",
+      "remnant_c": "remnant_c"
+    },
+    "pulsar_reach": {
+      "pulsar": "beacon_pulsar",
+      "ash": "pulsar_ash",
+      "cinder": "cinder_giant"
+    },
+    "carbon_basin": {
+      "sun": "sootlight_star",
+      "basin": "basin_world",
+      "mire": "mire_world"
     },
     "ancient_graveyard": {
       "sun": "old_lantern",
