@@ -22,6 +22,7 @@ public final class Issue383GalaxyGenerationValidator {
             validateStableGeneratedIds();
             validatePreviewAndStarts();
             validateBounds();
+            validatePersistence();
             validateMultiplayerGenerationSync();
         } finally {
             GalaxyRuntimeOptions.configureCopies(1);
@@ -100,6 +101,26 @@ public final class Issue383GalaxyGenerationValidator {
                 "maximum supported galaxy size was not generated exactly");
         require(plan.links().size() <= 192, "maximum supported galaxy exceeded link bound");
         require(connected(plan), "maximum supported galaxy was disconnected");
+    }
+
+    private static void validatePersistence() {
+        GalaxyGenerationSettings settings = settings(24, GalaxyTopologyStyle.HUBS, 0.38, 0.20, 2);
+        GalaxyRuntimeOptions.configureGeneration(settings, 383_9001L);
+        PlayerRegistry.reset("WAIT", "Issue 383 Save Source", 0x50BEFF);
+        World source = new World("Issue 383 Save Source", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        PlayerRegistry.activate(source);
+        String before = snapshotSignature(source.authoritativeGalaxyMapSnapshot());
+        Map<String,Object> saved = source.captureServerSaveGalaxy();
+
+        GalaxyGenerationSettings differentSettings = settings(14, GalaxyTopologyStyle.FRONTIER, 0.10, 0.45, 2);
+        GalaxyRuntimeOptions.configureGeneration(differentSettings, 999_383L);
+        World restored = new World("Issue 383 Save Restore", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        PlayerRegistry.activate(restored);
+        restored.restoreServerSaveGalaxy(saved);
+        String after = snapshotSignature(restored.authoritativeGalaxyMapSnapshot());
+
+        require(before.equals(after),
+                "procedural save/restore did not preserve generated system IDs, templates and links");
     }
 
     private static void validateMultiplayerGenerationSync() {
