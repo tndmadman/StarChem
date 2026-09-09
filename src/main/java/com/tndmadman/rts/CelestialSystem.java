@@ -12,6 +12,7 @@ final class CelestialSystem {
     private final double sunX;
     private final double sunY;
     private final SystemVisualDefinition systemVisual;
+    private final SpaceBackgroundRenderer background;
 
     CelestialSystem(int worldW, int worldH, Random random) {
         this(StarSystems.defaultSystem(), random);
@@ -25,6 +26,7 @@ final class CelestialSystem {
         sunX = offsetX + definition.width() / 2.0;
         sunY = offsetY + definition.height() / 2.0;
         systemVisual = VisualCatalog.system(definition.id());
+        background = new SpaceBackgroundRenderer(definition);
         buildBodies(definition, random);
         update(0);
     }
@@ -57,6 +59,7 @@ final class CelestialSystem {
     void draw(Graphics2D g2) {
         Graphics2D c = (Graphics2D) g2.create();
         c.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        background.draw(c);
         c.setStroke(new BasicStroke(1f));
         for (Body body : bodies) if (body.parent != null) drawOrbit(c, body);
         for (Body body : bodies) body.draw(c);
