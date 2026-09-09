@@ -12,6 +12,7 @@ final class PreAuthConnectionGateValidator {
         validateConcurrentLimitsAndRelease();
         validateAttemptRateLimits();
         validateIpv6SubnetLimit();
+        validateHandshakeParsingBounds();
         validateAbsoluteTransportDeadline();
     }
 
@@ -85,6 +86,55 @@ final class PreAuthConnectionGateValidator {
         require(gate.tryAcquire(new ConnectionId(31), InetAddress.getByName("2001:db8:1:2::2"), 8_001).rejection()
                         == PreAuthConnectionGate.Rejection.SUBNET_LIMIT,
                 "IPv6 /64 concurrent subnet limit was not enforced");
+    }
+
+    private static void validateHandshakeParsingBounds() {
+        MultiplayerCompatibility.Descriptor local = MultiplayerCompatibility.local();
+
+        String join = "JOIN_V1|Issue 404 Validator|NODEV||" + local.wireFields();
+        MultiplayerCompatibility.WireResult joinResult = MultiplayerCompatibility.inspectClientHandshake(join);
+        require(joinResult.action() == MultiplayerCompatibility.WireAction.ACCEPT,
+                "bounded parser rejected a valid JOIN_V1 handshake");
+        require("JOIN|Issue 404 Validator|NODEV|".equals(joinResult.message()),
+                "bounded parser changed JOIN_V1 normalization");
+
+        String resume = "RESUME_V1|P1|session-token|NODEV||" + local.wireFields();
+        MultiplayerCompatibility.WireResult resumeResult = MultiplayerCompatibility.inspectClientHandshake(resume);
+        require(resumeResult.action() == MultiplayerCompatibility.WireAction.ACCEPT,
+                "bounded parser rejected a valid RESUME_V1 handshake");
+        require("RESUME|P1|session-token|NODEV|".equals(resumeResult.message()),
+                "bounded parser changed RESUME_V1 normalization");
+
+        String prefix = "JOIN_V1|";
+        String oversized = prefix + "x".repeat(
+                MultiplayerCompatibility.MAX_CLIENT_HANDSHAKE_CHARS - prefix.length() + 1);
+        require(oversized.length() == MultiplayerCompatibility.MAX_CLIENT_HANDSHAKE_CHARS + 1,
+                "oversized handshake fixture did not cross the configured limit");
+        MultiplayerCompatibility.WireResult oversizedResult =
+                MultiplayerCompatibility.inspectClientHandshake(oversized);
+        require(oversizedResult.action() == MultiplayerCompatibility.WireAction.REJECT
+                        && oversizedResult.detail().contains("MALFORMED_HANDSHAKE")
+                        && oversizedResult.detail().contains("maximum size"),
+                "oversized JOIN_V1 handshake was not rejected before normal parsing");
+
+        String delimiterStorm = "JOIN_V1|" + "|".repeat(
+                MultiplayerCompatibility.MAX_CLIENT_HANDSHAKE_FIELDS + 8);
+        require(delimiterStorm.length() < MultiplayerCompatibility.MAX_CLIENT_HANDSHAKE_CHARS,
+                "delimiter-storm fixture unexpectedly hit the size ceiling first");
+        MultiplayerCompatibility.WireResult delimiterResult =
+                MultiplayerCompatibility.inspectClientHandshake(delimiterStorm);
+        require(delimiterResult.action() == MultiplayerCompatibility.WireAction.REJECT
+                        && delimiterResult.detail().contains("MALFORMED_HANDSHAKE")
+                        && delimiterResult.detail().contains("too many fields"),
+                "delimiter-storm JOIN_V1 handshake was not rejected by the bounded field parser");
+
+        String largeNonHandshake = "BULK|" + "z".repeat(
+                MultiplayerCompatibility.MAX_CLIENT_HANDSHAKE_CHARS + 1024);
+        MultiplayerCompatibility.WireResult passResult =
+                MultiplayerCompatibility.inspectClientHandshake(largeNonHandshake);
+        require(passResult.action() == MultiplayerCompatibility.WireAction.PASS
+                        && largeNonHandshake.equals(passResult.message()),
+                "handshake-specific limits leaked into ordinary application traffic");
     }
 
     private static void validateAbsoluteTransportDeadline() throws Exception {
