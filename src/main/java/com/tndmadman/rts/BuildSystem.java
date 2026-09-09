@@ -42,6 +42,24 @@ final class BuildSystem {
             GameNoticeCenter.publish(world, base.playerId, NoticeCategory.WARNING, world.status, true);
             return false;
         }
+        if (!free) {
+            for (String weaponId : loadout.weaponIds()) {
+                if (ResearchPolicy.unlocked(world, base.playerId, ResearchUnlockKind.WEAPON, weaponId)) continue;
+                String research = ResearchPolicy.missingUnlockLabel(world, base.playerId, ResearchUnlockKind.WEAPON, weaponId);
+                world.status = loadout.displayName() + " uses weapon " + weaponId + " which requires research"
+                        + (research.isBlank() ? "." : ": " + research + ".");
+                GameNoticeCenter.publish(world, base.playerId, NoticeCategory.WARNING, world.status, true);
+                return false;
+            }
+            for (String moduleId : ShipModuleRules.moduleIds(loadout)) {
+                if (ResearchPolicy.unlocked(world, base.playerId, ResearchUnlockKind.MODULE, moduleId)) continue;
+                String research = ResearchPolicy.missingUnlockLabel(world, base.playerId, ResearchUnlockKind.MODULE, moduleId);
+                world.status = loadout.displayName() + " uses module " + moduleId + " which requires research"
+                        + (research.isBlank() ? "." : ": " + research + ".");
+                GameNoticeCenter.publish(world, base.playerId, NoticeCategory.WARNING, world.status, true);
+                return false;
+            }
+        }
         java.util.List<Cost> cost = WeaponRules.buildCost(shipType, loadout);
         if (!free && !HangarStore.canAfford(base.inventory, cost)) {
             if (world.logisticsSystem.queueBuildShip(world, base, shipType, loadout)) return true;
@@ -95,6 +113,23 @@ final class BuildSystem {
             world.status = "Unknown station type ID: " + carrier.basePackageType + ".";
             return false;
         }
+        boolean free = world.devFreeBuildFor(carrier.playerId);
+        if (!free && !ResearchPolicy.unlocked(world, carrier.playerId, ResearchUnlockKind.STATION_PACKAGE, carrier.basePackageType)) {
+            String research = ResearchPolicy.missingUnlockLabel(world, carrier.playerId,
+                    ResearchUnlockKind.STATION_PACKAGE, carrier.basePackageType);
+            world.status = placed.name + " placement requires research"
+                    + (research.isBlank() ? "." : ": " + research + ".");
+            GameNoticeCenter.publish(world, carrier.playerId, NoticeCategory.WARNING, world.status, true);
+            return false;
+        }
+        if (!free && !ResearchPolicy.unlocked(world, carrier.playerId, ResearchUnlockKind.STATION, carrier.basePackageType)) {
+            String research = ResearchPolicy.missingUnlockLabel(world, carrier.playerId,
+                    ResearchUnlockKind.STATION, carrier.basePackageType);
+            world.status = placed.name + " placement requires research"
+                    + (research.isBlank() ? "." : ": " + research + ".");
+            GameNoticeCenter.publish(world, carrier.playerId, NoticeCategory.WARNING, world.status, true);
+            return false;
+        }
         String baseId = nextBaseId(world, carrier.playerId);
         world.bases.put(baseId, new Base(baseId, carrier.playerId, carrier.basePackageType, carrier.x, carrier.y));
         world.units.remove(carrier.key());
@@ -116,6 +151,13 @@ final class BuildSystem {
             return false;
         }
         boolean free = freeBuild(world, base);
+        if (!free && !ResearchPolicy.unlocked(world, base.playerId, ResearchUnlockKind.CRAFTABLE, craftableId)) {
+            String research = ResearchPolicy.missingUnlockLabel(world, base.playerId,
+                    ResearchUnlockKind.CRAFTABLE, craftableId);
+            world.status = item.name + " requires research" + (research.isBlank() ? "." : ": " + research + ".");
+            GameNoticeCenter.publish(world, base.playerId, NoticeCategory.WARNING, world.status, true);
+            return false;
+        }
         if (!free && !item.unlockedFor(world, base.playerId)) {
             world.status = item.name + " requires research: " + item.missingResearchLabel(world, base.playerId) + ".";
             GameNoticeCenter.publish(world, base.playerId, NoticeCategory.WARNING, world.status, true);
