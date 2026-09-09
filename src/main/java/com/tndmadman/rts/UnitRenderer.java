@@ -5,6 +5,7 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.Stroke;
+import java.awt.geom.Ellipse2D;
 import java.awt.image.BufferedImage;
 
 /** Renders ship hulls and deliberate gameplay effects, never per-ship status UI. */
@@ -36,7 +37,8 @@ final class UnitRenderer {
             frame.noteSelectedDraw(false);
         }
 
-        if (RenderCulling.visible(g2, unit.x, unit.y, 96)) {
+        if (RenderCulling.visible(g2, unit.x, unit.y, 120)) {
+            if (scale >= 0.24) drawPropulsionEffect(g2, unit, scale);
             if (scale < 0.24) {
                 drawFarMarker(g2, unit, playerColor, scale);
             } else if (scale < 0.78) {
@@ -44,6 +46,7 @@ final class UnitRenderer {
             } else {
                 drawDetailedHull(g2, unit, playerColor);
             }
+            if (scale >= 0.24 && unit.weaponFlashTimer > 0) drawWeaponFlash(g2, unit, scale);
         }
 
         // Sensor/mining ranges are still available when explicitly toggled. Selection by
@@ -89,6 +92,61 @@ final class UnitRenderer {
                 (radius + 2) * 2, (radius + 2) * 2);
         g2.setColor(playerColor);
         g2.fillOval((int)unit.x - radius, (int)unit.y - radius, radius * 2, radius * 2);
+    }
+
+    private static void drawPropulsionEffect(Graphics2D g2, Unit unit, double zoom) {
+        double remaining = Math.hypot(unit.targetX - unit.x, unit.targetY - unit.y);
+        boolean moving = unit.afterburnerActive || (unit.task != UnitTask.IDLE && remaining > 2.0);
+        if (!moving) return;
+
+        Graphics2D fx = (Graphics2D)g2.create();
+        fx.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        double shipScale = Math.max(0.7, unit.type().size.scale);
+        double rearDistance = 18.0 * shipScale;
+        double trailLength = (unit.afterburnerActive ? 34.0 : 17.0) * shipScale;
+        double cos = Math.cos(unit.heading);
+        double sin = Math.sin(unit.heading);
+        double rearX = unit.x - cos * rearDistance;
+        double rearY = unit.y - sin * rearDistance;
+        double tailX = rearX - cos * trailLength;
+        double tailY = rearY - sin * trailLength;
+
+        fx.setStroke(new BasicStroke((float)(unit.afterburnerActive ? 7.0 : 4.2),
+                BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        fx.setColor(new Color(72, 145, 255, unit.afterburnerActive ? 92 : 58));
+        fx.drawLine((int)Math.round(rearX), (int)Math.round(rearY),
+                (int)Math.round(tailX), (int)Math.round(tailY));
+        fx.setStroke(new BasicStroke((float)(unit.afterburnerActive ? 3.2 : 2.0),
+                BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        fx.setColor(new Color(130, 210, 255, unit.afterburnerActive ? 190 : 135));
+        fx.drawLine((int)Math.round(rearX), (int)Math.round(rearY),
+                (int)Math.round(tailX + cos * trailLength * 0.25),
+                (int)Math.round(tailY + sin * trailLength * 0.25));
+        double core = Math.max(2.2, 3.4 * shipScale);
+        fx.setColor(new Color(228, 248, 255, 220));
+        fx.fill(new Ellipse2D.Double(rearX - core * 0.5, rearY - core * 0.5, core, core));
+        fx.dispose();
+    }
+
+    private static void drawWeaponFlash(Graphics2D g2, Unit unit, double zoom) {
+        Graphics2D fx = (Graphics2D)g2.create();
+        fx.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        double shipScale = Math.max(0.7, unit.type().size.scale);
+        double noseDistance = 23.0 * shipScale;
+        double cos = Math.cos(unit.heading);
+        double sin = Math.sin(unit.heading);
+        double x = unit.x + cos * noseDistance;
+        double y = unit.y + sin * noseDistance;
+        double flash = (6.0 + Math.min(1.0, unit.weaponFlashTimer * 8.0) * 7.0) * shipScale;
+
+        fx.setColor(new Color(255, 180, 65, 72));
+        fx.fill(new Ellipse2D.Double(x - flash, y - flash, flash * 2, flash * 2));
+        fx.setStroke(new BasicStroke((float)Math.max(1.0, 1.7 * shipScale),
+                BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        fx.setColor(new Color(255, 236, 164, 215));
+        fx.drawLine((int)Math.round(x - cos * flash * 0.35), (int)Math.round(y - sin * flash * 0.35),
+                (int)Math.round(x + cos * flash), (int)Math.round(y + sin * flash));
+        fx.dispose();
     }
 
     static double displayedWeaponRange(World world, Unit unit) {
