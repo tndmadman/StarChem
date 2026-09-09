@@ -23,10 +23,15 @@ final class GalaxyRuntimeOptions {
         generationSettings = GalaxyGenerationSettings.load(copiesPerTemplate);
     }
 
-    static void configureGeneration(GalaxyGenerationSettings settings, long seed) {
-        generationSettings = settings == null ? GalaxyGenerationSettings.legacy(copiesPerTemplate) : settings;
+    static boolean configureGeneration(GalaxyGenerationSettings settings, long seed) {
+        GalaxyGenerationSettings normalized = settings == null
+                ? GalaxyGenerationSettings.legacy(copiesPerTemplate) : settings;
+        boolean changed = !explicitGenerationOverride || generationSeedOverride == null
+                || generationSeedOverride.longValue() != seed || !normalized.equals(generationSettings);
+        generationSettings = normalized;
         generationSeedOverride = seed;
         explicitGenerationOverride = true;
+        return changed;
     }
 
     static void clearGenerationOverride() {
