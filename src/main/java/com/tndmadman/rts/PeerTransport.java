@@ -753,10 +753,10 @@ final class PeerTransport {
         private void readerLoop() {
             try (DataInputStream input = new DataInputStream(new BufferedInputStream(socket.getInputStream()))) {
                 while (open.get()) {
-                    int maxFrameBytes = serverMode && !authenticated()
-                            ? MAX_PRE_AUTH_FRAME_BYTES
-                            : TcpFrameCodec.MAX_FRAME_BYTES;
-                    TcpFrameCodec.DecodedFrame frame = TcpFrameCodec.read(input, maxFrameBytes);
+                    TcpFrameCodec.DecodedFrame frame = TcpFrameCodec.read(input, () ->
+                            serverMode && !authenticated()
+                                    ? MAX_PRE_AUTH_FRAME_BYTES
+                                    : TcpFrameCodec.MAX_FRAME_BYTES);
                     if (frame == null) break;
                     receive(this, frame);
                 }
