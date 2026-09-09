@@ -31,6 +31,7 @@ public final class RenderPerformanceValidator {
     private static final int SAMPLE_FRAMES = 15;
     private static final double[] ZOOMS = {0.45, 1.0, 1.75};
     private static final String NEBULA_EXPANSE = "nebula_expanse";
+    private static final String[] LARGE_STATION_TYPES = {"shipyard", "manufacturing", "laboratory"};
     private static final double DEFAULT_MAX_REGRESSION_PERCENT = 20.0;
 
     private RenderPerformanceValidator() { }
@@ -43,6 +44,7 @@ public final class RenderPerformanceValidator {
         validateSpriteCacheBound();
 
         List<Scenario> scenarios = scenarios();
+        validateScenarioCoverage(scenarios);
         List<Result> results = new ArrayList<>();
         Map<String, Double> backgroundMedianBySystemAndZoom = new HashMap<>();
 
@@ -65,6 +67,7 @@ public final class RenderPerformanceValidator {
         }
 
         printResults(enriched);
+        printAttributedCosts(enriched);
         if (options.output != null) writeCsv(options.output, enriched);
         if (options.baseline != null) compareBaseline(options.baseline, enriched, options.maxRegressionPercent);
         if (options.enforceTiming) enforceTimingBudgets(enriched);
@@ -81,11 +84,12 @@ public final class RenderPerformanceValidator {
                 new Scenario("fleet-20", defaultSystem, 20, false, 0, 0, 0, 0, 0, 12.0),
                 new Scenario("fleet-50", defaultSystem, 50, false, 0, 0, 0, 0, 0, 16.67),
                 new Scenario("fleet-100", defaultSystem, 100, false, 0, 0, 0, 0, 0, 25.0),
+                new Scenario("fleet-150", defaultSystem, 150, false, 0, 0, 0, 0, 0, 30.0),
                 new Scenario("fleet-100-selected", defaultSystem, 100, true, 0, 0, 0, 0, 0, 28.0),
-                new Scenario("multi-station", defaultSystem, 0, false, 8, 0, 0, 0, 0, 20.0),
+                new Scenario("multi-large-station", defaultSystem, 0, false, 9, 0, 0, 0, 0, 20.0),
                 new Scenario("resource-field", defaultSystem, 0, false, 0, 180, 0, 0, 0, 22.0),
                 new Scenario("heavy-combat", defaultSystem, 80, false, 0, 0, 220, 56, 2.2, 33.33),
-                new Scenario("capital-destruction", defaultSystem, 20, false, 4, 0, 60, 96, 8.0, 33.33),
+                new Scenario("capital-station-destruction", defaultSystem, 20, false, 6, 0, 60, 96, 8.0, 33.33),
                 new Scenario("background-nebula-expanse", NEBULA_EXPANSE, 0, false, 0, 0, 0, 0, 0, 12.0));
     }
 
@@ -157,16 +161,18 @@ public final class RenderPerformanceValidator {
             double x = cx + Math.cos(angle) * 430;
             double y = cy + Math.sin(angle) * 300;
             String id = "P1:B" + (i + 1);
-            world.bases.put(id, new Base(id, "P1", Rules.DEFAULT_BASE, x, y));
+            String typeId = largeStationType(i);
+            world.bases.put(id, new Base(id, "P1", typeId, x, y));
         }
 
+        String shipTypeId = shipTypeForScenario(scenario);
         int cols = Math.max(1, (int)Math.ceil(Math.sqrt(Math.max(1, scenario.ships))));
         for (int i = 0; i < scenario.ships; i++) {
             int row = i / cols;
             int col = i % cols;
             double x = cx + (col - (cols - 1) / 2.0) * 52;
             double y = cy + (row - (cols - 1) / 2.0) * 52;
-            Unit unit = new Unit("P1", i + 1, Rules.STARTING_SHIP, x, y);
+            Unit unit = new Unit("P1", i + 1, shipTypeId, x, y);
             unit.heading = (i % 48) * Math.PI * 2.0 / 48.0;
             unit.selected = scenario.selected;
             world.units.put(unit.key(), unit);
@@ -179,8 +185,9 @@ public final class RenderPerformanceValidator {
             double x = cx + (col - 8.5) * 92;
             double y = cy + (row - 4.5) * 76;
             Material material = materials[i % materials.length];
+            NodeKind kind = i % 2 == 0 ? NodeKind.SILICATE_ROCK : NodeKind.GAS_CLOUD;
             world.resources.add(new ResourceNode(
-                    i + 1, "Perf field " + (i + 1), NodeKind.GAS_CLOUD, material,
+                    i + 1, "Perf field " + (i + 1), kind, material,
                     x, y, 5000, 18, 28 + (i % 4) * 5));
         }
 
@@ -209,6 +216,16 @@ public final class RenderPerformanceValidator {
         return world;
     }
 
+    private static String largeStationType(int index) {
+        String candidate = LARGE_STATION_TYPES[Math.floorMod(index, LARGE_STATION_TYPES.length)];
+        return Rules.findBase(candidate) == null ? Rules.DEFAULT_BASE : candidate;
+    }
+
+    private static String shipTypeForScenario(Scenario scenario) {
+        if (scenario.name.startsWith("capital-") && Rules.findShip("titan") != null) return "titan";
+        return Rules.STARTING_SHIP;
+    }
+
     private static void configureGraphics(Graphics2D g2, World world, double zoom) {
         g2.setTransform(new AffineTransform());
         g2.setClip(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT);
@@ -216,6 +233,39 @@ public final class RenderPerformanceValidator {
         g2.translate(IMAGE_WIDTH / 2.0, IMAGE_HEIGHT / 2.0);
         g2.scale(zoom, zoom);
         g2.translate(-world.width / 2.0, -world.height / 2.0);
+    }
+
+    private static void validateScenarioCoverage(List<Scenario> scenarios) {
+        Scenario largeFleet = scenarioNamed(scenarios, "fleet-150");
+        require(largeFleet.ships > 100, "Large-fleet fixture must contain more than 100 ships.");
+
+        World stationWorld = buildWorld(scenarioNamed(scenarios, "multi-large-station"));
+        require(stationWorld.bases.size() >= 3, "Large-station fixture must contain multiple stations.");
+        for (Base base : stationWorld.bases.values()) {
+            require(!Rules.DEFAULT_BASE.equals(base.typeId),
+                    "Large-station fixture fell back to the default outpost for " + base.id);
+        }
+
+        World resourceWorld = buildWorld(scenarioNamed(scenarios, "resource-field"));
+        boolean rock = false;
+        boolean gas = false;
+        for (ResourceNode node : resourceWorld.resources) {
+            rock |= node.kind == NodeKind.SILICATE_ROCK;
+            gas |= node.kind == NodeKind.GAS_CLOUD;
+        }
+        require(rock && gas, "Resource-field fixture must contain both asteroid/rock and gas nodes.");
+
+        World destructionWorld = buildWorld(scenarioNamed(scenarios, "capital-station-destruction"));
+        require(destructionWorld.units.values().stream().anyMatch(unit -> "titan".equals(unit.shipTypeId)),
+                "Capital-destruction fixture must contain capital ships.");
+        require(destructionWorld.bases.size() >= 3 && destructionWorld.explosions.size() >= 32,
+                "Capital/station-destruction fixture is not sufficiently loaded.");
+        releaseExplosions(destructionWorld);
+    }
+
+    private static Scenario scenarioNamed(List<Scenario> scenarios, String name) {
+        for (Scenario scenario : scenarios) if (scenario.name.equals(name)) return scenario;
+        throw new IllegalStateException("Missing render performance scenario: " + name);
     }
 
     private static void validateVfxBounds() {
@@ -303,6 +353,29 @@ public final class RenderPerformanceValidator {
                     r.cacheHitRate * 100.0, r.cacheEntries, r.cachePeakEntries,
                     r.cacheEstimatedBytes / 1024.0 / 1024.0, r.cacheGenerationMs);
         }
+    }
+
+    private static void printAttributedCosts(List<Result> results) {
+        System.out.println("--- production-path render attribution (p50 ms; incremental values subtract matching empty-system background) ---");
+        for (double zoom : ZOOMS) {
+            Result background = resultNamed(results, "background-default", zoom);
+            Result nebula = resultNamed(results, "background-nebula-expanse", zoom);
+            Result stations = resultNamed(results, "multi-large-station", zoom);
+            Result resources = resultNamed(results, "resource-field", zoom);
+            Result combat = resultNamed(results, "heavy-combat", zoom);
+            Result destruction = resultNamed(results, "capital-station-destruction", zoom);
+            System.out.printf(Locale.ROOT,
+                    "zoom %.2f | background/celestial %.3f | nebula stack %.3f | large stations +%.3f | asteroid+gas +%.3f | combat VFX +%.3f | destruction VFX +%.3f%n",
+                    zoom, background.p50Ms, nebula.p50Ms, stations.incrementalMs, resources.incrementalMs,
+                    combat.incrementalMs, destruction.incrementalMs);
+        }
+    }
+
+    private static Result resultNamed(List<Result> results, String name, double zoom) {
+        for (Result result : results) {
+            if (result.scenario.name.equals(name) && Math.abs(result.zoom - zoom) < 0.000001) return result;
+        }
+        throw new IllegalStateException("Missing render result: " + name + " at zoom " + zoom);
     }
 
     private static void writeCsv(Path output, List<Result> results) throws IOException {
