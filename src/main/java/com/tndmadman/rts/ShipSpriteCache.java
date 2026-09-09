@@ -23,7 +23,8 @@ final class ShipSpriteCache {
     static BufferedImage sprite(Unit unit, Color color) {
         if (unit == null || color == null) return null;
         int bucket = headingBucket(unit.heading);
-        Key key = new Key(unit.shipTypeId, color.getRGB(), bucket);
+        ShipVisualDefinition visual = VisualCatalog.ship(unit.shipTypeId);
+        Key key = new Key(unit.shipTypeId, visual.cacheKey(), color.getRGB(), bucket);
         synchronized (CACHE) {
             BufferedImage cached = CACHE.get(key);
             if (cached != null) return cached;
@@ -34,6 +35,20 @@ final class ShipSpriteCache {
     }
 
     static int imageSize() { return IMAGE_SIZE; }
+
+    static void clear() {
+        synchronized (CACHE) {
+            CACHE.clear();
+        }
+    }
+
+    static int sizeForValidation() {
+        synchronized (CACHE) {
+            return CACHE.size();
+        }
+    }
+
+    static int maxEntriesForValidation() { return MAX_ENTRIES; }
 
     private static BufferedImage render(Unit unit, Color color, int bucket) {
         BufferedImage image = new BufferedImage(IMAGE_SIZE, IMAGE_SIZE, BufferedImage.TYPE_INT_ARGB);
@@ -53,5 +68,5 @@ final class ShipSpriteCache {
         return Math.floorMod((int)Math.round(turns * BUCKETS), BUCKETS);
     }
 
-    private record Key(String typeId, int rgb, int headingBucket) { }
+    private record Key(String typeId, String visualKey, int rgb, int headingBucket) { }
 }
