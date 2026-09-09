@@ -17,6 +17,8 @@ import java.util.TreeSet;
 
 final class MultiplayerCompatibility {
     static final int PROTOCOL_VERSION = 17;
+    static final int MAX_CLIENT_HANDSHAKE_CHARS = 4096;
+    static final int MAX_CLIENT_HANDSHAKE_FIELDS = 32;
     private static final Path DEFAULT_MANIFEST = Path.of("config/starchem.json");
     private static final String CONFIG_HASH_SCHEMA = "StarChemConfigFingerprint/v1";
     private static final int WIRE_FIELD_COUNT = 10;
@@ -65,7 +67,7 @@ final class MultiplayerCompatibility {
         }
 
         try {
-            String[] parts = message.split("\\|", -1);
+            String[] parts = splitClientHandshake(message);
             if (!command.equals(parts[0])) throw new WireFormatException("MALFORMED_HANDSHAKE", "invalid command");
             compatibilityStart = parts.length - WIRE_FIELD_COUNT;
             int minimumPayloadFields = "JOIN_V1".equals(command) ? 4 : 5;
@@ -86,6 +88,30 @@ final class MultiplayerCompatibility {
             String reason = "Connection refused: malformed multiplayer handshake (" + ex.getMessage() + "). "
                     + "Server " + local().summary() + '.';
             return WireResult.reject(denialPayload(ex.code, reason));
+        }
+    }
+
+    private static String[] splitClientHandshake(String message) {
+        if (message.length() > MAX_CLIENT_HANDSHAKE_CHARS) {
+            throw new WireFormatException("MALFORMED_HANDSHAKE",
+                    "handshake exceeds maximum size of " + MAX_CLIENT_HANDSHAKE_CHARS + " characters");
+        }
+
+        String[] fields = new String[MAX_CLIENT_HANDSHAKE_FIELDS];
+        int count = 0;
+        int start = 0;
+        while (true) {
+            if (count >= fields.length) {
+                throw new WireFormatException("MALFORMED_HANDSHAKE",
+                        "handshake contains too many fields");
+            }
+            int delimiter = message.indexOf('|', start);
+            if (delimiter < 0) {
+                fields[count++] = message.substring(start);
+                return Arrays.copyOf(fields, count);
+            }
+            fields[count++] = message.substring(start, delimiter);
+            start = delimiter + 1;
         }
     }
 
