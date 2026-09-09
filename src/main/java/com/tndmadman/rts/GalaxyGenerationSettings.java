@@ -77,6 +77,36 @@ record GalaxyGenerationSettings(
         }
     }
 
+    static long configuredSeed(long fallback) {
+        Path path = configuredPath();
+        if (!Files.exists(path)) return fallback;
+        try {
+            Map<String,Object> root = object(MiniJson.parse(Files.readString(path)));
+            Map<String,Object> generation = object(root.get("generation"));
+            if (!bool(generation.get("enabled"), false)) return fallback;
+            Object value = generation.get("seed");
+            if (value == null) return fallback;
+            if (value instanceof Number number) {
+                double numeric = number.doubleValue();
+                if (!Double.isFinite(numeric) || numeric != Math.rint(numeric)) {
+                    throw new IllegalArgumentException("Galaxy seed must be a whole number or text value.");
+                }
+                return number.longValue();
+            }
+            String text = String.valueOf(value).trim();
+            if (text.isBlank() || text.equalsIgnoreCase("random") || text.equalsIgnoreCase("auto")) return fallback;
+            try {
+                return Long.parseLong(text);
+            } catch (NumberFormatException ignored) {
+                return stableTextSeed(text);
+            }
+        } catch (IllegalArgumentException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("Could not load galaxy seed " + path + ": " + ex.getMessage(), ex);
+        }
+    }
+
     double weightFor(StarSystemDefinition template) {
         if (template == null) return 0;
         double weight = templateWeights.getOrDefault(template.id(), 1.0);
@@ -90,7 +120,20 @@ record GalaxyGenerationSettings(
                 || template.hasTag("hazard") || template.hasTag("dangerous")) {
             weight *= 0.35 + hazardFrequency * 2.0;
         }
+        if (StarSystems.CORSAIR_SYSTEM_ID.equals(template.id())
+                || template.hasTag("npc") || template.hasTag("faction")) {
+            weight *= 0.25 + npcDensity * 1.75;
+        }
         return Math.max(0.0001, weight);
+    }
+
+    private static long stableTextSeed(String value) {
+        long hash = 0xcbf29ce484222325L;
+        for (int i = 0; i < value.length(); i++) {
+            hash ^= value.charAt(i);
+            hash *= 0x100000001b3L;
+        }
+        return hash;
     }
 
     private static Map<String,Double> sanitizeWeights(Map<String,Double> source) {
