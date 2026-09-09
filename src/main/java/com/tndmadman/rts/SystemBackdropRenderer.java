@@ -1,9 +1,7 @@
 package com.tndmadman.rts;
 
-import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.Color;
-import java.awt.Composite;
 import java.awt.Graphics2D;
 import java.awt.Paint;
 import java.awt.RadialGradientPaint;
@@ -26,13 +24,14 @@ final class SystemBackdropRenderer {
     static void draw(Graphics2D g2, StarSystemDefinition definition, SystemVisualProfile profile,
                      double originX, double originY) {
         if (g2 == null || definition == null || profile == null) return;
-        Key key = new Key(definition.id(), definition.width(), definition.height(), profile.seed());
+        Key key = new Key(definition.id(), definition.width(), definition.height(), profile.seed(), originX, originY);
         Backdrop backdrop = CACHE.computeIfAbsent(key,
-                ignored -> build(definition.width(), definition.height(), profile));
+                ignored -> build(definition.width(), definition.height(), profile, originX, originY));
         backdrop.draw(g2, originX, originY, definition.width(), definition.height(), profile);
     }
 
-    private static Backdrop build(int width, int height, SystemVisualProfile profile) {
+    private static Backdrop build(int width, int height, SystemVisualProfile profile,
+                                  double originX, double originY) {
         Random random = new Random(profile.seed());
         List<Star> stars = new ArrayList<>(Math.max(0, profile.starCount()));
         for (int i = 0; i < profile.starCount(); i++) {
@@ -43,8 +42,8 @@ final class SystemBackdropRenderer {
 
         List<Cloud> clouds = new ArrayList<>(Math.max(0, profile.nebulaClouds()));
         for (int i = 0; i < profile.nebulaClouds(); i++) {
-            double x = random.nextDouble() * width;
-            double y = random.nextDouble() * height;
+            double x = originX + random.nextDouble() * width;
+            double y = originY + random.nextDouble() * height;
             double radius = Math.min(width, height) * (0.08 + random.nextDouble() * 0.18);
             Color base = switch (i % 3) {
                 case 0 -> profile.nebulaPrimary();
@@ -81,7 +80,7 @@ final class SystemBackdropRenderer {
         return result < 0 ? result + span : result;
     }
 
-    private record Key(String id, int width, int height, long seed) { }
+    private record Key(String id, int width, int height, long seed, double originX, double originY) { }
     private record Star(double x, double y, double size, double depth, double brightness) { }
     private record Cloud(double x, double y, double radius, Paint paint) { }
     private record Dust(double x, double y, double size, double depth) { }
@@ -103,12 +102,11 @@ final class SystemBackdropRenderer {
             Paint oldPaint = s.getPaint();
             for (Cloud cloud : clouds) {
                 s.setPaint(cloud.paint());
-                s.fill(new Ellipse2D.Double(originX + cloud.x() - cloud.radius(),
-                        originY + cloud.y() - cloud.radius(), cloud.radius() * 2, cloud.radius() * 2));
+                s.fill(new Ellipse2D.Double(cloud.x() - cloud.radius(), cloud.y() - cloud.radius(),
+                        cloud.radius() * 2, cloud.radius() * 2));
             }
             s.setPaint(oldPaint);
 
-            Composite oldComposite = s.getComposite();
             Stroke oldStroke = s.getStroke();
             double directionX = 0.92;
             double directionY = -0.39;
@@ -143,7 +141,6 @@ final class SystemBackdropRenderer {
                 double size = mote.size() * (0.7 + mote.depth() * 0.7);
                 s.fill(new Ellipse2D.Double(x - size * 0.5, y - size * 0.5, size, size));
             }
-            s.setComposite(oldComposite);
             s.dispose();
         }
     }
