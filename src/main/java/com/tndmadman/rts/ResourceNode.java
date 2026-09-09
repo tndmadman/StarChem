@@ -4,13 +4,13 @@ import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.Polygon;
-import java.awt.RadialGradientPaint;
 import java.awt.RenderingHints;
-import java.awt.geom.Ellipse2D;
-import java.awt.geom.Point2D;
+import java.util.EnumMap;
 import java.util.Map;
 
 final class ResourceNode {
+    private static final EnumMap<Material, GasPalette> GAS_PALETTES = new EnumMap<>(Material.class);
+
     final int id;
     final String name;
     final NodeKind kind;
@@ -119,14 +119,12 @@ final class ResourceNode {
     private void drawGas(Graphics2D g2, boolean selected) {
         double visualRadius = visualRadius();
         int seed = Math.floorMod(id * 1103515245 + material.ordinal() * 12345, Integer.MAX_VALUE);
+        GasPalette palette = gasPalette(material);
 
-        RadialGradientPaint haze = new RadialGradientPaint(
-                new Point2D.Double(x, y), (float)Math.max(1.0, visualRadius),
-                new float[]{0f, 0.42f, 0.76f, 1f},
-                new Color[]{withAlpha(material.color, 74), withAlpha(material.color, 48),
-                        withAlpha(material.color, 18), withAlpha(material.color, 0)});
-        g2.setPaint(haze);
-        g2.fill(new Ellipse2D.Double(x - visualRadius, y - visualRadius, visualRadius * 2, visualRadius * 2));
+        fillOval(g2, palette.outer(), x, y, visualRadius * 2.00, visualRadius * 2.00);
+        fillOval(g2, palette.middle(), x, y, visualRadius * 1.46, visualRadius * 1.34);
+        fillOval(g2, palette.inner(), x - visualRadius * 0.08, y - visualRadius * 0.06,
+                visualRadius * 0.94, visualRadius * 0.84);
 
         for (int i = 0; i < 8; i++) {
             double angle = i * Math.PI * 2 / 8.0 + (seed % 37) * 0.017;
@@ -135,19 +133,42 @@ final class ResourceNode {
             double lobeH = visualRadius * (0.42 + Math.floorMod(seed + i * 47, 24) / 100.0);
             double ox = Math.cos(angle) * distance;
             double oy = Math.sin(angle) * distance;
-            int alpha = 22 + Math.floorMod(seed + i * 29, 30);
-            g2.setColor(withAlpha(material.color, alpha));
-            g2.fill(new Ellipse2D.Double(x + ox - lobeW * 0.5, y + oy - lobeH * 0.5, lobeW, lobeH));
+            g2.setColor((i & 1) == 0 ? palette.lobeA() : palette.lobeB());
+            g2.fillOval((int)Math.round(x + ox - lobeW * 0.5), (int)Math.round(y + oy - lobeH * 0.5),
+                    Math.max(1, (int)Math.ceil(lobeW)), Math.max(1, (int)Math.ceil(lobeH)));
         }
 
-        g2.setColor(withAlpha(lighten(material.color, 1.30), 125));
-        g2.setStroke(new BasicStroke(1.0f));
         double core = Math.max(1.6, visualRadius * 0.13);
-        g2.fill(new Ellipse2D.Double(x - core * 0.5, y - core * 0.5, core, core));
-        g2.setColor(withAlpha(material.color, 92));
-        g2.draw(new Ellipse2D.Double(x - visualRadius * 0.76, y - visualRadius * 0.58,
-                visualRadius * 1.52, visualRadius * 1.16));
+        fillOval(g2, palette.core(), x, y, core, core);
+        g2.setColor(palette.outline());
+        g2.setStroke(new BasicStroke(1.0f));
+        g2.drawOval((int)Math.round(x - visualRadius * 0.76), (int)Math.round(y - visualRadius * 0.58),
+                Math.max(1, (int)Math.ceil(visualRadius * 1.52)),
+                Math.max(1, (int)Math.ceil(visualRadius * 1.16)));
         if (selected) drawSelected(g2, visualRadius);
+    }
+
+    private static void fillOval(Graphics2D g2, Color color, double centerX, double centerY,
+                                 double width, double height) {
+        g2.setColor(color);
+        g2.fillOval((int)Math.round(centerX - width * 0.5), (int)Math.round(centerY - height * 0.5),
+                Math.max(1, (int)Math.ceil(width)), Math.max(1, (int)Math.ceil(height)));
+    }
+
+    private static GasPalette gasPalette(Material material) {
+        GasPalette palette = GAS_PALETTES.get(material);
+        if (palette != null) return palette;
+        Color base = material.color;
+        palette = new GasPalette(
+                withAlpha(base, 16),
+                withAlpha(base, 28),
+                withAlpha(base, 46),
+                withAlpha(base, 30),
+                withAlpha(lighten(base, 1.12), 42),
+                withAlpha(lighten(base, 1.32), 132),
+                withAlpha(base, 94));
+        GAS_PALETTES.put(material, palette);
+        return palette;
     }
 
     private void drawSelected(Graphics2D g2, double visualRadius) {
@@ -188,4 +209,7 @@ final class ResourceNode {
     private static int clamp(double value) {
         return (int)Math.max(0, Math.min(255, Math.round(value)));
     }
+
+    private record GasPalette(Color outer, Color middle, Color inner, Color lobeA,
+                              Color lobeB, Color core, Color outline) { }
 }
