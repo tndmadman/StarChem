@@ -17,7 +17,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-/** Deterministic, headless graphics stress harness for issue #408. */
+/** Repeatable, headless production-render stress harness for issue #408. */
 public final class RenderPerformanceValidator {
     private static final int IMAGE_WIDTH = 1600;
     private static final int IMAGE_HEIGHT = 900;
@@ -212,20 +212,49 @@ public final class RenderPerformanceValidator {
             }
         }
 
-        for (int i = 0; i < scenario.explosions; i++) {
-            ExplosionEffect.admitValidationEffect(world.explosions, destructionProfileFor(scenario, i));
-        }
+        populateProductionDestruction(world, scenario);
         return world;
     }
 
-    private static DestructionProfile destructionProfileFor(Scenario scenario, int index) {
-        if (scenario.name.equals("capital-station-destruction")) {
-            return index % 4 == 0 ? DestructionProfile.STATION : DestructionProfile.MAJOR;
+    /**
+     * Use the production #405 constructors so stress VFX are positioned on the actual visible ships/stations,
+     * inherit the real size/profile budgets, and exercise the same admission/culling/LOD path as gameplay.
+     * Geometry is fixed; the production effect seed may vary, but configured work counts remain bounded.
+     */
+    private static void populateProductionDestruction(World world, Scenario scenario) {
+        if (scenario.explosions <= 0) return;
+        List<Unit> units = new ArrayList<>(world.units.values());
+        List<Base> bases = new ArrayList<>(world.bases.values());
+        require(!units.isEmpty() || !bases.isEmpty(),
+                "A destruction stress scene must contain a production entity to explode.");
+
+        for (int i = 0; i < scenario.explosions; i++) {
+            ExplosionEffect effect;
+            if (scenario.name.equals("capital-station-destruction") && i % 4 == 0 && !bases.isEmpty()) {
+                effect = ExplosionEffect.fromBase(bases.get(i % bases.size()));
+            } else if (!units.isEmpty()) {
+                effect = ExplosionEffect.fromUnit(units.get(i % units.size()));
+            } else {
+                effect = ExplosionEffect.fromBase(bases.get(i % bases.size()));
+            }
+            world.explosions.add(effect);
+
+            double targetAge = scenario.name.equals("capital-station-destruction")
+                    ? (i % 18) * 0.25
+                    : (i % 6) * 0.20;
+            advanceEffect(effect, targetAge);
+            require(world.explosions.size() <= ExplosionEffect.maxActiveEffectsForTest(),
+                    "Production destruction admission exceeded its cap while constructing stress scene.");
         }
-        if (scenario.name.equals("heavy-combat")) {
-            return index % 5 == 0 ? DestructionProfile.CAPITAL : DestructionProfile.STANDARD;
+    }
+
+    private static void advanceEffect(ExplosionEffect effect, double seconds) {
+        double remaining = Math.max(0.0, seconds);
+        while (remaining > 0.000001) {
+            double dt = Math.min(0.25, remaining);
+            require(effect.update(dt), "Stress effect expired before its intended staged render point.");
+            remaining -= dt;
         }
-        return DestructionProfile.QUICK;
     }
 
     private static String largeStationType(int index) {
@@ -234,7 +263,8 @@ public final class RenderPerformanceValidator {
     }
 
     private static String shipTypeForScenario(Scenario scenario) {
-        if (scenario.name.startsWith("capital-") && Rules.SHIPS.containsKey("titan")) return "titan";
+        if (scenario.name.equals("capital-station-destruction") && Rules.SHIPS.containsKey("titan")) return "titan";
+        if (scenario.name.equals("heavy-combat") && Rules.SHIPS.containsKey("battleship")) return "battleship";
         return Rules.STARTING_SHIP;
     }
 
@@ -278,15 +308,22 @@ public final class RenderPerformanceValidator {
         require(resourceWorld.resources.size() >= 100 && rock && gas,
                 "Resource-field fixture must contain a dense mix of asteroid/rock and gas nodes.");
 
-        Scenario combat = scenarioNamed(scenarios, "heavy-combat");
-        require(combat.ships >= 50 && combat.shots >= 100 && combat.explosions >= 32,
-                "Heavy-combat fixture no longer exercises a dense projectile/VFX load.");
+        World combatWorld = buildWorld(scenarioNamed(scenarios, "heavy-combat"));
+        require(combatWorld.units.size() >= 50 && combatWorld.shots.size() >= 100
+                        && combatWorld.explosions.size() >= 32,
+                "Heavy-combat fixture no longer exercises dense ships/projectiles/destruction VFX.");
+        if (Rules.SHIPS.containsKey("battleship")) {
+            require(combatWorld.units.values().stream().anyMatch(unit -> "battleship".equals(unit.shipTypeId)),
+                    "Heavy-combat fixture must exercise combat-class authored hull/VFX rendering.");
+        }
+        releaseExplosions(combatWorld);
 
         World destructionWorld = buildWorld(scenarioNamed(scenarios, "capital-station-destruction"));
         require(destructionWorld.units.values().stream().anyMatch(unit -> "titan".equals(unit.shipTypeId)),
                 "Capital-destruction fixture must contain capital ships.");
-        require(destructionWorld.bases.size() >= 3 && destructionWorld.explosions.size() >= 32,
-                "Capital/station-destruction fixture is not sufficiently loaded.");
+        require(destructionWorld.bases.size() >= 3
+                        && destructionWorld.explosions.size() == ExplosionEffect.maxActiveEffectsForTest(),
+                "Capital/station-destruction fixture must reach the production destruction admission cap.");
         releaseExplosions(destructionWorld);
 
         Scenario nebula = scenarioNamed(scenarios, "background-nebula-expanse");
