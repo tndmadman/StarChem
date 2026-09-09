@@ -1,7 +1,6 @@
 package com.tndmadman.rts;
 
 import java.awt.*;
-import java.awt.geom.AffineTransform;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Rectangle2D;
 import java.util.ArrayList;
@@ -66,20 +65,30 @@ final class SystemBackdropRenderer {
                             double bandAngle, double bandOffset) {
         void draw(Graphics2D source, SystemVisualDefinition visual, int width, int height) {
             Graphics2D g = (Graphics2D)source.create();
-            Shape clip = g.getClip();
-            if (clip == null) g.setClip(0, 0, width, height);
+            Rectangle clipBounds = g.getClipBounds();
+            Rectangle2D visible = clipBounds == null
+                    ? new Rectangle2D.Double(0, 0, width, height)
+                    : clipBounds.createIntersection(new Rectangle2D.Double(0, 0, width, height));
+            if (visible.isEmpty()) {
+                g.dispose();
+                return;
+            }
 
             Color tint = new Color(visual.tintRgb());
             int tintAlpha = (int)Math.round(255 * visual.tintOpacity());
             if (tintAlpha > 0) {
                 g.setColor(alpha(tint, tintAlpha));
-                g.fillRect(0, 0, width, height);
+                g.fill(visible);
             }
 
             Color nebulaColor = new Color(visual.nebulaColorRgb());
-            if (visual.galacticBand() > 0) drawGalacticBand(g, width, height, nebulaColor, visual.galacticBand(), bandAngle, bandOffset);
+            if (visual.galacticBand() > 0) {
+                drawGalacticBand(g, width, height, nebulaColor, visual.galacticBand(), bandAngle, bandOffset);
+            }
 
             for (NebulaPatch patch : nebula) {
+                double bound = Math.hypot(patch.width, patch.height) * .5;
+                if (!visible.intersects(patch.x - bound, patch.y - bound, bound * 2, bound * 2)) continue;
                 Graphics2D n = (Graphics2D)g.create();
                 n.translate(patch.x, patch.y);
                 n.rotate(patch.angle);
@@ -93,6 +102,8 @@ final class SystemBackdropRenderer {
             Color starColor = new Color(visual.starColorRgb());
             for (StarPoint star : stars) {
                 double r = star.radius;
+                double bound = r * 2.4;
+                if (!visible.intersects(star.x - bound, star.y - bound, bound * 2, bound * 2)) continue;
                 if (star.alpha > 150) {
                     g.setColor(alpha(starColor, Math.max(15, star.alpha / 6)));
                     g.fill(new Ellipse2D.Double(star.x - r * 2.4, star.y - r * 2.4, r * 4.8, r * 4.8));
@@ -103,9 +114,10 @@ final class SystemBackdropRenderer {
 
             Color dustColor = blend(nebulaColor, starColor, .35);
             for (DustPoint point : dust) {
+                double r = point.radius;
+                if (!visible.intersects(point.x - r, point.y - r, r * 2, r * 2)) continue;
                 g.setColor(alpha(dustColor, point.alpha));
-                g.fill(new Ellipse2D.Double(point.x - point.radius * .5, point.y - point.radius * .5,
-                        point.radius, point.radius));
+                g.fill(new Ellipse2D.Double(point.x - r * .5, point.y - r * .5, r, r));
             }
             g.dispose();
         }
