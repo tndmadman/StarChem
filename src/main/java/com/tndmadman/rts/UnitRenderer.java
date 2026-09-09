@@ -39,6 +39,8 @@ final class UnitRenderer {
         double visualRadius = Math.max(96,
                 ShipVisualCatalog.forType(shipType).renderRadius(shipType.size.scale));
         if (RenderCulling.visible(g2, unit.x, unit.y, visualRadius)) {
+            // Propulsion is deliberately rendered before the hull so exhaust stays behind the ship.
+            CombatVfxSystem.drawPropulsion(g2, unit, scale);
             if (scale < 0.24) {
                 drawFarMarker(g2, unit, playerColor, scale);
             } else if (scale < 0.78) {
@@ -46,6 +48,7 @@ final class UnitRenderer {
             } else {
                 drawDetailedHull(g2, unit, playerColor);
             }
+            DamageStateEffects.drawUnit(g2, unit, scale);
         }
 
         // Sensor/mining ranges are still available when explicitly toggled. Selection by
@@ -69,7 +72,7 @@ final class UnitRenderer {
         s.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         s.translate(unit.x, unit.y);
         s.rotate(unit.heading);
-        ShipShape.draw(s, unit.type(), playerColor);
+        ShipShape.draw(s, unit.type(), playerColor, ShipVisualStyle.variantIndex(unit));
         s.dispose();
     }
 
