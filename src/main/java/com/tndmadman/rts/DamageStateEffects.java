@@ -41,25 +41,8 @@ final class DamageStateEffects {
             double outward = Math.atan2(py - unit.y, px - unit.x);
             if (!Double.isFinite(outward)) outward = unit.heading + r1 * Math.PI * 2;
 
-            double pulse = Math.sin(Math.PI * phase / Math.max(0.05, 0.42 + severity * 0.34));
-            pulse = Math.max(0, pulse);
-            double ventLength = (8 + severity * 18) * (0.65 + r2 * 0.65) * pulse;
-            double ex = px + Math.cos(outward) * ventLength;
-            double ey = py + Math.sin(outward) * ventLength;
-            int plasmaAlpha = alpha((42 + severity * 80) * pulse);
-            g.setStroke(new BasicStroke((float)(1.0 + severity * 1.4), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            g.setColor(new Color(120, 220, 255, plasmaAlpha));
-            g.draw(new Line2D.Double(px, py, ex, ey));
-
-            double sparkLength = 4 + severity * 8 + r1 * 5;
-            g.setStroke(new BasicStroke(1.1f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            g.setColor(new Color(255, 174, 62, alpha((115 + severity * 105) * pulse)));
-            for (int spark = 0; spark < (severity > 0.62 ? 2 : 1); spark++) {
-                double spread = (spark - 0.5) * 0.34 + (r2 - 0.5) * 0.22;
-                double sx = px + Math.cos(outward + spread) * sparkLength;
-                double sy = py + Math.sin(outward + spread) * sparkLength;
-                g.draw(new Line2D.Double(px, py, sx, sy));
-            }
+            drawFailureSite(g, px, py, outward, severity, r1, r2, phase,
+                    8 + severity * 18, 1.0 + severity * 1.4);
         }
 
         if (severity > 0.72) {
@@ -69,6 +52,80 @@ final class DamageStateEffects {
             g.fill(new Ellipse2D.Double(unit.x - radius, unit.y - radius, radius * 2, radius * 2));
         }
         g.dispose();
+    }
+
+    static void drawBase(Graphics2D g2, Base base, double radius) {
+        if (g2 == null || base == null || base.hp <= 0 || !Double.isFinite(radius) || radius <= 0) return;
+        double viewScale = SelectionRenderPolicy.scale(g2);
+        if (viewScale < 0.48) return;
+        BaseType type = base.type();
+        double severity = severity(base.hp, type.maxHp);
+        if (severity <= 0 || !RenderCulling.visible(g2, base.x, base.y, radius + 46)) return;
+
+        Graphics2D g = (Graphics2D)g2.create();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        double time = System.nanoTime() / 1_000_000_000.0;
+        long seed = ((long)base.typeId.hashCode() << 32) ^ base.id.hashCode() ^ 0x40557A710L;
+        int sites = Math.min(6, 2 + (int)Math.floor(severity * 4.2));
+        for (int i = 0; i < sites; i++) {
+            double r0 = noise(seed, i * 5);
+            double r1 = noise(seed, i * 5 + 1);
+            double r2 = noise(seed, i * 5 + 2);
+            double angle = r0 * Math.PI * 2.0;
+            double distance = radius * (0.32 + r1 * 0.56);
+            double px = base.x + Math.cos(angle) * distance;
+            double py = base.y + Math.sin(angle) * distance;
+            double phaseWindow = 0.46 + severity * 0.36;
+            double phase = fractional(time * (1.35 + r2 * 1.75) + r1 * 9.0);
+            if (phase > phaseWindow) continue;
+
+            double pulse = Math.max(0, Math.sin(Math.PI * phase / Math.max(0.05, phaseWindow)));
+            double outward = angle + (r2 - 0.5) * 0.24;
+            double ventScale = (11 + severity * 26) * (0.70 + r1 * 0.55);
+            drawFailureSite(g, px, py, outward, severity, r1, r2, phase,
+                    ventScale, 1.25 + severity * 1.65);
+
+            if (severity > 0.58 && pulse > 0.35) {
+                double smokeRadius = (4 + severity * 8) * pulse;
+                g.setColor(new Color(105, 120, 130, alpha((35 + severity * 42) * pulse)));
+                g.fill(new Ellipse2D.Double(px - smokeRadius, py - smokeRadius,
+                        smokeRadius * 2, smokeRadius * 2));
+            }
+        }
+
+        if (severity > 0.76) {
+            double pulse = 0.55 + Math.sin(time * 5.4 + seed * 0.000001) * 0.22;
+            double coreRadius = Math.max(4, radius * 0.09) * Math.max(0.25, pulse);
+            g.setColor(new Color(255, 104, 38, alpha(62 + severity * 72)));
+            g.fill(new Ellipse2D.Double(base.x - coreRadius, base.y - coreRadius,
+                    coreRadius * 2, coreRadius * 2));
+        }
+        g.dispose();
+    }
+
+    private static void drawFailureSite(Graphics2D g, double px, double py, double outward,
+                                        double severity, double r1, double r2, double phase,
+                                        double ventLengthScale, double strokeWidth) {
+        double phaseWindow = 0.42 + severity * 0.34;
+        double pulse = Math.sin(Math.PI * phase / Math.max(0.05, phaseWindow));
+        pulse = Math.max(0, pulse);
+        double ventLength = ventLengthScale * (0.65 + r2 * 0.65) * pulse;
+        double ex = px + Math.cos(outward) * ventLength;
+        double ey = py + Math.sin(outward) * ventLength;
+        int plasmaAlpha = alpha((42 + severity * 80) * pulse);
+        g.setStroke(new BasicStroke((float)strokeWidth, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.setColor(new Color(120, 220, 255, plasmaAlpha));
+        g.draw(new Line2D.Double(px, py, ex, ey));
+
+        double sparkLength = 4 + severity * 8 + r1 * 5;
+        g.setStroke(new BasicStroke(1.1f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.setColor(new Color(255, 174, 62, alpha((115 + severity * 105) * pulse)));
+        for (int spark = 0; spark < (severity > 0.62 ? 2 : 1); spark++) {
+            double spread = (spark - 0.5) * 0.34 + (r2 - 0.5) * 0.22;
+            double sx = px + Math.cos(outward + spread) * sparkLength;
+            double sy = py + Math.sin(outward + spread) * sparkLength;
+            g.draw(new Line2D.Double(px, py, sx, sy));
+        }
     }
 
     static double severity(double hp, double maxHp) {
