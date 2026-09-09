@@ -67,6 +67,9 @@ public final class Issue395RespawnAuthorityValidator {
         String remote = firstSystemOtherThan(world, home);
         require(!remote.isBlank(), "validator could not find a remote system");
 
+        // movePlayerAssetsToSystem moves assets out of the currently active system, so
+        // explicitly activate the authoritative home before constructing the remote-only case.
+        world.activateSystem(home);
         world.movePlayerAssetsToSystem(PLAYER_ID, remote);
         world.activateSystem(home);
         require(noLiveLocalAssets(world, PLAYER_ID),
