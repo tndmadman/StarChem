@@ -15,7 +15,7 @@ final class VisualCatalog {
     static final Path CONFIG_PATH = Path.of("config/visuals.json");
     static final int SCHEMA_VERSION = 1;
 
-    private static VisualCatalog cached;
+    private static volatile VisualCatalog cached;
 
     private final Map<String, ShipVisualDefinition> ships;
     private final Map<String, StationVisualDefinition> stations;
@@ -32,24 +32,20 @@ final class VisualCatalog {
         this.celestials = Map.copyOf(celestials);
     }
 
-    static synchronized ShipVisualDefinition ship(String shipTypeId) {
-        ensureLoaded();
-        return cached.ships.getOrDefault(normalize(shipTypeId), ShipVisualDefinition.FALLBACK);
+    static ShipVisualDefinition ship(String shipTypeId) {
+        return current().ships.getOrDefault(normalize(shipTypeId), ShipVisualDefinition.FALLBACK);
     }
 
-    static synchronized StationVisualDefinition station(String stationTypeId) {
-        ensureLoaded();
-        return cached.stations.getOrDefault(normalize(stationTypeId), StationVisualDefinition.FALLBACK);
+    static StationVisualDefinition station(String stationTypeId) {
+        return current().stations.getOrDefault(normalize(stationTypeId), StationVisualDefinition.FALLBACK);
     }
 
-    static synchronized SystemVisualDefinition system(String systemId) {
-        ensureLoaded();
-        return cached.systems.getOrDefault(normalize(systemId), SystemVisualDefinition.FALLBACK);
+    static SystemVisualDefinition system(String systemId) {
+        return current().systems.getOrDefault(normalize(systemId), SystemVisualDefinition.FALLBACK);
     }
 
-    static synchronized CelestialVisualDefinition celestial(String systemId, String bodyId) {
-        ensureLoaded();
-        return cached.celestials.getOrDefault(celestialKey(systemId, bodyId), CelestialVisualDefinition.FALLBACK);
+    static CelestialVisualDefinition celestial(String systemId, String bodyId) {
+        return current().celestials.getOrDefault(celestialKey(systemId, bodyId), CelestialVisualDefinition.FALLBACK);
     }
 
     /** Reload cosmetic content without touching gameplay state; cached sprites are invalidated. */
@@ -58,7 +54,7 @@ final class VisualCatalog {
         ShipSpriteCache.clear();
     }
 
-    static synchronized VisualCatalog loadStrictForValidation(Path path) {
+    static VisualCatalog loadStrictForValidation(Path path) {
         return loadStrict(path);
     }
 
@@ -73,8 +69,17 @@ final class VisualCatalog {
     int systemCount() { return systems.size(); }
     int celestialCount() { return celestials.size(); }
 
-    private static void ensureLoaded() {
-        if (cached == null) cached = loadSafely(CONFIG_PATH);
+    private static VisualCatalog current() {
+        VisualCatalog value = cached;
+        if (value != null) return value;
+        synchronized (VisualCatalog.class) {
+            value = cached;
+            if (value == null) {
+                value = loadSafely(CONFIG_PATH);
+                cached = value;
+            }
+            return value;
+        }
     }
 
     private static VisualCatalog loadSafely(Path path) {
