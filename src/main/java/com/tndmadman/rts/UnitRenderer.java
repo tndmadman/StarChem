@@ -37,6 +37,8 @@ final class UnitRenderer {
         }
 
         if (RenderCulling.visible(g2, unit.x, unit.y, 96)) {
+            // Propulsion is deliberately rendered before the hull so exhaust stays behind the ship.
+            CombatVfxSystem.drawPropulsion(g2, unit, scale);
             if (scale < 0.24) {
                 drawFarMarker(g2, unit, playerColor, scale);
             } else if (scale < 0.78) {

@@ -1,7 +1,6 @@
 package com.tndmadman.rts;
 
 import java.awt.*;
-import java.awt.geom.Line2D;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -13,21 +12,17 @@ import java.util.WeakHashMap;
 
 final class WeaponSystem {
     private static final double AUTO_ACQUIRE_INTERVAL_SECONDS = 0.16;
-    private static final BasicStroke MOVING_SHOT_STROKE =
-            new BasicStroke(2.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
-    private static final BasicStroke BEAM_STROKE =
-            new BasicStroke(2.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
-    private static final BasicStroke PROJECTILE_GUIDE_STROKE =
-            new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 0, new float[]{18f, 12f}, 0);
 
     private final Map<Unit, Double> acquisitionCooldowns = new WeakHashMap<>();
     private final List<Unit> unitCandidates = new ArrayList<>();
     private final List<Base> baseCandidates = new ArrayList<>();
     private final List<ProjectileShot> shotCandidates = new ArrayList<>();
     private final List<Unit> visibleUnits = new ArrayList<>();
+    private final CombatVfxSystem vfx = new CombatVfxSystem();
 
     void update(World world, double dt) {
         long weaponStarted = System.nanoTime();
+        vfx.update(dt);
         ShieldSystem.update(world, dt);
         for (Unit unit : world.units.values()) {
             unit.weaponCooldown = Math.max(0, unit.weaponCooldown - dt);
@@ -91,24 +86,23 @@ final class WeaponSystem {
         // Shields are represented in the aggregate SelectionSummaryHud. Rendering one
         // bar per ship was a large source of dense-fleet overdraw and text/UI clutter.
         for (ProjectileShot shot : world.shots) {
-            if (!RenderCulling.segmentVisible(g2, shot.lastX, shot.lastY, shot.x, shot.y, 18)) continue;
-            drawMovingShot(g2, shot);
+            if (!RenderCulling.segmentVisible(g2, shot.lastX, shot.lastY, shot.x, shot.y, 28)) continue;
+            vfx.drawProjectile(g2, shot);
         }
         for (Unit unit : unitsToDraw) {
-            if (unit.attackTarget.isBlank()) continue;
+            if (unit.weaponFlashTimer <= 0 || unit.attackTarget.isBlank()) continue;
             if (!CombatTarget.enemy(world, unit, unit.attackTarget)) continue;
             double tx = CombatTarget.x(world, unit.attackTarget);
             double ty = CombatTarget.y(world, unit.attackTarget);
-            if (!RenderCulling.segmentVisible(g2, unit.x, unit.y, tx, ty, 24)) continue;
+            if (!RenderCulling.segmentVisible(g2, unit.x, unit.y, tx, ty, 30)) continue;
             double dx = tx - unit.x;
             double dy = ty - unit.y;
             double dist = Math.sqrt(dx * dx + dy * dy);
             WeaponVolley volley = WeaponRules.directVolley(world, unit, AttackRangeRules.definitionDistance(world, dist));
             WeaponType visual = volley.visualWeapon();
-            if (visual == null) continue;
-            float alpha = (float)(unit.weaponFlashTimer > 0 ? 0.85 : 0.18);
-            drawShot(g2, unit.x, unit.y, tx, ty, visual, alpha);
+            if (visual != null) vfx.drawDirectFire(g2, unit, tx, ty, visual);
         }
+        vfx.draw(g2);
         PerformanceTrace.recordWeaponDraw(System.nanoTime() - started);
     }
 
@@ -218,18 +212,27 @@ final class WeaponSystem {
         WeaponVolley direct = WeaponRules.directVolley(world, unit, effectiveDistance);
         List<WeaponType> moving = WeaponRules.movingWeapons(world, unit, effectiveDistance);
         if (direct.damage() <= 0 && moving.isEmpty()) return;
-        if (direct.damage() > 0) CombatTarget.damage(world, unit.playerId, unit.attackTarget, direct.damage());
+
+        WeaponType directVisual = direct.visualWeapon();
+        if (direct.damage() > 0) {
+            double shieldBefore = vfx.targetShield(world, unit.attackTarget);
+            double hpBefore = vfx.targetHp(world, unit.attackTarget);
+            if (CombatTarget.damage(world, unit.playerId, unit.attackTarget, direct.damage())) {
+                vfx.damageApplied(world, unit.attackTarget, unit.x, unit.y, directVisual, shieldBefore, hpBefore);
+            }
+        }
         double cooldown = direct.damage() > 0 ? direct.cooldownSeconds() : 0;
+        unit.heading = Math.atan2(ty - unit.y, tx - unit.x);
         for (WeaponType weapon : moving) {
             world.addShot(unit.playerId, weapon.id, unit.attackTarget, unit.x, unit.y);
+            vfx.movingWeaponFired(unit, weapon, tx, ty);
             cooldown = Math.max(cooldown, weapon.cooldownSeconds);
         }
         unit.weaponCooldown = Math.max(0.2, cooldown);
         unit.weaponFlashTimer = 0.22;
         unit.targetX = unit.x;
         unit.targetY = unit.y;
-        unit.heading = Math.atan2(ty - unit.y, tx - unit.x);
-        WeaponType audible = direct.visualWeapon();
+        WeaponType audible = directVisual;
         if (audible == null && !moving.isEmpty()) audible = moving.get(0);
         SystemAudio.playWeaponFire(world, audible, dist);
     }
@@ -251,8 +254,13 @@ final class WeaponSystem {
             shot.lastY = shot.y;
             if (dist <= step + 10) {
                 SystemAudio.playWeaponImpact(world, weapon);
-                CombatTarget.damage(world, shot.ownerId, shot.targetKey,
-                        weapon.damage * hitScale(world, shot.targetKey, weapon));
+                double shieldBefore = vfx.targetShield(world, shot.targetKey);
+                double hpBefore = vfx.targetHp(world, shot.targetKey);
+                if (CombatTarget.damage(world, shot.ownerId, shot.targetKey,
+                        weapon.damage * hitScale(world, shot.targetKey, weapon))) {
+                    vfx.damageApplied(world, shot.targetKey, shot.lastX, shot.lastY,
+                            weapon, shieldBefore, hpBefore);
+                }
                 it.remove();
                 continue;
             }
@@ -289,11 +297,12 @@ final class WeaponSystem {
         if (best == null) return candidateCount;
         consumedShots.add(best);
         world.shots.remove(best);
-        SystemAudio.playWeaponFire(world, screen, bestDist);
-        SystemAudio.playWeaponImpact(world, best.weapon());
         unit.weaponCooldown = screen.cooldownSeconds;
         unit.weaponFlashTimer = 0.12;
         unit.heading = Math.atan2(best.y - unit.y, best.x - unit.x);
+        vfx.pointDefense(unit, screen, best.x, best.y);
+        SystemAudio.playWeaponFire(world, screen, bestDist);
+        SystemAudio.playWeaponImpact(world, best.weapon());
         return candidateCount;
     }
 
@@ -306,39 +315,5 @@ final class WeaponSystem {
         double speedFactor = Math.max(0.35, Math.min(1.15, 1.2 - unit.type().speed / 360.0));
         double trackedSpeed = weapon.tracking + (1.0 - weapon.tracking) * speedFactor;
         return Math.max(0.45, Math.min(1.65, sizeFactor * trackedSpeed));
-    }
-
-    private void drawMovingShot(Graphics2D g2, ProjectileShot shot) {
-        WeaponType weapon = shot.weapon();
-        if (weapon == null) return;
-        Color oldColor = g2.getColor();
-        Stroke oldStroke = g2.getStroke();
-        Color c = weapon.color;
-        g2.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 230));
-        g2.setStroke(MOVING_SHOT_STROKE);
-        g2.drawLine((int)shot.lastX, (int)shot.lastY, (int)shot.x, (int)shot.y);
-        int r = weapon.damage >= 200 ? 7 : weapon.damage >= 100 ? 5 : 4;
-        g2.fillOval((int)shot.x - r, (int)shot.y - r, r * 2, r * 2);
-        g2.setStroke(oldStroke);
-        g2.setColor(oldColor);
-    }
-
-    private void drawShot(Graphics2D g2, double x1, double y1, double x2, double y2, WeaponType weapon, float alpha) {
-        Color oldColor = g2.getColor();
-        Stroke oldStroke = g2.getStroke();
-        Color c = weapon.color;
-        g2.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), Math.max(25, Math.min(230, (int)(alpha * 255)))));
-        if (weapon.beam) {
-            g2.setStroke(BEAM_STROKE);
-            g2.drawLine((int)x1, (int)y1, (int)x2, (int)y2);
-        } else {
-            g2.setStroke(PROJECTILE_GUIDE_STROKE);
-            g2.drawLine((int)x1, (int)y1, (int)x2, (int)y2);
-            double mx = x1 + (x2 - x1) * 0.62;
-            double my = y1 + (y2 - y1) * 0.62;
-            g2.fillOval((int)mx - 4, (int)my - 4, 8, 8);
-        }
-        g2.setStroke(oldStroke);
-        g2.setColor(oldColor);
     }
 }
