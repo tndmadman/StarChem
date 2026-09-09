@@ -33,38 +33,37 @@ final class Base {
                 && Calc.distance(x, y, unit.x, unit.y) <= type().refitRange;
     }
 
-    boolean contains(double wx, double wy) {
-        return Calc.distance(wx, wy, x, y) <= radius();
-    }
+    boolean contains(double wx, double wy) { return Calc.distance(wx, wy, x, y) <= radius(); }
 
     void draw(Graphics2D g2, Color ignoredColor, EnumMap<Material, Double> ignoredStockpile, boolean ignoredLocal) {
         Color playerColor = PlayerRegistry.color(playerId);
         boolean local = PlayerRegistry.isLocal(playerId);
+        double radius = radius();
+        if (!RenderCulling.visible(g2, x, y, radius + 150)) return;
+
         Graphics2D s = (Graphics2D) g2.create();
         s.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        double scale = SelectionRenderPolicy.scale(s);
+        boolean detail = local && scale >= 1.12;
         BaseType def = type();
-        double radius = radius();
-        s.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), local ? 42 : 22));
-        s.fillOval((int)(x - def.unloadRange), (int)(y - def.unloadRange), (int)(def.unloadRange * 2), (int)(def.unloadRange * 2));
-        s.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), local ? 120 : 72));
-        s.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 0, new float[]{10f,8f}, 0));
-        s.drawOval((int)(x - def.unloadRange), (int)(y - def.unloadRange), (int)(def.unloadRange * 2), (int)(def.unloadRange * 2));
-        Polygon hull = new Polygon();
-        for (int i = 0; i < 6; i++) {
-            double a = Math.PI / 6 + i * Math.PI * 2 / 6.0;
-            hull.addPoint((int)Math.round(x + Math.cos(a) * radius), (int)Math.round(y + Math.sin(a) * radius));
-        }
-        s.setColor(new Color(20,29,42)); s.fillPolygon(hull);
-        s.setColor(playerColor); s.setStroke(new BasicStroke(3f)); s.drawPolygon(hull);
+
+        StationVisualRenderer.draw(s, this, radius, playerColor);
         drawCore(s, playerColor);
+
+        // World-space station UI is contextual by zoom instead of permanently covering the scene.
+        // Ownership is communicated by restrained architecture accents at every zoom.
         s.setFont(s.getFont().deriveFont(Font.BOLD, 12f));
-        drawBars(s, def, radius);
-        drawLabel(s, def, radius, playerColor);
-        drawFuelState(s, radius);
-        drawLogistics(s, radius);
-        drawProduction(s, radius);
-        if (local) drawHangar(s, radius);
-        IntelStructureRenderer.drawStatus(s, this, radius);
+        boolean damaged = hp < def.maxHp * .995 || def.maxShield > 0 && shield < def.maxShield * .995;
+        if (detail || damaged) drawBars(s, def, radius);
+        if (scale >= .48) drawLabel(s, def, radius, playerColor, detail);
+        drawFuelState(s, radius, detail);
+        if (detail) drawLogistics(s, radius);
+        drawProduction(s, radius, detail);
+        if (detail) {
+            drawHangar(s, radius);
+            StationVisualRenderer.drawContextRange(s, this, playerColor);
+            IntelStructureRenderer.drawStatus(s, this, radius);
+        }
         s.dispose();
     }
 
@@ -81,35 +80,17 @@ final class Base {
         };
     }
 
+    /** Specialized tactical cores layer on top of the new physical station architecture. */
     private void drawCore(Graphics2D s, Color playerColor) {
         if (IntelStructureRenderer.drawCore(s, this, playerColor)) return;
         int radarTier = IntelWarfareSystem.radarTier(typeId);
-        if (radarTier > 0) {
-            drawRadarCore(s, playerColor, radarTier);
-            return;
-        }
-        if ("laboratory".equals(typeId)) {
-            s.setColor(new Color(80, 230, 255, 80));
-            s.fillOval((int)(x - 30), (int)(y - 30), 60, 60);
-            s.setColor(new Color(240, 255, 255, 120));
-            s.drawLine((int)(x - 22), (int)y, (int)(x + 22), (int)y);
-            s.drawLine((int)x, (int)(y - 22), (int)x, (int)(y + 22));
-            return;
-        }
-        if ("manufacturing".equals(typeId)) {
-            s.setColor(new Color(255, 185, 90, 90));
-            s.fillRect((int)(x - 28), (int)(y - 22), 56, 44);
-            s.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), 150));
-            s.drawRect((int)(x - 28), (int)(y - 22), 56, 44);
-            return;
-        }
-        s.setColor(new Color(125,205,255,90));
-        s.fillOval((int)(x - 26), (int)(y - 26), 52, 52);
+        if (radarTier > 0) drawRadarCore(s, playerColor, radarTier);
     }
 
     private void drawRadarCore(Graphics2D s, Color playerColor, int tier) {
-        double time = System.nanoTime() / 1_000_000_000.0;
-        double modeSpeed = switch (IntelWarfareSystem.radarMode(PlayerRegistry.activeWorld(), this)) {
+        World world = PlayerRegistry.activeWorld();
+        double time = world == null ? 0.0 : world.systemTime();
+        double modeSpeed = switch (IntelWarfareSystem.radarMode(world, this)) {
             case PASSIVE -> 0.55;
             case ACTIVE -> 1.0;
             case FOCUSED -> 1.65;
@@ -131,8 +112,8 @@ final class Base {
         s.setColor(new Color(5, 18, 28, 235));
         s.fill(new Ellipse2D.Double(x - platformRadius, y - platformRadius * 0.72,
                 platformRadius * 2, platformRadius * 1.44));
-        s.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), 210));
-        s.setStroke(new BasicStroke(2.2f));
+        s.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), 185));
+        s.setStroke(new BasicStroke(2.0f));
         s.draw(new Ellipse2D.Double(x - platformRadius, y - platformRadius * 0.72,
                 platformRadius * 2, platformRadius * 1.44));
 
@@ -146,7 +127,7 @@ final class Base {
         Graphics2D radar = (Graphics2D)s.create();
         radar.translate(x, y - 18 - tier * 3);
         radar.rotate(spin);
-        int sweepAlpha = IntelWarfareSystem.radarMode(PlayerRegistry.activeWorld(), this)
+        int sweepAlpha = IntelWarfareSystem.radarMode(world, this)
                 == IntelWarfareSystem.RadarMode.FOCUSED ? 68 : 24 + tier * 8;
         radar.setColor(new Color(70, 230, 255, sweepAlpha));
         radar.fill(new Arc2D.Double(-sweepRadius, -sweepRadius, sweepRadius * 2, sweepRadius * 2,
@@ -164,7 +145,7 @@ final class Base {
             radar.setColor(new Color(145, 175, 195, 225));
             radar.setStroke(new BasicStroke(2.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
             radar.drawLine(0, 0, (int)Math.round(ax), (int)Math.round(ay));
-            radar.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), 230));
+            radar.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), 210));
             double node = 4.0 + tier * 0.8;
             radar.fill(new Ellipse2D.Double(ax - node, ay - node, node * 2, node * 2));
             radar.setColor(new Color(210, 250, 255, 230));
@@ -217,39 +198,40 @@ final class Base {
     private void drawBars(Graphics2D s, BaseType def, double radius) {
         int w = 58;
         int px = (int)(x - w / 2.0);
-        int py = (int)(y - radius - 49);
+        int py = (int)(y - radius - 31);
         if (def.maxShield > 0) {
-            s.setColor(new Color(20,20,20));
+            s.setColor(new Color(20,20,20,165));
             s.fillRect(px, py, w, 5);
-            s.setColor(new Color(80,180,255));
+            s.setColor(new Color(80,180,255,205));
             s.fillRect(px, py, (int)(w * Math.max(0, shield) / Math.max(1, def.maxShield)), 5);
             py += 7;
         }
-        s.setColor(new Color(20,20,20));
+        s.setColor(new Color(20,20,20,165));
         s.fillRect(px, py, w, 6);
-        s.setColor(new Color(80,230,90));
+        s.setColor(new Color(80,230,90,205));
         s.fillRect(px, py, (int)(w * Math.max(0, hp) / Math.max(1, def.maxHp)), 6);
     }
 
-    private void drawLabel(Graphics2D s, BaseType def, double radius, Color playerColor) {
+    private void drawLabel(Graphics2D s, BaseType def, double radius, Color playerColor, boolean detail) {
         String label = IntelWarfareSystem.CONTACT_STATION.equals(typeId)
-                ? def.name : def.name + " - " + PlayerRegistry.name(playerId);
+                ? def.name : detail ? def.name + " - " + PlayerRegistry.name(playerId) : def.name;
         int tw = s.getFontMetrics().stringWidth(label);
-        s.setColor(new Color(0,0,0,160));
-        s.fillRoundRect((int)(x - tw / 2.0 - 6), (int)(y - radius - 32), tw + 12, 18, 8, 8);
-        s.setColor(playerColor);
-        s.drawString(label, (int)(x - tw / 2.0), (int)(y - radius - 18));
+        s.setColor(new Color(0,0,0, detail ? 145 : 105));
+        s.fillRoundRect((int)(x - tw / 2.0 - 5), (int)(y - radius - 18), tw + 10, 17, 7, 7);
+        s.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), detail ? 230 : 180));
+        s.drawString(label, (int)(x - tw / 2.0), (int)(y - radius - 5));
     }
 
-    private void drawFuelState(Graphics2D s, double radius) {
+    private void drawFuelState(Graphics2D s, double radius, boolean detail) {
         StationFuelRequirement req = StationFuelRules.requirement(typeId);
         if (req == null) return;
         double fuel = inventory.getOrDefault(req.material(), 0.0);
         boolean powered = StationFuelRules.isOperational(this);
+        if (powered && !detail) return;
         String label = powered ? "Fuel " + Calc.round(fuel) + " | " + Calc.round(req.perSecond()) + "/s" : "NO FUEL";
         int tw = s.getFontMetrics().stringWidth(label);
         int px = (int)(x - tw / 2.0 - 6);
-        int py = (int)(y - radius - 72);
+        int py = (int)(y - radius - 52);
         s.setColor(new Color(0,0,0,165));
         s.fillRoundRect(px, py, tw + 12, 18, 8, 8);
         s.setColor(powered ? new Color(255, 210, 110) : new Color(255, 95, 80));
@@ -261,30 +243,32 @@ final class Base {
         String label = logisticsStatus.length() > 44 ? logisticsStatus.substring(0, 41) + "..." : logisticsStatus;
         int tw = s.getFontMetrics().stringWidth(label);
         int px = (int)(x - tw / 2.0 - 6);
-        int py = (int)(y - radius - 94);
+        int py = (int)(y - radius - 74);
         s.setColor(new Color(0,0,0,170));
         s.fillRoundRect(px, py, tw + 12, 18, 8, 8);
         s.setColor(new Color(140, 225, 255));
         s.drawString(label, px + 6, py + 13);
     }
 
-    private void drawProduction(Graphics2D s, double radius) {
+    private void drawProduction(Graphics2D s, double radius, boolean detail) {
         ProductionJob job = ProductionQueueScheduler.active(this);
         if (job == null) return;
+        boolean blocked = job.blockedReason != null && !job.blockedReason.isBlank();
+        if (!detail && !blocked) return;
         String label = ProductionSystem.displayName(job) + " | " + ProductionQueueScheduler.detail(this, job);
         if (productionQueue.size() > 1) label += " | +" + (productionQueue.size() - 1);
         if (label.length() > 48) label = label.substring(0, 45) + "...";
         int tw = s.getFontMetrics().stringWidth(label);
         int w = Math.max(94, tw + 12);
         int px = (int)(x - w / 2.0);
-        int py = (int)(y - radius - 116);
+        int py = (int)(y - radius - 96);
         s.setColor(new Color(0,0,0,178));
         s.fillRoundRect(px, py, w, 24, 8, 8);
-        s.setColor(new Color(255, 205, 105));
+        s.setColor(blocked ? new Color(255, 165, 75) : new Color(255, 205, 105));
         s.drawString(label, px + 6, py + 13);
         s.setColor(new Color(30, 35, 42));
         s.fillRect(px + 5, py + 17, w - 10, 4);
-        s.setColor(job.blockedReason == null || job.blockedReason.isBlank() ? new Color(110, 230, 150) : new Color(255, 165, 75));
+        s.setColor(blocked ? new Color(255, 165, 75) : new Color(110, 230, 150));
         s.fillRect(px + 5, py + 17, (int)Math.round((w - 10) * Math.max(0, Math.min(1, job.progress()))), 4);
     }
 
