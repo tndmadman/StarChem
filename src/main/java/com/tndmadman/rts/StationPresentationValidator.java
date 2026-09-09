@@ -54,8 +54,8 @@ public final class StationPresentationValidator {
         require("OFFLINE".equals(StationPresentation.criticalWarning(lab, def)),
                 "Destroyed station must prioritize OFFLINE.");
 
-        lab.hp = def.maxHp;
-        lab.shield = Math.max(0, def.maxShield - 1);
+        lab.hp = Math.max(0, def.maxHp - 1);
+        lab.shield = def.maxShield;
         lab.shieldDelayTimer = 1.0;
         require("UNDER ATTACK".equals(StationPresentation.criticalWarning(lab, def)),
                 "Recently damaged station did not surface UNDER ATTACK.");
