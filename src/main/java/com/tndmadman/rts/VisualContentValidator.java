@@ -4,6 +4,7 @@ import java.awt.Color;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 
 /** Headless checks for the renderer-owned visual metadata architecture from issue #390. */
@@ -38,6 +39,19 @@ public final class VisualContentValidator {
         VisualCatalog.reload();
         require(ShipSpriteCache.snapshot().entries() == 0, "Visual catalog reload must invalidate ship sprites.");
         require(before.equals(VisualCatalog.ship("prospector")), "Visual metadata changed across deterministic reload.");
+
+        // Prove the generic catalog is wired into the current #391/#392 production composition rather
+        // than surviving as an unused parallel architecture. The rich background/celestial catalogs
+        // still own authored identity; #390 metadata supplies stable overrides/secondary variation.
+        StarSystemDefinition defaultSystem = StarSystems.get(StarSystems.DEFAULT_SYSTEM_ID);
+        require(defaultSystem != null, "Default star-system definition is unavailable.");
+        CelestialSystem firstSystem = new CelestialSystem(defaultSystem, new Random(390));
+        CelestialSystem secondSystem = new CelestialSystem(defaultSystem, new Random(390));
+        require(firstSystem.systemVisualForTest().equals(VisualCatalog.system(defaultSystem.id())),
+                "Production celestial composition is not using the central system metadata.");
+        require(firstSystem.backgroundSeedForTest() == secondSystem.backgroundSeedForTest(),
+                "Production background metadata is not deterministic.");
+
         require(VisualCatalog.ship("__missing__").equals(CatalogShipVisualDefinition.FALLBACK), "Missing ship metadata must fail safely.");
         require(VisualCatalog.station("__missing__").equals(StationVisualDefinition.FALLBACK), "Missing station metadata must fail safely.");
         require(VisualCatalog.system("__missing__").equals(SystemVisualDefinition.FALLBACK), "Missing system metadata must fail safely.");
