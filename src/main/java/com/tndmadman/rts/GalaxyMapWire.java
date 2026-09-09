@@ -33,11 +33,19 @@ final class GalaxyMapWire {
 
     private static String encodeInternal(int copiesPerTemplate, GalaxyMapSnapshot snapshot, OwnerProjection owner) {
         if (snapshot == null) snapshot = new GalaxyMapSnapshot("", List.of(), List.of());
-        World activeWorld = owner.present() ? PlayerRegistry.activeWorld() : null;
+        World generationWorld = PlayerRegistry.activeWorld();
+        World activeWorld = owner.present() ? generationWorld : null;
         String ownerId = owner.present() ? owner.ownerId() : "";
         StringBuilder out = new StringBuilder(PREFIX)
                 .append(Math.max(1, Math.min(2, copiesPerTemplate)))
                 .append('|').append(token(snapshot.activeSystemId()));
+
+        GalaxyGenerationSettings generation = GalaxyRuntimeOptions.generationSettings();
+        if (generation.procedural() && generationWorld != null) {
+            long worldSeed = generationWorld.systemSeed();
+            long generationSeed = GalaxyRuntimeOptions.generationSeed(worldSeed);
+            out.append("|G,").append(GalaxyGenerationWire.encode(generation, generationSeed, worldSeed));
+        }
 
         List<GalaxyMapSystem> projectedSystems = GalaxyTopology.effectiveSystems(activeWorld, ownerId, snapshot.systems());
         if (projectedSystems.size() > 96) {
@@ -101,11 +109,17 @@ final class GalaxyMapWire {
         boolean ownerMarker = false;
         StrategicSummarySnapshot strategic = null;
         boolean strategicMarker = false;
+        GalaxyGenerationWire.Descriptor generationDescriptor = null;
+        boolean generationMarker = false;
         for (int i = 3; i < parts.length; i++) {
             String part = parts[i];
             if (part.startsWith("S,")) systems.add(system(part));
             else if (part.startsWith("L,")) links.add(link(part));
-            else if (part.startsWith("O,")) {
+            else if (part.startsWith("G,")) {
+                if (generationMarker) throw new SnapshotDecodeException("Duplicate procedural galaxy generation descriptor.");
+                generationDescriptor = GalaxyGenerationWire.decode(part.substring(2));
+                generationMarker = true;
+            } else if (part.startsWith("O,")) {
                 if (ownerMarker) throw new SnapshotDecodeException("Duplicate owner fleet galaxy marker.");
                 ownerId = ownerMarker(part);
                 ownerMarker = true;
@@ -132,6 +146,21 @@ final class GalaxyMapWire {
         if (!eventViews.isEmpty() && !ownerMarker) {
             throw new SnapshotDecodeException("Galaxy event rows are missing their owner marker.");
         }
+
+        if (generationDescriptor != null) {
+            boolean changed = GalaxyRuntimeOptions.configureGeneration(
+                    generationDescriptor.settings(), generationDescriptor.generationSeed());
+            World generationWorld = PlayerRegistry.activeWorld();
+            if (generationWorld != null && (changed || generationWorld.systemSeed() != generationDescriptor.worldSeed())) {
+                if (generationWorld.systemSeed() == generationDescriptor.worldSeed()) {
+                    long forceSeed = generationDescriptor.worldSeed() == Long.MAX_VALUE
+                            ? Long.MIN_VALUE : generationDescriptor.worldSeed() + 1;
+                    generationWorld.useSystemSeed(forceSeed);
+                }
+                generationWorld.useSystemSeed(generationDescriptor.worldSeed());
+            }
+        }
+
         if (ownerMarker) validateOwnerRows(ownerId, ownerUnits, true);
         if (strategic != null) {
             if (!ownerMarker || !ownerId.equals(strategic.ownerId())) {
