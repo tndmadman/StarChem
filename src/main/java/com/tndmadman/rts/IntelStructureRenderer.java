@@ -34,7 +34,7 @@ final class IntelStructureRenderer {
             drawContact(source, base);
             return true;
         }
-        return false;
+        return StationVisualRenderer.drawCore(source, base, playerColor);
     }
 
     static void drawStatus(Graphics2D source, Base base, double radius) {
