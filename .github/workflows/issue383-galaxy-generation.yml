@@ -10,6 +10,7 @@ on:
       - 'src/main/java/com/tndmadman/rts/GalaxyGenerationSettings.java'
       - 'src/main/java/com/tndmadman/rts/GalaxyPlan.java'
       - 'src/main/java/com/tndmadman/rts/GalaxyPreview.java'
+      - 'src/main/java/com/tndmadman/rts/GalaxyRuntimeOptions.java'
       - 'src/main/java/com/tndmadman/rts/GalaxySystemIdentity.java'
       - 'src/main/java/com/tndmadman/rts/WanderingWormholePlanner.java'
       - 'src/main/java/com/tndmadman/rts/Issue383GalaxyGenerationValidator.java'
@@ -17,6 +18,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: issue-383-galaxy-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate:
@@ -28,9 +33,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
       - name: Compile
-        run: ./gradlew classes --no-daemon
+        run: gradle clean classes --no-daemon
       - name: Validate procedural galaxy generation
-        run: java -cp build/classes/java/main com.tndmadman.rts.Issue383GalaxyGenerationValidator
+        run: java -cp 'build/classes/java/main:build/resources/main' com.tndmadman.rts.Issue383GalaxyGenerationValidator
       - name: Run existing galaxy connectivity regression
-        run: ./gradlew validateGalaxyConnectivity --no-daemon
+        run: gradle validateGalaxyConnectivity --no-daemon
