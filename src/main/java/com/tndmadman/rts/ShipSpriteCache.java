@@ -43,6 +43,7 @@ final class ShipSpriteCache {
         g.translate(IMAGE_SIZE / 2.0, IMAGE_SIZE / 2.0);
         g.rotate(bucket * Math.PI * 2.0 / BUCKETS);
         ShipShape.draw(g, unit.type(), color);
+        ShipSurfaceArt.draw(g, unit.type());
         g.dispose();
         return image;
     }
