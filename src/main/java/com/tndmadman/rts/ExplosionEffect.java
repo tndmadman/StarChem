@@ -6,24 +6,39 @@ import java.awt.geom.Line2D;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.WeakHashMap;
 
 final class ExplosionEffect {
+    /** Hard render-side limits so mass destruction cannot create unbounded transient Java2D work. */
+    private static final int MAX_ACTIVE_EFFECTS = 96;
+    private static final int MAX_PARTICLES_PER_EFFECT = 192;
+    private static final WeakHashMap<ExplosionEffect, Boolean> ACTIVE_EFFECTS = new WeakHashMap<>();
+
     private final double x;
     private final double y;
     private final double radius;
     private final double life;
     private final Color playerColor;
     private final List<Particle> particles = new ArrayList<>();
+    private final boolean renderEnabled;
     private double age;
 
-    private ExplosionEffect(double x, double y, double scale, Color playerColor, long seed) {
+    private ExplosionEffect(double x, double y, double scale, Color playerColor, long seed, boolean renderEnabled) {
         this.x = x;
         this.y = y;
-        this.playerColor = playerColor;
+        this.playerColor = playerColor == null ? Color.WHITE : playerColor;
+        this.renderEnabled = renderEnabled;
+        if (!renderEnabled) {
+            this.life = 0;
+            this.radius = 0;
+            return;
+        }
+
         Random random = new Random(seed);
         this.life = 1.15 + scale * 0.18 + random.nextDouble() * 0.45;
         this.radius = 58 + scale * 48 + random.nextDouble() * 26;
-        int count = 34 + (int)Math.round(scale * 20) + random.nextInt(14);
+        int requested = 34 + (int)Math.round(scale * 20) + random.nextInt(14);
+        int count = Math.min(MAX_PARTICLES_PER_EFFECT, Math.max(0, requested));
         for (int i = 0; i < count; i++) particles.add(makeParticle(random, scale));
     }
 
@@ -33,7 +48,7 @@ final class ExplosionEffect {
                 ^ Double.doubleToLongBits(unit.x * 31.0 + unit.y * 17.0)
                 ^ ((long)unit.key().hashCode() << 32)
                 ^ unit.shipTypeId.hashCode();
-        return new ExplosionEffect(unit.x, unit.y, scale, PlayerRegistry.color(unit.playerId), seed);
+        return createBounded(unit.x, unit.y, scale, PlayerRegistry.color(unit.playerId), seed);
     }
 
     static ExplosionEffect fromBase(Base base) {
@@ -42,16 +57,41 @@ final class ExplosionEffect {
                 ^ Double.doubleToLongBits(base.x * 19.0 + base.y * 23.0)
                 ^ ((long)base.id.hashCode() << 32)
                 ^ base.typeId.hashCode();
-        return new ExplosionEffect(base.x, base.y, scale, PlayerRegistry.color(base.playerId), seed);
+        return createBounded(base.x, base.y, scale, PlayerRegistry.color(base.playerId), seed);
+    }
+
+    /** Deterministic factory used by the graphics performance validator. */
+    static ExplosionEffect forPerformanceTest(double x, double y, double scale, long seed) {
+        return createBounded(x, y, Math.max(1.0, scale), new Color(80, 190, 255), seed);
+    }
+
+    private static ExplosionEffect createBounded(double x, double y, double scale, Color color, long seed) {
+        synchronized (ACTIVE_EFFECTS) {
+            // Weak keys mean abandoned worlds/system views cannot permanently consume the budget.
+            if (ACTIVE_EFFECTS.size() >= MAX_ACTIVE_EFFECTS) {
+                return new ExplosionEffect(x, y, scale, color, seed, false);
+            }
+            ExplosionEffect effect = new ExplosionEffect(x, y, scale, color, seed, true);
+            ACTIVE_EFFECTS.put(effect, Boolean.TRUE);
+            return effect;
+        }
     }
 
     boolean update(double dt) {
+        if (!renderEnabled) return false;
         age += dt;
         for (Particle p : particles) p.update(dt);
-        return age < life;
+        boolean alive = age < life;
+        if (!alive) {
+            synchronized (ACTIVE_EFFECTS) {
+                ACTIVE_EFFECTS.remove(this);
+            }
+        }
+        return alive;
     }
 
     void draw(Graphics2D g2) {
+        if (!renderEnabled || g2 == null) return;
         double t = Math.max(0, Math.min(1, age / life));
         double fade = 1.0 - t;
         Graphics2D g = (Graphics2D) g2.create();
@@ -61,6 +101,16 @@ final class ExplosionEffect {
         for (Particle p : particles) p.draw(g, fade);
         g.dispose();
     }
+
+    static int maxActiveEffects() { return MAX_ACTIVE_EFFECTS; }
+    static int maxParticlesPerEffect() { return MAX_PARTICLES_PER_EFFECT; }
+    static int activeEffectCount() {
+        synchronized (ACTIVE_EFFECTS) {
+            return ACTIVE_EFFECTS.size();
+        }
+    }
+    int particleCountForTest() { return particles.size(); }
+    boolean renderEnabledForTest() { return renderEnabled; }
 
     private Particle makeParticle(Random random, double scale) {
         double angle = random.nextDouble() * Math.PI * 2;
