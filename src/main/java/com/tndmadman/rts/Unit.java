@@ -212,12 +212,23 @@ final class Unit {
             } else {
                 heading = desiredHeading;
             }
-            double step = Math.min(dist, type().speed * ShipModuleRules.speedMultiplier(this) * dt);
+            double step = Math.min(dist, type().speed * ShipModuleRules.speedMultiplier(this)
+                    * strategicLogisticsSpeedMultiplier() * dt);
             x += Math.cos(heading) * step;
             y += Math.sin(heading) * step;
         }
         x = GameplayCommandNumbers.repairedCoordinate(x, targetX, width);
         y = GameplayCommandNumbers.repairedCoordinate(y, targetY, height);
+    }
+
+    private double strategicLogisticsSpeedMultiplier() {
+        World world = PlayerRegistry.activeWorld();
+        if (world == null) return 1.0;
+        boolean logistics = LogisticsRouteSystem.ownsTransport(world, this)
+                || LogisticsSystem.SHUTTLE_TYPE.equals(shipTypeId) && logisticsRequestId != null
+                && !logisticsRequestId.isBlank()
+                || FuelShuttleSystem.SHUTTLE_TYPE.equals(shipTypeId);
+        return logistics ? SystemControlBonuses.logisticsThroughput(world, playerId) : 1.0;
     }
 
     private void syncAfterburnerAudio() {
