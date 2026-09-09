@@ -1,5 +1,9 @@
 package com.tndmadman.rts;
 
+import javax.swing.JComponent;
+import javax.swing.JLayeredPane;
+import javax.swing.JRootPane;
+import javax.swing.SwingUtilities;
 import java.awt.*;
 import java.awt.event.AWTEventListener;
 import java.awt.event.MouseEvent;
@@ -29,14 +33,18 @@ final class StationPresentation {
     private static final Color PRODUCTION = new Color(255, 198, 96);
     private static final int CLICK_DRAG_TOLERANCE_PX = 8;
     private static final long FOCUS_RESOLVE_NANOS = 120_000_000L;
+    private static final long FOCUS_STALE_NANOS = 250_000_000L;
 
-    private static Component surface;
+    private static GamePanel surface;
     private static Point pointer = offscreenPoint();
     private static Point pressPoint;
     private static Point pendingFocusPoint;
     private static long pendingFocusUntil;
     private static FocusKey focusedBase;
     private static double focusedDistanceSq = Double.POSITIVE_INFINITY;
+    private static Base focusedBaseView;
+    private static long focusedBaseSeenNanos;
+    private static InspectorOverlay inspectorOverlay;
 
     static {
         if (!GraphicsEnvironment.isHeadless()) {
@@ -54,6 +62,7 @@ final class StationPresentation {
 
     static void draw(Graphics2D g2, Base base, BaseType def, double radius, Color playerColor) {
         if (g2 == null || base == null || def == null || playerColor == null) return;
+        syncInspectorBounds();
         Presentation state = presentationFor(g2, base, radius);
 
         if (state.focused()) drawRange(g2, base, def, playerColor);
@@ -68,7 +77,9 @@ final class StationPresentation {
         }
         if (state.focused()) {
             drawFocusedBars(g2, base, def, radius, playerColor);
-            drawInspector(g2, base, def, playerColor, warning);
+            focusedBaseView = base;
+            focusedBaseSeenNanos = System.nanoTime();
+            if (inspectorOverlay != null) inspectorOverlay.repaint();
         }
     }
 
@@ -86,11 +97,15 @@ final class StationPresentation {
 
     private static void handleMouse(GamePanel panel, MouseEvent mouse) {
         if (surface != panel) {
+            detachInspectorOverlay();
             surface = panel;
             focusedBase = null;
+            focusedBaseView = null;
             pendingFocusPoint = null;
             focusedDistanceSq = Double.POSITIVE_INFINITY;
+            installInspectorOverlay(panel);
         }
+        syncInspectorBounds();
         switch (mouse.getID()) {
             case MouseEvent.MOUSE_MOVED, MouseEvent.MOUSE_DRAGGED, MouseEvent.MOUSE_ENTERED ->
                     pointer = mouse.getPoint();
@@ -104,14 +119,49 @@ final class StationPresentation {
                 if (mouse.getButton() == MouseEvent.BUTTON1 && pressPoint != null) {
                     if (pressPoint.distance(mouse.getPoint()) <= CLICK_DRAG_TOLERANCE_PX) {
                         focusedBase = null;
+                        focusedBaseView = null;
                         focusedDistanceSq = Double.POSITIVE_INFINITY;
                         pendingFocusPoint = mouse.getPoint();
                         pendingFocusUntil = System.nanoTime() + FOCUS_RESOLVE_NANOS;
+                        if (inspectorOverlay != null) inspectorOverlay.repaint();
                     }
                     pressPoint = null;
                 }
             }
             default -> { }
+        }
+    }
+
+    private static void installInspectorOverlay(GamePanel panel) {
+        if (panel == null) return;
+        JRootPane root = SwingUtilities.getRootPane(panel);
+        if (root == null) return;
+        JLayeredPane layeredPane = root.getLayeredPane();
+        if (layeredPane == null) return;
+        inspectorOverlay = new InspectorOverlay();
+        layeredPane.add(inspectorOverlay, JLayeredPane.DRAG_LAYER);
+        syncInspectorBounds();
+    }
+
+    private static void detachInspectorOverlay() {
+        if (inspectorOverlay == null) return;
+        Container parent = inspectorOverlay.getParent();
+        if (parent != null) {
+            parent.remove(inspectorOverlay);
+            parent.repaint();
+        }
+        inspectorOverlay = null;
+    }
+
+    private static void syncInspectorBounds() {
+        GamePanel panel = surface;
+        InspectorOverlay overlay = inspectorOverlay;
+        if (panel == null || overlay == null || overlay.getParent() == null) return;
+        Container parent = overlay.getParent();
+        Point origin = SwingUtilities.convertPoint(panel, 0, 0, parent);
+        if (overlay.getX() != origin.x || overlay.getY() != origin.y
+                || overlay.getWidth() != panel.getWidth() || overlay.getHeight() != panel.getHeight()) {
+            overlay.setBounds(origin.x, origin.y, panel.getWidth(), panel.getHeight());
         }
     }
 
@@ -139,7 +189,7 @@ final class StationPresentation {
 
     private static AffineTransform componentTransform(Graphics2D g2) {
         AffineTransform tx = new AffineTransform(g2.getTransform());
-        Component target = surface;
+        GamePanel target = surface;
         if (target == null || target.getGraphicsConfiguration() == null) return tx;
         try {
             AffineTransform deviceInverse = target.getGraphicsConfiguration().getDefaultTransform().createInverse();
@@ -244,84 +294,74 @@ final class StationPresentation {
         g2.fillRect(x, y, (int)Math.round(width * ratio), height);
     }
 
-    private static void drawInspector(Graphics2D worldGraphics, Base base, BaseType def,
-                                      Color playerColor, String warning) {
-        Component target = surface;
-        if (target == null || target.getWidth() < 480 || target.getHeight() < 340) return;
+    private static void drawInspector(Graphics2D g2, Base base, BaseType def,
+                                      Color playerColor, String warning, int screenWidth, int screenHeight) {
+        if (screenWidth < 480 || screenHeight < 340) return;
         boolean local = PlayerRegistry.isLocal(base.playerId);
         List<String> inventoryRows = local ? ResourceText.lines(base.inventory) : List.of();
         int queueRows = local ? Math.min(4, base.productionQueue.size()) : Math.min(1, base.productionQueue.size());
         int inventoryRowsShown = local ? Math.min(10, inventoryRows.size()) : 0;
         int desiredHeight = 250 + queueRows * 15 + inventoryRowsShown * 15;
 
-        Graphics2D g2 = (Graphics2D) worldGraphics.create();
-        try {
-            AffineTransform screenTx = target.getGraphicsConfiguration() == null
-                    ? new AffineTransform() : target.getGraphicsConfiguration().getDefaultTransform();
-            g2.setTransform(screenTx);
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        int x = 14;
+        int y = 156;
+        int panelWidth = Math.min(local && inventoryRows.size() > 8 ? 430 : 360, screenWidth - 28);
+        int panelHeight = Math.min(desiredHeight, screenHeight - y - 14);
+        if (panelHeight < 170) return;
 
-            int x = 14;
-            int y = 156;
-            int panelWidth = Math.min(local && inventoryRows.size() > 8 ? 430 : 360, target.getWidth() - 28);
-            int panelHeight = Math.min(desiredHeight, target.getHeight() - y - 14);
-            if (panelHeight < 170) return;
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setColor(PANEL);
+        g2.fillRoundRect(x, y, panelWidth, panelHeight, 14, 14);
+        g2.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), 190));
+        g2.drawRoundRect(x, y, panelWidth - 1, panelHeight - 1, 14, 14);
 
-            g2.setColor(PANEL);
-            g2.fillRoundRect(x, y, panelWidth, panelHeight, 14, 14);
-            g2.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), 190));
-            g2.drawRoundRect(x, y, panelWidth - 1, panelHeight - 1, 14, 14);
+        g2.setFont(g2.getFont().deriveFont(Font.BOLD, 14f));
+        g2.setColor(TEXT);
+        g2.drawString(def.name.toUpperCase(Locale.ROOT), x + 14, y + 22);
+        g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 10f));
+        g2.setColor(MUTED);
+        g2.drawString(base.id + " | " + PlayerRegistry.name(base.playerId), x + 14, y + 38);
 
-            g2.setFont(g2.getFont().deriveFont(Font.BOLD, 14f));
-            g2.setColor(TEXT);
-            g2.drawString(def.name.toUpperCase(Locale.ROOT), x + 14, y + 22);
-            g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 10f));
-            g2.setColor(MUTED);
-            g2.drawString(base.id + " | " + PlayerRegistry.name(base.playerId), x + 14, y + 38);
+        int cursor = y + 51;
+        if (warning != null) {
+            g2.setColor(new Color(65, 18, 16, 220));
+            g2.fillRoundRect(x + 10, cursor, panelWidth - 20, 24, 8, 8);
+            g2.setFont(g2.getFont().deriveFont(Font.BOLD, 11f));
+            g2.setColor(WARNING);
+            g2.drawString(warning, x + 18, cursor + 16);
+            cursor += 31;
+        }
 
-            int cursor = y + 51;
-            if (warning != null) {
-                g2.setColor(new Color(65, 18, 16, 220));
-                g2.fillRoundRect(x + 10, cursor, panelWidth - 20, 24, 8, 8);
-                g2.setFont(g2.getFont().deriveFont(Font.BOLD, 11f));
-                g2.setColor(WARNING);
-                g2.drawString(warning, x + 18, cursor + 16);
-                cursor += 31;
-            }
+        g2.setColor(PANEL_INNER);
+        g2.fillRoundRect(x + 10, cursor, panelWidth - 20, 50, 9, 9);
+        drawPanelBar(g2, x + 18, cursor + 13, panelWidth - 36, "HP", base.hp, def.maxHp, HP);
+        if (def.maxShield > 0) {
+            drawPanelBar(g2, x + 18, cursor + 35, panelWidth - 36, "SHIELD", base.shield, def.maxShield, SHIELD);
+        }
+        cursor += 61;
 
-            g2.setColor(PANEL_INNER);
-            g2.fillRoundRect(x + 10, cursor, panelWidth - 20, 50, 9, 9);
-            drawPanelBar(g2, x + 18, cursor + 13, panelWidth - 36, "HP", base.hp, def.maxHp, HP);
-            if (def.maxShield > 0) {
-                drawPanelBar(g2, x + 18, cursor + 35, panelWidth - 36, "SHIELD", base.shield, def.maxShield, SHIELD);
-            }
-            cursor += 61;
+        g2.setFont(g2.getFont().deriveFont(Font.BOLD, 11f));
+        g2.setColor(TEXT);
+        g2.drawString("OPERATIONS", x + 14, cursor);
+        cursor += 16;
+        g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 10f));
+        drawOperationLines(g2, base, x + 16, cursor, panelWidth - 32);
+        cursor += 58;
 
+        g2.setFont(g2.getFont().deriveFont(Font.BOLD, 11f));
+        g2.setColor(TEXT);
+        g2.drawString("PRODUCTION QUEUE", x + 14, cursor);
+        cursor += 15;
+        cursor = drawQueue(g2, base, local, x + 16, cursor, panelWidth - 32, y + panelHeight - 34);
+
+        if (local && cursor < y + panelHeight - 28) {
             g2.setFont(g2.getFont().deriveFont(Font.BOLD, 11f));
             g2.setColor(TEXT);
-            g2.drawString("OPERATIONS", x + 14, cursor);
-            cursor += 16;
-            g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 10f));
-            drawOperationLines(g2, base, x + 16, cursor, panelWidth - 32);
-            cursor += 58;
-
-            g2.setFont(g2.getFont().deriveFont(Font.BOLD, 11f));
-            g2.setColor(TEXT);
-            g2.drawString("PRODUCTION QUEUE", x + 14, cursor);
+            g2.drawString("HANGAR", x + 14, cursor);
             cursor += 15;
-            cursor = drawQueue(g2, base, local, x + 16, cursor, panelWidth - 32, y + panelHeight - 34);
-
-            if (local && cursor < y + panelHeight - 28) {
-                g2.setFont(g2.getFont().deriveFont(Font.BOLD, 11f));
-                g2.setColor(TEXT);
-                g2.drawString("HANGAR", x + 14, cursor);
-                cursor += 15;
-                g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 10f));
-                drawInventory(g2, inventoryRows, x + 16, cursor, panelWidth - 32,
-                        Math.max(0, y + panelHeight - cursor - 10));
-            }
-        } finally {
-            g2.dispose();
+            g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 10f));
+            drawInventory(g2, inventoryRows, x + 16, cursor, panelWidth - 32,
+                    Math.max(0, y + panelHeight - cursor - 10));
         }
     }
 
@@ -453,6 +493,29 @@ final class StationPresentation {
 
     private static Point offscreenPoint() {
         return new Point(Integer.MIN_VALUE / 4, Integer.MIN_VALUE / 4);
+    }
+
+    private static final class InspectorOverlay extends JComponent {
+        private InspectorOverlay() {
+            setOpaque(false);
+            setFocusable(false);
+        }
+
+        @Override public boolean contains(int x, int y) {
+            return false;
+        }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            Base base = focusedBaseView;
+            if (base == null || System.nanoTime() - focusedBaseSeenNanos > FOCUS_STALE_NANOS) return;
+            Graphics2D g2 = (Graphics2D) graphics.create();
+            try {
+                drawInspector(g2, base, base.type(), PlayerRegistry.color(base.playerId),
+                        criticalWarning(base, base.type()), getWidth(), getHeight());
+            } finally {
+                g2.dispose();
+            }
+        }
     }
 
     private record Presentation(boolean hovered, boolean focused) { }
