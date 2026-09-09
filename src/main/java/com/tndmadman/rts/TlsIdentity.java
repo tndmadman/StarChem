@@ -47,6 +47,7 @@ final class TlsIdentity {
     static final String KEYSTORE_ENV = "STARCHEM_TLS_KEYSTORE";
     static final String PASSWORD_FILE_ENV = "STARCHEM_TLS_PASSWORD_FILE";
     static final String KEY_ALIAS_ENV = "STARCHEM_TLS_KEY_ALIAS";
+    static final String UNVERIFIED_FIRST_USE = "(none - unverified first connection)";
 
     private static final char[] LEGACY_KEY_PASSWORD = "starchem-local-tls".toCharArray();
     private static final String KEY_ALIAS = "starchem-server";
@@ -93,24 +94,32 @@ final class TlsIdentity {
             ssl.startHandshake();
             Certificate[] chain = ssl.getSession().getPeerCertificates();
             if (chain.length == 0) throw new IOException("Server did not present a TLS certificate.");
-            String fingerprint = certificateFingerprint(chain[0]);
-            if (config != null && config.localHostClientMode()) return;
-            String pinned = SessionTokenStore.serverFingerprint(config);
-            if (automaticallyTrustLoopbackServer(config)) {
-                if (!fingerprint.equalsIgnoreCase(pinned)) {
-                    SessionTokenStore.saveServerFingerprint(config, fingerprint);
-                }
-                return;
-            }
-            if (pinned.isBlank()) {
-                SessionTokenStore.saveServerFingerprint(config, fingerprint);
-            } else if (!MessageDigest.isEqual(PasswordAuth.decodeVerifier(pinned), PasswordAuth.decodeVerifier(fingerprint))) {
-                throw new FingerprintChangedException(new FingerprintChange(pinned, fingerprint));
-            }
+            verifyServerFingerprint(config, certificateFingerprint(chain[0]));
         } catch (IOException ex) {
             throw ex;
         } catch (Exception ex) {
             throw new IOException("Could not verify server TLS fingerprint: " + ex.getMessage(), ex);
+        }
+    }
+
+    static void verifyServerFingerprint(Config config, String fingerprint) throws IOException {
+        if (!PasswordAuth.validVerifier(fingerprint)) {
+            throw new IOException("Server presented an invalid TLS certificate fingerprint.");
+        }
+        String presented = fingerprint.toLowerCase(java.util.Locale.ROOT);
+        if (config != null && config.localHostClientMode()) return;
+        String pinned = SessionTokenStore.serverFingerprint(config);
+        if (automaticallyTrustLoopbackServer(config)) {
+            if (!presented.equalsIgnoreCase(pinned)) {
+                SessionTokenStore.saveServerFingerprint(config, presented);
+            }
+            return;
+        }
+        if (pinned.isBlank()) {
+            throw new FingerprintChangedException(new FingerprintChange(UNVERIFIED_FIRST_USE, presented));
+        }
+        if (!MessageDigest.isEqual(PasswordAuth.decodeVerifier(pinned), PasswordAuth.decodeVerifier(presented))) {
+            throw new FingerprintChangedException(new FingerprintChange(pinned, presented));
         }
     }
 
@@ -122,16 +131,23 @@ final class TlsIdentity {
 
     record FingerprintChange(String expected, String presented) {
         FingerprintChange {
-            expected = PasswordAuth.validVerifier(expected) ? expected.toLowerCase(java.util.Locale.ROOT) : "";
+            expected = UNVERIFIED_FIRST_USE.equals(expected)
+                    ? UNVERIFIED_FIRST_USE
+                    : PasswordAuth.validVerifier(expected) ? expected.toLowerCase(java.util.Locale.ROOT) : "";
             presented = PasswordAuth.validVerifier(presented) ? presented.toLowerCase(java.util.Locale.ROOT) : "";
         }
-        boolean valid() { return PasswordAuth.validVerifier(expected) && PasswordAuth.validVerifier(presented); }
+        boolean firstUse() { return UNVERIFIED_FIRST_USE.equals(expected); }
+        boolean valid() {
+            return (firstUse() || PasswordAuth.validVerifier(expected)) && PasswordAuth.validVerifier(presented);
+        }
     }
 
     static final class FingerprintChangedException extends IOException {
         private final FingerprintChange change;
         FingerprintChangedException(FingerprintChange change) {
-            super("Server TLS fingerprint changed. Refusing to send login secrets.");
+            super(change != null && change.firstUse()
+                    ? "First connection requires TLS certificate verification before login."
+                    : "Server TLS fingerprint changed. Refusing to send login secrets.");
             this.change = change;
         }
         FingerprintChange change() { return change; }

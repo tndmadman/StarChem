@@ -274,6 +274,25 @@ final class PasswordAuth {
         return keyedProof("StarChem session resume v1", tokenDigest, Config.clean(playerId), nonce);
     }
 
+    static String sessionReference(byte[] tokenDigest) {
+        if (tokenDigest == null || tokenDigest.length == 0) return "";
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            digest.update("StarChem session reference v1|".getBytes(StandardCharsets.UTF_8));
+            digest.update(tokenDigest);
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 is unavailable.", ex);
+        }
+    }
+
+    static boolean sessionReferenceMatches(byte[] tokenDigest, String suppliedReference) {
+        if (!validVerifier(suppliedReference)) return false;
+        String expected = sessionReference(tokenDigest);
+        return !expected.isBlank()
+                && MessageDigest.isEqual(decodeVerifier(expected), decodeVerifier(suppliedReference));
+    }
+
     static byte[] tokenDigest(String token) {
         try {
             return MessageDigest.getInstance("SHA-256").digest((token == null ? "" : token).getBytes(StandardCharsets.UTF_8));

@@ -13,6 +13,8 @@ import java.util.function.LongSupplier;
  * budget boundary ends that cycle; the next poll begins a fresh budget window.
  */
 final class InboundCommandScheduler {
+    private static final int HANDSHAKE_CHARS_PER_TOKEN = 256;
+
     enum OfferResult {
         ACCEPTED,
         COALESCED,
@@ -267,12 +269,20 @@ final class InboundCommandScheduler {
         if (message == null || message.isBlank()) return 1.0;
         int separator = message.indexOf('|');
         String type = separator < 0 ? message : message.substring(0, separator);
-        return switch (type) {
+        double baseCost = switch (type) {
             case "MOVE" -> 1.0;
             case "WORK", "ATTACK", "ORDER", "VIEW_SYSTEM" -> 2.0;
             case "BUILD", "PACK", "PROD", "WHTOUCH", "RESPAWN" -> 4.0;
             default -> type.startsWith("DEV") ? 6.0 : 1.0;
         };
+        if ("JOIN".equals(type) || "JOIN_V1".equals(type)
+                || "RESUME".equals(type) || "RESUME_V1".equals(type)) {
+            // message.length() is an allocation-free decoded-size proxy. Avoid creating a second
+            // attacker-controlled UTF-8 byte array merely to price an unauthenticated frame.
+            double sizeCost = Math.ceil(message.length() / (double) HANDSHAKE_CHARS_PER_TOKEN);
+            return Math.max(baseCost, sizeCost);
+        }
+        return baseCost;
     }
 
     private static int intProperty(String name, int fallback, int min, int max) {

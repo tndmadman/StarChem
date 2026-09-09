@@ -28,17 +28,25 @@ run_java com.tndmadman.rts.MovementPerformanceProfiler --gate
 run_java com.tndmadman.rts.SelectionPerformanceValidator
 run_java com.tndmadman.rts.RadarTowerValidator
 run_java com.tndmadman.rts.IntelWarfareValidator
+run_java com.tndmadman.rts.CelestialRenderValidator
+run_java com.tndmadman.rts.CelestialContinuityValidator
 run_java com.tndmadman.rts.StationControlValidator
+run_java com.tndmadman.rts.StationPresentationValidator
 run_java com.tndmadman.rts.ProductionLogisticsSourcingValidator
 run_java com.tndmadman.rts.ShipyardStationPackageValidator
 run_java com.tndmadman.rts.MenuOverflowValidator
 run_java com.tndmadman.rts.ShipyardScrollHotfixValidator
+run_java com.tndmadman.rts.Issue391SpaceBackgroundValidator
 run_java com.tndmadman.rts.SessionEndpointIdentityValidator
+run_java com.tndmadman.rts.AuthenticationEnumerationValidator
 run_java com.tndmadman.rts.NumericCommandValidationValidator authenticated
 run_java com.tndmadman.rts.NumericCommandValidationValidator repair
 run_java com.tndmadman.rts.NumericCommandValidationValidator serialization
 run_java com.tndmadman.rts.MiningCommandValidationValidator
+run_java com.tndmadman.rts.Issue399ResourceVisualValidator
 run_java com.tndmadman.rts.NarrationProcessValidator
+run_java com.tndmadman.rts.Issue395RespawnAuthorityValidator
+run_java com.tndmadman.rts.Issue405DestructionEffectsValidator
 
 # Release compatibility gate: generate a real format-2 save with the published v1.7.0 code,
 # load/migrate it with the current code, exercise authentication, resave, and reload it.
