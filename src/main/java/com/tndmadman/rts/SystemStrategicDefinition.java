@@ -1,5 +1,8 @@
 package com.tndmadman.rts;
 
+import java.util.ArrayList;
+import java.util.List;
+
 record SystemStrategicDefinition(
         double miningYield,
         double shieldRegen,
@@ -36,6 +39,25 @@ record SystemStrategicDefinition(
                 && close(productionThroughput, 1) && close(researchThroughput, 1)
                 && close(refitThroughput, 1) && close(sensorRange, 1)
                 && close(logisticsThroughput, 1) && close(repairThroughput, 1);
+    }
+
+    String summary() {
+        List<String> parts = new ArrayList<>();
+        add(parts, "mining", miningYield);
+        add(parts, "shields", shieldRegen);
+        add(parts, "production", productionThroughput);
+        add(parts, "research", researchThroughput);
+        add(parts, "refit", refitThroughput);
+        add(parts, "sensors", sensorRange);
+        add(parts, "logistics", logisticsThroughput);
+        add(parts, "repair", repairThroughput);
+        return parts.isEmpty() ? "No special ownership benefits" : String.join(" • ", parts);
+    }
+
+    private static void add(List<String> parts, String label, double multiplier) {
+        if (close(multiplier, 1)) return;
+        int percent = (int)Math.round((multiplier - 1) * 100);
+        parts.add((percent >= 0 ? "+" : "") + percent + "% " + label);
     }
 
     private static double positive(double value) {
