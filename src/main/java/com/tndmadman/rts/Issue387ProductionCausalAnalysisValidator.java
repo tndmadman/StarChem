@@ -68,7 +68,6 @@ public final class Issue387ProductionCausalAnalysisValidator {
         Base remote = base(world, playerId + ":REMOTE", playerId, "shipyard", 320, 320);
         remote.inventory.put(first.material(), first.amount() * 2);
         world.activateSystem(targetSystemId);
-        LogisticsRouteSystem.clear(world);
 
         ProductionCausalAnalyzer.Analysis analysis = ProductionCausalAnalyzer.analyze(world, target, job);
         require(hasCause(analysis.causes(), ProductionCausalAnalyzer.CauseType.NO_ROUTE),
