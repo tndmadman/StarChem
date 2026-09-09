@@ -53,10 +53,10 @@
     {
       "id": "regional_presence",
       "title": "Secure the Frontier",
-      "description": "Control at least one galaxy system.",
+      "description": "Expand beyond the starting foothold and control at least two galaxy systems.",
       "kind": "PRIMARY",
       "prerequisites": ["hauler_wing"],
-      "trigger": { "type": "CONTROL_SYSTEMS", "target": 1 },
+      "trigger": { "type": "CONTROL_SYSTEMS", "target": 2 },
       "actions": [
         { "type": "END_SCENARIO", "outcome": "victory" }
       ]
