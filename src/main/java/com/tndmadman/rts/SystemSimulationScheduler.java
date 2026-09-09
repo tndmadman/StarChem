@@ -66,6 +66,7 @@ final class SystemSimulationScheduler {
         if (!events.isEmpty()) out.put(GalaxyEventDirector.saveKey(), events);
         Map<String,Object> advanced = GalaxyEventExtensions.capture(world);
         if (!advanced.isEmpty()) out.put(GalaxyEventExtensions.saveKey(), advanced);
+        if (ScenarioDirector.active(world)) ScenarioDirector.evaluateAuthoritative(world);
         Map<String,Object> scenario = ScenarioDirector.capture(world);
         if (!scenario.isEmpty()) out.put(SCENARIO_SAVE_KEY, scenario);
         return out;
