@@ -90,7 +90,7 @@ require_text src/main/java/com/tndmadman/rts/SideAJoin.java 'RemoteRegistrationB
 require_text src/main/java/com/tndmadman/rts/SideAJoin.java 'remoteRegistration ? false : server.requestedDev(parts)'
 require_text src/main/java/com/tndmadman/rts/SideAJoin.java 'remoteRegistration ? "" : server.requestedDevToken(parts)'
 require_text src/main/java/com/tndmadman/rts/RemoteRegistrationBridge.java '&& !server.retainedAccountExists(name);'
-require_text src/main/java/com/tndmadman/rts/PeerServerSide.java 'return address != null && address.isLoopbackAddress();'
+require_text src/main/java/com/tndmadman/rts/PeerServerSide.java 'return allowRemoteRegistration || (address != null && address.isLoopbackAddress());'
 reject_text README.md 'disabled by default and should be enabled'
 reject_text README.md 'starchem.auth.remoteRegistration'
 reject_text README.md 'STARCHEM_AUTH_REMOTE_REGISTRATION'
