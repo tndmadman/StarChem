@@ -70,7 +70,8 @@ final class UnitRenderer {
         s.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         s.translate(unit.x, unit.y);
         s.rotate(unit.heading);
-        ShipShape.draw(s, unit.type(), playerColor);
+        if (ShowcaseShipRenderer.supports(unit.type())) ShowcaseShipRenderer.draw(s, unit.type(), playerColor);
+        else ShipShape.draw(s, unit.type(), playerColor);
         ShipLighting.draw(s, unit.type());
         s.dispose();
     }
