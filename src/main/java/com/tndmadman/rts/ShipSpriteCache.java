@@ -12,9 +12,17 @@ final class ShipSpriteCache {
     private static final int BUCKETS = 48;
     private static final int IMAGE_SIZE = 144;
     private static final int MAX_ENTRIES = 1536;
+
+    private static long cacheHits;
+    private static long cacheMisses;
+    private static long renders;
+    private static long evictions;
+
     private static final Map<Key, BufferedImage> CACHE = new LinkedHashMap<>(256, 0.75f, true) {
         @Override protected boolean removeEldestEntry(Map.Entry<Key, BufferedImage> eldest) {
-            return size() > MAX_ENTRIES;
+            boolean remove = size() > MAX_ENTRIES;
+            if (remove) evictions++;
+            return remove;
         }
     };
 
@@ -23,12 +31,18 @@ final class ShipSpriteCache {
     static BufferedImage sprite(Unit unit, Color color) {
         if (unit == null || color == null) return null;
         int bucket = headingBucket(unit.heading);
-        Key key = new Key(unit.shipTypeId, color.getRGB(), bucket);
+        String visualId = ShipVisualRenderer.visualId(unit.type());
+        Key key = new Key(visualId, color.getRGB(), bucket);
         synchronized (CACHE) {
             BufferedImage cached = CACHE.get(key);
-            if (cached != null) return cached;
+            if (cached != null) {
+                cacheHits++;
+                return cached;
+            }
+            cacheMisses++;
             BufferedImage image = render(unit, color, bucket);
             CACHE.put(key, image);
+            renders++;
             return image;
         }
     }
@@ -42,7 +56,7 @@ final class ShipSpriteCache {
         g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_SPEED);
         g.translate(IMAGE_SIZE / 2.0, IMAGE_SIZE / 2.0);
         g.rotate(bucket * Math.PI * 2.0 / BUCKETS);
-        ShipShape.draw(g, unit.type(), color);
+        ShipVisualRenderer.draw(g, unit.type(), color);
         g.dispose();
         return image;
     }
@@ -53,5 +67,25 @@ final class ShipSpriteCache {
         return Math.floorMod((int)Math.round(turns * BUCKETS), BUCKETS);
     }
 
-    private record Key(String typeId, int rgb, int headingBucket) { }
+    static Stats stats() {
+        synchronized (CACHE) {
+            long estimatedBytes = (long)CACHE.size() * IMAGE_SIZE * IMAGE_SIZE * 4L;
+            return new Stats(CACHE.size(), cacheHits, cacheMisses, renders, evictions, estimatedBytes);
+        }
+    }
+
+    static void clear() {
+        synchronized (CACHE) {
+            CACHE.clear();
+            cacheHits = 0;
+            cacheMisses = 0;
+            renders = 0;
+            evictions = 0;
+        }
+    }
+
+    private record Key(String visualId, int rgb, int headingBucket) { }
+
+    record Stats(int entries, long cacheHits, long cacheMisses, long renders,
+                 long evictions, long estimatedBytes) { }
 }
