@@ -24,6 +24,7 @@ import java.util.Random;
 final class SpaceBackgroundRenderer {
     private static final double OVERSCAN = 3200.0;
     private static final double TAU = Math.PI * 2.0;
+    private static final int TACTICAL_GRID_SPACING = 160;
 
     private final int width;
     private final int height;
@@ -71,6 +72,7 @@ final class SpaceBackgroundRenderer {
         drawStars(c, view, mediumStars, false);
         drawStars(c, view, brightStars, true);
         drawDebris(c, view);
+        if (Boolean.getBoolean("starchem.tacticalGrid")) drawTacticalGrid(c, view);
         c.dispose();
     }
 
@@ -168,6 +170,17 @@ final class SpaceBackgroundRenderer {
             double by = Math.sin(branchAngle) * piece.length * 0.24;
             g2.draw(new Line2D.Double(x - bx, y - by, x + bx, y + by));
         }
+    }
+
+    private void drawTacticalGrid(Graphics2D g2, Rectangle2D view) {
+        int minX = Math.max(0, (int) Math.floor(view.getMinX() / TACTICAL_GRID_SPACING) * TACTICAL_GRID_SPACING);
+        int maxX = Math.min(width, (int) Math.ceil(view.getMaxX() / TACTICAL_GRID_SPACING) * TACTICAL_GRID_SPACING);
+        int minY = Math.max(0, (int) Math.floor(view.getMinY() / TACTICAL_GRID_SPACING) * TACTICAL_GRID_SPACING);
+        int maxY = Math.min(height, (int) Math.ceil(view.getMaxY() / TACTICAL_GRID_SPACING) * TACTICAL_GRID_SPACING);
+        g2.setStroke(new BasicStroke(1f));
+        g2.setColor(new Color(72, 116, 148, 58));
+        for (int x = minX; x <= maxX; x += TACTICAL_GRID_SPACING) g2.drawLine(x, minY, x, maxY);
+        for (int y = minY; y <= maxY; y += TACTICAL_GRID_SPACING) g2.drawLine(minX, y, maxX, y);
     }
 
     private List<Star> generateStars(Random random, int count, double minRadius, double maxRadius,
@@ -301,7 +314,7 @@ final class SpaceBackgroundRenderer {
             if (definition.hasTag("hazardous") || role.contains("danger") || id.contains("warzone")) return WARZONE;
             if (definition.hasTag("industrial") || definition.hasTag("metal_rich")
                     || role.contains("industrial") || id.contains("forge")) return INDUSTRIAL;
-            if (definition.hasTag("frontier") || role.contains("frontier")) return FRONTIER;
+            if (definition.hasTag("frontier") || role.contains("frontier") || id.contains("frontier")) return FRONTIER;
             return STANDARD;
         }
     }
