@@ -8,8 +8,11 @@ on:
     paths:
       - 'config/galaxy.json'
       - 'docs/issue-383-procedural-galaxy.md'
+      - 'src/main/java/com/tndmadman/rts/GalaxyAdvancedSetup.java'
+      - 'src/main/java/com/tndmadman/rts/GalaxyCoordinator.java'
       - 'src/main/java/com/tndmadman/rts/GalaxyGenerationSettings.java'
       - 'src/main/java/com/tndmadman/rts/GalaxyGenerationWire.java'
+      - 'src/main/java/com/tndmadman/rts/GalaxyInactiveSimulationScheduler.java'
       - 'src/main/java/com/tndmadman/rts/GalaxyMapWire.java'
       - 'src/main/java/com/tndmadman/rts/GalaxyMatchSetup.java'
       - 'src/main/java/com/tndmadman/rts/GalaxyPlan.java'
@@ -17,9 +20,10 @@ on:
       - 'src/main/java/com/tndmadman/rts/GalaxyPreviewPanel.java'
       - 'src/main/java/com/tndmadman/rts/GalaxyRuntimeOptions.java'
       - 'src/main/java/com/tndmadman/rts/GalaxySystemIdentity.java'
-      - 'src/main/java/com/tndmadman/rts/LobbyPanel.java'
-      - 'src/main/java/com/tndmadman/rts/WanderingWormholePlanner.java'
       - 'src/main/java/com/tndmadman/rts/Issue383GalaxyGenerationValidator.java'
+      - 'src/main/java/com/tndmadman/rts/LobbyPanel.java'
+      - 'src/main/java/com/tndmadman/rts/World.java'
+      - 'src/main/java/com/tndmadman/rts/WanderingWormholePlanner.java'
       - '.github/workflows/issue383-galaxy-generation.yml'
 
 permissions:
@@ -32,7 +36,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -48,3 +52,7 @@ jobs:
         run: java -cp 'build/classes/java/main:build/resources/main' com.tndmadman.rts.Issue383GalaxyGenerationValidator
       - name: Run existing galaxy connectivity regression
         run: gradle validateGalaxyConnectivity --no-daemon
+      - name: Run galaxy wire regression
+        run: gradle validateGalaxyMapWire --no-daemon
+      - name: Run TCP multiplayer startup regression
+        run: gradle validateTcpMultiplayer --no-daemon
