@@ -56,3 +56,5 @@ jobs:
         run: gradle validateGalaxyMapWire --no-daemon
       - name: Run TCP multiplayer startup regression
         run: gradle validateTcpMultiplayer --no-daemon
+      - name: Run current-main respawn authority regression
+        run: java -cp 'build/classes/java/main:build/resources/main' com.tndmadman.rts.Issue395RespawnAuthorityValidator
