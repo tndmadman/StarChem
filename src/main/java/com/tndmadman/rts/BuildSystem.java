@@ -30,9 +30,9 @@ final class BuildSystem {
             return false;
         }
         boolean free = freeBuild(world, base);
-        if (!free && !ResearchRules.shipUnlocked(world, base.playerId, shipType.id)) {
-            ResearchTopic topic = ResearchRules.firstTopicUnlockingShip(shipType.id);
-            world.status = shipType.name + " requires research" + (topic == null ? "." : ": " + topic.name + ".");
+        if (!free && !ResearchPolicy.unlocked(world, base.playerId, ResearchUnlockKind.SHIP, shipType.id)) {
+            String research = ResearchPolicy.missingUnlockLabel(world, base.playerId, ResearchUnlockKind.SHIP, shipType.id);
+            world.status = shipType.name + " requires research" + (research.isBlank() ? "." : ": " + research + ".");
             GameNoticeCenter.publish(world, base.playerId, NoticeCategory.WARNING, world.status, true);
             return false;
         }
@@ -65,8 +65,8 @@ final class BuildSystem {
             return false;
         }
         boolean free = freeBuild(world, base);
-        if (!free && !StationPackageResearchRules.unlocked(world, base.playerId, packageType)) {
-            String research = StationPackageResearchRules.requiredResearchName(packageType);
+        if (!free && !ResearchPolicy.unlocked(world, base.playerId, ResearchUnlockKind.STATION_PACKAGE, packageType)) {
+            String research = ResearchPolicy.missingUnlockLabel(world, base.playerId, ResearchUnlockKind.STATION_PACKAGE, packageType);
             world.status = pkg.name + " requires research" + (research.isBlank() ? "." : ": " + research + ".");
             GameNoticeCenter.publish(world, base.playerId, NoticeCategory.WARNING, world.status, true);
             return false;
@@ -138,21 +138,9 @@ final class BuildSystem {
             world.status = "Unknown research topic: " + topicId + ".";
             return false;
         }
-        if (!topic.canResearchAt(base.typeId)) {
-            world.status = base.type().name + " cannot research " + topic.name + ".";
-            return false;
-        }
-        if (world.hasResearch(base.playerId, topic.id)) {
-            world.status = topic.name + " already researched.";
-            return false;
-        }
-        if (ProductionSystem.researchQueued(world, base.playerId, topic.id)) {
-            world.status = topic.name + " is already queued.";
-            return false;
-        }
-        String missing = ProductionSystem.missingResearchPrerequisite(world, base, topic);
-        if (!missing.isBlank()) {
-            world.status = topic.name + " requires " + missing + " first.";
+        String blocked = ResearchPolicy.blockedResearchReason(world, base, topic);
+        if (!blocked.isBlank()) {
+            world.status = topic.name + " is blocked: " + blocked + ".";
             GameNoticeCenter.publish(world, base.playerId, NoticeCategory.WARNING, world.status, true);
             return false;
         }
