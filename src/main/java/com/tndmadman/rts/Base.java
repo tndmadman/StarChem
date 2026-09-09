@@ -43,6 +43,7 @@ final class Base {
         Graphics2D s = (Graphics2D) g2.create();
         s.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         BaseType def = type();
+        StationVisualDefinition visual = VisualCatalog.station(typeId);
         double radius = radius();
         s.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), local ? 42 : 22));
         s.fillOval((int)(x - def.unloadRange), (int)(y - def.unloadRange), (int)(def.unloadRange * 2), (int)(def.unloadRange * 2));
@@ -50,13 +51,14 @@ final class Base {
         s.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 0, new float[]{10f,8f}, 0));
         s.drawOval((int)(x - def.unloadRange), (int)(y - def.unloadRange), (int)(def.unloadRange * 2), (int)(def.unloadRange * 2));
         Polygon hull = new Polygon();
-        for (int i = 0; i < 6; i++) {
-            double a = Math.PI / 6 + i * Math.PI * 2 / 6.0;
+        int hullSides = visual.hullSides();
+        for (int i = 0; i < hullSides; i++) {
+            double a = Math.PI / hullSides + i * Math.PI * 2 / hullSides;
             hull.addPoint((int)Math.round(x + Math.cos(a) * radius), (int)Math.round(y + Math.sin(a) * radius));
         }
-        s.setColor(new Color(20,29,42)); s.fillPolygon(hull);
+        s.setColor(visual.hullColor()); s.fillPolygon(hull);
         s.setColor(playerColor); s.setStroke(new BasicStroke(3f)); s.drawPolygon(hull);
-        drawCore(s, playerColor);
+        drawCore(s, playerColor, visual);
         s.setFont(s.getFont().deriveFont(Font.BOLD, 12f));
         drawBars(s, def, radius);
         drawLabel(s, def, radius, playerColor);
@@ -81,7 +83,7 @@ final class Base {
         };
     }
 
-    private void drawCore(Graphics2D s, Color playerColor) {
+    private void drawCore(Graphics2D s, Color playerColor, StationVisualDefinition visual) {
         if (IntelStructureRenderer.drawCore(s, this, playerColor)) return;
         int radarTier = IntelWarfareSystem.radarTier(typeId);
         if (radarTier > 0) {
@@ -101,6 +103,16 @@ final class Base {
             s.fillRect((int)(x - 28), (int)(y - 22), 56, 44);
             s.setColor(new Color(playerColor.getRed(), playerColor.getGreen(), playerColor.getBlue(), 150));
             s.drawRect((int)(x - 28), (int)(y - 22), 56, 44);
+            return;
+        }
+        if (!"legacy".equals(visual.style())) {
+            double coreRadius = 26 * visual.coreScale();
+            s.setColor(visual.coreColor(90));
+            s.fill(new Ellipse2D.Double(x - coreRadius, y - coreRadius, coreRadius * 2, coreRadius * 2));
+            s.setColor(visual.coreColor(155));
+            s.setStroke(new BasicStroke(1.6f));
+            s.draw(new Ellipse2D.Double(x - coreRadius * 0.72, y - coreRadius * 0.72,
+                    coreRadius * 1.44, coreRadius * 1.44));
             return;
         }
         s.setColor(new Color(125,205,255,90));
