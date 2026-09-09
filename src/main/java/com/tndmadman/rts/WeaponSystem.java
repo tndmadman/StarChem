@@ -12,6 +12,12 @@ import java.util.WeakHashMap;
 
 final class WeaponSystem {
     private static final double AUTO_ACQUIRE_INTERVAL_SECONDS = 0.16;
+    private static final Stroke PASSIVE_BEAM_STROKE =
+            new BasicStroke(1.25f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
+    private static final Stroke PASSIVE_PULSE_STROKE =
+            new BasicStroke(1.1f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 0, new float[]{10f, 14f}, 0);
+    private static final Composite PASSIVE_FIRE_COMPOSITE =
+            AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.16f);
 
     private final Map<Unit, Double> acquisitionCooldowns = new WeakHashMap<>();
     private final List<Unit> unitCandidates = new ArrayList<>();
@@ -90,7 +96,7 @@ final class WeaponSystem {
             vfx.drawProjectile(g2, shot);
         }
         for (Unit unit : unitsToDraw) {
-            if (unit.weaponFlashTimer <= 0 || unit.attackTarget.isBlank()) continue;
+            if (unit.attackTarget.isBlank()) continue;
             if (!CombatTarget.enemy(world, unit, unit.attackTarget)) continue;
             double tx = CombatTarget.x(world, unit.attackTarget);
             double ty = CombatTarget.y(world, unit.attackTarget);
@@ -100,10 +106,39 @@ final class WeaponSystem {
             double dist = Math.sqrt(dx * dx + dy * dy);
             WeaponVolley volley = WeaponRules.directVolley(world, unit, AttackRangeRules.definitionDistance(world, dist));
             WeaponType visual = volley.visualWeapon();
-            if (visual != null) vfx.drawDirectFire(g2, unit, tx, ty, visual);
+            if (visual == null) continue;
+            if (unit.weaponFlashTimer > 0) vfx.drawDirectFire(g2, unit, tx, ty, visual);
+            else drawPassiveFireCue(g2, unit, tx, ty, visual);
         }
         vfx.draw(g2);
         PerformanceTrace.recordWeaponDraw(System.nanoTime() - started);
+    }
+
+    private void drawPassiveFireCue(Graphics2D g2, Unit unit, double tx, double ty, WeaponType weapon) {
+        if (SelectionRenderPolicy.scale(g2) < 0.12) return;
+        ShipVfxProfile profile = ShipVfxProfile.forType(unit.type());
+        int mount = Math.floorMod(unit.unitId * 31 + (weapon.id == null ? 0 : weapon.id.hashCode()),
+                Math.max(1, profile.muzzleCount()));
+        double c = Math.cos(unit.heading);
+        double s = Math.sin(unit.heading);
+        double localY = profile.muzzleY(mount);
+        double mx = unit.x + c * profile.muzzleX - s * localY;
+        double my = unit.y + s * profile.muzzleX + c * localY;
+
+        Stroke oldStroke = g2.getStroke();
+        Color oldColor = g2.getColor();
+        Composite oldComposite = g2.getComposite();
+        g2.setComposite(PASSIVE_FIRE_COMPOSITE);
+        g2.setColor(weapon.color);
+        if (WeaponVfxStyle.forWeapon(weapon) == WeaponVfxStyle.BEAM) {
+            g2.setStroke(PASSIVE_BEAM_STROKE);
+        } else {
+            g2.setStroke(PASSIVE_PULSE_STROKE);
+        }
+        g2.drawLine((int)Math.round(mx), (int)Math.round(my), (int)Math.round(tx), (int)Math.round(ty));
+        g2.setComposite(oldComposite);
+        g2.setStroke(oldStroke);
+        g2.setColor(oldColor);
     }
 
     private boolean acquisitionDue(Unit unit, double dt) {
