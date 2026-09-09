@@ -1,0 +1,36 @@
+name: Issue 383 Galaxy Generation
+
+on:
+  push:
+    branches:
+      - issue-383-procedural-galaxy
+  pull_request:
+    paths:
+      - 'config/galaxy.json'
+      - 'src/main/java/com/tndmadman/rts/GalaxyGenerationSettings.java'
+      - 'src/main/java/com/tndmadman/rts/GalaxyPlan.java'
+      - 'src/main/java/com/tndmadman/rts/GalaxyPreview.java'
+      - 'src/main/java/com/tndmadman/rts/GalaxySystemIdentity.java'
+      - 'src/main/java/com/tndmadman/rts/WanderingWormholePlanner.java'
+      - 'src/main/java/com/tndmadman/rts/Issue383GalaxyGenerationValidator.java'
+      - '.github/workflows/issue383-galaxy-generation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Compile
+        run: ./gradlew classes --no-daemon
+      - name: Validate procedural galaxy generation
+        run: java -cp build/classes/java/main com.tndmadman.rts.Issue383GalaxyGenerationValidator
+      - name: Run existing galaxy connectivity regression
+        run: ./gradlew validateGalaxyConnectivity --no-daemon
