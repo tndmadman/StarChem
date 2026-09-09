@@ -71,6 +71,7 @@ final class UnitRenderer {
         s.translate(unit.x, unit.y);
         s.rotate(unit.heading);
         ShipShape.draw(s, unit.type(), playerColor);
+        ShipLighting.draw(s, unit.type());
         s.dispose();
     }
 
