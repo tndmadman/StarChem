@@ -40,7 +40,8 @@ public final class TcpConnectionIdentityValidator {
 
             server.connectionClosed(new NetPacket(PeerTransport.DISCONNECT_EVENT, firstId, loopback, first.getLocalPort()));
             TcpIntegrationHarness.require(!server.owns(firstId, "P1"), "first connection remained attached after close");
-            TcpIntegrationHarness.require(server.resume(secondId, loopback, second.getLocalPort(), "P1", token, false, ""),
+            TcpIntegrationHarness.require(server.resume(secondId, loopback, second.getLocalPort(), "P1", token,
+                            "", "", false, ""),
                     "session did not attach to the replacement connection");
             receive(second, "WELCOME|");
             TcpIntegrationHarness.require(server.owns(secondId, "P1"), "replacement connection did not own the session");
