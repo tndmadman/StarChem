@@ -4,9 +4,23 @@ StarChem's procedural galaxy generator composes the existing authored star-syste
 
 ## Compatibility
 
-Procedural generation is opt-in. `config/galaxy.json` ships with `generation.enabled` set to `false`, so existing one/two-copy galaxy behavior remains the default until an operator enables the generator.
+Procedural generation is opt-in. `config/galaxy.json` ships with `generation.enabled` set to `false`, so existing one/two-copy galaxy behavior remains the default until an operator enables the generator or a Solo player selects Procedural galaxy in match setup.
 
-Existing saves remain concrete snapshots of their systems and runtime state. Loading a save restores those saved systems rather than depending on a newly generated plan.
+Existing saves remain concrete snapshots of their systems and runtime state. Loading a save restores those saved systems and wormhole links rather than depending on a newly generated plan.
+
+## Match setup
+
+The graphical Solo lobby now exposes:
+
+- Procedural galaxy on/off, preserving the existing one/two-copy mode when disabled.
+- Tiny / Small / Medium / Large / Huge size presets.
+- Ring / Clustered / Hubs / Frontier / Dense / Mixed topology styles.
+- Numeric, text, or random galaxy seeds.
+- A graphical permanent-topology preview.
+
+When `random` is selected, the lobby resolves it to a concrete numeric seed before preview or launch. This makes the displayed preview reproducible and guarantees that launching immediately afterward uses the same galaxy.
+
+Advanced/default tuning remains available in `config/galaxy.json`.
 
 ## Configuration
 
@@ -47,13 +61,23 @@ Every procedural topology starts from a connected deterministic backbone before 
 
 Permanent generation is capped at 64 systems and 192 permanent links. This intentionally leaves room beneath the multiplayer galaxy-wire limits for dynamically added player-home systems and their links.
 
-## Preview API
+## Preview and start regions
 
 `GalaxyPreview.generate(...)` produces a runtime-state-free `GalaxyMapSnapshot` containing only generated systems and permanent links. Ships, bases, resources, controllers, events, and temporary/wandering links are not exposed by the preview model.
 
-The preview also selects deterministic start regions using permanent graph distance and can reject configurations that cannot satisfy the requested starting separation.
+`GalaxyPreviewPanel` renders that model directly in the Solo setup UI. The preview also selects deterministic candidate start regions using permanent graph distance and can reject configurations that cannot satisfy the requested separation.
 
-A graphical match-setup screen can consume this API without constructing a live `World` or reading fog-of-war/event state.
+The start-region selector is intentionally kept separate from the existing dynamic player-home attachment lifecycle. The current coordinator still attaches dynamically created player homes using its legacy entry-system behavior; wiring generated start regions into multiplayer home creation should be handled as a focused coordinator follow-up rather than silently changing established home/link semantics in this generator patch.
+
+## Multiplayer authority
+
+Procedural hosts add a bounded versioned generation descriptor to the existing `GALAXY` packet. It carries the normalized generation settings, generation seed, and authoritative world seed. A client that initially bootstraps in legacy mode installs those server settings and rebuilds its local system environment before the normal authoritative galaxy snapshot path continues.
+
+Legacy galaxy packets remain compatible because the existing 1/2-copy header is unchanged and the new descriptor is only emitted for procedural galaxies.
+
+## Persistence
+
+The generator is only responsible for initial creation. Server saves retain the concrete generated system IDs, template IDs, control/runtime state, resources, units, and wormhole links. Restore therefore preserves an existing generated galaxy even if current generator settings or seeds differ from the ones that originally created it.
 
 ## Validation
 
@@ -68,6 +92,8 @@ A graphical match-setup screen can consume this API without constructing a live 
 - preview runtime-state isolation;
 - start-region selection;
 - malformed/oversized settings;
-- maximum supported galaxy bounds.
+- maximum supported galaxy bounds;
+- concrete procedural save/reload topology preservation;
+- authoritative server-to-client procedural generation synchronization.
 
 The dedicated GitHub Actions workflow also compiles the project and runs the existing `GalaxyConnectivityValidator` so legacy galaxy behavior remains regression-covered.
