@@ -63,10 +63,19 @@ final class StrategicSupplyService {
         return world == null ? 0 : RECOMPUTES.getOrDefault(world, 0);
     }
 
+    /** Regression seam for topology tests. Uses the exact graph derivation used by production. */
+    static Map<String, StrategicSupplyState> deriveStatesForTest(Set<String> controlledIds,
+                                                                  Set<String> roots,
+                                                                  Set<String> supportedIds,
+                                                                  List<GalaxyMapLink> links) {
+        return deriveStates(controlledIds, roots, supportedIds, links);
+    }
+
     private static Map<String, StrategicSupplyState> calculate(World world, String ownerId) {
         List<WorldSystemState> systems = world.policySystemStates();
         Map<String, WorldSystemState> controlled = new LinkedHashMap<>();
         Set<String> roots = new LinkedHashSet<>();
+        Set<String> locallySupported = new LinkedHashSet<>();
         for (WorldSystemState system : systems) {
             if (system == null || !ownerId.equals(system.control.controllerId())) continue;
             if (system.control.status() != SystemControlStatus.CONTROLLED
@@ -76,6 +85,9 @@ final class StrategicSupplyService {
             // isolated pocket survive, but it must not magically bypass a blockade and become a
             // fully supplied root of its own.
             if (system.control.status() == SystemControlStatus.PROTECTED) roots.add(system.id);
+            if (StrategicInfrastructureRules.hasLogisticsNode(system.bases.values(), ownerId)) {
+                locallySupported.add(system.id);
+            }
         }
         if (controlled.isEmpty()) return Map.of();
 
@@ -93,17 +105,45 @@ final class StrategicSupplyService {
             roots.add(bootstrap.isBlank() ? controlled.keySet().iterator().next() : bootstrap);
         }
 
-        Map<String, Set<String>> adjacency = new LinkedHashMap<>();
-        for (String id : controlled.keySet()) adjacency.put(id, new LinkedHashSet<>());
         GalaxyMapSnapshot map = world.authoritativeGalaxyMapSnapshot();
-        for (GalaxyMapLink link : GalaxyTopology.effectiveLinks(world, ownerId, map.links())) {
-            if (link == null || !adjacency.containsKey(link.fromSystemId()) || !adjacency.containsKey(link.toSystemId())) continue;
-            adjacency.get(link.fromSystemId()).add(link.toSystemId());
-            adjacency.get(link.toSystemId()).add(link.fromSystemId());
+        return deriveStates(controlled.keySet(), roots, locallySupported,
+                GalaxyTopology.effectiveLinks(world, ownerId, map.links()));
+    }
+
+    private static Map<String, StrategicSupplyState> deriveStates(Set<String> controlledIds,
+                                                                   Set<String> roots,
+                                                                   Set<String> supportedIds,
+                                                                   List<GalaxyMapLink> links) {
+        Set<String> controlled = new LinkedHashSet<>();
+        if (controlledIds != null) {
+            for (String id : controlledIds) {
+                String cleanId = clean(id);
+                if (!cleanId.isBlank()) controlled.add(cleanId);
+            }
+        }
+        if (controlled.isEmpty()) return Map.of();
+
+        Map<String, Set<String>> adjacency = new LinkedHashMap<>();
+        for (String id : controlled) adjacency.put(id, new LinkedHashSet<>());
+        if (links != null) {
+            for (GalaxyMapLink link : links) {
+                if (link == null) continue;
+                String from = clean(link.fromSystemId());
+                String to = clean(link.toSystemId());
+                if (!adjacency.containsKey(from) || !adjacency.containsKey(to)) continue;
+                adjacency.get(from).add(to);
+                adjacency.get(to).add(from);
+            }
         }
 
+        ArrayDeque<String> queue = new ArrayDeque<>();
+        if (roots != null) {
+            for (String root : roots) {
+                String cleanRoot = clean(root);
+                if (controlled.contains(cleanRoot)) queue.addLast(cleanRoot);
+            }
+        }
         Set<String> reachable = new LinkedHashSet<>();
-        ArrayDeque<String> queue = new ArrayDeque<>(roots);
         while (!queue.isEmpty()) {
             String id = queue.removeFirst();
             if (!reachable.add(id)) continue;
@@ -112,13 +152,19 @@ final class StrategicSupplyService {
             }
         }
 
+        Set<String> supported = new LinkedHashSet<>();
+        if (supportedIds != null) {
+            for (String id : supportedIds) {
+                String cleanId = clean(id);
+                if (controlled.contains(cleanId)) supported.add(cleanId);
+            }
+        }
+
         Map<String, StrategicSupplyState> result = new LinkedHashMap<>();
-        for (Map.Entry<String, WorldSystemState> entry : controlled.entrySet()) {
-            String id = entry.getKey();
+        for (String id : controlled) {
             if (reachable.contains(id)) result.put(id, StrategicSupplyState.SUPPLIED);
-            else if (StrategicInfrastructureRules.hasLogisticsNode(entry.getValue().bases.values(), ownerId)) {
-                result.put(id, StrategicSupplyState.STRAINED);
-            } else result.put(id, StrategicSupplyState.ISOLATED);
+            else if (supported.contains(id)) result.put(id, StrategicSupplyState.STRAINED);
+            else result.put(id, StrategicSupplyState.ISOLATED);
         }
         return Map.copyOf(result);
     }
