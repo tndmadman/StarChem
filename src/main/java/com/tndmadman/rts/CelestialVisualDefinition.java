@@ -2,21 +2,46 @@ package com.tndmadman.rts;
 
 import java.awt.Color;
 
-/** Purely cosmetic celestial rendering metadata, resolved locally by system/body ID. */
-record CelestialVisualDefinition(String systemId, String bodyId, String style, Integer colorRgb,
-                                 double glowScale, long seed) {
-    static final CelestialVisualDefinition FALLBACK =
-            new CelestialVisualDefinition("fallback", "fallback", "legacy", null, 2.2, 0xCE1E57L);
-
+record CelestialVisualDefinition(
+        String id,
+        CelestialVisualClass visualClass,
+        Color primary,
+        Color secondary,
+        Color accent,
+        Color atmosphere,
+        double atmosphereStrength,
+        double cloudCoverage,
+        double ringInnerRadius,
+        double ringOuterRadius,
+        double ringFlattening,
+        double ringAngle,
+        Color ringColor,
+        boolean emissive
+) {
     CelestialVisualDefinition {
-        systemId = systemId == null ? "" : systemId.trim();
-        bodyId = bodyId == null ? "" : bodyId.trim();
-        style = style == null || style.isBlank() ? "legacy" : style.trim().toLowerCase();
-        if (colorRgb != null) colorRgb &= 0xFFFFFF;
-        glowScale = Double.isFinite(glowScale) ? Math.max(1.0, Math.min(5.0, glowScale)) : 2.2;
+        id = id == null || id.isBlank() ? "fallback" : id.trim();
+        visualClass = visualClass == null ? CelestialVisualClass.ROCKY : visualClass;
+        primary = primary == null ? Color.GRAY : primary;
+        secondary = secondary == null ? primary.darker() : secondary;
+        accent = accent == null ? primary.brighter() : accent;
+        atmosphere = atmosphere == null ? accent : atmosphere;
+        atmosphereStrength = clamp(atmosphereStrength, 0, 1);
+        cloudCoverage = clamp(cloudCoverage, 0, 1);
+        ringInnerRadius = Math.max(0, ringInnerRadius);
+        ringOuterRadius = Math.max(0, ringOuterRadius);
+        if (ringOuterRadius > 0 && ringInnerRadius <= 0) ringInnerRadius = 1.25;
+        if (ringInnerRadius > 0 && ringOuterRadius < ringInnerRadius) ringOuterRadius = ringInnerRadius;
+        ringFlattening = clamp(ringFlattening <= 0 ? 0.36 : ringFlattening, 0.12, 1);
+        if (!Double.isFinite(ringAngle)) ringAngle = 0;
+        ringColor = ringColor == null ? secondary : ringColor;
     }
 
-    Color colorOr(Color fallback) {
-        return colorRgb == null ? fallback : new Color(colorRgb);
+    boolean hasAtmosphere() { return atmosphereStrength > 0.01; }
+    boolean hasClouds() { return cloudCoverage > 0.01; }
+    boolean hasRings() { return ringOuterRadius > ringInnerRadius && ringOuterRadius > 1.0; }
+
+    private static double clamp(double value, double min, double max) {
+        if (!Double.isFinite(value)) return min;
+        return Math.max(min, Math.min(max, value));
     }
 }
