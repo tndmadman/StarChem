@@ -18,6 +18,8 @@ final class ProductionDiagnosticsDialog {
                      ProductionCausalAnalyzer.Analysis analysis,
                      Consumer<ProductionCausalAnalyzer.RecoveryAction> actionHandler) {
         if (analysis == null) return;
+        analysis = ProductionDiagnosticService.normalizeForPlayer(PlayerRegistry.activeWorld(), analysis);
+        if (analysis == null) return;
 
         Window owner = parent == null ? null : SwingUtilities.getWindowAncestor(parent);
         JDialog dialog = owner instanceof Frame frame
