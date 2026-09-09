@@ -1,5 +1,6 @@
 package com.tndmadman.rts;
 
+import java.io.DataOutputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.Socket;
@@ -14,6 +15,7 @@ final class PreAuthConnectionGateValidator {
         validateIpv6SubnetLimit();
         validateHandshakeParsingBounds();
         validateHandshakeRateCost();
+        validatePreAuthFrameSizeLimit();
         validateAbsoluteTransportDeadline();
     }
 
@@ -173,6 +175,23 @@ final class PreAuthConnectionGateValidator {
         String largeApplicationMessage = "BULK|" + "z".repeat(2_048);
         require(ordinary.offer(new NetPacket(largeApplicationMessage, new ConnectionId(42), loopback, 50042)).accepted(),
                 "handshake size surcharge leaked into ordinary application command pricing");
+    }
+
+    private static void validatePreAuthFrameSizeLimit() throws Exception {
+        InetAddress loopback = InetAddress.getLoopbackAddress();
+        PeerTransport server = PeerTransport.server(0, new PerfStats());
+        server.start();
+        try (Socket socket = new Socket(loopback, server.localPort())) {
+            waitFor(() -> server.hasConnection(loopback, socket.getLocalPort()), 3_000,
+                    "server did not register the pre-auth frame-size test connection");
+            DataOutputStream output = new DataOutputStream(socket.getOutputStream());
+            output.writeInt(PeerTransport.MAX_PRE_AUTH_FRAME_BYTES + 1);
+            output.flush();
+            waitFor(() -> !server.hasConnection(loopback, socket.getLocalPort()), 1_000,
+                    "oversized pre-auth frame length was not rejected before reading its payload");
+        } finally {
+            server.shutdown();
+        }
     }
 
     private static void validateAbsoluteTransportDeadline() throws Exception {
