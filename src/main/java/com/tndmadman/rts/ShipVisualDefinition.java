@@ -53,6 +53,7 @@ final class ShipVisualDefinition {
     private final List<Mount> mounts;
     private final EnumSet<Feature> features;
     private final int complexityRank;
+    private final double localRenderRadius;
 
     ShipVisualDefinition(String id, double[][] outline, List<Mount> mounts,
                          Set<Feature> features, int complexityRank) {
@@ -64,6 +65,7 @@ final class ShipVisualDefinition {
         this.features = features == null || features.isEmpty()
                 ? EnumSet.noneOf(Feature.class) : EnumSet.copyOf(features);
         this.complexityRank = Math.max(0, complexityRank);
+        this.localRenderRadius = calculateRenderRadius(this.outline, this.mounts);
     }
 
     String id() { return id; }
@@ -71,6 +73,10 @@ final class ShipVisualDefinition {
     Set<Feature> features() { return Collections.unmodifiableSet(features); }
     boolean hasFeature(Feature feature) { return features.contains(feature); }
     int complexityRank() { return complexityRank; }
+    double renderRadius(double shipScale) {
+        double s = Double.isFinite(shipScale) && shipScale > 0 ? shipScale : 1.0;
+        return localRenderRadius * s;
+    }
 
     int mountCount(MountKind kind) {
         int count = 0;
@@ -89,6 +95,35 @@ final class ShipVisualDefinition {
 
     double[][] normalizedOutline() {
         return copyOutline(outline, id);
+    }
+
+    private static double calculateRenderRadius(double[][] outline, List<Mount> mounts) {
+        double radius = 0;
+        for (double[] point : outline) radius = Math.max(radius, Math.hypot(point[0], point[1]));
+        for (Mount mount : mounts) radius = Math.max(radius, mountRadius(mount));
+        return radius + 4.0; // stroke width, antialiasing and small surface detail safety margin
+    }
+
+    private static double mountRadius(Mount mount) {
+        double x = mount.x();
+        double y = mount.y();
+        double w = Math.abs(mount.width());
+        double h = Math.abs(mount.height());
+        return switch (mount.kind()) {
+            case CONSTRUCTION_ARM -> Math.max(Math.hypot(x, y), Math.hypot(x + mount.width(), y + mount.height())) + 3.0;
+            case SALVAGE_BOOM -> {
+                double reach = Math.hypot(mount.width(), mount.height());
+                yield Math.max(Math.hypot(x, y), Math.hypot(x + mount.width(), y + mount.height())) + Math.max(3.0, reach * 0.2);
+            }
+            case LANCE -> Math.max(Math.hypot(x, y), Math.hypot(x + mount.width(), y)) + h / 2.0 + 2.0;
+            case HARDPOINT -> Math.max(Math.hypot(x, y), Math.hypot(x - h, y)) + w / 2.0 + 2.0;
+            case MINING_HEAD -> Math.max(
+                    Math.max(Math.hypot(x - w, y - h / 2.0), Math.hypot(x - w, y + h / 2.0)),
+                    Math.hypot(x + w / 2.0, y + h / 2.0)) + 2.0;
+            default -> Math.max(
+                    Math.max(Math.hypot(x - w / 2.0, y - h / 2.0), Math.hypot(x + w / 2.0, y - h / 2.0)),
+                    Math.max(Math.hypot(x - w / 2.0, y + h / 2.0), Math.hypot(x + w / 2.0, y + h / 2.0))) + 2.0;
+        };
     }
 
     private static double[][] copyOutline(double[][] source, String id) {
