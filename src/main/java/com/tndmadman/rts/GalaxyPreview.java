@@ -47,12 +47,26 @@ record GalaxyPreview(
 
     static List<String> startRegions(GalaxyPlan plan, int requestedStarts, int minimumSeparation) {
         if (plan == null || plan.systems().isEmpty() || requestedStarts <= 0) return List.of();
+        int required = Math.min(requestedStarts, plan.systems().size());
+        List<String> candidates = startRegionCandidates(plan, minimumSeparation);
+        if (candidates.size() < required) {
+            throw new IllegalArgumentException("Galaxy cannot place " + requestedStarts
+                    + " start regions at graph separation " + minimumSeparation + ".");
+        }
+        return List.copyOf(candidates.subList(0, required));
+    }
+
+    static List<String> startRegionCandidates(GalaxyPlan plan, int minimumSeparation) {
+        if (plan == null || plan.systems().isEmpty()) return List.of();
+        int separation = Math.max(1, minimumSeparation);
         Map<String,Set<String>> graph = graph(plan);
         List<String> candidates = plan.systems().stream().map(GalaxyInstanceSpec::id).toList();
         List<String> selected = new ArrayList<>();
-        selected.add(plan.entrySystemId());
+        String entry = plan.entrySystemId();
+        if (entry == null || entry.isBlank() || !graph.containsKey(entry)) entry = candidates.get(0);
+        selected.add(entry);
 
-        while (selected.size() < Math.min(requestedStarts, candidates.size())) {
+        while (selected.size() < candidates.size()) {
             String best = null;
             int bestDistance = -1;
             for (String candidate : candidates) {
@@ -64,11 +78,7 @@ record GalaxyPreview(
                     bestDistance = nearest;
                 }
             }
-            if (best == null) break;
-            if (bestDistance < minimumSeparation) {
-                throw new IllegalArgumentException("Galaxy cannot place " + requestedStarts
-                        + " start regions at graph separation " + minimumSeparation + ".");
-            }
+            if (best == null || bestDistance < separation) break;
             selected.add(best);
         }
         return List.copyOf(selected);

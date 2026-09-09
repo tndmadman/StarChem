@@ -21,7 +21,10 @@ public final class Issue383GalaxyGenerationValidator {
             validateTopologyStyles();
             validateStableGeneratedIds();
             validatePreviewAndStarts();
+            validateRuntimeStartRegions();
             validateBounds();
+            validateMalformedSettings();
+            validateBoundedInactiveSimulation();
             validatePersistence();
             validateMultiplayerGenerationSync();
         } finally {
@@ -84,6 +87,26 @@ public final class Issue383GalaxyGenerationValidator {
                 "preview did not produce the requested start regions");
     }
 
+    private static void validateRuntimeStartRegions() {
+        GalaxyGenerationSettings settings = settings(32, GalaxyTopologyStyle.MIXED, 0.32, 0.20, 3);
+        long generationSeed = 383_3003L;
+        GalaxyPreview expected = GalaxyPreview.generate(StarSystems.DEFAULT_SYSTEM_ID, settings, generationSeed, 3);
+        GalaxyRuntimeOptions.configureGeneration(settings, generationSeed);
+        PlayerRegistry.reset("WAIT", "Issue 383 Starts", 0x50BEFF);
+        World world = new World("Issue 383 Starts", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        PlayerRegistry.activate(world);
+        for (int i = 1; i <= 3; i++) {
+            String playerId = "P" + i;
+            PlayerRegistry.register(playerId, "Start " + i, 0x50BEFF + i, false);
+            world.spawnPlayerGroup(playerId, i, i == 1);
+            String assigned = world.playerStartRegionSystemId(playerId);
+            require(expected.startRegionSystemIds().get(i - 1).equals(assigned),
+                    "live player home did not use deterministic separated start region for " + playerId);
+            require(linked(world.authoritativeGalaxyMapSnapshot(), world.playerHomeSystemId(playerId), assigned),
+                    "player home was not linked to its assigned procedural start region for " + playerId);
+        }
+    }
+
     private static void validateBounds() {
         boolean rejected = false;
         try {
@@ -103,13 +126,56 @@ public final class Issue383GalaxyGenerationValidator {
         require(connected(plan), "maximum supported galaxy was disconnected");
     }
 
+    private static void validateMalformedSettings() {
+        boolean nonFiniteRejected = false;
+        try {
+            new GalaxyGenerationSettings(true, 24, GalaxyTopologyStyle.MIXED, Double.NaN, 0.2,
+                    1.0, 0.15, 0.15, 0.5, 3, Map.of());
+        } catch (IllegalArgumentException expected) {
+            nonFiniteRejected = true;
+        }
+        require(nonFiniteRejected, "non-finite procedural settings were accepted");
+
+        boolean unknownTemplateRejected = false;
+        try {
+            new GalaxyGenerationSettings(true, 24, GalaxyTopologyStyle.MIXED, 0.35, 0.2,
+                    1.0, 0.15, 0.15, 0.5, 3, Map.of("not-a-real-system", 1.0));
+        } catch (IllegalArgumentException expected) {
+            unknownTemplateRejected = true;
+        }
+        require(unknownTemplateRejected, "unknown procedural template weight was accepted");
+    }
+
+    private static void validateBoundedInactiveSimulation() {
+        GalaxyGenerationSettings settings = settings(GalaxyGenerationSettings.MAX_SYSTEMS,
+                GalaxyTopologyStyle.DENSE, 0.85, 0.10, 2);
+        GalaxyRuntimeOptions.configureGeneration(settings, 383_6400L);
+        PlayerRegistry.reset("WAIT", "Issue 383 Bounded", 0x50BEFF);
+        World world = new World("Issue 383 Bounded", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        PlayerRegistry.activate(world);
+        world.update(0.016);
+        int updated = world.proceduralInactiveSystemsUpdatedLastFrame();
+        require(updated > 0, "procedural inactive scheduler did not advance any inactive system");
+        require(updated <= GalaxyInactiveSimulationScheduler.MAX_SYSTEMS_PER_FRAME,
+                "procedural map simulated too many inactive systems in one frame: " + updated);
+        require(world.npcRuntimeSystemCount() <= GalaxyInactiveSimulationScheduler.MAX_SYSTEMS_PER_FRAME + 1,
+                "procedural map initialized full-galaxy NPC simulation in one frame");
+    }
+
     private static void validatePersistence() {
         GalaxyGenerationSettings settings = settings(24, GalaxyTopologyStyle.HUBS, 0.38, 0.20, 2);
         GalaxyRuntimeOptions.configureGeneration(settings, 383_9001L);
         PlayerRegistry.reset("WAIT", "Issue 383 Save Source", 0x50BEFF);
         World source = new World("Issue 383 Save Source", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
         PlayerRegistry.activate(source);
-        String before = snapshotSignature(source.authoritativeGalaxyMapSnapshot());
+        PlayerRegistry.register("P1", "Persisted Player", 0x50BEFF, false);
+        source.spawnPlayerGroup("P1", 7, true);
+        String home = source.playerHomeSystemId("P1");
+        source.activateSystem(home);
+        Base base = source.bases.values().stream().filter(candidate -> "P1".equals(candidate.playerId)).findFirst().orElseThrow();
+        base.inventory.put(Material.IRON, 383.25);
+        if (!source.resources.isEmpty()) source.resources.get(0).amount = Math.max(0, source.resources.get(0).amount - 17.5);
+        source.saveActiveSystem();
         Map<String,Object> saved = source.captureServerSaveGalaxy();
 
         GalaxyGenerationSettings differentSettings = settings(14, GalaxyTopologyStyle.FRONTIER, 0.10, 0.45, 2);
@@ -117,10 +183,12 @@ public final class Issue383GalaxyGenerationValidator {
         World restored = new World("Issue 383 Save Restore", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
         PlayerRegistry.activate(restored);
         restored.restoreServerSaveGalaxy(saved);
-        String after = snapshotSignature(restored.authoritativeGalaxyMapSnapshot());
+        Map<String,Object> recaptured = restored.captureServerSaveGalaxy();
 
-        require(before.equals(after),
-                "procedural save/restore did not preserve generated system IDs, templates and links");
+        require(saved.equals(recaptured),
+                "procedural save/restore did not preserve full concrete galaxy control and dynamic state");
+        require(source.playerStartRegionSystemId("P1").equals(restored.playerStartRegionSystemId("P1")),
+                "procedural save/restore did not preserve the player's assigned start region");
     }
 
     private static void validateMultiplayerGenerationSync() {
@@ -190,6 +258,15 @@ public final class Issue383GalaxyGenerationValidator {
             if (!seen.add(a + "->" + b)) return false;
         }
         return true;
+    }
+
+    private static boolean linked(GalaxyMapSnapshot snapshot, String a, String b) {
+        if (snapshot == null || a == null || b == null) return false;
+        for (GalaxyMapLink link : snapshot.links()) {
+            if (a.equals(link.fromSystemId()) && b.equals(link.toSystemId())
+                    || b.equals(link.fromSystemId()) && a.equals(link.toSystemId())) return true;
+        }
+        return false;
     }
 
     private static String planSignature(GalaxyPlan plan) {

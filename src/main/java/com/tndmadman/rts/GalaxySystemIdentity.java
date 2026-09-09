@@ -21,6 +21,39 @@ final class GalaxySystemIdentity {
         return systemId != null && systemId.startsWith(StarSystems.PLAYER_HOME_SYSTEM_ID + "_");
     }
 
+    static String displayName(String systemId, StarSystemDefinition definition) {
+        if (definition == null) return systemId == null ? "" : systemId;
+        int copy = generatedCopyNumber(systemId, definition.id());
+        return copy <= 1 ? definition.name() : definition.name() + " " + roman(copy);
+    }
+
+    private static int generatedCopyNumber(String systemId, String templateId) {
+        if (systemId == null || templateId == null || systemId.equals(templateId)) return 1;
+        String prefix = templateId + "_";
+        if (!systemId.startsWith(prefix)) return 1;
+        try {
+            int copy = Integer.parseInt(systemId.substring(prefix.length()));
+            return copy >= 2 ? copy : 1;
+        } catch (NumberFormatException ex) {
+            return 1;
+        }
+    }
+
+    private static String roman(int value) {
+        if (value <= 1) return "";
+        int[] numbers = {1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1};
+        String[] numerals = {"M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"};
+        StringBuilder out = new StringBuilder();
+        int remaining = value;
+        for (int i = 0; i < numbers.length; i++) {
+            while (remaining >= numbers[i]) {
+                out.append(numerals[i]);
+                remaining -= numbers[i];
+            }
+        }
+        return out.toString();
+    }
+
     private static boolean matchesGeneratedId(String systemId, String templateId) {
         if (systemId.equals(templateId)) return true;
         String prefix = templateId + "_";

@@ -24,6 +24,9 @@ final class LobbyPanel extends JPanel {
     private final JComboBox<GalaxyTopologyStyle> galaxyTopologyBox = new JComboBox<>(GalaxyTopologyStyle.values());
     private final JTextField galaxySeedField = new JTextField("random", 18);
     private final JButton galaxyPreviewButton = new MenuButton("PREVIEW GALAXY");
+    private final JButton galaxyAdvancedButton = new MenuButton("ADVANCED GALAXY");
+    private GalaxyGenerationSettings galaxyAdvancedSettings =
+            GalaxyMatchSetup.procedural(GalaxySizePreset.MEDIUM, GalaxyTopologyStyle.MIXED);
     private final JComboBox<SkirmishPreset> skirmishPresetBox = new JComboBox<>(SkirmishPreset.values());
     private final JComboBox<NpcDifficulty> npcDifficultyBox = new JComboBox<>(NpcDifficulty.values());
     private final JComboBox<VictoryConditionDefinition> victoryConditionBox = new JComboBox<>(
@@ -93,6 +96,7 @@ final class LobbyPanel extends JPanel {
         });
         proceduralGalaxyBox.addActionListener(e -> updateGalaxySetupControls());
         galaxyPreviewButton.addActionListener(e -> previewGalaxy());
+        galaxyAdvancedButton.addActionListener(e -> editAdvancedGalaxySettings());
         skirmishPresetBox.addActionListener(e -> applyPresetDefaults());
         diplomacyModeBox.addActionListener(e -> applyDiplomacyDefaults());
         applyPresetDefaults();
@@ -234,6 +238,7 @@ final class LobbyPanel extends JPanel {
         addFormRow(grid, row++, "Solo galaxy size", galaxySizeBox);
         addFormRow(grid, row++, "Solo topology", galaxyTopologyBox);
         addFormRow(grid, row++, "Solo galaxy seed", galaxySeedField);
+        addFormRow(grid, row++, "Advanced generation", galaxyAdvancedButton);
         addFormRow(grid, row++, "Galaxy preview", galaxyPreviewButton);
         addFormRow(grid, row++, "Solo skirmish preset", skirmishPresetBox);
         addFormRow(grid, row++, "Solo NPC difficulty", npcDifficultyBox);
@@ -455,7 +460,19 @@ final class LobbyPanel extends JPanel {
     }
 
     private GalaxyGenerationSettings selectedGalaxyGenerationSettings() {
-        return GalaxyMatchSetup.procedural(selectedGalaxySize(), selectedGalaxyTopology());
+        GalaxyGenerationSettings tuned = galaxyAdvancedSettings == null
+                ? GalaxyMatchSetup.procedural(selectedGalaxySize(), selectedGalaxyTopology()) : galaxyAdvancedSettings;
+        return new GalaxyGenerationSettings(true, selectedGalaxySize().systemCount(), selectedGalaxyTopology(),
+                tuned.permanentConnectivityDensity(), tuned.frontierFrequency(), tuned.resourceRichness(),
+                tuned.rareResourceFrequency(), tuned.hazardFrequency(), tuned.npcDensity(), tuned.startingSeparation(),
+                tuned.templateWeights());
+    }
+
+    private void editAdvancedGalaxySettings() {
+        GalaxyGenerationSettings edited = GalaxyAdvancedSetup.edit(this, selectedGalaxyGenerationSettings());
+        if (edited == null) return;
+        galaxyAdvancedSettings = edited;
+        setStatus("Updated advanced procedural galaxy settings.");
     }
 
     private void updateGalaxySetupControls() {
@@ -464,6 +481,7 @@ final class LobbyPanel extends JPanel {
         galaxySizeBox.setEnabled(procedural);
         galaxyTopologyBox.setEnabled(procedural);
         galaxySeedField.setEnabled(procedural);
+        galaxyAdvancedButton.setEnabled(procedural);
         galaxyPreviewButton.setEnabled(procedural);
     }
 
