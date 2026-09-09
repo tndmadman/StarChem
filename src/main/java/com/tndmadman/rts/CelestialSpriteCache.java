@@ -12,7 +12,7 @@ import java.util.Random;
 
 final class CelestialSpriteCache {
     static final int IMAGE_SIZE = 256;
-    private static final int MAX_ENTRIES = 384;
+    private static final int MAX_ENTRIES = 192;
     private static final Map<Key, Sprite> CACHE = new LinkedHashMap<>(64, 0.75f, true) {
         @Override protected boolean removeEldestEntry(Map.Entry<Key, Sprite> eldest) {
             return size() > MAX_ENTRIES;
@@ -34,6 +34,7 @@ final class CelestialSpriteCache {
     }
 
     static int cacheSize() { synchronized (CACHE) { return CACHE.size(); } }
+    static int maxEntries() { return MAX_ENTRIES; }
 
     static long pixelHash(CelestialVisualDefinition visual, long detailSeed) {
         Sprite sprite = sprite(visual, detailSeed);
@@ -252,11 +253,5 @@ final class CelestialSpriteCache {
 
     record Sprite(BufferedImage surface, BufferedImage emissive) { }
 
-    private record Key(String id, CelestialVisualClass visualClass, int primary, int secondary, int accent,
-                       int atmosphere, long detailSeed) {
-        Key(CelestialVisualDefinition visual, long detailSeed) {
-            this(visual.id(), visual.visualClass(), visual.primary().getRGB(), visual.secondary().getRGB(),
-                    visual.accent().getRGB(), visual.atmosphere().getRGB(), detailSeed);
-        }
-    }
+    private record Key(CelestialVisualDefinition visual, long detailSeed) { }
 }
