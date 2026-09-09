@@ -21,7 +21,9 @@ record GalaxyGenerationSettings(
         Map<String,Double> templateWeights
 ) {
     static final int MIN_SYSTEMS = 2;
-    static final int MAX_SYSTEMS = 96;
+    // GalaxyMapWire reserves 96 total projected systems and 256 links. Keep permanent
+    // generation below that ceiling so multiplayer still has room for player-home systems.
+    static final int MAX_SYSTEMS = 64;
 
     GalaxyGenerationSettings {
         if (targetSystemCount < MIN_SYSTEMS || targetSystemCount > MAX_SYSTEMS) {
@@ -110,21 +112,39 @@ record GalaxyGenerationSettings(
     double weightFor(StarSystemDefinition template) {
         if (template == null) return 0;
         double weight = templateWeights.getOrDefault(template.id(), 1.0);
-        if (template.modifiers().miningYield() > 1.0 || template.hasTag("rich")) {
-            weight *= resourceRichness;
-        }
-        if (template.hasTag("rare") || template.hasTag("rare-resource")) {
-            weight *= 0.5 + rareResourceFrequency * 2.0;
-        }
-        if (template.modifiers().environmentalDamagePerSecond() > 0
-                || template.hasTag("hazard") || template.hasTag("dangerous")) {
-            weight *= 0.35 + hazardFrequency * 2.0;
-        }
-        if (StarSystems.CORSAIR_SYSTEM_ID.equals(template.id())
-                || template.hasTag("npc") || template.hasTag("faction")) {
-            weight *= 0.25 + npcDensity * 1.75;
-        }
+        String role = template.role() == null ? "" : template.role().trim().toLowerCase(Locale.ROOT);
+
+        boolean resourceRich = template.modifiers().miningYield() > 1.0
+                || template.hasTag("rich") || template.hasTag("high_value")
+                || template.hasTag("abundant") || role.contains("resource");
+        if (resourceRich) weight *= resourceRichness;
+
+        boolean rare = template.hasTag("rare") || template.hasTag("rare-resource")
+                || template.hasTag("rare_metals") || template.hasTag("relics")
+                || template.hasTag("high_value") || hasRareSpawnMaterial(template);
+        if (rare) weight *= 0.5 + rareResourceFrequency * 2.0;
+
+        boolean hazardous = template.modifiers().environmentalDamagePerSecond() > 0
+                || template.hasTag("hazard") || template.hasTag("hazardous")
+                || template.hasTag("dangerous") || "danger".equals(role);
+        if (hazardous) weight *= 0.35 + hazardFrequency * 2.0;
+
+        boolean npcAligned = StarSystems.CORSAIR_SYSTEM_ID.equals(template.id())
+                || template.hasTag("npc") || template.hasTag("faction")
+                || template.hasTag("corsair") || role.contains("corsair");
+        if (npcAligned) weight *= 0.25 + npcDensity * 1.75;
+
         return Math.max(0.0001, weight);
+    }
+
+    private static boolean hasRareSpawnMaterial(StarSystemDefinition template) {
+        for (Material material : template.spawnMaterials()) {
+            if (material == null) continue;
+            String id = material.name();
+            if ("GOLD".equals(id) || "PLATINUM".equals(id) || "RARE_EARTHS".equals(id)
+                    || "URANIUM".equals(id) || "TUNGSTEN".equals(id)) return true;
+        }
+        return false;
     }
 
     private static long stableTextSeed(String value) {
