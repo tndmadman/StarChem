@@ -30,7 +30,7 @@ final class ShipLighting {
     }
 
     private static LightingMask build(ShipType type) {
-        Path2D hull = ShipShape.create(type);
+        Path2D hull = ShowcaseShipRenderer.supports(type) ? ShowcaseShipRenderer.create(type) : ShipShape.create(type);
         Rectangle2D bounds = hull.getBounds2D();
         double span = Math.max(1.0, Math.max(bounds.getWidth(), bounds.getHeight()));
         Point2D start = new Point2D.Double(bounds.getMinX() - span * 0.10, bounds.getMinY() - span * 0.20);
