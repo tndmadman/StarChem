@@ -19,6 +19,11 @@ final class LobbyPanel extends JPanel {
     private final JList<String> recentServerList = new JList<>(recentServerModel);
     private final JComboBox<StarSystemDefinition> systemBox = new JComboBox<>();
     private final JComboBox<Integer> galaxyCopiesBox = new JComboBox<>(new Integer[]{1, 2});
+    private final JCheckBox proceduralGalaxyBox = new JCheckBox("Procedural galaxy");
+    private final JComboBox<GalaxySizePreset> galaxySizeBox = new JComboBox<>(GalaxySizePreset.values());
+    private final JComboBox<GalaxyTopologyStyle> galaxyTopologyBox = new JComboBox<>(GalaxyTopologyStyle.values());
+    private final JTextField galaxySeedField = new JTextField("random", 18);
+    private final JButton galaxyPreviewButton = new MenuButton("PREVIEW GALAXY");
     private final JComboBox<SkirmishPreset> skirmishPresetBox = new JComboBox<>(SkirmishPreset.values());
     private final JComboBox<NpcDifficulty> npcDifficultyBox = new JComboBox<>(NpcDifficulty.values());
     private final JComboBox<VictoryConditionDefinition> victoryConditionBox = new JComboBox<>(
@@ -48,10 +53,13 @@ final class LobbyPanel extends JPanel {
         styleField(nameField);
         styleField(addressField);
         styleField(portField);
+        styleField(galaxySeedField);
         styleServerList(lanServerList);
         styleServerList(recentServerList);
         styleCombo(systemBox);
         styleCombo(galaxyCopiesBox);
+        styleCombo(galaxySizeBox);
+        styleCombo(galaxyTopologyBox);
         styleCombo(skirmishPresetBox);
         styleCombo(npcDifficultyBox);
         styleCombo(victoryConditionBox);
@@ -67,6 +75,9 @@ final class LobbyPanel extends JPanel {
             }
         });
         for (StarSystemDefinition system : StarSystems.options()) systemBox.addItem(system);
+        galaxySizeBox.setSelectedItem(GalaxySizePreset.MEDIUM);
+        galaxyTopologyBox.setSelectedItem(GalaxyTopologyStyle.MIXED);
+        styleCheck(proceduralGalaxyBox);
         styleCheck(friendlyFireBox);
         styleCheck(sharedVisionBox);
         styleCheck(sharedVictoryBox);
@@ -80,10 +91,13 @@ final class LobbyPanel extends JPanel {
             if (observerBox.isSelected()) devBox.setSelected(false);
             devBox.setEnabled(!observerBox.isSelected());
         });
+        proceduralGalaxyBox.addActionListener(e -> updateGalaxySetupControls());
+        galaxyPreviewButton.addActionListener(e -> previewGalaxy());
         skirmishPresetBox.addActionListener(e -> applyPresetDefaults());
         diplomacyModeBox.addActionListener(e -> applyDiplomacyDefaults());
         applyPresetDefaults();
         applyDiplomacyDefaults();
+        updateGalaxySetupControls();
 
         JLabel title = new JLabel("STAR  CHEM");
         title.setForeground(new Color(230, 248, 255));
@@ -134,8 +148,7 @@ final class LobbyPanel extends JPanel {
         card.add(footer, BorderLayout.SOUTH);
         add(card, BorderLayout.CENTER);
 
-        solo.addActionListener(e -> owner.launchGame(Config.solo(nameField.getText(), devBox.isSelected(),
-                selectedSkirmishSettings(), selectedSystemId(), selectedGalaxyCopies())));
+        solo.addActionListener(e -> launchSolo());
         connect.addActionListener(e -> startClient());
         refresh.addActionListener(e -> refreshLanServers());
         codex.addActionListener(e -> owner.toggleCodexFromLobby());
@@ -217,6 +230,11 @@ final class LobbyPanel extends JPanel {
                 help("Observer requires a server invitation and uses the server-selected PUBLIC, FOLLOW, or FULL visibility policy."));
         addFormRow(grid, row++, "Solo starting home", systemBox);
         addFormRow(grid, row++, "Solo galaxy copies", galaxyCopiesBox);
+        addFormRow(grid, row++, "Solo procedural galaxy", proceduralGalaxyBox);
+        addFormRow(grid, row++, "Solo galaxy size", galaxySizeBox);
+        addFormRow(grid, row++, "Solo topology", galaxyTopologyBox);
+        addFormRow(grid, row++, "Solo galaxy seed", galaxySeedField);
+        addFormRow(grid, row++, "Galaxy preview", galaxyPreviewButton);
         addFormRow(grid, row++, "Solo skirmish preset", skirmishPresetBox);
         addFormRow(grid, row++, "Solo NPC difficulty", npcDifficultyBox);
         addFormRow(grid, row++, "Solo victory condition", victoryConditionBox);
@@ -426,6 +444,65 @@ final class LobbyPanel extends JPanel {
         return selected instanceof Integer copies ? copies : 1;
     }
 
+    private GalaxySizePreset selectedGalaxySize() {
+        Object selected = galaxySizeBox.getSelectedItem();
+        return selected instanceof GalaxySizePreset size ? size : GalaxySizePreset.MEDIUM;
+    }
+
+    private GalaxyTopologyStyle selectedGalaxyTopology() {
+        Object selected = galaxyTopologyBox.getSelectedItem();
+        return selected instanceof GalaxyTopologyStyle style ? style : GalaxyTopologyStyle.MIXED;
+    }
+
+    private GalaxyGenerationSettings selectedGalaxyGenerationSettings() {
+        return GalaxyMatchSetup.procedural(selectedGalaxySize(), selectedGalaxyTopology());
+    }
+
+    private void updateGalaxySetupControls() {
+        boolean procedural = proceduralGalaxyBox.isSelected();
+        galaxyCopiesBox.setEnabled(!procedural);
+        galaxySizeBox.setEnabled(procedural);
+        galaxyTopologyBox.setEnabled(procedural);
+        galaxySeedField.setEnabled(procedural);
+        galaxyPreviewButton.setEnabled(procedural);
+    }
+
+    private void launchSolo() {
+        try {
+            if (proceduralGalaxyBox.isSelected()) {
+                long seed = GalaxyMatchSetup.seed(galaxySeedField.getText());
+                if (GalaxyMatchSetup.randomSeedRequested(galaxySeedField.getText())) {
+                    galaxySeedField.setText(Long.toString(seed));
+                }
+                GalaxyRuntimeOptions.configureGeneration(selectedGalaxyGenerationSettings(), seed);
+            } else {
+                GalaxyRuntimeOptions.configureGeneration(GalaxyGenerationSettings.legacy(selectedGalaxyCopies()), 0L);
+            }
+            owner.launchGame(Config.solo(nameField.getText(), devBox.isSelected(),
+                    selectedSkirmishSettings(), selectedSystemId(), selectedGalaxyCopies()));
+        } catch (RuntimeException ex) {
+            setStatus(ex.getMessage() == null ? "Could not start solo galaxy." : ex.getMessage());
+        }
+    }
+
+    private void previewGalaxy() {
+        try {
+            long seed = GalaxyMatchSetup.seed(galaxySeedField.getText());
+            if (GalaxyMatchSetup.randomSeedRequested(galaxySeedField.getText())) {
+                galaxySeedField.setText(Long.toString(seed));
+            }
+            GalaxyPreview preview = GalaxyPreview.generate(selectedSystemId(),
+                    selectedGalaxyGenerationSettings(), seed, 1);
+            GalaxyPreviewPanel panel = new GalaxyPreviewPanel(preview);
+            JOptionPane.showMessageDialog(this, panel,
+                    "Galaxy Preview - " + selectedGalaxySize().name() + " / " + selectedGalaxyTopology().name(),
+                    JOptionPane.PLAIN_MESSAGE);
+            setStatus("Previewed deterministic galaxy seed " + seed + ".");
+        } catch (RuntimeException ex) {
+            setStatus(ex.getMessage() == null ? "Could not generate galaxy preview." : ex.getMessage());
+        }
+    }
+
     private SkirmishSettings selectedSkirmishSettings() {
         Object selectedPreset = skirmishPresetBox.getSelectedItem();
         Object selectedDifficulty = npcDifficultyBox.getSelectedItem();
@@ -493,6 +570,7 @@ final class LobbyPanel extends JPanel {
 
     private void startClient() {
         try {
+            GalaxyRuntimeOptions.configureGeneration(GalaxyGenerationSettings.legacy(1), 0L);
             boolean observer = observerBox.isSelected();
             Config config = Config.join(nameField.getText(), addressField.getText().trim(),
                     Config.parsePort(portField.getText()), !observer && devBox.isSelected());
