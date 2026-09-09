@@ -87,7 +87,19 @@ final class EndStatePanel extends JPanel {
             return;
         }
 
-        ObjectiveView objective = ObjectiveSystem.view(world);
+        ObjectiveView objective = ScenarioObjectiveBridge.view(world);
+        if (objective.completed() && !victoryDismissed && ScenarioObjectiveBridge.scenarioActive(world)) {
+            boolean failure = ScenarioObjectiveBridge.scenarioFailure(world);
+            victoryMode = true;
+            title.setText(failure ? "SCENARIO FAILED" : "SCENARIO COMPLETE");
+            String outcome = ScenarioObjectiveBridge.scenarioOutcome(world);
+            help.setText(outcome.isBlank() ? objective.description() : outcome);
+            restart.setText("CONTINUE PLAYING");
+            observe.setVisible(false);
+            lobby.setText(network == null ? "RETURN TO LOBBY" : "DISCONNECT");
+            showModal();
+            return;
+        }
         if (objective.completed() && !victoryDismissed) {
             victoryMode = true;
             title.setText("MATCH OBJECTIVE COMPLETE");
