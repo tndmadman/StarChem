@@ -1,151 +1,38 @@
 {
   "researchTopics": {
-    "advanced_industry": {
-      "displayName": "Industrial Engineering · Advanced Industry",
-      "description": "Unlocks specialist industry hulls and advanced fabrication components.",
-      "branch": "Industrial Engineering", "stationTypes": ["laboratory"], "requires": [], "timeSeconds": 35,
-      "requiredResources": {"FUEL":25,"COPPER":120,"SILICATES":100,"NICKEL":90,"ALUMINUM":70,"CARBON":50},
-      "unlocks": {"ships":["hauler","deep_miner","gas_harvester","freighter","salvager"],"craftables":["capacitor_bank","navigation_computer","reactor_control_unit","ion_thruster","point_defense_laser_assembly"]}
-    },
-    "industrial_automation": {
-      "displayName": "Industrial Engineering · Industrial Automation", "description": "Develops automated heavy fabrication and opens the industrial doctrine fork.",
-      "branch": "Industrial Engineering", "stationTypes": ["laboratory"], "requires": ["advanced_industry"], "timeSeconds": 45,
-      "requiredResources": {"FUEL":28,"COPPER":100,"PRINTED_CIRCUIT_BOARD":5}, "unlocks": {"craftables":["manufacturing_line"]}
-    },
-    "extraction_specialization": {
-      "displayName": "Industrial Engineering · Extraction Specialization", "description": "Develops specialist extraction and material-handling hardware.",
-      "branch": "Industrial Engineering", "stationTypes": ["laboratory"], "requires": ["advanced_industry"], "timeSeconds": 46,
-      "requiredResources": {"FUEL":30,"STEEL_PLATE":12,"SENSOR_ARRAY":2}, "unlocks": {"craftables":["mining_head","gas_compressor","tractor_beam_emitter"]}
-    },
-    "industrial_specialization": {
-      "displayName": "Industrial Engineering · Industrial Specialization", "description": "Commits the empire to capital-scale fabrication instead of military surge doctrine.",
-      "branch": "Industrial Engineering", "doctrineGroup": "empire_economy_doctrine", "stationTypes": ["laboratory"], "requires": ["industrial_automation","extraction_specialization"], "timeSeconds": 70,
-      "requiredResources": {"FUEL":55,"ALUMINUM":120,"PRINTED_CIRCUIT_BOARD":8}, "unlocks": {"craftables":["fabrication_toolset"]}
-    },
-    "military_mobilization": {
-      "displayName": "Fleet Doctrine · Military Mobilization", "description": "Commits industrial planning to rapid combat deployment instead of maximum industrial specialization.",
-      "branch": "Fleet Doctrine", "doctrineGroup": "empire_economy_doctrine", "stationTypes": ["laboratory"], "requires": ["industrial_automation","combat_doctrine"], "timeSeconds": 70,
-      "requiredResources": {"FUEL":60,"STEEL_PLATE":22,"PRINTED_CIRCUIT_BOARD":8}, "unlocks": {"weapons":["fighter_strike"]}
-    },
+    "advanced_industry":{"displayName":"Industrial Engineering · Advanced Industry","description":"Unlocks specialist industry hulls and advanced fabrication components.","branch":"Industrial Engineering","stationTypes":["laboratory"],"requires":[],"timeSeconds":35,"requiredResources":{"FUEL":25,"COPPER":120,"SILICATES":100,"NICKEL":90,"ALUMINUM":70,"CARBON":50},"unlocks":{"ships":["hauler","deep_miner","gas_harvester","freighter","salvager"],"craftables":["capacitor_bank","navigation_computer","reactor_control_unit","ion_thruster","point_defense_laser_assembly"]}},
+    "industrial_automation":{"displayName":"Industrial Engineering · Industrial Automation","description":"Develops automated heavy fabrication and opens the industrial doctrine fork.","branch":"Industrial Engineering","stationTypes":["laboratory"],"requires":["advanced_industry"],"timeSeconds":45,"requiredResources":{"FUEL":28,"COPPER":100,"PRINTED_CIRCUIT_BOARD":5},"unlocks":{"craftables":["manufacturing_line"]}},
+    "extraction_specialization":{"displayName":"Industrial Engineering · Extraction Specialization","description":"Develops specialist extraction and material-handling hardware.","branch":"Industrial Engineering","stationTypes":["laboratory"],"requires":["advanced_industry"],"timeSeconds":46,"requiredResources":{"FUEL":30,"STEEL_PLATE":12,"SENSOR_ARRAY":2},"unlocks":{"craftables":["mining_head","gas_compressor","tractor_beam_emitter"]}},
+    "industrial_specialization":{"displayName":"Industrial Engineering · Industrial Specialization","description":"Commits the empire to capital-scale fabrication instead of military surge doctrine.","branch":"Industrial Engineering","doctrineGroup":"empire_economy_doctrine","stationTypes":["laboratory"],"requires":["industrial_automation","extraction_specialization"],"timeSeconds":70,"requiredResources":{"FUEL":55,"ALUMINUM":120,"PRINTED_CIRCUIT_BOARD":8},"unlocks":{"craftables":["fabrication_toolset"]}},
+    "military_mobilization":{"displayName":"Fleet Doctrine · Military Mobilization","description":"Commits industrial planning to military surge logistics instead of maximum industrial specialization.","branch":"Fleet Doctrine","doctrineGroup":"empire_economy_doctrine","stationTypes":["laboratory"],"requires":["industrial_automation","combat_doctrine"],"timeSeconds":70,"requiredResources":{"FUEL":60,"STEEL_PLATE":22,"PRINTED_CIRCUIT_BOARD":8},"unlocks":{"craftables":["reclaim_printed_circuit_board"]}},
 
-    "logistics_engineering": {
-      "displayName": "Logistics Engineering · Logistics Engineering", "description": "Develops empire-wide freight, routing, and supply coordination.",
-      "branch": "Logistics Engineering", "stationTypes": ["laboratory"], "requires": ["advanced_industry"], "timeSeconds": 44,
-      "requiredResources": {"FUEL":30,"COPPER":90,"SENSOR_ARRAY":3}, "unlocks": {"craftables":["cargo_pod"]}
-    },
-    "autonomous_logistics": {
-      "displayName": "Logistics Engineering · Autonomous Logistics", "description": "Adds autonomous resupply hardware and opens the logistics doctrine fork.",
-      "branch": "Logistics Engineering", "stationTypes": ["laboratory"], "requires": ["logistics_engineering"], "timeSeconds": 55,
-      "requiredResources": {"FUEL":36,"PRINTED_CIRCUIT_BOARD":6,"POWER_REGULATOR":3}, "unlocks": {"craftables":["navigation_computer"]}
-    },
-    "networked_supply_chains": {
-      "displayName": "Logistics Engineering · Networked Supply Chains", "description": "Commits to connected inter-system logistics and coordinated reserves.",
-      "branch": "Logistics Engineering", "doctrineGroup": "logistics_strategy", "stationTypes": ["laboratory"], "requires": ["autonomous_logistics"], "timeSeconds": 68,
-      "requiredResources": {"FUEL":52,"PRINTED_CIRCUIT_BOARD":9,"SENSOR_ARRAY":5}, "unlocks": {"craftables":["logistics_control_module"]}
-    },
-    "local_self_sufficiency": {
-      "displayName": "Logistics Engineering · Local Self-Sufficiency", "description": "Commits to resilient local production and independent reserves.",
-      "branch": "Logistics Engineering", "doctrineGroup": "logistics_strategy", "stationTypes": ["laboratory"], "requires": ["autonomous_logistics"], "timeSeconds": 68,
-      "requiredResources": {"FUEL":48,"STEEL_PLATE":15,"ALUMINUM":90}, "unlocks": {"craftables":["fuel_cell_stack"]}
-    },
+    "logistics_engineering":{"displayName":"Logistics Engineering · Logistics Engineering","description":"Develops empire-wide freight, routing, and supply coordination.","branch":"Logistics Engineering","stationTypes":["laboratory"],"requires":["advanced_industry"],"timeSeconds":44,"requiredResources":{"FUEL":30,"COPPER":90,"SENSOR_ARRAY":3},"unlocks":{"craftables":["cargo_pod"]}},
+    "autonomous_logistics":{"displayName":"Logistics Engineering · Autonomous Logistics","description":"Adds autonomous resupply hardware and opens the logistics doctrine fork.","branch":"Logistics Engineering","stationTypes":["laboratory"],"requires":["logistics_engineering"],"timeSeconds":55,"requiredResources":{"FUEL":36,"PRINTED_CIRCUIT_BOARD":6,"POWER_REGULATOR":3},"unlocks":{"craftables":["logistics_control_module"]}},
+    "networked_supply_chains":{"displayName":"Logistics Engineering · Networked Supply Chains","description":"Commits to connected inter-system logistics and coordinated reserves.","branch":"Logistics Engineering","doctrineGroup":"logistics_strategy","stationTypes":["laboratory"],"requires":["autonomous_logistics"],"timeSeconds":68,"requiredResources":{"FUEL":52,"PRINTED_CIRCUIT_BOARD":9,"SENSOR_ARRAY":5},"unlocks":{"craftables":["reclaim_structural_frame"]}},
+    "local_self_sufficiency":{"displayName":"Logistics Engineering · Local Self-Sufficiency","description":"Commits to resilient local production and independent reserves.","branch":"Logistics Engineering","doctrineGroup":"logistics_strategy","stationTypes":["laboratory"],"requires":["autonomous_logistics"],"timeSeconds":68,"requiredResources":{"FUEL":48,"STEEL_PLATE":15,"ALUMINUM":90},"unlocks":{"craftables":["reclaim_steel_plate"]}},
 
-    "sensor_theory": {
-      "displayName": "Sensor / Electronic Warfare · Sensor Theory", "description": "Establishes advanced detection and signal-processing research.",
-      "branch": "Sensor / Electronic Warfare", "stationTypes": ["laboratory"], "requires": ["advanced_industry"], "timeSeconds": 42,
-      "requiredResources": {"FUEL":26,"COPPER":80,"SENSOR_ARRAY":4}, "unlocks": {"stationPackages":["radar_array"]}
-    },
-    "sensor_dominance": {
-      "displayName": "Sensor / Electronic Warfare · Sensor Dominance", "description": "Specializes in long-range detection and battlefield intelligence.",
-      "branch": "Sensor / Electronic Warfare", "doctrineGroup": "electronic_strategy", "stationTypes": ["laboratory"], "requires": ["sensor_theory"], "timeSeconds": 62,
-      "requiredResources": {"FUEL":44,"SENSOR_ARRAY":8,"PRINTED_CIRCUIT_BOARD":6}, "unlocks": {"stationPackages":["radar_nexus"]}
-    },
-    "electronic_warfare": {
-      "displayName": "Sensor / Electronic Warfare · Electronic Warfare", "description": "Specializes in jamming, deception, and hostile sensor disruption.",
-      "branch": "Sensor / Electronic Warfare", "doctrineGroup": "electronic_strategy", "stationTypes": ["laboratory"], "requires": ["sensor_theory"], "timeSeconds": 62,
-      "requiredResources": {"FUEL":44,"PRINTED_CIRCUIT_BOARD":7,"SENSOR_ARRAY":6}, "unlocks": {"stationPackages":["signal_jammer","radar_decoy"]}
-    },
+    "sensor_theory":{"displayName":"Sensor / Electronic Warfare · Sensor Theory","description":"Establishes advanced detection and signal-processing research.","branch":"Sensor / Electronic Warfare","stationTypes":["laboratory"],"requires":["advanced_industry"],"timeSeconds":42,"requiredResources":{"FUEL":26,"COPPER":80,"SENSOR_ARRAY":4},"unlocks":{"stationPackages":["radar_array"]}},
+    "sensor_dominance":{"displayName":"Sensor / Electronic Warfare · Sensor Dominance","description":"Specializes in long-range detection and battlefield intelligence.","branch":"Sensor / Electronic Warfare","doctrineGroup":"electronic_strategy","stationTypes":["laboratory"],"requires":["sensor_theory"],"timeSeconds":62,"requiredResources":{"FUEL":44,"SENSOR_ARRAY":8,"PRINTED_CIRCUIT_BOARD":6},"unlocks":{"stationPackages":["radar_nexus"]}},
+    "electronic_warfare":{"displayName":"Sensor / Electronic Warfare · Electronic Warfare","description":"Specializes in jamming, deception, and hostile sensor disruption.","branch":"Sensor / Electronic Warfare","doctrineGroup":"electronic_strategy","stationTypes":["laboratory"],"requires":["sensor_theory"],"timeSeconds":62,"requiredResources":{"FUEL":44,"PRINTED_CIRCUIT_BOARD":7,"SENSOR_ARRAY":6},"unlocks":{"stationPackages":["signal_jammer","radar_decoy"]}},
 
-    "combat_doctrine": {
-      "displayName": "Fleet Doctrine · Combat Doctrine", "description": "Unlocks combat hulls, utility combat modules, and advanced combat fabrication.",
-      "branch": "Fleet Doctrine", "stationTypes": ["laboratory"], "requires": ["advanced_industry"], "timeSeconds": 50,
-      "requiredResources": {"FUEL":35,"STEEL_PLATE":20,"PRINTED_CIRCUIT_BOARD":8,"POWER_REGULATOR":4,"SENSOR_ARRAY":4},
-      "unlocks": {"ships":["frigate","destroyer","cruiser"],"modules":["afterburner","warp_scrambler"],"craftables":["targeting_computer","fission_reactor_core","fusion_reactor","fusion_drive","shield_emitter","armor_matrix","railgun_assembly","heavy_cannon_assembly","missile_guidance_package","missile_warhead","torpedo_assembly"]}
-    },
-    "long_range_doctrine": {
-      "displayName": "Fleet Doctrine · Long-Range Doctrine", "description": "Commits fleets to ranged fire and distance control.",
-      "branch": "Fleet Doctrine", "doctrineGroup": "fleet_engagement_doctrine", "stationTypes": ["laboratory"], "requires": ["combat_doctrine","sensor_theory"], "timeSeconds": 65,
-      "requiredResources": {"FUEL":50,"TARGETING_COMPUTER":3,"SENSOR_ARRAY":5}, "unlocks": {"weapons":["light_missile"]}
-    },
-    "brawling_doctrine": {
-      "displayName": "Fleet Doctrine · Brawling Doctrine", "description": "Commits fleets to close-range pressure and heavy direct fire.",
-      "branch": "Fleet Doctrine", "doctrineGroup": "fleet_engagement_doctrine", "stationTypes": ["laboratory"], "requires": ["combat_doctrine","defensive_engineering"], "timeSeconds": 65,
-      "requiredResources": {"FUEL":50,"STEEL_PLATE":24,"ARMOR_MATRIX":4}, "unlocks": {"weapons":["torpedo"]}
-    },
+    "combat_doctrine":{"displayName":"Fleet Doctrine · Combat Doctrine","description":"Unlocks combat hulls, baseline combat utility modules, and advanced combat fabrication.","branch":"Fleet Doctrine","stationTypes":["laboratory"],"requires":["advanced_industry"],"timeSeconds":50,"requiredResources":{"FUEL":35,"STEEL_PLATE":20,"PRINTED_CIRCUIT_BOARD":8,"POWER_REGULATOR":4,"SENSOR_ARRAY":4},"unlocks":{"ships":["frigate","destroyer","cruiser"],"modules":["afterburner"],"craftables":["targeting_computer","fission_reactor_core","fusion_reactor","fusion_drive","shield_emitter","armor_matrix","railgun_assembly","heavy_cannon_assembly","missile_guidance_package","missile_warhead","torpedo_assembly"]}},
+    "long_range_doctrine":{"displayName":"Fleet Doctrine · Long-Range Doctrine","description":"Commits fleets to mobility and engagement-distance control.","branch":"Fleet Doctrine","doctrineGroup":"fleet_engagement_doctrine","stationTypes":["laboratory"],"requires":["combat_doctrine","sensor_theory"],"timeSeconds":65,"requiredResources":{"FUEL":50,"TARGETING_COMPUTER":3,"SENSOR_ARRAY":5},"unlocks":{"modules":["micro_jump_drive"]}},
+    "brawling_doctrine":{"displayName":"Fleet Doctrine · Brawling Doctrine","description":"Commits fleets to close-range tackle and pressure.","branch":"Fleet Doctrine","doctrineGroup":"fleet_engagement_doctrine","stationTypes":["laboratory"],"requires":["combat_doctrine","defensive_engineering"],"timeSeconds":65,"requiredResources":{"FUEL":50,"STEEL_PLATE":24,"ARMOR_MATRIX":4},"unlocks":{"modules":["warp_scrambler"]}},
 
-    "weapons_engineering": {
-      "displayName": "Weapons Engineering · Weapons Engineering", "description": "Opens advanced weapon-system research and fire-control integration.",
-      "branch": "Weapons Engineering", "stationTypes": ["laboratory"], "requires": ["combat_doctrine"], "timeSeconds": 52,
-      "requiredResources": {"FUEL":38,"STEEL_PLATE":14,"TARGETING_COMPUTER":2}, "unlocks": {"weapons":["point_defense_laser"]}
-    },
-    "kinetic_ballistics": {
-      "displayName": "Weapons Engineering · Kinetic Ballistics", "description": "Unlocks advanced kinetic gun systems.",
-      "branch": "Weapons Engineering", "stationTypes": ["laboratory"], "requires": ["weapons_engineering"], "timeSeconds": 58,
-      "requiredResources": {"FUEL":42,"STEEL_PLATE":18,"TARGETING_COMPUTER":3}, "unlocks": {"weapons":["light_railgun","heavy_cannon"]}
-    },
-    "energy_weapons": {
-      "displayName": "Weapons Engineering · Energy Weapons", "description": "Unlocks capital-scale directed-energy weapon integration.",
-      "branch": "Weapons Engineering", "stationTypes": ["laboratory"], "requires": ["weapons_engineering"], "timeSeconds": 58,
-      "requiredResources": {"FUEL":44,"POWER_REGULATOR":5,"PRINTED_CIRCUIT_BOARD":6}, "unlocks": {"weapons":["capital_lance"]}
-    },
+    "weapons_engineering":{"displayName":"Weapons Engineering · Weapons Engineering","description":"Opens advanced weapon-system research and fire-control integration.","branch":"Weapons Engineering","stationTypes":["laboratory"],"requires":["combat_doctrine"],"timeSeconds":52,"requiredResources":{"FUEL":38,"STEEL_PLATE":14,"TARGETING_COMPUTER":2},"unlocks":{"weapons":["point_defense_laser","light_missile","torpedo"]}},
+    "kinetic_ballistics":{"displayName":"Weapons Engineering · Kinetic Ballistics","description":"Unlocks advanced kinetic gun systems.","branch":"Weapons Engineering","stationTypes":["laboratory"],"requires":["weapons_engineering"],"timeSeconds":58,"requiredResources":{"FUEL":42,"STEEL_PLATE":18,"TARGETING_COMPUTER":3},"unlocks":{"weapons":["light_railgun","heavy_cannon"]}},
+    "energy_weapons":{"displayName":"Weapons Engineering · Energy Weapons","description":"Unlocks capital-scale directed-energy weapon integration.","branch":"Weapons Engineering","stationTypes":["laboratory"],"requires":["weapons_engineering"],"timeSeconds":58,"requiredResources":{"FUEL":44,"POWER_REGULATOR":5,"PRINTED_CIRCUIT_BOARD":6},"unlocks":{"weapons":["capital_lance"]}},
 
-    "defensive_engineering": {
-      "displayName": "Defensive Engineering · Defensive Engineering", "description": "Opens advanced armor, shield, and survivability fabrication.",
-      "branch": "Defensive Engineering", "stationTypes": ["laboratory"], "requires": ["combat_doctrine"], "timeSeconds": 52,
-      "requiredResources": {"FUEL":38,"STEEL_PLATE":18,"ALUMINUM":70}, "unlocks": {"craftables":["shield_generator","radiation_shielding"]}
-    },
-    "shield_harmonics": {
-      "displayName": "Defensive Engineering · Shield Harmonics", "description": "Specializes the defensive branch in shield-system construction.",
-      "branch": "Defensive Engineering", "stationTypes": ["laboratory"], "requires": ["defensive_engineering"], "timeSeconds": 60,
-      "requiredResources": {"FUEL":46,"SHIELD_EMITTER":6,"POWER_REGULATOR":4,"CAPACITOR_BANK":4}, "unlocks": {"craftables":["shield_plasma_mix"]}
-    },
-    "armor_composites": {
-      "displayName": "Defensive Engineering · Armor Composites", "description": "Specializes the defensive branch in layered structural armor.",
-      "branch": "Defensive Engineering", "stationTypes": ["laboratory"], "requires": ["defensive_engineering"], "timeSeconds": 60,
-      "requiredResources": {"FUEL":44,"ARMOR_MATRIX":6,"HULL_PLATING":30}, "unlocks": {"craftables":["tungsten_carbide","ceramic_composite"]}
-    },
+    "defensive_engineering":{"displayName":"Defensive Engineering · Defensive Engineering","description":"Opens advanced armor, shield, and survivability fabrication.","branch":"Defensive Engineering","stationTypes":["laboratory"],"requires":["combat_doctrine"],"timeSeconds":52,"requiredResources":{"FUEL":38,"STEEL_PLATE":18,"ALUMINUM":70},"unlocks":{"craftables":["shield_generator","radiation_shielding"]}},
+    "shield_harmonics":{"displayName":"Defensive Engineering · Shield Harmonics","description":"Specializes the defensive branch in shield-system construction.","branch":"Defensive Engineering","stationTypes":["laboratory"],"requires":["defensive_engineering"],"timeSeconds":60,"requiredResources":{"FUEL":46,"SHIELD_EMITTER":6,"POWER_REGULATOR":4,"CAPACITOR_BANK":4},"unlocks":{"craftables":["shield_plasma_mix"]}},
+    "armor_composites":{"displayName":"Defensive Engineering · Armor Composites","description":"Specializes the defensive branch in layered structural armor.","branch":"Defensive Engineering","stationTypes":["laboratory"],"requires":["defensive_engineering"],"timeSeconds":60,"requiredResources":{"FUEL":44,"ARMOR_MATRIX":6,"HULL_PLATING":30},"unlocks":{"craftables":["tungsten_carbide","ceramic_composite"]}},
 
-    "battlefleet_engineering": {
-      "displayName": "Capital Engineering · Battlefleet Engineering", "description": "Unlocks battlecruisers, battleships, capital hulls, capital fittings, and capital components.",
-      "branch": "Capital Engineering", "stationTypes": ["laboratory"], "requires": ["combat_doctrine","defensive_engineering"], "timeSeconds": 75,
-      "requiredResources": {"FUEL":80,"TITANIUM_ALLOY":20,"ARMOR_MATRIX":10,"FUSION_REACTOR":2,"TARGETING_COMPUTER":3,"HULL_PLATING":45,"CIRCUIT_FRAGMENTS":60},
-      "unlocks": {"ships":["battle_cruiser","battleship","carrier","dreadnought"],"modules":["micro_jump_drive"],"weapons":["capital_torpedo"],"craftables":["capital_reactor_core","fighter_control_module","lance_focusing_array"]}
-    },
-    "capital_logistics": {
-      "displayName": "Capital Engineering · Capital Logistics", "description": "Unlocks the propulsion hardware required to sustain capital fleets.",
-      "branch": "Capital Engineering", "stationTypes": ["laboratory"], "requires": ["battlefleet_engineering","logistics_engineering"], "timeSeconds": 82,
-      "requiredResources": {"FUEL":90,"TITANIUM_ALLOY":16,"CARGO_POD":8,"NAVIGATION_COMPUTER":2}, "unlocks": {"craftables":["capital_drive_core"]}
-    },
-    "command_and_control": {
-      "displayName": "Capital Engineering · Command and Control", "description": "Unlocks capital command and carrier-control infrastructure.",
-      "branch": "Capital Engineering", "stationTypes": ["laboratory"], "requires": ["battlefleet_engineering","sensor_theory"], "timeSeconds": 82,
-      "requiredResources": {"FUEL":86,"TARGETING_COMPUTER":4,"SENSOR_ARRAY":8,"PRINTED_CIRCUIT_BOARD":10}, "unlocks": {"craftables":["command_core","fighter_bay_module"]}
-    },
+    "battlefleet_engineering":{"displayName":"Capital Engineering · Battlefleet Engineering","description":"Unlocks battlecruisers, battleships, capital hulls, and capital components.","branch":"Capital Engineering","stationTypes":["laboratory"],"requires":["combat_doctrine","defensive_engineering"],"timeSeconds":75,"requiredResources":{"FUEL":80,"TITANIUM_ALLOY":20,"ARMOR_MATRIX":10,"FUSION_REACTOR":2,"TARGETING_COMPUTER":3,"HULL_PLATING":45,"CIRCUIT_FRAGMENTS":60},"unlocks":{"ships":["battle_cruiser","battleship","carrier","dreadnought"],"weapons":["capital_torpedo","fighter_strike"],"craftables":["capital_reactor_core","fighter_control_module","lance_focusing_array"]}},
+    "capital_logistics":{"displayName":"Capital Engineering · Capital Logistics","description":"Unlocks propulsion hardware required to sustain capital fleets.","branch":"Capital Engineering","stationTypes":["laboratory"],"requires":["battlefleet_engineering","logistics_engineering"],"timeSeconds":82,"requiredResources":{"FUEL":90,"TITANIUM_ALLOY":16,"CARGO_POD":8,"NAVIGATION_COMPUTER":2},"unlocks":{"craftables":["capital_drive_core"]}},
+    "command_and_control":{"displayName":"Capital Engineering · Command and Control","description":"Unlocks capital command and carrier-control infrastructure.","branch":"Capital Engineering","stationTypes":["laboratory"],"requires":["battlefleet_engineering","sensor_theory"],"timeSeconds":82,"requiredResources":{"FUEL":86,"TARGETING_COMPUTER":4,"SENSOR_ARRAY":8,"PRINTED_CIRCUIT_BOARD":10},"unlocks":{"craftables":["command_core","fighter_bay_module"]}},
 
-    "supercapital_architecture": {
-      "displayName": "Experimental / Megastructure Engineering · Supercapital Architecture", "description": "Unlocks the largest hulls and opens the experimental endgame branches.",
-      "branch": "Experimental / Megastructure Engineering", "stationTypes": ["laboratory"], "requires": ["battlefleet_engineering","command_and_control"], "timeSeconds": 120,
-      "requiredResources": {"FUEL":140,"CAPITAL_REACTOR_CORE":4,"COMMAND_CORE":4,"SHIELD_GENERATOR":8,"FIGHTER_BAY_MODULE":2,"PLATINUM":120,"URANIUM":80,"XENON":60,"SCRAP_METAL":120,"HULL_PLATING":120,"CIRCUIT_FRAGMENTS":140},
-      "unlocks": {"ships":["supercarrier","titan","monolith"]}
-    },
-    "experimental_power_systems": {
-      "displayName": "Experimental / Megastructure Engineering · Experimental Power Systems", "description": "Unlocks extreme-output siege weapon integration for the largest hulls.",
-      "branch": "Experimental / Megastructure Engineering", "stationTypes": ["laboratory"], "requires": ["supercapital_architecture","energy_weapons"], "timeSeconds": 110,
-      "requiredResources": {"FUEL":120,"CAPITAL_REACTOR_CORE":3,"URANIUM":70,"XENON":45}, "unlocks": {"weapons":["siege_lance"]}
-    },
-    "megastructure_engineering": {
-      "displayName": "Experimental / Megastructure Engineering · Megastructure Engineering", "description": "Unlocks megastructure-grade structural fabrication.",
-      "branch": "Experimental / Megastructure Engineering", "stationTypes": ["laboratory"], "requires": ["supercapital_architecture","industrial_automation"], "timeSeconds": 115,
-      "requiredResources": {"FUEL":125,"TITANIUM_ALLOY":35,"HULL_PLATING":90,"COMMAND_CORE":3}, "unlocks": {"craftables":["megastructure_truss"]}
-    }
+    "supercapital_architecture":{"displayName":"Experimental / Megastructure Engineering · Supercapital Architecture","description":"Unlocks the largest hulls and opens the experimental endgame branches.","branch":"Experimental / Megastructure Engineering","stationTypes":["laboratory"],"requires":["battlefleet_engineering","command_and_control"],"timeSeconds":120,"requiredResources":{"FUEL":140,"CAPITAL_REACTOR_CORE":4,"COMMAND_CORE":4,"SHIELD_GENERATOR":8,"FIGHTER_BAY_MODULE":2,"PLATINUM":120,"URANIUM":80,"XENON":60,"SCRAP_METAL":120,"HULL_PLATING":120,"CIRCUIT_FRAGMENTS":140},"unlocks":{"ships":["supercarrier","titan","monolith"]}},
+    "experimental_power_systems":{"displayName":"Experimental / Megastructure Engineering · Experimental Power Systems","description":"Unlocks extreme-output siege weapon integration for the largest hulls.","branch":"Experimental / Megastructure Engineering","stationTypes":["laboratory"],"requires":["supercapital_architecture","energy_weapons"],"timeSeconds":110,"requiredResources":{"FUEL":120,"CAPITAL_REACTOR_CORE":3,"URANIUM":70,"XENON":45},"unlocks":{"weapons":["siege_lance"]}},
+    "megastructure_engineering":{"displayName":"Experimental / Megastructure Engineering · Megastructure Engineering","description":"Unlocks megastructure-grade structural fabrication.","branch":"Experimental / Megastructure Engineering","stationTypes":["laboratory"],"requires":["supercapital_architecture","industrial_automation"],"timeSeconds":115,"requiredResources":{"FUEL":125,"TITANIUM_ALLOY":35,"HULL_PLATING":90,"COMMAND_CORE":3},"unlocks":{"craftables":["megastructure_truss"]}}
   }
 }
