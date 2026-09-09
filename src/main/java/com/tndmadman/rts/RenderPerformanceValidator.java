@@ -28,7 +28,7 @@ public final class RenderPerformanceValidator {
     private static final int IMAGE_WIDTH = 1600;
     private static final int IMAGE_HEIGHT = 900;
     private static final int WARMUP_FRAMES = 4;
-    private static final int SAMPLE_FRAMES = 15;
+    private static final int SAMPLE_FRAMES = 25;
     private static final double[] ZOOMS = {0.45, 1.0, 1.75};
     private static final String NEBULA_EXPANSE = "nebula_expanse";
     private static final String[] LARGE_STATION_TYPES = {"shipyard", "manufacturing", "laboratory"};
@@ -120,6 +120,10 @@ public final class RenderPerformanceValidator {
             ShipSpriteCache.Snapshot cache = ShipSpriteCache.snapshot();
             require(cache.entries() <= cache.maxEntries(),
                     "Ship sprite cache exceeded hard limit: " + cache.entries() + " > " + cache.maxEntries());
+            require(cache.requests() == cache.hits() + cache.misses(),
+                    "Ship sprite cache request accounting is inconsistent.");
+            require(cache.generations() == cache.misses(),
+                    "Ship sprite cache generation accounting is inconsistent.");
             require(ExplosionEffect.activeEffectCount() <= ExplosionEffect.maxActiveEffects(),
                     "Active explosion VFX exceeded hard limit.");
 
@@ -132,10 +136,15 @@ public final class RenderPerformanceValidator {
                     nanosToMs(samples[samples.length - 1]),
                     0.0,
                     cache.hitRate(),
+                    cache.requests(),
+                    cache.hits(),
+                    cache.misses(),
+                    cache.generations(),
                     cache.entries(),
                     cache.peakEntries(),
                     cache.evictions(),
                     cache.generationMs(),
+                    cache.averageGenerationMs(),
                     cache.estimatedBytes());
         } finally {
             releaseExplosions(world);
@@ -236,8 +245,18 @@ public final class RenderPerformanceValidator {
     }
 
     private static void validateScenarioCoverage(List<Scenario> scenarios) {
+        require(scenarioNamed(scenarios, "fleet-20").ships == 20,
+                "20-ship fixture no longer contains exactly 20 ships.");
+        require(scenarioNamed(scenarios, "fleet-50").ships == 50,
+                "50-ship fixture no longer contains exactly 50 ships.");
+        require(scenarioNamed(scenarios, "fleet-100").ships == 100,
+                "100-ship fixture no longer contains exactly 100 ships.");
         Scenario largeFleet = scenarioNamed(scenarios, "fleet-150");
-        require(largeFleet.ships > 100, "Large-fleet fixture must contain more than 100 ships.");
+        require(largeFleet.ships > 100 && !largeFleet.selected,
+                "Large-fleet fixture must contain more than 100 unselected ships.");
+        Scenario selectedFleet = scenarioNamed(scenarios, "fleet-100-selected");
+        require(selectedFleet.ships == 100 && selectedFleet.selected,
+                "Selected-fleet fixture must contain 100 selected ships.");
 
         World stationWorld = buildWorld(scenarioNamed(scenarios, "multi-large-station"));
         require(stationWorld.bases.size() >= 3, "Large-station fixture must contain multiple stations.");
@@ -253,7 +272,12 @@ public final class RenderPerformanceValidator {
             rock |= node.kind == NodeKind.SILICATE_ROCK;
             gas |= node.kind == NodeKind.GAS_CLOUD;
         }
-        require(rock && gas, "Resource-field fixture must contain both asteroid/rock and gas nodes.");
+        require(resourceWorld.resources.size() >= 100 && rock && gas,
+                "Resource-field fixture must contain a dense mix of asteroid/rock and gas nodes.");
+
+        Scenario combat = scenarioNamed(scenarios, "heavy-combat");
+        require(combat.ships >= 50 && combat.shots >= 100 && combat.explosions >= 32,
+                "Heavy-combat fixture no longer exercises a dense projectile/VFX load.");
 
         World destructionWorld = buildWorld(scenarioNamed(scenarios, "capital-station-destruction"));
         require(destructionWorld.units.values().stream().anyMatch(unit -> "titan".equals(unit.shipTypeId)),
@@ -261,6 +285,10 @@ public final class RenderPerformanceValidator {
         require(destructionWorld.bases.size() >= 3 && destructionWorld.explosions.size() >= 32,
                 "Capital/station-destruction fixture is not sufficiently loaded.");
         releaseExplosions(destructionWorld);
+
+        Scenario nebula = scenarioNamed(scenarios, "background-nebula-expanse");
+        require(NEBULA_EXPANSE.equals(nebula.systemId) && nebula.backgroundOnly(),
+                "Nebula Expanse fixture must isolate the authored background/celestial stack.");
     }
 
     private static Scenario scenarioNamed(List<Scenario> scenarios, String name) {
@@ -269,26 +297,46 @@ public final class RenderPerformanceValidator {
     }
 
     private static void validateVfxBounds() {
+        require(ExplosionEffect.activeEffectCount() == 0,
+                "Explosion VFX registry was not empty before structural validation.");
         List<ExplosionEffect> effects = new ArrayList<>();
         int enabled = 0;
+        int suppressed = 0;
+        int peakParticles = 0;
         int requested = ExplosionEffect.maxActiveEffects() + 32;
         for (int i = 0; i < requested; i++) {
             ExplosionEffect effect = ExplosionEffect.forPerformanceTest(i * 2.0, 0, 20.0, 0x40810000L + i);
             effects.add(effect);
             if (effect.renderEnabledForTest()) enabled++;
+            else suppressed++;
+            peakParticles = Math.max(peakParticles, effect.particleCountForTest());
             require(effect.particleCountForTest() <= ExplosionEffect.maxParticlesPerEffect(),
                     "Explosion particle limit exceeded: " + effect.particleCountForTest());
         }
-        require(enabled <= ExplosionEffect.maxActiveEffects(),
-                "Enabled explosion count exceeded limit: " + enabled);
+        require(enabled == ExplosionEffect.maxActiveEffects(),
+                "Explosion VFX active-effect budget was not enforced exactly: " + enabled);
+        require(suppressed == requested - ExplosionEffect.maxActiveEffects(),
+                "Explosion VFX overflow was not suppressed deterministically: " + suppressed);
+        require(peakParticles == ExplosionEffect.maxParticlesPerEffect(),
+                "Explosion stress fixture did not exercise the per-effect particle cap.");
         for (ExplosionEffect effect : effects) effect.update(1000);
         require(ExplosionEffect.activeEffectCount() == 0,
                 "Explosion VFX budget did not release completed effects.");
     }
 
     private static void validateSpriteCacheBound() {
-        ShipSpriteCache.resetForTest();
         Unit unit = new Unit("P1", 1, Rules.STARTING_SHIP, 0, 0);
+
+        ShipSpriteCache.resetForTest();
+        Color repeated = new Color(80, 190, 255);
+        ShipSpriteCache.sprite(unit, repeated);
+        ShipSpriteCache.sprite(unit, repeated);
+        ShipSpriteCache.Snapshot accounting = ShipSpriteCache.snapshot();
+        require(accounting.requests() == 2 && accounting.hits() == 1 && accounting.misses() == 1
+                        && accounting.generations() == 1,
+                "Ship sprite cache hit/miss/generation accounting failed its deterministic probe.");
+
+        ShipSpriteCache.resetForTest();
         int requested = ShipSpriteCache.maxEntries() + 32;
         for (int i = 0; i < requested; i++) {
             unit.heading = 0;
@@ -298,6 +346,9 @@ public final class RenderPerformanceValidator {
         ShipSpriteCache.Snapshot snapshot = ShipSpriteCache.snapshot();
         require(snapshot.entries() <= ShipSpriteCache.maxEntries(),
                 "Ship sprite cache exceeded hard limit.");
+        require(snapshot.requests() == requested && snapshot.hits() == 0
+                        && snapshot.misses() == requested && snapshot.generations() == requested,
+                "Ship sprite cache overflow accounting is inconsistent.");
         require(snapshot.evictions() > 0,
                 "Ship sprite cache did not evict after exceeding its configured limit.");
         ShipSpriteCache.resetForTest();
@@ -343,15 +394,16 @@ public final class RenderPerformanceValidator {
     }
 
     private static void printResults(List<Result> results) {
-        System.out.println("scene | zoom | entities U/B/R/S/FX | cold ms | p50 | p95 | max | incremental | cache hit | cache entries/peak | cache MiB | sprite gen ms");
+        System.out.println("scene | zoom | entities U/B/R/S/FX | cold ms | p50 | p95 | max | incremental | cache hit | hit/miss | generations | cache entries/peak | cache MiB | sprite gen total/avg ms");
         for (Result r : results) {
             System.out.printf(Locale.ROOT,
-                    "%s | %.2f | %d/%d/%d/%d/%d | %.3f | %.3f | %.3f | %.3f | %.3f | %.1f%% | %d/%d | %.1f | %.3f%n",
+                    "%s | %.2f | %d/%d/%d/%d/%d | %.3f | %.3f | %.3f | %.3f | %.3f | %.1f%% | %d/%d | %d | %d/%d | %.1f | %.3f/%.3f%n",
                     r.scenario.name, r.zoom,
                     r.scenario.ships, r.scenario.stations, r.scenario.resources, r.scenario.shots, r.scenario.explosions,
                     r.coldMs, r.p50Ms, r.p95Ms, r.maxMs, r.incrementalMs,
-                    r.cacheHitRate * 100.0, r.cacheEntries, r.cachePeakEntries,
-                    r.cacheEstimatedBytes / 1024.0 / 1024.0, r.cacheGenerationMs);
+                    r.cacheHitRate * 100.0, r.cacheHits, r.cacheMisses, r.cacheGenerations,
+                    r.cacheEntries, r.cachePeakEntries, r.cacheEstimatedBytes / 1024.0 / 1024.0,
+                    r.cacheGenerationMs, r.cacheAverageGenerationMs);
         }
     }
 
@@ -381,15 +433,16 @@ public final class RenderPerformanceValidator {
     private static void writeCsv(Path output, List<Result> results) throws IOException {
         if (output.getParent() != null) Files.createDirectories(output.getParent());
         List<String> lines = new ArrayList<>();
-        lines.add("scene,zoom,ships,selected,stations,resources,shots,explosions,cold_ms,p95_ms,p50_ms,max_ms,incremental_ms,cache_hit_rate,cache_entries,cache_peak_entries,cache_evictions,cache_generation_ms,cache_estimated_bytes,p95_budget_ms");
+        lines.add("scene,zoom,ships,selected,stations,resources,shots,explosions,cold_ms,p95_ms,p50_ms,max_ms,incremental_ms,cache_hit_rate,cache_requests,cache_hits,cache_misses,cache_generations,cache_entries,cache_peak_entries,cache_evictions,cache_generation_ms,cache_average_generation_ms,cache_estimated_bytes,p95_budget_ms");
         for (Result r : results) {
             lines.add(String.format(Locale.ROOT,
-                    "%s,%.2f,%d,%s,%d,%d,%d,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%d,%d,%.6f,%d,%.6f",
+                    "%s,%.2f,%d,%s,%d,%d,%d,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%d,%d,%d,%d,%d,%d,%.6f,%.6f,%d,%.6f",
                     r.scenario.name, r.zoom, r.scenario.ships, r.scenario.selected,
                     r.scenario.stations, r.scenario.resources, r.scenario.shots, r.scenario.explosions,
                     r.coldMs, r.p95Ms, r.p50Ms, r.maxMs, r.incrementalMs, r.cacheHitRate,
+                    r.cacheRequests, r.cacheHits, r.cacheMisses, r.cacheGenerations,
                     r.cacheEntries, r.cachePeakEntries, r.cacheEvictions, r.cacheGenerationMs,
-                    r.cacheEstimatedBytes, r.scenario.p95BudgetMs));
+                    r.cacheAverageGenerationMs, r.cacheEstimatedBytes, r.scenario.p95BudgetMs));
         }
         Files.write(output, lines, StandardCharsets.UTF_8);
         System.out.println("Wrote render performance report: " + output.toAbsolutePath());
@@ -434,15 +487,21 @@ public final class RenderPerformanceValidator {
             double maxMs,
             double incrementalMs,
             double cacheHitRate,
+            long cacheRequests,
+            long cacheHits,
+            long cacheMisses,
+            long cacheGenerations,
             int cacheEntries,
             int cachePeakEntries,
             long cacheEvictions,
             double cacheGenerationMs,
+            double cacheAverageGenerationMs,
             long cacheEstimatedBytes) {
         Result withIncrementalMs(double value) {
             return new Result(scenario, zoom, coldMs, p50Ms, p95Ms, maxMs, value,
-                    cacheHitRate, cacheEntries, cachePeakEntries, cacheEvictions,
-                    cacheGenerationMs, cacheEstimatedBytes);
+                    cacheHitRate, cacheRequests, cacheHits, cacheMisses, cacheGenerations,
+                    cacheEntries, cachePeakEntries, cacheEvictions, cacheGenerationMs,
+                    cacheAverageGenerationMs, cacheEstimatedBytes);
         }
         String key() { return scenario.name + "|" + String.format(Locale.ROOT, "%.2f", zoom); }
     }
