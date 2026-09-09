@@ -26,7 +26,7 @@ final class SideAOrders {
             case "ATTACK" -> { s.touch(connectionId); if (s.owns(connectionId, id)) s.change(id, () -> AUnitAttack.apply(s.world, new AttackCommand(id, Integer.parseInt(p[2]), p[3]))); }
             case "ORDER" -> applyOrder(s, p, connectionId, id);
             case "QUEUE" -> applyQueue(s, p, connectionId, id);
-            case "RESPAWN" -> { s.touch(connectionId); if (s.owns(connectionId, id)) { s.change(id, () -> WorldNetAccess.respawnPlayer(s.world, id)); s.broadcastNow(); } }
+            case "RESPAWN" -> applyRespawn(s, connectionId, id);
             case "BUILD" -> { s.touch(connectionId); if (s.owns(connectionId, id)) s.change(id, () -> { if (CommandAuth.base(s.world, id, p[2])) s.world.buildShip(p[2], p[3]); }); }
             case "PACK" -> { s.touch(connectionId); if (s.owns(connectionId, id)) s.change(id, () -> { if (CommandAuth.pack(s.world, id, p[2], p[3])) AUnitPack.apply(s.world, p[2], p[3], p[4]); }); }
             case "PROD" -> { s.touch(connectionId); if (s.owns(connectionId, id) && p.length >= 5) s.change(id, () -> { if (CommandAuth.base(s.world, id, p[3])) ProductionCommands.apply(s.world, id, p[2], p[3], p[4], p.length > 5 ? p[5] : ""); }); }
@@ -37,6 +37,19 @@ final class SideAOrders {
             case "DIPLOMACY" -> DiplomacyCommand.handle(s, p, connectionId);
             case "FIT" -> FitCommand.handle(s, p, connectionId);
         }
+    }
+
+    private static void applyRespawn(PeerServerSide s, ConnectionId connectionId, String playerId) {
+        s.touch(connectionId);
+        if (!s.owns(connectionId, playerId)) return;
+
+        RespawnAuthority.Result[] result = { RespawnAuthority.Result.INVALID_PLAYER };
+        s.change(playerId, () -> result[0] = RespawnAuthority.tryRespawn(s.world, playerId));
+        if (!result[0].spawned()) return;
+
+        // A successful respawn always returns the player to the server-selected protected home.
+        s.views.setHome(s.world, playerId);
+        s.broadcastNow();
     }
 
     private static void applyMove(PeerServerSide s, String[] p, ConnectionId connectionId, String playerId) {
