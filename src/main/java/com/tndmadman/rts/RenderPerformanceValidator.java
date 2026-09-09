@@ -218,11 +218,11 @@ public final class RenderPerformanceValidator {
 
     private static String largeStationType(int index) {
         String candidate = LARGE_STATION_TYPES[Math.floorMod(index, LARGE_STATION_TYPES.length)];
-        return Rules.findBase(candidate) == null ? Rules.DEFAULT_BASE : candidate;
+        return Rules.BASES.containsKey(candidate) ? candidate : Rules.DEFAULT_BASE;
     }
 
     private static String shipTypeForScenario(Scenario scenario) {
-        if (scenario.name.startsWith("capital-") && Rules.findShip("titan") != null) return "titan";
+        if (scenario.name.startsWith("capital-") && Rules.SHIPS.containsKey("titan")) return "titan";
         return Rules.STARTING_SHIP;
     }
 
