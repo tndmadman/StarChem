@@ -1,6 +1,8 @@
 package com.tndmadman.rts;
 
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
@@ -51,7 +53,7 @@ final class ArtAssetCache {
 
             BufferedImage loaded = load(normalized);
             if (loaded == null) loaded = FALLBACK;
-            long bytes = loaded == FALLBACK ? 0 : estimatedBytes(loaded);
+            long bytes = loaded == FALLBACK ? 0 : estimatedBytes(loaded.getWidth(), loaded.getHeight());
             if (bytes > MAX_BYTES) {
                 warnOnce("oversize:" + normalized,
                         "Art asset exceeds cache budget and will use fallback: " + normalized);
@@ -106,12 +108,38 @@ final class ArtAssetCache {
                 warnOnce("missing:" + normalized, "Missing art asset: " + RESOURCE_ROOT + normalized);
                 return null;
             }
-            BufferedImage image = ImageIO.read(input);
-            if (image == null) {
-                warnOnce("decode:" + normalized, "Could not decode art asset: " + normalized);
-                return null;
+            try (ImageInputStream imageInput = ImageIO.createImageInputStream(input)) {
+                if (imageInput == null) {
+                    warnOnce("decode:" + normalized, "Could not decode art asset: " + normalized);
+                    return null;
+                }
+                Iterator<ImageReader> readers = ImageIO.getImageReaders(imageInput);
+                if (!readers.hasNext()) {
+                    warnOnce("decode:" + normalized, "Could not decode art asset: " + normalized);
+                    return null;
+                }
+                ImageReader reader = readers.next();
+                try {
+                    reader.setInput(imageInput, true, true);
+                    int width = reader.getWidth(0);
+                    int height = reader.getHeight(0);
+                    long bytes = estimatedBytes(width, height);
+                    if (width <= 0 || height <= 0 || bytes > MAX_BYTES) {
+                        warnOnce("oversize:" + normalized,
+                                "Art asset exceeds cache budget and will use fallback: " + normalized
+                                        + " (" + width + "x" + height + ")");
+                        return null;
+                    }
+                    BufferedImage image = reader.read(0);
+                    if (image == null) {
+                        warnOnce("decode:" + normalized, "Could not decode art asset: " + normalized);
+                        return null;
+                    }
+                    return image;
+                } finally {
+                    reader.dispose();
+                }
             }
-            return image;
         } catch (IOException | RuntimeException ex) {
             warnOnce("error:" + normalized,
                     "Failed to load art asset " + normalized + ": " + ex.getMessage());
@@ -132,8 +160,13 @@ final class ArtAssetCache {
         }
     }
 
-    private static long estimatedBytes(BufferedImage image) {
-        return (long) image.getWidth() * image.getHeight() * 4L;
+    private static long estimatedBytes(int width, int height) {
+        if (width <= 0 || height <= 0) return Long.MAX_VALUE;
+        try {
+            return Math.multiplyExact(Math.multiplyExact((long) width, (long) height), 4L);
+        } catch (ArithmeticException ex) {
+            return Long.MAX_VALUE;
+        }
     }
 
     private static String normalize(String relativePath) {
