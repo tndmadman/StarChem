@@ -27,6 +27,8 @@ final class ExplosionEffect {
     private final double visualRadius;
     private final Color playerColor;
     private final DestructionProfile profile;
+    private final World ownerWorld;
+    private final String systemId;
     private final List<Burst> bursts = new ArrayList<>();
     private final List<BurstPlan> burstPlans = new ArrayList<>();
     private final List<DebrisFragment> debris = new ArrayList<>();
@@ -35,13 +37,15 @@ final class ExplosionEffect {
     private int nextBurstPlan;
 
     private ExplosionEffect(double x, double y, double heading, double scale, Color playerColor,
-                            DestructionProfile profile, long seed) {
+                            DestructionProfile profile, World ownerWorld, String systemId, long seed) {
         this.x = x;
         this.y = y;
         this.heading = Double.isFinite(heading) ? heading : 0;
         this.scale = Math.max(0.8, Math.min(MAX_EFFECT_SCALE, Double.isFinite(scale) ? scale : 1.0));
         this.playerColor = playerColor == null ? Color.CYAN : playerColor;
         this.profile = profile == null ? DestructionProfile.QUICK : profile;
+        this.ownerWorld = ownerWorld;
+        this.systemId = systemId == null ? "" : systemId;
         Random random = new Random(seed);
         this.life = this.profile.lifetimeSeconds * (0.97 + random.nextDouble() * 0.06);
         this.wreckStart = this.profile.persistentWreck ? this.profile.wreckStartSeconds : Double.POSITIVE_INFINITY;
@@ -55,8 +59,10 @@ final class ExplosionEffect {
                 ^ Double.doubleToLongBits(unit.x * 31.0 + unit.y * 17.0)
                 ^ ((long)unit.key().hashCode() << 32)
                 ^ unit.shipTypeId.hashCode();
+        World world = PlayerRegistry.activeWorld();
+        String systemId = world == null ? "" : world.activeSystemId();
         return new ExplosionEffect(unit.x, unit.y, unit.heading, scale, PlayerRegistry.color(unit.playerId),
-                DestructionProfile.forShipSize(unit.type().size), seed);
+                DestructionProfile.forShipSize(unit.type().size), world, systemId, seed);
     }
 
     static ExplosionEffect fromBase(Base base) {
@@ -65,15 +71,19 @@ final class ExplosionEffect {
                 ^ Double.doubleToLongBits(base.x * 19.0 + base.y * 23.0)
                 ^ ((long)base.id.hashCode() << 32)
                 ^ base.typeId.hashCode();
+        World world = PlayerRegistry.activeWorld();
+        String systemId = world == null ? "" : world.activeSystemId();
         return new ExplosionEffect(base.x, base.y, 0, scale, PlayerRegistry.color(base.playerId),
-                DestructionProfile.STATION, seed);
+                DestructionProfile.STATION, world, systemId, seed);
     }
 
     static ExplosionEffect validationEffect(DestructionProfile profile) {
-        return new ExplosionEffect(240, 180, -Math.PI / 2, 3.2, new Color(80, 190, 255), profile, 405L);
+        return new ExplosionEffect(240, 180, -Math.PI / 2, 3.2, new Color(80, 190, 255),
+                profile, null, "", 405L);
     }
 
     boolean update(double dt) {
+        if (!activeInCapturedSystem()) return true;
         if (!Double.isFinite(dt) || dt <= 0) return age < life;
         age += dt;
         while (nextBurstPlan < burstPlans.size() && burstPlans.get(nextBurstPlan).time <= age) {
@@ -87,7 +97,7 @@ final class ExplosionEffect {
     }
 
     void draw(Graphics2D g2) {
-        if (g2 == null || !RenderCulling.visible(g2, x, y, visualRadius)) return;
+        if (g2 == null || !activeInCapturedSystem() || !RenderCulling.visible(g2, x, y, visualRadius)) return;
         Lod lod = lod(g2);
         Graphics2D g = (Graphics2D) g2.create();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -96,6 +106,11 @@ final class ExplosionEffect {
         if (lod != Lod.LOW) drawVents(g, lod);
         for (Burst burst : bursts) burst.draw(g, lod);
         g.dispose();
+    }
+
+    private boolean activeInCapturedSystem() {
+        if (ownerWorld == null || systemId.isBlank()) return true;
+        return systemId.equals(ownerWorld.activeSystemId());
     }
 
     private void buildSequence(Random random) {
