@@ -6,6 +6,7 @@ import java.nio.CharBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.util.function.IntSupplier;
 
 /** Length-prefixed UTF-8 framing for StarChem's TCP protocol. */
 final class TcpFrameCodec {
@@ -29,17 +30,22 @@ final class TcpFrameCodec {
     }
 
     static DecodedFrame read(DataInputStream in) throws IOException {
-        return read(in, MAX_FRAME_BYTES);
+        return read(in, () -> MAX_FRAME_BYTES);
     }
 
     static DecodedFrame read(DataInputStream in, int maxFrameBytes) throws IOException {
-        int effectiveMax = Math.max(1, Math.min(MAX_FRAME_BYTES, maxFrameBytes));
+        return read(in, () -> maxFrameBytes);
+    }
+
+    static DecodedFrame read(DataInputStream in, IntSupplier maxFrameBytes) throws IOException {
         int first = in.read();
         if (first < 0) return null;
         byte[] header = new byte[HEADER_BYTES];
         header[0] = (byte) first;
         in.readFully(header, 1, HEADER_BYTES - 1);
         int length = ByteBuffer.wrap(header).getInt();
+        int configuredMax = maxFrameBytes == null ? MAX_FRAME_BYTES : maxFrameBytes.getAsInt();
+        int effectiveMax = Math.max(1, Math.min(MAX_FRAME_BYTES, configuredMax));
         if (length <= 0 || length > effectiveMax) {
             throw new IOException("Invalid TCP frame length: " + length + " (max " + effectiveMax + ").");
         }
