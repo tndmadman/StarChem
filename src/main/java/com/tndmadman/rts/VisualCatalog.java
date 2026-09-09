@@ -17,12 +17,12 @@ final class VisualCatalog {
 
     private static volatile VisualCatalog cached;
 
-    private final Map<String, ShipVisualDefinition> ships;
+    private final Map<String, CatalogShipVisualDefinition> ships;
     private final Map<String, StationVisualDefinition> stations;
     private final Map<String, SystemVisualDefinition> systems;
     private final Map<String, CatalogCelestialVisualDefinition> celestials;
 
-    private VisualCatalog(Map<String, ShipVisualDefinition> ships,
+    private VisualCatalog(Map<String, CatalogShipVisualDefinition> ships,
                           Map<String, StationVisualDefinition> stations,
                           Map<String, SystemVisualDefinition> systems,
                           Map<String, CatalogCelestialVisualDefinition> celestials) {
@@ -32,8 +32,8 @@ final class VisualCatalog {
         this.celestials = Map.copyOf(celestials);
     }
 
-    static ShipVisualDefinition ship(String shipTypeId) {
-        return current().ships.getOrDefault(normalize(shipTypeId), ShipVisualDefinition.FALLBACK);
+    static CatalogShipVisualDefinition ship(String shipTypeId) {
+        return current().ships.getOrDefault(normalize(shipTypeId), CatalogShipVisualDefinition.FALLBACK);
     }
 
     static StationVisualDefinition station(String stationTypeId) {
@@ -100,7 +100,7 @@ final class VisualCatalog {
                         + SCHEMA_VERSION + " (found " + version + ").");
             }
 
-            Map<String, ShipVisualDefinition> ships = new LinkedHashMap<>();
+            Map<String, CatalogShipVisualDefinition> ships = new LinkedHashMap<>();
             for (Object raw : ServerSaveStore.list(root.get("ships"))) {
                 Map<String, Object> row = ServerSaveStore.object(raw);
                 String id = requiredId(row, "id", "ship visual");
@@ -108,7 +108,7 @@ final class VisualCatalog {
                         text(row, "family", "COMBAT"), "ship family for " + id);
                 int seed = ServerSaveStore.intValue(row, "seed", stableSeed(id));
                 int detailCount = boundedInt(row, "detailCount", 2, 1, 6, id);
-                putUnique(ships, id, new ShipVisualDefinition(id, family, seed, detailCount), "ship visual");
+                putUnique(ships, id, new CatalogShipVisualDefinition(id, family, seed, detailCount), "ship visual");
             }
 
             Map<String, StationVisualDefinition> stations = new LinkedHashMap<>();
