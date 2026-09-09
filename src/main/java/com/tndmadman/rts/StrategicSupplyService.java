@@ -72,14 +72,26 @@ final class StrategicSupplyService {
             if (system.control.status() != SystemControlStatus.CONTROLLED
                     && system.control.status() != SystemControlStatus.PROTECTED) continue;
             controlled.put(system.id, system);
-            if (system.control.status() == SystemControlStatus.PROTECTED
-                    || hasCommandNode(system, ownerId)) roots.add(system.id);
+            // Protected homes are the canonical strategic supply roots. A command outpost helps an
+            // isolated pocket survive, but it must not magically bypass a blockade and become a
+            // fully supplied root of its own.
+            if (system.control.status() == SystemControlStatus.PROTECTED) roots.add(system.id);
         }
         if (controlled.isEmpty()) return Map.of();
 
-        // Factions may begin without a protected home or command station. Their first controlled
-        // territory remains a deterministic bootstrap root until they build a command outpost.
-        if (roots.isEmpty()) roots.add(controlled.keySet().iterator().next());
+        // Organized NPC factions and test worlds can legitimately begin without a protected home.
+        // Give those factions one deterministic bootstrap root; prefer a command node when one is
+        // available so infrastructure still matters without allowing arbitrary new roots later.
+        if (roots.isEmpty()) {
+            String bootstrap = "";
+            for (Map.Entry<String, WorldSystemState> entry : controlled.entrySet()) {
+                if (hasCommandNode(entry.getValue(), ownerId)) {
+                    bootstrap = entry.getKey();
+                    break;
+                }
+            }
+            roots.add(bootstrap.isBlank() ? controlled.keySet().iterator().next() : bootstrap);
+        }
 
         Map<String, Set<String>> adjacency = new LinkedHashMap<>();
         for (String id : controlled.keySet()) adjacency.put(id, new LinkedHashSet<>());
