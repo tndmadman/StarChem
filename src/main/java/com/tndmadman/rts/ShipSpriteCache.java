@@ -59,6 +59,11 @@ final class ShipSpriteCache {
 
     static int imageSize() { return IMAGE_SIZE; }
     static int maxEntries() { return MAX_ENTRIES; }
+    static int maxEntriesForValidation() { return MAX_ENTRIES; }
+
+    static int sizeForValidation() {
+        synchronized (CACHE) { return CACHE.size(); }
+    }
 
     static double rasterScale(ShipType type) {
         if (type == null) return 1.0;
@@ -75,20 +80,13 @@ final class ShipSpriteCache {
             double generationMs = generationNanos / 1_000_000.0;
             double averageGenerationMs = generations <= 0 ? 0.0 : generationMs / generations;
             return new Snapshot(
-                    CACHE.size(),
-                    peakEntries,
-                    MAX_ENTRIES,
-                    totalRequests,
-                    hits,
-                    misses,
-                    generations,
-                    evictions,
-                    hitRate,
-                    generationMs,
-                    averageGenerationMs,
+                    CACHE.size(), peakEntries, MAX_ENTRIES, totalRequests, hits, misses,
+                    generations, evictions, hitRate, generationMs, averageGenerationMs,
                     CACHE.size() * ESTIMATED_BYTES_PER_IMAGE);
         }
     }
+
+    static void clear() { resetForTest(); }
 
     /** Clears cached sprites and counters so deterministic performance validators can measure cold/warm behavior. */
     static void resetForTest() {
