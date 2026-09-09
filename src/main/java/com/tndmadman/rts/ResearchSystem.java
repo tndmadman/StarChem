@@ -4,6 +4,12 @@ final class ResearchSystem {
     private ResearchSystem() { }
 
     static void start(World world, Base base, ResearchTopic topic) {
+        if (world == null || base == null || topic == null) return;
+        String blocked = ResearchPolicy.blockedResearchReason(world, base, topic);
+        if (!blocked.isBlank()) {
+            world.status = topic.name + " is blocked: " + blocked + ".";
+            return;
+        }
         ProductionSystem.enqueuePrepaidResearch(world, base, topic);
     }
 
