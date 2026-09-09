@@ -42,7 +42,10 @@ final class SystemControlBonuses {
 
     private static double resolved(World world, String ownerId, Benefit benefit) {
         if (!controls(world, ownerId)) return 1.0;
-        StarSystemDefinition definition = StarSystems.get(world.activeSystemId());
+        // activeSystemId() is the galaxy-instance id and may differ from the template id used by
+        // StarSystems. systemId() is the active StarSystemDefinition id, so strategic bonuses stay
+        // correct for copied/dynamic systems as well as the primary template instance.
+        StarSystemDefinition definition = StarSystems.get(world.systemId());
         SystemStrategicDefinition strategic = definition == null
                 ? SystemStrategicDefinition.STANDARD : definition.strategic();
         double configured = switch (benefit) {
