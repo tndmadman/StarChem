@@ -27,8 +27,6 @@ public final class VisualContentValidator {
         require(catalog.systemCount() > 0, "Visual catalog has no system definitions.");
         require(catalog.celestialCount() > 0, "Visual catalog has no celestial definitions.");
 
-        // Ships were previously classified from gameplay stats. Require authored coverage for every
-        // current ship so a balance edit can no longer silently change its visual family.
         for (String shipId : Rules.SHIPS.keySet()) {
             require(catalog.containsShip(shipId), "Missing authored ship visual: " + shipId);
         }
@@ -42,11 +40,11 @@ public final class VisualContentValidator {
                     "Missing default-system celestial visual: " + sol.id() + "/" + body.id());
         }
 
-        ShipVisualDefinition prospectorBeforeReload = VisualCatalog.ship("prospector");
+        CatalogShipVisualDefinition prospectorBeforeReload = VisualCatalog.ship("prospector");
         VisualCatalog.reload();
         require(prospectorBeforeReload.equals(VisualCatalog.ship("prospector")),
                 "Deterministic ship visuals changed across catalog reload.");
-        require(VisualCatalog.ship("__missing_ship__").equals(ShipVisualDefinition.FALLBACK),
+        require(VisualCatalog.ship("__missing_ship__").equals(CatalogShipVisualDefinition.FALLBACK),
                 "Unknown ship visual must fail safely to fallback.");
         require(VisualCatalog.station("__missing_station__").equals(StationVisualDefinition.FALLBACK),
                 "Unknown station visual must fail safely to fallback.");
