@@ -3,6 +3,7 @@ name: Graphics Integration Validation
 on:
   push:
     branches:
+      - main
       - 'integration/**'
     paths:
       - 'src/main/java/com/tndmadman/rts/**'
@@ -53,12 +54,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # The frozen integration baseline already contains a TcpConnectionIdentityValidator
-          # compiled against the pre-proof PeerServerSide.resume signature. That test is outside
-          # the graphics rollup and must not be rewritten here. Remove only that validator from
-          # these ephemeral Actions checkouts so graphics production code and graphics validators
-          # can be compiled and benchmarked without importing unrelated security work.
-          mv src/main/java/com/tndmadman/rts/TcpConnectionIdentityValidator.java /tmp/TcpConnectionIdentityValidator-head.java
+          # The historical graphics baseline predates the proof-aware validator repair.
+          # The current combined head must compile with its real validator present; only
+          # remove the stale validator from the frozen comparison checkout.
           mv baseline/src/main/java/com/tndmadman/rts/TcpConnectionIdentityValidator.java /tmp/TcpConnectionIdentityValidator-baseline.java
 
       - name: Compile production renderer and graphics validators
