@@ -200,7 +200,10 @@ final class StrategicCommandCenter {
             root.add(split, BorderLayout.CENTER);
 
             JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            addMutation(actions, "Create", this::create);
             addMutation(actions, "Rename", this::rename);
+            addMutation(actions, "Attach", this::attach);
+            addMutation(actions, "Disband", this::disband);
             addMutation(actions, "Formation", this::formation);
             addMutation(actions, "Combat Policy", this::combatPolicy);
             addMutation(actions, "Move", this::move);
@@ -209,16 +212,16 @@ final class StrategicCommandCenter {
             addMutation(actions, "Split", this::split);
             addMutation(actions, "Detach", this::detach);
             JButton refresh = new JButton("Refresh");
-            refresh.addActionListener(event -> refresh());
+            refresh.addActionListener(event -> { if (!authoritative && network != null && network.clientReady()) request("SYNC"); else refresh(); });
             actions.add(refresh);
             JButton close = new JButton("Close");
             close.addActionListener(event -> dispose());
             actions.add(close);
             root.add(actions, BorderLayout.SOUTH);
 
-            for (JButton button : mutationButtons) button.setEnabled(authoritative);
+            for (JButton button : mutationButtons) button.setEnabled(canMutate());
             if (!authoritative) for (JButton button : mutationButtons)
-                button.setToolTipText("Fleet mutations are host-authoritative; multiplayer client transport is not exposed by this build.");
+                button.setToolTipText("Fleet changes are sent to the authenticated host and applied only after server ownership/revision checks.");
 
             setContentPane(root);
             refreshTimer = new Timer(750, event -> refreshPreservingSelection());
@@ -252,8 +255,9 @@ final class StrategicCommandCenter {
             model.clear();
             for (FleetUiRow row : fleetRowsForTest(world, ownerId)) model.addElement(row);
             if (!model.isEmpty() && fleets.getSelectedIndex() < 0) fleets.setSelectedIndex(0);
+            for (JButton button : mutationButtons) button.setEnabled(canMutate());
             state.setText(model.size() + " persistent fleet" + (model.size() == 1 ? "" : "s")
-                    + (authoritative ? " • authoritative" : " • client view / mutations disabled"));
+                    + (authoritative ? " • authoritative" : canMutate() ? " • server-authoritative client" : " • reconnecting/read-only"));
             showDetail();
         }
 
@@ -262,9 +266,7 @@ final class StrategicCommandCenter {
         private void showDetail() {
             FleetUiRow row = selected();
             if (row == null) {
-                detail.setText(authoritative
-                        ? "No persistent fleets exist for this player. Fleet creation remains driven by the existing fleet backend/API."
-                        : "No persistent fleet state is available in this client world. Mutations stay disabled rather than bypassing host authority.");
+                detail.setText("No persistent fleets exist for this player. Use Create to form one from owned, unassigned ships.");
                 return;
             }
             StringBuilder text = new StringBuilder();
@@ -283,11 +285,47 @@ final class StrategicCommandCenter {
             detail.setCaretPosition(0);
         }
 
+        private boolean canMutate() {
+            return authoritative || network != null && network.clientReady() && !network.clientObserver();
+        }
+
+        private void create() {
+            LinkedHashSet<String> available = new LinkedHashSet<>();
+            for (String key : FleetWire.ownerLocations(world, ownerId).keySet())
+                if (FleetManager.fleetIdForUnit(world, key) == 0) available.add(key);
+            if (available.isEmpty()) { world.status = "No unassigned owned ships are available."; return; }
+            String name = JOptionPane.showInputDialog(this, "Fleet name", "New Fleet");
+            if (name == null) return;
+            String members = JOptionPane.showInputDialog(this,
+                    "Member keys (comma-separated)\nAvailable: " + String.join(", ", available), String.join(", ", available));
+            if (members == null) return;
+            request("CREATE", name, String.join(",", parseMembers(members)));
+        }
+
+        private void attach() {
+            FleetUiRow row = selected(); if (row == null) return;
+            LinkedHashSet<String> available = new LinkedHashSet<>();
+            for (String key : FleetWire.ownerLocations(world, ownerId).keySet())
+                if (FleetManager.fleetIdForUnit(world, key) == 0) available.add(key);
+            if (available.isEmpty()) { world.status = "No unassigned owned ships are available."; return; }
+            String members = JOptionPane.showInputDialog(this,
+                    "Member keys to attach (comma-separated)\nAvailable: " + String.join(", ", available), "");
+            if (members == null) return;
+            request("ADD", row.fleetId(), row.revision(), String.join(",", parseMembers(members)));
+        }
+
+        private void disband() {
+            FleetUiRow row = selected(); if (row == null) return;
+            if (JOptionPane.showConfirmDialog(this, "Disband " + row.name() + "? Ships remain intact.",
+                    "Disband Fleet", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
+            request("DISBAND", row.fleetId(), row.revision());
+        }
+
         private void rename() {
             FleetUiRow row = selected(); if (row == null) return;
             String name = JOptionPane.showInputDialog(this, "Fleet name", row.name());
             if (name == null) return;
-            apply(FleetManager.rename(world, ownerId, row.fleetId(), row.revision(), name), "rename");
+            request("RENAME", row.fleetId(), row.revision(), name);
         }
 
         private void formation() {
@@ -295,7 +333,7 @@ final class StrategicCommandCenter {
             FleetFormation selected = (FleetFormation)JOptionPane.showInputDialog(this, "Default formation", "Fleet Formation",
                     JOptionPane.PLAIN_MESSAGE, null, FleetFormation.values(), FleetFormation.valueOf(row.formation()));
             if (selected == null) return;
-            apply(FleetManager.setFormation(world, ownerId, row.fleetId(), row.revision(), selected), "formation");
+            request("FORMATION", row.fleetId(), row.revision(), selected.name());
         }
 
         private void combatPolicy() {
@@ -312,24 +350,22 @@ final class StrategicCommandCenter {
             lower.add(priority, BorderLayout.CENTER);
             panel.add(lower, BorderLayout.SOUTH);
             if (JOptionPane.showConfirmDialog(this, panel, "Combat Policy", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
-            FleetCommandResult result = FleetAuthorityService.applyCombatPolicy(world, ownerId, row.fleetId(), row.revision(),
-                    (CombatStance)stance.getSelectedItem(), (TargetPriorityPolicy)priority.getSelectedItem());
-            commandResult(result);
+            request("POLICY", row.fleetId(), row.revision(),
+                    ((CombatStance)stance.getSelectedItem()).name(), ((TargetPriorityPolicy)priority.getSelectedItem()).name());
         }
 
         private void move() {
             FleetUiRow row = selected(); if (row == null) return;
             GalaxyMapSystem destination = chooseSystem("Move Fleet", row.system());
             if (destination == null) return;
-            commandResult(FleetAuthorityService.moveToSystem(world, ownerId, row.fleetId(), row.revision(), destination.id()));
+            request("MOVE", row.fleetId(), row.revision(), destination.id());
         }
 
         private void rally() {
             FleetUiRow row = selected(); if (row == null) return;
             GalaxyMapSystem destination = chooseSystem("Rally Fleet", row.rallySystem());
             if (destination == null) return;
-            commandResult(FleetAuthorityService.rally(world, ownerId, row.fleetId(), row.revision(), destination.id(),
-                    world.width * 0.5, world.height * 0.5));
+            request("RALLY", row.fleetId(), row.revision(), destination.id(), world.width * 0.5, world.height * 0.5);
         }
 
         private GalaxyMapSystem chooseSystem(String title, String current) {
@@ -349,7 +385,7 @@ final class StrategicCommandCenter {
             FleetUiRow target = (FleetUiRow)JOptionPane.showInputDialog(this, "Merge selected fleet into", "Merge Fleets",
                     JOptionPane.PLAIN_MESSAGE, null, options.toArray(), options.get(0));
             if (target == null) return;
-            apply(FleetManager.merge(world, ownerId, target.fleetId(), source.fleetId(), target.revision(), source.revision()), "merge");
+            request("MERGE", target.fleetId(), source.fleetId(), target.revision(), source.revision());
         }
 
         private void split() {
@@ -359,9 +395,7 @@ final class StrategicCommandCenter {
             if (members == null) return;
             String name = JOptionPane.showInputDialog(this, "New fleet name", source.name() + " Detachment");
             if (name == null) return;
-            FleetCreateResult result = FleetManager.split(world, ownerId, source.fleetId(), source.revision(), name, parseMembers(members));
-            world.status = result.result() == FleetMutationResult.APPLIED ? "Fleet split created #" + result.fleetId() + "." : "Fleet split rejected: " + result.result();
-            refresh();
+            request("SPLIT", source.fleetId(), source.revision(), name, String.join(",", parseMembers(members)));
         }
 
         private void detach() {
@@ -369,7 +403,15 @@ final class StrategicCommandCenter {
             String members = JOptionPane.showInputDialog(this,
                     "Member keys to detach (comma-separated)\nAvailable: " + String.join(", ", source.members()), "");
             if (members == null) return;
-            apply(FleetManager.removeMembers(world, ownerId, source.fleetId(), source.revision(), parseMembers(members)), "detach");
+            request("DETACH", source.fleetId(), source.revision(), String.join(",", parseMembers(members)));
+        }
+
+        private void request(String action, Object... values) {
+            if (!canMutate()) { world.status = "Fleet command unavailable while reconnecting or in observer mode."; refresh(); return; }
+            String packet = FleetWire.command(ownerId, action, values);
+            if (network != null) network.fleet(packet);
+            else FleetWire.applyLocal(world, ownerId, packet);
+            refresh();
         }
 
         private Set<String> parseMembers(String text) {

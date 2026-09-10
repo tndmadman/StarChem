@@ -128,7 +128,7 @@ final class FleetManager {
                 || members.size() > MAX_MEMBERS_PER_FLEET) {
             return FleetCreateResult.failed(FleetMutationResult.LIMIT);
         }
-        Map<String,String> live = world.ownerUnitLocations(owner);
+        Map<String,String> live = FleetWire.ownerLocations(world, owner);
         for (String key : members) {
             if (!ownedLiveKey(owner, key, live)) return FleetCreateResult.failed(FleetMutationResult.FORBIDDEN);
             if (state.fleetByUnit.containsKey(key)) return FleetCreateResult.failed(FleetMutationResult.CONFLICT);
@@ -179,7 +179,7 @@ final class FleetManager {
         if (additions.isEmpty()) return FleetMutationResult.INVALID;
         if (fleet.members.size() + additions.size() > MAX_MEMBERS_PER_FLEET) return FleetMutationResult.LIMIT;
         RuntimeState state = state(world);
-        Map<String,String> live = world.ownerUnitLocations(fleet.ownerId);
+        Map<String,String> live = FleetWire.ownerLocations(world, fleet.ownerId);
         for (String key : additions) {
             if (!ownedLiveKey(fleet.ownerId, key, live)) return FleetMutationResult.FORBIDDEN;
             Long assigned = state.fleetByUnit.get(key);
@@ -473,7 +473,7 @@ final class FleetManager {
 
     private static FleetView toView(World world, FleetData fleet) {
         Map<String,Integer> counts = new LinkedHashMap<>();
-        Map<String,String> locations = world.ownerUnitLocations(fleet.ownerId);
+        Map<String,String> locations = FleetWire.ownerLocations(world, fleet.ownerId);
         for (String key : fleet.members) {
             String system = locations.get(key);
             if (system != null && !system.isBlank()) counts.merge(system, 1, Integer::sum);
@@ -485,7 +485,7 @@ final class FleetManager {
     }
 
     private static void reconcileMembers(World world, FleetData fleet) {
-        Map<String,String> live = world.ownerUnitLocations(fleet.ownerId);
+        Map<String,String> live = FleetWire.ownerLocations(world, fleet.ownerId);
         RuntimeState state = state(world);
         boolean changed = false;
         for (String key : new ArrayList<>(fleet.members)) {
@@ -509,7 +509,7 @@ final class FleetManager {
         }
         String destination = order.destinationSystemId();
         if (destination.isBlank()) return;
-        Map<String,String> locations = world.ownerUnitLocations(fleet.ownerId);
+        Map<String,String> locations = FleetWire.ownerLocations(world, fleet.ownerId);
         for (String key : fleet.members) if (!destination.equals(locations.get(key))) return;
         fleet.order = order.withState(FleetOrderState.COMPLETE, "Fleet arrived in " + destination + ".");
         fleet.revision++;
@@ -685,7 +685,7 @@ final class FleetCommandService {
         if (maybe.isEmpty()) return FleetCommandResult.rejected("Fleet not found or not owned by player.");
         FleetView fleet = maybe.get();
         if (fleet.memberKeys().isEmpty()) return FleetCommandResult.rejected("Fleet has no surviving members.");
-        Map<String,String> locations = world.ownerUnitLocations(fleet.ownerId());
+        Map<String,String> locations = FleetWire.ownerLocations(world, fleet.ownerId());
         List<PolicyPlan> plans = new ArrayList<>();
         for (String key : fleet.memberKeys()) {
             String systemId = locations.get(key);
@@ -718,7 +718,7 @@ final class FleetCommandService {
         GalaxyMapSnapshot map = world.authoritativeGalaxyMapSnapshot();
         if (!containsSystem(map, destination)) return FleetCommandResult.rejected("Destination system is not available.");
 
-        Map<String,String> locations = world.ownerUnitLocations(fleet.ownerId());
+        Map<String,String> locations = FleetWire.ownerLocations(world, fleet.ownerId());
         List<UnitTravelPlan> plans = new ArrayList<>();
         int formationIndex = 0;
         for (String key : fleet.memberKeys()) {
