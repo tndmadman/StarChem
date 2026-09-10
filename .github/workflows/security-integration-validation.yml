@@ -3,7 +3,11 @@ name: Security Integration Validation
 on:
   push:
     branches:
-      - integration/2026-09-09-security
+      - main
+      - 'integration/**'
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -20,7 +24,7 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - name: Check out security integration branch
+      - name: Check out source
         uses: actions/checkout@v4
 
       - name: Set up Java 17
