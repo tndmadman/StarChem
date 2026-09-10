@@ -57,7 +57,14 @@ record StrategicSummarySnapshot(
 }
 
 record StrategicSystemRow(String systemId, String name, boolean controlled,
-                          int ships, int stations, int productionJobs, int damagedAssets, int alerts) { }
+                          String supply, String infrastructure, String benefits,
+                          int ships, int stations, int productionJobs, int damagedAssets, int alerts) {
+    StrategicSystemRow {
+        supply = supply == null ? "" : supply;
+        infrastructure = infrastructure == null ? "" : infrastructure;
+        benefits = benefits == null ? "" : benefits;
+    }
+}
 record StrategicFleetRow(String unitKey, String systemId, String hullId, String hullName,
                          String status, double hullFraction, double shieldFraction, double x, double y) { }
 record StrategicStationRow(String baseId, String systemId, String typeId, String typeName,
@@ -122,6 +129,7 @@ final class StrategicSummaryService {
 
     private static StrategicSummarySnapshot build(World world, String ownerId) {
         Map<String,Object> galaxy = world.captureServerSaveGalaxy();
+        Map<String, StrategicSupplyState> supplyStates = StrategicSupplyService.states(world, ownerId);
         List<StrategicFleetRow> fleets = new ArrayList<>();
         List<StrategicStationRow> stations = new ArrayList<>();
         List<StrategicProductionRow> production = new ArrayList<>();
@@ -136,7 +144,7 @@ final class StrategicSummaryService {
             String systemId = text(system.get("systemId"));
             if (systemId.isBlank()) continue;
             String templateId = text(system.get("templateId"));
-            SystemAccumulator aggregate = new SystemAccumulator(systemId, systemName(systemId, templateId));
+            SystemAccumulator aggregate = new SystemAccumulator(systemId, systemName(systemId, templateId), systemBenefits(templateId));
             Map<String,Object> control = ServerSaveStore.object(system.get("control"));
             aggregate.controlled = ownerId.equals(text(control.get("controllerId")));
 
@@ -180,6 +188,9 @@ final class StrategicSummaryService {
                 String typeId = text(row.get("typeId"));
                 BaseType type = safeBase(typeId);
                 ownedStationTypes.add(typeId);
+                if (StrategicInfrastructureRules.isStrategicType(typeId)) {
+                    aggregate.infrastructure.add(type == null ? typeId : type.name);
+                }
                 List<Object> jobs = ServerSaveStore.list(row.get("productionQueue"));
                 aggregate.productionJobs += jobs.size();
                 double hullFraction = fraction(hp, type == null ? hp : type.maxHp);
@@ -230,7 +241,11 @@ final class StrategicSummaryService {
         for (StrategicAlertRow alert : alerts) alertsBySystem.merge(alert.systemId(), 1, Integer::sum);
         List<StrategicSystemRow> systemRows = new ArrayList<>();
         for (SystemAccumulator aggregate : systems.values()) {
+            String supply = aggregate.controlled
+                    ? supplyStates.getOrDefault(aggregate.systemId, StrategicSupplyState.ISOLATED).name()
+                    : "";
             systemRows.add(new StrategicSystemRow(aggregate.systemId, aggregate.name, aggregate.controlled,
+                    supply, String.join(", ", aggregate.infrastructure), aggregate.benefits,
                     aggregate.ships, aggregate.stations, aggregate.productionJobs, aggregate.damagedAssets,
                     alertsBySystem.getOrDefault(aggregate.systemId, 0)));
         }
@@ -362,6 +377,16 @@ final class StrategicSummaryService {
         }
     }
 
+    private static String systemBenefits(String templateId) {
+        try {
+            StarSystemDefinition definition = StarSystems.get(templateId);
+            if (definition == null || definition.strategic().standardBenefits()) return "";
+            return definition.strategic().summary();
+        } catch (RuntimeException ex) {
+            return "";
+        }
+    }
+
     private static double fraction(double value, double max) {
         if (!Double.isFinite(value) || !Double.isFinite(max) || max <= 0) return 0;
         return Math.max(0, Math.min(1, value / max));
@@ -387,12 +412,18 @@ final class StrategicSummaryService {
     private static final class SystemAccumulator {
         final String systemId;
         final String name;
+        final String benefits;
+        final Set<String> infrastructure = new LinkedHashSet<>();
         boolean controlled;
         int ships;
         int stations;
         int productionJobs;
         int damagedAssets;
-        SystemAccumulator(String systemId, String name) { this.systemId = systemId; this.name = name; }
+        SystemAccumulator(String systemId, String name, String benefits) {
+            this.systemId = systemId;
+            this.name = name;
+            this.benefits = benefits;
+        }
     }
 }
 
@@ -489,8 +520,14 @@ final class StrategicSummaryWire {
 
     private static List<Object> mapSystems(List<StrategicSystemRow> rows) {
         List<Object> out = new ArrayList<>();
-        for (StrategicSystemRow r : rows) out.add(Map.of("id", r.systemId(), "name", r.name(), "controlled", r.controlled(),
-                "ships", r.ships(), "stations", r.stations(), "jobs", r.productionJobs(), "damaged", r.damagedAssets(), "alerts", r.alerts()));
+        for (StrategicSystemRow r : rows) {
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("id", r.systemId()); row.put("name", r.name()); row.put("controlled", r.controlled());
+            row.put("supply", r.supply()); row.put("infrastructure", r.infrastructure()); row.put("benefits", r.benefits());
+            row.put("ships", r.ships()); row.put("stations", r.stations()); row.put("jobs", r.productionJobs());
+            row.put("damaged", r.damagedAssets()); row.put("alerts", r.alerts());
+            out.add(row);
+        }
         return out;
     }
 
@@ -545,6 +582,7 @@ final class StrategicSummaryWire {
         for (Object raw : bounded(root, "systems", 128)) {
             Map<String,Object> r = ServerSaveStore.object(raw);
             systems.add(new StrategicSystemRow(requiredText(r, "id"), text(r.get("name")), bool(r.get("controlled")),
+                    text(r.get("supply")), text(r.get("infrastructure")), text(r.get("benefits")),
                     nonNegativeInt(r.get("ships")), nonNegativeInt(r.get("stations")), nonNegativeInt(r.get("jobs")),
                     nonNegativeInt(r.get("damaged")), nonNegativeInt(r.get("alerts"))));
         }

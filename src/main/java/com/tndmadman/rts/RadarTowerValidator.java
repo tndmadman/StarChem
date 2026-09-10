@@ -34,9 +34,9 @@ public final class RadarTowerValidator {
                 "Radar resource-dispatch limits were not loaded from JSON.");
         require(RadarTowerRules.requiredResearchName(tierOne.id).isBlank(),
                 "Tier-one radar unexpectedly loaded a research requirement.");
-        require("Advanced Industry".equals(RadarTowerRules.requiredResearchName(tierTwo.id)),
+        require("Sensor / Electronic Warfare · Sensor Theory".equals(RadarTowerRules.requiredResearchName(tierTwo.id)),
                 "Tier-two radar research was not loaded from JSON.");
-        require("Battlefleet Engineering".equals(RadarTowerRules.requiredResearchName(tierThree.id)),
+        require("Sensor / Electronic Warfare · Sensor Dominance".equals(RadarTowerRules.requiredResearchName(tierThree.id)),
                 "Tier-three radar research was not loaded from JSON.");
         require(totalCost(tierOne) < totalCost(tierTwo) && totalCost(tierTwo) < totalCost(tierThree),
                 "Radar tower package costs do not increase by tier.");
@@ -58,24 +58,27 @@ public final class RadarTowerValidator {
         require(RadarTowerRules.unlocked(world, "P1", tierOne.id),
                 "Tier-one radar tower unexpectedly requires research.");
         require(!RadarTowerRules.unlocked(world, "P1", tierTwo.id),
-                "Tier-two radar tower was unlocked before Advanced Industry.");
+                "Tier-two radar tower was unlocked before Sensor Theory.");
         require(!RadarTowerRules.unlocked(world, "P1", tierThree.id),
-                "Tier-three radar tower was unlocked before Battlefleet Engineering.");
+                "Tier-three radar tower was unlocked before Sensor Dominance.");
 
         BuildSystem build = new BuildSystem();
         require(!build.loadBasePackage(world, outpost.id, tierTwo.id),
-                "Server accepted a tier-two radar package without its JSON research requirement.");
-        require(world.status.contains("Advanced Industry"),
-                "Tier-two package rejection did not identify Advanced Industry.");
+                "Server accepted a tier-two radar package without its sensor research requirement.");
+        require(world.status.contains("Sensor Theory"),
+                "Tier-two package rejection did not identify Sensor Theory.");
 
         world.completeResearch("P1", "advanced_industry");
+        require(!RadarTowerRules.unlocked(world, "P1", tierTwo.id),
+                "Advanced Industry bypassed the dedicated sensor research branch.");
+        world.completeResearch("P1", "sensor_theory");
         require(RadarTowerRules.unlocked(world, "P1", tierTwo.id),
-                "Advanced Industry did not unlock the tier-two radar tower.");
+                "Sensor Theory did not unlock the tier-two radar tower.");
         require(!RadarTowerRules.unlocked(world, "P1", tierThree.id),
-                "Advanced Industry incorrectly unlocked the tier-three radar tower.");
-        world.completeResearch("P1", "battlefleet_engineering");
+                "Sensor Theory incorrectly unlocked the tier-three radar tower.");
+        world.completeResearch("P1", "sensor_dominance");
         require(RadarTowerRules.unlocked(world, "P1", tierThree.id),
-                "Battlefleet Engineering did not unlock the tier-three radar tower.");
+                "Sensor Dominance did not unlock the tier-three radar tower.");
 
         Unit deployer = new Unit("P1", 77, "station_builder", 2_000, 2_000);
         deployer.basePackageType = tierOne.id;

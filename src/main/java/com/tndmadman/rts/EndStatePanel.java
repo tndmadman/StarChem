@@ -14,6 +14,7 @@ final class EndStatePanel extends JPanel {
     private final JButton lobby = new JButton("DISCONNECT");
     private final Timer timer;
     private boolean victoryMode;
+    private boolean scenarioFailureMode;
     private boolean victoryDismissed;
     private boolean observerRequested;
 
@@ -75,9 +76,10 @@ final class EndStatePanel extends JPanel {
     }
 
     private void leaveMatch() {
-        owner.showLobby(victoryMode
-                ? "Disconnected after objective victory."
-                : "Disconnected after fleet loss.");
+        String message = scenarioFailureMode
+                ? "Disconnected after scenario failure."
+                : victoryMode ? "Disconnected after objective victory." : "Disconnected after fleet loss.";
+        owner.showLobby(message);
     }
 
     private void refresh() {
@@ -87,9 +89,23 @@ final class EndStatePanel extends JPanel {
             return;
         }
 
-        ObjectiveView objective = ObjectiveSystem.view(world);
+        ObjectiveView objective = ScenarioObjectiveBridge.view(world);
+        if (objective.completed() && !victoryDismissed && ScenarioObjectiveBridge.scenarioActive(world)) {
+            boolean failure = ScenarioObjectiveBridge.scenarioFailure(world);
+            victoryMode = true;
+            scenarioFailureMode = failure;
+            title.setText(failure ? "SCENARIO FAILED" : "SCENARIO COMPLETE");
+            String outcome = ScenarioObjectiveBridge.scenarioOutcome(world);
+            help.setText(outcome.isBlank() ? objective.description() : outcome);
+            restart.setText("CONTINUE PLAYING");
+            observe.setVisible(false);
+            lobby.setText(network == null ? "RETURN TO LOBBY" : "DISCONNECT");
+            showModal();
+            return;
+        }
         if (objective.completed() && !victoryDismissed) {
             victoryMode = true;
+            scenarioFailureMode = false;
             title.setText("MATCH OBJECTIVE COMPLETE");
             String by = objective.completedBy().isBlank() ? "" : " by " + objective.completedBy();
             help.setText(objective.title() + " was completed" + by + ".");
@@ -102,6 +118,7 @@ final class EndStatePanel extends JPanel {
 
         if (fleetDestroyed()) {
             victoryMode = false;
+            scenarioFailureMode = false;
             title.setText("FLEET DESTROYED");
             restart.setText("RESPAWN");
             observe.setVisible(network != null && network.clientMode());

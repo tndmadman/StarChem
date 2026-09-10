@@ -263,9 +263,11 @@ final class ProductionSystem {
             }
 
             if (job.remaining > 0 && availableDt > 0) {
-                double used = Math.min(job.remaining, availableDt);
-                job.remaining -= used;
-                availableDt -= used;
+                double throughput = throughput(world, base, job);
+                double workBudget = availableDt * throughput;
+                double usedWork = Math.min(job.remaining, workBudget);
+                job.remaining -= usedWork;
+                availableDt -= usedWork / throughput;
             }
             if (job.remaining > 0) return;
 
@@ -273,6 +275,16 @@ final class ProductionSystem {
             base.productionQueue.remove(0);
             if (availableDt <= 0 && !nextIsImmediate(base)) return;
         }
+    }
+
+    private static double throughput(World world, Base base, ProductionJob job) {
+        if (world == null || base == null || job == null) return 1.0;
+        double multiplier = switch (job.kind) {
+            case RESEARCH -> SystemControlBonuses.researchThroughput(world, base.playerId);
+            case REFIT -> SystemControlBonuses.refitThroughput(world, base.playerId);
+            case SHIP, STATION_PACKAGE, CRAFTABLE -> SystemControlBonuses.productionThroughput(world, base.playerId);
+        };
+        return Double.isFinite(multiplier) && multiplier > 0 ? multiplier : 1.0;
     }
 
     private static boolean nextIsImmediate(Base base) {

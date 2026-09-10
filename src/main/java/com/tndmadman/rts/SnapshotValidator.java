@@ -221,8 +221,12 @@ final class SnapshotValidator {
             }
             return;
         }
-        String conditionId = SnapshotReader.requiredText(state.conditionId(), 64,
+        String conditionId = SnapshotReader.requiredText(state.conditionId(), 128,
                 "objective", 1, "condition ID");
+        if (ScenarioObjectiveBridge.isScenarioState(state)) {
+            validateScenarioObjective(state, conditionId);
+            return;
+        }
         VictoryConditionDefinition definition = VictoryConditionRules.definition(conditionId);
         if (definition == null) {
             throw SnapshotReader.error("objective", 1, "condition ID",
@@ -244,6 +248,47 @@ final class SnapshotValidator {
                 throw SnapshotReader.error("objective", 1, "current progress", "must reach the target when completed");
             }
         } else if (!state.completedById().isBlank()) {
+            throw SnapshotReader.error("objective", 1, "completed-by ID", "must be blank while active");
+        }
+    }
+
+    private static void validateScenarioObjective(ObjectiveState state, String conditionId) {
+        ScenarioDefinition scenario = ScenarioObjectiveBridge.definitionFor(conditionId);
+        if (scenario == null) {
+            throw SnapshotReader.error("objective", 1, "condition ID",
+                    "unknown scenario value " + SnapshotReader.printable(conditionId));
+        }
+        ScenarioObjective objective = ScenarioObjectiveBridge.objectiveFor(conditionId);
+        boolean terminal = ScenarioObjectiveBridge.terminalScenarioState(state);
+        if (objective == null && !terminal) {
+            throw SnapshotReader.error("objective", 1, "condition ID",
+                    "does not reference a valid visible scenario objective");
+        }
+        if (objective != null && objective.hidden()) {
+            throw SnapshotReader.error("objective", 1, "condition ID",
+                    "hidden scenario objectives must not be transmitted");
+        }
+        int expectedTarget = objective == null ? 1 : Math.max(1, objective.trigger().target());
+        if (state.target() != expectedTarget) {
+            throw SnapshotReader.error("objective", 1, "target", "does not match loaded scenario configuration");
+        }
+        if (state.current() < 0) {
+            throw SnapshotReader.error("objective", 1, "current progress", "must not be negative");
+        }
+        SnapshotReader.text(state.leaderId(), 64, "objective", 1, "leader ID");
+        SnapshotReader.text(state.completedById(), 64, "objective", 1, "completed-by ID");
+        if (terminal) {
+            if (state.current() > 1) {
+                throw SnapshotReader.error("objective", 1, "current progress",
+                        "terminal scenario state must be 0 for failure or 1 for victory");
+            }
+            return;
+        }
+        if (state.status() != ObjectiveStatus.ACTIVE) {
+            throw SnapshotReader.error("objective", 1, "status",
+                    "only the active visible scenario stage may be transmitted");
+        }
+        if (!state.completedById().isBlank()) {
             throw SnapshotReader.error("objective", 1, "completed-by ID", "must be blank while active");
         }
     }

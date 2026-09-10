@@ -6,6 +6,7 @@
   "height": 16500,
   "tags": ["metal_rich", "industrial", "contested"],
   "modifiers": {"miningYield": 1.18, "resourceRespawn": 0.92, "shieldRegen": 0.95},
+  "strategic": {"productionThroughput": 1.25, "refitThroughput": 1.12, "repairThroughput": 1.08, "control": {"x": 0.47, "y": 0.52, "radius": 0.22}},
   "spawnMaterials": ["IRON", "COPPER", "NICKEL", "ALUMINUM"],
   "bodies": [
     {"id": "sun_a", "name": "Forge A", "orbit": 0, "radius": 190, "speed": 0, "color": "#FFD07A"},

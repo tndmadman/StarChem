@@ -6,6 +6,7 @@
   "height": 17500,
   "tags": ["gas_rich", "sensor_interference", "frontier"],
   "modifiers": {"miningYield": 1.08, "sensorRange": 0.72, "weaponRange": 0.9},
+  "strategic": {"sensorRange": 1.35, "logisticsThroughput": 1.08, "control": {"x": 0.56, "y": 0.46, "radius": 0.20}},
   "spawnMaterials": ["HYDROGEN", "HELIUM", "NITROGEN", "METHANE"],
   "bodies": [
     {"id": "sun", "name": "Veil Star", "orbit": 0, "radius": 175, "speed": 0, "color": "#B9A7FF"},

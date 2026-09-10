@@ -361,6 +361,8 @@ public final class ShipLoadoutValidator {
         PlayerRegistry.activate(world);
         world.completeResearch(playerId, "advanced_industry");
         world.completeResearch(playerId, "combat_doctrine");
+        world.completeResearch(playerId, "weapons_engineering");
+        world.completeResearch(playerId, "kinetic_ballistics");
         world.completeResearch(playerId, "battlefleet_engineering");
         Base yard = new Base(playerId + ":B1", playerId, "shipyard", 1000, 1000);
         for (Material material : Material.values()) yard.inventory.put(material, 100_000.0);

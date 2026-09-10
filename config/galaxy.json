@@ -1,5 +1,20 @@
 {
   "topology": {
     "wanderingWormholePairs": 4
+  },
+  "generation": {
+    "enabled": false,
+    "seed": "random",
+    "size": "medium",
+    "targetSystemCount": 24,
+    "topology": "mixed",
+    "permanentConnectivityDensity": 0.35,
+    "frontierFrequency": 0.2,
+    "resourceRichness": 1.0,
+    "rareResourceFrequency": 0.15,
+    "hazardFrequency": 0.15,
+    "npcDensity": 0.5,
+    "startingSeparation": 3,
+    "templateWeights": {}
   }
 }

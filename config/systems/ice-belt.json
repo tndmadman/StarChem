@@ -6,6 +6,7 @@
   "height": 15500,
   "tags": ["ice_rich", "frontier", "volatile"],
   "modifiers": {"resourceRespawn": 1.12, "movementSpeed": 0.96},
+  "strategic": {"miningYield": 1.08, "logisticsThroughput": 1.25, "repairThroughput": 1.10},
   "spawnMaterials": ["ICE", "SILICATES", "HYDROGEN", "IRON"],
   "bodies": [
     {"id": "blue_star", "name": "Blue Star", "parent": null, "orbit": 0, "radius": 180, "speed": 0, "color": "#A8D8FF"},

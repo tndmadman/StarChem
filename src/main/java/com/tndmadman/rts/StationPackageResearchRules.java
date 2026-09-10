@@ -12,8 +12,7 @@ final class StationPackageResearchRules {
     private StationPackageResearchRules() { }
 
     static boolean unlocked(World world, String playerId, String stationTypeId) {
-        String required = requiredResearchId(stationTypeId);
-        return required.isBlank() || world != null && world.hasResearch(playerId, required);
+        return ResearchPolicy.unlocked(world, playerId, ResearchUnlockKind.STATION_PACKAGE, stationTypeId);
     }
 
     static String requiredResearchId(String stationTypeId) {

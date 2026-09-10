@@ -21,6 +21,17 @@ run_java() {
   java -Djava.awt.headless=true -cp "$CP" "$class" "$@"
 }
 
+# Graphics epic #388 acceptance coverage. Keep these on the canonical release path so
+# future renderer work cannot silently regress one of the integrated visual subsystems.
+run_java com.tndmadman.rts.ArtAssetValidator
+run_java com.tndmadman.rts.VisualContentValidator
+run_java com.tndmadman.rts.Issue409AmbientEnvironmentValidator
+run_java com.tndmadman.rts.ShipVisualValidator
+run_java com.tndmadman.rts.Issue394ShipMaterialValidator
+run_java com.tndmadman.rts.Issue396StationVisualValidator
+run_java com.tndmadman.rts.Issue403CombatVfxValidator
+run_java com.tndmadman.rts.Issue407GraphicsBenchmark
+
 # Permanent regression validators that historically lived only as explicit CI steps.
 run_java com.tndmadman.rts.FogOfWarValidator
 run_java com.tndmadman.rts.FogPerformanceValidator
@@ -47,6 +58,16 @@ run_java com.tndmadman.rts.Issue399ResourceVisualValidator
 run_java com.tndmadman.rts.NarrationProcessValidator
 run_java com.tndmadman.rts.Issue395RespawnAuthorityValidator
 run_java com.tndmadman.rts.Issue405DestructionEffectsValidator
+
+# Feature integration gate. Keep every feature stream represented here so the
+# 30 > 3 > 1 integration step cannot silently drop a branch-specific validator.
+python3 scripts/validate_research.py
+run_java com.tndmadman.rts.Issue380PersistentFleetValidator
+run_java com.tndmadman.rts.SystemControlValidator
+run_java com.tndmadman.rts.Issue383GalaxyGenerationValidator
+run_java com.tndmadman.rts.ScenarioFrameworkValidator
+run_java com.tndmadman.rts.Issue386FormationValidator
+run_java com.tndmadman.rts.Issue387ProductionCausalAnalysisValidator
 
 # Release compatibility gate: generate a real format-2 save with the published v1.7.0 code,
 # load/migrate it with the current code, exercise authentication, resave, and reload it.

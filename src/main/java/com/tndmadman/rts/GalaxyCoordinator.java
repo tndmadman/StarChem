@@ -11,6 +11,9 @@ final class GalaxyCoordinator {
 
     private final Map<String, WorldSystemState> systems = new LinkedHashMap<>();
     private final Map<String, String> playerHomes = new LinkedHashMap<>();
+    private final Map<String, String> playerStartRegions = new LinkedHashMap<>();
+    private List<String> startRegionCandidates = List.of();
+    private boolean proceduralStartRegions;
     private String activeSystemId;
     private String entrySystemId;
     private long seed;
@@ -20,10 +23,18 @@ final class GalaxyCoordinator {
         this.seed = seed;
         systems.clear();
         playerHomes.clear();
+        playerStartRegions.clear();
+        startRegionCandidates = List.of();
+        proceduralStartRegions = false;
         clearWorld(world);
         nextResourceId = 1;
 
         GalaxyPlan plan = GalaxyPlanner.standard(primary.id(), GalaxyRuntimeOptions.copiesPerTemplate(), seed);
+        GalaxyGenerationSettings generation = GalaxyRuntimeOptions.generationSettings();
+        proceduralStartRegions = generation.procedural();
+        if (proceduralStartRegions) {
+            startRegionCandidates = GalaxyPreview.startRegionCandidates(plan, generation.startingSeparation());
+        }
         entrySystemId = plan.entrySystemId();
         for (GalaxyInstanceSpec spec : plan.systems()) {
             createSystem(spec.id(), spec.templateId(), StarSystems.get(spec.templateId()), spec.lifetime(), spec.initialControllerId());
@@ -59,6 +70,9 @@ final class GalaxyCoordinator {
         out.put("entrySystemId", entrySystemId);
         out.put("nextResourceId", nextResourceId);
         out.put("playerHomes", new LinkedHashMap<>(playerHomes));
+        out.put("playerStartRegions", new LinkedHashMap<>(playerStartRegions));
+        out.put("startRegionCandidates", new ArrayList<>(startRegionCandidates));
+        out.put("proceduralStartRegions", proceduralStartRegions);
         List<Object> savedSystems = new ArrayList<>();
         for (WorldSystemState state : systems.values()) savedSystems.add(captureSystem(world, state));
         out.put("systems", savedSystems);
@@ -69,6 +83,9 @@ final class GalaxyCoordinator {
         if (save == null) throw new IllegalArgumentException("Save is missing galaxy data.");
         systems.clear();
         playerHomes.clear();
+        playerStartRegions.clear();
+        startRegionCandidates = List.of();
+        proceduralStartRegions = false;
         clearWorld(world);
         seed = ServerSaveStore.longValue(save, "seed", System.nanoTime() ^ System.currentTimeMillis());
         entrySystemId = ServerSaveStore.string(save, "entrySystemId", "");
@@ -76,7 +93,29 @@ final class GalaxyCoordinator {
         nextResourceId = Math.max(1, ServerSaveStore.intValue(save, "nextResourceId", 1));
         Map<String,Object> homes = ServerSaveStore.object(save.get("playerHomes"));
         for (Map.Entry<String,Object> entry : homes.entrySet()) playerHomes.put(entry.getKey(), ServerSaveStore.asString(entry.getValue(), ""));
+        Map<String,Object> starts = ServerSaveStore.object(save.get("playerStartRegions"));
+        for (Map.Entry<String,Object> entry : starts.entrySet()) playerStartRegions.put(entry.getKey(), ServerSaveStore.asString(entry.getValue(), ""));
+        List<String> restoredCandidates = new ArrayList<>();
+        for (Object item : ServerSaveStore.list(save.get("startRegionCandidates"))) {
+            String id = ServerSaveStore.asString(item, "");
+            if (!id.isBlank()) restoredCandidates.add(id);
+        }
+        startRegionCandidates = List.copyOf(restoredCandidates);
+        proceduralStartRegions = ServerSaveStore.boolValue(save, "proceduralStartRegions", false);
         for (Object item : ServerSaveStore.list(save.get("systems"))) restoreSystem(world, ServerSaveStore.object(item));
+        playerHomes.entrySet().removeIf(entry -> !systems.containsKey(entry.getValue()));
+        playerStartRegions.entrySet().removeIf(entry -> !systems.containsKey(entry.getValue()));
+        if (proceduralStartRegions) {
+            List<String> validCandidates = new ArrayList<>();
+            for (String id : startRegionCandidates) {
+                WorldSystemState state = systems.get(id);
+                if (state != null && state.isStatic()) validCandidates.add(id);
+            }
+            if (validCandidates.isEmpty()) {
+                for (WorldSystemState state : systems.values()) if (state.isStatic()) validCandidates.add(state.id);
+            }
+            startRegionCandidates = List.copyOf(validCandidates);
+        } else startRegionCandidates = List.of();
         if (activeSystemId == null || activeSystemId.isBlank() || !systems.containsKey(activeSystemId)) activeSystemId = fallbackActiveSystemId();
         if (entrySystemId == null || entrySystemId.isBlank()) entrySystemId = activeSystemId;
         loadActive(world);
@@ -167,7 +206,7 @@ final class GalaxyCoordinator {
     }
 
     private String displayName(WorldSystemState state) {
-        return state.id.endsWith("_2") ? state.definition.name() + " II" : state.definition.name();
+        return GalaxySystemIdentity.displayName(state.id, state.definition);
     }
 
     private String ownerName(String ownerId) {
@@ -195,16 +234,91 @@ final class GalaxyCoordinator {
         WorldSystemState home = createSystem(playerHomeId(playerId), definition.id(), definition, SystemLifetime.PLAYER_HOME, playerId);
         home.control.protect(playerId);
         playerHomes.put(playerId, home.id);
-        connectHome(world, home);
+        connectHome(world, home, assignStartRegion(playerId));
         return asGalaxySystem(home);
     }
 
-    private void connectHome(World world, WorldSystemState home) {
-        WorldSystemState entry = systems.get(entrySystemId);
-        if (entry == null) entry = systems.get(fallbackActiveSystemId());
-        link(world, home, entry);
-        WorldSystemState second = secondStaticSystem(entry == null ? "" : entry.id);
+    private String assignStartRegion(String playerId) {
+        String existing = playerStartRegions.get(playerId);
+        WorldSystemState existingState = systems.get(existing);
+        if (existingState != null && existingState.isStatic()) return existing;
+        if (!proceduralStartRegions) return "";
+
+        Set<String> used = new LinkedHashSet<>(playerStartRegions.values());
+        for (String candidate : startRegionCandidates) {
+            WorldSystemState state = systems.get(candidate);
+            if (state != null && state.isStatic() && !used.contains(candidate)) {
+                playerStartRegions.put(playerId, candidate);
+                return candidate;
+            }
+        }
+
+        String fallback = mostSeparatedStaticSystem(used);
+        if (fallback.isBlank()) fallback = entrySystemId == null ? "" : entrySystemId;
+        if (!fallback.isBlank()) playerStartRegions.put(playerId, fallback);
+        return fallback;
+    }
+
+    private String mostSeparatedStaticSystem(Set<String> used) {
+        String best = "";
+        int bestDistance = -1;
+        for (WorldSystemState candidate : systems.values()) {
+            if (candidate == null || !candidate.isStatic() || used.contains(candidate.id)) continue;
+            int nearest = Integer.MAX_VALUE;
+            for (String selected : used) nearest = Math.min(nearest, staticDistance(candidate.id, selected));
+            if (used.isEmpty()) nearest = candidate.id.equals(entrySystemId) ? Integer.MAX_VALUE : 0;
+            if (nearest > bestDistance || nearest == bestDistance && (best.isBlank() || candidate.id.compareTo(best) < 0)) {
+                best = candidate.id;
+                bestDistance = nearest;
+            }
+        }
+        return best;
+    }
+
+    private int staticDistance(String from, String to) {
+        if (from == null || to == null || from.isBlank() || to.isBlank()) return Integer.MAX_VALUE / 4;
+        if (from.equals(to)) return 0;
+        Set<String> visited = new LinkedHashSet<>();
+        ArrayDeque<String> queue = new ArrayDeque<>();
+        Map<String,Integer> distance = new HashMap<>();
+        queue.add(from);
+        distance.put(from, 0);
+        while (!queue.isEmpty()) {
+            String current = queue.removeFirst();
+            if (!visited.add(current)) continue;
+            WorldSystemState state = systems.get(current);
+            if (state == null || !state.isStatic()) continue;
+            int nextDistance = distance.getOrDefault(current, 0) + 1;
+            for (WormholeGate gate : state.wormholes) {
+                WorldSystemState next = systems.get(gate.toSystemId);
+                if (next == null || !next.isStatic()) continue;
+                if (next.id.equals(to)) return nextDistance;
+                if (!visited.contains(next.id)) {
+                    distance.putIfAbsent(next.id, nextDistance);
+                    queue.addLast(next.id);
+                }
+            }
+        }
+        return Integer.MAX_VALUE / 4;
+    }
+
+    private void connectHome(World world, WorldSystemState home, String startRegionId) {
+        WorldSystemState anchor = systems.get(startRegionId);
+        if (anchor == null || !anchor.isStatic()) anchor = systems.get(entrySystemId);
+        if (anchor == null) anchor = systems.get(fallbackActiveSystemId());
+        link(world, home, anchor);
+        WorldSystemState second = secondStaticNeighbor(anchor);
+        if (second == null) second = secondStaticSystem(anchor == null ? "" : anchor.id);
         if (second != null) link(world, home, second);
+    }
+
+    private WorldSystemState secondStaticNeighbor(WorldSystemState anchor) {
+        if (anchor == null) return null;
+        for (WormholeGate gate : anchor.wormholes) {
+            WorldSystemState candidate = systems.get(gate.toSystemId);
+            if (candidate != null && candidate.isStatic()) return candidate;
+        }
+        return null;
     }
 
     private WorldSystemState secondStaticSystem(String excludedId) {
@@ -214,6 +328,7 @@ final class GalaxyCoordinator {
         return null;
     }
 
+    String playerStartRegionSystemId(String playerId) { return playerStartRegions.getOrDefault(playerId, ""); }
     String playerHomeSystemId(World world, String playerId, StarSystemDefinition primary) { return ensurePlayerHome(world, playerId, primary).id; }
     List<Material> spawnMaterials(World world, String playerId, StarSystemDefinition primary) { return ensurePlayerHome(world, playerId, primary).definition.spawnMaterials(); }
 
@@ -339,6 +454,7 @@ final class GalaxyCoordinator {
             state.shots.removeIf(shot -> playerId.equals(shot.ownerId) || targetsPlayer(shot.targetKey, playerId));
         }
         playerHomes.remove(playerId);
+        playerStartRegions.remove(playerId);
         return pruneAbandonedSystemsAfterSave(world);
     }
 
@@ -571,6 +687,7 @@ final class GalaxyCoordinator {
     private void deleteSystems(World world, Set<String> deleted) {
         for (String systemId : deleted) systems.remove(systemId);
         playerHomes.values().removeIf(deleted::contains);
+        playerStartRegions.values().removeIf(deleted::contains);
         for (WorldSystemState state : systems.values()) state.wormholes.removeIf(gate -> deleted.contains(gate.toSystemId));
         if (activeSystemId == null || deleted.contains(activeSystemId) || !systems.containsKey(activeSystemId)) activeSystemId = fallbackActiveSystemId();
         loadActive(world);

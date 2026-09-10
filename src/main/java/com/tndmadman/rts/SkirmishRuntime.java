@@ -13,7 +13,9 @@ final class SkirmishRuntime {
 
     static void bind(World world, SkirmishSettings settings) {
         if (world == null) return;
+        ScenarioDefinition selectedScenario = ScenarioLaunch.definition();
         SkirmishSettings normalized = settings == null ? SkirmishSettings.standard() : settings;
+        normalized = ScenarioLaunch.adjustSkirmish(normalized);
         BY_WORLD.put(world, new State(normalized, normalized.resolve(NpcRules.baseFactions())));
         normalized.diplomacy().apply(world);
         if (!normalized.diplomacyState().isEmpty()) {
@@ -21,6 +23,10 @@ final class SkirmishRuntime {
         }
         DiplomacyBootstrap.refreshIntelAlliances(world);
         ObjectiveSystem.reconfigure(world, normalized);
+        if (selectedScenario != null) {
+            ScenarioDirector.start(world, selectedScenario, true);
+            ScenarioLaunch.consume();
+        }
         ACTIVE_WORLD.set(world);
     }
 

@@ -1,0 +1,67 @@
+{
+  "id": "frontier_industry",
+  "name": "Frontier Industry",
+  "description": "Build a working frontier economy, unlock advanced industry, and establish a regional foothold.",
+  "multiplayer": "COOP",
+  "galaxy": {
+    "copiesPerTemplate": 1
+  },
+  "startingState": {
+    "ships": [
+      { "owner": "PLAYER", "type": "prospector", "count": 2, "x": 780, "y": 840, "spacing": 65 }
+    ],
+    "stations": [],
+    "completedResearch": {}
+  },
+  "enabledNpcFactions": [],
+  "diplomacy": {},
+  "events": {},
+  "objectives": [
+    {
+      "id": "establish_fleet",
+      "title": "Establish the Mining Fleet",
+      "description": "Operate at least three ships.",
+      "kind": "PRIMARY",
+      "trigger": { "type": "OWN_SHIPS", "target": 3 }
+    },
+    {
+      "id": "industrial_breakthrough",
+      "title": "Industrial Breakthrough",
+      "description": "Complete Advanced Industry research.",
+      "kind": "PRIMARY",
+      "prerequisites": ["establish_fleet"],
+      "trigger": { "type": "COMPLETE_RESEARCH", "value": "advanced_industry", "target": 1 },
+      "actions": [
+        { "type": "NOTICE", "text": "Advanced hull construction is now the priority." }
+      ]
+    },
+    {
+      "id": "hauler_wing",
+      "title": "Build a Hauler Wing",
+      "description": "Operate three Haulers at the same time.",
+      "kind": "PRIMARY",
+      "prerequisites": ["industrial_breakthrough"],
+      "trigger": { "type": "OWN_SHIP_TYPE", "value": "hauler", "target": 3 }
+    },
+    {
+      "id": "laboratory_network",
+      "title": "Optional: Field Laboratory",
+      "description": "Operate at least one Laboratory station.",
+      "kind": "OPTIONAL",
+      "trigger": { "type": "OWN_STATION_TYPE", "value": "laboratory", "target": 1 }
+    },
+    {
+      "id": "regional_presence",
+      "title": "Secure the Frontier",
+      "description": "Expand beyond the starting foothold and control at least two galaxy systems.",
+      "kind": "PRIMARY",
+      "prerequisites": ["hauler_wing"],
+      "trigger": { "type": "CONTROL_SYSTEMS", "target": 2 },
+      "actions": [
+        { "type": "END_SCENARIO", "outcome": "victory" }
+      ]
+    }
+  ],
+  "completionText": "The frontier operation is self-sustaining and ready for expansion.",
+  "failureText": "The frontier operation collapsed before it became self-sustaining."
+}

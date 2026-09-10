@@ -199,7 +199,9 @@ final class IntelWarfareSystem {
         if (unit == null) return 0;
         double baseline = 260.0 + Math.max(0, unit.type().size.scale) * 70.0;
         double configured = Math.max(0, unit.type().scoutRange);
-        double raw = Math.max(baseline, configured) * SystemModifierRules.sensorRange(world);
+        double raw = Math.max(baseline, configured)
+                * SystemModifierRules.sensorRange(world)
+                * SystemControlBonuses.sensorRange(world, unit.playerId);
         return raw * sensorJammingMultiplier(world, unit.playerId, unit.x, unit.y, 0);
     }
 
@@ -211,6 +213,7 @@ final class IntelWarfareSystem {
         double counterJam = Math.max(0, Math.min(0.8, rule.counterJamStrength));
         if (isRadar(base.typeId)) raw *= radarMode(world, base).rangeMultiplier;
         return raw * SystemModifierRules.sensorRange(world)
+                * SystemControlBonuses.sensorRange(world, base.playerId)
                 * sensorJammingMultiplier(world, base.playerId, base.x, base.y, counterJam);
     }
 

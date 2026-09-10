@@ -285,6 +285,13 @@ final class SpaceBackgroundRenderer {
         for (String tag : definition.tags().stream().map(value -> value.toLowerCase(Locale.ROOT)).sorted().toList()) {
             hash = fnv(hash, tag);
         }
+        // #391 owns the authored background theme/profile. #390/#385 metadata only mixes a stable
+        // secondary seed, so config-authored identity stays primary and procedural placement stays deterministic.
+        SystemVisualDefinition metadata = VisualCatalog.system(definition.id());
+        if (!metadata.equals(SystemVisualDefinition.FALLBACK)) {
+            hash ^= metadata.seed();
+            hash *= 0x100000001b3L;
+        }
         return hash;
     }
 

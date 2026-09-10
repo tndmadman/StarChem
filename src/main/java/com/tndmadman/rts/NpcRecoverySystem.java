@@ -180,6 +180,10 @@ final class NpcRecoverySystem {
 
     static double blockedStabilizeSeconds() { return REPAIR_BLOCKED_STABILIZE_SECONDS; }
 
+    static double repairRateForTest(World world, String ownerId) {
+        return repairRate(world, ownerId);
+    }
+
     static synchronized void clear(World world) {
         if (world != null) RUNTIMES.remove(world);
     }
@@ -286,7 +290,7 @@ final class NpcRecoverySystem {
 
             hold(unit);
             double missing = Math.max(0, unit.type().maxHp - unit.hp);
-            double amount = Math.min(missing, REPAIR_HP_PER_SECOND * Math.max(0, dt));
+            double amount = Math.min(missing, repairRate(world, unit.playerId) * Math.max(0, dt));
             if (amount <= EPSILON) continue;
             List<Cost> cost = repairCost(amount);
             if (!NpcResourceBudget.spend(world, faction, NpcBudgetCategory.STATION_RECOVERY, cost)) {
@@ -298,6 +302,12 @@ final class NpcRecoverySystem {
         }
         assignRepairEscorts(world, units, retreatingShips, runtime);
         return new RepairResult(!retreatingShips.isEmpty(), blocked);
+    }
+
+    private static double repairRate(World world, String ownerId) {
+        double throughput = SystemControlBonuses.repairThroughput(world, ownerId);
+        if (!Double.isFinite(throughput) || throughput <= 0) throughput = 1.0;
+        return REPAIR_HP_PER_SECOND * throughput;
     }
 
     private static void assignRepairEscorts(World world, List<Unit> units,
@@ -429,6 +439,8 @@ final class NpcRecoverySystem {
         transferSurplusToBase(units, base);
         world.units.remove(builder.key());
         world.bases.put(base.id, base);
+        StrategicSupplyService.invalidate(world);
+        StrategicSummaryService.invalidate(world);
         world.status = faction.name() + " established an emergency " + base.type().name + ".";
         return true;
     }

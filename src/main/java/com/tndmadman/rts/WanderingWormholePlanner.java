@@ -35,7 +35,7 @@ final class WanderingWormholePlanner {
                 throw new IllegalArgumentException("wanderingWormholePairs requested " + requestedPairs
                         + ", but only " + added + " valid additional pairs are available.");
             }
-            result.add(new GalaxyLinkSpec(best.from, best.to));
+            result.add(new GalaxyLinkSpec(best.from, best.to, GalaxyLinkKind.WANDERING));
             linked.add(key(best.from, best.to));
             degree.put(best.from, degree.getOrDefault(best.from, 0) + 1);
             degree.put(best.to, degree.getOrDefault(best.to, 0) + 1);
