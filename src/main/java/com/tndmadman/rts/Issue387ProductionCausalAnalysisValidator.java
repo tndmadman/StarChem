@@ -299,7 +299,10 @@ public final class Issue387ProductionCausalAnalysisValidator {
                 world, target, materials[0], 1, recipes);
         require(hasCause(List.of(cause), ProductionCausalAnalyzer.CauseType.DEPTH_LIMIT),
                 "deep recipe chain did not terminate with a depth-limit cause");
-        require(maxDepth(List.of(cause)) <= limit + 4,
+        // Each dependency hop is represented by a MISSING_INPUTS node and its
+        // NEEDS_INTERMEDIATE child, so structural tree depth is bounded at roughly
+        // twice the dependency-hop limit rather than one node per hop.
+        require(maxDepth(List.of(cause)) <= limit * 2 + 4,
                 "deep dependency analysis exceeded its bounded tree depth");
     }
 
