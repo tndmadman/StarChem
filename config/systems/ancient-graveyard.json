@@ -6,6 +6,7 @@
   "height": 16800,
   "tags": ["relics", "rare_metals", "salvage", "high_value"],
   "modifiers": {"sensorRange": 0.88, "resourceRespawn": 0.82, "weaponRange": 1.06},
+  "strategic": {"researchThroughput": 1.25, "sensorRange": 1.12, "refitThroughput": 1.08},
   "spawnMaterials": ["GOLD", "PLATINUM", "RARE_EARTHS", "SILICATES"],
   "bodies": [
     {"id": "sun", "name": "Old Lantern", "orbit": 0, "radius": 182, "speed": 0, "color": "#D9C9A5"},

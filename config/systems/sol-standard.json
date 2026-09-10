@@ -6,6 +6,7 @@
   "height": 16000,
   "tags": ["starter", "balanced", "civilized"],
   "modifiers": {"miningYield": 1.0, "resourceRespawn": 1.0},
+  "strategic": {"miningYield": 1.12, "shieldRegen": 1.08, "productionThroughput": 1.04, "logisticsThroughput": 1.04},
   "spawnMaterials": ["IRON", "COPPER", "SILICATES", "ICE"],
   "bodies": [
     {"id": "sun", "name": "Sun", "parent": null, "orbit": 0, "radius": 210, "speed": 0, "color": "#FFCD50"},

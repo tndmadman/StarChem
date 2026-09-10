@@ -9,13 +9,17 @@ final class SystemControlPoint {
     final double x;
     final double y;
     final double radius;
+    private final String benefitLabel;
 
     SystemControlPoint(StarSystemDefinition definition) {
         int width = definition == null ? 16000 : definition.width();
         int height = definition == null ? 14000 : definition.height();
-        x = width * 0.5;
-        y = height * 0.5;
-        radius = Math.max(900, Math.min(width, height) * 0.24);
+        SystemStrategicDefinition strategic = definition == null
+                ? SystemStrategicDefinition.STANDARD : definition.strategic();
+        x = width * strategic.controlX();
+        y = height * strategic.controlY();
+        radius = Math.max(300, Math.min(width, height) * strategic.controlRadius());
+        benefitLabel = strategic.standardBenefits() ? "" : strategic.summary();
     }
 
     boolean contains(double px, double py) {
@@ -34,6 +38,7 @@ final class SystemControlPoint {
         g.fill(new Ellipse2D.Double(x - beacon / 2, y - beacon / 2, beacon, beacon));
         g.setColor(new Color(230, 244, 255, 190));
         g.drawString("SYSTEM CONTROL", (int)x - 48, (int)y - 60);
+        if (!benefitLabel.isBlank()) g.drawString(benefitLabel, (int)x - 110, (int)y - 42);
         g.dispose();
     }
 }

@@ -358,6 +358,13 @@ final class NpcStrategicDirector {
         // obtains a deployer/roster and while the expedition is in flight.
         if (activeExpedition) return NpcStrategicState.EXPAND;
 
+        // Supply state is owner-scoped and derived from the same controlled-territory graph shown
+        // to players. Do not launch fresh raids or expansion while any owned system is cut off or
+        // only locally sustained; stabilize the territorial network first.
+        boolean degradedTerritory = StrategicSupplyService.states(world, faction.id()).values().stream()
+                .anyMatch(state -> state != StrategicSupplyState.SUPPLIED);
+        if (degradedTerritory) return NpcStrategicState.FORTIFY;
+
         int workerFloor = faction.maxWorkers() <= 0 ? 0
                 : Math.max(1, (int)Math.ceil(faction.maxWorkers() * 0.67));
         if (snapshot.workers() < workerFloor) return NpcStrategicState.STABILIZE_ECONOMY;
