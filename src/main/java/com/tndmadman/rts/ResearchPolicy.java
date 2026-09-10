@@ -68,7 +68,6 @@ final class ResearchPolicy {
 
     static boolean unlocked(World world, String playerId, ResearchUnlockKind kind, String targetId) {
         if (kind == null || targetId == null || targetId.isBlank()) return false;
-        if (world != null && world.devFreeBuildFor(playerId)) return true;
 
         List<ResearchTopic> granting = ResearchRules.topicsUnlocking(kind, targetId);
         if (granting.isEmpty() && kind == ResearchUnlockKind.STATION_PACKAGE) {
