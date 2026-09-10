@@ -9,6 +9,7 @@ final class SystemSimulationScheduler {
     private static final double COLD_STEP_SECONDS = 0.75;
     private static final double DORMANT_STEP_SECONDS = 5.0;
     private static final String SCENARIO_SAVE_KEY = "$scenario";
+    private static final String FLEET_SAVE_KEY = "$fleets";
     private static final Map<World, Map<String, Double>> ACCUMULATED = new WeakHashMap<>();
 
     private SystemSimulationScheduler() { }
@@ -69,6 +70,8 @@ final class SystemSimulationScheduler {
         if (ScenarioDirector.active(world)) ScenarioDirector.evaluateAuthoritative(world);
         Map<String,Object> scenario = ScenarioDirector.capture(world);
         if (!scenario.isEmpty()) out.put(SCENARIO_SAVE_KEY, scenario);
+        Map<String,Object> fleets = FleetManager.capture(world);
+        if (!fleets.isEmpty()) out.put(FLEET_SAVE_KEY, fleets);
         return out;
     }
 
@@ -79,7 +82,8 @@ final class SystemSimulationScheduler {
         for (Map.Entry<String,Object> entry : saved.entrySet()) {
             if (GalaxyEventDirector.saveKey().equals(entry.getKey())
                     || GalaxyEventExtensions.saveKey().equals(entry.getKey())
-                    || SCENARIO_SAVE_KEY.equals(entry.getKey())) continue;
+                    || SCENARIO_SAVE_KEY.equals(entry.getKey())
+                    || FLEET_SAVE_KEY.equals(entry.getKey())) continue;
             double value = ServerSaveStore.asDouble(entry.getValue(), 0);
             if (entry.getKey() != null && !entry.getKey().isBlank() && value > 0) {
                 bySystem.put(entry.getKey(), value);
@@ -90,6 +94,7 @@ final class SystemSimulationScheduler {
         GalaxyEventDirector.restore(world, saved.get(GalaxyEventDirector.saveKey()));
         GalaxyEventExtensions.restore(world, saved.get(GalaxyEventExtensions.saveKey()));
         ScenarioDirector.restore(world, saved.get(SCENARIO_SAVE_KEY));
+        FleetManager.restore(world, saved.get(FLEET_SAVE_KEY));
     }
 
     static SimulationTier tier(World world) {
