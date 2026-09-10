@@ -121,7 +121,15 @@ public final class Issue387ProductionCausalAnalysisValidator {
         world.activateSystem(remoteSystemId);
         Base remote = base(world, playerId + ":GATE_SOURCE", playerId, "shipyard", 330, 330);
         remote.inventory.put(first.material(), first.amount() * 2);
-        world.wormholes.clear();
+        // Remove the departure gate from the authoritative source-system state, not only
+        // the transient active-world list. The reciprocal destination gate remains, so
+        // the logical topology is still reachable while dispatch from the source fails.
+        for (WorldSystemState state : world.policySystemStates()) {
+            if (state != null && remoteSystemId.equals(state.id)) {
+                state.wormholes.clear();
+                break;
+            }
+        }
         world.activateSystem(targetSystemId);
 
         ProductionCausalAnalyzer.Analysis analysis = ProductionDiagnosticService.analyze(world, target, job);
