@@ -40,10 +40,10 @@ public final class IntelWarfareValidator {
                 "Outpost does not expose counterintel packages.");
         require(!StationPackageResearchRules.unlocked(world, "P1", "signal_jammer"),
                 "Signal Jammer unlocked before research.");
-        world.completeResearch("P1", "advanced_industry");
+        world.completeResearch("P1", "electronic_warfare");
         require(StationPackageResearchRules.unlocked(world, "P1", "signal_jammer")
                         && StationPackageResearchRules.unlocked(world, "P1", "radar_decoy"),
-                "Advanced Industry did not unlock counterintel packages.");
+                "Electronic Warfare did not unlock counterintel packages.");
     }
 
     private static void validateModesSignaturesAndJamming(World world) {
