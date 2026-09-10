@@ -13,6 +13,8 @@ final class UnitRenderer {
     private static final Stroke WORK_STROKE =
             new BasicStroke(3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
     private static final Color FAR_SHADOW = new Color(0, 0, 0, 165);
+    private static final double PANEL_DETAIL_MIN_SCALE = 1.35;
+    private static final double PANEL_DETAIL_MIN_PROJECTED_RADIUS = 80.0;
     private static boolean miningRangeOverlayVisible;
 
     private UnitRenderer() { }
@@ -29,6 +31,7 @@ final class UnitRenderer {
         SelectionRenderPolicy.Frame frame = SelectionRenderPolicy.currentFrame();
         double scale = frame == null ? SelectionRenderPolicy.scale(g2) : frame.scale();
         ShipType shipType = unit.type();
+        ShipVisualDefinition shipVisual = ShipVisualCatalog.forType(shipType);
 
         // Selection deliberately does not change the ship renderer. Hundreds of selected
         // ships therefore cost essentially the same to paint as hundreds of unselected ships.
@@ -36,8 +39,8 @@ final class UnitRenderer {
             frame.noteSelectedDraw(false);
         }
 
-        double visualRadius = Math.max(96,
-                ShipVisualCatalog.forType(shipType).renderRadius(shipType.size.scale));
+        double authoredRadius = shipVisual.renderRadius(shipType.size.scale);
+        double visualRadius = Math.max(96, authoredRadius);
         if (RenderCulling.visible(g2, unit.x, unit.y, visualRadius)) {
             // Propulsion is deliberately rendered before the hull so exhaust stays behind the ship.
             CombatVfxSystem.drawPropulsion(g2, unit, scale);
@@ -46,7 +49,9 @@ final class UnitRenderer {
             } else if (scale < 0.78) {
                 drawCachedHull(g2, unit, playerColor);
             } else {
-                drawDetailedHull(g2, unit, playerColor);
+                boolean panelDetail = scale >= PANEL_DETAIL_MIN_SCALE
+                        && authoredRadius * scale >= PANEL_DETAIL_MIN_PROJECTED_RADIUS;
+                drawDetailedHull(g2, unit, playerColor, panelDetail);
             }
             DamageStateEffects.drawUnit(g2, unit, scale);
         }
@@ -67,20 +72,22 @@ final class UnitRenderer {
         }
     }
 
-    private static void drawDetailedHull(Graphics2D g2, Unit unit, Color playerColor) {
+    private static void drawDetailedHull(Graphics2D g2, Unit unit, Color playerColor, boolean panelDetail) {
         Graphics2D s = (Graphics2D)g2.create();
         s.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         s.translate(unit.x, unit.y);
         s.rotate(unit.heading);
         ShipShape.draw(s, unit.type(), playerColor, ShipVisualStyle.variantIndex(unit));
-        ShipSurfaceArt.draw(s, unit.type());
+        // Repository-backed micro-paneling is secondary close-detail only. Authored geometry,
+        // material language and ownership accents remain visible at every detailed LOD.
+        if (panelDetail) ShipSurfaceArt.draw(s, unit.type());
         s.dispose();
     }
 
     private static void drawCachedHull(Graphics2D g2, Unit unit, Color playerColor) {
         ShipSpriteCache.Sprite sprite = ShipSpriteCache.sprite(unit, playerColor);
         if (sprite == null) {
-            drawDetailedHull(g2, unit, playerColor);
+            drawDetailedHull(g2, unit, playerColor, false);
             return;
         }
         int size = sprite.worldSize();
