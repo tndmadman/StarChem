@@ -42,6 +42,9 @@ jobs:
       - name: Validate persistent fleets
         run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue380PersistentFleetValidator
 
+      - name: Validate persistent fleet and research UI acceptance
+        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue380382UiAcceptanceValidator
+
       - name: Validate system control
         run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.SystemControlValidator
 
