@@ -58,12 +58,16 @@ jobs:
         run: |
           if [[ -f base/gradle/render-performance.gradle \
                 && -f base/src/main/java/com/tndmadman/rts/RenderPerformanceValidator.java ]]; then
-            (
+            if (
               cd base
               gradle -I gradle/render-performance.gradle validateRenderPerformance \
                 --no-daemon --stacktrace
-            )
-            echo 'available=true' >> "$GITHUB_OUTPUT"
+            ); then
+              echo 'available=true' >> "$GITHUB_OUTPUT"
+            else
+              echo 'available=false' >> "$GITHUB_OUTPUT"
+              echo '::warning::Base branch render baseline could not be built; running absolute head budgets without relative comparison.'
+            fi
           else
             echo 'available=false' >> "$GITHUB_OUTPUT"
             echo 'Base branch does not yet contain the render validator; skipping relative comparison for this bootstrap PR.'

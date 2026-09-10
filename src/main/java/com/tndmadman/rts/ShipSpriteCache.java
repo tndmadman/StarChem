@@ -113,6 +113,9 @@ final class ShipSpriteCache {
         g.rotate(bucket * Math.PI * 2.0 / BUCKETS);
         double rasterScale = rasterScale(unit.type());
         g.scale(rasterScale, rasterScale);
+        // Medium LOD preserves authored silhouette, material palette, ownership accent and bounded
+        // deterministic variation from ShipShape. Micro-panel texture is close-LOD-only because it
+        // is not readable at this scale and needlessly increases cached-sprite compositing cost.
         ShipShape.draw(g, unit.type(), color, variant);
         g.dispose();
         int worldSize = Math.max(IMAGE_SIZE, (int)Math.ceil(IMAGE_SIZE / rasterScale));

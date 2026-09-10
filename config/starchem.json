@@ -38,6 +38,7 @@
       "config/systems/carbon-basin.json",
       "config/systems/ancient-graveyard.json"
     ],
+    "visuals": "config/visuals.json",
     "galaxy": "config/galaxy.json",
     "automation": "config/automation.json",
     "craftables": [

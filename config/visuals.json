@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "ships": [
+    {"id": "prospector", "family": "MINER", "seed": 1501, "detailCount": 3},
+    {"id": "station_builder", "family": "BUILDER", "seed": 2451, "detailCount": 2},
+    {"id": "sensor_contact_small", "family": "COMBAT", "seed": 91001, "detailCount": 1},
+    {"id": "sensor_contact_medium", "family": "COMBAT", "seed": 91002, "detailCount": 2},
+    {"id": "sensor_contact_large", "family": "COMBAT", "seed": 91003, "detailCount": 3},
+    {"id": "hauler", "family": "CARGO", "seed": 3319, "detailCount": 3},
+    {"id": "deep_miner", "family": "MINER", "seed": 6173, "detailCount": 4},
+    {"id": "gas_harvester", "family": "GAS", "seed": 7281, "detailCount": 3},
+    {"id": "freighter", "family": "CARGO", "seed": 8431, "detailCount": 5},
+    {"id": "salvager", "family": "CARGO", "seed": 5227, "detailCount": 4},
+    {"id": "fuel_hauler_shuttle", "family": "CARGO", "seed": 5128, "detailCount": 2},
+    {"id": "logistics_shuttle", "family": "CARGO", "seed": 9137, "detailCount": 2},
+    {"id": "frigate", "family": "COMBAT", "seed": 11001, "detailCount": 1},
+    {"id": "destroyer", "family": "COMBAT", "seed": 12002, "detailCount": 2},
+    {"id": "cruiser", "family": "COMBAT", "seed": 13003, "detailCount": 3},
+    {"id": "battle_cruiser", "family": "COMBAT", "seed": 14004, "detailCount": 4},
+    {"id": "battleship", "family": "COMBAT", "seed": 15005, "detailCount": 5},
+    {"id": "carrier", "family": "CARRIER", "seed": 21001, "detailCount": 3},
+    {"id": "dreadnought", "family": "SIEGE", "seed": 22002, "detailCount": 5},
+    {"id": "supercarrier", "family": "CARRIER", "seed": 23003, "detailCount": 5},
+    {"id": "titan", "family": "SIEGE", "seed": 24004, "detailCount": 6},
+    {"id": "monolith", "family": "MONOLITH", "seed": 31001, "detailCount": 6}
+  ],
+  "stations": [
+    {
+      "id": "outpost",
+      "style": "outpost",
+      "hullSides": 6,
+      "hullColor": "#141D2A",
+      "coreColor": "#7DCDFF",
+      "coreScale": 1.0
+    }
+  ],
+  "systems": [
+    {
+      "id": "sol_standard",
+      "orbitColor": "#789BBE",
+      "orbitAlpha": 42,
+      "seed": 10101
+    }
+  ],
+  "celestials": [
+    {"systemId": "sol_standard", "bodyId": "sun", "style": "star", "color": "#FFCD50", "glowScale": 2.2, "seed": 10111},
+    {"systemId": "sol_standard", "bodyId": "inner", "style": "rocky", "color": "#5091D2", "glowScale": 2.2, "seed": 10112},
+    {"systemId": "sol_standard", "bodyId": "rock", "style": "rocky", "color": "#A0734B", "glowScale": 2.2, "seed": 10113},
+    {"systemId": "sol_standard", "bodyId": "giant", "style": "gas_giant", "color": "#CD965F", "glowScale": 2.2, "seed": 10114},
+    {"systemId": "sol_standard", "bodyId": "ice", "style": "ice", "color": "#96CDE6", "glowScale": 2.2, "seed": 10115},
+    {"systemId": "sol_standard", "bodyId": "inner_moon", "style": "moon", "color": "#B4B9BE", "glowScale": 2.2, "seed": 10116},
+    {"systemId": "sol_standard", "bodyId": "giant_moon_a", "style": "moon", "color": "#BEAF91", "glowScale": 2.2, "seed": 10117},
+    {"systemId": "sol_standard", "bodyId": "giant_moon_b", "style": "moon", "color": "#91A5BE", "glowScale": 2.2, "seed": 10118}
+  ]
+}
