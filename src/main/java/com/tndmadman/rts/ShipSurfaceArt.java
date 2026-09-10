@@ -1,9 +1,8 @@
 package com.tndmadman.rts;
 
 import java.awt.AlphaComposite;
-import java.awt.Composite;
 import java.awt.Graphics2D;
-import java.awt.Paint;
+import java.awt.RenderingHints;
 import java.awt.Shape;
 import java.awt.TexturePaint;
 import java.awt.geom.Rectangle2D;
@@ -15,6 +14,7 @@ import java.util.Map;
 final class ShipSurfaceArt {
     private static final BufferedImage HULL_PANELS = ArtAssetCache.image("materials/hull-panels-01.png");
     private static final int MAX_HULLS = 128;
+    private static final int MAX_SURFACE_DIMENSION = 512;
     private static final Map<String, Surface> SURFACES = new LinkedHashMap<>(32, 0.75f, true) {
         @Override protected boolean removeEldestEntry(Map.Entry<String, Surface> eldest) {
             return size() > MAX_HULLS;
@@ -27,22 +27,7 @@ final class ShipSurfaceArt {
         if (g2 == null || type == null || ArtAssetCache.isFallback(HULL_PANELS)) return;
         Surface surface = surface(type);
         if (surface == null) return;
-
-        // This path is close-LOD only. Precompute hull/paint/composite once per authored hull and
-        // restore the caller state in-place instead of allocating a child Graphics2D per ship.
-        Shape oldClip = g2.getClip();
-        Composite oldComposite = g2.getComposite();
-        Paint oldPaint = g2.getPaint();
-        try {
-            g2.clip(surface.hull());
-            g2.setComposite(surface.composite());
-            g2.setPaint(surface.paint());
-            g2.fill(surface.hull());
-        } finally {
-            g2.setPaint(oldPaint);
-            g2.setComposite(oldComposite);
-            g2.setClip(oldClip);
-        }
+        g2.drawImage(surface.image(), surface.x(), surface.y(), null);
     }
 
     private static Surface surface(ShipType type) {
@@ -68,10 +53,31 @@ final class ShipSurfaceArt {
         double anchorX = Math.floor(bounds.getX() / tile) * tile + offsetX;
         double anchorY = Math.floor(bounds.getY() / tile) * tile + offsetY;
         float opacity = (float)Math.max(0.52, Math.min(0.76, 0.54 + detail * 0.035));
-        TexturePaint paint = new TexturePaint(HULL_PANELS,
-                new Rectangle2D.Double(anchorX, anchorY, tile, tile));
-        return new Surface(hull, paint, AlphaComposite.SrcOver.derive(opacity));
+
+        int x = (int)Math.floor(bounds.getX()) - 2;
+        int y = (int)Math.floor(bounds.getY()) - 2;
+        int width = (int)Math.ceil(bounds.getMaxX()) - x + 2;
+        int height = (int)Math.ceil(bounds.getMaxY()) - y + 2;
+        // Keep the secondary-art cache bounded even if malformed/future hull geometry becomes huge.
+        if (width <= 0 || height <= 0 || width > MAX_SURFACE_DIMENSION || height > MAX_SURFACE_DIMENSION) {
+            return null;
+        }
+
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB_PRE);
+        Graphics2D art = image.createGraphics();
+        try {
+            art.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            art.translate(-x, -y);
+            art.clip(hull);
+            art.setComposite(AlphaComposite.SrcOver.derive(opacity));
+            art.setPaint(new TexturePaint(HULL_PANELS,
+                    new Rectangle2D.Double(anchorX, anchorY, tile, tile)));
+            art.fill(hull);
+        } finally {
+            art.dispose();
+        }
+        return new Surface(image, x, y);
     }
 
-    private record Surface(Shape hull, TexturePaint paint, AlphaComposite composite) { }
+    private record Surface(BufferedImage image, int x, int y) { }
 }
