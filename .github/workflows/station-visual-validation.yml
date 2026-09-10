@@ -58,13 +58,6 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Isolate frozen baseline network validator mismatch
-        shell: bash
-        run: |
-          set -euo pipefail
-          # This graphics-only workflow must not import or rewrite the unrelated security fix.
-          mv src/main/java/com/tndmadman/rts/TcpConnectionIdentityValidator.java /tmp/TcpConnectionIdentityValidator.java
-
       - name: Compile project
         run: gradle classes --no-daemon
 
