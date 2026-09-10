@@ -230,9 +230,20 @@ final class EmpireOverviewOverlay {
             });
             filters.add(inventoryThreshold);
             controls.add(filters, BorderLayout.CENTER);
+
+            JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+            JButton fleetCommand = new JButton("Persistent Fleets");
+            fleetCommand.setToolTipText("Open persistent fleet composition, formation, policy and strategic-order controls");
+            fleetCommand.addActionListener(event -> StrategicCommandCenter.showFleetCommand(worldRef.get(), networkRef.get()));
+            actions.add(fleetCommand);
+            JButton researchTree = new JButton("Research Tree");
+            researchTree.setToolTipText("Open the branching research/doctrine dependency tree and queue research");
+            researchTree.addActionListener(event -> StrategicCommandCenter.showResearchTree(worldRef.get(), networkRef.get()));
+            actions.add(researchTree);
             JButton close = new JButton("Close");
             close.addActionListener(event -> { savePreferences(); dialog.setVisible(false); });
-            controls.add(close, BorderLayout.EAST);
+            actions.add(close);
+            controls.add(actions, BorderLayout.EAST);
             root.add(controls, BorderLayout.SOUTH);
 
             dialog.setContentPane(root);
