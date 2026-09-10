@@ -48,6 +48,16 @@ run_java com.tndmadman.rts.NarrationProcessValidator
 run_java com.tndmadman.rts.Issue395RespawnAuthorityValidator
 run_java com.tndmadman.rts.Issue405DestructionEffectsValidator
 
+# Feature integration gate. Keep every feature stream represented here so the
+# 30 > 3 > 1 integration step cannot silently drop a branch-specific validator.
+python3 scripts/validate_research.py
+run_java com.tndmadman.rts.Issue380PersistentFleetValidator
+run_java com.tndmadman.rts.SystemControlValidator
+run_java com.tndmadman.rts.Issue383GalaxyGenerationValidator
+run_java com.tndmadman.rts.ScenarioFrameworkValidator
+run_java com.tndmadman.rts.Issue386FormationValidator
+run_java com.tndmadman.rts.Issue387ProductionCausalAnalysisValidator
+
 # Release compatibility gate: generate a real format-2 save with the published v1.7.0 code,
 # load/migrate it with the current code, exercise authentication, resave, and reload it.
 bash validation/run-v170-upgrade.sh "$CP"
