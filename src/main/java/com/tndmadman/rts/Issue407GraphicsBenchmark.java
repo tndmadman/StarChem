@@ -1,9 +1,7 @@
 package com.tndmadman.rts;
 
-import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
-import java.awt.Polygon;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
@@ -11,12 +9,22 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 
-/** Headless acceptance/relative benchmark for the fully integrated #407 Nebula Expanse slice. */
+/**
+ * Headless production-render acceptance benchmark for #407.
+ *
+ * The benchmark intentionally exercises SpaceBackgroundRenderer itself for every
+ * authored system and the integrated Nebula Expanse world stack. It does not use
+ * a synthetic or legacy stand-in renderer for acceptance measurements.
+ */
 final class Issue407GraphicsBenchmark {
     private static final int WIDTH = 1280;
     private static final int HEIGHT = 720;
-    private static final int WARMUP = 12;
-    private static final int SAMPLES = 40;
+    private static final int BACKGROUND_WARMUP = 5;
+    private static final int BACKGROUND_SAMPLES = 15;
+    private static final int SLICE_WARMUP = 8;
+    private static final int SLICE_SAMPLES = 24;
+    private static final double BACKGROUND_P95_LIMIT_MS = 250.0;
+    private static final double SLICE_P95_LIMIT_MS = 500.0;
     private static final double[] GAMEPLAY_ZOOMS = {0.36, 0.52, 0.712};
     private static final String[] SHIPS = {"prospector", "frigate", "cruiser", "battleship", "titan"};
     private static final String[] STATIONS = {"outpost", "shipyard", "manufacturing"};
@@ -25,6 +33,41 @@ final class Issue407GraphicsBenchmark {
 
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
+        List<StarSystemDefinition> systems = StarSystems.options();
+        require(!systems.isEmpty(), "No predefined systems are available");
+        benchmarkAllProductionBackgrounds(systems);
+        benchmarkNebulaVerticalSlice();
+    }
+
+    private static void benchmarkAllProductionBackgrounds(List<StarSystemDefinition> systems) {
+        for (StarSystemDefinition definition : systems) {
+            BackgroundBench bench = new BackgroundBench(definition);
+            long seed = bench.seed();
+            long repeatSeed = new SpaceBackgroundRenderer(definition).seedForTest();
+            require(seed == repeatSeed, "Background seed is not deterministic for " + definition.id());
+
+            for (int i = 0; i < BACKGROUND_WARMUP; i++) {
+                bench.render(GAMEPLAY_ZOOMS[i % GAMEPLAY_ZOOMS.length]);
+            }
+            long[] samples = new long[BACKGROUND_SAMPLES];
+            for (int i = 0; i < samples.length; i++) {
+                double zoom = GAMEPLAY_ZOOMS[i % GAMEPLAY_ZOOMS.length];
+                samples[i] = timed(() -> bench.render(zoom));
+            }
+            Metrics metrics = Metrics.of(samples);
+            System.out.printf(
+                    "ISSUE407_BACKGROUND system=%s seed=%d dimensions=%dx%d warmup=%d samples=%d p50_ms=%.3f p95_ms=%.3f threshold_p95_ms=%.3f%n",
+                    definition.id(), seed, WIDTH, HEIGHT, BACKGROUND_WARMUP, BACKGROUND_SAMPLES,
+                    metrics.p50Ms(), metrics.p95Ms(), BACKGROUND_P95_LIMIT_MS);
+            require(metrics.p95Ms() <= BACKGROUND_P95_LIMIT_MS,
+                    "Production background p95 exceeded threshold for " + definition.id()
+                            + ": seed=" + seed + " dimensions=" + WIDTH + "x" + HEIGHT
+                            + " p50=" + format(metrics.p50Ms()) + "ms p95=" + format(metrics.p95Ms())
+                            + "ms threshold=" + format(BACKGROUND_P95_LIMIT_MS) + "ms");
+        }
+    }
+
+    private static void benchmarkNebulaVerticalSlice() {
         StarSystemDefinition definition = StarSystems.get("nebula_expanse");
         require(definition != null && "nebula_expanse".equals(definition.id()), "Nebula Expanse is unavailable");
         for (String id : SHIPS) require(ShipVisualCatalog.forType(Rules.ship(id)) != null, "Missing ship visual: " + id);
@@ -33,40 +76,65 @@ final class Issue407GraphicsBenchmark {
         PlayerRegistry.reset("SOLO", "Nebula Expanse Benchmark", 0x55B9F5);
         Scene scene = new Scene(definition);
         require("NEBULA".equals(scene.backgroundTheme()), "Nebula Expanse did not use the production nebula background theme");
-        for (int i = 0; i < WARMUP; i++) {
-            double zoom = GAMEPLAY_ZOOMS[i % GAMEPLAY_ZOOMS.length];
-            scene.renderLegacy(zoom);
-            scene.renderCurrent(zoom);
-        }
+        require(scene.seed() == new SpaceBackgroundRenderer(definition).seedForTest(), "Nebula background seed is not deterministic");
 
-        long[] legacy = new long[SAMPLES];
-        long[] current = new long[SAMPLES];
-        for (int i = 0; i < SAMPLES; i++) {
+        for (int i = 0; i < SLICE_WARMUP; i++) {
+            scene.render(GAMEPLAY_ZOOMS[i % GAMEPLAY_ZOOMS.length]);
+        }
+        long[] samples = new long[SLICE_SAMPLES];
+        for (int i = 0; i < samples.length; i++) {
             double zoom = GAMEPLAY_ZOOMS[i % GAMEPLAY_ZOOMS.length];
-            if ((i & 1) == 0) {
-                legacy[i] = timed(() -> scene.renderLegacy(zoom));
-                current[i] = timed(() -> scene.renderCurrent(zoom));
-            } else {
-                current[i] = timed(() -> scene.renderCurrent(zoom));
-                legacy[i] = timed(() -> scene.renderLegacy(zoom));
-            }
+            samples[i] = timed(() -> scene.render(zoom));
         }
 
         long visible = scene.currentVisiblePixels();
         require(visible > WIDTH * HEIGHT / 20L, "Integrated Nebula slice rendered too little visual content");
         require(scene.zoomHashesAreDistinct(), "Nebula production stack did not respond across gameplay zoom levels");
-        Metrics before = Metrics.of(legacy);
-        Metrics after = Metrics.of(current);
-        double ratio = before.meanMs <= 0 ? 0 : after.meanMs / before.meanMs;
-        System.out.printf("ISSUE407_GRAPHICS legacy_mean_ms=%.3f legacy_p95_ms=%.3f current_mean_ms=%.3f current_p95_ms=%.3f ratio=%.3f visible_pixels=%d samples=%d zooms=%s background=%s%n",
-                before.meanMs, before.p95Ms, after.meanMs, after.p95Ms, ratio, visible, SAMPLES,
+        Metrics metrics = Metrics.of(samples);
+        System.out.printf(
+                "ISSUE407_NEBULA system=%s seed=%d dimensions=%dx%d warmup=%d samples=%d p50_ms=%.3f p95_ms=%.3f threshold_p95_ms=%.3f visible_pixels=%d zooms=%s background=%s%n",
+                definition.id(), scene.seed(), WIDTH, HEIGHT, SLICE_WARMUP, SLICE_SAMPLES,
+                metrics.p50Ms(), metrics.p95Ms(), SLICE_P95_LIMIT_MS, visible,
                 Arrays.toString(GAMEPLAY_ZOOMS), scene.backgroundTheme());
+        require(metrics.p95Ms() <= SLICE_P95_LIMIT_MS,
+                "Integrated Nebula Expanse p95 exceeded threshold: seed=" + scene.seed()
+                        + " dimensions=" + WIDTH + "x" + HEIGHT
+                        + " p50=" + format(metrics.p50Ms()) + "ms p95=" + format(metrics.p95Ms())
+                        + "ms threshold=" + format(SLICE_P95_LIMIT_MS) + "ms");
     }
 
     private static long timed(Runnable runnable) {
         long start = System.nanoTime();
         runnable.run();
         return System.nanoTime() - start;
+    }
+
+    private static final class BackgroundBench {
+        private final BufferedImage image = new BufferedImage(WIDTH, HEIGHT, BufferedImage.TYPE_INT_ARGB);
+        private final StarSystemDefinition definition;
+        private final SpaceBackgroundRenderer renderer;
+        private final double centerX;
+        private final double centerY;
+
+        BackgroundBench(StarSystemDefinition definition) {
+            this.definition = definition;
+            renderer = new SpaceBackgroundRenderer(definition);
+            centerX = definition.width() * 0.5;
+            centerY = definition.height() * 0.5;
+        }
+
+        long seed() { return renderer.seedForTest(); }
+
+        void render(double zoom) {
+            Graphics2D g = image.createGraphics();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setColor(new Color(5, 8, 14));
+            g.fillRect(0, 0, WIDTH, HEIGHT);
+            Graphics2D world = worldFrame(g, centerX, centerY, zoom);
+            renderer.draw(world);
+            world.dispose();
+            g.dispose();
+        }
     }
 
     private static final class Scene {
@@ -82,10 +150,10 @@ final class Issue407GraphicsBenchmark {
 
         Scene(StarSystemDefinition definition) {
             this.definition = definition;
-            this.background = new SpaceBackgroundRenderer(definition);
-            this.celestial = new CelestialSystem(definition, new Random(407));
-            this.centerX = definition.width() * 0.5;
-            this.centerY = definition.height() * 0.5;
+            background = new SpaceBackgroundRenderer(definition);
+            celestial = new CelestialSystem(definition, new Random(407));
+            centerX = definition.width() * 0.5;
+            centerY = definition.height() * 0.5;
 
             ArrayList<Unit> units = new ArrayList<>(SHIPS.length);
             for (int i = 0; i < SHIPS.length; i++) {
@@ -117,52 +185,16 @@ final class Issue407GraphicsBenchmark {
         }
 
         String backgroundTheme() { return background.themeNameForTest(); }
+        long seed() { return background.seedForTest(); }
 
-        void renderCurrent(double zoom) {
+        void render(double zoom) {
             Graphics2D g = beginFrame();
-            Graphics2D world = worldFrame(g, zoom);
-
-            // This is deliberately the normal production order: system-specific background first,
-            // followed by celestial/resource/ship/station world content under the same camera transform.
+            Graphics2D world = worldFrame(g, centerX, centerY, zoom);
             background.draw(world);
             celestial.draw(world);
             for (ResourceNode node : gas) node.draw(world, false);
             for (Unit unit : ships) UnitRenderer.draw(world, unit, Color.CYAN, true);
             for (Base base : stations) base.draw(world, Color.CYAN, base.inventory, true);
-
-            world.dispose();
-            g.dispose();
-        }
-
-        void renderLegacy(double zoom) {
-            Graphics2D g = beginFrame();
-            Graphics2D world = worldFrame(g, zoom);
-            double visibleW = WIDTH / zoom;
-            double visibleH = HEIGHT / zoom;
-            int left = (int)Math.floor(centerX - visibleW * 0.5);
-            int top = (int)Math.floor(centerY - visibleH * 0.5);
-            int right = (int)Math.ceil(centerX + visibleW * 0.5);
-            int bottom = (int)Math.ceil(centerY + visibleH * 0.5);
-            world.setColor(new Color(38, 52, 68, 90));
-            world.setStroke(new BasicStroke((float)Math.max(1.0, 1.0 / zoom)));
-            for (int x = left - Math.floorMod(left, 160); x <= right; x += 160) world.drawLine(x, top, x, bottom);
-            for (int y = top - Math.floorMod(top, 160); y <= bottom; y += 160) world.drawLine(left, y, right, y);
-            for (Unit unit : ships) {
-                int cx = (int)Math.round(unit.x), cy = (int)Math.round(unit.y), r = 20;
-                Polygon p = new Polygon(new int[]{cx-r, cx+r, cx-r/2}, new int[]{cy, cy-r, cy+r}, 3);
-                world.setColor(new Color(45, 90, 120)); world.fillPolygon(p);
-                world.setColor(new Color(85, 185, 245)); world.drawPolygon(p);
-            }
-            for (Base base : stations) {
-                int cx = (int)Math.round(base.x), cy = (int)Math.round(base.y), r = 60;
-                Polygon p = new Polygon();
-                for (int n = 0; n < 6; n++) {
-                    double a = Math.PI / 6 + n * Math.PI * 2 / 6.0;
-                    p.addPoint((int)Math.round(cx + Math.cos(a) * r), (int)Math.round(cy + Math.sin(a) * r));
-                }
-                world.setColor(new Color(20, 29, 42)); world.fillPolygon(p);
-                world.setColor(new Color(85, 185, 245)); world.drawPolygon(p);
-            }
             world.dispose();
             g.dispose();
         }
@@ -170,7 +202,7 @@ final class Issue407GraphicsBenchmark {
         boolean zoomHashesAreDistinct() {
             long first = Long.MIN_VALUE;
             for (double zoom : GAMEPLAY_ZOOMS) {
-                renderCurrent(zoom);
+                render(zoom);
                 long hash = imageHash(image);
                 if (first == Long.MIN_VALUE) first = hash;
                 else if (hash == first) return false;
@@ -179,19 +211,15 @@ final class Issue407GraphicsBenchmark {
         }
 
         long currentVisiblePixels() {
-            renderCurrent(GAMEPLAY_ZOOMS[1]);
+            render(GAMEPLAY_ZOOMS[1]);
             int backgroundRgb = new Color(5, 8, 14).getRGB();
             long count = 0;
-            for (int y = 0; y < HEIGHT; y += 2) for (int x = 0; x < WIDTH; x += 2)
-                if (image.getRGB(x, y) != backgroundRgb) count += 4;
+            for (int y = 0; y < HEIGHT; y += 2) {
+                for (int x = 0; x < WIDTH; x += 2) {
+                    if (image.getRGB(x, y) != backgroundRgb) count += 4;
+                }
+            }
             return count;
-        }
-
-        private Graphics2D worldFrame(Graphics2D source, double zoom) {
-            Graphics2D world = (Graphics2D)source.create();
-            world.scale(zoom, zoom);
-            world.translate(-centerX + WIDTH / (2.0 * zoom), -centerY + HEIGHT / (2.0 * zoom));
-            return world;
         }
 
         private Graphics2D beginFrame() {
@@ -201,6 +229,13 @@ final class Issue407GraphicsBenchmark {
             g.fillRect(0, 0, WIDTH, HEIGHT);
             return g;
         }
+    }
+
+    private static Graphics2D worldFrame(Graphics2D source, double centerX, double centerY, double zoom) {
+        Graphics2D world = (Graphics2D)source.create();
+        world.scale(zoom, zoom);
+        world.translate(-centerX + WIDTH / (2.0 * zoom), -centerY + HEIGHT / (2.0 * zoom));
+        return world;
     }
 
     private static long imageHash(BufferedImage image) {
@@ -214,13 +249,23 @@ final class Issue407GraphicsBenchmark {
         return hash;
     }
 
-    private record Metrics(double meanMs, double p95Ms) {
+    private record Metrics(double p50Ms, double p95Ms) {
         static Metrics of(long[] values) {
-            long[] sorted = values.clone(); Arrays.sort(sorted);
-            double mean = Arrays.stream(sorted).average().orElse(0) / 1_000_000.0;
-            int p95 = Math.min(sorted.length - 1, Math.max(0, (int)Math.ceil(sorted.length * 0.95) - 1));
-            return new Metrics(mean, sorted[p95] / 1_000_000.0);
+            require(values != null && values.length > 0, "Benchmark produced no measured samples");
+            long[] sorted = values.clone();
+            Arrays.sort(sorted);
+            return new Metrics(percentile(sorted, 0.50) / 1_000_000.0,
+                    percentile(sorted, 0.95) / 1_000_000.0);
         }
+
+        private static long percentile(long[] sorted, double p) {
+            int index = Math.min(sorted.length - 1, Math.max(0, (int)Math.ceil(sorted.length * p) - 1));
+            return sorted[index];
+        }
+    }
+
+    private static String format(double value) {
+        return String.format(java.util.Locale.ROOT, "%.3f", value);
     }
 
     private static void require(boolean condition, String message) {
