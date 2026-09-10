@@ -1089,11 +1089,12 @@ final class ManufacturingOverlay extends JPanel {
         JPanel center = new JPanel(new BorderLayout(6, 0));
         center.setOpaque(false);
         JLabel name = smallLabel(ProductionSystem.displayName(world, job), TEXT);
-        String blocked = job.blockedReason == null ? "" : job.blockedReason;
-        JLabel detail = smallLabel(blocked.isBlank()
-                        ? (index == 0 ? whole(job.remaining) + "s remaining" : "queued")
-                        : blocked,
-                blocked.isBlank() ? MUTED : BLOCKED);
+        String blocked = job.blockedReason == null ? "" : job.blockedReason.trim();
+        String queueDetail = blocked.isBlank()
+                ? (index == 0 ? whole(job.remaining) + "s remaining" : "queued")
+                : ProductionQueueScheduler.detail(base, job);
+        JLabel detail = smallLabel(queueDetail, blocked.isBlank() ? MUTED : BLOCKED);
+        detail.setToolTipText(blocked.isBlank() ? null : queueDetail);
         JPanel labels = new JPanel(new BorderLayout());
         labels.setOpaque(false);
         labels.add(name, BorderLayout.WEST);
@@ -1106,6 +1107,10 @@ final class ManufacturingOverlay extends JPanel {
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 3, 0));
         actions.setOpaque(false);
+        JButton why = miniButton("?");
+        why.setToolTipText("Explain why this production job is blocked and show recovery actions");
+        why.setVisible(!blocked.isBlank());
+        why.addActionListener(event -> showJobDiagnostics(base, job));
         JButton up = miniButton("↑");
         up.setEnabled(index > 1);
         up.addActionListener(event -> sendProduction(base, "MOVE", job.id, "-1"));
@@ -1115,11 +1120,98 @@ final class ManufacturingOverlay extends JPanel {
         JButton cancel = miniButton("×");
         cancel.setToolTipText("Cancel and refund reserved resources when applicable");
         cancel.addActionListener(event -> sendProduction(base, "CANCEL", job.id, ""));
+        actions.add(why);
         actions.add(up);
         actions.add(down);
         actions.add(cancel);
         row.add(actions, BorderLayout.EAST);
         return row;
+    }
+
+    private void showJobDiagnostics(Base base, ProductionJob job) {
+        ProductionCausalAnalyzer.Analysis analysis = ProductionCausalAnalyzer.analyzeForPlayer(
+                world, base, job, playerId());
+        ProductionDiagnosticsDialog.show(this, analysis,
+                action -> handleDiagnosticAction(base, action));
+    }
+
+    private void handleDiagnosticAction(Base context, ProductionCausalAnalyzer.RecoveryAction action) {
+        if (action == null) return;
+        Map<String,String> parameters = action.parameters();
+        switch (action.type()) {
+            case ENQUEUE_INTERMEDIATE -> queueDiagnosticIntermediate(parameters.get("recipeId"));
+            case OPEN_RESEARCH -> focusDiagnosticSearch(parameters.get("research"), Section.RESEARCH);
+            case REVIEW_POLICY -> showPolicyView(context == null ? parameters.get("stationId") : context.id);
+            case CREATE_ROUTE -> openDiagnosticSource(parameters);
+            case CHOOSE_STATION -> focusDiagnosticSearch(
+                    parameters.getOrDefault("recipeId", parameters.getOrDefault("itemId", "")), Section.ALL);
+            case MOVE_STOCK -> {
+                showProductionView();
+                refreshResources();
+                world.status = action.label();
+            }
+            case WAIT_FOR_TRANSIT, REVIEW_JOB -> {
+                if (context != null) preferStation(context.id);
+                showProductionView();
+                refreshLiveData();
+                world.status = action.label();
+            }
+        }
+    }
+
+    private void queueDiagnosticIntermediate(String recipeId) {
+        CraftableItem item = CraftingRules.item(recipeId);
+        if (item == null) {
+            world.status = "That intermediate recipe is no longer available; refresh production diagnostics.";
+            return;
+        }
+        List<Base> candidates = new ArrayList<>();
+        for (Base base : ownedBases()) if (item.canCraftAt(base.typeId)) candidates.add(base);
+        candidates.sort(Comparator
+                .comparing((Base base) -> !StationFuelRules.isOperational(base))
+                .thenComparing(base -> !HangarStore.canAfford(base.inventory, item.requiredResources))
+                .thenComparingInt(base -> base.productionQueue.size())
+                .thenComparing(base -> base.id));
+        if (candidates.isEmpty()) {
+            focusDiagnosticSearch(item.name, Section.ALL);
+            world.status = "No compatible station in this system can queue " + item.name
+                    + "; choose one of the owned compatible stations shown by diagnostics.";
+            return;
+        }
+        Base selected = candidates.get(0);
+        boolean accepted = sendProduction(selected, "ENQUEUE", ProductionJobKind.CRAFTABLE.name(), item.id);
+        world.status = accepted
+                ? "Queued recovery component: " + item.name + " at " + selected.type().name + " " + selected.id + "."
+                : "Could not queue " + item.name + "; production state changed, so refresh diagnostics.";
+        preferStation(selected.id);
+        refreshLiveData();
+    }
+
+    private void focusDiagnosticSearch(String query, Section section) {
+        showProductionView();
+        if (section != null) sectionList.setSelectedValue(section, true);
+        search.setText(query == null ? "" : query);
+        SwingUtilities.invokeLater(() -> {
+            search.requestFocusInWindow();
+            search.selectAll();
+        });
+    }
+
+    private void openDiagnosticSource(Map<String,String> parameters) {
+        String sourceSystemId = parameters.getOrDefault("sourceSystemId", "");
+        String sourceStationId = parameters.getOrDefault("sourceStationId", "");
+        if (sourceSystemId.isBlank()) {
+            world.status = "Diagnostics could not resolve the logistics source; refresh and try again.";
+            return;
+        }
+        close();
+        boolean viewed = world.viewGalaxySystem(sourceSystemId);
+        if (!viewed) {
+            world.status = "The suggested logistics source is no longer available; refresh production diagnostics.";
+            return;
+        }
+        world.status = "Open owned station " + sourceStationId
+                + " and create or repair its logistics route to the blocked production station.";
     }
 
     private boolean sendProduction(Base base, String action, String value, String extra) {

@@ -6,6 +6,9 @@ final class WormholeGate {
     final String id;
     final String fromSystemId;
     final String toSystemId;
+    // Compatibility alias used by production/logistics diagnostics. Wormholes are
+    // directed, so the remote system from this gate is the same as toSystemId.
+    final String remoteSystemId;
     final double x;
     final double y;
     final double exitX;
@@ -16,6 +19,7 @@ final class WormholeGate {
         this.id = id;
         this.fromSystemId = fromSystemId;
         this.toSystemId = toSystemId;
+        this.remoteSystemId = toSystemId;
         this.x = x;
         this.y = y;
         this.exitX = exitX;
