@@ -1,0 +1,66 @@
+{
+  "id": "conquest_path",
+  "name": "Conquest Path",
+  "description": "Build military strength, seize multiple systems, and establish the infrastructure to hold them.",
+  "multiplayer": "TEAMS",
+  "startingState": {
+    "ships": [],
+    "stations": [],
+    "completedResearch": {}
+  },
+  "enabledNpcFactions": [],
+  "galaxy": {
+    "copiesPerTemplate": 2
+  },
+  "diplomacy": {
+    "scenarioPolicy": "team_locked"
+  },
+  "objectives": [
+    {
+      "id": "battle_ready",
+      "title": "Battle Ready",
+      "description": "Reach a combined fleet and station strength of 5,000.",
+      "kind": "PRIMARY",
+      "trigger": { "type": "FLEET_POWER", "target": 5000 }
+    },
+    {
+      "id": "take_ground",
+      "title": "Take Ground",
+      "description": "Control two galaxy systems.",
+      "kind": "PRIMARY",
+      "prerequisites": ["battle_ready"],
+      "trigger": { "type": "CONTROL_SYSTEMS", "target": 2 },
+      "actions": [
+        { "type": "NOTICE", "text": "The offensive has momentum. Consolidate the captured systems." }
+      ]
+    },
+    {
+      "id": "carrier_group",
+      "title": "Capital Presence",
+      "description": "Field at least one Carrier.",
+      "kind": "PRIMARY",
+      "prerequisites": ["take_ground"],
+      "trigger": { "type": "OWN_SHIP_TYPE", "value": "carrier", "target": 1 }
+    },
+    {
+      "id": "research_depth",
+      "title": "Optional: Research Depth",
+      "description": "Complete at least three research topics.",
+      "kind": "OPTIONAL",
+      "trigger": { "type": "COMPLETE_RESEARCH_COUNT", "target": 3 }
+    },
+    {
+      "id": "hold_the_line",
+      "title": "Hold the Line",
+      "description": "Operate at least three stations after establishing capital presence.",
+      "kind": "PRIMARY",
+      "prerequisites": ["carrier_group"],
+      "trigger": { "type": "OWN_STATIONS", "target": 3 },
+      "actions": [
+        { "type": "END_SCENARIO", "outcome": "victory" }
+      ]
+    }
+  ],
+  "completionText": "The team controls a defensible multi-system foothold backed by capital infrastructure.",
+  "failureText": "The conquest stalled before a defensible foothold could be established."
+}

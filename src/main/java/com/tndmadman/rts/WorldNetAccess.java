@@ -8,7 +8,7 @@ final class WorldNetAccess {
     private WorldNetAccess() { }
 
     static Snapshot snapshot(World world, long sequence) {
-        ObjectiveSystem.evaluateAuthoritative(world, 0);
+        ScenarioObjectiveBridge.evaluateAuthoritative(world);
         List<PlayerInfo> players = new ArrayList<>();
         boolean includeSolo = hasWorldAssets(world, "SOLO");
         for (PlayerInfo player : PlayerRegistry.snapshotPlayers()) {
@@ -42,7 +42,7 @@ final class WorldNetAccess {
         List<ResearchState> research = researchSnapshot(world);
         return new Snapshot(sequence, players, units, resources, bases, stocks, shots, items,
                 CelestialPacketCache.pack(world.activeSystemId()), world.systemTime(), "", research,
-                ObjectiveSystem.state(world));
+                ScenarioObjectiveBridge.state(world));
     }
 
     static boolean hasPlayerAssets(Snapshot snapshot, String playerId) {
@@ -74,7 +74,7 @@ final class WorldNetAccess {
                               boolean replaceResources, boolean resetView, boolean forceEnvironmentCorrection,
                               boolean forceLocalAuthority) {
         SnapshotValidator.validate(snapshot);
-        ObjectiveSystem.applyNetworkState(world, snapshot.objective());
+        ScenarioObjectiveBridge.applyNetworkState(world, snapshot.objective());
         String local = PlayerRegistry.localId();
         String snapSystem = snapshotSystemId(snapshot);
         boolean snapshotHasLocalAssets = hasPlayerAssets(snapshot, local);

@@ -9,7 +9,8 @@ final class GalaxyRuntimeOptions {
     private GalaxyRuntimeOptions() { }
 
     static void configure(Config config) {
-        copiesPerTemplate = Math.max(1, Math.min(2, config == null ? 1 : config.galaxyCopies));
+        int configured = config == null ? 1 : config.galaxyCopies;
+        copiesPerTemplate = Math.max(1, Math.min(2, ScenarioLaunch.galaxyCopies(configured)));
         if (!explicitGenerationOverride) {
             generationSettings = GalaxyGenerationSettings.load(copiesPerTemplate);
             generationSeedOverride = null;
