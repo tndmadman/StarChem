@@ -1,0 +1,58 @@
+name: Feature Rollup Validation
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: feature-rollup-validation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-features:
+    name: Validate integrated feature streams
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Compile StarChem
+        run: gradle classes --no-daemon --stacktrace
+
+      - name: Validate research tree
+        run: python3 scripts/validate_research.py
+
+      - name: Validate persistent fleets
+        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue380PersistentFleetValidator
+
+      - name: Validate system control
+        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.SystemControlValidator
+
+      - name: Validate procedural galaxy
+        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue383GalaxyGenerationValidator
+
+      - name: Validate scenarios
+        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.ScenarioFrameworkValidator
+
+      - name: Validate formations
+        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue386FormationValidator
+
+      - name: Validate production diagnostics
+        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue387ProductionCausalAnalysisValidator
