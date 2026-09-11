@@ -8,9 +8,9 @@ final class MenuCardPanel extends JPanel {
     @Override protected void paintComponent(Graphics g) {
         Graphics2D g2 = (Graphics2D) g.create();
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g2.setColor(new Color(6, 12, 22, 218));
+        g2.setColor(UiPalette.PANEL_SOFT);
         g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 26, 26);
-        g2.setColor(new Color(80, 170, 225, 140));
+        g2.setColor(UiPalette.BORDER);
         g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 26, 26);
         g2.dispose();
         super.paintComponent(g);
@@ -25,7 +25,7 @@ final class MenuButton extends JButton {
         setContentAreaFilled(false);
         setOpaque(false);
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        setForeground(Color.WHITE);
+        setForeground(UiPalette.TEXT);
         setFont(getFont().deriveFont(Font.BOLD, 15f));
         setPreferredSize(new Dimension(120, 44));
     }
@@ -33,11 +33,13 @@ final class MenuButton extends JButton {
         Graphics2D g2 = (Graphics2D) g.create();
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         ButtonModel m = getModel();
-        Color top = m.isPressed() ? new Color(25,90,130) : m.isRollover() ? new Color(34,128,180) : new Color(18,64,100);
-        Color bottom = m.isPressed() ? new Color(16,52,82) : m.isRollover() ? new Color(18,86,132) : new Color(9,34,62);
+        Color top = m.isPressed() ? UiPalette.CONTROL_ACTIVE
+                : m.isRollover() ? UiPalette.CONTROL_HOVER : UiPalette.CONTROL;
+        Color bottom = m.isPressed() ? new Color(55, 48, 38)
+                : m.isRollover() ? new Color(46, 51, 50) : new Color(31, 35, 36);
         g2.setPaint(new GradientPaint(0, 0, top, 0, getHeight(), bottom));
         g2.fillRoundRect(0, 0, getWidth(), getHeight(), 14, 14);
-        g2.setColor(new Color(126,220,255));
+        g2.setColor(m.isPressed() || m.isRollover() ? UiPalette.BORDER_STRONG : UiPalette.BORDER);
         g2.drawRoundRect(0, 0, getWidth()-1, getHeight()-1, 14, 14);
         g2.dispose();
         super.paintComponent(g);
