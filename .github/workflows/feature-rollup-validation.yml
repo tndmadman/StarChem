@@ -86,4 +86,4 @@ jobs:
         run: bash validation/run-security-integration.sh build/classes/java/main
 
       - name: Run canonical rendering and regression gate
-        run: bash validation/run-release-regressions.sh build/classes/java/main
+        run: bash validation/run-release-regressions.sh "build/classes/java/main:build/resources/main"
