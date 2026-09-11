@@ -43,6 +43,9 @@ jobs:
       - name: Verify project
         run: gradle check jar --no-daemon
 
+      - name: Validate packaged art assets
+        run: java -Djava.awt.headless=true -cp build/libs/StarChem.jar com.tndmadman.rts.ArtAssetValidator --require-jar
+
       - name: Run canonical release regressions
         shell: bash
         run: bash validation/run-release-regressions.sh 'build/classes/java/main:build/resources/main'
