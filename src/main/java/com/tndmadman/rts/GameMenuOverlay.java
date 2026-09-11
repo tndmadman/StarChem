@@ -37,22 +37,22 @@ final class GameMenuOverlay {
     void draw(Graphics2D graphics, int width, int height) {
         Graphics2D g2 = (Graphics2D) graphics.create();
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g2.setColor(new Color(2, 5, 10, 224));
+        g2.setColor(UiPalette.OVERLAY);
         g2.fillRect(0, 0, width, height);
 
         int panelX = (width - PANEL_W) / 2;
         int panelY = (height - PANEL_H) / 2;
-        g2.setColor(new Color(10, 18, 30, 240));
+        g2.setColor(UiPalette.PANEL);
         g2.fillRoundRect(panelX, panelY, PANEL_W, PANEL_H, 24, 24);
         g2.setStroke(new BasicStroke(2f));
-        g2.setColor(new Color(92, 137, 180, 150));
+        g2.setColor(UiPalette.BORDER);
         g2.drawRoundRect(panelX, panelY, PANEL_W, PANEL_H, 24, 24);
 
         g2.setFont(g2.getFont().deriveFont(Font.BOLD, 26f));
-        g2.setColor(new Color(235, 246, 255));
+        g2.setColor(UiPalette.TEXT);
         drawCentered(g2, "STARCHEM", width, panelY + 52);
         g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 13f));
-        g2.setColor(new Color(188, 214, 235));
+        g2.setColor(UiPalette.TEXT_MUTED);
         drawCentered(g2, "Game Menu", width, panelY + 76);
 
         int y = panelY + 118;
@@ -66,20 +66,20 @@ final class GameMenuOverlay {
             Shape box = new RoundRectangle2D.Float(
                     button.x, button.y, button.w, button.h, 18, 18);
             if (!button.enabled) {
-                g2.setColor(new Color(20, 30, 42));
+                g2.setColor(UiPalette.CONTROL_DISABLED);
             } else {
-                g2.setColor(button.hover ? new Color(56, 93, 128) : new Color(27, 45, 64));
+                g2.setColor(button.hover ? UiPalette.CONTROL_HOVER : UiPalette.CONTROL);
             }
             g2.fill(box);
             g2.setStroke(new BasicStroke(2f));
             if (!button.enabled) {
-                g2.setColor(new Color(62, 83, 101));
+                g2.setColor(UiPalette.BORDER);
             } else {
-                g2.setColor(button.hover ? new Color(120, 195, 255) : new Color(82, 135, 182));
+                g2.setColor(button.hover ? UiPalette.BORDER_STRONG : UiPalette.BORDER);
             }
             g2.draw(box);
             g2.setFont(g2.getFont().deriveFont(Font.BOLD, 16f));
-            g2.setColor(button.enabled ? Color.WHITE : new Color(125, 140, 153));
+            g2.setColor(button.enabled ? UiPalette.TEXT : UiPalette.TEXT_DIM);
             FontMetrics metrics = g2.getFontMetrics();
             g2.drawString(button.label,
                     button.x + (button.w - metrics.stringWidth(button.label)) / 2,
