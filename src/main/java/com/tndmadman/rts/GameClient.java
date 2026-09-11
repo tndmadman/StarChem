@@ -14,7 +14,9 @@ final class GameClient {
 
     static GameClient forNetwork(World world, PeerNetwork network) {
         if (world == null || network == null) return null;
-        return network.statusLine().startsWith("CLIENT") ? new GameClient(world, network) : null;
+        if (!network.statusLine().startsWith("CLIENT")) return null;
+        GalaxyMapFleetCommandBridge.bind(world, network);
+        return new GameClient(world, network);
     }
 
     void tick(double dt) {
