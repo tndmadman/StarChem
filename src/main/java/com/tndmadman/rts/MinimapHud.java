@@ -81,22 +81,22 @@ final class MinimapHud {
     }
 
     private void drawFrame(Graphics2D g, Layout layout) {
-        g.setColor(new Color(4, 9, 16, 218));
+        g.setColor(UiPalette.PANEL_SOFT);
         g.fillRoundRect(layout.outer.x, layout.outer.y, layout.outer.width, layout.outer.height, 14, 14);
-        g.setColor(new Color(110, 185, 225, 185));
+        g.setColor(UiPalette.BORDER);
         g.setStroke(new BasicStroke(1.4f));
         g.drawRoundRect(layout.outer.x, layout.outer.y, layout.outer.width, layout.outer.height, 14, 14);
-        g.setColor(new Color(8, 15, 24, 230));
+        g.setColor(UiPalette.CONTROL_DISABLED);
         g.fillRect(layout.map.x, layout.map.y, layout.map.width, layout.map.height);
-        g.setColor(new Color(82, 120, 150, 150));
+        g.setColor(UiPalette.BORDER);
         g.drawRect(layout.map.x, layout.map.y, layout.map.width, layout.map.height);
 
         Font old = g.getFont();
         g.setFont(old.deriveFont(Font.BOLD, 11f));
-        g.setColor(new Color(225, 241, 250));
+        g.setColor(UiPalette.TEXT);
         g.drawString("TACTICAL", layout.outer.x + 10, layout.outer.y + 16);
         g.setFont(old.deriveFont(9f));
-        g.setColor(new Color(150, 185, 205));
+        g.setColor(UiPalette.TEXT_MUTED);
         String hint = "click to pan";
         int hintWidth = g.getFontMetrics().stringWidth(hint);
         g.drawString(hint, layout.outer.x + layout.outer.width - hintWidth - 10, layout.outer.y + 16);
@@ -114,6 +114,7 @@ final class MinimapHud {
     }
 
     private void drawWormholes(Graphics2D g, World world, Rectangle map) {
+        // Wormholes retain an emissive cyan signal because they are actual energy phenomena.
         g.setColor(new Color(90, 235, 255, 225));
         for (FogOfWarView.KnownWormhole gate : FogOfWarView.knownWormholes(world)) {
             Point2D p = mapPoint(world, map, gate.x(), gate.y());
@@ -143,7 +144,7 @@ final class MinimapHud {
             if (labelRow < 3) {
                 String label = view.name() + "  " + Math.max(0, (int)Math.ceil(view.remainingSeconds())) + "s";
                 g.setFont(old.deriveFont(Font.BOLD, 8.5f));
-                g.setColor(new Color(238, 244, 255, 225));
+                g.setColor(UiPalette.TEXT);
                 g.drawString(label, map.x + 5, map.y + 11 + labelRow * 10);
                 labelRow++;
             }
