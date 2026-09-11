@@ -205,15 +205,15 @@ public final class SettingsPanel {
         updateLayout(width, height);
         Graphics2D g2 = (Graphics2D) graphics.create();
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g2.setColor(new Color(0, 0, 0, 170));
+        g2.setColor(UiPalette.OVERLAY);
         g2.fillRect(0, 0, width, height);
-        g2.setColor(new Color(10, 18, 30, 245));
+        g2.setColor(UiPalette.PANEL);
         g2.fillRoundRect(panelRect.x, panelRect.y, panelRect.width, panelRect.height, 24, 24);
         g2.setStroke(new BasicStroke(2f));
-        g2.setColor(new Color(92, 137, 180, 170));
+        g2.setColor(UiPalette.BORDER);
         g2.drawRoundRect(panelRect.x, panelRect.y, panelRect.width, panelRect.height, 24, 24);
         g2.setFont(new Font("SansSerif", Font.BOLD, 28));
-        g2.setColor(new Color(235, 246, 255));
+        g2.setColor(UiPalette.TEXT);
         drawCentered(g2, "SETTINGS", width, panelRect.y + 46);
         drawTabs(g2);
         drawFooterButtons(g2);
@@ -231,12 +231,12 @@ public final class SettingsPanel {
         for (int i = 0; i < tabRects.length; i++) {
             Rectangle rectangle = tabRects[i];
             boolean selected = tab == Tab.values()[i];
-            g2.setColor(selected ? new Color(40, 72, 110) : new Color(25, 38, 56));
+            g2.setColor(selected ? UiPalette.CONTROL_ACTIVE : UiPalette.CONTROL);
             g2.fillRoundRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height, 16, 16);
-            g2.setColor(selected ? new Color(145, 205, 255) : new Color(82, 135, 182));
+            g2.setColor(selected ? UiPalette.BORDER_STRONG : UiPalette.BORDER);
             g2.drawRoundRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height, 16, 16);
             g2.setFont(new Font("SansSerif", Font.BOLD, 16));
-            g2.setColor(selected ? Color.WHITE : new Color(228, 233, 240));
+            g2.setColor(selected ? UiPalette.TEXT : UiPalette.TEXT_MUTED);
             FontMetrics metrics = g2.getFontMetrics();
             g2.drawString(labels[i], rectangle.x + (rectangle.width - metrics.stringWidth(labels[i])) / 2,
                     rectangle.y + 29);
@@ -251,7 +251,7 @@ public final class SettingsPanel {
     private void drawStatusLine(Graphics2D g2) {
         if (statusLine == null || statusLine.isBlank()) return;
         g2.setFont(new Font("SansSerif", Font.PLAIN, 13));
-        g2.setColor(new Color(170, 205, 235));
+        g2.setColor(UiPalette.ACCENT);
         g2.drawString(statusLine, panelRect.x + 24, panelRect.y + panelRect.height - 66);
     }
 
@@ -270,7 +270,7 @@ public final class SettingsPanel {
         for (GameSettings.Binding binding : settings.bindings()) {
             if (!binding.group().equals(currentGroup)) {
                 if (currentGroup != null) y += 10;
-                g2.setColor(new Color(180, 210, 235));
+                g2.setColor(UiPalette.TEXT_MUTED);
                 g2.drawString(binding.group().toUpperCase(), left, y + 14);
                 y += 20;
                 currentGroup = binding.group();
@@ -316,7 +316,7 @@ public final class SettingsPanel {
         drawToggleRow(g2, displayFpsRect, left, y, width, "Show FPS", settings.isShowFps());
         y += 64;
         g2.setFont(new Font("SansSerif", Font.BOLD, 16));
-        g2.setColor(new Color(235, 246, 255));
+        g2.setColor(UiPalette.TEXT);
         g2.drawString("Resolution", left, y);
         y += 18;
         String[] labels = settings.resolutionLabels();
@@ -336,13 +336,13 @@ public final class SettingsPanel {
         int maxScroll = Math.max(0, contentHeight - trackHeight);
         if (maxScroll <= 0) return;
         int trackX = panelRect.x + panelRect.width - 14;
-        g2.setColor(new Color(0, 0, 0, 80));
+        g2.setColor(UiPalette.SCROLL_TRACK);
         g2.fillRoundRect(trackX, trackY, 6, trackHeight, 6, 6);
         int thumbHeight = Math.max(36,
                 (int)Math.round((double)trackHeight * trackHeight / (contentHeight + trackHeight)));
         int thumbRange = Math.max(0, trackHeight - thumbHeight);
         int thumbY = trackY + (int)Math.round((double)scroll / maxScroll * thumbRange);
-        g2.setColor(new Color(90, 170, 240, 180));
+        g2.setColor(UiPalette.SCROLL_THUMB);
         g2.fillRoundRect(trackX - 1, thumbY, 8, thumbHeight, 8, 8);
     }
 
@@ -354,12 +354,12 @@ public final class SettingsPanel {
     }
 
     private void drawButton(Graphics2D g2, Rectangle rectangle, String label, boolean active) {
-        g2.setColor(active ? new Color(48, 92, 150) : new Color(25, 38, 56));
+        g2.setColor(active ? UiPalette.CONTROL_ACTIVE : UiPalette.CONTROL);
         g2.fillRoundRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height, 14, 14);
-        g2.setColor(active ? new Color(145, 205, 255) : new Color(82, 135, 182));
+        g2.setColor(active ? UiPalette.BORDER_STRONG : UiPalette.BORDER);
         g2.drawRoundRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height, 14, 14);
         g2.setFont(new Font("SansSerif", Font.BOLD, 16));
-        g2.setColor(active ? Color.WHITE : new Color(228, 233, 240));
+        g2.setColor(active ? UiPalette.TEXT : UiPalette.TEXT_MUTED);
         FontMetrics metrics = g2.getFontMetrics();
         g2.drawString(label, rectangle.x + (rectangle.width - metrics.stringWidth(label)) / 2,
                 rectangle.y + 26);
@@ -369,15 +369,15 @@ public final class SettingsPanel {
                          boolean active, boolean editable) {
         g2.setColor(new Color(0, 0, 0, 70));
         g2.fillRoundRect(rectangle.x + 2, rectangle.y + 2, rectangle.width, rectangle.height, 10, 10);
-        g2.setColor(active ? new Color(48, 92, 150)
-                : editable ? new Color(25, 38, 56) : new Color(20, 28, 38));
+        g2.setColor(active ? UiPalette.CONTROL_ACTIVE
+                : editable ? UiPalette.CONTROL : UiPalette.CONTROL_DISABLED);
         g2.fillRoundRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height, 10, 10);
-        g2.setColor(active ? new Color(145, 205, 255) : new Color(82, 135, 182));
+        g2.setColor(active ? UiPalette.BORDER_STRONG : UiPalette.BORDER);
         g2.drawRoundRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height, 10, 10);
         g2.setFont(new Font("SansSerif", Font.BOLD, 14));
-        g2.setColor(editable ? Color.WHITE : new Color(155, 170, 185));
+        g2.setColor(editable ? UiPalette.TEXT : UiPalette.TEXT_DIM);
         g2.drawString(label, rectangle.x + 12, rectangle.y + 19);
-        g2.setColor(new Color(180, 210, 235));
+        g2.setColor(UiPalette.TEXT_MUTED);
         FontMetrics metrics = g2.getFontMetrics();
         g2.drawString(value, rectangle.x + rectangle.width - 12 - metrics.stringWidth(value),
                 rectangle.y + 19);
@@ -388,14 +388,14 @@ public final class SettingsPanel {
         rectangle.setBounds(x, y, width, 42);
         g2.setColor(new Color(0, 0, 0, 70));
         g2.fillRoundRect(x + 2, y + 2, width, 42, 10, 10);
-        g2.setColor(on ? new Color(48, 92, 150) : new Color(25, 38, 56));
+        g2.setColor(on ? UiPalette.CONTROL_ACTIVE : UiPalette.CONTROL);
         g2.fillRoundRect(x, y, width, 42, 10, 10);
-        g2.setColor(on ? new Color(145, 205, 255) : new Color(82, 135, 182));
+        g2.setColor(on ? UiPalette.BORDER_STRONG : UiPalette.BORDER);
         g2.drawRoundRect(x, y, width, 42, 10, 10);
         g2.setFont(new Font("SansSerif", Font.BOLD, 15));
-        g2.setColor(Color.WHITE);
+        g2.setColor(UiPalette.TEXT);
         g2.drawString(label, x + 14, y + 26);
-        g2.setColor(new Color(180, 210, 235));
+        g2.setColor(on ? UiPalette.ACCENT : UiPalette.TEXT_MUTED);
         g2.drawString(on ? "ON" : "OFF", x + width - 40, y + 26);
     }
 
@@ -404,12 +404,12 @@ public final class SettingsPanel {
         rectangle.setBounds(x, y, width, 30);
         g2.setColor(new Color(0, 0, 0, 60));
         g2.fillRoundRect(x + 2, y + 2, width, 30, 10, 10);
-        g2.setColor(selected ? new Color(48, 92, 150) : new Color(25, 38, 56));
+        g2.setColor(selected ? UiPalette.CONTROL_ACTIVE : UiPalette.CONTROL);
         g2.fillRoundRect(x, y, width, 30, 10, 10);
-        g2.setColor(selected ? new Color(145, 205, 255) : new Color(82, 135, 182));
+        g2.setColor(selected ? UiPalette.BORDER_STRONG : UiPalette.BORDER);
         g2.drawRoundRect(x, y, width, 30, 10, 10);
         g2.setFont(new Font("SansSerif", Font.BOLD, 14));
-        g2.setColor(selected ? Color.WHITE : new Color(228, 233, 240));
+        g2.setColor(selected ? UiPalette.TEXT : UiPalette.TEXT_MUTED);
         g2.drawString((selected ? "✓ " : "  ") + label, x + 10, y + 20);
     }
 
@@ -417,23 +417,23 @@ public final class SettingsPanel {
                                String label, int value) {
         rectangle.setBounds(x, y, width, 50);
         g2.setFont(new Font("SansSerif", Font.BOLD, 15));
-        g2.setColor(new Color(235, 246, 255));
+        g2.setColor(UiPalette.TEXT);
         g2.drawString(label, x, y + 16);
         int trackY = y + 28;
-        g2.setColor(new Color(25, 38, 56));
+        g2.setColor(UiPalette.CONTROL);
         g2.fillRoundRect(x, trackY, width, 12, 12, 12);
         int fillWidth = (int)Math.round((width - 12) * (value / 100.0));
-        g2.setColor(new Color(90, 170, 240));
+        g2.setColor(UiPalette.ACCENT_SOFT);
         g2.fillRoundRect(x, trackY, Math.max(0, fillWidth), 12, 12, 12);
-        g2.setColor(new Color(145, 205, 255));
+        g2.setColor(UiPalette.BORDER_STRONG);
         g2.drawRoundRect(x, trackY, width, 12, 12, 12);
-        g2.setColor(new Color(180, 210, 235));
+        g2.setColor(UiPalette.TEXT_MUTED);
         g2.drawString(value + "%", x + width - 42, y + 16);
     }
 
     private void drawPanelHint(Graphics2D g2, String text, int x, int y) {
         g2.setFont(new Font("SansSerif", Font.PLAIN, 12));
-        g2.setColor(new Color(170, 205, 235));
+        g2.setColor(UiPalette.TEXT_MUTED);
         g2.drawString(text, x, y);
     }
 
