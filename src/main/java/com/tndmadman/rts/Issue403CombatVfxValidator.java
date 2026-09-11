@@ -15,7 +15,10 @@ public final class Issue403CombatVfxValidator {
     public static void main(String[] args) throws Exception {
         validateWeaponFamilyCoverage();
         validateShipProfiles();
+        validateVisualFacingConvention();
         validatePropulsionAndZoomLod();
+        validatePropulsionDirection();
+        validateMuzzleDirection();
         validateShieldAndHullImpactsStayCosmetic();
         validateTransientPoolIsBoundedAndCleansUp();
         System.out.println("Issue #403 combat VFX validation passed.");
@@ -64,6 +67,17 @@ public final class Issue403CombatVfxValidator {
         require(capital.driveScale >= 1.10, "largest ship class does not scale propulsion effects appropriately");
     }
 
+    private static void validateVisualFacingConvention() {
+        require(closeAngle(ShipVisualFacing.heading(0.0), Math.PI),
+                "authored ship bow is not rotated 180 degrees from movement heading at east");
+        require(closeAngle(ShipVisualFacing.heading(Math.PI / 2.0), -Math.PI / 2.0),
+                "authored ship bow is not rotated 180 degrees from movement heading at south");
+        require(closeAngle(ShipVisualFacing.heading(Math.PI), 0.0),
+                "authored ship bow is not rotated 180 degrees from movement heading at west");
+        require(closeAngle(ShipVisualFacing.heading(-Math.PI / 2.0), Math.PI / 2.0),
+                "authored ship bow is not rotated 180 degrees from movement heading at north");
+    }
+
     private static void validatePropulsionAndZoomLod() {
         Unit unit = new Unit("VFX_PROPULSION", 2, Rules.STARTING_SHIP, 80, 160);
         unit.heading = 0;
@@ -89,6 +103,56 @@ public final class Issue403CombatVfxValidator {
         RenderSignature afterburner = renderPropulsion(unit, 1.0);
         require(afterburner.pixels >= close.pixels,
                 "afterburner propulsion is not at least as visually strong as normal thrust");
+    }
+
+    private static void validatePropulsionDirection() {
+        Unit unit = new Unit("VFX_DIRECTION", 7, Rules.STARTING_SHIP, 160, 160);
+        unit.afterburnerActive = true;
+
+        unit.heading = 0.0;
+        unit.targetX = unit.x + 900;
+        unit.targetY = unit.y;
+        PixelBounds east = bounds(renderPropulsionImage(unit, 1.0));
+        require(east.pixels > 0 && east.maxX < unit.x,
+                "eastbound ship exhaust is not entirely behind the ship (west of center)");
+
+        unit.heading = Math.PI;
+        unit.targetX = unit.x - 900;
+        unit.targetY = unit.y;
+        PixelBounds west = bounds(renderPropulsionImage(unit, 1.0));
+        require(west.pixels > 0 && west.minX > unit.x,
+                "westbound ship exhaust is not entirely behind the ship (east of center)");
+
+        unit.heading = Math.PI / 2.0;
+        unit.targetX = unit.x;
+        unit.targetY = unit.y + 900;
+        PixelBounds south = bounds(renderPropulsionImage(unit, 1.0));
+        require(south.pixels > 0 && south.maxY < unit.y,
+                "southbound ship exhaust is not entirely behind the ship (north of center)");
+
+        unit.heading = -Math.PI / 2.0;
+        unit.targetX = unit.x;
+        unit.targetY = unit.y - 900;
+        PixelBounds north = bounds(renderPropulsionImage(unit, 1.0));
+        require(north.pixels > 0 && north.minY > unit.y,
+                "northbound ship exhaust is not entirely behind the ship (south of center)");
+    }
+
+    private static void validateMuzzleDirection() throws Exception {
+        Unit source = new Unit("VFX_MUZZLE_DIRECTION", 9, Rules.STARTING_SHIP, 160, 160);
+        WeaponType weapon = weapon("light_railgun");
+
+        source.heading = 0.0;
+        CombatVfxSystem east = new CombatVfxSystem();
+        east.movingWeaponFired(source, weapon, 280, 160);
+        double eastX = firstEffectCoordinate(east, "x1");
+        require(eastX > source.x, "eastbound ship muzzle is not on the forward/east side of the hull");
+
+        source.heading = Math.PI;
+        CombatVfxSystem west = new CombatVfxSystem();
+        west.movingWeaponFired(source, weapon, 40, 160);
+        double westX = firstEffectCoordinate(west, "x1");
+        require(westX < source.x, "westbound ship muzzle is not on the forward/west side of the hull");
     }
 
     private static void validateShieldAndHullImpactsStayCosmetic() {
@@ -179,11 +243,15 @@ public final class Issue403CombatVfxValidator {
     }
 
     private static RenderSignature renderPropulsion(Unit unit, double zoom) {
+        return signature(renderPropulsionImage(unit, zoom));
+    }
+
+    private static BufferedImage renderPropulsionImage(Unit unit, double zoom) {
         BufferedImage image = image();
         Graphics2D g2 = image.createGraphics();
         CombatVfxSystem.drawPropulsion(g2, unit, zoom);
         g2.dispose();
-        return signature(image);
+        return image;
     }
 
     private static RenderSignature renderTransient(CombatVfxSystem vfx) {
@@ -212,6 +280,39 @@ public final class Issue403CombatVfxValidator {
         return new RenderSignature(hash, pixels);
     }
 
+    private static PixelBounds bounds(BufferedImage image) {
+        int minX = image.getWidth();
+        int minY = image.getHeight();
+        int maxX = -1;
+        int maxY = -1;
+        int pixels = 0;
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                if ((image.getRGB(x, y) >>> 24) == 0) continue;
+                pixels++;
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x);
+                maxY = Math.max(maxY, y);
+            }
+        }
+        return new PixelBounds(minX, minY, maxX, maxY, pixels);
+    }
+
+    private static double firstEffectCoordinate(CombatVfxSystem vfx, String fieldName) throws Exception {
+        Field field = CombatVfxSystem.class.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        double[] coordinates = (double[])field.get(vfx);
+        return coordinates[0];
+    }
+
+    private static boolean closeAngle(double actual, double expected) {
+        double delta = actual - expected;
+        while (delta > Math.PI) delta -= Math.PI * 2;
+        while (delta < -Math.PI) delta += Math.PI * 2;
+        return Math.abs(delta) < 0.000001;
+    }
+
     private static int activeSlots(byte[] slots) {
         int active = 0;
         for (byte slot : slots) if (slot != 0) active++;
@@ -229,4 +330,5 @@ public final class Issue403CombatVfxValidator {
     }
 
     private record RenderSignature(long hash, int pixels) { }
+    private record PixelBounds(int minX, int minY, int maxX, int maxY, int pixels) { }
 }
