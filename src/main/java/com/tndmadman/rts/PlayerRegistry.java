@@ -7,12 +7,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 
 final class PlayerRegistry {
     private static final RegistryState DEFAULT = new RegistryState();
     private static final Map<World, RegistryState> BY_WORLD = Collections.synchronizedMap(new WeakHashMap<>());
     private static final ThreadLocal<RegistryState> ACTIVE = ThreadLocal.withInitial(() -> DEFAULT);
     private static final ThreadLocal<World> ACTIVE_WORLD = new ThreadLocal<>();
+    private static final int LEGACY_SOLO_BLUE = 0x50BEFF;
 
     private PlayerRegistry() { }
 
@@ -30,7 +32,12 @@ final class PlayerRegistry {
         RegistryState state = state();
         state.players.clear();
         state.localId = id;
-        register(id, name, rgb, true);
+        int resolvedRgb = "SOLO".equals(id) && rgb == LEGACY_SOLO_BLUE ? randomVividColor() : rgb;
+        register(id, name, resolvedRgb, true);
+    }
+
+    static int randomVividColor() {
+        return Color.HSBtoRGB(ThreadLocalRandom.current().nextFloat(), 0.78f, 0.98f) & 0xFFFFFF;
     }
 
     static void register(String id, String name, int rgb, boolean local) {
