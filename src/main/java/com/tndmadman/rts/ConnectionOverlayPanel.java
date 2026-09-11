@@ -25,11 +25,11 @@ final class ConnectionOverlayPanel extends JPanel {
         setOpaque(false);
         setFocusable(true);
 
-        title.setForeground(Color.WHITE);
+        title.setForeground(UiPalette.TEXT);
         title.setFont(title.getFont().deriveFont(Font.BOLD, 24f));
-        detail.setForeground(new Color(220, 238, 250));
+        detail.setForeground(UiPalette.TEXT);
         detail.setFont(detail.getFont().deriveFont(Font.PLAIN, 14f));
-        elapsed.setForeground(new Color(150, 190, 215));
+        elapsed.setForeground(UiPalette.TEXT_MUTED);
         progress.setStringPainted(true);
         progress.setValue(0);
 
@@ -46,9 +46,9 @@ final class ConnectionOverlayPanel extends JPanel {
 
         JPanel card = new JPanel(new GridBagLayout());
         card.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(70, 135, 180)),
+                BorderFactory.createLineBorder(UiPalette.BORDER_STRONG),
                 BorderFactory.createEmptyBorder(28, 34, 28, 34)));
-        card.setBackground(new Color(8, 18, 30, 242));
+        card.setBackground(UiPalette.PANEL);
 
         GridBagConstraints c = new GridBagConstraints();
         c.gridx = 0;
@@ -232,7 +232,7 @@ final class ConnectionOverlayPanel extends JPanel {
 
     @Override protected void paintComponent(Graphics g) {
         Graphics2D g2 = (Graphics2D) g.create();
-        g2.setColor(new Color(0, 0, 0, 190));
+        g2.setColor(UiPalette.OVERLAY);
         g2.fillRect(0, 0, getWidth(), getHeight());
         g2.dispose();
         super.paintComponent(g);
