@@ -35,7 +35,7 @@ final class ShipSpriteCache {
 
     static Sprite sprite(Unit unit, Color color) {
         if (unit == null || color == null) return null;
-        int bucket = headingBucket(unit.heading);
+        int bucket = headingBucket(ShipVisualFacing.heading(unit.heading));
         int variant = ShipVisualStyle.variantIndex(unit);
         Key key = new Key(unit.shipTypeId, color.getRGB(), variant, bucket);
         synchronized (CACHE) {
