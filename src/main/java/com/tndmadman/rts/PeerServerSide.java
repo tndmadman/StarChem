@@ -597,7 +597,6 @@ final class PeerServerSide {
         });
         broadcastNow();
     }
-
     void applyDevAiCommand(String playerId, String command) {
         if (command == null || command.isBlank()) return;
         change(playerId, () -> applyAiCommand(command));
@@ -811,7 +810,9 @@ final class PeerServerSide {
                 + ClientEnvironmentSeed.forActiveSystem(world) + "|" + Calc.round(world.systemTime()) + "|DEV|" + (devAllowed ? "1" : "0")
                 + "|SESSION|" + token;
     }
-    private int colorFor(int i) { int[] colors = {0x50BEFF,0xFF5F55,0x7DFF7A,0xFFE066,0xC77DFF,0xFF9F1C}; return colors[Math.floorMod(i, colors.length)]; }
+    private int colorFor(int ignored) {
+        return java.awt.Color.HSBtoRGB(SESSION_RANDOM.nextFloat(), 0.78f, 0.98f) & 0xFFFFFF;
+    }
     private boolean flag(String value) { return "1".equals(value) || "true".equalsIgnoreCase(value) || "DEV".equalsIgnoreCase(value) || "YES".equalsIgnoreCase(value); }
 
     private record AuthChallenge(String name, String nonce, String playerId, int authVersion,
