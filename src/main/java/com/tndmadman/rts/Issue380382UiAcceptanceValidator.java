@@ -58,12 +58,13 @@ public final class Issue380382UiAcceptanceValidator {
 
         FleetView initial = FleetManager.view(world, "SOLO", created.fleetId()).orElseThrow();
         String sourceSystem = initial.shipsBySystem().keySet().stream().findFirst().orElse("");
-        String targetSystem = firstSystemOtherThan(world.authoritativeGalaxyMapSnapshot(), sourceSystem);
+        GalaxyMapSnapshot snapshot = world.authoritativeGalaxyMapSnapshot();
+        String targetSystem = linkedSystemOtherThan(snapshot, sourceSystem);
         require(!sourceSystem.isBlank() && !targetSystem.isBlank(),
-                "galaxy-map fixture requires distinct source and target systems");
+                "galaxy-map fixture requires linked source and target systems");
 
         GalaxyMapOverlay map = new GalaxyMapOverlay();
-        require(map.pointForSystem(world.authoritativeGalaxyMapSnapshot(), sourceSystem, 1280, 900) != null,
+        require(map.pointForSystem(snapshot, sourceSystem, 1280, 900) != null,
                 "persistent fleet source system must be addressable on the Galaxy Map");
         require(map.selectFleetAtSystemForTest(world, "SOLO", sourceSystem) == created.fleetId(),
                 "Galaxy Map must select an owned persistent fleet from its system fleet marker");
@@ -121,10 +122,14 @@ public final class Issue380382UiAcceptanceValidator {
         require(doctrineShown, "research UI must expose doctrine-exclusive choices");
     }
 
-    private static String firstSystemOtherThan(GalaxyMapSnapshot snapshot, String excluded) {
-        if (snapshot == null) return "";
+    private static String linkedSystemOtherThan(GalaxyMapSnapshot snapshot, String source) {
+        if (snapshot == null || source == null || source.isBlank()) return "";
+        for (GalaxyMapLink link : snapshot.links()) {
+            if (source.equals(link.fromSystemId())) return link.toSystemId();
+            if (source.equals(link.toSystemId())) return link.fromSystemId();
+        }
         for (GalaxyMapSystem system : snapshot.systems()) {
-            if (system != null && !system.id().equals(excluded)) return system.id();
+            if (system != null && !system.id().equals(source)) return system.id();
         }
         return "";
     }
