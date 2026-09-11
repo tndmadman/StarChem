@@ -35,21 +35,21 @@ final class HudWindow {
     void draw(Graphics2D g2, String title, int bodyHeight, Color border, int screenH) {
         clampScroll(bodyHeight, screenH);
         int h = height(bodyHeight, screenH);
-        g2.setColor(new Color(0, 0, 0, 185));
+        g2.setColor(UiPalette.PANEL_SOFT);
         g2.fillRoundRect(x, y, w, h, 14, 14);
         g2.setColor(border);
         g2.drawRoundRect(x, y, w, h, 14, 14);
-        g2.setColor(Color.WHITE);
+        g2.setColor(UiPalette.TEXT);
         g2.setFont(g2.getFont().deriveFont(Font.BOLD, 12f));
         g2.drawString((collapsed ? "+ " : "- ") + title, x + 12, y + 19);
         if (!collapsed && maxScroll(bodyHeight, screenH) > 0) {
             String hint = "SCROLL ↕";
             int hintWidth = g2.getFontMetrics().stringWidth(hint);
-            g2.setColor(new Color(160, 225, 255));
+            g2.setColor(UiPalette.ACCENT);
             g2.drawString(hint, x + w - hintWidth - 38, y + 19);
             drawScrollbar(g2, bodyHeight, screenH);
         }
-        g2.setColor(Color.WHITE);
+        g2.setColor(UiPalette.TEXT);
         g2.drawString(collapsed ? "+" : "_", x + w - 24, y + 19);
     }
 
@@ -121,7 +121,7 @@ final class HudWindow {
         int trackHeight = Math.max(20, viewportHeight - 10);
         int trackX = x + w - SCROLLBAR_W - 4;
         int trackY = y + HEADER + 5;
-        g2.setColor(new Color(30, 70, 90, 210));
+        g2.setColor(UiPalette.SCROLL_TRACK);
         g2.fillRoundRect(trackX, trackY, SCROLLBAR_W, trackHeight, SCROLLBAR_W, SCROLLBAR_W);
 
         int thumbHeight = Math.max(28, (int)Math.round(trackHeight * viewportHeight / (double)Math.max(1, bodyHeight)));
@@ -129,7 +129,7 @@ final class HudWindow {
         int travel = Math.max(0, trackHeight - thumbHeight);
         int maximum = Math.max(1, maxScroll(bodyHeight, screenH));
         int thumbY = trackY + (int)Math.round(travel * scrollOffset / (double)maximum);
-        g2.setColor(new Color(130, 225, 255, 230));
+        g2.setColor(UiPalette.SCROLL_THUMB);
         g2.fillRoundRect(trackX, thumbY, SCROLLBAR_W, thumbHeight, SCROLLBAR_W, SCROLLBAR_W);
     }
 

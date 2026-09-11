@@ -30,9 +30,9 @@ final class CombatPolicyHud {
         Rectangle stance = stanceBounds();
         Rectangle priority = priorityBounds();
         Rectangle panel = new Rectangle(X, Y, BUTTON_W * 2 + GAP + 16, BUTTON_H + 16);
-        g2.setColor(new Color(0, 0, 0, 188));
+        g2.setColor(UiPalette.PANEL_SOFT);
         g2.fillRoundRect(panel.x, panel.y, panel.width, panel.height, 12, 12);
-        g2.setColor(new Color(70, 135, 175));
+        g2.setColor(UiPalette.BORDER);
         g2.drawRoundRect(panel.x, panel.y, panel.width, panel.height, 12, 12);
 
         drawButton(g2, stance, "STANCE: " + stanceLabel(world, selected));
@@ -70,12 +70,12 @@ final class CombatPolicyHud {
     }
 
     private void drawButton(Graphics2D g2, Rectangle bounds, String label) {
-        g2.setColor(new Color(18, 70, 104, 235));
+        g2.setColor(UiPalette.CONTROL);
         g2.fillRoundRect(bounds.x, bounds.y, bounds.width, bounds.height, 9, 9);
-        g2.setColor(new Color(110, 215, 255));
+        g2.setColor(UiPalette.BORDER_STRONG);
         g2.drawRoundRect(bounds.x, bounds.y, bounds.width, bounds.height, 9, 9);
         g2.setFont(g2.getFont().deriveFont(Font.BOLD, 11f));
-        g2.setColor(Color.WHITE);
+        g2.setColor(UiPalette.TEXT);
         int tx = bounds.x + (bounds.width - g2.getFontMetrics().stringWidth(label)) / 2;
         g2.drawString(label, Math.max(bounds.x + 6, tx), bounds.y + 19);
     }

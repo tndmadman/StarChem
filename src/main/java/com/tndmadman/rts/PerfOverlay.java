@@ -24,15 +24,15 @@ final class PerfOverlay {
         int y = 48;
         int lineHeight = 14;
         int height = 32 + lines.size() * lineHeight;
-        g2.setColor(new Color(0, 0, 0, 205));
+        g2.setColor(UiPalette.PANEL);
         g2.fillRoundRect(x, y, PANEL_WIDTH, height, 12, 12);
-        g2.setColor(new Color(80, 180, 255, 190));
+        g2.setColor(UiPalette.BORDER_STRONG);
         g2.drawRoundRect(x, y, PANEL_WIDTH, height, 12, 12);
         g2.setFont(g2.getFont().deriveFont(Font.BOLD, 11f));
-        g2.setColor(Color.WHITE);
+        g2.setColor(UiPalette.TEXT);
         g2.drawString("DEV PERFORMANCE (F4)", x + 12, y + 18);
         g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 11f));
-        g2.setColor(new Color(220, 238, 250));
+        g2.setColor(UiPalette.TEXT_MUTED);
         int textY = y + 34;
         for (String line : lines) {
             g2.drawString(line, x + 12, textY);

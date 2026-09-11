@@ -45,15 +45,15 @@ final class EventHud {
         int x = 12;
         int y = 152;
         if (x + width > screenWidth - 12) width = Math.max(220, screenWidth - 24);
-        g.setColor(new Color(0, 0, 0, 185));
+        g.setColor(UiPalette.PANEL_SOFT);
         g.fillRoundRect(x, y, width, height, 12, 12);
-        g.setColor(new Color(120, 205, 235, 195));
+        g.setColor(UiPalette.BORDER_STRONG);
         g.drawRoundRect(x, y, width, height, 12, 12);
-        g.setColor(new Color(225, 244, 255));
+        g.setColor(UiPalette.TEXT);
         g.drawString("DISCOVERED EVENTS", x + 12, y + 18);
         g.setFont(old.deriveFont(Font.PLAIN, 10f));
         for (int i = 0; i < rows.size(); i++) {
-            g.setColor(new Color(215, 232, 244));
+            g.setColor(UiPalette.TEXT_MUTED);
             g.drawString(rows.get(i), x + 12, y + 37 + i * 18);
         }
         g.setFont(old);

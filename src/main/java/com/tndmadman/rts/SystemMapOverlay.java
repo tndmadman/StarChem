@@ -13,13 +13,13 @@ final class SystemMapOverlay {
         GalaxyMapSnapshot snapshot = world.galaxyMapSnapshot();
         Graphics2D g = (Graphics2D) g2.create();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setColor(new Color(0, 0, 0, 205));
+        g.setColor(UiPalette.OVERLAY);
         g.fillRect(0, 0, width, height);
 
         Rectangle2D panel = panel(width, height);
-        g.setColor(new Color(8, 14, 24, 238));
+        g.setColor(UiPalette.PANEL);
         g.fillRoundRect((int)panel.getX(), (int)panel.getY(), (int)panel.getWidth(), (int)panel.getHeight(), 22, 22);
-        g.setColor(new Color(90, 145, 190, 175));
+        g.setColor(UiPalette.BORDER);
         g.setStroke(new BasicStroke(2f));
         g.drawRoundRect((int)panel.getX(), (int)panel.getY(), (int)panel.getWidth(), (int)panel.getHeight(), 22, 22);
 
@@ -48,10 +48,10 @@ final class SystemMapOverlay {
 
     private void drawHeader(Graphics2D g, GalaxyMapSnapshot snapshot, Rectangle2D panel) {
         g.setFont(g.getFont().deriveFont(Font.BOLD, 22f));
-        g.setColor(Color.WHITE);
+        g.setColor(UiPalette.TEXT);
         g.drawString("Galaxy Map", (int)panel.getX() + 28, (int)panel.getY() + 40);
         g.setFont(g.getFont().deriveFont(Font.PLAIN, 13f));
-        g.setColor(new Color(205, 225, 240));
+        g.setColor(UiPalette.TEXT_MUTED);
         g.drawString(snapshot.systems().size() + " active system(s) | Click a system to travel/view | M or Esc closes", (int)panel.getX() + 28, (int)panel.getY() + 64);
     }
 
@@ -61,6 +61,7 @@ final class SystemMapOverlay {
             Point2D a = points.get(link.fromSystemId());
             Point2D b = points.get(link.toSystemId());
             if (a == null || b == null) continue;
+            // Wormhole links remain cool/emissive because they represent actual energy, not generic UI chrome.
             g.setColor(new Color(70, 165, 255, 110));
             g.draw(new Line2D.Double(a, b));
             drawMidpointPulse(g, a, b);
@@ -117,10 +118,10 @@ final class SystemMapOverlay {
         g.setColor(new Color(0, 0, 0, 155));
         g.fillRoundRect(bx, by, boxW, boxH, 10, 10);
         g.setFont(labelFont);
-        g.setColor(Color.WHITE);
+        g.setColor(UiPalette.TEXT);
         g.drawString(name, x - nameW / 2, by + 15);
         g.setFont(smallFont);
-        g.setColor(new Color(210, 230, 240));
+        g.setColor(UiPalette.TEXT_MUTED);
         g.drawString(stats, x - statsW / 2, by + 31);
     }
 
@@ -128,7 +129,7 @@ final class SystemMapOverlay {
         int y = (int)(panel.getMaxY() - 24);
         int x = (int)panel.getX() + 28;
         g.setFont(g.getFont().deriveFont(Font.PLAIN, 12f));
-        g.setColor(new Color(210, 230, 240));
+        g.setColor(UiPalette.TEXT_MUTED);
         g.drawString("Legend: cyan = current view, green = player home, red = special system, lines = wormholes", x, y);
     }
 

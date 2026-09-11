@@ -104,10 +104,10 @@ final class LobbyPanel extends JPanel {
         updateGalaxySetupControls();
 
         JLabel title = new JLabel("STAR  CHEM");
-        title.setForeground(new Color(230, 248, 255));
+        title.setForeground(UiPalette.TEXT);
         title.setFont(title.getFont().deriveFont(Font.BOLD, 42f));
         JLabel subtitle = new JLabel("Solo and Dedicated Multiplayer");
-        subtitle.setForeground(new Color(120, 205, 255));
+        subtitle.setForeground(UiPalette.ACCENT);
         subtitle.setFont(subtitle.getFont().deriveFont(Font.BOLD, 15f));
         JPanel header = new JPanel(new GridLayout(0, 1, 0, 4));
         header.setOpaque(false);
@@ -128,7 +128,7 @@ final class LobbyPanel extends JPanel {
 
         JPanel footer = new JPanel(new BorderLayout(0, 8));
         footer.setOpaque(false);
-        statusLabel.setForeground(new Color(215, 232, 245));
+        statusLabel.setForeground(UiPalette.TEXT_MUTED);
         JPanel statusRow = new JPanel(new BorderLayout(10, 0));
         statusRow.setOpaque(false);
         statusRow.add(label("Status"), BorderLayout.WEST);
@@ -199,8 +199,8 @@ final class LobbyPanel extends JPanel {
         pane.setMinimumSize(new Dimension(220, 60));
         pane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
         pane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        pane.setBorder(BorderFactory.createLineBorder(new Color(70, 135, 180)));
-        pane.getViewport().setBackground(new Color(9, 18, 31));
+        pane.setBorder(BorderFactory.createLineBorder(UiPalette.BORDER));
+        pane.getViewport().setBackground(UiPalette.CONTROL_DISABLED);
         panel.add(pane, BorderLayout.CENTER);
         panel.add(help(hint), BorderLayout.SOUTH);
         return panel;
@@ -301,24 +301,24 @@ final class LobbyPanel extends JPanel {
 
     private JLabel label(String text) {
         JLabel label = new JLabel(text);
-        label.setForeground(new Color(220, 238, 250));
+        label.setForeground(UiPalette.TEXT);
         label.setFont(label.getFont().deriveFont(Font.BOLD, 13f));
         return label;
     }
 
     private JLabel help(String text) {
         JLabel label = new JLabel(text);
-        label.setForeground(new Color(150, 190, 215));
+        label.setForeground(UiPalette.TEXT_MUTED);
         label.setFont(label.getFont().deriveFont(Font.PLAIN, 11f));
         return label;
     }
 
     private void styleField(JTextField field) {
-        field.setForeground(Color.WHITE);
-        field.setCaretColor(Color.WHITE);
-        field.setBackground(new Color(9, 18, 31));
+        field.setForeground(UiPalette.TEXT);
+        field.setCaretColor(UiPalette.TEXT);
+        field.setBackground(UiPalette.CONTROL_DISABLED);
         field.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(70, 135, 180)),
+                BorderFactory.createLineBorder(UiPalette.BORDER),
                 BorderFactory.createEmptyBorder(5, 10, 5, 10)));
     }
 
@@ -326,23 +326,23 @@ final class LobbyPanel extends JPanel {
         list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         list.setVisibleRowCount(3);
         list.setFixedCellHeight(23);
-        list.setForeground(Color.WHITE);
-        list.setBackground(new Color(9, 18, 31));
-        list.setSelectionForeground(Color.WHITE);
-        list.setSelectionBackground(new Color(35, 92, 132));
+        list.setForeground(UiPalette.TEXT);
+        list.setBackground(UiPalette.CONTROL_DISABLED);
+        list.setSelectionForeground(UiPalette.TEXT);
+        list.setSelectionBackground(UiPalette.CONTROL_ACTIVE);
         list.setFont(list.getFont().deriveFont(Font.PLAIN, 12f));
         list.setBorder(BorderFactory.createEmptyBorder(3, 6, 3, 6));
     }
 
     private void styleCombo(JComboBox<?> box) {
-        box.setForeground(Color.WHITE);
-        box.setBackground(new Color(9, 18, 31));
-        box.setBorder(BorderFactory.createLineBorder(new Color(70, 135, 180)));
+        box.setForeground(UiPalette.TEXT);
+        box.setBackground(UiPalette.CONTROL_DISABLED);
+        box.setBorder(BorderFactory.createLineBorder(UiPalette.BORDER));
     }
 
     private void styleCheck(JCheckBox box) {
         box.setOpaque(false);
-        box.setForeground(new Color(220, 238, 250));
+        box.setForeground(UiPalette.TEXT);
         box.setFont(box.getFont().deriveFont(Font.BOLD, 13f));
     }
 

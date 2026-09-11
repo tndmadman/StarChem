@@ -3,10 +3,10 @@ package com.tndmadman.rts;
 import javax.swing.Timer;
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 
 final class LocalHostSession {
     private static final String HOST_PLAYER_ID = "P1";
-    private static final int HOST_PLAYER_COLOR = 0x50BEFF;
 
     final World clientWorld;
     final PeerNetwork clientNetwork;
@@ -76,8 +76,12 @@ final class LocalHostSession {
         byte[] salt = PasswordAuth.newSalt();
         byte[] passwordDigest = PasswordAuth.serverDigest(PasswordAuth.decodeVerifier(verifier), salt);
         byte[] placeholderTokenDigest = PasswordAuth.tokenDigest(PasswordAuth.newNonce());
-        return new PersistentPlayerSession(HOST_PLAYER_ID, Config.clean(playerName), HOST_PLAYER_COLOR,
+        return new PersistentPlayerSession(HOST_PLAYER_ID, Config.clean(playerName), randomPlayerColor(),
                 salt, passwordDigest, placeholderTokenDigest, new byte[0], 0);
+    }
+
+    private static int randomPlayerColor() {
+        return java.awt.Color.HSBtoRGB(ThreadLocalRandom.current().nextFloat(), 0.78f, 0.98f) & 0xFFFFFF;
     }
 
     PeerNetwork devAuthorityNetwork() { return serverNetwork; }

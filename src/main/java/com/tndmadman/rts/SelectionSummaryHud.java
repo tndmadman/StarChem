@@ -14,10 +14,6 @@ import java.util.Map;
 
 /** One cheap screen-space status panel for the complete local ship selection. */
 final class SelectionSummaryHud {
-    private static final Color PANEL = new Color(5, 11, 16, 224);
-    private static final Color PANEL_INNER = new Color(15, 24, 31, 220);
-    private static final Color TEXT = new Color(225, 238, 246);
-    private static final Color MUTED = new Color(145, 169, 184);
     private static final Color HP = new Color(103, 224, 119);
     private static final Color SHIELD = new Color(98, 186, 255);
     private static final Color DPS = new Color(255, 188, 105);
@@ -53,15 +49,15 @@ final class SelectionSummaryHud {
         Graphics2D s = (Graphics2D) g2.create();
         try {
             s.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            s.setColor(PANEL);
+            s.setColor(UiPalette.PANEL);
             s.fillRoundRect(x, y, panelW, panelH, 14, 14);
             s.setColor(new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 185));
             s.drawRoundRect(x, y, panelW - 1, panelH - 1, 14, 14);
-            s.setColor(PANEL_INNER);
+            s.setColor(UiPalette.PANEL_SOFT);
             s.fillRoundRect(x + 8, y + 31, panelW - 16, 51, 9, 9);
 
             s.setFont(TITLE_FONT);
-            s.setColor(TEXT);
+            s.setColor(UiPalette.TEXT);
             s.drawString("FLEET SELECTION", x + 14, y + 21);
             String countText = summary.shipCount() + (summary.shipCount() == 1 ? " SHIP" : " SHIPS");
             int countW = s.getFontMetrics().stringWidth(countText);
@@ -80,10 +76,10 @@ final class SelectionSummaryHud {
             drawMetric(s, metricsX + cellW * 2, y + 45, cellW, "MAX DPS",
                     shortNumber(summary.dps()), DPS);
             drawMetric(s, metricsX + cellW * 3, y + 45, cellW, "DAMAGED",
-                    Integer.toString(summary.damaged()), summary.damaged() > 0 ? DAMAGE : TEXT);
+                    Integer.toString(summary.damaged()), summary.damaged() > 0 ? DAMAGE : UiPalette.TEXT);
 
             s.setFont(BODY_FONT);
-            s.setColor(MUTED);
+            s.setColor(UiPalette.TEXT_MUTED);
             String composition = clipText(s.getFontMetrics(), summary.composition(), panelW - 28);
             s.drawString(composition, x + 14, y + 101);
         } finally {
@@ -94,7 +90,7 @@ final class SelectionSummaryHud {
     private static void drawMetric(Graphics2D g2, int x, int y, int width,
                                    String label, String value, Color valueColor) {
         g2.setFont(LABEL_FONT);
-        g2.setColor(MUTED);
+        g2.setColor(UiPalette.TEXT_MUTED);
         g2.drawString(label, x, y);
         g2.setFont(VALUE_FONT);
         g2.setColor(valueColor);
