@@ -15,11 +15,11 @@ final class NotificationHud {
             g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, note.alpha()));
             g2.setFont(g2.getFont().deriveFont(Font.BOLD, 13f));
             int w = Math.min(520, g2.getFontMetrics().stringWidth(note.text) + 24);
-            g2.setColor(new Color(0, 0, 0, 185));
+            g2.setColor(UiPalette.PANEL_SOFT);
             g2.fillRoundRect(x, y - 24, w, 30, 10, 10);
-            g2.setColor(new Color(120, 220, 255, 150));
+            g2.setColor(UiPalette.BORDER_STRONG);
             g2.drawRoundRect(x, y - 24, w, 30, 10, 10);
-            g2.setColor(Color.WHITE);
+            g2.setColor(UiPalette.TEXT);
             g2.drawString(fit(g2, note.text, w - 18), x + 12, y - 5);
             g2.setComposite(old);
             y -= 36;
