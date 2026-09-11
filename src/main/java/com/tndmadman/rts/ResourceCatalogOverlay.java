@@ -37,11 +37,11 @@ import java.util.List;
 final class ResourceCatalogOverlay extends JPanel {
     private static final int RESOURCES_TAB = 0;
     private static final int SYSTEMS_TAB = 1;
-    private static final Color PANEL = new Color(10, 18, 30);
-    private static final Color FIELD = new Color(7, 14, 24);
-    private static final Color BORDER = new Color(80, 145, 188);
-    private static final Color TEXT = new Color(229, 243, 252);
-    private static final Color MUTED = new Color(166, 197, 220);
+    private static final Color PANEL = UiPalette.PANEL;
+    private static final Color FIELD = UiPalette.CONTROL_DISABLED;
+    private static final Color BORDER = UiPalette.BORDER;
+    private static final Color TEXT = UiPalette.TEXT;
+    private static final Color MUTED = UiPalette.TEXT_MUTED;
 
     private final GamePanel returnFocus;
     private final World world;
@@ -360,13 +360,13 @@ final class ResourceCatalogOverlay extends JPanel {
     }
 
     private void styleScroll(JScrollPane scroll) {
-        scroll.setBorder(BorderFactory.createLineBorder(new Color(54, 92, 122)));
+        scroll.setBorder(BorderFactory.createLineBorder(UiPalette.BORDER));
         scroll.getViewport().setBackground(FIELD);
         scroll.getVerticalScrollBar().setUnitIncrement(22);
     }
 
     @Override protected void paintComponent(Graphics graphics) {
-        graphics.setColor(new Color(1, 4, 8, 220));
+        graphics.setColor(UiPalette.OVERLAY);
         graphics.fillRect(0, 0, getWidth(), getHeight());
         super.paintComponent(graphics);
     }
@@ -407,7 +407,7 @@ final class ResourceCatalogOverlay extends JPanel {
 
     private static void styleLabel(JLabel label, boolean selected) {
         label.setBorder(BorderFactory.createEmptyBorder(5, 9, 5, 9));
-        label.setBackground(selected ? new Color(38, 89, 122) : FIELD);
+        label.setBackground(selected ? UiPalette.CONTROL_ACTIVE : FIELD);
         label.setForeground(TEXT);
     }
 
