@@ -61,8 +61,9 @@ final class CombatVfxSystem {
         if (unit == null || weapon == null) return;
         ShipVfxProfile profile = ShipVfxProfile.forType(unit.type());
         int mount = mountIndex(unit, weapon, profile.muzzleCount());
-        double c = Math.cos(unit.heading);
-        double s = Math.sin(unit.heading);
+        double visualHeading = ShipVisualFacing.heading(unit.heading);
+        double c = Math.cos(visualHeading);
+        double s = Math.sin(visualHeading);
         double localY = profile.muzzleY(mount);
         double mx = unit.x + c * profile.muzzleX - s * localY;
         double my = unit.y + s * profile.muzzleX + c * localY;
@@ -76,8 +77,9 @@ final class CombatVfxSystem {
         if (unit == null || weapon == null) return;
         ShipVfxProfile profile = ShipVfxProfile.forType(unit.type());
         int mount = mountIndex(unit, weapon, profile.muzzleCount());
-        double c = Math.cos(unit.heading);
-        double s = Math.sin(unit.heading);
+        double visualHeading = ShipVisualFacing.heading(unit.heading);
+        double c = Math.cos(visualHeading);
+        double s = Math.sin(visualHeading);
         double localY = profile.muzzleY(mount);
         double mx = unit.x + c * profile.muzzleX - s * localY;
         double my = unit.y + s * profile.muzzleX + c * localY;
@@ -157,8 +159,9 @@ final class CombatVfxSystem {
         if (zoom < 0.08) return;
         ShipVfxProfile profile = ShipVfxProfile.forType(unit.type());
         int mount = mountIndex(unit, weapon, profile.muzzleCount());
-        double c = Math.cos(unit.heading);
-        double s = Math.sin(unit.heading);
+        double visualHeading = ShipVisualFacing.heading(unit.heading);
+        double c = Math.cos(visualHeading);
+        double s = Math.sin(visualHeading);
         double localY = profile.muzzleY(mount);
         double mx = unit.x + c * profile.muzzleX - s * localY;
         double my = unit.y + s * profile.muzzleX + c * localY;
@@ -263,8 +266,9 @@ final class CombatVfxSystem {
                 : clamp(0.72 + unit.type().speed / 520.0, 0.82, 1.24);
         double trail = (10.0 + 8.0 * hullScale) * profile.driveScale * power;
         if (zoom < 0.24) trail *= 0.60;
-        double c = Math.cos(unit.heading);
-        double s = Math.sin(unit.heading);
+        double visualHeading = ShipVisualFacing.heading(unit.heading);
+        double c = Math.cos(visualHeading);
+        double s = Math.sin(visualHeading);
         Stroke oldStroke = g2.getStroke();
         Color oldColor = g2.getColor();
         Stroke outer = hullScale >= 2.6 ? CAPITAL : hullScale >= 1.5 ? HEAVY : MEDIUM;
