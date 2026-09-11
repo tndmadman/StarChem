@@ -5,18 +5,24 @@ on:
     paths:
       - 'src/main/java/com/tndmadman/rts/ShipShape.java'
       - 'src/main/java/com/tndmadman/rts/ShipVisual*.java'
+      - 'src/main/java/com/tndmadman/rts/ShipVfxProfile.java'
       - 'src/main/java/com/tndmadman/rts/ShipSpriteCache.java'
       - 'src/main/java/com/tndmadman/rts/UnitRenderer.java'
+      - 'src/main/java/com/tndmadman/rts/CombatVfxSystem.java'
       - 'src/main/java/com/tndmadman/rts/Issue394ShipMaterialValidator.java'
+      - 'src/main/java/com/tndmadman/rts/Issue403CombatVfxValidator.java'
       - 'config/ships/**'
       - '.github/workflows/ship-visuals.yml'
   pull_request:
     paths:
       - 'src/main/java/com/tndmadman/rts/ShipShape.java'
       - 'src/main/java/com/tndmadman/rts/ShipVisual*.java'
+      - 'src/main/java/com/tndmadman/rts/ShipVfxProfile.java'
       - 'src/main/java/com/tndmadman/rts/ShipSpriteCache.java'
       - 'src/main/java/com/tndmadman/rts/UnitRenderer.java'
+      - 'src/main/java/com/tndmadman/rts/CombatVfxSystem.java'
       - 'src/main/java/com/tndmadman/rts/Issue394ShipMaterialValidator.java'
+      - 'src/main/java/com/tndmadman/rts/Issue403CombatVfxValidator.java'
       - 'config/ships/**'
       - '.github/workflows/ship-visuals.yml'
 
@@ -39,3 +45,5 @@ jobs:
         run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.ShipVisualValidator
       - name: Validate ship materials and controlled variation
         run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue394ShipMaterialValidator
+      - name: Validate ship combat and propulsion VFX
+        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue403CombatVfxValidator
