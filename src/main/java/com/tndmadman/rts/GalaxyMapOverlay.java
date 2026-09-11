@@ -4,6 +4,7 @@ import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics2D;
+import java.awt.GraphicsEnvironment;
 import java.awt.RenderingHints;
 import java.awt.Stroke;
 import java.awt.geom.Ellipse2D;
@@ -15,8 +16,11 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.swing.JOptionPane;
 
 final class GalaxyMapOverlay {
+    private long selectedFleetId;
+
     void draw(Graphics2D g2, GalaxyMapSnapshot snapshot, int width, int height) {
         snapshot = visibleSnapshot(snapshot);
         Graphics2D g = (Graphics2D) g2.create();
@@ -35,7 +39,13 @@ final class GalaxyMapOverlay {
         g.drawString("GALAXY MAP", 66, 78);
         g.setFont(g.getFont().deriveFont(Font.PLAIN, 12f));
         g.setColor(new Color(185, 211, 235));
-        g.drawString("Click a linked system to view it | Ring color shows controller | Discovered events are marked", 66, 101);
+        FleetView selected = selectedFleet();
+        if (selected == null) {
+            g.drawString("Click system to view | Click gold FLEET label to select a persistent fleet | Ring color shows controller", 66, 101);
+        } else {
+            g.drawString("Selected fleet: " + selected.name() + " (#" + selected.fleetId()
+                    + ") | Click a target system for Move/Rally or View", 66, 101);
+        }
 
         if (snapshot == null || snapshot.empty()) {
             g.setColor(new Color(230, 244, 255, 180));
@@ -57,11 +67,30 @@ final class GalaxyMapOverlay {
         if (snapshot == null || snapshot.empty()) return "";
         Map<String, NodeLayout> layout = layout(snapshot, width, height);
         int count = snapshot.systems().size();
+        World world = PlayerRegistry.activeWorld();
+        String owner = PlayerRegistry.localId();
+
+        if (world != null && owner != null && !owner.isBlank()) {
+            for (GalaxyMapSystem system : snapshot.systems()) {
+                NodeLayout node = layout.get(system.id());
+                if (node == null) continue;
+                double radius = nodeRadius(count, system.active());
+                if (fleetLabelHit(world, owner, system.id(), node, radius, screenX, screenY)) {
+                    selectFleetAtSystem(world, owner, system.id());
+                    return "";
+                }
+            }
+        }
+
         for (GalaxyMapSystem system : snapshot.systems()) {
             NodeLayout node = layout.get(system.id());
             if (node == null) continue;
             double radius = nodeRadius(count, system.active());
-            if (Point2D.distance(screenX, screenY, node.x, node.y) <= radius + 10) return system.id();
+            if (Point2D.distance(screenX, screenY, node.x, node.y) > radius + 10) continue;
+            if (selectedFleetId > 0 && world != null && owner != null && !owner.isBlank()) {
+                return handleSelectedFleetTarget(world, owner, system.id());
+            }
+            return system.id();
         }
         return "";
     }
@@ -71,6 +100,94 @@ final class GalaxyMapOverlay {
         if (snapshot == null || snapshot.empty() || systemId == null || systemId.isBlank()) return null;
         NodeLayout node = layout(snapshot, width, height).get(systemId);
         return node == null ? null : new Point2D.Double(node.x, node.y);
+    }
+
+    long selectFleetAtSystemForTest(World world, String ownerId, String systemId) {
+        List<FleetView> fleets = GalaxyMapFleetCommandBridge.fleetsAtSystem(world, ownerId, systemId);
+        selectedFleetId = fleets.isEmpty() ? 0 : fleets.get(0).fleetId();
+        return selectedFleetId;
+    }
+
+    GalaxyMapFleetCommandBridge.DispatchResult issueSelectedFleetForTest(
+            World world, String ownerId, String targetSystemId, GalaxyMapFleetCommandBridge.Action action) {
+        return GalaxyMapFleetCommandBridge.dispatch(world, ownerId, selectedFleetId, targetSystemId, action);
+    }
+
+    long selectedFleetIdForTest() { return selectedFleetId; }
+
+    private boolean selectFleetAtSystem(World world, String ownerId, String systemId) {
+        List<FleetView> fleets = GalaxyMapFleetCommandBridge.fleetsAtSystem(world, ownerId, systemId);
+        if (fleets.isEmpty()) return false;
+        FleetView chosen;
+        if (fleets.size() == 1 || GraphicsEnvironment.isHeadless()) {
+            chosen = fleets.get(0);
+        } else {
+            String[] labels = new String[fleets.size()];
+            for (int i = 0; i < fleets.size(); i++) {
+                FleetView fleet = fleets.get(i);
+                labels[i] = fleet.name() + " (#" + fleet.fleetId() + ") — " + fleet.livingShips() + " ships";
+            }
+            Object selected = JOptionPane.showInputDialog(null,
+                    "Select an owned persistent fleet to command from the Galaxy Map:",
+                    "Galaxy Fleet Command", JOptionPane.PLAIN_MESSAGE, null, labels, labels[0]);
+            if (selected == null) return false;
+            int index = 0;
+            for (int i = 0; i < labels.length; i++) if (labels[i].equals(selected)) { index = i; break; }
+            chosen = fleets.get(index);
+        }
+        selectedFleetId = chosen.fleetId();
+        world.status = "Galaxy fleet selected: " + chosen.name() + " (#" + chosen.fleetId()
+                + "). Click a target system for Move or Rally.";
+        return true;
+    }
+
+    private String handleSelectedFleetTarget(World world, String ownerId, String targetSystemId) {
+        FleetView selected = FleetManager.view(world, ownerId, selectedFleetId).orElse(null);
+        if (selected == null) {
+            selectedFleetId = 0;
+            world.status = "Selected fleet is no longer available.";
+            return "";
+        }
+        if (GraphicsEnvironment.isHeadless()) return targetSystemId;
+        Object[] options = {"Move", "Rally", "View System", "Cancel"};
+        int choice = JOptionPane.showOptionDialog(null,
+                selected.name() + " (#" + selected.fleetId() + ") -> " + systemDisplayName(targetSystemId),
+                "Galaxy Fleet Order", JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE,
+                null, options, options[0]);
+        if (choice == 2) {
+            selectedFleetId = 0;
+            return targetSystemId;
+        }
+        if (choice != 0 && choice != 1) return "";
+        GalaxyMapFleetCommandBridge.Action action = choice == 1
+                ? GalaxyMapFleetCommandBridge.Action.RALLY : GalaxyMapFleetCommandBridge.Action.MOVE;
+        GalaxyMapFleetCommandBridge.DispatchResult result =
+                GalaxyMapFleetCommandBridge.dispatch(world, ownerId, selected.fleetId(), targetSystemId, action);
+        world.status = result.message();
+        if (result.submitted()) selectedFleetId = 0;
+        return "";
+    }
+
+    private boolean fleetLabelHit(World world, String ownerId, String systemId, NodeLayout node,
+                                  double radius, int screenX, int screenY) {
+        if (GalaxyMapFleetCommandBridge.fleetsAtSystem(world, ownerId, systemId).isEmpty()) return false;
+        double labelY = node.y + radius + 39;
+        return Math.abs(screenX - node.x) <= 62 && Math.abs(screenY - labelY) <= 10;
+    }
+
+    private FleetView selectedFleet() {
+        if (selectedFleetId <= 0) return null;
+        World world = PlayerRegistry.activeWorld();
+        String owner = PlayerRegistry.localId();
+        if (world == null || owner == null || owner.isBlank()) return null;
+        FleetView fleet = FleetManager.view(world, owner, selectedFleetId).orElse(null);
+        if (fleet == null) selectedFleetId = 0;
+        return fleet;
+    }
+
+    private String systemDisplayName(String systemId) {
+        StarSystemDefinition definition = StarSystems.get(GalaxySystemIdentity.templateId(systemId));
+        return definition == null ? systemId : definition.name() + " (" + systemId + ")";
     }
 
     private GalaxyMapSnapshot visibleSnapshot(GalaxyMapSnapshot snapshot) {
@@ -133,6 +250,7 @@ final class GalaxyMapOverlay {
         int count = snapshot.systems().size();
         Map<String,List<GalaxyEventView>> eventsBySystem = discoveredEventsBySystem();
         Map<String,Integer> fleetsBySystem = localFleetCounts();
+        FleetView selected = selectedFleet();
         for (GalaxyMapSystem system : snapshot.systems()) {
             NodeLayout node = layout.get(system.id());
             if (node == null) continue;
@@ -173,7 +291,11 @@ final class GalaxyMapOverlay {
             if (fleetCount > 0) {
                 g.setFont(g.getFont().deriveFont(Font.BOLD, (float)Math.max(8, detailSize - 1)));
                 g.setColor(new Color(255, 236, 150));
-                drawCentered(g, fleetCount + (fleetCount == 1 ? " FLEET" : " FLEETS"), node.x, node.y + radius + 39);
+                String fleetLabel = fleetCount + (fleetCount == 1 ? " FLEET" : " FLEETS");
+                if (selected != null && selected.shipsBySystem().getOrDefault(system.id(), 0) > 0) {
+                    fleetLabel += " [SELECTED]";
+                }
+                drawCentered(g, fleetLabel, node.x, node.y + radius + 39);
             }
             List<GalaxyEventView> events = eventsBySystem.getOrDefault(system.id(), List.of());
             if (!events.isEmpty()) {
@@ -251,7 +373,7 @@ final class GalaxyMapOverlay {
         int y = Math.max(136, height - 50);
         g.setFont(g.getFont().deriveFont(Font.PLAIN, 11f));
         g.setColor(new Color(208, 229, 247));
-        g.drawString("Outer ring = controller/claimant   Gray = neutral   Gold inner ring = your assets   Event line = name/state/countdown   Dashed cyan link = temporary shortcut", x, y);
+        g.drawString("Outer ring = controller/claimant   Gold FLEET label = selectable persistent fleet   Gold inner ring = your assets   Dashed cyan link = temporary shortcut", x, y);
     }
 
     private double nodeRadius(int count, boolean active) {
