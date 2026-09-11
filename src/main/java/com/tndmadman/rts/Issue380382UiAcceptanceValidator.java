@@ -10,6 +10,7 @@ public final class Issue380382UiAcceptanceValidator {
 
     public static void main(String[] args) {
         validatePersistentFleetPresentation();
+        validateGalaxyMapFleetCommandSurface();
         validateBranchingResearchPresentation();
         System.out.println("Issues #380/#382 strategic UI acceptance validation passed.");
     }
@@ -44,6 +45,56 @@ public final class Issue380382UiAcceptanceValidator {
                 "fleet command UI must expose strategic order state");
     }
 
+    private static void validateGalaxyMapFleetCommandSurface() {
+        PlayerRegistry.reset("SOLO", "Galaxy fleet acceptance", 0x50BEFF);
+        World world = new World("Galaxy fleet acceptance", Set.of(), StarSystems.DEFAULT_SYSTEM_ID);
+        PlayerRegistry.activate(world);
+        Unit first = soloUnit(world);
+        Unit second = world.spawnShip(Rules.STARTING_SHIP,
+                Calc.clamp(first.x + 50, 30, world.width - 30), Calc.clamp(first.y + 25, 30, world.height - 30));
+        world.saveActiveSystem();
+        FleetCreateResult created = FleetManager.create(world, "SOLO", "Map Vanguard", List.of(first.key(), second.key()));
+        require(created.result() == FleetMutationResult.APPLIED, "galaxy-map fixture should create persistent fleet");
+
+        FleetView initial = FleetManager.view(world, "SOLO", created.fleetId()).orElseThrow();
+        String sourceSystem = initial.shipsBySystem().keySet().stream().findFirst().orElse("");
+        String targetSystem = firstSystemOtherThan(world.authoritativeGalaxyMapSnapshot(), sourceSystem);
+        require(!sourceSystem.isBlank() && !targetSystem.isBlank(),
+                "galaxy-map fixture requires distinct source and target systems");
+
+        GalaxyMapOverlay map = new GalaxyMapOverlay();
+        require(map.pointForSystem(world.authoritativeGalaxyMapSnapshot(), sourceSystem, 1280, 900) != null,
+                "persistent fleet source system must be addressable on the Galaxy Map");
+        require(map.selectFleetAtSystemForTest(world, "SOLO", sourceSystem) == created.fleetId(),
+                "Galaxy Map must select an owned persistent fleet from its system fleet marker");
+        require(map.selectedFleetIdForTest() == created.fleetId(),
+                "Galaxy Map did not retain the selected persistent fleet identity");
+
+        String movePacket = GalaxyMapFleetCommandBridge.commandForTest(
+                world, "SOLO", created.fleetId(), targetSystem, GalaxyMapFleetCommandBridge.Action.MOVE);
+        require(movePacket.startsWith("FLEET|") && movePacket.contains("|MOVE|"),
+                "Galaxy Map Move must use the bounded authoritative FleetWire command surface");
+        GalaxyMapFleetCommandBridge.DispatchResult move = map.issueSelectedFleetForTest(
+                world, "SOLO", targetSystem, GalaxyMapFleetCommandBridge.Action.MOVE);
+        require(move.submitted() && move.applied(), "Galaxy Map Move order was not applied through FleetWire");
+        FleetView afterMove = FleetManager.view(world, "SOLO", created.fleetId()).orElseThrow();
+        require(afterMove.order().type() == FleetOrderType.MOVE_TO_SYSTEM
+                        && targetSystem.equals(afterMove.order().destinationSystemId()),
+                "Galaxy Map Move did not update the authoritative strategic fleet order");
+
+        String rallyPacket = GalaxyMapFleetCommandBridge.commandForTest(
+                world, "SOLO", created.fleetId(), sourceSystem, GalaxyMapFleetCommandBridge.Action.RALLY);
+        require(rallyPacket.startsWith("FLEET|") && rallyPacket.contains("|RALLY|"),
+                "Galaxy Map Rally must use the bounded authoritative FleetWire command surface");
+        GalaxyMapFleetCommandBridge.DispatchResult rally = map.issueSelectedFleetForTest(
+                world, "SOLO", sourceSystem, GalaxyMapFleetCommandBridge.Action.RALLY);
+        require(rally.submitted() && rally.applied(), "Galaxy Map Rally order was not applied through FleetWire");
+        FleetView afterRally = FleetManager.view(world, "SOLO", created.fleetId()).orElseThrow();
+        require(afterRally.order().type() == FleetOrderType.RALLY
+                        && sourceSystem.equals(afterRally.order().destinationSystemId()),
+                "Galaxy Map Rally did not update the authoritative strategic fleet order");
+    }
+
     private static void validateBranchingResearchPresentation() {
         PlayerRegistry.reset("SOLO", "Research UI acceptance", 0x50BEFF);
         World world = new World("Research UI acceptance", Set.of(), StarSystems.DEFAULT_SYSTEM_ID);
@@ -68,6 +119,14 @@ public final class Issue380382UiAcceptanceValidator {
         require(branches.size() >= 2, "research UI must expose configured branch identity");
         require(dependencyShown, "research UI must expose prerequisite dependencies");
         require(doctrineShown, "research UI must expose doctrine-exclusive choices");
+    }
+
+    private static String firstSystemOtherThan(GalaxyMapSnapshot snapshot, String excluded) {
+        if (snapshot == null) return "";
+        for (GalaxyMapSystem system : snapshot.systems()) {
+            if (system != null && !system.id().equals(excluded)) return system.id();
+        }
+        return "";
     }
 
     private static Unit soloUnit(World world) {
