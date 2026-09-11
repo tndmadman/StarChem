@@ -247,7 +247,6 @@ final class ShipShape {
             case BRIDGE -> drawBridge(g, x, y, w, h, style);
         }
     }
-
     private static void drawStructuralSpine(Graphics2D g, Path2D hull, double s, Color color) {
         Rectangle2D b = hull.getBounds2D();
         double left = Math.max(b.getMinX() + 5 * s, -18 * s);
@@ -264,19 +263,19 @@ final class ShipShape {
         Graphics2D accents = (Graphics2D)g.create();
         accents.clip(hull);
         accents.setColor(style.accent());
-        accents.setStroke(new BasicStroke((float)Math.max(1.15, 1.22 * s),
+        accents.setStroke(new BasicStroke((float)Math.max(2.0, 1.9 * s),
                 BasicStroke.CAP_SQUARE, BasicStroke.JOIN_ROUND));
 
-        double x1 = b.getMinX() + b.getWidth() * 0.31;
-        double x2 = b.getMinX() + b.getWidth() * 0.50;
+        double x1 = b.getMinX() + b.getWidth() * 0.27;
+        double x2 = b.getMinX() + b.getWidth() * 0.55;
         double y = b.getHeight() * (0.15 + style.variantIndex() * 0.015);
         accents.drawLine((int)Math.round(x1), (int)Math.round(-y),
                 (int)Math.round(x2), (int)Math.round(-y));
         accents.drawLine((int)Math.round(x1), (int)Math.round(y),
                 (int)Math.round(x2), (int)Math.round(y));
 
-        double panelW = Math.max(4 * s, b.getWidth() * 0.09);
-        double panelH = Math.max(2 * s, b.getHeight() * 0.055);
+        double panelW = Math.max(6 * s, b.getWidth() * 0.14);
+        double panelH = Math.max(3 * s, b.getHeight() * 0.09);
         double panelX = b.getMinX() + b.getWidth() * (0.56 + 0.02 * style.variantIndex());
         accents.fillRoundRect((int)Math.round(panelX - panelW / 2), (int)Math.round(-panelH / 2),
                 Math.max(2, (int)Math.round(panelW)), Math.max(2, (int)Math.round(panelH)), 2, 2);
