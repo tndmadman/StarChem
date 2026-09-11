@@ -25,20 +25,20 @@ final class GalaxyMapOverlay {
         snapshot = visibleSnapshot(snapshot);
         Graphics2D g = (Graphics2D) g2.create();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setColor(new Color(2, 5, 10, 224));
+        g.setColor(UiPalette.OVERLAY);
         g.fillRect(0, 0, width, height);
 
-        g.setColor(new Color(10, 18, 30, 240));
+        g.setColor(UiPalette.PANEL);
         g.fillRoundRect(38, 42, Math.max(1, width - 76), Math.max(1, height - 84), 24, 24);
-        g.setColor(new Color(92, 137, 180, 150));
+        g.setColor(UiPalette.BORDER);
         g.setStroke(new BasicStroke(2f));
         g.drawRoundRect(38, 42, Math.max(1, width - 76), Math.max(1, height - 84), 24, 24);
 
         g.setFont(g.getFont().deriveFont(Font.BOLD, 22f));
-        g.setColor(new Color(230, 244, 255));
+        g.setColor(UiPalette.TEXT);
         g.drawString("GALAXY MAP", 66, 78);
         g.setFont(g.getFont().deriveFont(Font.PLAIN, 12f));
-        g.setColor(new Color(185, 211, 235));
+        g.setColor(UiPalette.TEXT_MUTED);
         FleetView selected = selectedFleet();
         if (selected == null) {
             g.drawString("Click system to view | Click gold FLEET label to select a persistent fleet | Ring color shows controller", 66, 101);
@@ -48,7 +48,7 @@ final class GalaxyMapOverlay {
         }
 
         if (snapshot == null || snapshot.empty()) {
-            g.setColor(new Color(230, 244, 255, 180));
+            g.setColor(UiPalette.TEXT_MUTED);
             g.drawString("No active systems discovered yet.", 66, 134);
             g.dispose();
             return;
@@ -224,7 +224,7 @@ final class GalaxyMapOverlay {
     }
 
     private void drawGrid(Graphics2D g, int width, int height) {
-        g.setColor(new Color(38, 57, 78, 60));
+        g.setColor(new Color(70, 72, 70, 55));
         for (int x = 70; x < width - 70; x += 88) g.drawLine(x, 116, x, height - 72);
         for (int y = 120; y < height - 72; y += 88) g.drawLine(52, y, width - 52, y);
     }
@@ -240,6 +240,7 @@ final class GalaxyMapOverlay {
             if (a == null || b == null) continue;
             boolean dynamic = temporary.contains(linkKey(link.fromSystemId(), link.toSystemId()));
             g.setStroke(dynamic ? temporaryStroke : normal);
+            // Wormhole links stay cool/emissive because they represent actual energy.
             g.setColor(dynamic ? new Color(105, 235, 255, 185) : new Color(90, 186, 255, 92));
             g.draw(new Line2D.Double(a.x, a.y, b.x, b.y));
         }
@@ -257,10 +258,10 @@ final class GalaxyMapOverlay {
             double radius = nodeRadius(count, system.active());
             Ellipse2D circle = new Ellipse2D.Double(node.x - radius, node.y - radius, radius * 2, radius * 2);
 
-            Color fill = system.home() ? new Color(43, 91, 126, 235)
-                    : system.special() ? new Color(48, 64, 82, 240)
-                    : new Color(34, 58, 82, 235);
-            if (system.active()) fill = new Color(48, 112, 96, 245);
+            Color fill = system.home() ? new Color(52, 57, 56, 235)
+                    : system.special() ? new Color(63, 53, 48, 240)
+                    : new Color(40, 45, 47, 235);
+            if (system.active()) fill = new Color(76, 66, 49, 245);
             g.setColor(fill);
             g.fill(circle);
 
@@ -279,10 +280,10 @@ final class GalaxyMapOverlay {
             int titleSize = count > 20 ? 10 : 12;
             int detailSize = count > 20 ? 9 : 10;
             g.setFont(g.getFont().deriveFont(Font.BOLD, (float)titleSize));
-            g.setColor(Color.WHITE);
+            g.setColor(UiPalette.TEXT);
             drawCentered(g, system.name(), node.x, node.y - radius - 10);
             g.setFont(g.getFont().deriveFont(Font.PLAIN, (float)detailSize));
-            g.setColor(new Color(208, 229, 247));
+            g.setColor(UiPalette.TEXT_MUTED);
             drawCentered(g, system.id(), node.x, node.y + 3);
             drawCentered(g, system.ships() + "S  " + system.bases() + "B  " + system.resources() + "R", node.x, node.y + radius + 13);
             g.setColor(controlColor);
@@ -372,7 +373,7 @@ final class GalaxyMapOverlay {
         int x = 66;
         int y = Math.max(136, height - 50);
         g.setFont(g.getFont().deriveFont(Font.PLAIN, 11f));
-        g.setColor(new Color(208, 229, 247));
+        g.setColor(UiPalette.TEXT_MUTED);
         g.drawString("Outer ring = controller/claimant   Gold FLEET label = selectable persistent fleet   Gold inner ring = your assets   Dashed cyan link = temporary shortcut", x, y);
     }
 
