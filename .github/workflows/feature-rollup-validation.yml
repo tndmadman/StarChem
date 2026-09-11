@@ -13,13 +13,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  validate-features:
-    name: Validate integrated feature streams
+  final-acceptance:
+    name: Validate final integrated acceptance wave
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
 
     steps:
-      - name: Check out source
+      - name: Check out exact source
         uses: actions/checkout@v4
 
       - name: Set up Java 17
@@ -33,26 +33,57 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Compile StarChem
-        run: gradle classes --no-daemon --stacktrace
+      - name: Record exact validation SHA
+        run: |
+          echo "VALIDATING_SHA=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
 
-      - name: Validate research tree
+      - name: Maven compatibility gate
+        shell: bash
+        run: |
+          if [[ -f pom.xml ]]; then
+            mvn -q test
+          else
+            echo "mvn -q test not applicable: StarChem is a Gradle project and has no pom.xml."
+          fi
+
+      - name: Compile and run Gradle tests
+        run: gradle test classes --no-daemon --stacktrace
+
+      - name: Run every issue/all shell validation wrapper if present
+        shell: bash
+        run: |
+          mapfile -t wrappers < <(find . -type f \( -name 'validate_issue_*.sh' -o -name '*_all.sh' \) -print | sort)
+          if (( ${#wrappers[@]} == 0 )); then
+            echo "No validate_issue_*.sh or *_all.sh wrappers are present at this SHA."
+          else
+            for script in "${wrappers[@]}"; do
+              echo "==> $script"
+              bash "$script"
+            done
+          fi
+
+      - name: Validate issue 382 research graph and authoritative unlock gates
         run: python3 scripts/validate_research.py
 
-      - name: Validate persistent fleets
-        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue380PersistentFleetValidator
+      - name: Validate issues 380 and 382 player-facing acceptance
+        run: |
+          java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue380PersistentFleetValidator
+          java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue380382UiAcceptanceValidator
 
-      - name: Validate system control
-        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.SystemControlValidator
+      - name: Validate complete integrated feature wave
+        run: |
+          java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.SystemControlValidator
+          java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue383GalaxyGenerationValidator
+          java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.ScenarioFrameworkValidator
+          java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue386FormationValidator
+          java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue387ProductionCausalAnalysisValidator
 
-      - name: Validate procedural galaxy
-        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue383GalaxyGenerationValidator
+      - name: Validate render performance including issue 407 benchmark
+        run: bash scripts/render-performance.sh
 
-      - name: Validate scenarios
-        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.ScenarioFrameworkValidator
+      - name: Validate security integration wave
+        run: bash validation/run-security-integration.sh build/classes/java/main
 
-      - name: Validate formations
-        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue386FormationValidator
-
-      - name: Validate production diagnostics
-        run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue387ProductionCausalAnalysisValidator
+      - name: Run canonical rendering and regression gate
+        run: bash validation/run-release-regressions.sh "build/classes/java/main:build/resources/main"

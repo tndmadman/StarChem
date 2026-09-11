@@ -132,6 +132,7 @@ final class GalaxyMapOverlay {
     private void drawNodes(Graphics2D g, GalaxyMapSnapshot snapshot, Map<String, NodeLayout> layout) {
         int count = snapshot.systems().size();
         Map<String,List<GalaxyEventView>> eventsBySystem = discoveredEventsBySystem();
+        Map<String,Integer> fleetsBySystem = localFleetCounts();
         for (GalaxyMapSystem system : snapshot.systems()) {
             NodeLayout node = layout.get(system.id());
             if (node == null) continue;
@@ -168,6 +169,12 @@ final class GalaxyMapOverlay {
             drawCentered(g, system.ships() + "S  " + system.bases() + "B  " + system.resources() + "R", node.x, node.y + radius + 13);
             g.setColor(controlColor);
             drawCentered(g, system.controlLabel(), node.x, node.y + radius + 26);
+            int fleetCount = fleetsBySystem.getOrDefault(system.id(), 0);
+            if (fleetCount > 0) {
+                g.setFont(g.getFont().deriveFont(Font.BOLD, (float)Math.max(8, detailSize - 1)));
+                g.setColor(new Color(255, 236, 150));
+                drawCentered(g, fleetCount + (fleetCount == 1 ? " FLEET" : " FLEETS"), node.x, node.y + radius + 39);
+            }
             List<GalaxyEventView> events = eventsBySystem.getOrDefault(system.id(), List.of());
             if (!events.isEmpty()) {
                 GalaxyEventView first = events.get(0);
@@ -191,6 +198,19 @@ final class GalaxyMapOverlay {
                 drawCentered(g, eventLine, node.x, node.y - radius - 23);
             }
         }
+    }
+
+    private Map<String,Integer> localFleetCounts() {
+        Map<String,Integer> counts = new HashMap<>();
+        World world = PlayerRegistry.activeWorld();
+        String owner = PlayerRegistry.localId();
+        if (world == null || owner == null || owner.isBlank()) return counts;
+        for (FleetView fleet : FleetManager.viewsForOwner(world, owner)) {
+            for (Map.Entry<String,Integer> entry : fleet.shipsBySystem().entrySet()) {
+                if (entry.getValue() != null && entry.getValue() > 0) counts.merge(entry.getKey(), 1, Integer::sum);
+            }
+        }
+        return counts;
     }
 
     private Map<String,List<GalaxyEventView>> discoveredEventsBySystem() {

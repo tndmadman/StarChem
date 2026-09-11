@@ -299,6 +299,7 @@ final class PeerClientSide {
         sendCommandToServer("PROD|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(action) + "|"
                 + cleanPacketPart(baseId) + "|" + cleanPacketPart(value) + "|" + cleanPacketPart(extra));
     }
+    void fleet(String packet) { if (packet != null && packet.startsWith("FLEET|") && packet.length() <= 16 * 1024) sendCommandToServer(packet); }
     void devSetFreeCrafting(String playerId, boolean enabled) { sendCommandToServer("DEVFREE|" + cleanPacketPart(playerId) + "|" + (enabled ? "1" : "0")); }
     void devAddHangarResource(String playerId, String baseId, Material material, double amount) {
         if (material == null || amount <= 0 || Double.isNaN(amount) || Double.isInfinite(amount)) return;

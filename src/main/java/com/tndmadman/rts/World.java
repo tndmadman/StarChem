@@ -128,6 +128,7 @@ final class World {
         out.put("simulationScheduler", SystemSimulationScheduler.capture(this));
         out.put("productionPlanner", ProductionPlanner.capture(this));
         out.put("logisticsRoutes", LogisticsRouteSystem.capture(this));
+        out.put("fleets", FleetManager.capture(this));
         out.put("npcFactions", captureNpcFactionRuntimes());
         out.put("npcStrategicDirector", NpcStrategicDirector.capture(this));
         out.put("npcStationConstruction", NpcStationConstructionSystem.capture(this));
@@ -143,6 +144,7 @@ final class World {
         SystemSimulationScheduler.restore(this, data.get("simulationScheduler"));
         ProductionPlanner.restore(this, data.get("productionPlanner"));
         LogisticsRouteSystem.restore(this, data.get("logisticsRoutes"));
+        FleetManager.restore(this, data.get("fleets"));
         restoreNpcFactionRuntimes(data.get("npcFactions"));
         NpcStrategicDirector.restore(this, data.get("npcStrategicDirector"));
         NpcStationConstructionSystem.restore(this, data.get("npcStationConstruction"));
@@ -164,6 +166,7 @@ final class World {
     Set<String> removePlayerAndPruneEmptySystems(String playerId) {
         completedResearch.remove(playerId);
         LogisticsRouteSystem.removePlayer(this, playerId);
+        FleetManager.removeOwner(this, playerId);
         Set<String> deleted = galaxy.removePlayerAndPruneEmptySystems(this, playerId);
         npcSystems.keySet().removeAll(deleted);
         removeOrganizedNpcSystems(deleted);
@@ -283,7 +286,7 @@ final class World {
     void syncEnvironment(long seed, double hostTime) { syncEnvironment(systemId(), seed, hostTime); }
     void syncEnvironment(String newSystemId, long seed, double hostTime) { boolean changed = !StarSystems.get(newSystemId).id().equals(systemId()); if (changed) setStarSystem(newSystemId); if (changed || seed != systemSeed) setSystemSeed(seed); double delta = hostTime - systemTime; if (Math.abs(delta) > 0.02) advanceEnvironment(delta); else { systemTime = hostTime; galaxy.setActiveSystemTime(hostTime); } }
     private void setStarSystem(String systemId) { starSystem = StarSystems.get(systemId); }
-    private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); proceduralInactiveScheduler.reset(); clearNpcAiRuntimeState(); SimulationCadence.clear(this); LogisticsRouteSystem.clear(this); remoteGalaxyMapSnapshot = null; celestials = galaxy.rebuild(this, starSystem, seed); }
+    private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); proceduralInactiveScheduler.reset(); clearNpcAiRuntimeState(); FleetManager.clear(this); SimulationCadence.clear(this); LogisticsRouteSystem.clear(this); remoteGalaxyMapSnapshot = null; celestials = galaxy.rebuild(this, starSystem, seed); }
     private Point2D startShipPoint(Point2D basePoint) { return new Point2D.Double(basePoint.getX() + 180, basePoint.getY() - 80); }
 
     private void clearNpcAiRuntimeState() {
@@ -608,7 +611,7 @@ final class World {
     void orbitAround(Unit unit, double cx, double cy, double radius, double dt, double speed) { unit.orbitAngle += dt * speed * (unit.unitId % 2 == 0 ? 1 : -1); unit.targetX = Calc.clamp(cx + Math.cos(unit.orbitAngle) * radius, 0, width); unit.targetY = Calc.clamp(cy + Math.sin(unit.orbitAngle) * radius, 0, height); unit.orbitRetarget = 0; }
     void moveTowardOrbit(Unit unit, double cx, double cy, double radius) { double angle = Math.atan2(unit.y - cy, unit.x - cx); if (Double.isNaN(angle)) angle = unit.unitId; unit.targetX = Calc.clamp(cx + Math.cos(angle) * radius, 0, width); unit.targetY = Calc.clamp(cy + Math.sin(angle) * radius, 0, height); }
     void relocateResource(ResourceNode node) { ResourceSpawner.relocate(node, resources, bases.values(), celestials, random); }
-    private void cleanupDestroyed() { Iterator<Unit> unitIt = units.values().iterator(); while (unitIt.hasNext()) { Unit unit = unitIt.next(); if (unit.hp <= 0) { UnitCommandQueueSystem.remove(this, unit.key()); dropLoot(unit); explodeUnit(unit); unitIt.remove(); } } Iterator<Base> baseIt = bases.values().iterator(); while (baseIt.hasNext()) { Base base = baseIt.next(); if (base.hp <= 0) { dropLoot(base); explodeBase(base); baseIt.remove(); } } NpcStationReplacementSystem.replaceMissingStations(this); NpcCollapseSystem.removeShipsWithoutStations(this); shots.removeIf(shot -> !CombatTarget.alive(this, shot.targetKey) || shot.weapon() == null); for (Unit unit : units.values()) if (!unit.attackTarget.isBlank() && !CombatTarget.alive(this, unit.attackTarget)) { unit.attackTarget = ""; if (unit.task == UnitTask.ATTACK) unit.task = UnitTask.IDLE; } }
+    private void cleanupDestroyed() { Iterator<Unit> unitIt = units.values().iterator(); while (unitIt.hasNext()) { Unit unit = unitIt.next(); if (unit.hp <= 0) { UnitCommandQueueSystem.remove(this, unit.key()); FleetManager.removeUnit(this, unit.key()); dropLoot(unit); explodeUnit(unit); unitIt.remove(); } } Iterator<Base> baseIt = bases.values().iterator(); while (baseIt.hasNext()) { Base base = baseIt.next(); if (base.hp <= 0) { dropLoot(base); explodeBase(base); baseIt.remove(); } } NpcStationReplacementSystem.replaceMissingStations(this); NpcCollapseSystem.removeShipsWithoutStations(this); shots.removeIf(shot -> !CombatTarget.alive(this, shot.targetKey) || shot.weapon() == null); for (Unit unit : units.values()) if (!unit.attackTarget.isBlank() && !CombatTarget.alive(this, unit.attackTarget)) { unit.attackTarget = ""; if (unit.task == UnitTask.ATTACK) unit.task = UnitTask.IDLE; } }
     private void dropLoot(Unit unit) { int count = WorldLootDrops.scatter(this, SalvageDrops.fromUnit(unit), unit.x, unit.y, Math.max(1.0, unit.type().size.scale), lootSeed(unit.key(), unit.x, unit.y)); if (count > 0 && PlayerRegistry.isLocal(unit.playerId)) status = "Destroyed ship dropped cargo and salvage."; }
     private void dropLoot(Base base) { double power = Math.max(2.4, base.type().maxHp / 900.0); int count = WorldLootDrops.scatter(this, SalvageDrops.fromBase(base), base.x, base.y, power, lootSeed(base.id, base.x, base.y)); if (count > 0 && PlayerRegistry.isLocal(base.playerId)) status = "Destroyed station dropped hangar loot and salvage."; }
     private long lootSeed(String key, double x, double y) { return System.nanoTime() ^ ((long)key.hashCode() << 32) ^ Double.doubleToLongBits(x * 37.0 + y * 41.0); }

@@ -85,13 +85,17 @@ public final class ServerDevCommandValidator {
                     "legacy access grant did not preserve separate free-build state");
 
             submit(console, "dev role set " + playerId + " developer-freebuild");
-            harness.runTicks(20);
+            harness.await(() -> client.network().clientConnected()
+                            && harness.serverNetwork.serverSessionConnected(playerId),
+                    10_000, "client did not reconnect before runtime developer packet validation");
+            harness.await(() -> harness.serverWorld.devFreeBuildFor(playerId),
+                    5_000, "developer-freebuild role did not reach authoritative world before packet validation");
             client.network().devSetFreeCrafting(playerId, false);
-            harness.runTicks(20);
-            TcpIntegrationHarness.require(!harness.serverWorld.devFreeBuildFor(playerId),
-                    "runtime developer packet did not disable free-build");
+            harness.await(() -> !harness.serverWorld.devFreeBuildFor(playerId),
+                    5_000, "runtime developer packet did not disable free-build");
             client.network().devSetFreeCrafting(playerId, true);
-            harness.runTicks(20);
+            harness.await(() -> harness.serverWorld.devFreeBuildFor(playerId),
+                    5_000, "runtime developer packet did not re-enable free-build");
 
             submit(console, "dev research revoke " + playerId + " advanced_industry cascade");
             submit(console, "dev role set " + playerId + " none");

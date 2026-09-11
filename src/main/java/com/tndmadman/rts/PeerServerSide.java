@@ -115,6 +115,10 @@ final class PeerServerSide {
         sequence = PeerSyncBatch.sendInitial(world, views, peer, sequence, transport::send);
         sendLeaderboard(peer);
         sendGalaxy(peer);
+        if (!ObserverSessions.isObserver(world, peer.playerId())) {
+            try { transport.sendOrdered(FleetWire.statePacket(world, peer.playerId()), peer.connectionId()); }
+            catch (RuntimeException ex) { transport.recordMalformedPacket(); }
+        }
     }
 
     void sendInitialTo(ConnectionId connectionId) { sendInitial(peers.get(connectionId)); }
