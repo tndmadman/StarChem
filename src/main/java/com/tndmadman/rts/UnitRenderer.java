@@ -76,7 +76,7 @@ final class UnitRenderer {
         Graphics2D s = (Graphics2D)g2.create();
         s.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         s.translate(unit.x, unit.y);
-        s.rotate(unit.heading);
+        s.rotate(ShipVisualFacing.heading(unit.heading));
         ShipShape.draw(s, unit.type(), playerColor, ShipVisualStyle.variantIndex(unit));
         // Repository-backed micro-paneling is secondary close-detail only. Authored geometry,
         // material language and ownership accents remain visible at every detailed LOD.
