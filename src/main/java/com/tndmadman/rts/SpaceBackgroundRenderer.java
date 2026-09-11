@@ -178,7 +178,7 @@ final class SpaceBackgroundRenderer {
         int minY = Math.max(0, (int) Math.floor(view.getMinY() / TACTICAL_GRID_SPACING) * TACTICAL_GRID_SPACING);
         int maxY = Math.min(height, (int) Math.ceil(view.getMaxY() / TACTICAL_GRID_SPACING) * TACTICAL_GRID_SPACING);
         g2.setStroke(new BasicStroke(1f));
-        g2.setColor(new Color(72, 116, 148, 58));
+        g2.setColor(new Color(75, 79, 77, 46));
         for (int x = minX; x <= maxX; x += TACTICAL_GRID_SPACING) g2.drawLine(x, minY, x, maxY);
         for (int y = minY; y <= maxY; y += TACTICAL_GRID_SPACING) g2.drawLine(minX, y, maxX, y);
     }
@@ -381,10 +381,10 @@ final class SpaceBackgroundRenderer {
                         rgb(42, 78, 79), rgb(65, 72, 71), rgb(91, 93, 88),
                         980, 270, 42, 22, 3, 8, 4, 10, 3, 8);
                 case STANDARD -> new Profile(
-                        rgb(4, 8, 15), rgb(7, 15, 25), rgba(35, 70, 104, 10),
-                        rgb(173, 207, 242), rgb(244, 224, 183),
-                        rgb(44, 66, 87), rgb(45, 75, 91),
-                        rgb(46, 69, 91), rgb(42, 65, 82), rgb(82, 91, 101),
+                        rgb(7, 8, 9), rgb(14, 15, 16), rgba(89, 72, 50, 9),
+                        rgb(190, 198, 202), rgb(239, 215, 174),
+                        rgb(67, 64, 58), rgb(58, 64, 64),
+                        rgb(62, 59, 54), rgb(55, 61, 61), rgb(86, 87, 84),
                         1120, 300, 50, 20, 2, 0, 4, 9, 3, 7);
             };
         }
