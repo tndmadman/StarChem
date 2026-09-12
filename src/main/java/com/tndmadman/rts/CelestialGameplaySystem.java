@@ -6,7 +6,6 @@ import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -230,8 +229,16 @@ final class CelestialGameplaySystem {
                 double speed = 0.018 + 0.004 * (slot + 1);
                 double x = view.x() + Math.cos(angle) * orbitRadius;
                 double y = view.y() + Math.sin(angle) * orbitRadius;
-                ResourceNode node = new ResourceNode(nextId, material, x, y,
-                        1800.0 + slot * 450.0, 12.0, 100.0);
+                ResourceNode node = new ResourceNode(
+                        nextId,
+                        material.label + " deposit",
+                        NodeKind.MINERAL_ASTEROID,
+                        material,
+                        x,
+                        y,
+                        1800.0 + slot * 450.0,
+                        12.0,
+                        28.0);
                 node.orbit(view.x(), view.y(), orbitRadius, angle, speed);
                 node.celestialAnchorBodyId = view.id();
                 state.resources.add(node);
@@ -262,7 +269,7 @@ final class CelestialGameplaySystem {
             }
             if (nearest == null) continue;
             base.celestialAnchorBodyId = nearest.id();
-            base.celestialOrbitRadius = Math.max(nearestDistance, nearest.radius() + base.radius + 60.0);
+            base.celestialOrbitRadius = Math.max(nearestDistance, nearest.radius() + base.interactionRadius() + 60.0);
             base.celestialOrbitAngle = Math.atan2(base.y - nearest.y(), base.x - nearest.x());
             base.celestialOrbitSpeed = 0.010 * Math.sqrt(400.0 / Math.max(200.0, base.celestialOrbitRadius));
         }
@@ -361,7 +368,7 @@ final class CelestialGameplaySystem {
     }
 
     private static CelestialInstallationType installationType(Base base) {
-        String type = String.valueOf(base.type).toLowerCase(Locale.ROOT);
+        String type = base.typeId == null ? "" : base.typeId.toLowerCase(Locale.ROOT);
         if (type.contains("research") || type.contains("lab")) return CelestialInstallationType.RESEARCH_SITE;
         if (type.contains("sensor") || type.contains("radar") || type.contains("observ")) return CelestialInstallationType.SENSOR_ARRAY;
         if (type.contains("log") || type.contains("cargo") || type.contains("depot") || type.contains("repair")) {
