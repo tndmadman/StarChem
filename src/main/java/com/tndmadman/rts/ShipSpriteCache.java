@@ -7,20 +7,28 @@ import java.awt.image.BufferedImage;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Pre-renders medium-LOD ship hulls into bounded orientation and visual-variant buckets. */
+/**
+ * RAM-resident canonical ship hull sprites.
+ *
+ * Hulls are generated once per ship type / owner color / deterministic visual variant and are
+ * rotated by the renderer. Keeping heading out of the cache key removes the former 48-way
+ * orientation multiplier while preserving the authored procedural hull as the source of truth.
+ */
 final class ShipSpriteCache {
-    private static final int BUCKETS = 48;
     private static final int IMAGE_SIZE = 144;
     private static final int SPRITE_PADDING = 6;
-    private static final int MAX_ENTRIES = 1536;
     private static final long ESTIMATED_BYTES_PER_IMAGE = (long) IMAGE_SIZE * IMAGE_SIZE * Integer.BYTES;
+    private static final long MAX_ESTIMATED_BYTES = 64L * 1024L * 1024L;
+    private static final int MAX_ENTRIES = Math.max(1, (int)(MAX_ESTIMATED_BYTES / ESTIMATED_BYTES_PER_IMAGE));
 
     private static long requests;
     private static long hits;
     private static long misses;
     private static long generations;
     private static long generationNanos;
+    private static long prewarmGenerationNanos;
     private static long evictions;
+    private static long prewarmedSprites;
     private static int peakEntries;
 
     private static final Map<Key, Sprite> CACHE = new LinkedHashMap<>(256, 0.75f, true) {
@@ -34,10 +42,14 @@ final class ShipSpriteCache {
     private ShipSpriteCache() { }
 
     static Sprite sprite(Unit unit, Color color) {
-        if (unit == null || color == null) return null;
-        int bucket = headingBucket(ShipVisualFacing.heading(unit.heading));
-        int variant = ShipVisualStyle.variantIndex(unit);
-        Key key = new Key(unit.shipTypeId, color.getRGB(), variant, bucket);
+        if (unit == null) return null;
+        return sprite(unit.type(), color, ShipVisualStyle.variantIndex(unit));
+    }
+
+    static Sprite sprite(ShipType type, Color color, int visualVariant) {
+        if (type == null || color == null) return null;
+        int variant = Math.floorMod(visualVariant, ShipVisualStyle.VARIANT_COUNT);
+        Key key = new Key(type.id, color.getRGB(), variant);
         synchronized (CACHE) {
             requests++;
             Sprite cached = CACHE.get(key);
@@ -48,17 +60,41 @@ final class ShipSpriteCache {
 
             misses++;
             long started = System.nanoTime();
-            Sprite sprite = render(unit, color, variant, bucket);
+            Sprite created = generate(type, color, variant);
             generationNanos += Math.max(0L, System.nanoTime() - started);
             generations++;
-            CACHE.put(key, sprite);
+            CACHE.put(key, created);
             peakEntries = Math.max(peakEntries, CACHE.size());
-            return sprite;
+            return created;
+        }
+    }
+
+    /**
+     * Generates all finite ship hull variants for an owner color before ordinary rendering.
+     * Repeated calls are cheap because already generated keys are skipped without affecting
+     * normal render request/hit/miss accounting.
+     */
+    static void prewarm(Color color) {
+        if (color == null) return;
+        synchronized (CACHE) {
+            for (ShipType type : Rules.SHIPS.values()) {
+                if (type == null) continue;
+                for (int variant = 0; variant < ShipVisualStyle.VARIANT_COUNT; variant++) {
+                    Key key = new Key(type.id, color.getRGB(), variant);
+                    if (CACHE.containsKey(key)) continue;
+                    long started = System.nanoTime();
+                    CACHE.put(key, generate(type, color, variant));
+                    prewarmGenerationNanos += Math.max(0L, System.nanoTime() - started);
+                    prewarmedSprites++;
+                    peakEntries = Math.max(peakEntries, CACHE.size());
+                }
+            }
         }
     }
 
     static int imageSize() { return IMAGE_SIZE; }
     static int maxEntries() { return MAX_ENTRIES; }
+    static long maxEstimatedBytes() { return MAX_ESTIMATED_BYTES; }
 
     static double rasterScale(ShipType type) {
         if (type == null) return 1.0;
@@ -86,7 +122,9 @@ final class ShipSpriteCache {
                     hitRate,
                     generationMs,
                     averageGenerationMs,
-                    CACHE.size() * ESTIMATED_BYTES_PER_IMAGE);
+                    CACHE.size() * ESTIMATED_BYTES_PER_IMAGE,
+                    prewarmedSprites,
+                    prewarmGenerationNanos / 1_000_000.0);
         }
     }
 
@@ -99,33 +137,28 @@ final class ShipSpriteCache {
             misses = 0;
             generations = 0;
             generationNanos = 0;
+            prewarmGenerationNanos = 0;
             evictions = 0;
+            prewarmedSprites = 0;
             peakEntries = 0;
         }
     }
 
-    private static Sprite render(Unit unit, Color color, int variant, int bucket) {
+    private static Sprite generate(ShipType type, Color color, int variant) {
         BufferedImage image = new BufferedImage(IMAGE_SIZE, IMAGE_SIZE, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = image.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_SPEED);
-        g.translate(IMAGE_SIZE / 2.0, IMAGE_SIZE / 2.0);
-        g.rotate(bucket * Math.PI * 2.0 / BUCKETS);
-        double rasterScale = rasterScale(unit.type());
-        g.scale(rasterScale, rasterScale);
-        // Medium LOD preserves authored silhouette, material palette, ownership accent and bounded
-        // deterministic variation from ShipShape. Micro-panel texture is close-LOD-only because it
-        // is not readable at this scale and needlessly increases cached-sprite compositing cost.
-        ShipShape.draw(g, unit.type(), color, variant);
-        g.dispose();
-        int worldSize = Math.max(IMAGE_SIZE, (int)Math.ceil(IMAGE_SIZE / rasterScale));
-        return new Sprite(image, worldSize);
-    }
-
-    private static int headingBucket(double heading) {
-        if (!Double.isFinite(heading)) return 0;
-        double turns = heading / (Math.PI * 2.0);
-        return Math.floorMod((int)Math.round(turns * BUCKETS), BUCKETS);
+        try {
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_SPEED);
+            g.translate(IMAGE_SIZE / 2.0, IMAGE_SIZE / 2.0);
+            double rasterScale = rasterScale(type);
+            g.scale(rasterScale, rasterScale);
+            ShipShape.draw(g, type, color, variant);
+            int worldSize = Math.max(IMAGE_SIZE, (int)Math.ceil(IMAGE_SIZE / rasterScale));
+            return new Sprite(image, worldSize);
+        } finally {
+            g.dispose();
+        }
     }
 
     record Snapshot(
@@ -140,8 +173,10 @@ final class ShipSpriteCache {
             double hitRate,
             double generationMs,
             double averageGenerationMs,
-            long estimatedBytes) { }
+            long estimatedBytes,
+            long prewarmedSprites,
+            double prewarmGenerationMs) { }
 
     record Sprite(BufferedImage image, int worldSize) { }
-    private record Key(String typeId, int rgb, int visualVariant, int headingBucket) { }
+    private record Key(String typeId, int rgb, int visualVariant) { }
 }

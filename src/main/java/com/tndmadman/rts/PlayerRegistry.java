@@ -51,6 +51,9 @@ final class PlayerRegistry {
         }
         state.players.put(id, new PlayerInfo(id, Config.clean(name), rgb, local));
         DiplomacyBootstrap.assignRegisteredOwner(activeWorld(), id, rgb);
+        // Materialize the color that the renderer will actually use. In team modes this can be
+        // the team's authored color rather than the player's originally registered RGB.
+        ProceduralRenderAssets.prewarmOwnerColor(color(id).getRGB());
     }
 
     static void synchronizeName(String id, String name) {

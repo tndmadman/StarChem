@@ -46,12 +46,13 @@ final class UnitRenderer {
             CombatVfxSystem.drawPropulsion(g2, unit, scale);
             if (scale < 0.24) {
                 drawFarMarker(g2, unit, playerColor, scale);
-            } else if (scale < 0.78) {
-                drawCachedHull(g2, unit, playerColor);
             } else {
                 boolean panelDetail = scale >= PANEL_DETAIL_MIN_SCALE
                         && authoredRadius * scale >= PANEL_DETAIL_MIN_PROJECTED_RADIUS;
-                drawDetailedHull(g2, unit, playerColor, panelDetail);
+                // The authored hull is static procedural art, so every normal LOD uses the
+                // canonical RAM-resident sprite. Only extreme close-up micro-paneling stays live.
+                if (panelDetail) drawDetailedHull(g2, unit, playerColor, true);
+                else drawCachedHull(g2, unit, playerColor);
             }
             DamageStateEffects.drawUnit(g2, unit, scale);
         }
@@ -78,8 +79,8 @@ final class UnitRenderer {
         s.translate(unit.x, unit.y);
         s.rotate(ShipVisualFacing.heading(unit.heading));
         ShipShape.draw(s, unit.type(), playerColor, ShipVisualStyle.variantIndex(unit));
-        // Repository-backed micro-paneling is secondary close-detail only. Authored geometry,
-        // material language and ownership accents remain visible at every detailed LOD.
+        // Repository-backed micro-paneling remains a true close-detail layer. It is intentionally
+        // not multiplied across the RAM sprite atlas because only a few ships can reach this LOD.
         if (panelDetail) ShipSurfaceArt.draw(s, unit.type());
         s.dispose();
     }
@@ -91,9 +92,15 @@ final class UnitRenderer {
             return;
         }
         int size = sprite.worldSize();
-        int x = (int)Math.round(unit.x - size / 2.0);
-        int y = (int)Math.round(unit.y - size / 2.0);
-        g2.drawImage(sprite.image(), x, y, size, size, null);
+        Graphics2D s = (Graphics2D)g2.create();
+        s.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        s.translate(unit.x, unit.y);
+        // Rotate the already generated canonical hull instead of storing 48 copies by heading.
+        // Use the exact same facing transform as the detailed path so issue #447 stays fixed.
+        s.rotate(ShipVisualFacing.heading(unit.heading));
+        int half = size / 2;
+        s.drawImage(sprite.image(), -half, -half, size, size, null);
+        s.dispose();
     }
 
     private static void drawFarMarker(Graphics2D g2, Unit unit, Color playerColor, double scale) {
