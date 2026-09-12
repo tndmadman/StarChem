@@ -16,7 +16,7 @@ final class CelestialGameplayValidator {
         depositsAreBodyAnchoredAndDeterministic();
         restoredDepositsReattachWithoutDuplication();
         buildableInstallationRolesMapCorrectly();
-        stationsOrbitClaimAndContestBodies();
+        stationsOrbitClaimAndRejectHostiles();
         scansAndObjectivesProgress();
         progressAndAnchorsPersistAcrossSavePayload();
         System.out.println("Celestial gameplay validation passed.");
@@ -127,7 +127,7 @@ final class CelestialGameplayValidator {
         return bodyState.installations.get(0);
     }
 
-    private static void stationsOrbitClaimAndContestBodies() {
+    private static void stationsOrbitClaimAndRejectHostiles() {
         WorldSystemState state = state("celestial-claim", 404L);
         CelestialSystem.BodyView body = bodyWithMiningBonus(state);
         Base local = new Base("p1:B1", "P1", "manufacturing",
@@ -155,10 +155,12 @@ final class CelestialGameplayValidator {
                 movedBody.x() - movedBody.radius() - 170, movedBody.y());
         state.bases.put(enemy.id, enemy);
         state.celestials.update(0);
-        require(bodyState.contested && bodyState.claimantId.isBlank(),
-                "multiple owners with orbital installations must contest the body");
-        require(Math.abs(CelestialGameplaySystem.bonusMultiplier(state, "P1", CelestialBonusKind.MINING) - 1.0) < 0.0001,
-                "contested bodies must not grant strategic bonuses");
+        require(!bodyState.contested && "P1".equals(bodyState.claimantId),
+                "hostile station must not contest or steal an active planetary claim");
+        require(enemy.celestialAnchorBodyId == null || enemy.celestialAnchorBodyId.isBlank(),
+                "hostile station must be rejected from the claimed planetary anchor");
+        require(CelestialGameplaySystem.bonusMultiplier(state, "P1", CelestialBonusKind.MINING) > 1.0,
+                "rejected hostile anchor must not suppress the claimant's strategic bonus");
     }
 
     private static void scansAndObjectivesProgress() {
