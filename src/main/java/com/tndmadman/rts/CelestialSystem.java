@@ -86,6 +86,7 @@ final class CelestialSystem {
         if (Double.isFinite(dt)) visualTime = Math.max(0, visualTime + dt);
         for (Body body : bodies) if (body.parent != null) body.update(dt);
         CelestialGameplaySystem.onCelestialUpdate(this, dt);
+        CelestialMoonInheritance.apply(this);
     }
 
     void draw(Graphics2D g2) {
