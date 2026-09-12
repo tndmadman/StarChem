@@ -3,8 +3,11 @@ package com.tndmadman.rts;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Save/restore support for mutable celestial intel and objective progress. */
+/** Save/restore support for mutable celestial gameplay state and physical body anchors. */
 final class CelestialGameplayPersistence {
+    private static final String RESOURCE_ANCHORS = "$resourceAnchors";
+    private static final String BASE_ANCHORS = "$baseAnchors";
+
     private CelestialGameplayPersistence() { }
 
     static Map<String,Object> capture(World world) {
@@ -42,6 +45,25 @@ final class CelestialGameplayPersistence {
             putDoubleMap(row, "extracted", body.extractedByPlayer);
             if (!row.isEmpty()) out.put(body.profile.bodyId(), row);
         }
+
+        Map<String,Object> resourceAnchors = new LinkedHashMap<>();
+        for (ResourceNode node : state.resources) {
+            if (node.celestialAnchorBodyId == null || node.celestialAnchorBodyId.isBlank()) continue;
+            resourceAnchors.put(Integer.toString(node.id), node.celestialAnchorBodyId);
+        }
+        if (!resourceAnchors.isEmpty()) out.put(RESOURCE_ANCHORS, resourceAnchors);
+
+        Map<String,Object> baseAnchors = new LinkedHashMap<>();
+        for (Base base : state.bases.values()) {
+            if (base.celestialAnchorBodyId == null || base.celestialAnchorBodyId.isBlank()) continue;
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("bodyId", base.celestialAnchorBodyId);
+            row.put("radius", base.celestialOrbitRadius);
+            row.put("angle", base.celestialOrbitAngle);
+            row.put("speed", base.celestialOrbitSpeed);
+            baseAnchors.put(base.id, row);
+        }
+        if (!baseAnchors.isEmpty()) out.put(BASE_ANCHORS, baseAnchors);
         return out;
     }
 
@@ -66,6 +88,23 @@ final class CelestialGameplayPersistence {
             restoreDoubleMap(body.scanSecondsByPlayer, row.get("scanSeconds"));
             restoreDoubleMap(body.holdSecondsByPlayer, row.get("holdSeconds"));
             restoreDoubleMap(body.extractedByPlayer, row.get("extracted"));
+        }
+
+        Map<String,Object> resourceAnchors = ServerSaveStore.object(saved.get(RESOURCE_ANCHORS));
+        for (ResourceNode node : state.resources) {
+            String bodyId = ServerSaveStore.asString(resourceAnchors.get(Integer.toString(node.id)), "");
+            if (!bodyId.isBlank() && state.celestials.bodyView(bodyId) != null) node.celestialAnchorBodyId = bodyId;
+        }
+
+        Map<String,Object> baseAnchors = ServerSaveStore.object(saved.get(BASE_ANCHORS));
+        for (Base base : state.bases.values()) {
+            Map<String,Object> row = ServerSaveStore.object(baseAnchors.get(base.id));
+            String bodyId = ServerSaveStore.asString(row.get("bodyId"), "");
+            if (bodyId.isBlank() || state.celestials.bodyView(bodyId) == null) continue;
+            base.celestialAnchorBodyId = bodyId;
+            base.celestialOrbitRadius = Math.max(0, ServerSaveStore.asDouble(row.get("radius"), base.celestialOrbitRadius));
+            base.celestialOrbitAngle = ServerSaveStore.asDouble(row.get("angle"), base.celestialOrbitAngle);
+            base.celestialOrbitSpeed = ServerSaveStore.asDouble(row.get("speed"), base.celestialOrbitSpeed);
         }
     }
 
