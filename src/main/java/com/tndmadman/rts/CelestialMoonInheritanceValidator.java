@@ -3,15 +3,18 @@ package com.tndmadman.rts;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 
-/** Regression coverage for planetary master/slave moon sovereignty. */
+/** Regression coverage for planetary master/slave moon sovereignty and anchor access. */
 final class CelestialMoonInheritanceValidator {
     private CelestialMoonInheritanceValidator() { }
 
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
         planetClaimPropagatesToEveryMoon();
-        planetContestAndReleasePropagateToEveryMoon();
+        hostileStationsCannotAnchorAfterClaimStarts();
+        alliedStationsCanSharePlanetaryAnchors();
+        objectiveHelpExplainsStationRequirements();
         System.out.println("Celestial moon inheritance validation passed.");
     }
 
@@ -66,8 +69,8 @@ final class CelestialMoonInheritanceValidator {
         }
     }
 
-    private static void planetContestAndReleasePropagateToEveryMoon() {
-        WorldSystemState state = state("moon-contest", 8802L);
+    private static void hostileStationsCannotAnchorAfterClaimStarts() {
+        WorldSystemState state = state("moon-anchor-lock", 8802L);
         CelestialSystem.BodyView planet = planetWithMoons(state);
         List<CelestialSystem.BodyView> moons = moonsOf(state, planet.id());
 
@@ -81,26 +84,81 @@ final class CelestialMoonInheritanceValidator {
         state.celestials.update(0);
 
         CelestialBodyState master = CelestialGameplaySystem.bodyState(state, planet.id());
-        require(master != null && master.contested && master.claimantId.isBlank(),
-                "enemy master installation must contest the planet");
+        require(master != null && !master.contested && "P1".equals(master.claimantId),
+                "hostile station must not contest a planet whose claim has already started");
+        require(enemy.celestialAnchorBodyId == null || enemy.celestialAnchorBodyId.isBlank(),
+                "hostile station must be rejected instead of anchoring to the claimed planet");
         for (CelestialSystem.BodyView moon : moons) {
             CelestialBodyState slave = CelestialGameplaySystem.bodyState(state, moon.id());
-            require(slave != null && slave.contested && slave.claimantId.isBlank(),
-                    "master contest must propagate to slave moon " + moon.id());
+            require(slave != null && !slave.contested && "P1".equals(slave.claimantId),
+                    "rejected hostile anchor must not disturb inherited moon sovereignty");
         }
-        require(Math.abs(CelestialMoonInheritance.bonusMultiplier(
-                state, "P1", CelestialBonusKind.LOGISTICS) - 1.0) < 0.0001,
-                "contested planetary groups must grant no inherited moon bonuses");
+
+        CelestialSystem.BodyView moon = moons.get(0);
+        CelestialSystem.BodyView movedMoon = state.celestials.bodyView(moon.id());
+        Base moonEnemy = new Base("P3:MOON", "P3", "outpost", movedMoon.x(), movedMoon.y());
+        state.bases.put(moonEnemy.id, moonEnemy);
+        state.celestials.update(0);
+        require(moonEnemy.celestialAnchorBodyId == null || moonEnemy.celestialAnchorBodyId.isBlank(),
+                "hostile station must also be rejected from slave moons of a claimed planet");
 
         state.bases.clear();
         state.celestials.update(0);
         require(!master.contested && master.claimantId.isBlank(),
                 "removing master installations must release the planet");
-        for (CelestialSystem.BodyView moon : moons) {
-            CelestialBodyState slave = CelestialGameplaySystem.bodyState(state, moon.id());
+        for (CelestialSystem.BodyView child : moons) {
+            CelestialBodyState slave = CelestialGameplaySystem.bodyState(state, child.id());
             require(slave != null && !slave.contested && slave.claimantId.isBlank(),
-                    "released master planet must release slave moon " + moon.id());
+                    "released master planet must release slave moon " + child.id());
         }
+    }
+
+    private static void alliedStationsCanSharePlanetaryAnchors() {
+        World diplomacyWorld = new World("Celestial Alliance Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        PlayerRegistry.activate(diplomacyWorld);
+        DiplomacySystem.setRelationship(diplomacyWorld, "P1", "P2", DiplomacySystem.Relationship.ALLIED);
+
+        WorldSystemState state = state("moon-allied-anchor", 8803L);
+        CelestialSystem.BodyView planet = planetWithMoons(state);
+        Base owner = new Base("P1:MASTER", "P1", "outpost", planet.x(), planet.y());
+        state.bases.put(owner.id, owner);
+        state.celestials.update(0);
+
+        CelestialSystem.BodyView moved = state.celestials.bodyView(planet.id());
+        Base ally = new Base("P2:ALLY", "P2", "radar_picket", moved.x(), moved.y());
+        state.bases.put(ally.id, ally);
+        state.celestials.update(0);
+
+        CelestialBodyState master = CelestialGameplaySystem.bodyState(state, planet.id());
+        require(planet.id().equals(ally.celestialAnchorBodyId),
+                "allied station must be allowed to share the planetary anchor");
+        require(master != null && !master.contested && "P1".equals(master.claimantId),
+                "allied anchor must not contest or steal the existing planetary claim");
+        require(master.installations.contains(CelestialInstallationType.SENSOR_ARRAY),
+                "allied anchored station must participate in friendly planetary installations");
+    }
+
+    private static void objectiveHelpExplainsStationRequirements() {
+        WorldSystemState state = state("moon-objective-help", 8804L);
+        CelestialSystem.BodyView planet = planetWithMoons(state);
+        CelestialSystem.BodyView moon = moonsOf(state, planet.id()).get(0);
+
+        String scan = CelestialObjectiveHelp.requirement(state, planet.id(), CelestialObjectiveType.SCAN);
+        String claim = CelestialObjectiveHelp.requirement(state, planet.id(), CelestialObjectiveType.CLAIM);
+        String hold = CelestialObjectiveHelp.requirement(state, planet.id(), CelestialObjectiveType.HOLD);
+        String extract = CelestialObjectiveHelp.requirement(state, planet.id(), CelestialObjectiveType.EXTRACT);
+        String moonClaim = CelestialObjectiveHelp.requirement(state, moon.id(), CelestialObjectiveType.CLAIM);
+
+        require(scan.contains("Station needed: none") && scan.contains("Sensor Array"),
+                "SCAN help must explain that no specific station is required");
+        require(claim.contains("any friendly orbital station") && claim.contains("hostile and neutral"),
+                "CLAIM help must explain friendly-anchor ownership lock");
+        require(hold.contains("friendly orbital station") && hold.contains("120"),
+                "HOLD help must state the station and hold-duration requirement");
+        require(extract.contains("Manufacturing/Extractor") && extract.contains("500"),
+                "EXTRACT help must explain mining progress and extractor bonus requirement");
+        require(moonClaim.contains(planet.name()) && moonClaim.contains("no separate moon claim station"),
+                "moon CLAIM help must point players to the master planet");
     }
 
     private static WorldSystemState state(String id, long seed) {
