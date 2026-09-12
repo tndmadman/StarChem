@@ -85,6 +85,7 @@ final class CelestialSystem {
     void update(double dt) {
         if (Double.isFinite(dt)) visualTime = Math.max(0, visualTime + dt);
         for (Body body : bodies) if (body.parent != null) body.update(dt);
+        CelestialGameplaySystem.onCelestialUpdate(this, dt);
     }
 
     void draw(Graphics2D g2) {
@@ -106,6 +107,47 @@ final class CelestialSystem {
     double sunY() { return sunY; }
     SystemVisualDefinition systemVisualForTest() { return systemVisual; }
     long backgroundSeedForTest() { return background.seedForTest(); }
+
+    List<BodyView> bodyViews() {
+        ArrayList<BodyView> out = new ArrayList<>(bodies.size());
+        for (Body body : bodies) out.add(view(body));
+        return List.copyOf(out);
+    }
+
+    BodyView bodyView(String id) {
+        if (id == null || id.isBlank()) return null;
+        for (Body body : bodies) if (id.equals(body.id)) return view(body);
+        return null;
+    }
+
+    BodyView bodyAt(double worldX, double worldY, double padding) {
+        if (!Double.isFinite(worldX) || !Double.isFinite(worldY)) return null;
+        Body best = null;
+        double bestDistance = Double.POSITIVE_INFINITY;
+        double extra = Double.isFinite(padding) ? Math.max(0, padding) : 0;
+        for (Body body : bodies) {
+            double distance = Math.hypot(worldX - body.x, worldY - body.y);
+            if (distance <= body.radius + extra && distance < bestDistance) {
+                best = body;
+                bestDistance = distance;
+            }
+        }
+        return best == null ? null : view(best);
+    }
+
+    private static BodyView view(Body body) {
+        return new BodyView(
+                body.id,
+                body.name,
+                body.parent == null ? null : body.parent.id,
+                body.x,
+                body.y,
+                body.radius,
+                body.orbitRadius,
+                body.orbitSpeed,
+                body.angle,
+                body.visual == null ? null : body.visual.visualClass());
+    }
 
     private Body primaryLight() {
         for (Body body : bodies) if (body.visual.visualClass() == CelestialVisualClass.STAR && body.parent == null) return body;
@@ -158,6 +200,21 @@ final class CelestialSystem {
             hash *= 0x100000001b3L;
         }
         return hash;
+    }
+
+    record BodyView(
+            String id,
+            String name,
+            String parentId,
+            double x,
+            double y,
+            double radius,
+            double orbitRadius,
+            double orbitSpeed,
+            double angle,
+            CelestialVisualClass visualClass
+    ) {
+        boolean moon() { return parentId != null && !parentId.isBlank(); }
     }
 
     private static final class Body {
