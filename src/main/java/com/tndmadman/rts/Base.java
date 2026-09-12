@@ -11,12 +11,16 @@ final class Base {
     final String id;
     final String playerId;
     final String typeId;
-    final double x, y;
+    double x, y;
     final EnumMap<Material, Double> inventory = new EnumMap<>(Material.class);
     final List<ProductionJob> productionQueue = new ArrayList<>();
     long nextProductionJobId = 1;
     String logisticsStatus = "";
     double hp, shield, shieldDelayTimer;
+    String celestialAnchorBodyId = "";
+    double celestialOrbitRadius;
+    double celestialOrbitAngle;
+    double celestialOrbitSpeed;
 
     Base(String id, String playerId, String typeId, double x, double y) {
         this.id = id; this.playerId = playerId; this.typeId = typeId; this.x = x; this.y = y;
