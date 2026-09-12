@@ -1,6 +1,7 @@
 name: Celestial Gameplay Validation
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - feature/celestial-gameplay
