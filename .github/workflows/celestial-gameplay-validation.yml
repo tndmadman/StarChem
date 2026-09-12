@@ -10,6 +10,7 @@ on:
       - main
     paths:
       - 'src/main/java/com/tndmadman/rts/CelestialGameplay*.java'
+      - 'src/main/java/com/tndmadman/rts/CelestialMoonInheritance*.java'
       - 'src/main/java/com/tndmadman/rts/CelestialSystem.java'
       - 'src/main/java/com/tndmadman/rts/ResourceNode.java'
       - 'src/main/java/com/tndmadman/rts/ResourceSpawner.java'
@@ -51,6 +52,9 @@ jobs:
 
       - name: Run celestial gameplay regression validator
         run: java -Djava.awt.headless=true -cp 'build/classes/java/main:build/resources/main' com.tndmadman.rts.CelestialGameplayValidator
+
+      - name: Run planet moon inheritance validator
+        run: java -Djava.awt.headless=true -cp 'build/classes/java/main:build/resources/main' com.tndmadman.rts.CelestialMoonInheritanceValidator
 
       - name: Run default verification
         run: gradle check --no-daemon
