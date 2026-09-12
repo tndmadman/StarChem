@@ -257,7 +257,7 @@ final class CelestialGameplaySystem {
                     node = new ResourceNode(
                             plannedId,
                             material.label + " deposit",
-                            NodeKind.SILICATE_ROCK,
+                            depositKind(state, material),
                             material,
                             x,
                             y,
@@ -278,16 +278,16 @@ final class CelestialGameplaySystem {
     private static ResourceNode findSavedDeposit(WorldSystemState state, CelestialBodyState body,
                                                   CelestialSystem.BodyView view, Material material, int plannedId) {
         ResourceNode exact = resourceById(state, plannedId);
-        if (looksLikeDepositFor(exact, body, view, material)) return exact;
+        if (looksLikeDepositFor(state, exact, body, view, material)) return exact;
         for (ResourceNode node : state.resources) {
-            if (looksLikeDepositFor(node, body, view, material) && !body.resourceNodeIds.contains(node.id)) return node;
+            if (looksLikeDepositFor(state, node, body, view, material) && !body.resourceNodeIds.contains(node.id)) return node;
         }
         return null;
     }
 
-    private static boolean looksLikeDepositFor(ResourceNode node, CelestialBodyState body,
+    private static boolean looksLikeDepositFor(WorldSystemState state, ResourceNode node, CelestialBodyState body,
                                                 CelestialSystem.BodyView view, Material material) {
-        if (node == null || node.material != material || node.kind != NodeKind.SILICATE_ROCK) return false;
+        if (node == null || node.material != material || node.kind != depositKind(state, material)) return false;
         if (body.profile.bodyId().equals(node.celestialAnchorBodyId)) return true;
         if (node.celestialAnchorBodyId != null && !node.celestialAnchorBodyId.isBlank()) return false;
         if (!node.orbiting || node.name == null || !node.name.equals(material.label + " deposit")) return false;
@@ -295,6 +295,18 @@ final class CelestialGameplaySystem {
         // At restore time the deterministic body has been advanced to the same systemTime, so this
         // proximity check safely reattaches old deposits instead of creating duplicates.
         return Math.hypot(node.orbitCenterX - view.x(), node.orbitCenterY - view.y()) <= 8.0;
+    }
+
+    private static NodeKind depositKind(WorldSystemState state, Material material) {
+        if (state != null && state.definition != null) {
+            for (ResourceBelt belt : state.definition.resourceBelts()) {
+                if (belt != null && belt.materials != null && belt.materials.contains(material)) return belt.kind;
+            }
+        }
+        for (ResourceBelt belt : Rules.RESOURCE_BELTS) {
+            if (belt != null && belt.materials != null && belt.materials.contains(material)) return belt.kind;
+        }
+        return NodeKind.SILICATE_ROCK;
     }
 
     private static void attachDeposit(WorldSystemState state, CelestialBodyState body,
