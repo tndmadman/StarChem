@@ -4,40 +4,51 @@ final class SystemControlBonuses {
     private SystemControlBonuses() { }
 
     static double miningYield(World world, String ownerId) {
-        return resolved(world, ownerId, Benefit.MINING);
+        return resolved(world, ownerId, Benefit.MINING) * celestial(world, ownerId, CelestialBonusKind.MINING);
     }
 
     static double shieldRegen(World world, String ownerId) {
-        return resolved(world, ownerId, Benefit.SHIELD_REGEN);
+        return resolved(world, ownerId, Benefit.SHIELD_REGEN) * celestial(world, ownerId, CelestialBonusKind.SHIELD);
     }
 
     static double productionThroughput(World world, String ownerId) {
-        return resolved(world, ownerId, Benefit.PRODUCTION);
+        return resolved(world, ownerId, Benefit.PRODUCTION) * celestial(world, ownerId, CelestialBonusKind.PRODUCTION);
     }
 
     static double researchThroughput(World world, String ownerId) {
-        return resolved(world, ownerId, Benefit.RESEARCH);
+        return resolved(world, ownerId, Benefit.RESEARCH) * celestial(world, ownerId, CelestialBonusKind.RESEARCH);
     }
 
     static double refitThroughput(World world, String ownerId) {
-        return resolved(world, ownerId, Benefit.REFIT);
+        return resolved(world, ownerId, Benefit.REFIT) * celestial(world, ownerId, CelestialBonusKind.REPAIR);
     }
 
     static double sensorRange(World world, String ownerId) {
-        return resolved(world, ownerId, Benefit.SENSOR);
+        return resolved(world, ownerId, Benefit.SENSOR) * celestial(world, ownerId, CelestialBonusKind.SENSOR);
     }
 
     static double logisticsThroughput(World world, String ownerId) {
-        return resolved(world, ownerId, Benefit.LOGISTICS);
+        return resolved(world, ownerId, Benefit.LOGISTICS) * celestial(world, ownerId, CelestialBonusKind.LOGISTICS);
     }
 
     static double repairThroughput(World world, String ownerId) {
-        return resolved(world, ownerId, Benefit.REPAIR);
+        return resolved(world, ownerId, Benefit.REPAIR) * celestial(world, ownerId, CelestialBonusKind.REPAIR);
     }
 
     static StrategicSupplyState supplyState(World world, String ownerId) {
         if (!controls(world, ownerId)) return StrategicSupplyState.ISOLATED;
         return StrategicSupplyService.state(world, ownerId, world.activeSystemId());
+    }
+
+    private static double celestial(World world, String ownerId, CelestialBonusKind kind) {
+        if (world == null || ownerId == null || ownerId.isBlank()) return 1.0;
+        String activeId = world.activeSystemId();
+        for (WorldSystemState state : world.policySystemStates()) {
+            if (state != null && state.id.equals(activeId)) {
+                return CelestialGameplaySystem.bonusMultiplier(state, ownerId, kind);
+            }
+        }
+        return 1.0;
     }
 
     private static double resolved(World world, String ownerId, Benefit benefit) {
