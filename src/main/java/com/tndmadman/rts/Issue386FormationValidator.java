@@ -15,6 +15,8 @@ final class Issue386FormationValidator {
         rolesPreferFrontFlankAndRear();
         mixedSpeedsUseAnchorCohesion();
         destroyedOrDetachedMembersReform();
+        arrivalToleranceMatchesQueueCompletion();
+        settledCompletionRetainsSlots();
         crossSystemFormationIntentSurvivesWormholeCommand();
         malformedFormationIntentIsRejected();
         largeSelectionsStayCompleteAndFinite();
@@ -112,6 +114,41 @@ final class Issue386FormationValidator {
         require(after.target("p:2") == null, "removed member must not retain a stale slot");
         for (FleetFormationPlanner.Member member : members) require(after.target(member.key()) != null,
                 "survivor lost its slot after re-form: " + member.key());
+    }
+
+    private static void arrivalToleranceMatchesQueueCompletion() {
+        require(Math.abs(FormationController.arrivalDistance() - 7.0) < 0.001,
+                "formation readiness must use the same seven-unit radius as queued move completion");
+    }
+
+    private static void settledCompletionRetainsSlots() {
+        List<FleetFormationPlanner.Member> members = List.of(
+                member("p:1", 0, 0, 100, 100, true, false),
+                member("p:2", 0, 0, 100, 100, true, false),
+                member("p:3", 0, 0, 100, 100, true, false),
+                member("p:4", 0, 0, 100, 100, true, false));
+        FleetFormationPlanner.Plan settled = FleetFormationPlanner.plan(
+                members, FleetFormation.LINE, 500, 500, 0, -1);
+
+        List<FleetFormationPlanner.Member> remainingMembers = members.subList(1, members.size());
+        List<String> remainingKeys = remainingMembers.stream()
+                .map(FleetFormationPlanner.Member::key)
+                .toList();
+        FleetFormationPlanner.Plan replanned = FleetFormationPlanner.plan(
+                remainingMembers, FleetFormation.LINE, 500, 500, 0, -1);
+        Map<String, FleetFormationPlanner.Target> retained =
+                FormationController.retainedSettledTargets(settled.targets(), remainingKeys);
+
+        require(retained.size() == remainingKeys.size(),
+                "arrival handoff must retain a target for every still-active member");
+        boolean ordinaryReplanWouldShift = false;
+        for (String key : remainingKeys) {
+            require(settled.target(key).equals(retained.get(key)),
+                    "settled slot changed while another member completed: " + key);
+            if (!settled.target(key).equals(replanned.target(key))) ordinaryReplanWouldShift = true;
+        }
+        require(ordinaryReplanWouldShift,
+                "regression fixture must demonstrate that an N-1 line re-plan would move slots");
     }
 
     private static void crossSystemFormationIntentSurvivesWormholeCommand() {
