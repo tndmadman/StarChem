@@ -18,6 +18,9 @@ final class ResourceSpawner {
     static int seed(List<ResourceNode> resources, CelestialSystem celestials, Random random, int startId, List<ResourceBelt> belts) {
         int id = startId;
         for (ResourceBelt belt : belts) id = belt(resources, id, random, celestials, belt);
+        // Resource body geometry is deterministic at its initial amount. Build those sprites while
+        // a client-side system is being seeded so the first visible frame does not pay that cost.
+        ResourceFieldRenderer.prewarmNodes(resources);
         return id;
     }
 
