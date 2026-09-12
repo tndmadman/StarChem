@@ -466,10 +466,10 @@ final class CelestialGameplaySystem {
     private static CelestialInstallationType installationType(Base base) {
         String type = base.typeId == null ? "" : base.typeId.toLowerCase(Locale.ROOT);
         if (type.contains("research") || type.contains("lab")) return CelestialInstallationType.RESEARCH_SITE;
-        if (type.contains("sensor") || type.contains("radar") || type.contains("observ")) return CelestialInstallationType.SENSOR_ARRAY;
-        if (type.contains("log") || type.contains("cargo") || type.contains("depot") || type.contains("repair")) {
-            return CelestialInstallationType.LOGISTICS_HUB;
-        }
+        if (type.contains("sensor") || type.contains("radar") || type.contains("observ")
+                || type.contains("jam") || type.contains("decoy")) return CelestialInstallationType.SENSOR_ARRAY;
+        if (type.contains("log") || type.contains("cargo") || type.contains("depot") || type.contains("repair")
+                || type.contains("outpost") || type.contains("shipyard")) return CelestialInstallationType.LOGISTICS_HUB;
         return CelestialInstallationType.EXTRACTOR;
     }
 
