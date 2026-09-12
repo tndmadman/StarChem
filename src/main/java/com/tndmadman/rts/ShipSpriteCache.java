@@ -26,6 +26,7 @@ final class ShipSpriteCache {
     private static long misses;
     private static long generations;
     private static long generationNanos;
+    private static long prewarmGenerationNanos;
     private static long evictions;
     private static long prewarmedSprites;
     private static int peakEntries;
@@ -58,7 +59,10 @@ final class ShipSpriteCache {
             }
 
             misses++;
+            long started = System.nanoTime();
             Sprite created = generate(type, color, variant);
+            generationNanos += Math.max(0L, System.nanoTime() - started);
+            generations++;
             CACHE.put(key, created);
             peakEntries = Math.max(peakEntries, CACHE.size());
             return created;
@@ -78,7 +82,9 @@ final class ShipSpriteCache {
                 for (int variant = 0; variant < ShipVisualStyle.VARIANT_COUNT; variant++) {
                     Key key = new Key(type.id, color.getRGB(), variant);
                     if (CACHE.containsKey(key)) continue;
+                    long started = System.nanoTime();
                     CACHE.put(key, generate(type, color, variant));
+                    prewarmGenerationNanos += Math.max(0L, System.nanoTime() - started);
                     prewarmedSprites++;
                     peakEntries = Math.max(peakEntries, CACHE.size());
                 }
@@ -117,7 +123,8 @@ final class ShipSpriteCache {
                     generationMs,
                     averageGenerationMs,
                     CACHE.size() * ESTIMATED_BYTES_PER_IMAGE,
-                    prewarmedSprites);
+                    prewarmedSprites,
+                    prewarmGenerationNanos / 1_000_000.0);
         }
     }
 
@@ -130,6 +137,7 @@ final class ShipSpriteCache {
             misses = 0;
             generations = 0;
             generationNanos = 0;
+            prewarmGenerationNanos = 0;
             evictions = 0;
             prewarmedSprites = 0;
             peakEntries = 0;
@@ -137,21 +145,20 @@ final class ShipSpriteCache {
     }
 
     private static Sprite generate(ShipType type, Color color, int variant) {
-        long started = System.nanoTime();
         BufferedImage image = new BufferedImage(IMAGE_SIZE, IMAGE_SIZE, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = image.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_SPEED);
-        g.translate(IMAGE_SIZE / 2.0, IMAGE_SIZE / 2.0);
-        double rasterScale = rasterScale(type);
-        g.scale(rasterScale, rasterScale);
-        ShipShape.draw(g, type, color, variant);
-        g.dispose();
-
-        generationNanos += Math.max(0L, System.nanoTime() - started);
-        generations++;
-        int worldSize = Math.max(IMAGE_SIZE, (int)Math.ceil(IMAGE_SIZE / rasterScale));
-        return new Sprite(image, worldSize);
+        try {
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_SPEED);
+            g.translate(IMAGE_SIZE / 2.0, IMAGE_SIZE / 2.0);
+            double rasterScale = rasterScale(type);
+            g.scale(rasterScale, rasterScale);
+            ShipShape.draw(g, type, color, variant);
+            int worldSize = Math.max(IMAGE_SIZE, (int)Math.ceil(IMAGE_SIZE / rasterScale));
+            return new Sprite(image, worldSize);
+        } finally {
+            g.dispose();
+        }
     }
 
     record Snapshot(
@@ -167,7 +174,8 @@ final class ShipSpriteCache {
             double generationMs,
             double averageGenerationMs,
             long estimatedBytes,
-            long prewarmedSprites) { }
+            long prewarmedSprites,
+            double prewarmGenerationMs) { }
 
     record Sprite(BufferedImage image, int worldSize) { }
     private record Key(String typeId, int rgb, int visualVariant) { }
