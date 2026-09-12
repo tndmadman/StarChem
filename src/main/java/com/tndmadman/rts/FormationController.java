@@ -12,7 +12,10 @@ import java.util.WeakHashMap;
  * naturally and survivors are re-slotted without replacing queue semantics.
  */
 final class FormationController {
-    private static final double ARRIVAL_DISTANCE = 9.0;
+    // Keep formation readiness aligned with UnitCommandQueueSystem's move
+    // completion radius. A wider readiness radius lets one member leave the
+    // queue while another is still approaching its slot.
+    private static final double ARRIVAL_DISTANCE = 7.0;
 
     record RuntimeTarget(double x, double y, double pace, boolean groupReady) { }
 
@@ -26,11 +29,22 @@ final class FormationController {
                              double forwardX, double forwardY, String gateId,
                              List<String> unitKeys) { }
 
+    /**
+     * Once every member has reached its final slot, keep those exact slots
+     * latched while individual queue heads drain. Without this latch, the first
+     * member to complete disappears from formation membership, causing an N-1
+     * re-plan that makes the remaining ships shuffle across the destination.
+     */
+    private record SettledGroup(List<String> memberKeys,
+                                Map<String, FleetFormationPlanner.Target> targets,
+                                double pace) { }
+
     private record Cache(String systemId, long timeBits,
                          Map<String, RuntimeTarget> movementTargets,
                          Map<String, FleetFormationPlanner.Target> escortTargets) { }
 
     private static final Map<World, Cache> CACHES = new WeakHashMap<>();
+    private static final Map<World, Map<GroupKey, SettledGroup>> SETTLED_GROUPS = new WeakHashMap<>();
 
     private FormationController() { }
 
@@ -40,6 +54,11 @@ final class FormationController {
 
     static void clear(World world) {
         invalidate(world);
+        if (world != null) SETTLED_GROUPS.remove(world);
+    }
+
+    static double arrivalDistance() {
+        return ARRIVAL_DISTANCE;
     }
 
     static RuntimeTarget target(World world, Unit unit, QueuedUnitCommand command) {
@@ -62,6 +81,25 @@ final class FormationController {
         if (error > tolerance) return Math.min(1200.0, basePace * 1.22);
         if (error < -tolerance) return Math.max(1.0, basePace * 0.82);
         return Math.min(1200.0, basePace);
+    }
+
+    /**
+     * Return the settled targets for the still-active members without changing
+     * their geometry. Kept package-private so the formation validator can
+     * regression-test the arrival handoff directly.
+     */
+    static Map<String, FleetFormationPlanner.Target> retainedSettledTargets(
+            Map<String, FleetFormationPlanner.Target> settledTargets, List<String> activeKeys) {
+        if (settledTargets == null || settledTargets.isEmpty() || activeKeys == null || activeKeys.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, FleetFormationPlanner.Target> retained = new LinkedHashMap<>();
+        for (String key : activeKeys) {
+            FleetFormationPlanner.Target target = settledTargets.get(key);
+            if (target == null) return Map.of();
+            retained.put(key, target);
+        }
+        return Map.copyOf(retained);
     }
 
     private static Cache cache(World world) {
@@ -90,10 +128,21 @@ final class FormationController {
             }
         }
 
+        Map<GroupKey, SettledGroup> settledGroups = SETTLED_GROUPS.computeIfAbsent(world,
+                ignored -> new LinkedHashMap<>());
+        // If a settled formation has fully drained from the queue, its latch is
+        // no longer relevant. This also prevents a future command that reuses a
+        // token from inheriting stale geometry.
+        settledGroups.keySet().removeIf(key -> !groups.containsKey(key));
+
         Map<String, RuntimeTarget> movementTargets = new LinkedHashMap<>();
         for (GroupSeed seed : groups.values()) {
             if (seed.unitKeys().isEmpty()) continue;
             if (seed.key().mode() == Mode.WORMHOLE_SOURCE) {
+                // Source-side wormhole movement is not a terminal formation
+                // arrival. The command must remain intact for destination
+                // regrouping, so never latch source-gate geometry.
+                settledGroups.remove(seed.key());
                 WormholeGate gate = gate(world, seed.gateId());
                 if (gate == null) continue;
                 FleetFormationPlanner.Plan pacePlan = FleetFormationPlanner.plan(world, seed.unitKeys(),
@@ -103,6 +152,21 @@ final class FormationController {
                 }
                 continue;
             }
+
+            SettledGroup settled = settledGroups.get(seed.key());
+            if (settled != null && settledStillCompleting(world, seed, settled)) {
+                Map<String, FleetFormationPlanner.Target> retained =
+                        retainedSettledTargets(settled.targets(), seed.unitKeys());
+                if (retained.size() == seed.unitKeys().size()) {
+                    for (String key : seed.unitKeys()) {
+                        FleetFormationPlanner.Target target = retained.get(key);
+                        movementTargets.put(key,
+                                new RuntimeTarget(target.x(), target.y(), settled.pace(), true));
+                    }
+                    continue;
+                }
+            }
+            if (settled != null) settledGroups.remove(seed.key());
 
             FleetFormationPlanner.Plan plan = FleetFormationPlanner.plan(world, seed.unitKeys(),
                     seed.key().formation(), seed.anchorX(), seed.anchorY(), seed.forwardX(), seed.forwardY());
@@ -128,6 +192,11 @@ final class FormationController {
             }
             boolean groupReady = everyExpectedMemberPresent && everySlotReached;
 
+            if (groupReady) {
+                settledGroups.put(seed.key(), new SettledGroup(
+                        List.copyOf(seed.unitKeys()), Map.copyOf(plan.targets()), plan.pace()));
+            }
+
             for (String key : seed.unitKeys()) {
                 Unit member = world.units.get(key);
                 FleetFormationPlanner.Target target = plan.target(key);
@@ -137,6 +206,8 @@ final class FormationController {
                 movementTargets.put(key, new RuntimeTarget(target.x(), target.y(), pace, groupReady));
             }
         }
+
+        if (settledGroups.isEmpty()) SETTLED_GROUPS.remove(world);
 
         Map<String, FleetFormationPlanner.Target> escortTargets = new LinkedHashMap<>();
         for (Map.Entry<String, List<String>> entry : escortGroups.entrySet()) {
@@ -151,6 +222,42 @@ final class FormationController {
         }
 
         return new Cache(systemId, timeBits, Map.copyOf(movementTargets), Map.copyOf(escortTargets));
+    }
+
+    private static boolean settledStillCompleting(World world, GroupSeed seed, SettledGroup settled) {
+        if (world == null || seed == null || settled == null || seed.unitKeys().isEmpty()) return false;
+        if (seed.unitKeys().size() > settled.memberKeys().size()
+                || !settled.memberKeys().containsAll(seed.unitKeys())) return false;
+        if (retainedSettledTargets(settled.targets(), seed.unitKeys()).size() != seed.unitKeys().size()) return false;
+
+        // A missing member is considered a normal arrival completion only while
+        // it is still alive and sitting at the slot that made the group ready.
+        // Destruction or an actual detach/move-away therefore releases the latch
+        // and lets survivors compact/re-form as before.
+        for (String key : settled.memberKeys()) {
+            if (seed.unitKeys().contains(key)) continue;
+            Unit member = world.units.get(key);
+            FleetFormationPlanner.Target target = settled.targets().get(key);
+            if (member == null || member.hp <= 0 || target == null
+                    || Calc.distance(member.x, member.y, target.x(), target.y()) > ARRIVAL_DISTANCE) {
+                return false;
+            }
+        }
+
+        // If nobody has drained yet, only keep a pre-existing latch while every
+        // member is still inside its settled slot. A later command that happens
+        // to reuse the same token/geometry cannot inherit the latch from afar.
+        if (seed.unitKeys().size() == settled.memberKeys().size()) {
+            for (String key : seed.unitKeys()) {
+                Unit member = world.units.get(key);
+                FleetFormationPlanner.Target target = settled.targets().get(key);
+                if (member == null || target == null
+                        || Calc.distance(member.x, member.y, target.x(), target.y()) > ARRIVAL_DISTANCE) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private static List<String> activeExpectedMembers(World world, String token) {
