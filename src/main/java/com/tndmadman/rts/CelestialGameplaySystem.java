@@ -27,7 +27,15 @@ final class CelestialGameplaySystem {
     static final double HOLD_OBJECTIVE_SECONDS = 120.0;
     static final double EXTRACT_OBJECTIVE_AMOUNT = 500.0;
 
+    // Keep generated celestial deposits in a stable, deterministic namespace far above the normal
+    // sequential galaxy resource allocator. This makes the same body/material resolve to the same
+    // id on host, clients and save restore without advancing GalaxyCoordinator.nextResourceId.
+    private static final int CELESTIAL_RESOURCE_ID_BASE = 1 << 30;
+    private static final long CELESTIAL_RESOURCE_ID_SPAN = (long)Integer.MAX_VALUE - CELESTIAL_RESOURCE_ID_BASE;
+
     private static final Map<CelestialSystem, WorldSystemState> STATES =
+            Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Map<ResourceNode, WorldSystemState> RESOURCE_STATES =
             Collections.synchronizedMap(new WeakHashMap<>());
 
     private CelestialGameplaySystem() { }
@@ -107,6 +115,26 @@ final class CelestialGameplaySystem {
                         progress >= EXTRACT_OBJECTIVE_AMOUNT);
             }
         };
+    }
+
+    /** Attribute extraction to the ship owner that actually mined the body-linked node. */
+    static void recordExtraction(ResourceNode node, String playerId, double amount) {
+        if (node == null || node.celestialAnchorBodyId == null || node.celestialAnchorBodyId.isBlank()
+                || playerId == null || playerId.isBlank() || !Double.isFinite(amount) || amount <= 0) return;
+        WorldSystemState state = RESOURCE_STATES.get(node);
+        if (state == null) {
+            synchronized (STATES) {
+                for (WorldSystemState candidate : STATES.values()) {
+                    if (candidate != null && candidate.resources.contains(node)) {
+                        state = candidate;
+                        RESOURCE_STATES.put(node, candidate);
+                        break;
+                    }
+                }
+            }
+        }
+        CelestialBodyState body = state == null ? null : bodyState(state, node.celestialAnchorBodyId);
+        if (body != null) body.extractedByPlayer.merge(playerId, amount, Double::sum);
     }
 
     private static void ensureBodyStates(WorldSystemState state) {
@@ -211,45 +239,99 @@ final class CelestialGameplaySystem {
     }
 
     private static void ensureBodyDeposits(WorldSystemState state) {
-        Set<Integer> usedIds = new HashSet<>();
-        int nextId = 1;
-        for (ResourceNode node : state.resources) {
-            usedIds.add(node.id);
-            nextId = Math.max(nextId, node.id + 1);
-        }
+        Set<Integer> plannedIds = new HashSet<>();
         for (CelestialBodyState body : state.celestialBodies.values()) {
-            if (body.depositsSeeded) continue;
             CelestialSystem.BodyView view = state.celestials.bodyView(body.profile.bodyId());
             if (view == null) continue;
             int slot = 0;
+            boolean complete = true;
             for (Material material : body.profile.deposits()) {
-                while (usedIds.contains(nextId)) nextId++;
-                double orbitRadius = Math.max(view.radius() + 130.0, view.radius() * 1.35) + slot * 75.0;
-                double angle = normalizedAngle(Objects.hash(state.id, view.id(), material.name(), slot));
-                double speed = 0.018 + 0.004 * (slot + 1);
-                double x = view.x() + Math.cos(angle) * orbitRadius;
-                double y = view.y() + Math.sin(angle) * orbitRadius;
-                ResourceNode node = new ResourceNode(
-                        nextId,
-                        material.label + " deposit",
-                        NodeKind.MINERAL_ASTEROID,
-                        material,
-                        x,
-                        y,
-                        1800.0 + slot * 450.0,
-                        12.0,
-                        28.0);
-                node.orbit(view.x(), view.y(), orbitRadius, angle, speed);
-                node.celestialAnchorBodyId = view.id();
-                state.resources.add(node);
-                body.resourceNodeIds.add(node.id);
-                body.lastResourceAmounts.put(node.id, node.amount);
-                usedIds.add(nextId);
-                nextId++;
+                int plannedId = plannedResourceId(state, body.profile.bodyId(), material, slot, plannedIds);
+                ResourceNode node = findSavedDeposit(state, body, view, material, plannedId);
+                if (node == null) {
+                    double orbitRadius = Math.max(view.radius() + 130.0, view.radius() * 1.35) + slot * 75.0;
+                    double angle = normalizedAngle(Objects.hash(state.id, view.id(), material.name(), slot));
+                    double speed = 0.018 + 0.004 * (slot + 1);
+                    double x = view.x() + Math.cos(angle) * orbitRadius;
+                    double y = view.y() + Math.sin(angle) * orbitRadius;
+                    node = new ResourceNode(
+                            plannedId,
+                            material.label + " deposit",
+                            NodeKind.MINERAL_ASTEROID,
+                            material,
+                            x,
+                            y,
+                            1800.0 + slot * 450.0,
+                            12.0,
+                            28.0);
+                    node.orbit(view.x(), view.y(), orbitRadius, angle, speed);
+                    state.resources.add(node);
+                }
+                attachDeposit(state, body, view, node);
+                complete &= body.resourceNodeIds.contains(node.id);
                 slot++;
             }
-            body.depositsSeeded = true;
+            body.depositsSeeded = complete && body.resourceNodeIds.size() >= body.profile.deposits().size();
         }
+    }
+
+    private static ResourceNode findSavedDeposit(WorldSystemState state, CelestialBodyState body,
+                                                  CelestialSystem.BodyView view, Material material, int plannedId) {
+        ResourceNode exact = resourceById(state, plannedId);
+        if (looksLikeDepositFor(exact, body, view, material)) return exact;
+        for (ResourceNode node : state.resources) {
+            if (looksLikeDepositFor(node, body, view, material) && !body.resourceNodeIds.contains(node.id)) return node;
+        }
+        return null;
+    }
+
+    private static boolean looksLikeDepositFor(ResourceNode node, CelestialBodyState body,
+                                                CelestialSystem.BodyView view, Material material) {
+        if (node == null || node.material != material || node.kind != NodeKind.MINERAL_ASTEROID) return false;
+        if (body.profile.bodyId().equals(node.celestialAnchorBodyId)) return true;
+        if (node.celestialAnchorBodyId != null && !node.celestialAnchorBodyId.isBlank()) return false;
+        if (!node.orbiting || node.name == null || !node.name.equals(material.label + " deposit")) return false;
+        // Saves prior to explicit celestial-anchor persistence already retain the moving orbit center.
+        // At restore time the deterministic body has been advanced to the same systemTime, so this
+        // proximity check safely reattaches old deposits instead of creating duplicates.
+        return Math.hypot(node.orbitCenterX - view.x(), node.orbitCenterY - view.y()) <= 8.0;
+    }
+
+    private static void attachDeposit(WorldSystemState state, CelestialBodyState body,
+                                      CelestialSystem.BodyView view, ResourceNode node) {
+        node.celestialAnchorBodyId = body.profile.bodyId();
+        node.orbitCenterX = view.x();
+        node.orbitCenterY = view.y();
+        if (!body.resourceNodeIds.contains(node.id)) body.resourceNodeIds.add(node.id);
+        RESOURCE_STATES.put(node, state);
+    }
+
+    private static int plannedResourceId(WorldSystemState state, String bodyId, Material material,
+                                         int slot, Set<Integer> plannedIds) {
+        long hash = stableHash(state == null ? "" : state.id, bodyId,
+                material == null ? "" : material.name(), Integer.toString(slot));
+        int candidate = CELESTIAL_RESOURCE_ID_BASE + (int)Math.floorMod(hash, CELESTIAL_RESOURCE_ID_SPAN);
+        while (!plannedIds.add(candidate)) {
+            candidate++;
+            if (candidate <= 0 || candidate == Integer.MAX_VALUE) candidate = CELESTIAL_RESOURCE_ID_BASE;
+        }
+        return candidate;
+    }
+
+    private static long stableHash(String... parts) {
+        long hash = 0xcbf29ce484222325L;
+        for (String part : parts) {
+            String text = part == null ? "" : part;
+            for (int i = 0; i < text.length(); i++) {
+                hash ^= text.charAt(i);
+                hash *= 0x100000001b3L;
+            }
+            hash ^= 0xff;
+            hash *= 0x100000001b3L;
+        }
+        hash ^= hash >>> 33;
+        hash *= 0xff51afd7ed558ccdL;
+        return hash ^ (hash >>> 33);
     }
 
     private static void anchorNearbyStations(WorldSystemState state) {
@@ -282,6 +364,7 @@ final class CelestialGameplaySystem {
             if (body == null) continue;
             node.orbitCenterX = body.x();
             node.orbitCenterY = body.y();
+            RESOURCE_STATES.put(node, state);
             if (!node.orbiting) {
                 double radius = Math.max(body.radius() + 130.0, Math.hypot(node.x - body.x(), node.y - body.y()));
                 double angle = Math.atan2(node.y - body.y(), node.x - body.x());
@@ -348,16 +431,6 @@ final class CelestialGameplaySystem {
         for (CelestialBodyState body : state.celestialBodies.values()) {
             if (!body.contested && body.claimantId != null && !body.claimantId.isBlank()) {
                 body.holdSecondsByPlayer.merge(body.claimantId, dt, Double::sum);
-            }
-            for (int resourceId : body.resourceNodeIds) {
-                ResourceNode node = resourceById(state, resourceId);
-                if (node == null) continue;
-                double previous = body.lastResourceAmounts.getOrDefault(resourceId, node.amount);
-                double extracted = Math.max(0.0, previous - node.amount);
-                if (extracted > 0 && !body.contested && body.claimantId != null && !body.claimantId.isBlank()) {
-                    body.extractedByPlayer.merge(body.claimantId, extracted, Double::sum);
-                }
-                body.lastResourceAmounts.put(resourceId, node.amount);
             }
         }
     }
@@ -465,7 +538,6 @@ final class CelestialBodyState {
     final List<CelestialInstallationType> installations = new ArrayList<>();
     final List<Integer> resourceNodeIds = new ArrayList<>();
     final List<String> orbitalBaseIds = new ArrayList<>();
-    final Map<Integer, Double> lastResourceAmounts = new HashMap<>();
     boolean depositsSeeded;
 
     CelestialBodyState(CelestialGameplayProfile profile) {
