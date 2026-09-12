@@ -45,7 +45,7 @@ final class SystemControlBonuses {
         String activeId = world.activeSystemId();
         for (WorldSystemState state : world.policySystemStates()) {
             if (state != null && state.id.equals(activeId)) {
-                return CelestialGameplaySystem.bonusMultiplier(state, ownerId, kind);
+                return CelestialMoonInheritance.bonusMultiplier(state, ownerId, kind);
             }
         }
         return 1.0;
