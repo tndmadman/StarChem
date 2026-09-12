@@ -5,6 +5,9 @@ on:
     paths:
       - 'src/main/java/com/tndmadman/rts/Base.java'
       - 'src/main/java/com/tndmadman/rts/StationRenderer.java'
+      - 'src/main/java/com/tndmadman/rts/StationSpriteCache.java'
+      - 'src/main/java/com/tndmadman/rts/ProceduralRenderAssets.java'
+      - 'src/main/java/com/tndmadman/rts/ProceduralRenderAssetValidator.java'
       - 'src/main/java/com/tndmadman/rts/IntelStructureRenderer.java'
       - 'src/main/java/com/tndmadman/rts/Issue396StationVisualValidator.java'
       - 'src/main/java/com/tndmadman/rts/StationPresentation.java'
@@ -20,6 +23,9 @@ on:
     paths:
       - 'src/main/java/com/tndmadman/rts/Base.java'
       - 'src/main/java/com/tndmadman/rts/StationRenderer.java'
+      - 'src/main/java/com/tndmadman/rts/StationSpriteCache.java'
+      - 'src/main/java/com/tndmadman/rts/ProceduralRenderAssets.java'
+      - 'src/main/java/com/tndmadman/rts/ProceduralRenderAssetValidator.java'
       - 'src/main/java/com/tndmadman/rts/IntelStructureRenderer.java'
       - 'src/main/java/com/tndmadman/rts/Issue396StationVisualValidator.java'
       - 'src/main/java/com/tndmadman/rts/StationPresentation.java'
@@ -69,3 +75,6 @@ jobs:
 
       - name: Validate station damage-state integration
         run: java -Djava.awt.headless=true -cp build/classes/java/main:build/resources/main com.tndmadman.rts.Issue405DestructionEffectsValidator
+
+      - name: Validate RAM-resident procedural render assets
+        run: java -Djava.awt.headless=true -cp build/classes/java/main:build/resources/main com.tndmadman.rts.ProceduralRenderAssetValidator
