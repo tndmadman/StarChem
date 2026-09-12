@@ -42,7 +42,11 @@ final class StationSpriteCache {
         int size = sprite.worldSize();
         int x = (int)Math.round(base.x - size / 2.0);
         int y = (int)Math.round(base.y - size / 2.0);
+        Object oldInterpolation = source.getRenderingHint(RenderingHints.KEY_INTERPOLATION);
+        source.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
         source.drawImage(sprite.image(), x, y, size, size, null);
+        if (oldInterpolation != null) source.setRenderingHint(RenderingHints.KEY_INTERPOLATION, oldInterpolation);
+        else source.getRenderingHints().remove(RenderingHints.KEY_INTERPOLATION);
         return true;
     }
 
@@ -90,22 +94,26 @@ final class StationSpriteCache {
 
     private static Sprite render(Base base, Color owner, Lod lod) {
         double extent = Math.max(24.0, StationRenderer.visualExtent(base));
-        int size = Math.max(MIN_IMAGE_SIZE, (int)Math.ceil(extent * 2.0 + PADDING * 2.0));
-        // Keep an even center so origin-aligned authored geometry lands consistently.
-        if ((size & 1) != 0) size++;
+        int worldSize = Math.max(MIN_IMAGE_SIZE, (int)Math.ceil(extent * 2.0 + PADDING * 2.0));
+        if ((worldSize & 1) != 0) worldSize++;
 
-        BufferedImage image = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        // Detailed station art is supersampled so normal camera magnification does not turn a
+        // cached vector-derived hull into visibly blocky pixels. It is still drawn at worldSize.
+        int density = lod == Lod.DETAILED ? 2 : 1;
+        int pixelSize = worldSize * density;
+        BufferedImage image = new BufferedImage(pixelSize, pixelSize, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = image.createGraphics();
         try {
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-            g.translate(size / 2.0, size / 2.0);
+            g.translate(pixelSize / 2.0, pixelSize / 2.0);
+            g.scale(density, density);
             if (lod == Lod.FAR) StationRenderer.drawFarStaticAtOrigin(g, base, owner);
             else StationRenderer.drawStaticAtOrigin(g, base, owner, lod == Lod.DETAILED);
         } finally {
             g.dispose();
         }
-        return new Sprite(image, size, rawBytes(image));
+        return new Sprite(image, worldSize, rawBytes(image));
     }
 
     private static void putBounded(Key key, Sprite sprite) {
