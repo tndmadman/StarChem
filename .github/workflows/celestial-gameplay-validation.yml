@@ -11,6 +11,7 @@ on:
     paths:
       - 'src/main/java/com/tndmadman/rts/CelestialGameplay*.java'
       - 'src/main/java/com/tndmadman/rts/CelestialMoonInheritance*.java'
+      - 'src/main/java/com/tndmadman/rts/CelestialObjective*.java'
       - 'src/main/java/com/tndmadman/rts/CelestialSystem.java'
       - 'src/main/java/com/tndmadman/rts/ResourceNode.java'
       - 'src/main/java/com/tndmadman/rts/ResourceSpawner.java'
