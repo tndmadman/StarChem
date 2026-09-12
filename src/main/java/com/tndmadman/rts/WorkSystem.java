@@ -38,6 +38,7 @@ final class WorkSystem {
             node.amount -= gain;
             ResourceSync.mark(world, node);
             unit.addCargo(node.material, gain);
+            CelestialGameplaySystem.recordExtraction(node, unit.playerId, gain);
         }
         if (node.amount <= 0.05) {
             node.deplete();
