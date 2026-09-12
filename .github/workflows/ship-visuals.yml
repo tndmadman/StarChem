@@ -8,6 +8,8 @@ on:
       - 'src/main/java/com/tndmadman/rts/ShipVfxProfile.java'
       - 'src/main/java/com/tndmadman/rts/ShipSpriteCache.java'
       - 'src/main/java/com/tndmadman/rts/UnitRenderer.java'
+      - 'src/main/java/com/tndmadman/rts/ProceduralRenderAssets.java'
+      - 'src/main/java/com/tndmadman/rts/ProceduralRenderAssetValidator.java'
       - 'src/main/java/com/tndmadman/rts/CombatVfxSystem.java'
       - 'src/main/java/com/tndmadman/rts/Issue394ShipMaterialValidator.java'
       - 'src/main/java/com/tndmadman/rts/Issue403CombatVfxValidator.java'
@@ -20,6 +22,8 @@ on:
       - 'src/main/java/com/tndmadman/rts/ShipVfxProfile.java'
       - 'src/main/java/com/tndmadman/rts/ShipSpriteCache.java'
       - 'src/main/java/com/tndmadman/rts/UnitRenderer.java'
+      - 'src/main/java/com/tndmadman/rts/ProceduralRenderAssets.java'
+      - 'src/main/java/com/tndmadman/rts/ProceduralRenderAssetValidator.java'
       - 'src/main/java/com/tndmadman/rts/CombatVfxSystem.java'
       - 'src/main/java/com/tndmadman/rts/Issue394ShipMaterialValidator.java'
       - 'src/main/java/com/tndmadman/rts/Issue403CombatVfxValidator.java'
@@ -47,3 +51,5 @@ jobs:
         run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue394ShipMaterialValidator
       - name: Validate ship combat and propulsion VFX
         run: java -Djava.awt.headless=true -cp build/classes/java/main com.tndmadman.rts.Issue403CombatVfxValidator
+      - name: Validate RAM-resident procedural render assets
+        run: java -Djava.awt.headless=true -cp build/classes/java/main:build/resources/main com.tndmadman.rts.ProceduralRenderAssetValidator
