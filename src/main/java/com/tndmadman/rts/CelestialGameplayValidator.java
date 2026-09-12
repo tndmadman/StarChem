@@ -1,6 +1,7 @@
 package com.tndmadman.rts;
 
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 
@@ -11,10 +12,12 @@ final class CelestialGameplayValidator {
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
         selectableBodiesExposeStableViews();
+        planetsAndMoonsAreClassifiedCorrectly();
         depositsAreBodyAnchoredAndDeterministic();
         restoredDepositsReattachWithoutDuplication();
         stationsOrbitClaimAndContestBodies();
         scansAndObjectivesProgress();
+        progressPersistsAcrossSavePayload();
         System.out.println("Celestial gameplay validation passed.");
     }
 
@@ -24,6 +27,19 @@ final class CelestialGameplayValidator {
         CelestialSystem.BodyView hit = state.celestials.bodyAt(body.x(), body.y(), 0);
         require(hit != null && body.id().equals(hit.id()), "click hit-test must resolve the selected body by id");
         require(state.celestials.bodyView(body.id()) != null, "selected body must remain addressable by stable id");
+    }
+
+    private static void planetsAndMoonsAreClassifiedCorrectly() {
+        WorldSystemState state = state("celestial-kinds", 151L);
+        boolean foundPlanet = false;
+        boolean foundMoon = false;
+        for (CelestialSystem.BodyView body : state.celestials.bodyViews()) {
+            if (body.visualClass() == CelestialVisualClass.STAR) continue;
+            if (body.moon()) foundMoon = true;
+            else foundPlanet = true;
+        }
+        require(foundPlanet, "fixture must expose at least one non-star planet");
+        require(foundMoon, "fixture must expose at least one moon orbiting a non-star body");
     }
 
     private static void depositsAreBodyAnchoredAndDeterministic() {
@@ -122,6 +138,9 @@ final class CelestialGameplayValidator {
         Base base = new Base("p1:SCAN", "P1", Rules.DEFAULT_BASE,
                 body.x() + body.radius() + 150, body.y());
         state.bases.put(base.id, base);
+        // Anchor first, then advance scan time so the test does not depend on body displacement
+        // during a deliberately large validation timestep.
+        state.celestials.update(0);
         state.celestials.update(CelestialGameplaySystem.ANALYZE_SECONDS + 0.5);
 
         require(CelestialGameplaySystem.intel(state, body.id(), "P1") == CelestialIntelLevel.ANALYZED,
@@ -142,6 +161,30 @@ final class CelestialGameplayValidator {
         CelestialGameplaySystem.recordExtraction(deposit, "P1", CelestialGameplaySystem.EXTRACT_OBJECTIVE_AMOUNT);
         require(CelestialGameplaySystem.objectiveStatus(state, body.id(), "P1", CelestialObjectiveType.EXTRACT).complete(),
                 "extract objective must credit the player that actually mined the body deposit");
+    }
+
+    private static void progressPersistsAcrossSavePayload() {
+        WorldSystemState original = state("celestial-persist", 606L);
+        CelestialSystem.BodyView body = firstPlayableBody(original);
+        CelestialBodyState progress = CelestialGameplaySystem.bodyState(original, body.id());
+        require(progress != null, "persistence fixture body state missing");
+        progress.intelByPlayer.put("P1", CelestialIntelLevel.ANALYZED);
+        progress.scanSecondsByPlayer.put("P1", 14.0);
+        progress.holdSecondsByPlayer.put("P1", 63.0);
+        progress.extractedByPlayer.put("P1", 321.0);
+        Map<String,Object> saved = CelestialGameplayPersistence.captureState(original);
+
+        WorldSystemState restored = state("celestial-persist", 606L);
+        CelestialGameplayPersistence.restoreState(restored, saved);
+        CelestialBodyState loaded = CelestialGameplaySystem.bodyState(restored, body.id());
+        require(loaded != null && loaded.intelByPlayer.get("P1") == CelestialIntelLevel.ANALYZED,
+                "save payload must preserve analyzed celestial intel");
+        require(Math.abs(loaded.scanSecondsByPlayer.getOrDefault("P1", 0.0) - 14.0) < 0.001,
+                "save payload must preserve scan progress");
+        require(Math.abs(loaded.holdSecondsByPlayer.getOrDefault("P1", 0.0) - 63.0) < 0.001,
+                "save payload must preserve hold objective progress");
+        require(Math.abs(loaded.extractedByPlayer.getOrDefault("P1", 0.0) - 321.0) < 0.001,
+                "save payload must preserve extraction objective progress");
     }
 
     private static WorldSystemState state(String id, long seed) {
