@@ -51,6 +51,9 @@ final class PlayerRegistry {
         }
         state.players.put(id, new PlayerInfo(id, Config.clean(name), rgb, local));
         DiplomacyBootstrap.assignRegisteredOwner(activeWorld(), id, rgb);
+        // Once a real client-side owner color is known, materialize the finite procedural hull
+        // and station architecture set before ordinary rendering. Headless/server processes skip it.
+        ProceduralRenderAssets.prewarmOwnerColor(rgb);
     }
 
     static void synchronizeName(String id, String name) {
