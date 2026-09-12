@@ -5,6 +5,7 @@ import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.GradientPaint;
 import java.awt.Graphics2D;
+import java.awt.GraphicsEnvironment;
 import java.awt.RadialGradientPaint;
 import java.awt.RenderingHints;
 import java.awt.geom.Arc2D;
@@ -12,6 +13,7 @@ import java.awt.geom.Ellipse2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.Point2D;
 import java.awt.image.BufferedImage;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Random;
@@ -19,17 +21,23 @@ import java.util.Random;
 /**
  * Render-only environmental dressing for authoritative resource nodes.
  *
- * Decorative rocks and gas volumes are cached sprites. They are deliberately not
- * ResourceNodes, so they cannot affect targeting, harvesting, AI, respawn, saves,
- * fog-of-war, or network replication.
+ * Decorative field backdrops and harvestable resource bodies are cached sprites. They are
+ * deliberately not ResourceNodes, so they cannot affect targeting, harvesting, AI, respawn,
+ * saves, fog-of-war, or network replication.
  */
 final class ResourceFieldRenderer {
     private static final int MAX_CACHE_ENTRIES = 192;
+    private static final long MAX_NODE_CACHE_BYTES = 32L * 1024L * 1024L;
+    private static final int NODE_AMOUNT_STEPS = 16;
+    private static final int NODE_PADDING = 7;
+
     private static final Map<SpriteKey, BufferedImage> FIELD_CACHE = new LinkedHashMap<>(64, 0.75f, true) {
         @Override protected boolean removeEldestEntry(Map.Entry<SpriteKey, BufferedImage> eldest) {
             return size() > MAX_CACHE_ENTRIES;
         }
     };
+    private static final Map<NodeSpriteKey, NodeSprite> NODE_CACHE = new LinkedHashMap<>(128, 0.75f, true);
+    private static long nodeCacheBytes;
 
     private ResourceFieldRenderer() { }
 
@@ -43,12 +51,24 @@ final class ResourceFieldRenderer {
         Graphics2D g = (Graphics2D) source.create();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 
         if (backdrop) drawFieldSprite(g, node, lod);
-        if (node.kind == NodeKind.GAS_CLOUD) drawHarvestGas(g, node, selected);
-        else drawHarvestRock(g, node, selected);
+        drawHarvestNodeSprite(g, node, selected);
         drawAmountBar(g, node, selected);
         g.dispose();
+    }
+
+    /**
+     * Prewarms the initial full-state resource bodies for a newly seeded client-side system.
+     * Later depletion buckets and dynamically created resources are generated once on demand.
+     */
+    static void prewarmNodes(Iterable<ResourceNode> nodes) {
+        if (nodes == null || GraphicsEnvironment.isHeadless()) return;
+        for (ResourceNode node : nodes) {
+            if (node == null || !node.active) continue;
+            cachedNodeSprite(node);
+        }
     }
 
     private static void drawFieldSprite(Graphics2D g, ResourceNode node, Lod lod) {
@@ -176,11 +196,97 @@ final class ResourceFieldRenderer {
         return image;
     }
 
-    private static void drawHarvestRock(Graphics2D g, ResourceNode node, boolean selected) {
+    private static void drawHarvestNodeSprite(Graphics2D g, ResourceNode node, boolean selected) {
+        NodeSprite sprite = cachedNodeSprite(node);
+        if (sprite == null) {
+            // Safe presentation fallback if allocation/generation fails.
+            if (node.kind == NodeKind.GAS_CLOUD) drawHarvestGasLive(g, node);
+            else drawHarvestRockLive(g, node);
+        } else {
+            int x = (int)Math.round(node.x - sprite.worldWidth / 2.0);
+            int y = (int)Math.round(node.y - sprite.worldHeight / 2.0);
+            g.drawImage(sprite.image, x, y, sprite.worldWidth, sprite.worldHeight, null);
+        }
+
+        if (selected) {
+            double radius = nodeVisualRadius(node) * (node.kind == NodeKind.GAS_CLOUD ? 1.12 : 1.0);
+            drawSelection(g, node.x, node.y, radius + 7);
+        }
+    }
+
+    private static NodeSprite cachedNodeSprite(ResourceNode node) {
+        NodeSpriteKey key = nodeSpriteKey(node);
+        synchronized (NODE_CACHE) {
+            NodeSprite cached = NODE_CACHE.get(key);
+            if (cached != null) return cached;
+            NodeSprite created;
+            try {
+                created = createNodeSprite(key);
+            } catch (RuntimeException ex) {
+                return null;
+            }
+            putNodeSprite(key, created);
+            return created;
+        }
+    }
+
+    private static NodeSpriteKey nodeSpriteKey(ResourceNode node) {
+        int amountBucket = Math.max(0, Math.min(NODE_AMOUNT_STEPS - 1,
+                (int)Math.round(amountPercent(node) * (NODE_AMOUNT_STEPS - 1))));
+        int radiusQuarter = Math.max(1, (int)Math.round(node.radius * 4.0));
+        int seededId = node.kind == NodeKind.GAS_CLOUD ? 0 : node.id;
+        return new NodeSpriteKey(node.kind, node.material, seededId, radiusQuarter, amountBucket);
+    }
+
+    private static NodeSprite createNodeSprite(NodeSpriteKey key) {
+        double pct = key.amountBucket / (double)(NODE_AMOUNT_STEPS - 1);
+        double baseRadius = key.radiusQuarter / 4.0;
+        double visualRadius = nodeVisualRadius(baseRadius, pct);
+        double drawRadius = key.kind == NodeKind.GAS_CLOUD ? visualRadius * 1.12 : visualRadius;
+        int worldWidth = Math.max(16, (int)Math.ceil(drawRadius * 2 + NODE_PADDING * 2));
+        int worldHeight = key.kind == NodeKind.GAS_CLOUD
+                ? Math.max(14, (int)Math.ceil(drawRadius * 1.44 + NODE_PADDING * 2))
+                : worldWidth;
+        if ((worldWidth & 1) != 0) worldWidth++;
+        if ((worldHeight & 1) != 0) worldHeight++;
+
+        BufferedImage image = new BufferedImage(worldWidth, worldHeight, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = image.createGraphics();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            double cx = worldWidth / 2.0;
+            double cy = worldHeight / 2.0;
+            if (key.kind == NodeKind.GAS_CLOUD) {
+                drawHarvestGasCore(g, cx, cy, drawRadius, key.material, pct);
+            } else {
+                long seed = mix64(((long)key.seededId << 32)
+                        ^ key.material.ordinal() * 0x9E3779B97F4A7C15L);
+                drawAsteroid(g, cx, cy, visualRadius, seed, key.material, true, 1.0f);
+            }
+        } finally {
+            g.dispose();
+        }
+        long bytes = (long)image.getWidth() * image.getHeight() * Integer.BYTES;
+        return new NodeSprite(image, worldWidth, worldHeight, bytes);
+    }
+
+    private static void putNodeSprite(NodeSpriteKey key, NodeSprite sprite) {
+        NodeSprite old = NODE_CACHE.put(key, sprite);
+        if (old != null) nodeCacheBytes -= old.rawBytes;
+        nodeCacheBytes += sprite.rawBytes;
+        Iterator<Map.Entry<NodeSpriteKey, NodeSprite>> it = NODE_CACHE.entrySet().iterator();
+        while (nodeCacheBytes > MAX_NODE_CACHE_BYTES && NODE_CACHE.size() > 1 && it.hasNext()) {
+            Map.Entry<NodeSpriteKey, NodeSprite> eldest = it.next();
+            nodeCacheBytes -= eldest.getValue().rawBytes;
+            it.remove();
+        }
+    }
+
+    private static void drawHarvestRockLive(Graphics2D g, ResourceNode node) {
         double radius = nodeVisualRadius(node);
         long seed = mix64(((long)node.id << 32) ^ node.material.ordinal() * 0x9E3779B97F4A7C15L);
         drawAsteroid(g, node.x, node.y, radius, seed, node.material, true, 1.0f);
-        if (selected) drawSelection(g, node.x, node.y, radius + 7);
     }
 
     private static void drawAsteroid(Graphics2D g, double cx, double cy, double radius, long seed,
@@ -245,24 +351,27 @@ final class ResourceFieldRenderer {
         }
     }
 
-    private static void drawHarvestGas(Graphics2D g, ResourceNode node, boolean selected) {
+    private static void drawHarvestGasLive(Graphics2D g, ResourceNode node) {
         double radius = nodeVisualRadius(node) * 1.12;
-        Color theme = gasTheme(node.material);
-        double pct = amountPercent(node);
+        drawHarvestGasCore(g, node.x, node.y, radius, node.material, amountPercent(node));
+    }
+
+    private static void drawHarvestGasCore(Graphics2D g, double x, double y, double radius,
+                                           Material material, double pct) {
+        Color theme = gasTheme(material);
         int alpha = (int)Math.round(92 + 70 * pct);
         g.setColor(alpha(theme, alpha));
         g.setStroke(new BasicStroke(1.25f));
-        g.draw(new Ellipse2D.Double(node.x - radius, node.y - radius * 0.72, radius * 2, radius * 1.44));
+        g.draw(new Ellipse2D.Double(x - radius, y - radius * 0.72, radius * 2, radius * 1.44));
         g.setColor(alpha(lighten(theme, 0.35), 90 + (int)Math.round(80 * pct)));
-        g.fill(new Ellipse2D.Double(node.x - radius * 0.24, node.y - radius * 0.18,
+        g.fill(new Ellipse2D.Double(x - radius * 0.24, y - radius * 0.18,
                 radius * 0.48, radius * 0.36));
         g.setColor(alpha(theme, 195));
         g.setStroke(new BasicStroke(1.05f));
-        g.drawLine((int)Math.round(node.x - radius * 0.46), (int)Math.round(node.y),
-                (int)Math.round(node.x - radius * 0.18), (int)Math.round(node.y));
-        g.drawLine((int)Math.round(node.x + radius * 0.18), (int)Math.round(node.y),
-                (int)Math.round(node.x + radius * 0.46), (int)Math.round(node.y));
-        if (selected) drawSelection(g, node.x, node.y, radius + 7);
+        g.drawLine((int)Math.round(x - radius * 0.46), (int)Math.round(y),
+                (int)Math.round(x - radius * 0.18), (int)Math.round(y));
+        g.drawLine((int)Math.round(x + radius * 0.18), (int)Math.round(y),
+                (int)Math.round(x + radius * 0.46), (int)Math.round(y));
     }
 
     private static void drawSelection(Graphics2D g, double x, double y, double radius) {
@@ -285,9 +394,12 @@ final class ResourceFieldRenderer {
     }
 
     private static double nodeVisualRadius(ResourceNode node) {
-        double pct = amountPercent(node);
-        double base = Math.max(5.5, node.radius * 1.65);
-        return base * (0.58 + 0.42 * Math.sqrt(pct));
+        return nodeVisualRadius(node.radius, amountPercent(node));
+    }
+
+    private static double nodeVisualRadius(double baseRadius, double pct) {
+        double base = Math.max(5.5, baseRadius * 1.65);
+        return base * (0.58 + 0.42 * Math.sqrt(Math.max(0, Math.min(1, pct))));
     }
 
     private static double amountPercent(ResourceNode node) {
@@ -394,9 +506,20 @@ final class ResourceFieldRenderer {
     }
 
     static synchronized int cacheSizeForTesting() { return FIELD_CACHE.size(); }
-    static synchronized void clearCacheForTesting() { FIELD_CACHE.clear(); }
     static int maxCacheEntriesForTesting() { return MAX_CACHE_ENTRIES; }
+    static int nodeCacheSizeForTesting() { synchronized (NODE_CACHE) { return NODE_CACHE.size(); } }
+    static long nodeCacheBytesForTesting() { synchronized (NODE_CACHE) { return nodeCacheBytes; } }
+    static long maxNodeCacheBytesForTesting() { return MAX_NODE_CACHE_BYTES; }
+    static void clearCacheForTesting() {
+        synchronized (ResourceFieldRenderer.class) { FIELD_CACHE.clear(); }
+        synchronized (NODE_CACHE) {
+            NODE_CACHE.clear();
+            nodeCacheBytes = 0;
+        }
+    }
 
     private enum Lod { FAR, MEDIUM, NEAR }
     private record SpriteKey(NodeKind kind, Material material, int variant, int depletionBucket, Lod lod) { }
+    private record NodeSpriteKey(NodeKind kind, Material material, int seededId, int radiusQuarter, int amountBucket) { }
+    private record NodeSprite(BufferedImage image, int worldWidth, int worldHeight, long rawBytes) { }
 }
