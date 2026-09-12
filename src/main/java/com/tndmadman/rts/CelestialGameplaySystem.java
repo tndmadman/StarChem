@@ -257,7 +257,7 @@ final class CelestialGameplaySystem {
                     node = new ResourceNode(
                             plannedId,
                             material.label + " deposit",
-                            NodeKind.MINERAL_ASTEROID,
+                            NodeKind.SILICATE_ROCK,
                             material,
                             x,
                             y,
@@ -287,7 +287,7 @@ final class CelestialGameplaySystem {
 
     private static boolean looksLikeDepositFor(ResourceNode node, CelestialBodyState body,
                                                 CelestialSystem.BodyView view, Material material) {
-        if (node == null || node.material != material || node.kind != NodeKind.MINERAL_ASTEROID) return false;
+        if (node == null || node.material != material || node.kind != NodeKind.SILICATE_ROCK) return false;
         if (body.profile.bodyId().equals(node.celestialAnchorBodyId)) return true;
         if (node.celestialAnchorBodyId != null && !node.celestialAnchorBodyId.isBlank()) return false;
         if (!node.orbiting || node.name == null || !node.name.equals(material.label + " deposit")) return false;
@@ -311,11 +311,22 @@ final class CelestialGameplaySystem {
         long hash = stableHash(state == null ? "" : state.id, bodyId,
                 material == null ? "" : material.name(), Integer.toString(slot));
         int candidate = CELESTIAL_RESOURCE_ID_BASE + (int)Math.floorMod(hash, CELESTIAL_RESOURCE_ID_SPAN);
-        while (!plannedIds.add(candidate)) {
+        while (plannedIds.contains(candidate) || resourceIdUsedElsewhere(state, candidate)) {
             candidate++;
             if (candidate <= 0 || candidate == Integer.MAX_VALUE) candidate = CELESTIAL_RESOURCE_ID_BASE;
         }
+        plannedIds.add(candidate);
         return candidate;
+    }
+
+    private static boolean resourceIdUsedElsewhere(WorldSystemState state, int id) {
+        synchronized (STATES) {
+            for (WorldSystemState candidate : STATES.values()) {
+                if (candidate == null || candidate == state) continue;
+                for (ResourceNode node : candidate.resources) if (node.id == id) return true;
+            }
+        }
+        return false;
     }
 
     private static long stableHash(String... parts) {
