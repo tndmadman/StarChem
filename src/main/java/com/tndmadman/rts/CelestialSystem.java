@@ -136,10 +136,14 @@ final class CelestialSystem {
     }
 
     private static BodyView view(Body body) {
+        boolean moon = body.parent != null
+                && body.parent.visual != null
+                && body.parent.visual.visualClass() != CelestialVisualClass.STAR;
         return new BodyView(
                 body.id,
                 body.name,
                 body.parent == null ? null : body.parent.id,
+                moon,
                 body.x,
                 body.y,
                 body.radius,
@@ -206,6 +210,7 @@ final class CelestialSystem {
             String id,
             String name,
             String parentId,
+            boolean moon,
             double x,
             double y,
             double radius,
@@ -213,9 +218,7 @@ final class CelestialSystem {
             double orbitSpeed,
             double angle,
             CelestialVisualClass visualClass
-    ) {
-        boolean moon() { return parentId != null && !parentId.isBlank(); }
-    }
+    ) { }
 
     private static final class Body {
         final String id;
