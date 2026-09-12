@@ -34,6 +34,10 @@ final class CelestialSystem {
         sunY = offsetY + this.definition.height() / 2.0;
         background = new SpaceBackgroundRenderer(this.definition);
         buildBodies(this.definition, source);
+        // Surface/detail generation is deterministic and expensive. Materialize it while the
+        // client-side system is being constructed rather than on the first frame that sees a body.
+        // Dedicated/headless simulations do not allocate presentation sprites.
+        if (!GraphicsEnvironment.isHeadless()) prewarmBodySprites();
         update(0);
     }
 
@@ -64,6 +68,17 @@ final class CelestialSystem {
                     catalogVisual.colorOr(fallbackBody.color()), visual,
                     detailSeed(visualSystemId, "sun", visual.id(), 0) ^ catalogSeed(catalogVisual));
             bodies.add(sun);
+        }
+    }
+
+    private void prewarmBodySprites() {
+        for (Body body : bodies) {
+            try {
+                CelestialSpriteCache.sprite(body.visual, body.detailSeed);
+            } catch (RuntimeException ex) {
+                // Rendering has the same lazy sprite lookup and can retry; presentation-cache
+                // failures must never prevent a system from loading.
+            }
         }
     }
 
