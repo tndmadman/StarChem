@@ -15,6 +15,7 @@ final class ResourceNode {
     double orbitCenterX, orbitCenterY, orbitRadius, orbitAngle, orbitSpeed;
     boolean active = true;
     boolean orbiting;
+    String celestialAnchorBodyId = "";
 
     ResourceNode(int id, String name, NodeKind kind, Material material, double x, double y, double maxAmount, double harvestRate, double radius) {
         this.id = id; this.name = name; this.kind = kind; this.material = material; this.x = x; this.y = y;
