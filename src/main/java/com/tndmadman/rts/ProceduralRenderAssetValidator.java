@@ -18,7 +18,7 @@ public final class ProceduralRenderAssetValidator {
         validateStationStaticSharing();
         validateStationAnimationRemainsLive();
         validateStationPrewarmAndBudget();
-        validateResourceBackdropCacheRemainsBounded();
+        validateResourceSpriteCachingAndBounds();
         System.out.println("Procedural render asset validation passed.");
     }
 
@@ -111,11 +111,35 @@ public final class ProceduralRenderAssetValidator {
                 "eager station prewarm polluted runtime hit/miss/generation accounting");
     }
 
-    private static void validateResourceBackdropCacheRemainsBounded() {
+    private static void validateResourceSpriteCachingAndBounds() {
         ResourceFieldRenderer.clearCacheForTesting();
         require(ResourceFieldRenderer.cacheSizeForTesting() == 0, "resource backdrop cache reset failed");
+        require(ResourceFieldRenderer.nodeCacheSizeForTesting() == 0, "resource body cache reset failed");
         require(ResourceFieldRenderer.maxCacheEntriesForTesting() > 0,
                 "resource backdrop cache lost its hard entry bound");
+
+        ResourceNode rock = new ResourceNode(
+                9917, "Validator Iron", NodeKind.SILICATE_ROCK, Material.IRON,
+                128, 128, 1000, 20, 30);
+        BufferedImage image = new BufferedImage(256, 256, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = image.createGraphics();
+        try {
+            ResourceFieldRenderer.draw(g, rock, false);
+            int firstEntries = ResourceFieldRenderer.nodeCacheSizeForTesting();
+            require(firstEntries == 1, "first harvestable resource did not create exactly one body sprite");
+            ResourceFieldRenderer.draw(g, rock, true);
+            require(ResourceFieldRenderer.nodeCacheSizeForTesting() == firstEntries,
+                    "selection state incorrectly multiplied resource body sprites");
+            rock.amount = rock.maxAmount * 0.50;
+            ResourceFieldRenderer.draw(g, rock, false);
+            require(ResourceFieldRenderer.nodeCacheSizeForTesting() == firstEntries + 1,
+                    "resource depletion bucket did not produce a reusable updated body sprite");
+        } finally {
+            g.dispose();
+        }
+
+        require(ResourceFieldRenderer.nodeCacheBytesForTesting() <= ResourceFieldRenderer.maxNodeCacheBytesForTesting(),
+                "resource body sprite cache exceeded its raw pixel memory budget");
     }
 
     private static int pixelDifference(BufferedImage first, BufferedImage second) {
