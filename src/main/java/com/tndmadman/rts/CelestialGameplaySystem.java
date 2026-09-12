@@ -334,7 +334,7 @@ final class CelestialGameplaySystem {
     private static boolean resourceIdUsedElsewhere(WorldSystemState state, int id) {
         synchronized (STATES) {
             for (WorldSystemState candidate : STATES.values()) {
-                if (candidate == null || candidate == state) continue;
+                if (candidate == null || candidate == state || Objects.equals(candidate.id, state.id)) continue;
                 for (ResourceNode node : candidate.resources) if (node.id == id) return true;
             }
         }
