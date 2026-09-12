@@ -1,6 +1,10 @@
 package com.tndmadman.rts;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.WeakHashMap;
 
@@ -16,12 +20,16 @@ final class CelestialMoonInheritance {
     private static final double MAX_CELESTIAL_BONUS = 0.35;
     private static final Map<CelestialSystem, WorldSystemState> STATES =
             Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Map<CelestialSystem, Map<String,String>> CLAIM_RESERVATIONS =
+            Collections.synchronizedMap(new WeakHashMap<>());
 
     private CelestialMoonInheritance() { }
 
     static void register(WorldSystemState state) {
         if (state == null || state.celestials == null) return;
         STATES.put(state.celestials, state);
+        CLAIM_RESERVATIONS.computeIfAbsent(state.celestials, ignored -> new LinkedHashMap<>());
+        CelestialObjectiveTooltipOverlay.ensureInstalled();
     }
 
     static void apply(CelestialSystem celestials) {
@@ -33,6 +41,14 @@ final class CelestialMoonInheritance {
 
     static void apply(WorldSystemState state) {
         if (state == null || state.celestials == null) return;
+
+        // GameplaySystem performs the broad proximity anchor pass first. This second authoritative
+        // gate converts that broad pass into planetary sovereignty: the first accepted station on
+        // a planet reserves the entire planet/moon group, and only the claimant or an ALLIED owner
+        // may retain a new anchor after that point. Neutral/hostile owners are immediately rejected.
+        enforceAnchorExclusivity(state);
+        reconcileClaimsAndInstallations(state);
+
         for (CelestialSystem.BodyView body : state.celestials.bodyViews()) {
             if (!body.moon()) continue;
             CelestialSystem.BodyView masterView = masterPlanet(state.celestials, body);
@@ -51,6 +67,120 @@ final class CelestialMoonInheritance {
             slave.holdSecondsByPlayer.clear();
             slave.holdSecondsByPlayer.putAll(master.holdSecondsByPlayer);
         }
+    }
+
+    private static void enforceAnchorExclusivity(WorldSystemState state) {
+        Map<String,String> reservations = CLAIM_RESERVATIONS.computeIfAbsent(
+                state.celestials, ignored -> new LinkedHashMap<>());
+        Map<String,List<Base>> directMasterBases = new LinkedHashMap<>();
+        Map<String,List<Base>> groupBases = new LinkedHashMap<>();
+
+        for (Base base : state.bases.values()) {
+            String anchoredBodyId = base.celestialAnchorBodyId;
+            if (anchoredBodyId == null || anchoredBodyId.isBlank()) continue;
+            String masterId = masterPlanetId(state, anchoredBodyId);
+            if (masterId.isBlank()) continue;
+            groupBases.computeIfAbsent(masterId, ignored -> new ArrayList<>()).add(base);
+            if (masterId.equals(anchoredBodyId)) {
+                directMasterBases.computeIfAbsent(masterId, ignored -> new ArrayList<>()).add(base);
+            }
+        }
+
+        // A moon station cannot start or preserve sovereignty on its own. Reservations exist only
+        // while at least one station remains directly anchored to the master planet.
+        reservations.keySet().removeIf(masterId -> directMasterBases.getOrDefault(masterId, List.of()).isEmpty());
+
+        for (Map.Entry<String,List<Base>> entry : directMasterBases.entrySet()) {
+            String masterId = entry.getKey();
+            List<Base> direct = entry.getValue();
+            if (direct.isEmpty()) continue;
+
+            String owner = reservations.getOrDefault(masterId, "");
+            if (owner.isBlank()) {
+                CelestialBodyState master = CelestialGameplaySystem.bodyState(state, masterId);
+                if (master != null && !master.contested && master.claimantId != null && !master.claimantId.isBlank()) {
+                    owner = master.claimantId;
+                }
+            }
+            if (owner.isBlank()) owner = direct.get(0).playerId;
+            if (owner == null || owner.isBlank()) continue;
+            reservations.put(masterId, owner);
+        }
+
+        for (Map.Entry<String,List<Base>> entry : groupBases.entrySet()) {
+            String masterId = entry.getKey();
+            String owner = reservations.getOrDefault(masterId, "");
+            if (owner.isBlank()) continue;
+            for (Base base : entry.getValue()) {
+                if (!friendly(owner, base.playerId)) clearAnchor(base);
+            }
+        }
+
+        // If all direct master anchors were rejected/destroyed during this pass, release the lock.
+        reservations.keySet().removeIf(masterId -> !hasDirectMasterAnchor(state, masterId));
+    }
+
+    private static boolean hasDirectMasterAnchor(WorldSystemState state, String masterId) {
+        for (Base base : state.bases.values()) {
+            if (masterId.equals(base.celestialAnchorBodyId)) return true;
+        }
+        return false;
+    }
+
+    private static void clearAnchor(Base base) {
+        if (base == null) return;
+        base.celestialAnchorBodyId = "";
+        base.celestialOrbitRadius = 0;
+        base.celestialOrbitSpeed = 0;
+    }
+
+    private static boolean friendly(String claimantId, String candidateId) {
+        if (claimantId == null || claimantId.isBlank() || candidateId == null || candidateId.isBlank()) return false;
+        if (claimantId.equals(candidateId)) return true;
+        World world = PlayerRegistry.activeWorld();
+        return world != null && DiplomacySystem.allied(world, claimantId, candidateId);
+    }
+
+    private static void reconcileClaimsAndInstallations(WorldSystemState state) {
+        Map<String,String> reservations = CLAIM_RESERVATIONS.computeIfAbsent(
+                state.celestials, ignored -> new LinkedHashMap<>());
+
+        for (CelestialBodyState body : CelestialGameplaySystem.bodyStates(state)) {
+            body.orbitalBaseIds.clear();
+            body.installations.clear();
+            CelestialSystem.BodyView view = state.celestials.bodyView(body.profile.bodyId());
+            if (view == null) continue;
+
+            for (Base base : state.bases.values()) {
+                if (!body.profile.bodyId().equals(base.celestialAnchorBodyId)) continue;
+                body.orbitalBaseIds.add(base.id);
+                if (body.installations.size() < body.profile.installationSlots()) {
+                    body.installations.add(installationType(base));
+                }
+            }
+
+            if (view.moon()) {
+                // The inheritance pass below overwrites moon sovereignty from its master.
+                body.contested = false;
+                body.claimantId = "";
+                continue;
+            }
+
+            String claimant = reservations.getOrDefault(view.id(), "");
+            if (body.orbitalBaseIds.isEmpty()) claimant = "";
+            body.contested = false;
+            body.claimantId = claimant;
+        }
+    }
+
+    private static CelestialInstallationType installationType(Base base) {
+        String type = base == null || base.typeId == null ? "" : base.typeId.toLowerCase(Locale.ROOT);
+        if (type.contains("research") || type.contains("lab")) return CelestialInstallationType.RESEARCH_SITE;
+        if (type.contains("sensor") || type.contains("radar") || type.contains("observ")
+                || type.contains("jam") || type.contains("decoy")) return CelestialInstallationType.SENSOR_ARRAY;
+        if (type.contains("log") || type.contains("cargo") || type.contains("depot") || type.contains("repair")
+                || type.contains("outpost") || type.contains("shipyard")) return CelestialInstallationType.LOGISTICS_HUB;
+        return CelestialInstallationType.EXTRACTOR;
     }
 
     /**
@@ -107,7 +237,7 @@ final class CelestialMoonInheritance {
     }
 
     private static boolean installationSupports(
-            java.util.List<CelestialInstallationType> installations, CelestialBonusKind kind) {
+            List<CelestialInstallationType> installations, CelestialBonusKind kind) {
         if (installations == null || installations.isEmpty()) return false;
         return switch (kind) {
             case MINING -> installations.contains(CelestialInstallationType.EXTRACTOR);
