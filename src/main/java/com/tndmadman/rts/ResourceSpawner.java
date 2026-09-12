@@ -29,6 +29,18 @@ final class ResourceSpawner {
     }
 
     static void relocate(ResourceNode node, List<ResourceNode> resources, Collection<Base> bases, CelestialSystem celestials, Random random) {
+        if (node != null && celestials != null && node.celestialAnchorBodyId != null
+                && !node.celestialAnchorBodyId.isBlank()) {
+            CelestialSystem.BodyView body = celestials.bodyView(node.celestialAnchorBodyId);
+            if (body != null) {
+                double baseRadius = Math.max(body.radius() + 130.0, node.orbitRadius);
+                double orbitRadius = Math.max(body.radius() + 100.0, baseRadius + random.nextGaussian() * 45.0);
+                double orbitAngle = random.nextDouble() * Math.PI * 2;
+                double orbitSpeed = node.orbitSpeed == 0 ? speedFor(orbitRadius) : node.orbitSpeed;
+                activate(node, body.x(), body.y(), orbitRadius, orbitAngle, orbitSpeed);
+                return;
+            }
+        }
         ResourceNode anchor = anchorFor(node, resources, random);
         double orbitRadius = anchor == null ? 2200 + random.nextDouble() * 4400 : anchor.orbitRadius + random.nextGaussian() * 90;
         double orbitAngle = anchor == null ? random.nextDouble() * Math.PI * 2 : anchor.orbitAngle + random.nextGaussian() * 0.18;
