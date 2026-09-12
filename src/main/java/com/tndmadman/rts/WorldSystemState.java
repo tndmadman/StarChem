@@ -33,6 +33,7 @@ final class WorldSystemState {
         this.controlPoint = new SystemControlPoint(definition);
         this.celestials = celestials;
         CelestialGameplaySystem.registerState(this);
+        CelestialMoonInheritance.register(this);
     }
 
     int width() { return definition.width(); }
