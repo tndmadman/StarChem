@@ -25,9 +25,9 @@ final class CelestialObjectiveHelp {
                     + Math.round(CelestialGameplaySystem.HOLD_OBJECTIVE_SECONDS) + " seconds."
                     : "Station needed: keep at least one friendly orbital station anchored. Hold the planet uncontested for "
                     + Math.round(CelestialGameplaySystem.HOLD_OBJECTIVE_SECONDS) + " seconds.";
-            case EXTRACT -> "Station needed: none for objective progress. Mine "
-                    + Math.round(CelestialGameplaySystem.EXTRACT_OBJECTIVE_AMOUNT)
-                    + " units from this body's deposits. A Manufacturing/Extractor station is required to activate its mining bonus.";
+            case EXTRACT -> "Station needed: Planetary Extractor anchored to " + masterName
+                    + ". Fire a fracture charge at this body to expose its physical deposits, then mine "
+                    + Math.round(CelestialGameplaySystem.EXTRACT_OBJECTIVE_AMOUNT) + " units from those deposits.";
         };
     }
 
