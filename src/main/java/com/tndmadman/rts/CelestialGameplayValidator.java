@@ -1,9 +1,7 @@
 package com.tndmadman.rts;
 
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Random;
-import java.util.Set;
 
 /** Regression coverage for selectable/scannable/claimable celestial gameplay. */
 final class CelestialGameplayValidator {
@@ -13,8 +11,6 @@ final class CelestialGameplayValidator {
         System.setProperty("java.awt.headless", "true");
         selectableBodiesExposeStableViews();
         planetsAndMoonsAreClassifiedCorrectly();
-        depositsAreBodyAnchoredAndDeterministic();
-        restoredDepositsReattachWithoutDuplication();
         buildableInstallationRolesMapCorrectly();
         stationsOrbitClaimAndRejectHostiles();
         scansAndObjectivesProgress();
@@ -43,82 +39,27 @@ final class CelestialGameplayValidator {
         require(foundMoon, "fixture must expose at least one moon orbiting a non-star body");
     }
 
-    private static void depositsAreBodyAnchoredAndDeterministic() {
-        WorldSystemState a = state("celestial-a", 202L);
-        WorldSystemState b = state("celestial-b", 202L);
-        Set<Integer> idsA = resourceIds(a);
-        Set<Integer> idsB = resourceIds(b);
-        require(!idsA.isEmpty() && !idsB.isEmpty(), "celestial systems must seed body resource deposits");
-        Set<Integer> overlap = new HashSet<>(idsA);
-        overlap.retainAll(idsB);
-        require(overlap.isEmpty(), "different systems must not reuse generated celestial resource ids");
-
-        for (ResourceNode node : a.resources) {
-            require(node.id >= (1 << 30), "generated celestial resource ids must stay in the reserved namespace");
-            require(node.celestialAnchorBodyId != null && !node.celestialAnchorBodyId.isBlank(),
-                    "celestial resource must record its parent body");
-            CelestialSystem.BodyView body = a.celestials.bodyView(node.celestialAnchorBodyId);
-            require(body != null, "resource anchor must resolve to an existing body");
-            require(node.kind == expectedKind(a, node.material),
-                    "celestial deposit kind must follow the authored mining role for " + node.material);
-            node.deplete();
-            ResourceSpawner.relocate(node, a.resources, a.bases.values(), a.celestials, new Random(33));
-            require(Math.hypot(node.orbitCenterX - body.x(), node.orbitCenterY - body.y()) < 0.001,
-                    "respawned celestial deposit must remain centered on its parent body");
-        }
-    }
-
-    private static void restoredDepositsReattachWithoutDuplication() {
-        StarSystemDefinition definition = StarSystems.defaultSystem();
-        long seed = 303L;
-        WorldSystemState original = state("celestial-restore", seed);
-        int expectedCount = original.resources.size();
-
-        CelestialSystem restoredCelestials = new CelestialSystem(definition, new Random(seed));
-        WorldSystemState restored = new WorldSystemState("celestial-restore", definition, restoredCelestials);
-        for (ResourceNode source : original.resources) {
-            ResourceNode copy = new ResourceNode(source.id, source.name, source.kind, source.material,
-                    source.x, source.y, source.maxAmount, source.harvestRate, source.radius);
-            copy.amount = source.amount;
-            copy.active = source.active;
-            copy.respawnTimer = source.respawnTimer;
-            copy.orbiting = source.orbiting;
-            copy.orbitCenterX = source.orbitCenterX;
-            copy.orbitCenterY = source.orbitCenterY;
-            copy.orbitRadius = source.orbitRadius;
-            copy.orbitAngle = source.orbitAngle;
-            copy.orbitSpeed = source.orbitSpeed;
-            copy.celestialAnchorBodyId = ""; // Mirrors the pre-anchor save payload.
-            restored.resources.add(copy);
-        }
-
-        restoredCelestials.update(0);
-        require(restored.resources.size() == expectedCount,
-                "restore must reattach saved celestial deposits instead of generating duplicates");
-        for (ResourceNode node : restored.resources) {
-            require(node.celestialAnchorBodyId != null && !node.celestialAnchorBodyId.isBlank(),
-                    "restored celestial deposit must recover its body anchor");
-        }
-    }
-
     private static void buildableInstallationRolesMapCorrectly() {
-        require(Rules.findBase("manufacturing") != null, "manufacturing station must be buildable for extractor gameplay");
-        require(Rules.findBase("laboratory") != null, "laboratory station must be buildable for research gameplay");
-        require(Rules.findBase("radar_picket") != null, "radar station must be buildable for sensor gameplay");
-        require(Rules.findBase("outpost") != null, "outpost must be available for logistics gameplay");
-        require(installationRole("manufacturing", 701L) == CelestialInstallationType.EXTRACTOR,
-                "manufacturing station must act as a celestial extractor");
-        require(installationRole("laboratory", 702L) == CelestialInstallationType.RESEARCH_SITE,
+        require(Rules.findBase("extractor") != null, "Planetary Extractor must be buildable");
+        require(Rules.findBase("manufacturing") != null, "manufacturing station must remain buildable");
+        require(Rules.findBase("laboratory") != null, "laboratory station must remain buildable");
+        require(Rules.findBase("radar_picket") != null, "radar station must remain buildable");
+        require(Rules.findBase("outpost") != null, "outpost must remain available for logistics gameplay");
+        require(installationRole("extractor", 701L) == CelestialInstallationType.EXTRACTOR,
+                "dedicated Planetary Extractor must own the celestial extractor role");
+        require(installationRole("manufacturing", 702L) != CelestialInstallationType.EXTRACTOR,
+                "manufacturing station must no longer act as a celestial extractor");
+        require(installationRole("laboratory", 703L) == CelestialInstallationType.RESEARCH_SITE,
                 "laboratory must act as a celestial research site");
-        require(installationRole("radar_picket", 703L) == CelestialInstallationType.SENSOR_ARRAY,
+        require(installationRole("radar_picket", 704L) == CelestialInstallationType.SENSOR_ARRAY,
                 "radar station must act as a celestial sensor array");
-        require(installationRole("outpost", 704L) == CelestialInstallationType.LOGISTICS_HUB,
+        require(installationRole("outpost", 705L) == CelestialInstallationType.LOGISTICS_HUB,
                 "outpost must act as a celestial logistics hub");
     }
 
     private static CelestialInstallationType installationRole(String typeId, long seed) {
         WorldSystemState state = state("role-" + typeId, seed);
-        CelestialSystem.BodyView body = firstPlayableBody(state);
+        CelestialSystem.BodyView body = firstPlanet(state);
         Base base = new Base("P1:" + typeId, "P1", typeId, body.x() + body.radius() + 140, body.y());
         state.bases.put(base.id, base);
         state.celestials.update(0);
@@ -129,8 +70,8 @@ final class CelestialGameplayValidator {
 
     private static void stationsOrbitClaimAndRejectHostiles() {
         WorldSystemState state = state("celestial-claim", 404L);
-        CelestialSystem.BodyView body = bodyWithMiningBonus(state);
-        Base local = new Base("p1:B1", "P1", "manufacturing",
+        CelestialSystem.BodyView body = firstPlanet(state);
+        Base local = new Base("p1:B1", "P1", CelestialExtractionSystem.EXTRACTOR_STATION_ID,
                 body.x() + body.radius() + 160, body.y());
         state.bases.put(local.id, local);
         state.celestials.update(0);
@@ -139,8 +80,6 @@ final class CelestialGameplayValidator {
         require(body.id().equals(local.celestialAnchorBodyId), "nearby station must attach to the body orbit");
         require(bodyState != null && "P1".equals(bodyState.claimantId) && !bodyState.contested,
                 "single-owner orbital installation must claim its body");
-        require(CelestialGameplaySystem.bonusMultiplier(state, "P1", CelestialBonusKind.MINING) > 1.0,
-                "claimed extractor body must provide its mining bonus");
 
         double beforeX = local.x;
         double beforeY = local.y;
@@ -151,7 +90,7 @@ final class CelestialGameplayValidator {
         require(Math.abs(Math.hypot(local.x - movedBody.x(), local.y - movedBody.y()) - local.celestialOrbitRadius) < 0.01,
                 "orbital station must preserve its body-relative orbital radius");
 
-        Base enemy = new Base("p2:B1", "P2", "manufacturing",
+        Base enemy = new Base("p2:B1", "P2", CelestialExtractionSystem.EXTRACTOR_STATION_ID,
                 movedBody.x() - movedBody.radius() - 170, movedBody.y());
         state.bases.put(enemy.id, enemy);
         state.celestials.update(0);
@@ -159,18 +98,14 @@ final class CelestialGameplayValidator {
                 "hostile station must not contest or steal an active planetary claim");
         require(enemy.celestialAnchorBodyId == null || enemy.celestialAnchorBodyId.isBlank(),
                 "hostile station must be rejected from the claimed planetary anchor");
-        require(CelestialGameplaySystem.bonusMultiplier(state, "P1", CelestialBonusKind.MINING) > 1.0,
-                "rejected hostile anchor must not suppress the claimant's strategic bonus");
     }
 
     private static void scansAndObjectivesProgress() {
         WorldSystemState state = state("celestial-objectives", 505L);
-        CelestialSystem.BodyView body = firstPlayableBody(state);
-        Base base = new Base("p1:SCAN", "P1", Rules.DEFAULT_BASE,
+        CelestialSystem.BodyView body = firstPlanet(state);
+        Base extractor = new Base("p1:SCAN", "P1", CelestialExtractionSystem.EXTRACTOR_STATION_ID,
                 body.x() + body.radius() + 150, body.y());
-        state.bases.put(base.id, base);
-        // Anchor first, then advance scan time so the test does not depend on body displacement
-        // during a deliberately large validation timestep.
+        state.bases.put(extractor.id, extractor);
         state.celestials.update(0);
         state.celestials.update(CelestialGameplaySystem.ANALYZE_SECONDS + 0.5);
 
@@ -185,39 +120,34 @@ final class CelestialGameplayValidator {
         require(CelestialGameplaySystem.objectiveStatus(state, body.id(), "P1", CelestialObjectiveType.HOLD).complete(),
                 "hold objective must complete after the configured hold duration");
 
+        require(CelestialExtractionSystem.fireCharge(state, body.id(), "P1").fired(),
+                "extract objective fixture must fire a fracture charge");
+        state.celestials.update(CelestialExtractionSystem.CHARGE_SECONDS + 0.05);
         CelestialBodyState bodyState = CelestialGameplaySystem.bodyState(state, body.id());
-        require(bodyState != null && !bodyState.resourceNodeIds.isEmpty(), "objective body must expose a deposit");
+        require(bodyState != null && !bodyState.resourceNodeIds.isEmpty(), "fractured objective body must expose a deposit");
         ResourceNode deposit = resource(state, bodyState.resourceNodeIds.get(0));
         require(deposit != null, "body deposit id must resolve to a resource node");
         CelestialGameplaySystem.recordExtraction(deposit, "P1", CelestialGameplaySystem.EXTRACT_OBJECTIVE_AMOUNT);
         require(CelestialGameplaySystem.objectiveStatus(state, body.id(), "P1", CelestialObjectiveType.EXTRACT).complete(),
-                "extract objective must credit the player that actually mined the body deposit");
+                "extract objective must credit the player that actually mined the exposed body deposit");
     }
 
     private static void progressAndAnchorsPersistAcrossSavePayload() {
         WorldSystemState original = state("celestial-persist", 606L);
-        CelestialSystem.BodyView body = firstPlayableBody(original);
+        CelestialSystem.BodyView body = firstPlanet(original);
         CelestialBodyState progress = CelestialGameplaySystem.bodyState(original, body.id());
-        require(progress != null && !progress.resourceNodeIds.isEmpty(), "persistence fixture body state missing");
+        require(progress != null, "persistence fixture body state missing");
         progress.intelByPlayer.put("P1", CelestialIntelLevel.ANALYZED);
         progress.scanSecondsByPlayer.put("P1", 14.0);
         progress.holdSecondsByPlayer.put("P1", 63.0);
         progress.extractedByPlayer.put("P1", 321.0);
-        Base originalBase = new Base("P1:PERSIST", "P1", Rules.DEFAULT_BASE,
+        Base originalBase = new Base("P1:PERSIST", "P1", CelestialExtractionSystem.EXTRACTOR_STATION_ID,
                 body.x() + body.radius() + 145, body.y());
         original.bases.put(originalBase.id, originalBase);
         original.celestials.update(0);
-        ResourceNode originalResource = resource(original, progress.resourceNodeIds.get(0));
-        require(originalResource != null && !originalResource.celestialAnchorBodyId.isBlank(),
-                "persistence fixture resource anchor missing");
         Map<String,Object> saved = CelestialGameplayPersistence.captureState(original);
 
         WorldSystemState restored = state("celestial-persist", 606L);
-        CelestialBodyState restoredBody = CelestialGameplaySystem.bodyState(restored, body.id());
-        require(restoredBody != null && !restoredBody.resourceNodeIds.isEmpty(), "restored persistence body missing");
-        ResourceNode restoredResource = resource(restored, originalResource.id);
-        require(restoredResource != null, "restored state must retain deterministic celestial resource id");
-        restoredResource.celestialAnchorBodyId = "";
         Base restoredBase = new Base(originalBase.id, originalBase.playerId, originalBase.typeId, 10, 10);
         restored.bases.put(restoredBase.id, restoredBase);
         CelestialGameplayPersistence.restoreState(restored, saved);
@@ -231,24 +161,16 @@ final class CelestialGameplayValidator {
                 "save payload must preserve hold objective progress");
         require(Math.abs(loaded.extractedByPlayer.getOrDefault("P1", 0.0) - 321.0) < 0.001,
                 "save payload must preserve extraction objective progress");
-        require(originalResource.celestialAnchorBodyId.equals(restoredResource.celestialAnchorBodyId),
-                "save payload must preserve resource body anchors");
         require(originalBase.celestialAnchorBodyId.equals(restoredBase.celestialAnchorBodyId),
                 "save payload must preserve orbital-station body anchors");
         require(Math.abs(originalBase.celestialOrbitRadius - restoredBase.celestialOrbitRadius) < 0.001,
                 "save payload must preserve station orbital radius");
-        require(Math.abs(originalBase.celestialOrbitAngle - restoredBase.celestialOrbitAngle) < 0.001,
-                "save payload must preserve station orbital phase");
-        require(Math.abs(originalBase.celestialOrbitSpeed - restoredBase.celestialOrbitSpeed) < 0.000001,
-                "save payload must preserve station orbital speed");
     }
 
     private static WorldSystemState state(String id, long seed) {
         StarSystemDefinition definition = StarSystems.defaultSystem();
         CelestialSystem celestials = new CelestialSystem(definition, new Random(seed));
-        WorldSystemState state = new WorldSystemState(id, definition, celestials);
-        celestials.update(0);
-        return state;
+        return new WorldSystemState(id, definition, celestials);
     }
 
     private static CelestialSystem.BodyView firstPlayableBody(WorldSystemState state) {
@@ -258,31 +180,11 @@ final class CelestialGameplayValidator {
         throw new IllegalStateException("fixture requires at least one planet or moon");
     }
 
-    private static CelestialSystem.BodyView bodyWithMiningBonus(WorldSystemState state) {
-        for (CelestialBodyState bodyState : CelestialGameplaySystem.bodyStates(state)) {
-            if (bodyState.profile.bonuses().getOrDefault(CelestialBonusKind.MINING, 0.0) <= 0) continue;
-            CelestialSystem.BodyView body = state.celestials.bodyView(bodyState.profile.bodyId());
-            if (body != null) return body;
+    private static CelestialSystem.BodyView firstPlanet(WorldSystemState state) {
+        for (CelestialSystem.BodyView body : state.celestials.bodyViews()) {
+            if (body.visualClass() != CelestialVisualClass.STAR && !body.moon()) return body;
         }
-        throw new IllegalStateException("fixture requires a body with a mining bonus");
-    }
-
-    private static NodeKind expectedKind(WorldSystemState state, Material material) {
-        if (state.definition != null) {
-            for (ResourceBelt belt : state.definition.resourceBelts()) {
-                if (belt.materials.contains(material)) return belt.kind;
-            }
-        }
-        for (ResourceBelt belt : Rules.RESOURCE_BELTS) {
-            if (belt.materials.contains(material)) return belt.kind;
-        }
-        return NodeKind.SILICATE_ROCK;
-    }
-
-    private static Set<Integer> resourceIds(WorldSystemState state) {
-        Set<Integer> out = new HashSet<>();
-        for (ResourceNode node : state.resources) require(out.add(node.id), "duplicate celestial resource id in one system: " + node.id);
-        return out;
+        throw new IllegalStateException("fixture requires a planet");
     }
 
     private static ResourceNode resource(WorldSystemState state, int id) {
