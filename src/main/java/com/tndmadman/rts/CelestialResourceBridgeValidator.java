@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.Set;
 
-/** Regression coverage for released celestial deposits entering the active tactical resource list. */
+/** Regression coverage for released celestial deposits entering and recycling in the tactical list. */
 final class CelestialResourceBridgeValidator {
     private CelestialResourceBridgeValidator() { }
 
@@ -20,7 +20,8 @@ final class CelestialResourceBridgeValidator {
         CelestialSystem.BodyView body = firstPlanet(state);
 
         ResourceSpawner.update(live, celestials, 0.016);
-        require(celestial(live).isEmpty(), "unfractured celestial deposits must not enter the live tactical list");
+        require(activeCelestial(live).isEmpty(),
+                "unfractured celestial deposits must not enter the live tactical layer as active rocks");
 
         Base extractor = new Base("P1:BRIDGE-EXTRACTOR", "P1", CelestialExtractionSystem.EXTRACTOR_STATION_ID,
                 body.x() + body.radius() + 145, body.y());
@@ -31,11 +32,11 @@ final class CelestialResourceBridgeValidator {
         celestials.update(CelestialExtractionSystem.CHARGE_SECONDS + 0.05);
         ResourceSpawner.update(live, celestials, 0.016);
 
-        List<ResourceNode> persistentDeposits = celestial(state.resources);
-        List<ResourceNode> liveDeposits = celestial(live);
-        require(!persistentDeposits.isEmpty(), "released body must seed persistent deposits");
+        List<ResourceNode> persistentDeposits = activeForBody(state.resources, body.id());
+        List<ResourceNode> liveDeposits = activeForBody(live, body.id());
+        require(!persistentDeposits.isEmpty(), "released body must expose persistent deposits");
         require(liveDeposits.size() == persistentDeposits.size(),
-                "every released celestial deposit must enter the active tactical resource list");
+                "every active deposit for the released body must enter the tactical resource list");
 
         Set<Integer> liveIds = ids(liveDeposits);
         require(liveIds.size() == liveDeposits.size(), "live celestial deposit ids must be unique");
@@ -45,9 +46,38 @@ final class CelestialResourceBridgeValidator {
                     "live resource bridge must preserve the authoritative ResourceNode object for id " + persistent.id);
         }
 
-        int count = live.size();
+        int bridgedCount = live.size();
         ResourceSpawner.update(live, celestials, 0.016);
-        require(live.size() == count, "repeated live-resource sync must not duplicate celestial deposits");
+        require(live.size() == bridgedCount, "repeated live-resource sync must not duplicate celestial deposits");
+
+        // Exhaust the released field exactly as WorkSystem would. The bridge must keep the same
+        // objects/list shape, but make them inactive so renderer, targeting and mining see no rocks.
+        boolean exhausted = false;
+        for (ResourceNode node : new ArrayList<>(liveDeposits)) {
+            node.deplete();
+            exhausted |= CelestialExtractionSystem.onDepositDepleted(node);
+        }
+        require(exhausted, "last live rock must close the current extraction cycle");
+        require(!CelestialExtractionSystem.released(state, body.id()),
+                "exhausted live field must return the body to ready-to-fire state");
+        ResourceSpawner.update(live, celestials, 0.016);
+        require(live.size() == bridgedCount,
+                "exhausting a celestial field must not resize the tactical resource list");
+        require(activeForBody(live, body.id()).isEmpty(),
+                "exhausted celestial field must expose no active tactical rocks");
+
+        require(CelestialExtractionSystem.fireCharge(state, body.id(), "P1").fired(),
+                "exhausted body must accept another fracture charge");
+        celestials.update(CelestialExtractionSystem.CHARGE_SECONDS + 0.05);
+        ResourceSpawner.update(live, celestials, 0.016);
+        List<ResourceNode> refired = activeForBody(live, body.id());
+        require(refired.size() == liveDeposits.size(), "refired field must restore the full tactical rock set");
+        require(live.size() == bridgedCount, "refiring must reuse existing tactical resource objects");
+        for (ResourceNode previous : liveDeposits) {
+            ResourceNode current = find(refired, previous.id);
+            require(current == previous,
+                    "refire must reactivate the same live ResourceNode object for id " + previous.id);
+        }
 
         System.out.println("Celestial live resource bridge validation passed.");
     }
@@ -59,10 +89,19 @@ final class CelestialResourceBridgeValidator {
         throw new IllegalStateException("fixture requires a planet");
     }
 
-    private static List<ResourceNode> celestial(List<ResourceNode> resources) {
+    private static List<ResourceNode> activeCelestial(List<ResourceNode> resources) {
         List<ResourceNode> out = new ArrayList<>();
         for (ResourceNode node : resources) {
-            if (node != null && node.celestialAnchorBodyId != null && !node.celestialAnchorBodyId.isBlank()) out.add(node);
+            if (node != null && node.active && node.celestialAnchorBodyId != null
+                    && !node.celestialAnchorBodyId.isBlank()) out.add(node);
+        }
+        return out;
+    }
+
+    private static List<ResourceNode> activeForBody(List<ResourceNode> resources, String bodyId) {
+        List<ResourceNode> out = new ArrayList<>();
+        for (ResourceNode node : resources) {
+            if (node != null && node.active && bodyId.equals(node.celestialAnchorBodyId)) out.add(node);
         }
         return out;
     }
