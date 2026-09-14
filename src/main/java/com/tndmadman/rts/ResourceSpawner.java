@@ -25,6 +25,10 @@ final class ResourceSpawner {
     }
 
     static void update(List<ResourceNode> resources, CelestialSystem celestials, double dt) {
+        // Celestial gameplay creates body-linked deposits on persistent WorldSystemState. Mining,
+        // rendering and selection use the active World's live resource list, so bridge those nodes
+        // before advancing orbits. This also prevents saveActive from erasing newly seeded deposits.
+        CelestialResourceBridge.sync(resources, celestials);
         for (ResourceNode node : resources) node.updateOrbit(dt);
     }
 
