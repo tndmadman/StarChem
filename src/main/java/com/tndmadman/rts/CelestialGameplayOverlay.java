@@ -376,6 +376,11 @@ final class CelestialGameplayOverlay {
             setOpaque(false);
             setFocusable(false);
             setPreferredSize(new Dimension(PANEL_WIDTH, 600));
+            // This panel renders its own styled in-game objective help. Explicitly keep Swing's
+            // native tooltip pipeline disabled here so hovering an objective can never produce a
+            // second platform tooltip on top of the custom HUD tooltip.
+            setToolTipText(null);
+            javax.swing.ToolTipManager.sharedInstance().unregisterComponent(this);
             addMouseListener(new MouseAdapter() {
                 @Override public void mousePressed(MouseEvent event) {
                     if (closeBounds.contains(event.getPoint())) {
@@ -404,6 +409,10 @@ final class CelestialGameplayOverlay {
                 }
             });
             addMouseWheelListener(this::scroll);
+        }
+
+        @Override public String getToolTipText(MouseEvent event) {
+            return null;
         }
 
         GamePanel host() { return hostRef.get(); }
