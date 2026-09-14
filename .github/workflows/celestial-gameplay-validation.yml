@@ -12,6 +12,7 @@ on:
       - 'src/main/java/com/tndmadman/rts/CelestialGameplay*.java'
       - 'src/main/java/com/tndmadman/rts/CelestialMoonInheritance*.java'
       - 'src/main/java/com/tndmadman/rts/CelestialObjective*.java'
+      - 'src/main/java/com/tndmadman/rts/CelestialResourceBridge*.java'
       - 'src/main/java/com/tndmadman/rts/CelestialSystem.java'
       - 'src/main/java/com/tndmadman/rts/ResourceNode.java'
       - 'src/main/java/com/tndmadman/rts/ResourceSpawner.java'
@@ -56,6 +57,9 @@ jobs:
 
       - name: Run planet moon inheritance validator
         run: java -Djava.awt.headless=true -cp 'build/classes/java/main:build/resources/main' com.tndmadman.rts.CelestialMoonInheritanceValidator
+
+      - name: Run live celestial resource bridge validator
+        run: java -Djava.awt.headless=true -cp 'build/classes/java/main:build/resources/main' com.tndmadman.rts.CelestialResourceBridgeValidator
 
       - name: Run default verification
         run: gradle check --no-daemon
