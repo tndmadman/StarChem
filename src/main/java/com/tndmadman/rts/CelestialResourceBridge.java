@@ -10,8 +10,8 @@ import java.util.WeakHashMap;
 
 /**
  * Bridges released celestial deposits from persistent system state into the active tactical world's
- * live resource list. Unfractured planets and moons must never leak physical deposit nodes into the
- * renderer/mining layer.
+ * live resource list. Unfractured planets and moons remain inactive and therefore cannot render,
+ * select, mine, or replicate as visible resources.
  */
 final class CelestialResourceBridge {
     private static final Map<CelestialSystem, WorldSystemState> STATES =
@@ -29,10 +29,15 @@ final class CelestialResourceBridge {
         WorldSystemState state = STATES.get(celestials);
         if (state == null || liveResources == state.resources) return;
 
-        // Migration safety: older branch builds may already have copied every body deposit into the
-        // live tactical list. Strip any unreleased celestial nodes before rendering/mining sees them.
-        liveResources.removeIf(node -> isCelestial(node)
-                && !CelestialExtractionSystem.released(state, node.celestialAnchorBodyId));
+        // Do not remove already-bridged celestial nodes when a field seals. They are inactive and
+        // invisible, and retaining their stable objects avoids a live-resource list resize plus a
+        // spatial-index rebuild on the exact frame a field is exhausted. A later fracture simply
+        // reactivates these same objects.
+        for (ResourceNode node : liveResources) {
+            if (!isCelestial(node) || CelestialExtractionSystem.released(state, node.celestialAnchorBodyId)) continue;
+            node.active = false;
+            node.respawnTimer = 0;
+        }
 
         boolean releasedDepositPresent = false;
         for (ResourceNode node : state.resources) {
