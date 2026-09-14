@@ -57,13 +57,8 @@ final class CelestialMoonInheritance {
             CelestialBodyState slave = CelestialGameplaySystem.bodyState(state, body.id());
             if (master == null || slave == null) continue;
 
-            // Sovereignty is strictly inherited from the planet. A station on a moon can still be
-            // a physical/combat station, but it cannot create an independent moon polity.
             slave.contested = master.contested;
             slave.claimantId = master.claimantId == null ? "" : master.claimantId;
-
-            // HOLD is sovereignty time, so a slave moon advances with its master rather than
-            // requiring the player to separately hold every satellite in the same planetary group.
             slave.holdSecondsByPlayer.clear();
             slave.holdSecondsByPlayer.putAll(master.holdSecondsByPlayer);
         }
@@ -86,8 +81,6 @@ final class CelestialMoonInheritance {
             }
         }
 
-        // A moon station cannot start or preserve sovereignty on its own. Reservations exist only
-        // while at least one station remains directly anchored to the master planet.
         reservations.keySet().removeIf(masterId -> directMasterBases.getOrDefault(masterId, List.of()).isEmpty());
 
         for (Map.Entry<String,List<Base>> entry : directMasterBases.entrySet()) {
@@ -116,7 +109,6 @@ final class CelestialMoonInheritance {
             }
         }
 
-        // If all direct master anchors were rejected/destroyed during this pass, release the lock.
         reservations.keySet().removeIf(masterId -> !hasDirectMasterAnchor(state, masterId));
     }
 
@@ -160,7 +152,6 @@ final class CelestialMoonInheritance {
             }
 
             if (view.moon()) {
-                // The inheritance pass below overwrites moon sovereignty from its master.
                 body.contested = false;
                 body.claimantId = "";
                 continue;
@@ -175,19 +166,17 @@ final class CelestialMoonInheritance {
 
     private static CelestialInstallationType installationType(Base base) {
         String type = base == null || base.typeId == null ? "" : base.typeId.toLowerCase(Locale.ROOT);
+        if (type.contains("extractor")) return CelestialInstallationType.EXTRACTOR;
         if (type.contains("research") || type.contains("lab")) return CelestialInstallationType.RESEARCH_SITE;
         if (type.contains("sensor") || type.contains("radar") || type.contains("observ")
                 || type.contains("jam") || type.contains("decoy")) return CelestialInstallationType.SENSOR_ARRAY;
         if (type.contains("log") || type.contains("cargo") || type.contains("depot") || type.contains("repair")
                 || type.contains("outpost") || type.contains("shipyard")) return CelestialInstallationType.LOGISTICS_HUB;
-        return CelestialInstallationType.EXTRACTOR;
+        // Generic production stations no longer double as planetary extractors. The dedicated
+        // Planetary Extractor is the only installation that unlocks mining bonuses/fracture charges.
+        return CelestialInstallationType.LOGISTICS_HUB;
     }
 
-    /**
-     * Full celestial multiplier with planetary installation roles extended through slave moons.
-     * Each moon keeps its own profile, so its individual moon bonuses stack into the planetary
-     * system value. The existing global celestial cap is preserved for balance.
-     */
     static double bonusMultiplier(WorldSystemState state, String playerId, CelestialBonusKind kind) {
         if (state == null || playerId == null || playerId.isBlank() || kind == null) return 1.0;
         apply(state);
@@ -209,9 +198,6 @@ final class CelestialMoonInheritance {
                     ? null : CelestialGameplaySystem.bodyState(state, masterView.id());
             if (master == null || master.contested || !playerId.equals(master.claimantId)) continue;
             if (!installationSupports(master.installations, kind)) continue;
-
-            // The installation capability comes from the master planet, but the amount/type of the
-            // reward comes from the moon itself. More moons therefore means more total value.
             bonus += bodyState.profile.bonuses().getOrDefault(kind, 0.0);
         }
         return 1.0 + Math.min(MAX_CELESTIAL_BONUS, Math.max(0.0, bonus));
