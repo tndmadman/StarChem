@@ -94,6 +94,11 @@ final class CelestialExtractionSystem {
         if (state == null) return;
         ExtractionState extraction = data(state);
 
+        // Extractors are planetary infrastructure. If the generic proximity anchor pass happened
+        // to snap one to a nearby slave moon, promote it to that moon's master planet before claim
+        // reconciliation. This keeps a single extractor capable of servicing the entire moon group.
+        if (normalizeExtractorAnchors(state)) CelestialMoonInheritance.apply(state);
+
         if (Double.isFinite(dt) && dt > 0) {
             Iterator<Charge> it = extraction.charges.iterator();
             while (it.hasNext()) {
@@ -114,9 +119,6 @@ final class CelestialExtractionSystem {
             if (extraction.impactAge < 0.5) extraction.impactAge += dt;
         }
 
-        // CelestialGameplaySystem seeds deterministic deposits before this pass. Keep them only for
-        // bodies whose fracture charge has actually impacted. Unreleased bodies therefore have no
-        // physical rocks to render, select, mine, save, or bridge into the active tactical world.
         for (CelestialBodyState body : CelestialGameplaySystem.bodyStates(state)) {
             String bodyId = body.profile.bodyId();
             if (extraction.releasedBodyIds.contains(bodyId)) continue;
@@ -191,6 +193,28 @@ final class CelestialExtractionSystem {
             String id = ServerSaveStore.asString(value, "");
             if (!id.isBlank() && state.celestials.bodyView(id) != null) extraction.releasedBodyIds.add(id);
         }
+    }
+
+    private static boolean normalizeExtractorAnchors(WorldSystemState state) {
+        boolean changed = false;
+        for (Base base : state.bases.values()) {
+            if (base == null || !EXTRACTOR_STATION_ID.equals(base.typeId)
+                    || base.celestialAnchorBodyId == null || base.celestialAnchorBodyId.isBlank()) continue;
+            CelestialSystem.BodyView anchored = state.celestials.bodyView(base.celestialAnchorBodyId);
+            if (anchored == null || !anchored.moon()) continue;
+            String masterId = CelestialMoonInheritance.masterPlanetId(state, anchored.id());
+            CelestialSystem.BodyView master = state.celestials.bodyView(masterId);
+            if (master == null) continue;
+            double distance = Math.hypot(base.x - master.x(), base.y - master.y());
+            base.celestialAnchorBodyId = master.id();
+            base.celestialOrbitRadius = Math.max(master.radius() + base.interactionRadius() + 60.0, distance);
+            base.celestialOrbitAngle = Math.atan2(base.y - master.y(), base.x - master.x());
+            base.celestialOrbitSpeed = 0.010 * Math.sqrt(400.0 / Math.max(200.0, base.celestialOrbitRadius));
+            base.x = master.x() + Math.cos(base.celestialOrbitAngle) * base.celestialOrbitRadius;
+            base.y = master.y() + Math.sin(base.celestialOrbitAngle) * base.celestialOrbitRadius;
+            changed = true;
+        }
+        return changed;
     }
 
     private static Base extractorFor(WorldSystemState state, String bodyId, String playerId) {
