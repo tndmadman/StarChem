@@ -8,6 +8,7 @@ import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Composite;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.FontMetrics;
@@ -23,6 +24,7 @@ import java.awt.Shape;
 import java.awt.Toolkit;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
 import java.awt.event.MouseWheelEvent;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Point2D;
@@ -210,7 +212,12 @@ final class CelestialGameplayOverlay {
             } else {
                 detail = "Pending";
             }
-            objectives.add(new ObjectiveView(title(objective.name()), progress / target, detail, status.complete()));
+            objectives.add(new ObjectiveView(
+                    title(objective.name()),
+                    progress / target,
+                    detail,
+                    status.complete(),
+                    objectiveHelp(objective, body.moon())));
         }
 
         return new IntelView(
@@ -232,6 +239,19 @@ final class CelestialGameplayOverlay {
                 objectives);
     }
 
+    private static String objectiveHelp(CelestialObjectiveType objective, boolean moon) {
+        return switch (objective) {
+            case SCAN -> "No station required. Keep a ship or station nearby for 4 seconds. A Sensor Array is useful for sensor coverage but is not required to complete the scan.";
+            case CLAIM -> moon
+                    ? "Moons inherit sovereignty from their master planet. Anchor any friendly orbital station to the parent planet to establish the claim."
+                    : "Anchor any friendly orbital station to this planet to establish ownership. Hostile or neutral stations cannot anchor after your claim begins; allied stations may join.";
+            case HOLD -> moon
+                    ? "Keep the parent planet uncontested and owned for 120 seconds. Moon hold progress follows the master planet."
+                    : "Keep at least one friendly orbital station anchored and maintain uncontested ownership for 120 seconds.";
+            case EXTRACT -> "Mine 500 units from this body's listed orbital deposits with a mining-capable ship. A Manufacturing station acts as the Extractor installation and activates mining bonuses.";
+        };
+    }
+
     private static String oneLine(WorldSystemState system, String bodyId, String playerId) {
         CelestialBodyState state = CelestialGameplaySystem.bodyState(system, bodyId);
         if (state == null) return "Celestial body selected.";
@@ -239,8 +259,11 @@ final class CelestialGameplayOverlay {
         String claim = state.contested ? "contested"
                 : state.claimantId == null || state.claimantId.isBlank() ? "unclaimed"
                 : "claimed by " + PlayerRegistry.name(state.claimantId);
+        String deposits = intel.ordinal() >= CelestialIntelLevel.SCANNED.ordinal()
+                ? " | deposits: " + state.resourceNodeIds.size() + " (use LOCATE in Survey Data)"
+                : "";
         return "Selected " + state.profile.bodyName() + " | " + state.profile.bodyType()
-                + " | " + claim + " | intel: " + intel.name().toLowerCase(Locale.ROOT);
+                + " | " + claim + " | intel: " + intel.name().toLowerCase(Locale.ROOT) + deposits;
     }
 
     private static String localPlayerId(World world) {
@@ -254,6 +277,12 @@ final class CelestialGameplayOverlay {
         for (WorldSystemState state : world.policySystemStates()) {
             if (state != null && state.id.equals(active)) return state;
         }
+        return null;
+    }
+
+    private static ResourceNode resourceById(WorldSystemState state, int id) {
+        if (state == null) return null;
+        for (ResourceNode node : state.resources) if (node != null && node.id == id) return node;
         return null;
     }
 
@@ -308,7 +337,8 @@ final class CelestialGameplayOverlay {
     }
 
     private record BonusView(String name, String value) { }
-    private record ObjectiveView(String name, double fraction, String detail, boolean complete) { }
+    private record ObjectiveView(String name, double fraction, String detail, boolean complete, String help) { }
+    private record ObjectiveHitbox(Rectangle bounds, ObjectiveView objective) { }
     private record IntelView(
             String name,
             String kind,
@@ -333,7 +363,12 @@ final class CelestialGameplayOverlay {
         private IntelView view;
         private int scrollOffset;
         private int maxScroll;
+        private int depositCycle;
+        private boolean depositHover;
+        private ObjectiveView hoveredObjective;
         private final Rectangle closeBounds = new Rectangle();
+        private final Rectangle depositBounds = new Rectangle();
+        private final List<ObjectiveHitbox> objectiveHitboxes = new ArrayList<>();
 
         IntelPanel(World world, GamePanel host) {
             worldRef = new WeakReference<>(world);
@@ -346,7 +381,26 @@ final class CelestialGameplayOverlay {
                     if (closeBounds.contains(event.getPoint())) {
                         setVisible(false);
                         event.consume();
+                        return;
                     }
+                    if (depositBounds.contains(event.getPoint())) {
+                        locateNextDeposit();
+                        event.consume();
+                    }
+                }
+
+                @Override public void mouseExited(MouseEvent event) {
+                    if (depositHover || hoveredObjective != null) {
+                        depositHover = false;
+                        hoveredObjective = null;
+                        setCursor(Cursor.getDefaultCursor());
+                        repaint();
+                    }
+                }
+            });
+            addMouseMotionListener(new MouseMotionAdapter() {
+                @Override public void mouseMoved(MouseEvent event) {
+                    updateHover(event.getPoint());
                 }
             });
             addMouseWheelListener(this::scroll);
@@ -357,15 +411,83 @@ final class CelestialGameplayOverlay {
         void setView(IntelView next) {
             boolean changedBody = view == null || next == null || !view.name().equals(next.name());
             view = next;
-            if (changedBody) scrollOffset = 0;
+            if (changedBody) {
+                scrollOffset = 0;
+                depositCycle = 0;
+                depositHover = false;
+                hoveredObjective = null;
+            }
             repaint();
         }
 
         private void scroll(MouseWheelEvent event) {
             if (maxScroll <= 0) return;
             scrollOffset = Math.max(0, Math.min(maxScroll, scrollOffset + event.getWheelRotation() * 34));
+            hoveredObjective = null;
+            depositHover = false;
             repaint();
             event.consume();
+        }
+
+        private void updateHover(Point point) {
+            boolean nextDepositHover = depositBounds.contains(point);
+            ObjectiveView nextObjective = null;
+            for (ObjectiveHitbox hitbox : objectiveHitboxes) {
+                if (hitbox.bounds().contains(point)) {
+                    nextObjective = hitbox.objective();
+                    break;
+                }
+            }
+            if (nextDepositHover == depositHover && nextObjective == hoveredObjective) return;
+            depositHover = nextDepositHover;
+            hoveredObjective = nextObjective;
+            setCursor(nextDepositHover ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
+            repaint();
+        }
+
+        private void locateNextDeposit() {
+            World world = worldRef.get();
+            GamePanel host = hostRef.get();
+            IntelView model = view;
+            if (world == null || host == null || model == null
+                    || model.intel().ordinal() < CelestialIntelLevel.SCANNED.ordinal()) return;
+            WorldSystemState system = activeState(world);
+            String bodyId = selectedBodyId(world);
+            CelestialBodyState body = system == null ? null : CelestialGameplaySystem.bodyState(system, bodyId);
+            if (body == null || body.resourceNodeIds.isEmpty()) {
+                world.status = "No physical deposits are currently available for " + model.name() + ".";
+                return;
+            }
+
+            List<ResourceNode> deposits = new ArrayList<>();
+            for (int id : body.resourceNodeIds) {
+                ResourceNode node = resourceById(system, id);
+                if (node != null && node.active) deposits.add(node);
+            }
+            if (deposits.isEmpty()) {
+                for (int id : body.resourceNodeIds) {
+                    ResourceNode node = resourceById(system, id);
+                    if (node != null) deposits.add(node);
+                }
+            }
+            if (deposits.isEmpty()) {
+                world.status = "No physical deposits are currently available for " + model.name() + ".";
+                return;
+            }
+
+            int index = Math.floorMod(depositCycle, deposits.size());
+            ResourceNode node = deposits.get(index);
+            depositCycle = (index + 1) % deposits.size();
+            world.selectedResourceId = node.id;
+            GameCamera camera = GameCamera.forWorld(world);
+            if (camera != null) camera.centerAt(node.x, node.y, world, host.getWidth(), host.getHeight());
+            long amount = Math.round(Math.max(0.0, node.amount));
+            world.status = "Located " + node.material.label + " deposit " + (index + 1) + "/" + deposits.size()
+                    + " orbiting " + model.name() + " | " + amount + " units remaining"
+                    + " | Select a mining ship and right-click this deposit to harvest.";
+            host.requestFocusInWindow();
+            host.repaint();
+            repaint();
         }
 
         @Override protected void paintComponent(Graphics graphics) {
@@ -378,6 +500,9 @@ final class CelestialGameplayOverlay {
             int w = getWidth();
             int h = getHeight();
             Color accent = bodyColor(model.type());
+            objectiveHitboxes.clear();
+            depositBounds.setBounds(0, 0, 0, 0);
+
             g.setPaint(new GradientPaint(0, 0, PANEL_TOP_COLOR, 0, h, PANEL_BOTTOM_COLOR));
             g.fillRoundRect(0, 0, w - 1, h - 1, 16, 16);
             g.setColor(alpha(BORDER, 215));
@@ -396,6 +521,7 @@ final class CelestialGameplayOverlay {
             maxScroll = Math.max(0, contentHeight - Math.max(1, h - HEADER_HEIGHT));
             if (scrollOffset > maxScroll) scrollOffset = maxScroll;
             drawScrollbar(g, w, h);
+            drawObjectiveTooltip(g, w, h);
             g.dispose();
         }
 
@@ -515,7 +641,8 @@ final class CelestialGameplayOverlay {
 
             int gap = 8;
             int colW = (w - gap * 2) / 3;
-            drawSurveyColumn(g, "DEPOSITS", model.deposits(), x, y, colW, accent);
+            depositBounds.setBounds(x, HEADER_HEIGHT + y - scrollOffset, colW, 76);
+            drawDepositColumn(g, model.deposits(), x, y, colW, accent);
             drawSurveyColumn(g, "TRAITS", model.traits(), x + colW + gap, y, colW, CYAN);
             drawSurveyColumn(g, "HAZARDS", model.hazards(), x + (colW + gap) * 2, y, colW,
                     model.hazards().isEmpty() ? GOOD : WARN);
@@ -564,8 +691,15 @@ final class CelestialGameplayOverlay {
             card(g, x, y, w, 116, CARD_ALT);
             int rowY = y + 10;
             for (ObjectiveView objective : model.objectives()) {
+                Rectangle hit = new Rectangle(x + 6, HEADER_HEIGHT + rowY - scrollOffset - 4, w - 12, 24);
+                objectiveHitboxes.add(new ObjectiveHitbox(hit, objective));
+                boolean hovered = hoveredObjective == objective;
+                if (hovered) {
+                    g.setColor(new Color(112, 214, 255, 17));
+                    g.fillRoundRect(x + 6, rowY - 5, w - 12, 23, 6, 6);
+                }
                 g.setFont(g.getFont().deriveFont(Font.BOLD, 10f));
-                g.setColor(objective.complete() ? GOOD : TEXT);
+                g.setColor(objective.complete() ? GOOD : hovered ? CYAN : TEXT);
                 String icon = objective.complete() ? "✓" : "•";
                 g.drawString(icon + " " + objective.name().toUpperCase(Locale.ROOT), x + 12, rowY + 9);
                 g.setFont(g.getFont().deriveFont(Font.PLAIN, 9f));
@@ -593,6 +727,116 @@ final class CelestialGameplayOverlay {
             drawEllipsis(g, "Deploy a station package in this body's orbit to claim it and activate bonuses.",
                     x + 13, y + 35, w - 26);
             return y + h;
+        }
+
+        private void drawDepositColumn(Graphics2D g, List<String> values, int x, int y, int w, Color accent) {
+            Color fill = depositHover ? alpha(accent, 31) : CARD_ALT;
+            card(g, x, y, w, 76, fill);
+            if (depositHover) {
+                g.setColor(alpha(accent, 205));
+                g.drawRoundRect(x, y, w, 76, 10, 10);
+            }
+            g.setFont(g.getFont().deriveFont(Font.BOLD, 8f));
+            g.setColor(accent);
+            g.drawString("DEPOSITS", x + 9, y + 15);
+            g.setFont(g.getFont().deriveFont(Font.BOLD, 7f));
+            g.setColor(depositHover ? accent.brighter() : MUTED);
+            String locate = "LOCATE ↗";
+            int locateW = g.getFontMetrics().stringWidth(locate);
+            g.drawString(locate, x + w - locateW - 8, y + 15);
+
+            List<String> safe = values == null ? List.of() : values;
+            if (safe.isEmpty()) {
+                g.setFont(g.getFont().deriveFont(Font.PLAIN, 9f));
+                g.setColor(MUTED);
+                g.drawString("None detected", x + 9, y + 37);
+                return;
+            }
+            g.setFont(g.getFont().deriveFont(Font.PLAIN, 9f));
+            g.setColor(TEXT);
+            int lineY = y + 35;
+            int shown = Math.min(2, safe.size());
+            for (int i = 0; i < shown; i++) {
+                drawEllipsis(g, "◆ " + safe.get(i), x + 9, lineY, w - 18);
+                lineY += 15;
+            }
+            g.setFont(g.getFont().deriveFont(Font.PLAIN, 8f));
+            g.setColor(depositHover ? accent.brighter() : MUTED);
+            if (safe.size() > shown) g.drawString("+" + (safe.size() - shown) + " more • click to cycle", x + 9, y + 67);
+            else g.drawString("Click to center camera", x + 9, y + 67);
+        }
+
+        private void drawSurveyColumn(Graphics2D g, String title, List<String> values,
+                                      int x, int y, int w, Color accent) {
+            card(g, x, y, w, 76, CARD_ALT);
+            g.setFont(g.getFont().deriveFont(Font.BOLD, 8f));
+            g.setColor(accent);
+            g.drawString(title, x + 9, y + 15);
+            List<String> safe = values == null ? List.of() : values;
+            if (safe.isEmpty()) {
+                g.setFont(g.getFont().deriveFont(Font.PLAIN, 9f));
+                g.setColor(MUTED);
+                g.drawString("None detected", x + 9, y + 37);
+                return;
+            }
+            g.setFont(g.getFont().deriveFont(Font.PLAIN, 9f));
+            g.setColor(TEXT);
+            int lineY = y + 35;
+            int shown = Math.min(2, safe.size());
+            for (int i = 0; i < shown; i++) {
+                drawEllipsis(g, "• " + safe.get(i), x + 9, lineY, w - 18);
+                lineY += 15;
+            }
+            if (safe.size() > shown) {
+                g.setColor(MUTED);
+                g.drawString("+" + (safe.size() - shown) + " more", x + 9, y + 67);
+            }
+        }
+
+        private void drawObjectiveTooltip(Graphics2D g, int w, int h) {
+            ObjectiveView objective = hoveredObjective;
+            if (objective == null || objective.help() == null || objective.help().isBlank()) return;
+            int boxW = Math.max(220, w - 32);
+            int x = 16;
+            List<String> lines = wrap(g, objective.help(), boxW - 24, 10f);
+            int boxH = 31 + lines.size() * 14;
+            int y = Math.max(HEADER_HEIGHT + 8, h - boxH - 14);
+            g.setColor(new Color(3, 9, 15, 245));
+            g.fillRoundRect(x, y, boxW, boxH, 10, 10);
+            g.setColor(alpha(CYAN, 190));
+            g.drawRoundRect(x, y, boxW, boxH, 10, 10);
+            g.setFont(g.getFont().deriveFont(Font.BOLD, 9f));
+            g.setColor(CYAN);
+            g.drawString(objective.name().toUpperCase(Locale.ROOT) + " REQUIREMENTS", x + 12, y + 17);
+            g.setFont(g.getFont().deriveFont(Font.PLAIN, 10f));
+            g.setColor(TEXT);
+            int baseline = y + 34;
+            for (String line : lines) {
+                g.drawString(line, x + 12, baseline);
+                baseline += 14;
+            }
+        }
+
+        private List<String> wrap(Graphics2D g, String text, int width, float fontSize) {
+            Font old = g.getFont();
+            g.setFont(old.deriveFont(Font.PLAIN, fontSize));
+            FontMetrics fm = g.getFontMetrics();
+            List<String> lines = new ArrayList<>();
+            StringBuilder line = new StringBuilder();
+            for (String word : text.split("\\s+")) {
+                String candidate = line.isEmpty() ? word : line + " " + word;
+                if (!line.isEmpty() && fm.stringWidth(candidate) > width) {
+                    lines.add(line.toString());
+                    line.setLength(0);
+                    line.append(word);
+                } else {
+                    if (!line.isEmpty()) line.append(' ');
+                    line.append(word);
+                }
+            }
+            if (!line.isEmpty()) lines.add(line.toString());
+            g.setFont(old);
+            return lines.isEmpty() ? List.of("") : lines;
         }
 
         private void drawPlanet(Graphics2D g, IntelView model, Color accent, int cx, int cy, int radius) {
@@ -656,33 +900,6 @@ final class CelestialGameplayOverlay {
             g.setColor(MUTED);
             int rw = g.getFontMetrics().stringWidth(right);
             g.drawString(right, x + w - rw, y + 10);
-        }
-
-        private void drawSurveyColumn(Graphics2D g, String title, List<String> values,
-                                      int x, int y, int w, Color accent) {
-            card(g, x, y, w, 76, CARD_ALT);
-            g.setFont(g.getFont().deriveFont(Font.BOLD, 8f));
-            g.setColor(accent);
-            g.drawString(title, x + 9, y + 15);
-            List<String> safe = values == null ? List.of() : values;
-            if (safe.isEmpty()) {
-                g.setFont(g.getFont().deriveFont(Font.PLAIN, 9f));
-                g.setColor(MUTED);
-                g.drawString("None detected", x + 9, y + 37);
-                return;
-            }
-            g.setFont(g.getFont().deriveFont(Font.PLAIN, 9f));
-            g.setColor(TEXT);
-            int lineY = y + 35;
-            int shown = Math.min(2, safe.size());
-            for (int i = 0; i < shown; i++) {
-                drawEllipsis(g, "• " + safe.get(i), x + 9, lineY, w - 18);
-                lineY += 15;
-            }
-            if (safe.size() > shown) {
-                g.setColor(MUTED);
-                g.drawString("+" + (safe.size() - shown) + " more", x + 9, y + 67);
-            }
         }
 
         private void card(Graphics2D g, int x, int y, int w, int h, Color fill) {
