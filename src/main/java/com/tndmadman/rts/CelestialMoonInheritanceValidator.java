@@ -155,8 +155,8 @@ final class CelestialMoonInheritanceValidator {
                 "CLAIM help must explain friendly-anchor ownership lock");
         require(hold.contains("friendly orbital station") && hold.contains("120"),
                 "HOLD help must state the station and hold-duration requirement");
-        require(extract.contains("Manufacturing/Extractor") && extract.contains("500"),
-                "EXTRACT help must explain mining progress and extractor bonus requirement");
+        require(extract.contains("Planetary Extractor") && extract.contains("fracture charge") && extract.contains("500"),
+                "EXTRACT help must explain the extractor, fracture charge, and mining target");
         require(moonClaim.contains(planet.name()) && moonClaim.contains("no separate moon claim station"),
                 "moon CLAIM help must point players to the master planet");
     }
