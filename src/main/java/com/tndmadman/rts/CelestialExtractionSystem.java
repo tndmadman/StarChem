@@ -1,8 +1,10 @@
 package com.tndmadman.rts;
 
+import javax.swing.SwingUtilities;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
+import java.awt.GraphicsEnvironment;
 import java.awt.RadialGradientPaint;
 import java.awt.geom.Point2D;
 import java.util.ArrayList;
@@ -17,8 +19,12 @@ import java.util.WeakHashMap;
 
 /**
  * Gates physical planet/moon deposits behind a dedicated Planetary Extractor and a fracture charge.
- * Survey intel may reveal what a body contains, but ResourceNodes do not physically exist until a
+ * Survey intel may reveal what a body contains, but ResourceNodes remain sealed/inactive until a
  * charge fired from an extractor anchored to the master planet reaches that specific body.
+ *
+ * <p>Celestial nodes are intentionally recycled between fracture cycles instead of being allocated,
+ * removed, and re-added. That keeps field depletion/refire from rebuilding large resource lists or
+ * producing a frame hitch.</p>
  */
 final class CelestialExtractionSystem {
     static final String EXTRACTOR_STATION_ID = "extractor";
@@ -27,6 +33,8 @@ final class CelestialExtractionSystem {
     private static final Map<CelestialSystem, WorldSystemState> STATES =
             Collections.synchronizedMap(new WeakHashMap<>());
     private static final Map<WorldSystemState, ExtractionState> DATA =
+            Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Map<ResourceNode, WorldSystemState> RESOURCE_STATES =
             Collections.synchronizedMap(new WeakHashMap<>());
 
     private CelestialExtractionSystem() { }
@@ -60,7 +68,22 @@ final class CelestialExtractionSystem {
         return extractorFor(state, bodyId, playerId) != null;
     }
 
+    /**
+     * Simulation/test entry point. Player-facing Swing UI must use fireChargeFromButton so clicking
+     * the survey/deposit card cannot accidentally fire a charge.
+     */
     static FireResult fireCharge(WorldSystemState state, String bodyId, String playerId) {
+        if (!GraphicsEnvironment.isHeadless() && SwingUtilities.isEventDispatchThread()) {
+            return new FireResult(false, "Use the FIRE FRACTURE CHARGE button above the celestial intel panel.");
+        }
+        return fireChargeInternal(state, bodyId, playerId);
+    }
+
+    static FireResult fireChargeFromButton(WorldSystemState state, String bodyId, String playerId) {
+        return fireChargeInternal(state, bodyId, playerId);
+    }
+
+    private static FireResult fireChargeInternal(WorldSystemState state, String bodyId, String playerId) {
         if (state == null || state.celestials == null || bodyId == null || bodyId.isBlank()) {
             return new FireResult(false, "No celestial body selected.");
         }
@@ -69,7 +92,7 @@ final class CelestialExtractionSystem {
             return new FireResult(false, "Extraction charges can only target planets and moons.");
         }
         if (released(state, bodyId)) {
-            return new FireResult(false, target.name() + " is already fractured. Use LOCATE to find an exposed deposit.");
+            return new FireResult(false, target.name() + " still has an exposed extraction field. Deplete it before refiring.");
         }
         if (chargeInFlight(state, bodyId)) {
             return new FireResult(false, "Extraction charge already in flight to " + target.name() + ".");
@@ -84,9 +107,23 @@ final class CelestialExtractionSystem {
                     + " before firing a fracture charge at " + target.name() + ".");
         }
 
-        data(state).charges.add(new Charge(bodyId, extractor.id, playerId == null ? "" : playerId));
+        ExtractionState extraction = data(state);
+        extraction.sealedBodyIds.add(bodyId);
+        extraction.charges.add(new Charge(bodyId, extractor.id, playerId == null ? "" : playerId));
         return new FireResult(true, "Fracture charge fired from " + extractor.type().name + " at " + target.name()
                 + ". Deposits will be exposed on impact.");
+    }
+
+    /**
+     * Called immediately when a celestial rock depletes. Returns true only when that was the last
+     * active rock in the body's current fracture cycle.
+     */
+    static boolean onDepositDepleted(ResourceNode node) {
+        if (!isCelestial(node)) return false;
+        WorldSystemState state = RESOURCE_STATES.get(node);
+        if (state == null) state = findState(node);
+        if (state == null) return false;
+        return finishFieldIfExhausted(state, node.celestialAnchorBodyId);
     }
 
     static void update(CelestialSystem celestials, double dt) {
@@ -98,6 +135,16 @@ final class CelestialExtractionSystem {
         // to snap one to a nearby slave moon, promote it to that moon's master planet before claim
         // reconciliation. This keeps a single extractor capable of servicing the entire moon group.
         if (normalizeExtractorAnchors(state)) CelestialMoonInheritance.apply(state);
+
+        // CelestialGameplaySystem ensures deterministic node identities before this pass. Keep all
+        // unreleased nodes sealed/inactive rather than deleting them. Reusing the same tiny node set
+        // removes the allocation/list-rebuild hitch that used to occur around extraction lifecycle
+        // transitions.
+        for (CelestialBodyState body : CelestialGameplaySystem.bodyStates(state)) {
+            bindBodyNodes(state, body);
+            String bodyId = body.profile.bodyId();
+            if (!extraction.releasedBodyIds.contains(bodyId)) sealBody(state, body, extraction);
+        }
 
         if (Double.isFinite(dt) && dt > 0) {
             Iterator<Charge> it = extraction.charges.iterator();
@@ -111,6 +158,8 @@ final class CelestialExtractionSystem {
                 charge.elapsed += dt;
                 if (charge.elapsed + 0.000001 >= CHARGE_SECONDS) {
                     extraction.releasedBodyIds.add(charge.bodyId);
+                    extraction.sealedBodyIds.remove(charge.bodyId);
+                    activateBody(state, charge.bodyId);
                     extraction.impactBodyId = charge.bodyId;
                     extraction.impactAge = 0.0;
                     it.remove();
@@ -119,13 +168,72 @@ final class CelestialExtractionSystem {
             if (extraction.impactAge < 0.5) extraction.impactAge += dt;
         }
 
-        for (CelestialBodyState body : CelestialGameplaySystem.bodyStates(state)) {
-            String bodyId = body.profile.bodyId();
-            if (extraction.releasedBodyIds.contains(bodyId)) continue;
-            state.resources.removeIf(node -> node != null && bodyId.equals(node.celestialAnchorBodyId));
-            body.resourceNodeIds.clear();
-            body.depositsSeeded = false;
+        // A field may have been depleted by a path other than WorkSystem (network restore, scripted
+        // changes, tests). Reconcile released fields here too, without mutating resource-list size.
+        for (String bodyId : new ArrayList<>(extraction.releasedBodyIds)) {
+            finishFieldIfExhausted(state, bodyId);
         }
+    }
+
+    private static void bindBodyNodes(WorldSystemState state, CelestialBodyState body) {
+        if (state == null || body == null) return;
+        for (int id : body.resourceNodeIds) {
+            ResourceNode node = resourceById(state, id);
+            if (node != null) RESOURCE_STATES.put(node, state);
+        }
+    }
+
+    private static void sealBody(WorldSystemState state, CelestialBodyState body, ExtractionState extraction) {
+        if (state == null || body == null || extraction == null) return;
+        String bodyId = body.profile.bodyId();
+        if (extraction.sealedBodyIds.contains(bodyId)) return;
+        boolean found = false;
+        for (int id : body.resourceNodeIds) {
+            ResourceNode node = resourceById(state, id);
+            if (node == null) continue;
+            found = true;
+            node.active = false;
+            node.amount = node.maxAmount;
+            node.respawnTimer = 0;
+            RESOURCE_STATES.put(node, state);
+        }
+        if (found) extraction.sealedBodyIds.add(bodyId);
+    }
+
+    private static void activateBody(WorldSystemState state, String bodyId) {
+        CelestialBodyState body = CelestialGameplaySystem.bodyState(state, bodyId);
+        if (body == null) return;
+        for (int id : body.resourceNodeIds) {
+            ResourceNode node = resourceById(state, id);
+            if (node == null) continue;
+            node.amount = node.maxAmount;
+            node.active = true;
+            node.respawnTimer = 0;
+            RESOURCE_STATES.put(node, state);
+        }
+    }
+
+    private static boolean finishFieldIfExhausted(WorldSystemState state, String bodyId) {
+        if (state == null || bodyId == null || bodyId.isBlank()) return false;
+        ExtractionState extraction = data(state);
+        if (!extraction.releasedBodyIds.contains(bodyId)) return false;
+        CelestialBodyState body = CelestialGameplaySystem.bodyState(state, bodyId);
+        if (body == null || body.resourceNodeIds.isEmpty()) return false;
+
+        boolean found = false;
+        for (int id : body.resourceNodeIds) {
+            ResourceNode node = resourceById(state, id);
+            if (node == null) continue;
+            found = true;
+            RESOURCE_STATES.put(node, state);
+            if (node.active && node.amount > 0.05) return false;
+        }
+        if (!found) return false;
+
+        extraction.releasedBodyIds.remove(bodyId);
+        extraction.sealedBodyIds.remove(bodyId);
+        sealBody(state, body, extraction);
+        return true;
     }
 
     static void draw(CelestialSystem celestials, Graphics2D g) {
@@ -185,6 +293,7 @@ final class CelestialExtractionSystem {
         if (state == null) return;
         ExtractionState extraction = data(state);
         extraction.releasedBodyIds.clear();
+        extraction.sealedBodyIds.clear();
         extraction.charges.clear();
         extraction.impactBodyId = "";
         extraction.impactAge = 1.0;
@@ -239,6 +348,28 @@ final class CelestialExtractionSystem {
         return friendly(master.claimantId, base.playerId) && friendly(base.playerId, playerId);
     }
 
+    private static WorldSystemState findState(ResourceNode node) {
+        synchronized (STATES) {
+            for (WorldSystemState candidate : STATES.values()) {
+                if (candidate != null && candidate.resources.contains(node)) {
+                    RESOURCE_STATES.put(node, candidate);
+                    return candidate;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static ResourceNode resourceById(WorldSystemState state, int id) {
+        if (state == null) return null;
+        for (ResourceNode node : state.resources) if (node != null && node.id == id) return node;
+        return null;
+    }
+
+    private static boolean isCelestial(ResourceNode node) {
+        return node != null && node.celestialAnchorBodyId != null && !node.celestialAnchorBodyId.isBlank();
+    }
+
     private static boolean friendly(String first, String second) {
         if (first == null || first.isBlank() || second == null || second.isBlank()) return false;
         if (first.equals(second)) return true;
@@ -254,6 +385,7 @@ final class CelestialExtractionSystem {
 
     private static final class ExtractionState {
         final Set<String> releasedBodyIds = new LinkedHashSet<>();
+        final Set<String> sealedBodyIds = new LinkedHashSet<>();
         final List<Charge> charges = new ArrayList<>();
         String impactBodyId = "";
         double impactAge = 1.0;
