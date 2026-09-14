@@ -7,6 +7,7 @@ import java.util.Map;
 final class CelestialGameplayPersistence {
     private static final String RESOURCE_ANCHORS = "$resourceAnchors";
     private static final String BASE_ANCHORS = "$baseAnchors";
+    private static final String EXTRACTION_STATE = "$extraction";
 
     private CelestialGameplayPersistence() { }
 
@@ -64,6 +65,9 @@ final class CelestialGameplayPersistence {
             baseAnchors.put(base.id, row);
         }
         if (!baseAnchors.isEmpty()) out.put(BASE_ANCHORS, baseAnchors);
+
+        Map<String,Object> extraction = CelestialExtractionSystem.captureState(state);
+        if (!extraction.isEmpty()) out.put(EXTRACTION_STATE, extraction);
         return out;
     }
 
@@ -89,6 +93,8 @@ final class CelestialGameplayPersistence {
             restoreDoubleMap(body.holdSecondsByPlayer, row.get("holdSeconds"));
             restoreDoubleMap(body.extractedByPlayer, row.get("extracted"));
         }
+
+        CelestialExtractionSystem.restoreState(state, saved.get(EXTRACTION_STATE));
 
         Map<String,Object> resourceAnchors = ServerSaveStore.object(saved.get(RESOURCE_ANCHORS));
         for (ResourceNode node : state.resources) {
