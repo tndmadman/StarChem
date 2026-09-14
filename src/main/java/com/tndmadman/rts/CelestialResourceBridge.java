@@ -9,15 +9,9 @@ import java.util.Set;
 import java.util.WeakHashMap;
 
 /**
- * Bridges deterministic celestial deposits from persistent system state into the active tactical
- * world's live resource list.
- *
- * <p>WorldSystemState and World intentionally own separate resource collections. Celestial gameplay
- * seeds deposits while CelestialSystem is updating the persistent state, while mining/rendering use
- * the active World's resource list. Without this bridge a later saveActive pass can replace the
- * persistent list with the live list before those new deposits are ever visible, effectively
- * deleting them. The bridge copies only body-anchored nodes and keeps the same ResourceNode object,
- * so mining, depletion, respawn, save state and extraction objectives all remain authoritative.</p>
+ * Bridges released celestial deposits from persistent system state into the active tactical world's
+ * live resource list. Unfractured planets and moons must never leak physical deposit nodes into the
+ * renderer/mining layer.
  */
 final class CelestialResourceBridge {
     private static final Map<CelestialSystem, WorldSystemState> STATES =
@@ -35,25 +29,31 @@ final class CelestialResourceBridge {
         WorldSystemState state = STATES.get(celestials);
         if (state == null || liveResources == state.resources) return;
 
-        // A zero-time update is safe and guarantees deposits exist even when this sync is invoked
-        // before the normal environment tick (for example immediately after loading a system).
-        boolean seeded = false;
+        // Migration safety: older branch builds may already have copied every body deposit into the
+        // live tactical list. Strip any unreleased celestial nodes before rendering/mining sees them.
+        liveResources.removeIf(node -> isCelestial(node)
+                && !CelestialExtractionSystem.released(state, node.celestialAnchorBodyId));
+
+        boolean releasedDepositPresent = false;
         for (ResourceNode node : state.resources) {
-            if (isCelestial(node)) {
-                seeded = true;
+            if (isReleasedCelestial(state, node)) {
+                releasedDepositPresent = true;
                 break;
             }
         }
-        if (!seeded) celestials.update(0);
+        if (!releasedDepositPresent) celestials.update(0);
 
         Set<Integer> liveIds = new HashSet<>();
         for (ResourceNode node : liveResources) if (node != null) liveIds.add(node.id);
 
-        // Snapshot the state list because a zero-time celestial update may have just populated it.
         for (ResourceNode node : new ArrayList<>(state.resources)) {
-            if (!isCelestial(node) || !liveIds.add(node.id)) continue;
+            if (!isReleasedCelestial(state, node) || !liveIds.add(node.id)) continue;
             liveResources.add(node);
         }
+    }
+
+    private static boolean isReleasedCelestial(WorldSystemState state, ResourceNode node) {
+        return isCelestial(node) && CelestialExtractionSystem.released(state, node.celestialAnchorBodyId);
     }
 
     private static boolean isCelestial(ResourceNode node) {
