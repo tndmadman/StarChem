@@ -87,6 +87,7 @@ final class CelestialSystem {
         for (Body body : bodies) if (body.parent != null) body.update(dt);
         CelestialGameplaySystem.onCelestialUpdate(this, dt);
         CelestialMoonInheritance.apply(this);
+        CelestialExtractionSystem.update(this, dt);
     }
 
     void draw(Graphics2D g2) {
@@ -100,6 +101,7 @@ final class CelestialSystem {
         double lightX = light == null ? sunX : light.x;
         double lightY = light == null ? sunY : light.y;
         for (Body body : bodies) body.draw(c, lightX, lightY);
+        CelestialExtractionSystem.draw(this, c);
         AmbientSystemRenderer.drawForeground(c, definition, visualTime);
         c.dispose();
     }
