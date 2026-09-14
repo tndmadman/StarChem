@@ -34,6 +34,7 @@ final class WorldSystemState {
         this.celestials = celestials;
         CelestialGameplaySystem.registerState(this);
         CelestialMoonInheritance.register(this);
+        CelestialResourceBridge.register(this);
     }
 
     int width() { return definition.width(); }
