@@ -44,14 +44,24 @@ final class WorkSystem {
             node.deplete();
             ResourceSync.mark(world, node);
             SystemAudio.playResourceDepleted(world, node.material);
+            boolean celestialFieldExhausted = CelestialExtractionSystem.onDepositDepleted(node);
             if (unit.freeCargo() <= 0.05) {
                 unit.automationResourceId = -1;
-                world.status = node.name + " depleted. Cargo full, returning to unload.";
+                world.status = celestialFieldExhausted
+                        ? "Extraction field depleted. Fire another fracture charge after unloading."
+                        : node.name + " depleted. Cargo full, returning to unload.";
                 world.sendToNearestBase(unit);
                 return;
             }
-            if (!UnitCommandQueueSystem.ownsHarvest(world, unit) && world.scoutRetarget(unit, node)) return;
-            world.status = node.name + " depleted. Waiting at assigned mining area for another deposit.";
+            // Do not run the broad scout/radar retarget pass when the last rock in a celestial
+            // field disappears. The player must deliberately fire the extractor again, and
+            // skipping that unnecessary search avoids a depletion-frame hitch.
+            if (!celestialFieldExhausted
+                    && !UnitCommandQueueSystem.ownsHarvest(world, unit)
+                    && world.scoutRetarget(unit, node)) return;
+            world.status = celestialFieldExhausted
+                    ? "Extraction field depleted. Fire another fracture charge to expose a fresh field."
+                    : node.name + " depleted. Waiting at assigned mining area for another deposit.";
             abandonTarget(world, unit);
             return;
         }
