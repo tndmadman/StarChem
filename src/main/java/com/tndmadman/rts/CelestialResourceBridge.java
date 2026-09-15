@@ -1,11 +1,8 @@
 package com.tndmadman.rts;
 
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.WeakHashMap;
 
 /**
@@ -29,32 +26,27 @@ final class CelestialResourceBridge {
         WorldSystemState state = STATES.get(celestials);
         if (state == null || liveResources == state.resources) return;
 
-        // Do not remove already-bridged celestial nodes when a field seals. They are inactive and
-        // invisible, and retaining their stable objects avoids a live-resource list resize plus a
-        // spatial-index rebuild on the exact frame a field is exhausted. A later fracture simply
-        // reactivates these same objects.
+        // Keep already-bridged nodes in the tactical list when a field seals. They become inactive
+        // in place, so depletion never removes list entries or forces a spatial/list rebuild.
         for (ResourceNode node : liveResources) {
             if (!isCelestial(node) || CelestialExtractionSystem.released(state, node.celestialAnchorBodyId)) continue;
             node.active = false;
             node.respawnTimer = 0;
         }
 
-        boolean releasedDepositPresent = false;
+        // Do not call celestials.update(0) from this render/simulation hot path. The normal celestial
+        // simulation pass owns deposit seeding. Calling a nested zero-delta celestial update here
+        // after the last rock depleted was doing a second full celestial gameplay pass on the exact
+        // frame the field disappeared and caused the remaining depletion hitch.
         for (ResourceNode node : state.resources) {
-            if (isReleasedCelestial(state, node)) {
-                releasedDepositPresent = true;
-                break;
-            }
-        }
-        if (!releasedDepositPresent) celestials.update(0);
-
-        Set<Integer> liveIds = new HashSet<>();
-        for (ResourceNode node : liveResources) if (node != null) liveIds.add(node.id);
-
-        for (ResourceNode node : new ArrayList<>(state.resources)) {
-            if (!isReleasedCelestial(state, node) || !liveIds.add(node.id)) continue;
+            if (!isReleasedCelestial(state, node) || containsId(liveResources, node.id)) continue;
             liveResources.add(node);
         }
+    }
+
+    private static boolean containsId(List<ResourceNode> resources, int id) {
+        for (ResourceNode node : resources) if (node != null && node.id == id) return true;
+        return false;
     }
 
     private static boolean isReleasedCelestial(WorldSystemState state, ResourceNode node) {
