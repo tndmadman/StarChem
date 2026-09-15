@@ -11,7 +11,13 @@ final class WorkSystem {
                 world.sendToNearestBase(unit);
                 return;
             }
-            if (!UnitCommandQueueSystem.ownsHarvest(world, unit) && world.scoutRetarget(unit, node)) return;
+            if (!UnitCommandQueueSystem.ownsHarvest(world, unit)) {
+                if (CelestialMiningRetarget.isCelestial(node)) {
+                    if (CelestialMiningRetarget.retargetWithinField(world, unit, node)) return;
+                } else if (world.scoutRetarget(unit, node)) {
+                    return;
+                }
+            }
             abandonTarget(world, unit);
             return;
         }
