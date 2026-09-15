@@ -41,6 +41,7 @@ final class WorkSystem {
             CelestialGameplaySystem.recordExtraction(node, unit.playerId, gain);
         }
         if (node.amount <= 0.05) {
+            boolean celestialDeposit = CelestialMiningRetarget.isCelestial(node);
             node.deplete();
             ResourceSync.mark(world, node);
             SystemAudio.playResourceDepleted(world, node.material);
@@ -53,14 +54,21 @@ final class WorkSystem {
                 world.sendToNearestBase(unit);
                 return;
             }
-            // Do not run the broad scout/radar retarget pass when the last rock in a celestial
-            // field disappears. The player must deliberately fire the extractor again, and
-            // skipping that unnecessary search avoids a depletion-frame hitch.
-            if (!celestialFieldExhausted
-                    && !UnitCommandQueueSystem.ownsHarvest(world, unit)
-                    && world.scoutRetarget(unit, node)) return;
+            if (!UnitCommandQueueSystem.ownsHarvest(world, unit)) {
+                // Celestial fields are tiny, explicit extraction sites. Retarget only inside the
+                // same planet/moon field instead of invoking ScoutSystem's global assignment,
+                // visibility and radar search on the depletion frame. That global search allocates
+                // several maps/visibility frames and was the remaining source of the visible hitch.
+                if (celestialDeposit) {
+                    if (!celestialFieldExhausted && CelestialMiningRetarget.retargetWithinField(world, unit, node)) return;
+                } else if (world.scoutRetarget(unit, node)) {
+                    return;
+                }
+            }
             world.status = celestialFieldExhausted
                     ? "Extraction field depleted. Fire another fracture charge to expose a fresh field."
+                    : celestialDeposit
+                    ? node.name + " depleted. No compatible deposit remains in this extraction field."
                     : node.name + " depleted. Waiting at assigned mining area for another deposit.";
             abandonTarget(world, unit);
             return;
