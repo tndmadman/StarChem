@@ -22,10 +22,12 @@ import java.util.WeakHashMap;
  * the existing mining, combat, logistics and replication systems continue to be authoritative.</p>
  */
 final class CelestialGameplaySystem {
-    static final double SCAN_SECONDS = 4.0;
-    static final double ANALYZE_SECONDS = 12.0;
-    static final double HOLD_OBJECTIVE_SECONDS = 120.0;
-    static final double EXTRACT_OBJECTIVE_AMOUNT = 500.0;
+    private static final CelestialGameplayConfig CONFIG = CelestialGameplayConfig.INSTANCE;
+
+    static final double SCAN_SECONDS = CONFIG.scanSeconds;
+    static final double ANALYZE_SECONDS = CONFIG.analyzeSeconds;
+    static final double HOLD_OBJECTIVE_SECONDS = CONFIG.holdSeconds;
+    static final double EXTRACT_OBJECTIVE_AMOUNT = CONFIG.extractAmount;
 
     // Keep generated celestial deposits in a stable, deterministic namespace far above the normal
     // sequential galaxy resource allocator. This makes the same body/material resolve to the same
@@ -86,7 +88,7 @@ final class CelestialGameplaySystem {
             if (!installationSupports(body.installations, kind)) continue;
             bonus += body.profile.bonuses().getOrDefault(kind, 0.0);
         }
-        return 1.0 + Math.min(0.35, Math.max(0.0, bonus));
+        return 1.0 + Math.min(CONFIG.maxTotalBonus, Math.max(0.0, bonus));
     }
 
     static CelestialObjectiveStatus objectiveStatus(
@@ -160,86 +162,24 @@ final class CelestialGameplaySystem {
             if (deposits.isEmpty()) deposits.add(source.get(0));
         }
 
-        List<String> traits = new ArrayList<>();
-        List<String> hazards = new ArrayList<>();
+        CelestialGameplayConfig.BodyProfile configured = CONFIG.bodyProfile(visual);
+        List<String> traits = new ArrayList<>(configured.traits());
+        List<String> hazards = new ArrayList<>(configured.hazards());
         EnumMap<CelestialBonusKind, Double> bonuses = new EnumMap<>(CelestialBonusKind.class);
-        int slots;
-        switch (visual) {
-            case "TERRESTRIAL" -> {
-                traits.add("Habitable biosphere");
-                traits.add("Developed orbital approaches");
-                bonuses.put(CelestialBonusKind.RESEARCH, 0.08);
-                bonuses.put(CelestialBonusKind.LOGISTICS, 0.06);
-                slots = 3;
-            }
-            case "DESERT" -> {
-                traits.add("High solar flux");
-                bonuses.put(CelestialBonusKind.PRODUCTION, 0.09);
-                bonuses.put(CelestialBonusKind.SENSOR, 0.04);
-                slots = 2;
-            }
-            case "ICE" -> {
-                traits.add("Cryogenic volatiles");
-                bonuses.put(CelestialBonusKind.RESEARCH, 0.07);
-                bonuses.put(CelestialBonusKind.SENSOR, 0.07);
-                slots = 2;
-            }
-            case "LAVA" -> {
-                traits.add("Geologically active");
-                hazards.add("Extreme thermal environment");
-                bonuses.put(CelestialBonusKind.MINING, 0.12);
-                bonuses.put(CelestialBonusKind.PRODUCTION, 0.07);
-                slots = 2;
-            }
-            case "GAS_GIANT" -> {
-                traits.add("Deep atmospheric resources");
-                hazards.add("Severe gravity well");
-                bonuses.put(CelestialBonusKind.MINING, 0.09);
-                bonuses.put(CelestialBonusKind.LOGISTICS, 0.07);
-                slots = 4;
-            }
-            case "ICE_GIANT" -> {
-                traits.add("Volatile-rich atmosphere");
-                bonuses.put(CelestialBonusKind.RESEARCH, 0.06);
-                bonuses.put(CelestialBonusKind.LOGISTICS, 0.08);
-                slots = 3;
-            }
-            case "TOXIC" -> {
-                traits.add("Rare chemical environment");
-                hazards.add("Corrosive atmosphere");
-                bonuses.put(CelestialBonusKind.MINING, 0.12);
-                bonuses.put(CelestialBonusKind.RESEARCH, 0.05);
-                slots = 2;
-            }
-            case "INDUSTRIAL" -> {
-                traits.add("Industrial legacy infrastructure");
-                bonuses.put(CelestialBonusKind.PRODUCTION, 0.10);
-                bonuses.put(CelestialBonusKind.LOGISTICS, 0.10);
-                bonuses.put(CelestialBonusKind.REPAIR, 0.08);
-                slots = 4;
-            }
-            case "DEAD" -> {
-                traits.add("Low-interference surface");
-                bonuses.put(CelestialBonusKind.MINING, 0.09);
-                bonuses.put(CelestialBonusKind.SENSOR, 0.05);
-                slots = 2;
-            }
-            default -> {
-                traits.add("Mineral-rich crust");
-                bonuses.put(CelestialBonusKind.MINING, 0.08);
-                slots = 2;
-            }
-        }
+        bonuses.putAll(configured.bonuses());
+        int slots = configured.slots();
+
         if (view.moon()) {
-            traits.add("Low-gravity orbital access");
-            bonuses.merge(CelestialBonusKind.LOGISTICS, 0.03, Double::sum);
-            slots = Math.max(1, slots - 1);
+            traits.addAll(CONFIG.moonModifier.traits());
+            CONFIG.moonModifier.bonuses().forEach((kind, value) -> bonuses.merge(kind, value, Double::sum));
+            slots = Math.max(CONFIG.moonModifier.minimumSlots(), slots + CONFIG.moonModifier.slotDelta());
         }
         return new CelestialGameplayProfile(view.id(), view.name(), visual, deposits, traits, hazards, slots, bonuses);
     }
 
     private static void ensureBodyDeposits(WorldSystemState state) {
         Set<Integer> plannedIds = new HashSet<>();
+        CelestialGameplayConfig.DepositRules rules = CONFIG.deposits;
         for (CelestialBodyState body : state.celestialBodies.values()) {
             CelestialSystem.BodyView view = state.celestials.bodyView(body.profile.bodyId());
             if (view == null) continue;
@@ -249,9 +189,10 @@ final class CelestialGameplaySystem {
                 int plannedId = plannedResourceId(state, body.profile.bodyId(), material, slot, plannedIds);
                 ResourceNode node = findSavedDeposit(state, body, view, material, plannedId);
                 if (node == null) {
-                    double orbitRadius = Math.max(view.radius() + 130.0, view.radius() * 1.35) + slot * 75.0;
+                    double orbitRadius = Math.max(view.radius() + rules.orbitPadding(), view.radius() * rules.orbitRadiusScale())
+                            + slot * rules.orbitSlotSpacing();
                     double angle = normalizedAngle(Objects.hash(state.id, view.id(), material.name(), slot));
-                    double speed = 0.018 + 0.004 * (slot + 1);
+                    double speed = rules.orbitBaseSpeed() + rules.orbitSpeedPerSlot() * (slot + 1);
                     double x = view.x() + Math.cos(angle) * orbitRadius;
                     double y = view.y() + Math.sin(angle) * orbitRadius;
                     node = new ResourceNode(
@@ -261,9 +202,9 @@ final class CelestialGameplaySystem {
                             material,
                             x,
                             y,
-                            1800.0 + slot * 450.0,
-                            12.0,
-                            28.0);
+                            rules.baseAmount() + slot * rules.amountPerMaterialSlot(),
+                            rules.harvestRate(),
+                            rules.nodeRadius());
                     node.orbit(view.x(), view.y(), orbitRadius, angle, speed);
                     state.resources.add(node);
                 }
@@ -294,7 +235,7 @@ final class CelestialGameplaySystem {
         // Saves prior to explicit celestial-anchor persistence already retain the moving orbit center.
         // At restore time the deterministic body has been advanced to the same systemTime, so this
         // proximity check safely reattaches old deposits instead of creating duplicates.
-        return Math.hypot(node.orbitCenterX - view.x(), node.orbitCenterY - view.y()) <= 8.0;
+        return Math.hypot(node.orbitCenterX - view.x(), node.orbitCenterY - view.y()) <= CONFIG.deposits.reattachTolerance();
     }
 
     private static NodeKind depositKind(WorldSystemState state, Material material) {
@@ -359,6 +300,7 @@ final class CelestialGameplaySystem {
 
     private static void anchorNearbyStations(WorldSystemState state) {
         List<CelestialSystem.BodyView> bodies = state.celestials.bodyViews();
+        CelestialGameplayConfig.AnchorRules rules = CONFIG.anchoring;
         for (Base base : state.bases.values()) {
             if (base.celestialAnchorBodyId != null && !base.celestialAnchorBodyId.isBlank()) continue;
             CelestialSystem.BodyView nearest = null;
@@ -366,7 +308,7 @@ final class CelestialGameplaySystem {
             for (CelestialSystem.BodyView body : bodies) {
                 if (body.visualClass() == CelestialVisualClass.STAR) continue;
                 double distance = Math.hypot(base.x - body.x(), base.y - body.y());
-                double captureDistance = Math.max(500.0, body.radius() + 420.0);
+                double captureDistance = Math.max(rules.captureMinDistance(), body.radius() + rules.captureRadiusPadding());
                 if (distance <= captureDistance && distance < nearestDistance) {
                     nearest = body;
                     nearestDistance = distance;
@@ -374,9 +316,11 @@ final class CelestialGameplaySystem {
             }
             if (nearest == null) continue;
             base.celestialAnchorBodyId = nearest.id();
-            base.celestialOrbitRadius = Math.max(nearestDistance, nearest.radius() + base.interactionRadius() + 60.0);
+            base.celestialOrbitRadius = Math.max(nearestDistance, nearest.radius() + base.interactionRadius() + rules.orbitPadding());
             base.celestialOrbitAngle = Math.atan2(base.y - nearest.y(), base.x - nearest.x());
-            base.celestialOrbitSpeed = 0.010 * Math.sqrt(400.0 / Math.max(200.0, base.celestialOrbitRadius));
+            base.celestialOrbitSpeed = rules.orbitSpeedBase()
+                    * Math.sqrt(rules.orbitSpeedReferenceRadius()
+                    / Math.max(rules.orbitSpeedMinimumRadius(), base.celestialOrbitRadius));
         }
     }
 
@@ -389,9 +333,10 @@ final class CelestialGameplaySystem {
             node.orbitCenterY = body.y();
             RESOURCE_STATES.put(node, state);
             if (!node.orbiting) {
-                double radius = Math.max(body.radius() + 130.0, Math.hypot(node.x - body.x(), node.y - body.y()));
+                double radius = Math.max(body.radius() + CONFIG.deposits.orbitPadding(),
+                        Math.hypot(node.x - body.x(), node.y - body.y()));
                 double angle = Math.atan2(node.y - body.y(), node.x - body.x());
-                node.orbit(body.x(), body.y(), radius, angle, 0.02);
+                node.orbit(body.x(), body.y(), radius, angle, CONFIG.deposits.fallbackOrbitSpeed());
             }
         }
     }
@@ -432,8 +377,8 @@ final class CelestialGameplaySystem {
             CelestialSystem.BodyView view = state.celestials.bodyView(body.profile.bodyId());
             if (view == null) continue;
             Set<String> scanners = new HashSet<>();
-            double unitRange = view.radius() + 900.0;
-            double stationRange = view.radius() + 1200.0;
+            double unitRange = view.radius() + CONFIG.scanning.unitRangePadding();
+            double stationRange = view.radius() + CONFIG.scanning.stationRangePadding();
             for (Unit unit : state.units.values()) {
                 if (Math.hypot(unit.x - view.x(), unit.y - view.y()) <= unitRange) scanners.add(unit.playerId);
             }
@@ -464,24 +409,11 @@ final class CelestialGameplaySystem {
     }
 
     private static CelestialInstallationType installationType(Base base) {
-        String type = base.typeId == null ? "" : base.typeId.toLowerCase(Locale.ROOT);
-        if (type.contains("research") || type.contains("lab")) return CelestialInstallationType.RESEARCH_SITE;
-        if (type.contains("sensor") || type.contains("radar") || type.contains("observ")
-                || type.contains("jam") || type.contains("decoy")) return CelestialInstallationType.SENSOR_ARRAY;
-        if (type.contains("log") || type.contains("cargo") || type.contains("depot") || type.contains("repair")
-                || type.contains("outpost") || type.contains("shipyard")) return CelestialInstallationType.LOGISTICS_HUB;
-        return CelestialInstallationType.EXTRACTOR;
+        return CONFIG.installationType(base == null ? "" : base.typeId);
     }
 
     private static boolean installationSupports(List<CelestialInstallationType> installations, CelestialBonusKind kind) {
-        if (installations == null || installations.isEmpty()) return false;
-        return switch (kind) {
-            case MINING -> installations.contains(CelestialInstallationType.EXTRACTOR);
-            case RESEARCH -> installations.contains(CelestialInstallationType.RESEARCH_SITE);
-            case SENSOR -> installations.contains(CelestialInstallationType.SENSOR_ARRAY);
-            case LOGISTICS, REPAIR -> installations.contains(CelestialInstallationType.LOGISTICS_HUB);
-            case PRODUCTION, SHIELD -> true;
-        };
+        return CONFIG.installationSupports(installations, kind);
     }
 
     private static double normalizedAngle(int seed) {
