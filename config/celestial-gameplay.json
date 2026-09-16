@@ -1,0 +1,142 @@
+{
+  "objectives": {
+    "scanSeconds": 4.0,
+    "analyzeSeconds": 12.0,
+    "holdSeconds": 120.0,
+    "extractAmount": 500.0
+  },
+  "bonuses": {
+    "maxTotal": 0.35
+  },
+  "deposits": {
+    "baseAmount": 1800.0,
+    "amountPerMaterialSlot": 450.0,
+    "harvestRate": 12.0,
+    "nodeRadius": 28.0,
+    "orbitPadding": 130.0,
+    "orbitRadiusScale": 1.35,
+    "orbitSlotSpacing": 75.0,
+    "orbitBaseSpeed": 0.018,
+    "orbitSpeedPerSlot": 0.004,
+    "reattachTolerance": 8.0,
+    "fallbackOrbitSpeed": 0.02
+  },
+  "scanning": {
+    "unitRangePadding": 900.0,
+    "stationRangePadding": 1200.0
+  },
+  "anchoring": {
+    "captureMinDistance": 500.0,
+    "captureRadiusPadding": 420.0,
+    "orbitPadding": 60.0,
+    "orbitSpeedBase": 0.010,
+    "orbitSpeedReferenceRadius": 400.0,
+    "orbitSpeedMinimumRadius": 200.0
+  },
+  "extraction": {
+    "stationTypeId": "extractor",
+    "fragmentsPerDeposit": 10,
+    "chargeSeconds": 6.0,
+    "refireCooldownSeconds": 20.0,
+    "impactEffectSeconds": 1.15,
+    "fractureOrbitSlotSpacing": 80.0,
+    "fractureMinimumOrbitPadding": 90.0,
+    "evenRingOffset": -18.0,
+    "oddRingOffset": 28.0,
+    "radialScatterPerPair": 9.0,
+    "angleJitterRadians": 0.035,
+    "fragmentSpeedBaseScale": 0.95,
+    "fragmentSpeedStepScale": 0.011,
+    "stressStartProgress": 0.72,
+    "stressRayCount": 8,
+    "stressInnerRadiusScale": 0.18,
+    "stressOuterRadiusBaseScale": 0.42,
+    "stressOuterRadiusGrowthScale": 0.42,
+    "impactRadiusStartScale": 0.9,
+    "impactRadiusGrowthScale": 1.8
+  },
+  "moonModifier": {
+    "traits": ["Low-gravity orbital access"],
+    "slotDelta": -1,
+    "minimumSlots": 1,
+    "bonuses": {
+      "LOGISTICS": 0.03
+    }
+  },
+  "bodyProfiles": {
+    "TERRESTRIAL": {
+      "slots": 3,
+      "traits": ["Habitable biosphere", "Developed orbital approaches"],
+      "hazards": [],
+      "bonuses": {"RESEARCH": 0.08, "LOGISTICS": 0.06}
+    },
+    "DESERT": {
+      "slots": 2,
+      "traits": ["High solar flux"],
+      "hazards": [],
+      "bonuses": {"PRODUCTION": 0.09, "SENSOR": 0.04}
+    },
+    "ICE": {
+      "slots": 2,
+      "traits": ["Cryogenic volatiles"],
+      "hazards": [],
+      "bonuses": {"RESEARCH": 0.07, "SENSOR": 0.07}
+    },
+    "LAVA": {
+      "slots": 2,
+      "traits": ["Geologically active"],
+      "hazards": ["Extreme thermal environment"],
+      "bonuses": {"MINING": 0.12, "PRODUCTION": 0.07}
+    },
+    "GAS_GIANT": {
+      "slots": 4,
+      "traits": ["Deep atmospheric resources"],
+      "hazards": ["Severe gravity well"],
+      "bonuses": {"MINING": 0.09, "LOGISTICS": 0.07}
+    },
+    "ICE_GIANT": {
+      "slots": 3,
+      "traits": ["Volatile-rich atmosphere"],
+      "hazards": [],
+      "bonuses": {"RESEARCH": 0.06, "LOGISTICS": 0.08}
+    },
+    "TOXIC": {
+      "slots": 2,
+      "traits": ["Rare chemical environment"],
+      "hazards": ["Corrosive atmosphere"],
+      "bonuses": {"MINING": 0.12, "RESEARCH": 0.05}
+    },
+    "INDUSTRIAL": {
+      "slots": 4,
+      "traits": ["Industrial legacy infrastructure"],
+      "hazards": [],
+      "bonuses": {"PRODUCTION": 0.10, "LOGISTICS": 0.10, "REPAIR": 0.08}
+    },
+    "DEAD": {
+      "slots": 2,
+      "traits": ["Low-interference surface"],
+      "hazards": [],
+      "bonuses": {"MINING": 0.09, "SENSOR": 0.05}
+    },
+    "ROCKY": {
+      "slots": 2,
+      "traits": ["Mineral-rich crust"],
+      "hazards": [],
+      "bonuses": {"MINING": 0.08}
+    }
+  },
+  "installationRoles": {
+    "RESEARCH_SITE": ["research", "lab"],
+    "SENSOR_ARRAY": ["sensor", "radar", "observ", "jam", "decoy"],
+    "LOGISTICS_HUB": ["log", "cargo", "depot", "repair", "outpost", "shipyard"]
+  },
+  "bonusRequirements": {
+    "MINING": "EXTRACTOR",
+    "RESEARCH": "RESEARCH_SITE",
+    "SENSOR": "SENSOR_ARRAY",
+    "LOGISTICS": "LOGISTICS_HUB",
+    "REPAIR": "LOGISTICS_HUB",
+    "PRODUCTION": "ANY",
+    "SHIELD": "ANY"
+  }
+}
