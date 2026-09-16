@@ -8,9 +8,9 @@ final class ResourceNode {
     final String name;
     final NodeKind kind;
     final Material material;
-    final double maxAmount;
+    double maxAmount;
     final double harvestRate;
-    final double radius;
+    double radius;
     double x, y, amount, respawnTimer;
     double orbitCenterX, orbitCenterY, orbitRadius, orbitAngle, orbitSpeed;
     boolean active = true;
