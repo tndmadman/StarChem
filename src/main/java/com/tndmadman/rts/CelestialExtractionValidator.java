@@ -13,7 +13,7 @@ final class CelestialExtractionValidator {
         System.setProperty("java.awt.headless", "true");
         depositsStayAbsentUntilChargeImpact();
         oneMasterExtractorCanFractureSlaveMoons();
-        exhaustedFieldCanRefireWithoutNodeChurn();
+        exhaustedFieldRequiresCooldownAndRefiresWithoutNodeChurn();
         releasedBodiesPersist();
         System.out.println("Celestial extraction validation passed.");
     }
@@ -25,8 +25,13 @@ final class CelestialExtractionValidator {
         require(body != null, "planet body state missing");
 
         state.celestials.update(0);
+        int expectedRocks = body.profile.deposits().size() * CelestialExtractionSystem.FRAGMENTS_PER_DEPOSIT;
+        require(body.resourceNodeIds.size() == expectedRocks,
+                "fracture field must preallocate ten mineables per surveyed material");
         require(countActiveAnchored(state, planet.id()) == 0,
                 "unfractured body must not expose active physical resource nodes");
+        require(Math.abs(totalMaxVolume(state, planet.id()) - expectedVolume(body)) < 0.001,
+                "ten-times denser fracture field must preserve the original total resource volume");
 
         Base extractor = new Base("P1:EXTRACTOR", "P1", CelestialExtractionSystem.EXTRACTOR_STATION_ID,
                 planet.x() + planet.radius() + 145, planet.y());
@@ -44,11 +49,12 @@ final class CelestialExtractionValidator {
         require(!CelestialExtractionSystem.released(state, planet.id()), "body must remain sealed while charge is in flight");
         require(countActiveAnchored(state, planet.id()) == 0, "rocks must remain inactive before charge impact");
 
-        state.celestials.update(CelestialExtractionSystem.CHARGE_SECONDS);
+        state.celestials.update(CelestialExtractionSystem.CHARGE_SECONDS * 0.51);
         require(CelestialExtractionSystem.released(state, planet.id()), "charge impact must release the target body");
-        require(!body.resourceNodeIds.isEmpty(), "released body must expose deterministic resource ids");
-        require(countActiveAnchored(state, planet.id()) == body.resourceNodeIds.size(),
-                "released body resource ids must resolve to active anchored nodes");
+        require(countActiveAnchored(state, planet.id()) == expectedRocks,
+                "fracture impact must expose the complete debris field");
+        require(Math.abs(totalActiveVolume(state, planet.id()) - expectedVolume(body)) < 0.001,
+                "released debris field must still contain the original aggregate volume");
     }
 
     private static void oneMasterExtractorCanFractureSlaveMoons() {
@@ -72,12 +78,12 @@ final class CelestialExtractionValidator {
         CelestialBodyState moonState = CelestialGameplaySystem.bodyState(state, moon.id());
         require(CelestialExtractionSystem.released(state, moon.id()), "moon charge must release only the targeted moon");
         require(moonState != null && countActiveAnchored(state, moon.id()) == moonState.resourceNodeIds.size(),
-                "fractured moon must expose active deposits");
+                "fractured moon must expose active debris");
         require(!CelestialExtractionSystem.released(state, planet.id()),
                 "fracturing a moon must not automatically fracture its master planet");
     }
 
-    private static void exhaustedFieldCanRefireWithoutNodeChurn() {
+    private static void exhaustedFieldRequiresCooldownAndRefiresWithoutNodeChurn() {
         WorldSystemState state = state("extract-refire", 9104L);
         CelestialSystem.BodyView planet = planetWithMoon(state);
         Base extractor = new Base("P1:REFIRE-EXTRACTOR", "P1", CelestialExtractionSystem.EXTRACTOR_STATION_ID,
@@ -92,6 +98,8 @@ final class CelestialExtractionValidator {
         int storedBefore = countStoredAnchored(state, planet.id());
         int resourceListBefore = state.resources.size();
         List<Integer> idsBefore = new ArrayList<>(body.resourceNodeIds);
+        require(idsBefore.size() == body.profile.deposits().size() * CelestialExtractionSystem.FRAGMENTS_PER_DEPOSIT,
+                "fracture cycle must use ten mineables per material");
         require(countActiveAnchored(state, planet.id()) == idsBefore.size(), "first field must be active");
 
         boolean exhausted = false;
@@ -103,15 +111,26 @@ final class CelestialExtractionValidator {
         }
         require(exhausted, "last depleted rock must close the fracture cycle");
         require(!CelestialExtractionSystem.released(state, planet.id()),
-                "fully depleted field must return the body to ready-to-fire state");
+                "fully depleted field must return the body to sealed state");
         require(countActiveAnchored(state, planet.id()) == 0, "depleted field must have no active rocks");
         require(countStoredAnchored(state, planet.id()) == storedBefore,
                 "depletion must recycle deterministic nodes instead of deleting/reallocating them");
         require(state.resources.size() == resourceListBefore,
                 "field depletion must not resize the persistent resource list");
+        require(CelestialExtractionSystem.cooldownRemaining(state, planet.id()) > 0,
+                "field exhaustion must start the extractor recycle delay");
+
+        CelestialExtractionSystem.FireResult immediate = CelestialExtractionSystem.fireCharge(state, planet.id(), "P1");
+        require(!immediate.fired(), "refire must be blocked during the recycle delay");
+        state.celestials.update(CelestialExtractionSystem.REFIRE_COOLDOWN_SECONDS * 0.5);
+        require(!CelestialExtractionSystem.fireCharge(state, planet.id(), "P1").fired(),
+                "refire must remain blocked halfway through cooldown");
+        state.celestials.update(CelestialExtractionSystem.REFIRE_COOLDOWN_SECONDS * 0.51);
+        require(CelestialExtractionSystem.cooldownRemaining(state, planet.id()) <= 0.001,
+                "cooldown must expire after the configured recycle period");
 
         CelestialExtractionSystem.FireResult refired = CelestialExtractionSystem.fireCharge(state, planet.id(), "P1");
-        require(refired.fired(), "fully depleted field must allow another fracture charge");
+        require(refired.fired(), "cooled-down field must allow another fracture charge");
         state.celestials.update(CelestialExtractionSystem.CHARGE_SECONDS + 0.05);
         require(CelestialExtractionSystem.released(state, planet.id()), "second charge must reopen the field");
         require(countActiveAnchored(state, planet.id()) == idsBefore.size(),
@@ -142,10 +161,33 @@ final class CelestialExtractionValidator {
         restored.celestials.update(0);
         require(CelestialExtractionSystem.released(restored, planet.id()), "released body flag must survive save/restore");
         CelestialBodyState restoredBody = CelestialGameplaySystem.bodyState(restored, planet.id());
-        require(restoredBody != null && !restoredBody.resourceNodeIds.isEmpty(),
-                "restored released body must regenerate its deterministic physical deposits");
+        require(restoredBody != null && restoredBody.resourceNodeIds.size()
+                        == restoredBody.profile.deposits().size() * CelestialExtractionSystem.FRAGMENTS_PER_DEPOSIT,
+                "restored released body must regenerate the full deterministic fracture field");
         require(countActiveAnchored(restored, planet.id()) == restoredBody.resourceNodeIds.size(),
                 "restored released field must be active");
+    }
+
+    private static double expectedVolume(CelestialBodyState body) {
+        double total = 0;
+        for (int slot = 0; slot < body.profile.deposits().size(); slot++) total += 1800.0 + slot * 450.0;
+        return total;
+    }
+
+    private static double totalMaxVolume(WorldSystemState state, String bodyId) {
+        double total = 0;
+        for (ResourceNode node : state.resources) {
+            if (node != null && bodyId.equals(node.celestialAnchorBodyId)) total += node.maxAmount;
+        }
+        return total;
+    }
+
+    private static double totalActiveVolume(WorldSystemState state, String bodyId) {
+        double total = 0;
+        for (ResourceNode node : state.resources) {
+            if (node != null && node.active && bodyId.equals(node.celestialAnchorBodyId)) total += node.amount;
+        }
+        return total;
     }
 
     private static WorldSystemState state(String id, long seed) {
