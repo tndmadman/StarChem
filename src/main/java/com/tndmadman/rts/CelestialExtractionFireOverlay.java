@@ -75,9 +75,10 @@ final class CelestialExtractionFireOverlay {
         }
 
         boolean inFlight = CelestialExtractionSystem.chargeInFlight(state, bodyId);
-        boolean ready = CelestialExtractionSystem.extractorReady(state, bodyId, localPlayerId(world));
+        boolean extractorReady = CelestialExtractionSystem.extractorReady(state, bodyId, localPlayerId(world));
         double progress = CelestialExtractionSystem.chargeProgress(state, bodyId);
-        button.setModel(body.profile.bodyName(), inFlight, ready, progress);
+        double cooldown = CelestialExtractionSystem.cooldownRemaining(state, bodyId);
+        button.setModel(body.profile.bodyName(), inFlight, extractorReady, progress, cooldown);
         button.setVisible(true);
         position(host, button);
         button.repaint();
@@ -94,8 +95,6 @@ final class CelestialExtractionFireOverlay {
             return;
         }
 
-        // Keep this companion control synchronized with the intel panel's close affordance without
-        // changing the existing large HUD class merely to expose its private close rectangle.
         if (event.getID() == MouseEvent.MOUSE_PRESSED
                 && event.getSource() instanceof javax.swing.JComponent component
                 && component.getClass().getName().endsWith("CelestialGameplayOverlay$IntelPanel")
@@ -171,8 +170,9 @@ final class CelestialExtractionFireOverlay {
         private final WeakReference<GamePanel> hostRef;
         private String bodyName = "";
         private boolean inFlight;
-        private boolean ready;
+        private boolean extractorReady;
         private double progress;
+        private double cooldownRemaining;
         private boolean hover;
 
         FireButton(World world, GamePanel host) {
@@ -201,18 +201,24 @@ final class CelestialExtractionFireOverlay {
 
         GamePanel host() { return hostRef.get(); }
 
-        void setModel(String nextBodyName, boolean nextInFlight, boolean nextReady, double nextProgress) {
+        void setModel(String nextBodyName, boolean nextInFlight, boolean nextExtractorReady,
+                      double nextProgress, double nextCooldownRemaining) {
             bodyName = nextBodyName == null ? "" : nextBodyName;
             inFlight = nextInFlight;
-            ready = nextReady;
+            extractorReady = nextExtractorReady;
             progress = Math.max(0.0, Math.min(1.0, nextProgress));
-            setCursor(!inFlight && ready
+            cooldownRemaining = Math.max(0.0, nextCooldownRemaining);
+            setCursor(canFire()
                     ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
                     : Cursor.getDefaultCursor());
         }
 
+        private boolean canFire() {
+            return !inFlight && extractorReady && cooldownRemaining <= 0.001;
+        }
+
         private void fire() {
-            if (inFlight || !ready) return;
+            if (!canFire()) return;
             World world = worldRef.get();
             GamePanel host = hostRef.get();
             if (world == null || host == null) return;
@@ -232,13 +238,14 @@ final class CelestialExtractionFireOverlay {
             g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
             int w = getWidth();
             int h = getHeight();
-            Color accent = inFlight ? WARN : ready ? CYAN : MUTED;
+            boolean cooling = cooldownRemaining > 0.001;
+            Color accent = inFlight || cooling ? WARN : extractorReady ? CYAN : MUTED;
 
             g.setColor(PANEL);
             g.fillRoundRect(0, 0, w - 1, h - 1, 11, 11);
-            g.setStroke(new BasicStroke(hover && ready && !inFlight ? 1.8f : 1.2f));
+            g.setStroke(new BasicStroke(hover && canFire() ? 1.8f : 1.2f));
             g.setColor(new Color(accent.getRed(), accent.getGreen(), accent.getBlue(),
-                    hover && ready && !inFlight ? 230 : 150));
+                    hover && canFire() ? 230 : 150));
             g.drawRoundRect(0, 0, w - 1, h - 1, 11, 11);
 
             int iconX = 18;
@@ -252,31 +259,39 @@ final class CelestialExtractionFireOverlay {
             String heading;
             String detail;
             if (inFlight) {
-                heading = "FRACTURE CHARGE IN FLIGHT  " + Math.round(progress * 100) + "%";
-                detail = "Target: " + bodyName;
-            } else if (ready) {
+                heading = "PLANETARY FRACTURE  " + Math.round(progress * 100) + "%";
+                detail = "Charge boring into " + bodyName + " — "
+                        + Math.max(0, (int)Math.ceil(CelestialExtractionSystem.CHARGE_SECONDS
+                        * (1.0 - progress))) + "s to impact";
+            } else if (cooling) {
+                heading = "EXTRACTOR RECYCLING  " + (int)Math.ceil(cooldownRemaining) + "s";
+                detail = "Fracture chamber cooling before the next cycle on " + bodyName;
+            } else if (extractorReady) {
                 heading = "FIRE FRACTURE CHARGE";
-                detail = "Expose a fresh extraction field on " + bodyName;
+                detail = "Expose a fresh debris field on " + bodyName;
             } else {
                 heading = "FIRE FRACTURE CHARGE";
                 detail = "Planetary Extractor required on the master planet";
             }
 
             g.setFont(g.getFont().deriveFont(Font.BOLD, 11f));
-            g.setColor(ready || inFlight ? TEXT : MUTED);
+            g.setColor(extractorReady || inFlight ? TEXT : MUTED);
             g.drawString(heading, 37, 17);
             g.setFont(g.getFont().deriveFont(Font.PLAIN, 9f));
             g.setColor(MUTED);
             g.drawString(detail, 37, 31);
 
-            if (inFlight) {
+            if (inFlight || cooling) {
                 int barX = w - 92;
                 int barW = 72;
+                double barProgress = inFlight
+                        ? progress
+                        : 1.0 - Math.min(1.0, cooldownRemaining / CelestialExtractionSystem.REFIRE_COOLDOWN_SECONDS);
                 g.setColor(new Color(255, 255, 255, 18));
                 g.fillRoundRect(barX, h - 8, barW, 3, 3, 3);
                 g.setColor(WARN);
-                g.fillRoundRect(barX, h - 8, (int)Math.round(barW * progress), 3, 3, 3);
-            } else if (ready) {
+                g.fillRoundRect(barX, h - 8, (int)Math.round(barW * barProgress), 3, 3, 3);
+            } else if (extractorReady) {
                 g.setFont(g.getFont().deriveFont(Font.BOLD, 9f));
                 g.setColor(CYAN);
                 String action = "FIRE  ›";
