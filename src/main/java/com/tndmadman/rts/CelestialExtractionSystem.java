@@ -23,17 +23,22 @@ import java.util.WeakHashMap;
  * Survey intel may reveal what a body contains, but ResourceNodes remain sealed/inactive until a
  * charge fired from an extractor anchored to the master planet reaches that specific body.
  *
- * <p>Each surveyed material is fractured into a debris field of smaller mineables while preserving
- * the same total resource volume. Celestial nodes are recycled between fracture cycles instead of
- * being removed/re-added, keeping depletion and refire off the allocation-heavy path.</p>
+ * <p>Each surveyed material is fractured into a configured debris field of smaller mineables while
+ * preserving the same total resource volume. Celestial nodes are recycled between fracture cycles
+ * instead of being removed/re-added, keeping depletion and refire off the allocation-heavy path.</p>
  */
 final class CelestialExtractionSystem {
-    static final String EXTRACTOR_STATION_ID = "extractor";
-    static final int FRAGMENTS_PER_DEPOSIT = 10;
-    static final double CHARGE_SECONDS = 6.0;
-    static final double REFIRE_COOLDOWN_SECONDS = 20.0;
+    private static final CelestialGameplayConfig CONFIG = CelestialGameplayConfig.INSTANCE;
+    private static final CelestialGameplayConfig.ExtractionRules EXTRACTION = CONFIG.extraction;
+    private static final CelestialGameplayConfig.DepositRules DEPOSITS = CONFIG.deposits;
+    private static final CelestialGameplayConfig.AnchorRules ANCHORING = CONFIG.anchoring;
 
-    private static final double IMPACT_EFFECT_SECONDS = 1.15;
+    static final String EXTRACTOR_STATION_ID = EXTRACTION.stationTypeId();
+    static final int FRAGMENTS_PER_DEPOSIT = EXTRACTION.fragmentsPerDeposit();
+    static final double CHARGE_SECONDS = EXTRACTION.chargeSeconds();
+    static final double REFIRE_COOLDOWN_SECONDS = EXTRACTION.refireCooldownSeconds();
+
+    private static final double IMPACT_EFFECT_SECONDS = EXTRACTION.impactEffectSeconds();
     private static final int CELESTIAL_FRAGMENT_ID_BASE = 1 << 30;
     private static final long CELESTIAL_FRAGMENT_ID_SPAN = (long)Integer.MAX_VALUE - CELESTIAL_FRAGMENT_ID_BASE;
     private static final double TAU = Math.PI * 2.0;
@@ -82,12 +87,12 @@ final class CelestialExtractionSystem {
     }
 
     /**
-     * Simulation/test entry point. Player-facing Swing UI must use fireChargeFromButton so clicking
-     * the survey/deposit card cannot accidentally fire a charge.
+     * Simulation/test entry point. Player-facing Swing UI uses fireChargeFromButton so ordinary
+     * deposit-card clicks cannot accidentally fire a charge.
      */
     static FireResult fireCharge(WorldSystemState state, String bodyId, String playerId) {
         if (!GraphicsEnvironment.isHeadless() && SwingUtilities.isEventDispatchThread()) {
-            return new FireResult(false, "Use the FIRE FRACTURE CHARGE button above the celestial intel panel.");
+            return new FireResult(false, "Use FIRE FRACTURE CHARGE in the celestial intelligence panel.");
         }
         return fireChargeInternal(state, bodyId, playerId);
     }
@@ -148,9 +153,6 @@ final class CelestialExtractionSystem {
 
         if (normalizeExtractorAnchors(state)) CelestialMoonInheritance.apply(state);
 
-        // Convert each old one-node material deposit into ten smaller fracture shards once. The
-        // aggregate max amount stays identical to the old field, so this is visual/gameplay density
-        // rather than a resource-economy buff.
         ensureFractureFields(state, extraction);
 
         for (CelestialBodyState body : CelestialGameplaySystem.bodyStates(state)) {
@@ -229,9 +231,9 @@ final class CelestialExtractionSystem {
                     }
                 }
 
-                double totalVolume = 1800.0 + materialSlot * 450.0;
+                double totalVolume = DEPOSITS.baseAmount() + materialSlot * DEPOSITS.amountPerMaterialSlot();
                 double shardAmount = totalVolume / FRAGMENTS_PER_DEPOSIT;
-                double shardRadius = 28.0 / Math.cbrt(FRAGMENTS_PER_DEPOSIT);
+                double shardRadius = DEPOSITS.nodeRadius() / Math.cbrt(FRAGMENTS_PER_DEPOSIT);
                 boolean legacyLayout = nodes.size() != FRAGMENTS_PER_DEPOSIT;
                 if (!legacyLayout) {
                     for (ResourceNode node : nodes) {
@@ -272,9 +274,11 @@ final class CelestialExtractionSystem {
                 }
 
                 double migratedAmount = remainingVolume / FRAGMENTS_PER_DEPOSIT;
-                double baseOrbit = Math.max(view.radius() + 130.0, view.radius() * 1.35) + materialSlot * 80.0;
+                double baseOrbit = Math.max(view.radius() + DEPOSITS.orbitPadding(),
+                        view.radius() * DEPOSITS.orbitRadiusScale())
+                        + materialSlot * EXTRACTION.fractureOrbitSlotSpacing();
                 double baseAngle = normalizedAngle(stableHash(state.id, bodyId, material.name(), "fracture"));
-                double baseSpeed = 0.018 + 0.004 * (materialSlot + 1);
+                double baseSpeed = DEPOSITS.orbitBaseSpeed() + DEPOSITS.orbitSpeedPerSlot() * (materialSlot + 1);
 
                 for (int fragment = 0; fragment < FRAGMENTS_PER_DEPOSIT; fragment++) {
                     ResourceNode node = nodes.get(fragment);
@@ -287,12 +291,16 @@ final class CelestialExtractionSystem {
                         node.respawnTimer = 0;
                     }
 
-                    double ringOffset = fragment % 2 == 0 ? -18.0 : 28.0;
-                    double radialScatter = (fragment / 2) * 9.0;
-                    double orbitRadius = Math.max(view.radius() + 90.0, baseOrbit + ringOffset + radialScatter);
+                    double ringOffset = fragment % 2 == 0
+                            ? EXTRACTION.evenRingOffset() : EXTRACTION.oddRingOffset();
+                    double radialScatter = (fragment / 2) * EXTRACTION.radialScatterPerPair();
+                    double orbitRadius = Math.max(view.radius() + EXTRACTION.fractureMinimumOrbitPadding(),
+                            baseOrbit + ringOffset + radialScatter);
+                    double jitter = EXTRACTION.angleJitterRadians();
                     double angle = baseAngle + TAU * fragment / FRAGMENTS_PER_DEPOSIT
-                            + (fragment % 2 == 0 ? -0.035 : 0.035);
-                    double speed = baseSpeed * (0.95 + fragment * 0.011);
+                            + (fragment % 2 == 0 ? -jitter : jitter);
+                    double speed = baseSpeed * (EXTRACTION.fragmentSpeedBaseScale()
+                            + fragment * EXTRACTION.fragmentSpeedStepScale());
                     node.orbit(view.x(), view.y(), orbitRadius, angle, speed);
                     extraction.nodeIndex.put(node.id, node);
                     RESOURCE_STATES.put(node, state);
@@ -456,14 +464,16 @@ final class CelestialExtractionSystem {
             c.setColor(new Color(255, 255, 255, 235));
             c.fillOval((int)Math.round(px - 3), (int)Math.round(py - 3), 6, 6);
 
-            // As the charge reaches the body, preview stress fractures across the surface.
-            if (t > 0.72) {
-                float fracture = (float)Math.min(1.0, (t - 0.72) / 0.28);
+            double stressStart = EXTRACTION.stressStartProgress();
+            if (t > stressStart) {
+                float fracture = (float)Math.min(1.0, (t - stressStart) / Math.max(0.0001, 1.0 - stressStart));
                 c.setStroke(new BasicStroke(1.2f + fracture));
-                for (int ray = 0; ray < 8; ray++) {
-                    double angle = TAU * ray / 8.0 + (charge.bodyId.hashCode() & 31) * 0.01;
-                    double inner = target.radius() * 0.18;
-                    double outer = target.radius() * (0.42 + 0.42 * fracture);
+                int rays = EXTRACTION.stressRayCount();
+                for (int ray = 0; ray < rays; ray++) {
+                    double angle = TAU * ray / rays + (charge.bodyId.hashCode() & 31) * 0.01;
+                    double inner = target.radius() * EXTRACTION.stressInnerRadiusScale();
+                    double outer = target.radius() * (EXTRACTION.stressOuterRadiusBaseScale()
+                            + EXTRACTION.stressOuterRadiusGrowthScale() * fracture);
                     c.setColor(new Color(205, 241, 255, Math.round(55 + 135 * fracture)));
                     c.drawLine(
                             (int)Math.round(target.x() + Math.cos(angle) * inner),
@@ -480,7 +490,8 @@ final class CelestialExtractionSystem {
             CelestialSystem.BodyView target = celestials.bodyView(extraction.impactBodyId);
             if (target != null) {
                 float age = (float)Math.max(0.0, Math.min(1.0, extraction.impactAge / IMPACT_EFFECT_SECONDS));
-                float radius = (float)(target.radius() * (0.9 + age * 1.8));
+                float radius = (float)(target.radius() * (EXTRACTION.impactRadiusStartScale()
+                        + age * EXTRACTION.impactRadiusGrowthScale()));
                 float alpha = 1.0f - age;
                 RadialGradientPaint flash = new RadialGradientPaint(
                         new Point2D.Double(target.x(), target.y()), Math.max(8f, radius),
@@ -554,9 +565,11 @@ final class CelestialExtractionSystem {
             if (master == null) continue;
             double distance = Math.hypot(base.x - master.x(), base.y - master.y());
             base.celestialAnchorBodyId = master.id();
-            base.celestialOrbitRadius = Math.max(master.radius() + base.interactionRadius() + 60.0, distance);
+            base.celestialOrbitRadius = Math.max(master.radius() + base.interactionRadius() + ANCHORING.orbitPadding(), distance);
             base.celestialOrbitAngle = Math.atan2(base.y - master.y(), base.x - master.x());
-            base.celestialOrbitSpeed = 0.010 * Math.sqrt(400.0 / Math.max(200.0, base.celestialOrbitRadius));
+            base.celestialOrbitSpeed = ANCHORING.orbitSpeedBase()
+                    * Math.sqrt(ANCHORING.orbitSpeedReferenceRadius()
+                    / Math.max(ANCHORING.orbitSpeedMinimumRadius(), base.celestialOrbitRadius));
             base.x = master.x() + Math.cos(base.celestialOrbitAngle) * base.celestialOrbitRadius;
             base.y = master.y() + Math.sin(base.celestialOrbitAngle) * base.celestialOrbitRadius;
             changed = true;
