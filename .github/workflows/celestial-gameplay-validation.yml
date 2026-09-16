@@ -18,10 +18,13 @@ on:
       - 'src/main/java/com/tndmadman/rts/ResourceNode.java'
       - 'src/main/java/com/tndmadman/rts/ResourceSpawner.java'
       - 'src/main/java/com/tndmadman/rts/Base.java'
+      - 'src/main/java/com/tndmadman/rts/GameCamera.java'
       - 'src/main/java/com/tndmadman/rts/WorkSystem.java'
       - 'src/main/java/com/tndmadman/rts/SystemControlBonuses.java'
       - 'src/main/java/com/tndmadman/rts/SystemSimulationScheduler.java'
       - 'src/main/java/com/tndmadman/rts/WorldSystemState.java'
+      - 'config/celestial-gameplay.json'
+      - 'config/starchem.json'
       - 'config/stations.json'
       - '.github/workflows/celestial-gameplay-validation.yml'
 
