@@ -33,9 +33,7 @@ final class GameCamera {
             ACTIVE.put(world, this);
             EmpireOverviewOverlay.ensureInstalled(world, null);
             CelestialGameplayOverlay.ensureInstalled(world);
-            CelestialExtractionFireOverlay.ensureInstalled(world);
             CelestialGameplayOverlay.refresh(world);
-            CelestialExtractionFireOverlay.refresh(world);
         }
         Set<String> currentLocalEntityKeys = localEntityKeys(world);
         if (!initialized) initialized = centerOnLocal(world, screenW, screenH);
