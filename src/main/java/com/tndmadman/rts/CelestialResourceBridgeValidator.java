@@ -38,6 +38,12 @@ final class CelestialResourceBridgeValidator {
         require(liveDeposits.size() == persistentDeposits.size(),
                 "every active deposit for the released body must enter the tactical resource list");
 
+        CelestialBodyState bodyState = CelestialGameplaySystem.bodyState(state, body.id());
+        require(bodyState != null, "body state must exist");
+        int expectedRocks = bodyState.profile.deposits().size() * CelestialExtractionSystem.FRAGMENTS_PER_DEPOSIT;
+        require(liveDeposits.size() == expectedRocks,
+                "live bridge must expose ten fracture mineables per surveyed material");
+
         Set<Integer> liveIds = ids(liveDeposits);
         require(liveIds.size() == liveDeposits.size(), "live celestial deposit ids must be unique");
         for (ResourceNode persistent : persistentDeposits) {
@@ -59,15 +65,22 @@ final class CelestialResourceBridgeValidator {
         }
         require(exhausted, "last live rock must close the current extraction cycle");
         require(!CelestialExtractionSystem.released(state, body.id()),
-                "exhausted live field must return the body to ready-to-fire state");
+                "exhausted live field must return the body to sealed state");
+        require(CelestialExtractionSystem.cooldownRemaining(state, body.id()) > 0,
+                "exhausted live field must enter extractor recycle cooldown");
         ResourceSpawner.update(live, celestials, 0.016);
         require(live.size() == bridgedCount,
                 "exhausting a celestial field must not resize the tactical resource list");
         require(activeForBody(live, body.id()).isEmpty(),
                 "exhausted celestial field must expose no active tactical rocks");
 
+        require(!CelestialExtractionSystem.fireCharge(state, body.id(), "P1").fired(),
+                "exhausted body must reject immediate refire during recycle cooldown");
+        celestials.update(CelestialExtractionSystem.REFIRE_COOLDOWN_SECONDS + 0.05);
+        require(CelestialExtractionSystem.cooldownRemaining(state, body.id()) <= 0.001,
+                "extractor recycle cooldown must expire before refire");
         require(CelestialExtractionSystem.fireCharge(state, body.id(), "P1").fired(),
-                "exhausted body must accept another fracture charge");
+                "cooled-down exhausted body must accept another fracture charge");
         celestials.update(CelestialExtractionSystem.CHARGE_SECONDS + 0.05);
         ResourceSpawner.update(live, celestials, 0.016);
         List<ResourceNode> refired = activeForBody(live, body.id());
