@@ -1,10 +1,8 @@
 package com.tndmadman.rts;
 
-import javax.swing.SwingUtilities;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
-import java.awt.GraphicsEnvironment;
 import java.awt.RadialGradientPaint;
 import java.awt.geom.Point2D;
 import java.util.ArrayList;
@@ -86,14 +84,8 @@ final class CelestialExtractionSystem {
         return extractorFor(state, bodyId, playerId) != null;
     }
 
-    /**
-     * Simulation/test entry point. Player-facing Swing UI uses fireChargeFromButton so ordinary
-     * deposit-card clicks cannot accidentally fire a charge.
-     */
+    /** Player-facing and simulation entry point used by the integrated celestial intel control. */
     static FireResult fireCharge(WorldSystemState state, String bodyId, String playerId) {
-        if (!GraphicsEnvironment.isHeadless() && SwingUtilities.isEventDispatchThread()) {
-            return new FireResult(false, "Use FIRE FRACTURE CHARGE in the celestial intelligence panel.");
-        }
         return fireChargeInternal(state, bodyId, playerId);
     }
 
@@ -219,7 +211,6 @@ final class CelestialExtractionSystem {
                 nodes.remove(seed);
                 nodes.add(0, seed);
 
-                // Trim only legacy/accidental extras. This runs once per body, never on depletion.
                 if (nodes.size() > FRAGMENTS_PER_DEPOSIT) {
                     List<ResourceNode> extras = new ArrayList<>(nodes.subList(FRAGMENTS_PER_DEPOSIT, nodes.size()));
                     nodes = new ArrayList<>(nodes.subList(0, FRAGMENTS_PER_DEPOSIT));
