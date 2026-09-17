@@ -57,6 +57,9 @@ jobs:
       - name: Compile project
         run: gradle clean classes --no-daemon
 
+      - name: Run production catalog regression validator
+        run: java -Djava.awt.headless=true -cp 'build/classes/java/main:build/resources/main' com.tndmadman.rts.ProductionCatalogRulesValidator
+
       - name: Run celestial gameplay regression validator
         run: java -Djava.awt.headless=true -cp 'build/classes/java/main:build/resources/main' com.tndmadman.rts.CelestialGameplayValidator
 
