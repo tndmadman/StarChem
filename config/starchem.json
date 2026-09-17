@@ -22,6 +22,7 @@
     ],
     "stations": "config/stations.json",
     "resources": "config/resources.json",
+    "celestialGameplay": "config/celestial-gameplay.json",
     "systems": [
       "config/systems/sol-standard.json",
       "config/systems/red-dwarf.json",

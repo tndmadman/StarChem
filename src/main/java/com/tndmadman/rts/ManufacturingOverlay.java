@@ -529,12 +529,8 @@ final class ManufacturingOverlay extends JPanel {
         List<Base> bases = ownedBases();
         LinkedHashMap<String, ProductionChoice> out = new LinkedHashMap<>();
 
-        Set<String> hulls = new LinkedHashSet<>();
-        Set<String> packages = new LinkedHashSet<>();
-        for (Base base : bases) {
-            hulls.addAll(base.type().buildableShips);
-            packages.addAll(base.type().basePackages);
-        }
+        Set<String> hulls = ProductionCatalogRules.buildableHullIds();
+        Set<String> packages = ProductionCatalogRules.buildableStationPackageIds();
 
         for (String hullId : hulls) {
             ShipType ship = Rules.findShip(hullId);
@@ -564,7 +560,6 @@ final class ManufacturingOverlay extends JPanel {
         }
 
         for (CraftableItem item : CraftingRules.all()) {
-            if (!hasCompatibleBase(bases, item)) continue;
             String locked = free || item.unlockedFor(world, playerId)
                     ? "" : "Requires " + item.missingResearchLabel(world, playerId);
             String description = item.description == null || item.description.isBlank()
@@ -591,14 +586,7 @@ final class ManufacturingOverlay extends JPanel {
         }
 
         for (ResearchTopic topic : ResearchRules.all()) {
-            if (!hasResearchBase(bases, topic)) continue;
-            String locked = "";
-            if (world.hasResearch(playerId, topic.id)) locked = "Completed";
-            else if (ProductionSystem.researchQueued(world, playerId, topic.id)) locked = "Already queued";
-            else {
-                String prerequisite = ResearchRules.missingPrerequisite(world, playerId, topic);
-                if (!prerequisite.isBlank()) locked = "Requires " + prerequisite;
-            }
+            String locked = ProductionCatalogRules.researchLockedReason(world, playerId, topic);
             ProductionChoice choice = new ProductionChoice(
                     "RESEARCH:" + topic.id, ProductionJobKind.RESEARCH, topic.name,
                     "RESEARCH", topic.description + (topic.unlockLabel().isBlank() ? "" : " • " + topic.unlockLabel()),

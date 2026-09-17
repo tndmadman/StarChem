@@ -21,7 +21,8 @@
         "radar_decoy",
         "shipyard",
         "laboratory",
-        "manufacturing"
+        "manufacturing",
+        "extractor"
       ],
       "role": "production",
       "nonProduction": false,
@@ -75,7 +76,8 @@
         "radar_decoy",
         "shipyard",
         "laboratory",
-        "manufacturing"
+        "manufacturing",
+        "extractor"
       ],
       "role": "production",
       "nonProduction": false,
@@ -138,6 +140,32 @@
       "canBuildStationPackages": [],
       "role": "production",
       "nonProduction": false
+    },
+    "extractor": {
+      "displayName": "Planetary Extractor",
+      "maxHp": 1850,
+      "maxShield": 1250,
+      "shieldRegen": 14.0,
+      "shieldRegenDelay": 5.5,
+      "unloadRange": 140,
+      "unloadRate": 120,
+      "buildRadius": 92,
+      "buildTimeSeconds": 38,
+      "buildCost": {
+        "STRUCTURAL_FRAME": 14,
+        "STEEL_PLATE": 18,
+        "POWER_REGULATOR": 8,
+        "PRINTED_CIRCUIT_BOARD": 6,
+        "SENSOR_ARRAY": 4,
+        "FUEL": 80
+      },
+      "packedVolume": 1,
+      "mustBeCarriedByShipType": "station_builder",
+      "carrierIsRemovedAfterPlacement": true,
+      "canBuildShips": [],
+      "canBuildStationPackages": [],
+      "role": "extractor",
+      "nonProduction": true
     },
     "radar_picket": {
       "displayName": "Radar Picket I",

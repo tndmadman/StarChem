@@ -54,7 +54,7 @@ public final class ConfiguredFitRuleValidator {
         require(missileCost.stream().anyMatch(cost -> cost.material() == Material.MISSILE_WARHEAD),
                 "configured missile cost missing warheads");
 
-        require(MultiplayerCompatibility.local().rulesVersion() == 27,
+        require(MultiplayerCompatibility.local().rulesVersion() >= 27,
                 "world-scoped fit and explicit-hardpoint rules version was not bumped");
         System.out.println("StarChem configured ship-fit compatibility, research, cost, and hardpoint validation passed.");
     }

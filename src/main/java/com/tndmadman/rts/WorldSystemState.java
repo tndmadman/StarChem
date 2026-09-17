@@ -16,6 +16,7 @@ final class WorldSystemState {
     final List<ProjectileShot> shots = new ArrayList<>();
     final List<WorldItem> items = new ArrayList<>();
     final List<WormholeGate> wormholes = new ArrayList<>();
+    final Map<String, CelestialBodyState> celestialBodies = new LinkedHashMap<>();
     double systemTime;
 
     WorldSystemState(String id, StarSystemDefinition definition, CelestialSystem celestials) {
@@ -31,6 +32,10 @@ final class WorldSystemState {
         this.control = new SystemControlState(this.lifetime, initialControllerId);
         this.controlPoint = new SystemControlPoint(definition);
         this.celestials = celestials;
+        CelestialGameplaySystem.registerState(this);
+        CelestialMoonInheritance.register(this);
+        CelestialExtractionSystem.register(this);
+        CelestialResourceBridge.register(this);
     }
 
     int width() { return definition.width(); }

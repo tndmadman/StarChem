@@ -25,10 +25,26 @@ final class ResourceSpawner {
     }
 
     static void update(List<ResourceNode> resources, CelestialSystem celestials, double dt) {
+        // Celestial gameplay creates body-linked deposits on persistent WorldSystemState. Mining,
+        // rendering and selection use the active World's live resource list, so bridge those nodes
+        // before advancing orbits. This also prevents saveActive from erasing newly seeded deposits.
+        CelestialResourceBridge.sync(resources, celestials);
         for (ResourceNode node : resources) node.updateOrbit(dt);
     }
 
     static void relocate(ResourceNode node, List<ResourceNode> resources, Collection<Base> bases, CelestialSystem celestials, Random random) {
+        if (node != null && celestials != null && node.celestialAnchorBodyId != null
+                && !node.celestialAnchorBodyId.isBlank()) {
+            CelestialSystem.BodyView body = celestials.bodyView(node.celestialAnchorBodyId);
+            if (body != null) {
+                double baseRadius = Math.max(body.radius() + 130.0, node.orbitRadius);
+                double orbitRadius = Math.max(body.radius() + 100.0, baseRadius + random.nextGaussian() * 45.0);
+                double orbitAngle = random.nextDouble() * Math.PI * 2;
+                double orbitSpeed = node.orbitSpeed == 0 ? speedFor(orbitRadius) : node.orbitSpeed;
+                activate(node, body.x(), body.y(), orbitRadius, orbitAngle, orbitSpeed);
+                return;
+            }
+        }
         ResourceNode anchor = anchorFor(node, resources, random);
         double orbitRadius = anchor == null ? 2200 + random.nextDouble() * 4400 : anchor.orbitRadius + random.nextGaussian() * 90;
         double orbitAngle = anchor == null ? random.nextDouble() * Math.PI * 2 : anchor.orbitAngle + random.nextGaussian() * 0.18;
