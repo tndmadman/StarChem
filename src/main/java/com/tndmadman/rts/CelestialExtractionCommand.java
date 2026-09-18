@@ -13,6 +13,7 @@ final class CelestialExtractionCommand {
         }
         WorldSystemState state = state(world, systemId);
         if (state == null) return new CelestialExtractionSystem.FireResult(false, "The target system is not available.");
+        CelestialExtractionSystem.bindWorld(state, world);
         CelestialExtractionSystem.FireResult result = CelestialExtractionSystem.fireCharge(state, bodyId, playerId);
         if (result.fired()) SystemAudio.play(world, state.id, SoundCue.EXTRACTION_CHARGE_LAUNCH);
         return result;
