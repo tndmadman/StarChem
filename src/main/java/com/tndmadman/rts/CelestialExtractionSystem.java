@@ -52,8 +52,14 @@ final class CelestialExtractionSystem {
             Collections.synchronizedMap(new WeakHashMap<>());
     private static final Map<ResourceNode, WorldSystemState> RESOURCE_STATES =
             Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Map<WorldSystemState, World> WORLDS =
+            Collections.synchronizedMap(new WeakHashMap<>());
 
     private CelestialExtractionSystem() { }
+
+    static void bindWorld(WorldSystemState state, World world) {
+        if (state != null && world != null) WORLDS.put(state, world);
+    }
 
     static void register(WorldSystemState state) {
         if (state == null || state.celestials == null) return;
@@ -93,11 +99,8 @@ final class CelestialExtractionSystem {
 
     static int activeFragmentCount(WorldSystemState state, String bodyId) {
         if (state == null || bodyId == null || bodyId.isBlank()) return 0;
-        CelestialBodyState body = CelestialGameplaySystem.bodyState(state, bodyId);
-        if (body == null) return 0;
         int count = 0;
-        for (int id : body.resourceNodeIds) {
-            ResourceNode node = resourceById(state, id);
+        for (ResourceNode node : state.resources) {
             if (node != null && node.active && node.amount > 0.05 && bodyId.equals(node.celestialAnchorBodyId)) count++;
         }
         return count;
@@ -215,7 +218,7 @@ final class CelestialExtractionSystem {
                     activateBody(state, charge.bodyId);
                     extraction.impactBodyId = charge.bodyId;
                     extraction.impactAge = 0.0;
-                    World world = PlayerRegistry.activeWorld();
+                    World world = WORLDS.get(state);
                     if (world != null) SystemAudio.play(world, state.id, SoundCue.EXTRACTION_FRACTURE_IMPACT);
                     it.remove();
                 }
