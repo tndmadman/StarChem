@@ -639,157 +639,180 @@ final class CelestialExtractionSystem {
         WorldSystemState state = STATES.get(celestials);
         if (state == null || g == null) return;
         ExtractionState extraction = data(state);
+        if (!hasRenderableEffects(extraction)) return;
+
         Graphics2D c = (Graphics2D) g.create();
-
-        for (Charge charge : extraction.charges) {
-            Base source = state.bases.get(charge.extractorBaseId);
-            CelestialSystem.BodyView target = celestials.bodyView(charge.bodyId);
-            if (source == null || target == null) continue;
-            double t = Math.max(0.0, Math.min(1.0, charge.elapsed / CHARGE_SECONDS));
-            double eased = smooth(t);
-            double px = source.x + (target.x() - source.x) * eased;
-            double py = source.y + (target.y() - source.y) * eased;
-            double pulse = 0.5 + 0.5 * Math.sin(charge.elapsed * 11.0);
-
-            if (t < 0.18) {
-                double launchT = t / 0.18;
-                double ring = 10 + launchT * 52;
-                int alpha = (int)Math.round(210 * (1.0 - launchT));
-                c.setStroke(new BasicStroke(2.6f));
-                c.setColor(new Color(125, 226, 255, Math.max(0, alpha)));
-                c.drawOval((int)Math.round(source.x - ring), (int)Math.round(source.y - ring),
-                        (int)Math.round(ring * 2), (int)Math.round(ring * 2));
-                c.setColor(new Color(255, 255, 255, Math.max(0, (int)(235 * (1.0 - launchT)))));
-                double core = 18 * (1.0 - launchT) + 4;
-                c.fillOval((int)Math.round(source.x - core), (int)Math.round(source.y - core),
-                        (int)Math.round(core * 2), (int)Math.round(core * 2));
-                long seed = stableHash(state.id, charge.bodyId, charge.extractorBaseId, "launch");
-                for (int spark = 0; spark < 10; spark++) {
-                    double angle = normalizedAngle(seed + spark * 0x9E3779B97F4A7C15L);
-                    double inner = 12 + launchT * 10;
-                    double outer = inner + 18 + (spark % 4) * 5;
-                    c.setColor(new Color(177, 238, 255, Math.max(0, (int)(180 * (1.0 - launchT)))));
-                    c.drawLine((int)Math.round(source.x + Math.cos(angle) * inner),
-                            (int)Math.round(source.y + Math.sin(angle) * inner),
-                            (int)Math.round(source.x + Math.cos(angle) * outer),
-                            (int)Math.round(source.y + Math.sin(angle) * outer));
-                }
-            }
-
-            double previousX = px;
-            double previousY = py;
-            for (int segment = 1; segment <= 14; segment++) {
-                double st = Math.max(0, t - segment * 0.022);
-                double se = smooth(st);
-                double sx = source.x + (target.x() - source.x) * se;
-                double sy = source.y + (target.y() - source.y) * se;
-                int alpha = Math.max(12, 150 - segment * 9);
-                c.setStroke(new BasicStroke(Math.max(1.0f, 5.2f - segment * 0.28f),
-                        BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                c.setColor(new Color(79, 205, 255, alpha));
-                c.drawLine((int)Math.round(previousX), (int)Math.round(previousY),
-                        (int)Math.round(sx), (int)Math.round(sy));
-                previousX = sx;
-                previousY = sy;
-            }
-
-            double halo = 13 + pulse * 7;
-            c.setColor(new Color(72, 198, 255, 70));
-            c.fillOval((int)Math.round(px - halo), (int)Math.round(py - halo),
-                    (int)Math.round(halo * 2), (int)Math.round(halo * 2));
-            c.setColor(new Color(113, 225, 255, 220));
-            c.fillOval((int)Math.round(px - 8), (int)Math.round(py - 8), 16, 16);
-            c.setColor(new Color(255, 255, 255, 250));
-            c.fillOval((int)Math.round(px - 3.5), (int)Math.round(py - 3.5), 7, 7);
-
-            long flightSeed = stableHash(state.id, charge.bodyId, "flight");
-            for (int spark = 0; spark < 5; spark++) {
-                double angle = normalizedAngle(flightSeed + spark * 0xD1B54A32D192ED03L + (long)(t * 17));
-                double radius = 10 + spark * 3 + pulse * 4;
-                double sx = px + Math.cos(angle) * radius;
-                double sy = py + Math.sin(angle) * radius;
-                c.setColor(new Color(190, 242, 255, 125 - spark * 16));
-                c.fillOval((int)Math.round(sx - 1.5), (int)Math.round(sy - 1.5), 3, 3);
-            }
-
-            double stressStart = EXTRACTION.stressStartProgress();
-            if (t > stressStart) {
-                float fracture = (float)Math.min(1.0, (t - stressStart) / Math.max(0.0001, 1.0 - stressStart));
-                int rays = Math.max(EXTRACTION.stressRayCount(), 12);
-                long seed = stableHash(state.id, charge.bodyId, "stress");
-                for (int ray = 0; ray < rays; ray++) {
-                    double angle = normalizedAngle(seed + ray * 0x9E3779B97F4A7C15L);
-                    double inner = target.radius() * (0.72 + (ray % 3) * 0.04);
-                    double outer = target.radius() * (1.02 + 0.44 * fracture + (ray % 4) * 0.035);
-                    c.setStroke(new BasicStroke(1.0f + fracture * 1.8f));
-                    c.setColor(new Color(207, 244, 255, Math.round(65 + 175 * fracture)));
-                    c.drawLine((int)Math.round(target.x() + Math.cos(angle) * inner),
-                            (int)Math.round(target.y() + Math.sin(angle) * inner),
-                            (int)Math.round(target.x() + Math.cos(angle + 0.05 * Math.sin(ray)) * outer),
-                            (int)Math.round(target.y() + Math.sin(angle + 0.05 * Math.sin(ray)) * outer));
-                }
-                for (int ringIndex = 0; ringIndex < 3; ringIndex++) {
-                    double radius = target.radius() * (1.55 - fracture * (0.38 + ringIndex * 0.12));
-                    int alpha = Math.min(220, Math.round(55 + fracture * 125 - ringIndex * 18));
-                    c.setStroke(new BasicStroke(1.5f + fracture));
-                    c.setColor(new Color(112, 222, 255, Math.max(20, alpha)));
-                    c.drawOval((int)Math.round(target.x() - radius), (int)Math.round(target.y() - radius),
-                            (int)Math.round(radius * 2), (int)Math.round(radius * 2));
-                }
-            }
+        try {
+            drawEffects(celestials, state, extraction, c);
+        } finally {
+            c.dispose();
         }
+    }
 
-        if (extraction.impactBodyId != null && !extraction.impactBodyId.isBlank()
-                && extraction.impactAge < IMPACT_EFFECT_SECONDS) {
-            CelestialSystem.BodyView target = celestials.bodyView(extraction.impactBodyId);
-            if (target != null) {
-                float age = (float)Math.max(0.0, Math.min(1.0, extraction.impactAge / IMPACT_EFFECT_SECONDS));
-                float alpha = 1.0f - age;
-                float radius = (float)(target.radius() * (1.0 + age * 2.7));
-                RadialGradientPaint flash = new RadialGradientPaint(
-                        new Point2D.Double(target.x(), target.y()), Math.max(10f, radius),
-                        new float[]{0f, 0.16f, 0.48f, 1f},
-                        new Color[]{new Color(255, 255, 255, Math.round(250 * alpha)),
-                                new Color(153, 235, 255, Math.round(205 * alpha)),
-                                new Color(68, 177, 236, Math.round(105 * alpha)),
-                                new Color(50, 150, 230, 0)});
-                c.setPaint(flash);
-                c.fillOval((int)Math.round(target.x() - radius), (int)Math.round(target.y() - radius),
-                        Math.round(radius * 2), Math.round(radius * 2));
+    /**
+     * Keep the overwhelmingly common idle render path tiny. The detailed fracture renderer is
+     * intentionally isolated so background-only frames do not allocate a child graphics context
+     * or execute/JIT the much larger active-effect method.
+     */
+    private static boolean hasRenderableEffects(ExtractionState extraction) {
+        if (extraction == null) return false;
+        if (!extraction.charges.isEmpty()) return true;
+        return extraction.impactBodyId != null && !extraction.impactBodyId.isBlank()
+                && extraction.impactAge < IMPACT_EFFECT_SECONDS;
+    }
 
-                for (int ringIndex = 0; ringIndex < 3; ringIndex++) {
-                    double ringAge = Math.max(0, Math.min(1, age * (1.1 + ringIndex * 0.22) - ringIndex * 0.08));
-                    double rr = target.radius() * (1.0 + ringAge * (2.0 + ringIndex * 0.55));
-                    int ringAlpha = Math.max(0, (int)(205 * (1.0 - ringAge) * alpha));
-                    c.setColor(new Color(185, 239, 255, ringAlpha));
-                    c.setStroke(new BasicStroke(Math.max(1.0f, 3.4f - ringIndex * 0.7f)));
-                    c.drawOval((int)Math.round(target.x() - rr), (int)Math.round(target.y() - rr),
-                            (int)Math.round(rr * 2), (int)Math.round(rr * 2));
+    private static void drawEffects(CelestialSystem celestials, WorldSystemState state,
+                                    ExtractionState extraction, Graphics2D c) {
+
+            for (Charge charge : extraction.charges) {
+                Base source = state.bases.get(charge.extractorBaseId);
+                CelestialSystem.BodyView target = celestials.bodyView(charge.bodyId);
+                if (source == null || target == null) continue;
+                double t = Math.max(0.0, Math.min(1.0, charge.elapsed / CHARGE_SECONDS));
+                double eased = smooth(t);
+                double px = source.x + (target.x() - source.x) * eased;
+                double py = source.y + (target.y() - source.y) * eased;
+                double pulse = 0.5 + 0.5 * Math.sin(charge.elapsed * 11.0);
+
+                if (t < 0.18) {
+                    double launchT = t / 0.18;
+                    double ring = 10 + launchT * 52;
+                    int alpha = (int)Math.round(210 * (1.0 - launchT));
+                    c.setStroke(new BasicStroke(2.6f));
+                    c.setColor(new Color(125, 226, 255, Math.max(0, alpha)));
+                    c.drawOval((int)Math.round(source.x - ring), (int)Math.round(source.y - ring),
+                            (int)Math.round(ring * 2), (int)Math.round(ring * 2));
+                    c.setColor(new Color(255, 255, 255, Math.max(0, (int)(235 * (1.0 - launchT)))));
+                    double core = 18 * (1.0 - launchT) + 4;
+                    c.fillOval((int)Math.round(source.x - core), (int)Math.round(source.y - core),
+                            (int)Math.round(core * 2), (int)Math.round(core * 2));
+                    long seed = stableHash(state.id, charge.bodyId, charge.extractorBaseId, "launch");
+                    for (int spark = 0; spark < 10; spark++) {
+                        double angle = normalizedAngle(seed + spark * 0x9E3779B97F4A7C15L);
+                        double inner = 12 + launchT * 10;
+                        double outer = inner + 18 + (spark % 4) * 5;
+                        c.setColor(new Color(177, 238, 255, Math.max(0, (int)(180 * (1.0 - launchT)))));
+                        c.drawLine((int)Math.round(source.x + Math.cos(angle) * inner),
+                                (int)Math.round(source.y + Math.sin(angle) * inner),
+                                (int)Math.round(source.x + Math.cos(angle) * outer),
+                                (int)Math.round(source.y + Math.sin(angle) * outer));
+                    }
                 }
 
-                long seed = stableHash(state.id, extraction.impactBodyId, "impact");
-                for (int ray = 0; ray < 20; ray++) {
-                    double angle = normalizedAngle(seed + ray * 0x9E3779B97F4A7C15L);
-                    double inner = target.radius() * (0.9 + age * 0.5);
-                    double outer = target.radius() * (1.35 + age * (2.4 + (ray % 5) * 0.12));
-                    int rayAlpha = Math.max(0, (int)(220 * alpha));
-                    c.setColor(new Color(190 + ray % 3 * 18, 235, 255, rayAlpha));
-                    c.setStroke(new BasicStroke(ray % 3 == 0 ? 2.5f : 1.3f));
-                    c.drawLine((int)Math.round(target.x() + Math.cos(angle) * inner),
-                            (int)Math.round(target.y() + Math.sin(angle) * inner),
-                            (int)Math.round(target.x() + Math.cos(angle) * outer),
-                            (int)Math.round(target.y() + Math.sin(angle) * outer));
+                double previousX = px;
+                double previousY = py;
+                for (int segment = 1; segment <= 14; segment++) {
+                    double st = Math.max(0, t - segment * 0.022);
+                    double se = smooth(st);
+                    double sx = source.x + (target.x() - source.x) * se;
+                    double sy = source.y + (target.y() - source.y) * se;
+                    int alpha = Math.max(12, 150 - segment * 9);
+                    c.setStroke(new BasicStroke(Math.max(1.0f, 5.2f - segment * 0.28f),
+                            BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    c.setColor(new Color(79, 205, 255, alpha));
+                    c.drawLine((int)Math.round(previousX), (int)Math.round(previousY),
+                            (int)Math.round(sx), (int)Math.round(sy));
+                    previousX = sx;
+                    previousY = sy;
                 }
 
-                if (age < 0.18f) {
-                    double white = target.radius() * (1.05 + age * 3.2);
-                    c.setColor(new Color(255, 255, 255, Math.max(0, (int)(245 * (1.0 - age / 0.18f)))));
-                    c.fillOval((int)Math.round(target.x() - white), (int)Math.round(target.y() - white),
-                            (int)Math.round(white * 2), (int)Math.round(white * 2));
+                double halo = 13 + pulse * 7;
+                c.setColor(new Color(72, 198, 255, 70));
+                c.fillOval((int)Math.round(px - halo), (int)Math.round(py - halo),
+                        (int)Math.round(halo * 2), (int)Math.round(halo * 2));
+                c.setColor(new Color(113, 225, 255, 220));
+                c.fillOval((int)Math.round(px - 8), (int)Math.round(py - 8), 16, 16);
+                c.setColor(new Color(255, 255, 255, 250));
+                c.fillOval((int)Math.round(px - 3.5), (int)Math.round(py - 3.5), 7, 7);
+
+                long flightSeed = stableHash(state.id, charge.bodyId, "flight");
+                for (int spark = 0; spark < 5; spark++) {
+                    double angle = normalizedAngle(flightSeed + spark * 0xD1B54A32D192ED03L + (long)(t * 17));
+                    double radius = 10 + spark * 3 + pulse * 4;
+                    double sx = px + Math.cos(angle) * radius;
+                    double sy = py + Math.sin(angle) * radius;
+                    c.setColor(new Color(190, 242, 255, 125 - spark * 16));
+                    c.fillOval((int)Math.round(sx - 1.5), (int)Math.round(sy - 1.5), 3, 3);
+                }
+
+                double stressStart = EXTRACTION.stressStartProgress();
+                if (t > stressStart) {
+                    float fracture = (float)Math.min(1.0, (t - stressStart) / Math.max(0.0001, 1.0 - stressStart));
+                    int rays = Math.max(EXTRACTION.stressRayCount(), 12);
+                    long seed = stableHash(state.id, charge.bodyId, "stress");
+                    for (int ray = 0; ray < rays; ray++) {
+                        double angle = normalizedAngle(seed + ray * 0x9E3779B97F4A7C15L);
+                        double inner = target.radius() * (0.72 + (ray % 3) * 0.04);
+                        double outer = target.radius() * (1.02 + 0.44 * fracture + (ray % 4) * 0.035);
+                        c.setStroke(new BasicStroke(1.0f + fracture * 1.8f));
+                        c.setColor(new Color(207, 244, 255, Math.round(65 + 175 * fracture)));
+                        c.drawLine((int)Math.round(target.x() + Math.cos(angle) * inner),
+                                (int)Math.round(target.y() + Math.sin(angle) * inner),
+                                (int)Math.round(target.x() + Math.cos(angle + 0.05 * Math.sin(ray)) * outer),
+                                (int)Math.round(target.y() + Math.sin(angle + 0.05 * Math.sin(ray)) * outer));
+                    }
+                    for (int ringIndex = 0; ringIndex < 3; ringIndex++) {
+                        double radius = target.radius() * (1.55 - fracture * (0.38 + ringIndex * 0.12));
+                        int alpha = Math.min(220, Math.round(55 + fracture * 125 - ringIndex * 18));
+                        c.setStroke(new BasicStroke(1.5f + fracture));
+                        c.setColor(new Color(112, 222, 255, Math.max(20, alpha)));
+                        c.drawOval((int)Math.round(target.x() - radius), (int)Math.round(target.y() - radius),
+                                (int)Math.round(radius * 2), (int)Math.round(radius * 2));
+                    }
                 }
             }
-        }
-        c.dispose();
+
+            if (extraction.impactBodyId != null && !extraction.impactBodyId.isBlank()
+                    && extraction.impactAge < IMPACT_EFFECT_SECONDS) {
+                CelestialSystem.BodyView target = celestials.bodyView(extraction.impactBodyId);
+                if (target != null) {
+                    float age = (float)Math.max(0.0, Math.min(1.0, extraction.impactAge / IMPACT_EFFECT_SECONDS));
+                    float alpha = 1.0f - age;
+                    float radius = (float)(target.radius() * (1.0 + age * 2.7));
+                    RadialGradientPaint flash = new RadialGradientPaint(
+                            new Point2D.Double(target.x(), target.y()), Math.max(10f, radius),
+                            new float[]{0f, 0.16f, 0.48f, 1f},
+                            new Color[]{new Color(255, 255, 255, Math.round(250 * alpha)),
+                                    new Color(153, 235, 255, Math.round(205 * alpha)),
+                                    new Color(68, 177, 236, Math.round(105 * alpha)),
+                                    new Color(50, 150, 230, 0)});
+                    c.setPaint(flash);
+                    c.fillOval((int)Math.round(target.x() - radius), (int)Math.round(target.y() - radius),
+                            Math.round(radius * 2), Math.round(radius * 2));
+
+                    for (int ringIndex = 0; ringIndex < 3; ringIndex++) {
+                        double ringAge = Math.max(0, Math.min(1, age * (1.1 + ringIndex * 0.22) - ringIndex * 0.08));
+                        double rr = target.radius() * (1.0 + ringAge * (2.0 + ringIndex * 0.55));
+                        int ringAlpha = Math.max(0, (int)(205 * (1.0 - ringAge) * alpha));
+                        c.setColor(new Color(185, 239, 255, ringAlpha));
+                        c.setStroke(new BasicStroke(Math.max(1.0f, 3.4f - ringIndex * 0.7f)));
+                        c.drawOval((int)Math.round(target.x() - rr), (int)Math.round(target.y() - rr),
+                                (int)Math.round(rr * 2), (int)Math.round(rr * 2));
+                    }
+
+                    long seed = stableHash(state.id, extraction.impactBodyId, "impact");
+                    for (int ray = 0; ray < 20; ray++) {
+                        double angle = normalizedAngle(seed + ray * 0x9E3779B97F4A7C15L);
+                        double inner = target.radius() * (0.9 + age * 0.5);
+                        double outer = target.radius() * (1.35 + age * (2.4 + (ray % 5) * 0.12));
+                        int rayAlpha = Math.max(0, (int)(220 * alpha));
+                        c.setColor(new Color(190 + ray % 3 * 18, 235, 255, rayAlpha));
+                        c.setStroke(new BasicStroke(ray % 3 == 0 ? 2.5f : 1.3f));
+                        c.drawLine((int)Math.round(target.x() + Math.cos(angle) * inner),
+                                (int)Math.round(target.y() + Math.sin(angle) * inner),
+                                (int)Math.round(target.x() + Math.cos(angle) * outer),
+                                (int)Math.round(target.y() + Math.sin(angle) * outer));
+                    }
+
+                    if (age < 0.18f) {
+                        double white = target.radius() * (1.05 + age * 3.2);
+                        c.setColor(new Color(255, 255, 255, Math.max(0, (int)(245 * (1.0 - age / 0.18f)))));
+                        c.fillOval((int)Math.round(target.x() - white), (int)Math.round(target.y() - white),
+                                (int)Math.round(white * 2), (int)Math.round(white * 2));
+                    }
+                }
+            }
+
     }
 
     private static double smooth(double value) {
