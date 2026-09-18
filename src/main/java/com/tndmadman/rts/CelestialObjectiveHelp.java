@@ -17,13 +17,13 @@ final class CelestialObjectiveHelp {
                     + " seconds. A Sensor Array is useful, but is not required.";
             case CLAIM -> moon
                     ? "Moon sovereignty is inherited from " + masterName
-                    + ". Claim the master planet with any friendly orbital station; no separate moon claim station is required."
-                    : "Station needed: any friendly orbital station. The first accepted anchor starts the claim; hostile and neutral factions are locked out once anchoring begins.";
+                    + ". Claim the master planet with an orbital station you own; no separate moon claim station is required."
+                    : "Station needed: an orbital station you own. The first accepted anchor starts the claim; every other player is locked out once anchoring begins.";
             case HOLD -> moon
                     ? "Hold is inherited from " + masterName
-                    + ". Keep the master planet claimed, uncontested, and supported by a friendly orbital station for "
+                    + ". Keep the master planet claimed, uncontested, and supported by one of your orbital stations for "
                     + Math.round(CelestialGameplaySystem.HOLD_OBJECTIVE_SECONDS) + " seconds."
-                    : "Station needed: keep at least one friendly orbital station anchored. Hold the planet uncontested for "
+                    : "Station needed: keep at least one of your orbital stations anchored. Hold the planet uncontested for "
                     + Math.round(CelestialGameplaySystem.HOLD_OBJECTIVE_SECONDS) + " seconds.";
             case EXTRACT -> "Station needed: Planetary Extractor anchored to " + masterName
                     + ". Fire a fracture charge at this body to expose its physical deposits, then mine "
