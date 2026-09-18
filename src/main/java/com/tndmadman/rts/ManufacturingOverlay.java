@@ -990,10 +990,14 @@ final class ManufacturingOverlay extends JPanel {
     }
 
     private void addInventoryMessage(String text) {
+        JPanel row = new JPanel(new BorderLayout());
+        row.setOpaque(false);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 31));
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.setBorder(BorderFactory.createEmptyBorder(8, 4, 4, 4));
         JLabel empty = smallLabel(text, MUTED);
-        empty.setBorder(BorderFactory.createEmptyBorder(8, 4, 4, 4));
-        empty.setAlignmentX(Component.LEFT_ALIGNMENT);
-        resourceRows.add(empty);
+        row.add(empty, BorderLayout.WEST);
+        resourceRows.add(row);
     }
 
     private void finishResourceRefresh() {
