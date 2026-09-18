@@ -50,6 +50,22 @@ final class StationSpriteCache {
         return true;
     }
 
+    /**
+     * Returns the same cached deterministic station structure used by live rendering, for small UI
+     * previews that need the authored/procedural station architecture without animated effects.
+     */
+    static BufferedImage previewImage(String typeId, Color owner, Lod lod) {
+        if (typeId == null || typeId.isBlank() || owner == null || lod == null
+                || Rules.findBase(typeId) == null) return null;
+        try {
+            Base representative = new Base("SPRITE-" + typeId, "SPRITE", typeId, 0, 0);
+            Sprite sprite = sprite(representative, owner, lod, true);
+            return sprite == null ? null : sprite.image();
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
     /** Pre-generates all finite configured station static layers for one owner color. */
     static void prewarm(Color owner) {
         if (owner == null) return;

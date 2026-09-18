@@ -1530,7 +1530,9 @@ final class ManufacturingOverlay extends JPanel {
         }
     }
 
-    private static final class ChoiceRenderer extends DefaultListCellRenderer {
+    private final class ChoiceRenderer extends DefaultListCellRenderer {
+        private static final int ICON_SIZE = 42;
+
         @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
                                                                  boolean selected, boolean focused) {
             JLabel label = (JLabel)super.getListCellRendererComponent(list, value, index, selected, focused);
@@ -1538,9 +1540,7 @@ final class ManufacturingOverlay extends JPanel {
             String lock = choice.lockedReason.isBlank() ? "" : "  •  " + choice.lockedReason;
             label.setText("<html><b>" + escape(choice.name) + "</b><br><span style='font-size:9px'>"
                     + escape(choice.subtitle + lock) + "</span></html>");
-            label.setIcon(choice.outputMaterial == null
-                    ? new ProductionGlyph(choice.kind, 42)
-                    : CatalogVisuals.materialIcon(choice.outputMaterial, 42));
+            label.setIcon(iconFor(choice));
             label.setIconTextGap(10);
             label.setBorder(BorderFactory.createEmptyBorder(5, 8, 5, 8));
             label.setForeground(choice.lockedReason.isBlank() ? TEXT : new Color(173, 147, 132));
@@ -1548,7 +1548,23 @@ final class ManufacturingOverlay extends JPanel {
             return label;
         }
 
-        private static String escape(String text) {
+        private Icon iconFor(ProductionChoice choice) {
+            if (choice.outputMaterial != null) {
+                return CatalogVisuals.materialIcon(choice.outputMaterial, ICON_SIZE);
+            }
+
+            Icon procedural = null;
+            if (choice.kind == ProductionJobKind.SHIP) {
+                procedural = ProductionCatalogVisuals.shipIcon(
+                        choice.hullId, PlayerRegistry.color(playerId()), ICON_SIZE);
+            } else if (choice.kind == ProductionJobKind.STATION_PACKAGE) {
+                procedural = ProductionCatalogVisuals.stationIcon(
+                        choice.commandItemId, PlayerRegistry.color(playerId()), ICON_SIZE);
+            }
+            return procedural == null ? new ProductionGlyph(choice.kind, ICON_SIZE) : procedural;
+        }
+
+        private String escape(String text) {
             return (text == null ? "" : text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
         }
     }
