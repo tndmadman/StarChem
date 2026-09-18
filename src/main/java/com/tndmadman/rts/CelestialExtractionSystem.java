@@ -128,7 +128,9 @@ final class CelestialExtractionSystem {
     }
 
     static boolean fireReady(WorldSystemState state, String bodyId, String playerId) {
-        if (state == null || released(state, bodyId) || chargeInFlight(state, bodyId)
+        if (state == null) return false;
+        reconcileExhaustedReleasedField(state, bodyId);
+        if (released(state, bodyId) || chargeInFlight(state, bodyId)
                 || cooldownRemaining(state, bodyId) > 0.001) return false;
         Base extractor = extractorFor(state, bodyId, playerId);
         return extractor != null && data(state).cooldownSecondsByExtractor.getOrDefault(extractor.id, 0.0) <= 0.001;
@@ -151,6 +153,7 @@ final class CelestialExtractionSystem {
         if (target == null || target.visualClass() == CelestialVisualClass.STAR) {
             return new FireResult(false, "Extraction charges can only target planets and moons.");
         }
+        reconcileExhaustedReleasedField(state, bodyId);
         if (released(state, bodyId)) {
             return new FireResult(false, target.name() + " still has an exposed extraction field. Deplete it before refiring.");
         }
@@ -486,6 +489,18 @@ final class CelestialExtractionSystem {
             node.respawnTimer = 0;
             RESOURCE_STATES.put(node, state);
         }
+    }
+
+    /**
+     * Recover if the final mining/depletion callback was missed or arrived against stale tactical
+     * state. Authoritative readiness/command checks must never leave an empty released field stuck
+     * forever just because one lifecycle notification was lost. Network replicas remain read-only.
+     */
+    private static void reconcileExhaustedReleasedField(WorldSystemState state, String bodyId) {
+        if (state == null || bodyId == null || bodyId.isBlank()) return;
+        ExtractionState extraction = data(state);
+        if (extraction.networkReplica || !extraction.releasedBodyIds.contains(bodyId)) return;
+        finishFieldIfExhausted(state, bodyId);
     }
 
     private static boolean finishFieldIfExhausted(WorldSystemState state, String bodyId) {
