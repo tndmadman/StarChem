@@ -15,6 +15,7 @@ final class CelestialExtractionValidator {
         depositsStayAbsentUntilChargeImpact();
         oneMasterExtractorCanFractureSlaveMoons();
         exhaustedFieldRequiresCooldownAndRefiresWithoutNodeChurn();
+        missedDepletionCallbackSelfHealsBeforeRefire();
         extractorCooldownPreventsPlanetMoonSpam();
         celestialOwnershipSurvivesSnapshotRoundTrip();
         extractionNetworkStateConvergesAcrossReconnect();
@@ -167,6 +168,47 @@ final class CelestialExtractionValidator {
             require(node != null && node.active && Math.abs(node.amount - node.maxAmount) < 0.001,
                     "refired rock must be active and restored to full amount");
         }
+    }
+
+    private static void missedDepletionCallbackSelfHealsBeforeRefire() {
+        WorldSystemState state = state("extract-missed-depletion", 9110L);
+        CelestialSystem.BodyView planet = planetWithMoon(state);
+        Base extractor = new Base("P1:MISSED-DEPLETION-EXTRACTOR", "P1",
+                CelestialExtractionSystem.EXTRACTOR_STATION_ID,
+                planet.x() + planet.radius() + 145, planet.y());
+        state.bases.put(extractor.id, extractor);
+        state.celestials.update(0);
+
+        require(CelestialExtractionSystem.fireCharge(state, planet.id(), "P1").fired(),
+                "missed-depletion fixture first charge must fire");
+        state.celestials.update(CelestialExtractionSystem.CHARGE_SECONDS + 0.05);
+        require(CelestialExtractionSystem.released(state, planet.id()),
+                "missed-depletion fixture field must be released before depletion");
+
+        CelestialBodyState body = CelestialGameplaySystem.bodyState(state, planet.id());
+        require(body != null && !body.resourceNodeIds.isEmpty(),
+                "missed-depletion fixture requires a fracture field");
+        for (int id : body.resourceNodeIds) {
+            ResourceNode node = resourceById(state, id);
+            require(node != null, "missed-depletion fracture node missing");
+            node.deplete();
+        }
+
+        // Deliberately skip onDepositDepleted(...) to model a delayed/lost final mining callback.
+        require(CelestialExtractionSystem.released(state, planet.id()),
+                "fixture must still be stale/released before readiness reconciliation");
+        require(!CelestialExtractionSystem.fireReady(state, planet.id(), "P1"),
+                "self-healed exhausted field must enter recycle cooldown before refiring");
+        require(!CelestialExtractionSystem.released(state, planet.id()),
+                "readiness must self-heal a fully exhausted stale released field");
+        require(CelestialExtractionSystem.cooldownRemaining(state, planet.id()) > 0,
+                "self-healing must start the body recycle cooldown");
+
+        state.celestials.update(CelestialExtractionSystem.REFIRE_COOLDOWN_SECONDS + 0.05);
+        require(CelestialExtractionSystem.fireReady(state, planet.id(), "P1"),
+                "existing anchored extractor must become fire-ready when recycle cooldown expires");
+        require(CelestialExtractionSystem.fireCharge(state, planet.id(), "P1").fired(),
+                "existing anchored extractor must refire after a self-healed depletion cycle");
     }
 
     private static void extractorCooldownPreventsPlanetMoonSpam() {
