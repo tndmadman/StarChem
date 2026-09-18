@@ -44,8 +44,8 @@ final class CelestialMoonInheritance {
 
         // GameplaySystem performs the broad proximity anchor pass first. This second authoritative
         // gate converts that broad pass into planetary sovereignty: the first accepted station on
-        // a planet reserves the entire planet/moon group, and only the claimant or an ALLIED owner
-        // may retain a new anchor after that point. Neutral/hostile owners are immediately rejected.
+        // a planet reserves the entire planet/moon group, and only that same owner may retain an
+        // anchor after that point. Stations owned by every other player are rejected.
         enforceAnchorExclusivity(state);
         reconcileClaimsAndInstallations(state);
 
@@ -105,7 +105,7 @@ final class CelestialMoonInheritance {
             String owner = reservations.getOrDefault(masterId, "");
             if (owner.isBlank()) continue;
             for (Base base : entry.getValue()) {
-                if (!friendly(owner, base.playerId)) clearAnchor(base);
+                if (!sameOwner(owner, base.playerId)) CelestialGameplaySystem.clearStationAnchor(base);
             }
         }
 
@@ -119,18 +119,8 @@ final class CelestialMoonInheritance {
         return false;
     }
 
-    private static void clearAnchor(Base base) {
-        if (base == null) return;
-        base.celestialAnchorBodyId = "";
-        base.celestialOrbitRadius = 0;
-        base.celestialOrbitSpeed = 0;
-    }
-
-    private static boolean friendly(String claimantId, String candidateId) {
-        if (claimantId == null || claimantId.isBlank() || candidateId == null || candidateId.isBlank()) return false;
-        if (claimantId.equals(candidateId)) return true;
-        World world = PlayerRegistry.activeWorld();
-        return world != null && DiplomacySystem.allied(world, claimantId, candidateId);
+    private static boolean sameOwner(String claimantId, String candidateId) {
+        return claimantId != null && !claimantId.isBlank() && claimantId.equals(candidateId);
     }
 
     private static void reconcileClaimsAndInstallations(WorldSystemState state) {

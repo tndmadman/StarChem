@@ -29,6 +29,7 @@
     "captureMinDistance": 500.0,
     "captureRadiusPadding": 420.0,
     "orbitPadding": 60.0,
+    "stationSeparationPadding": 24.0,
     "orbitSpeedBase": 0.010,
     "orbitSpeedReferenceRadius": 400.0,
     "orbitSpeedMinimumRadius": 200.0

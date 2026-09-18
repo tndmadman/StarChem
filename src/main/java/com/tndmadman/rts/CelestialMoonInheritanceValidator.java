@@ -3,7 +3,6 @@ package com.tndmadman.rts;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
-import java.util.Set;
 
 /** Regression coverage for planetary master/slave moon sovereignty and anchor access. */
 final class CelestialMoonInheritanceValidator {
@@ -13,7 +12,7 @@ final class CelestialMoonInheritanceValidator {
         System.setProperty("java.awt.headless", "true");
         planetClaimPropagatesToEveryMoon();
         hostileStationsCannotAnchorAfterClaimStarts();
-        alliedStationsCanSharePlanetaryAnchors();
+        alliedStationsCannotSharePlanetaryAnchors();
         objectiveHelpExplainsStationRequirements();
         System.out.println("Celestial moon inheritance validation passed.");
     }
@@ -113,11 +112,7 @@ final class CelestialMoonInheritanceValidator {
         }
     }
 
-    private static void alliedStationsCanSharePlanetaryAnchors() {
-        World diplomacyWorld = new World("Celestial Alliance Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
-        PlayerRegistry.activate(diplomacyWorld);
-        DiplomacySystem.setRelationship(diplomacyWorld, "P1", "P2", DiplomacySystem.Relationship.ALLIED);
-
+    private static void alliedStationsCannotSharePlanetaryAnchors() {
         WorldSystemState state = state("moon-allied-anchor", 8803L);
         CelestialSystem.BodyView planet = planetWithMoons(state);
         Base owner = new Base("P1:MASTER", "P1", "outpost", planet.x(), planet.y());
@@ -130,12 +125,12 @@ final class CelestialMoonInheritanceValidator {
         state.celestials.update(0);
 
         CelestialBodyState master = CelestialGameplaySystem.bodyState(state, planet.id());
-        require(planet.id().equals(ally.celestialAnchorBodyId),
-                "allied station must be allowed to share the planetary anchor");
+        require(ally.celestialAnchorBodyId == null || ally.celestialAnchorBodyId.isBlank(),
+                "a different player's station must not share a claimed planetary anchor");
         require(master != null && !master.contested && "P1".equals(master.claimantId),
-                "allied anchor must not contest or steal the existing planetary claim");
-        require(master.installations.contains(CelestialInstallationType.SENSOR_ARRAY),
-                "allied anchored station must participate in friendly planetary installations");
+                "rejected allied anchor must not contest or steal the existing planetary claim");
+        require(!master.installations.contains(CelestialInstallationType.SENSOR_ARRAY),
+                "rejected allied station must not participate in the owner's planetary installations");
     }
 
     private static void objectiveHelpExplainsStationRequirements() {
@@ -151,10 +146,10 @@ final class CelestialMoonInheritanceValidator {
 
         require(scan.contains("Station needed: none") && scan.contains("Sensor Array"),
                 "SCAN help must explain that no specific station is required");
-        require(claim.contains("any friendly orbital station") && claim.contains("hostile and neutral"),
-                "CLAIM help must explain friendly-anchor ownership lock");
-        require(hold.contains("friendly orbital station") && hold.contains("120"),
-                "HOLD help must state the station and hold-duration requirement");
+        require(claim.contains("orbital station you own") && claim.contains("every other player"),
+                "CLAIM help must explain same-owner anchor exclusivity");
+        require(hold.contains("your orbital stations") && hold.contains("120"),
+                "HOLD help must state the owner station and hold-duration requirement");
         require(extract.contains("Planetary Extractor") && extract.contains("fracture charge") && extract.contains("500"),
                 "EXTRACT help must explain the extractor, fracture charge, and mining target");
         require(moonClaim.contains(planet.name()) && moonClaim.contains("no separate moon claim station"),

@@ -137,6 +137,7 @@ final class CelestialGameplayConfig {
                     positive(a, "captureMinDistance"),
                     nonNegative(a, "captureRadiusPadding"),
                     nonNegative(a, "orbitPadding"),
+                    nonNegative(a, "stationSeparationPadding"),
                     nonNegative(a, "orbitSpeedBase"),
                     positive(a, "orbitSpeedReferenceRadius"),
                     positive(a, "orbitSpeedMinimumRadius"));
@@ -322,6 +323,7 @@ final class CelestialGameplayConfig {
             double captureMinDistance,
             double captureRadiusPadding,
             double orbitPadding,
+            double stationSeparationPadding,
             double orbitSpeedBase,
             double orbitSpeedReferenceRadius,
             double orbitSpeedMinimumRadius) { }
