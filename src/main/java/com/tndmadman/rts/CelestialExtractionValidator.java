@@ -316,15 +316,21 @@ final class CelestialExtractionValidator {
         CelestialSystem.BodyView planet = planetWithMoon(system);
         CelestialSystem.BodyView moon = firstMoonOf(system, planet.id());
         require(moon != null, "audio command fixture requires a moon");
+        system.bases.clear();
         Base extractor = new Base("P1:AUDIO-EXTRACTOR", "P1", CelestialExtractionSystem.EXTRACTOR_STATION_ID,
                 planet.x() + planet.radius() + 145, planet.y());
+        extractor.celestialAnchorBodyId = planet.id();
+        extractor.celestialOrbitRadius = planet.radius() + 145;
+        extractor.celestialOrbitAngle = 0;
+        extractor.celestialOrbitSpeed = 0;
         system.bases.put(extractor.id, extractor);
         system.celestials.update(0);
 
         AudioEventCenter.drain(world, "P1", system.id);
         CelestialExtractionSystem.FireResult result =
                 CelestialExtractionCommand.apply(world, "P1", system.id, moon.id());
-        require(result.fired(), "authoritative command path must fire at a slave moon from the master extractor");
+        require(result.fired(), "authoritative command path must fire at a slave moon from the master extractor: "
+                + result.message());
 
         List<AudioEvent> launch = AudioEventCenter.drain(world, "P1", system.id);
         require(countCue(launch, SoundCue.EXTRACTION_CHARGE_LAUNCH) == 1,
