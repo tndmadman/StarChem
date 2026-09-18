@@ -27,5 +27,6 @@ final class ResourceOrbitSync {
         node.amount = state.amount();
         node.active = state.active();
         node.respawnTimer = state.respawnTimer();
+        node.celestialAnchorBodyId = state.celestialAnchorBodyId();
     }
 }
