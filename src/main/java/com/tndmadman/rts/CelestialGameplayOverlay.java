@@ -496,27 +496,24 @@ final class CelestialGameplayOverlay {
         private void locateNextDeposit(World world, GamePanel host, WorldSystemState system,
                                        String bodyId, IntelView model) {
             CelestialBodyState body = CelestialGameplaySystem.bodyState(system, bodyId);
-            if (body == null || body.resourceNodeIds.isEmpty()) {
+            if (body == null) return;
+            int count = CelestialExtractionSystem.activeFragmentCount(system, bodyId);
+            if (count <= 0) {
                 world.status = "Fracture complete, but no physical deposits are currently available for " + model.name() + ".";
                 return;
             }
-            List<ResourceNode> deposits = new ArrayList<>();
-            for (ResourceNode node : system.resources) {
-                if (node != null && node.active && node.amount > 0.05
-                        && bodyId.equals(node.celestialAnchorBodyId)) deposits.add(node);
-            }
-            if (deposits.isEmpty()) {
+            int index = Math.floorMod(depositCycle, count);
+            ResourceNode node = CelestialExtractionSystem.locatableFragment(system, bodyId, depositCycle);
+            if (node == null) {
                 world.status = "Fracture complete, but no physical deposits are currently available for " + model.name() + ".";
                 return;
             }
-            int index = Math.floorMod(depositCycle, deposits.size());
-            ResourceNode node = deposits.get(index);
-            depositCycle = (index + 1) % deposits.size();
+            depositCycle = (index + 1) % count;
             world.selectedResourceId = node.id;
             GameCamera camera = GameCamera.forWorld(world);
             if (camera != null) camera.centerAt(node.x, node.y, world, host.getWidth(), host.getHeight());
             long amount = Math.round(Math.max(0.0, node.amount));
-            world.status = "Located " + node.material.label + " deposit " + (index + 1) + "/" + deposits.size()
+            world.status = "Located " + node.material.label + " deposit " + (index + 1) + "/" + count
                     + " orbiting " + model.name() + " | " + amount + " units remaining"
                     + " | Select a mining ship and right-click this deposit to harvest.";
             host.requestFocusInWindow();
