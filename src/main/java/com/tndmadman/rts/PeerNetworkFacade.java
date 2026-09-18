@@ -492,6 +492,19 @@ final class PeerNetwork implements CommandSink {
     @Override public void build(String playerId, String baseId, String shipTypeId) { if (server != null) serverCommand(() -> { if (CommandAuth.base(server.world, playerId, baseId)) server.world.buildShip(baseId, shipTypeId); }, playerId); else client.build(playerId, baseId, shipTypeId); }
     @Override public void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { if (server != null) serverCommand(() -> { if (CommandAuth.pack(server.world, playerId, mode, baseOrUnitId)) AUnitPack.apply(server.world, mode, baseOrUnitId, packageType); }, playerId); else client.basePackage(playerId, mode, baseOrUnitId, packageType); }
     @Override public void production(String playerId, String action, String baseId, String value, String extra) { if (server != null) serverCommand(() -> { if (CommandAuth.base(server.world, playerId, baseId)) ProductionCommands.apply(server.world, playerId, action, baseId, value, extra); }, playerId); else client.production(playerId, action, baseId, value, extra); }
+    CelestialExtractionSystem.FireResult extraction(String playerId, String systemId, String bodyId) {
+        if (server != null) {
+            CelestialExtractionSystem.FireResult result = CelestialExtractionCommand.apply(server.world, playerId, systemId, bodyId);
+            if (result.fired()) server.broadcastNow();
+            return result;
+        }
+        if (client != null) {
+            if (!client.readyState()) return new CelestialExtractionSystem.FireResult(false, "Connection is not ready for extraction commands.");
+            client.extraction(playerId, systemId, bodyId);
+            return new CelestialExtractionSystem.FireResult(false, "Fracture request submitted to the authoritative server.");
+        }
+        return new CelestialExtractionSystem.FireResult(false, "Extraction network is unavailable.");
+    }
     void fleet(String packet) {
         if (server != null) {
             FleetWire.Outcome outcome = FleetWire.applyLocal(server.world, localPlayerId(), packet);
