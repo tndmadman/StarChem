@@ -58,6 +58,7 @@ final class CelestialGameplayOverlay {
     private static final Map<World, IntelPanel> PANELS = Collections.synchronizedMap(new WeakHashMap<>());
     private static volatile boolean listenerInstalled;
     private static Field gamePanelWorldField;
+    private static Field gamePanelNetworkField;
 
     private CelestialGameplayOverlay() { }
 
@@ -207,6 +208,10 @@ final class CelestialGameplayOverlay {
         boolean released = CelestialExtractionSystem.released(system, bodyId);
         boolean chargeInFlight = CelestialExtractionSystem.chargeInFlight(system, bodyId);
         boolean extractorReady = CelestialExtractionSystem.extractorReady(system, bodyId, playerId);
+        int activeFragments = CelestialExtractionSystem.activeFragmentCount(system, bodyId);
+        double bodyCooldown = CelestialExtractionSystem.cooldownRemaining(system, bodyId);
+        double extractorCooldown = CelestialExtractionSystem.extractorCooldownRemaining(system, bodyId, playerId);
+        boolean fireReady = CelestialExtractionSystem.fireReady(system, bodyId, playerId);
 
         return new IntelView(
                 state.profile.bodyName(), bodyId,
@@ -214,7 +219,7 @@ final class CelestialGameplayOverlay {
                 intel, scanSeconds, controlText, controlColor, state.contested,
                 state.profile.installationSlots(), installations, deposits,
                 List.copyOf(state.profile.traits()), List.copyOf(state.profile.hazards()), bonuses, objectives,
-                released, chargeInFlight, extractorReady,
+                released, chargeInFlight, extractorReady, fireReady, activeFragments, bodyCooldown, extractorCooldown,
                 CelestialExtractionSystem.chargeProgress(system, bodyId), masterName);
     }
 
@@ -227,11 +232,18 @@ final class CelestialGameplayOverlay {
                 : "claimed by " + PlayerRegistry.name(state.claimantId);
         String extraction = "";
         if (intel.ordinal() >= CelestialIntelLevel.SCANNED.ordinal()) {
-            if (CelestialExtractionSystem.released(system, bodyId)) {
-                extraction = " | exposed deposits: " + state.resourceNodeIds.size() + " (use LOCATE)";
+            int active = CelestialExtractionSystem.activeFragmentCount(system, bodyId);
+            double bodyCooldown = CelestialExtractionSystem.cooldownRemaining(system, bodyId);
+            double extractorCooldown = CelestialExtractionSystem.extractorCooldownRemaining(system, bodyId, playerId);
+            if (CelestialExtractionSystem.released(system, bodyId) && active > 0) {
+                extraction = " | exposed deposits: " + active + " (use LOCATE)";
             } else if (CelestialExtractionSystem.chargeInFlight(system, bodyId)) {
                 extraction = " | fracture charge in flight";
-            } else if (CelestialExtractionSystem.extractorReady(system, bodyId, playerId)) {
+            } else if (bodyCooldown >= extractorCooldown && bodyCooldown > 0.001) {
+                extraction = " | body recycling " + formatCooldown(bodyCooldown);
+            } else if (extractorCooldown > 0.001) {
+                extraction = " | extractor cooldown " + formatCooldown(extractorCooldown);
+            } else if (CelestialExtractionSystem.fireReady(system, bodyId, playerId)) {
                 extraction = " | deposits surveyed — fire fracture charge";
             } else {
                 extraction = " | deposits surveyed — Planetary Extractor required";
@@ -274,6 +286,26 @@ final class CelestialGameplayOverlay {
         } catch (ReflectiveOperationException | RuntimeException ignored) {
             return null;
         }
+    }
+
+    private static PeerNetwork networkFrom(GamePanel panel) {
+        try {
+            Field field = gamePanelNetworkField;
+            if (field == null) {
+                field = GamePanel.class.getDeclaredField("network");
+                field.setAccessible(true);
+                gamePanelNetworkField = field;
+            }
+            Object value = field.get(panel);
+            return value instanceof PeerNetwork network ? network : null;
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private static String formatCooldown(double seconds) {
+        int total = Math.max(0, (int)Math.ceil(seconds));
+        return (total / 60) + ":" + String.format(Locale.ROOT, "%02d", total % 60);
     }
 
     private static String title(String raw) {
@@ -320,7 +352,8 @@ final class CelestialGameplayOverlay {
             String control, Color controlColor, boolean contested,
             int slots, List<String> installations, List<String> deposits,
             List<String> traits, List<String> hazards, List<BonusView> bonuses, List<ObjectiveView> objectives,
-            boolean released, boolean chargeInFlight, boolean extractorReady,
+            boolean released, boolean chargeInFlight, boolean extractorReady, boolean fireReady,
+            int activeFragments, double bodyCooldown, double extractorCooldown,
             double chargeProgress, String masterName) { }
 
     private static final class IntelPanel extends javax.swing.JComponent {
@@ -425,16 +458,39 @@ final class CelestialGameplayOverlay {
             String bodyId = selectedBodyId(world);
             if (system == null || bodyId.isBlank()) return;
 
-            if (!CelestialExtractionSystem.released(system, bodyId)) {
-                CelestialExtractionSystem.FireResult result = CelestialExtractionSystem.fireCharge(
-                        system, bodyId, localPlayerId(world));
-                world.status = result.message();
-                refresh(world);
-                host.repaint();
+            if (CelestialExtractionSystem.released(system, bodyId)
+                    && CelestialExtractionSystem.activeFragmentCount(system, bodyId) > 0) {
+                locateNextDeposit(world, host, system, bodyId, model);
+                return;
+            }
+
+            String playerId = localPlayerId(world);
+            if (!CelestialExtractionSystem.fireReady(system, bodyId, playerId)) {
+                if (CelestialExtractionSystem.chargeInFlight(system, bodyId)) {
+                    world.status = "Fracture charge already in flight.";
+                } else {
+                    double bodyCooldown = CelestialExtractionSystem.cooldownRemaining(system, bodyId);
+                    double extractorCooldown = CelestialExtractionSystem.extractorCooldownRemaining(system, bodyId, playerId);
+                    if (bodyCooldown >= extractorCooldown && bodyCooldown > 0.001) {
+                        world.status = "Body recycling " + formatCooldown(bodyCooldown) + " before another fracture charge.";
+                    } else if (extractorCooldown > 0.001) {
+                        world.status = "Planetary Extractor cooldown " + formatCooldown(extractorCooldown) + ".";
+                    } else {
+                        world.status = "Deploy and anchor a Planetary Extractor to " + model.masterName() + " before firing.";
+                    }
+                }
                 repaint();
                 return;
             }
-            locateNextDeposit(world, host, system, bodyId, model);
+
+            PeerNetwork network = networkFrom(host);
+            CelestialExtractionSystem.FireResult result = network == null
+                    ? CelestialExtractionCommand.apply(world, playerId, world.activeSystemId(), bodyId)
+                    : network.extraction(playerId, world.activeSystemId(), bodyId);
+            world.status = result.message();
+            refresh(world);
+            host.repaint();
+            repaint();
         }
 
         private void locateNextDeposit(World world, GamePanel host, WorldSystemState system,
@@ -447,13 +503,8 @@ final class CelestialGameplayOverlay {
             List<ResourceNode> deposits = new ArrayList<>();
             for (int id : body.resourceNodeIds) {
                 ResourceNode node = resourceById(system, id);
-                if (node != null && node.active) deposits.add(node);
-            }
-            if (deposits.isEmpty()) {
-                for (int id : body.resourceNodeIds) {
-                    ResourceNode node = resourceById(system, id);
-                    if (node != null) deposits.add(node);
-                }
+                if (node != null && node.active && node.amount > 0.05
+                        && bodyId.equals(node.celestialAnchorBodyId)) deposits.add(node);
             }
             if (deposits.isEmpty()) {
                 world.status = "Fracture complete, but no physical deposits are currently available for " + model.name() + ".";
@@ -709,13 +760,19 @@ final class CelestialGameplayOverlay {
             }
             String action;
             Color actionColor;
-            if (model.released()) {
+            if (model.released() && model.activeFragments() > 0) {
                 action = "LOCATE ↗";
                 actionColor = GOOD;
             } else if (model.chargeInFlight()) {
                 action = "IN FLIGHT";
                 actionColor = WARN;
-            } else if (model.extractorReady()) {
+            } else if (model.bodyCooldown() >= model.extractorCooldown() && model.bodyCooldown() > 0.001) {
+                action = "BODY RECYCLING " + formatCooldown(model.bodyCooldown());
+                actionColor = WARN;
+            } else if (model.extractorCooldown() > 0.001) {
+                action = "EXTRACTOR COOLDOWN " + formatCooldown(model.extractorCooldown());
+                actionColor = WARN;
+            } else if (model.fireReady()) {
                 action = "FIRE CHARGE";
                 actionColor = CYAN;
             } else {
@@ -745,14 +802,20 @@ final class CelestialGameplayOverlay {
             }
 
             g.setFont(g.getFont().deriveFont(Font.PLAIN, 8f));
-            if (model.released()) {
+            if (model.released() && model.activeFragments() > 0) {
                 g.setColor(depositHover ? GOOD : MUTED);
                 g.drawString("Click to locate exposed rock", x + 9, y + 76);
             } else if (model.chargeInFlight()) {
                 g.setColor(WARN);
                 g.drawString("Fracturing " + Math.round(model.chargeProgress() * 100) + "%", x + 9, y + 69);
                 progress(g, x + 9, y + 74, w - 18, 4, model.chargeProgress(), WARN);
-            } else if (model.extractorReady()) {
+            } else if (model.bodyCooldown() >= model.extractorCooldown() && model.bodyCooldown() > 0.001) {
+                g.setColor(WARN);
+                g.drawString("Body field recycling " + formatCooldown(model.bodyCooldown()), x + 9, y + 76);
+            } else if (model.extractorCooldown() > 0.001) {
+                g.setColor(WARN);
+                g.drawString("Extractor firing systems " + formatCooldown(model.extractorCooldown()), x + 9, y + 76);
+            } else if (model.fireReady()) {
                 g.setColor(depositHover ? CYAN : MUTED);
                 g.drawString("Click to fire fracture charge", x + 9, y + 76);
             } else {
