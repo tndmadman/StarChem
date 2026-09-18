@@ -104,9 +104,11 @@ final class CelestialGameplayPersistence {
 
         Map<String,Object> baseAnchors = ServerSaveStore.object(saved.get(BASE_ANCHORS));
         for (Base base : state.bases.values()) {
+            CelestialGameplaySystem.clearStationAnchor(base);
             Map<String,Object> row = ServerSaveStore.object(baseAnchors.get(base.id));
             String bodyId = ServerSaveStore.asString(row.get("bodyId"), "");
-            if (bodyId.isBlank() || state.celestials.bodyView(bodyId) == null) continue;
+            CelestialSystem.BodyView body = bodyId.isBlank() ? null : state.celestials.bodyView(bodyId);
+            if (!CelestialGameplaySystem.isStationAnchorBody(body)) continue;
             base.celestialAnchorBodyId = bodyId;
             base.celestialOrbitRadius = Math.max(0, ServerSaveStore.asDouble(row.get("radius"), base.celestialOrbitRadius));
             base.celestialOrbitAngle = ServerSaveStore.asDouble(row.get("angle"), base.celestialOrbitAngle);
