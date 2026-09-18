@@ -101,9 +101,26 @@ final class CelestialExtractionSystem {
         if (state == null || bodyId == null || bodyId.isBlank()) return 0;
         int count = 0;
         for (ResourceNode node : state.resources) {
-            if (node != null && node.active && node.amount > 0.05 && bodyId.equals(node.celestialAnchorBodyId)) count++;
+            if (locatable(node, bodyId)) count++;
         }
         return count;
+    }
+
+    static ResourceNode locatableFragment(WorldSystemState state, String bodyId, int cycle) {
+        int count = activeFragmentCount(state, bodyId);
+        if (count <= 0) return null;
+        int wanted = Math.floorMod(cycle, count);
+        int seen = 0;
+        for (ResourceNode node : state.resources) {
+            if (!locatable(node, bodyId)) continue;
+            if (seen++ == wanted) return node;
+        }
+        return null;
+    }
+
+    private static boolean locatable(ResourceNode node, String bodyId) {
+        return node != null && node.active && node.amount > 0.05
+                && bodyId != null && bodyId.equals(node.celestialAnchorBodyId);
     }
 
     static boolean extractorReady(WorldSystemState state, String bodyId, String playerId) {
@@ -503,7 +520,8 @@ final class CelestialExtractionSystem {
             unit.automationResourceId = -1;
             if (unit.task == UnitTask.AUTO_HARVEST) unit.task = UnitTask.IDLE;
         }
-        World world = PlayerRegistry.activeWorld();
+        World world = WORLDS.get(state);
+        if (world == null) world = PlayerRegistry.activeWorld();
         if (world != null && state.id.equals(world.activeSystemId())
                 && body.resourceNodeIds.contains(world.selectedResourceId)) world.selectedResourceId = -1;
     }
