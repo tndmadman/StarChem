@@ -14,13 +14,18 @@ final class NetBaseSync {
         CargoCodec.readInto(state.cargo(), base.inventory);
         StrictProductionQueueCodec.readInto(state.productionQueue(), base, systemId);
         base.logisticsStatus = boundedLogisticsStatus(state.logisticsStatus());
+        base.celestialAnchorBodyId = state.celestialAnchorBodyId();
+        base.celestialOrbitRadius = state.celestialOrbitRadius();
+        base.celestialOrbitAngle = state.celestialOrbitAngle();
+        base.celestialOrbitSpeed = state.celestialOrbitSpeed();
         return base;
     }
 
     static BaseState toState(Base base) {
         return new BaseState(base.id, base.playerId, base.typeId, base.x, base.y, base.hp, base.shield,
                 CargoCodec.write(base.inventory), ProductionQueueCodec.write(base.productionQueue),
-                boundedLogisticsStatus(base.logisticsStatus));
+                boundedLogisticsStatus(base.logisticsStatus), base.celestialAnchorBodyId,
+                base.celestialOrbitRadius, base.celestialOrbitAngle, base.celestialOrbitSpeed);
     }
 
     private static String boundedLogisticsStatus(String value) {
