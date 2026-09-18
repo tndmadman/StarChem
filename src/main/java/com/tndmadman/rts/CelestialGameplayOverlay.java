@@ -501,8 +501,7 @@ final class CelestialGameplayOverlay {
                 return;
             }
             List<ResourceNode> deposits = new ArrayList<>();
-            for (int id : body.resourceNodeIds) {
-                ResourceNode node = resourceById(system, id);
+            for (ResourceNode node : system.resources) {
                 if (node != null && node.active && node.amount > 0.05
                         && bodyId.equals(node.celestialAnchorBodyId)) deposits.add(node);
             }
