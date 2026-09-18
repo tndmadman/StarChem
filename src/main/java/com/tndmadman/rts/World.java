@@ -120,6 +120,11 @@ final class World {
     String playerStartRegionSystemId(String playerId) { return galaxy.playerStartRegionSystemId(playerId); }
     void activateSystem(String systemId) { celestials = galaxy.activate(this, systemId); systemTime = galaxy.activeSystemTime(); }
     void saveActiveSystem() { galaxy.saveActive(this); }
+    /** Persist newly created live assets, then immediately resolve planet/station anchoring. */
+    void refreshActiveCelestialGameplay() {
+        saveActiveSystem();
+        if (celestials != null) celestials.update(0);
+    }
     List<WorldSystemState> policySystemStates() { return galaxy.systemStates(this); }
     Map<String,Object> captureServerSaveGalaxy() { return galaxy.captureSave(this); }
     void restoreServerSaveGalaxy(Map<String,Object> save) { proceduralInactiveScheduler.reset(); celestials = galaxy.restoreSave(this, save); systemTime = galaxy.activeSystemTime(); selectedResourceId = -1; }
