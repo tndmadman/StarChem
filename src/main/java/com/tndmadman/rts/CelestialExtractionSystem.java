@@ -5,7 +5,9 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RadialGradientPaint;
 import java.awt.geom.Point2D;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -34,9 +36,12 @@ final class CelestialExtractionSystem {
     static final String EXTRACTOR_STATION_ID = EXTRACTION.stationTypeId();
     static final int FRAGMENTS_PER_DEPOSIT = EXTRACTION.fragmentsPerDeposit();
     static final double CHARGE_SECONDS = EXTRACTION.chargeSeconds();
+    static final double EXTRACTOR_FIRE_COOLDOWN_SECONDS = EXTRACTION.extractorFireCooldownSeconds();
     static final double REFIRE_COOLDOWN_SECONDS = EXTRACTION.refireCooldownSeconds();
 
     private static final double IMPACT_EFFECT_SECONDS = EXTRACTION.impactEffectSeconds();
+    private static final int MAX_WIRE_ROWS = 512;
+    private static final int MAX_WIRE_CHARS = 64 * 1024;
     private static final int CELESTIAL_FRAGMENT_ID_BASE = 1 << 30;
     private static final long CELESTIAL_FRAGMENT_ID_SPAN = (long)Integer.MAX_VALUE - CELESTIAL_FRAGMENT_ID_BASE;
     private static final double TAU = Math.PI * 2.0;
@@ -80,8 +85,33 @@ final class CelestialExtractionSystem {
         return Math.max(0.0, data(state).cooldownSecondsByBody.getOrDefault(bodyId, 0.0));
     }
 
+    static double extractorCooldownRemaining(WorldSystemState state, String bodyId, String playerId) {
+        Base extractor = extractorFor(state, bodyId, playerId);
+        if (extractor == null) return 0.0;
+        return Math.max(0.0, data(state).cooldownSecondsByExtractor.getOrDefault(extractor.id, 0.0));
+    }
+
+    static int activeFragmentCount(WorldSystemState state, String bodyId) {
+        if (state == null || bodyId == null || bodyId.isBlank()) return 0;
+        CelestialBodyState body = CelestialGameplaySystem.bodyState(state, bodyId);
+        if (body == null) return 0;
+        int count = 0;
+        for (int id : body.resourceNodeIds) {
+            ResourceNode node = resourceById(state, id);
+            if (node != null && node.active && node.amount > 0.05 && bodyId.equals(node.celestialAnchorBodyId)) count++;
+        }
+        return count;
+    }
+
     static boolean extractorReady(WorldSystemState state, String bodyId, String playerId) {
         return extractorFor(state, bodyId, playerId) != null;
+    }
+
+    static boolean fireReady(WorldSystemState state, String bodyId, String playerId) {
+        if (state == null || released(state, bodyId) || chargeInFlight(state, bodyId)
+                || cooldownRemaining(state, bodyId) > 0.001) return false;
+        Base extractor = extractorFor(state, bodyId, playerId);
+        return extractor != null && data(state).cooldownSecondsByExtractor.getOrDefault(extractor.id, 0.0) <= 0.001;
     }
 
     /** Player-facing and simulation entry point used by the integrated celestial intel control. */
@@ -123,8 +153,16 @@ final class CelestialExtractionSystem {
         }
 
         ExtractionState extraction = data(state);
+        double extractorCooldown = Math.max(0.0,
+                extraction.cooldownSecondsByExtractor.getOrDefault(extractor.id, 0.0));
+        if (extractorCooldown > 0.001) {
+            return new FireResult(false, extractor.type().name + " firing systems cooling for "
+                    + (int)Math.ceil(extractorCooldown) + "s.");
+        }
+
         extraction.sealedBodyIds.add(bodyId);
         extraction.charges.add(new Charge(bodyId, extractor.id, playerId == null ? "" : playerId));
+        extraction.cooldownSecondsByExtractor.put(extractor.id, EXTRACTOR_FIRE_COOLDOWN_SECONDS);
         return new FireResult(true, "Fracture charge fired from " + extractor.type().name + " at " + target.name()
                 + ". Planetary fracture sequence: " + (int)CHARGE_SECONDS + " seconds.");
     }
@@ -142,6 +180,10 @@ final class CelestialExtractionSystem {
         WorldSystemState state = STATES.get(celestials);
         if (state == null) return;
         ExtractionState extraction = data(state);
+        if (extraction.networkReplica) {
+            advanceReplicaVisuals(extraction, dt);
+            return;
+        }
 
         if (normalizeExtractorAnchors(state)) CelestialMoonInheritance.apply(state);
 
@@ -170,6 +212,8 @@ final class CelestialExtractionSystem {
                     activateBody(state, charge.bodyId);
                     extraction.impactBodyId = charge.bodyId;
                     extraction.impactAge = 0.0;
+                    World world = PlayerRegistry.activeWorld();
+                    if (world != null) SystemAudio.play(world, state.id, SoundCue.EXTRACTION_FRACTURE_IMPACT);
                     it.remove();
                 }
             }
@@ -360,12 +404,26 @@ final class CelestialExtractionSystem {
     }
 
     private static void tickCooldowns(ExtractionState extraction, double dt) {
-        Iterator<Map.Entry<String,Double>> it = extraction.cooldownSecondsByBody.entrySet().iterator();
+        tickCooldownMap(extraction.cooldownSecondsByBody, dt);
+        tickCooldownMap(extraction.cooldownSecondsByExtractor, dt);
+    }
+
+    private static void tickCooldownMap(Map<String,Double> cooldowns, double dt) {
+        Iterator<Map.Entry<String,Double>> it = cooldowns.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<String,Double> entry = it.next();
             double remaining = entry.getValue() - dt;
             if (remaining <= 0.001) it.remove();
             else entry.setValue(remaining);
+        }
+    }
+
+    private static void advanceReplicaVisuals(ExtractionState extraction, double dt) {
+        if (!Double.isFinite(dt) || dt <= 0) return;
+        tickCooldowns(extraction, dt);
+        for (Charge charge : extraction.charges) charge.elapsed = Math.min(CHARGE_SECONDS, charge.elapsed + dt);
+        if (extraction.impactAge < IMPACT_EFFECT_SECONDS) {
+            extraction.impactAge = Math.min(IMPACT_EFFECT_SECONDS, extraction.impactAge + dt);
         }
     }
 
@@ -427,8 +485,21 @@ final class CelestialExtractionSystem {
         extraction.releasedBodyIds.remove(bodyId);
         extraction.sealedBodyIds.remove(bodyId);
         sealBody(state, body, extraction);
+        clearFieldTargets(state, body);
         extraction.cooldownSecondsByBody.put(bodyId, REFIRE_COOLDOWN_SECONDS);
         return true;
+    }
+
+    private static void clearFieldTargets(WorldSystemState state, CelestialBodyState body) {
+        if (state == null || body == null) return;
+        for (Unit unit : state.units.values()) {
+            if (unit == null || !body.resourceNodeIds.contains(unit.automationResourceId)) continue;
+            unit.automationResourceId = -1;
+            if (unit.task == UnitTask.AUTO_HARVEST) unit.task = UnitTask.IDLE;
+        }
+        World world = PlayerRegistry.activeWorld();
+        if (world != null && state.id.equals(world.activeSystemId())
+                && body.resourceNodeIds.contains(world.selectedResourceId)) world.selectedResourceId = -1;
     }
 
     static void draw(CelestialSystem celestials, Graphics2D g) {
@@ -516,6 +587,25 @@ final class CelestialExtractionSystem {
             });
             if (!cooldowns.isEmpty()) out.put("cooldowns", cooldowns);
         }
+        if (!extraction.cooldownSecondsByExtractor.isEmpty()) {
+            Map<String,Object> cooldowns = new LinkedHashMap<>();
+            extraction.cooldownSecondsByExtractor.forEach((baseId, seconds) -> {
+                if (baseId != null && !baseId.isBlank() && seconds != null && seconds > 0) cooldowns.put(baseId, seconds);
+            });
+            if (!cooldowns.isEmpty()) out.put("extractorCooldowns", cooldowns);
+        }
+        if (!extraction.charges.isEmpty()) {
+            List<Object> charges = new ArrayList<>();
+            for (Charge charge : extraction.charges) {
+                Map<String,Object> row = new LinkedHashMap<>();
+                row.put("bodyId", charge.bodyId);
+                row.put("extractorBaseId", charge.extractorBaseId);
+                row.put("playerId", charge.playerId);
+                row.put("elapsed", charge.elapsed);
+                charges.add(row);
+            }
+            out.put("charges", charges);
+        }
         return out;
     }
 
@@ -526,10 +616,12 @@ final class CelestialExtractionSystem {
         extraction.sealedBodyIds.clear();
         extraction.fragmentedBodyIds.clear();
         extraction.cooldownSecondsByBody.clear();
+        extraction.cooldownSecondsByExtractor.clear();
         extraction.nodeIndex.clear();
         extraction.charges.clear();
         extraction.impactBodyId = "";
         extraction.impactAge = IMPACT_EFFECT_SECONDS;
+        extraction.networkReplica = false;
         Map<String,Object> saved = ServerSaveStore.object(raw);
         for (Object value : ServerSaveStore.list(saved.get("releasedBodyIds"))) {
             String id = ServerSaveStore.asString(value, "");
@@ -541,6 +633,24 @@ final class CelestialExtractionSystem {
             if (bodyId != null && !bodyId.isBlank() && seconds > 0 && state.celestials.bodyView(bodyId) != null) {
                 extraction.cooldownSecondsByBody.put(bodyId, Math.min(REFIRE_COOLDOWN_SECONDS, seconds));
             }
+        }
+        for (Map.Entry<String,Object> entry : ServerSaveStore.object(saved.get("extractorCooldowns")).entrySet()) {
+            String baseId = entry.getKey();
+            double seconds = ServerSaveStore.asDouble(entry.getValue(), 0);
+            if (baseId != null && !baseId.isBlank() && seconds > 0) {
+                extraction.cooldownSecondsByExtractor.put(baseId, Math.min(EXTRACTOR_FIRE_COOLDOWN_SECONDS, seconds));
+            }
+        }
+        for (Object rawCharge : ServerSaveStore.list(saved.get("charges"))) {
+            Map<String,Object> row = ServerSaveStore.object(rawCharge);
+            String bodyId = ServerSaveStore.asString(row.get("bodyId"), "");
+            String baseId = ServerSaveStore.asString(row.get("extractorBaseId"), "");
+            String playerId = ServerSaveStore.asString(row.get("playerId"), "");
+            double elapsed = ServerSaveStore.asDouble(row.get("elapsed"), 0);
+            if (bodyId.isBlank() || baseId.isBlank() || state.celestials.bodyView(bodyId) == null) continue;
+            Charge charge = new Charge(bodyId, baseId, playerId);
+            charge.elapsed = Math.max(0, Math.min(CHARGE_SECONDS, elapsed));
+            extraction.charges.add(charge);
         }
     }
 
@@ -641,10 +751,12 @@ final class CelestialExtractionSystem {
         final Set<String> sealedBodyIds = new LinkedHashSet<>();
         final Set<String> fragmentedBodyIds = new LinkedHashSet<>();
         final Map<String,Double> cooldownSecondsByBody = new LinkedHashMap<>();
+        final Map<String,Double> cooldownSecondsByExtractor = new LinkedHashMap<>();
         final Map<Integer,ResourceNode> nodeIndex = new LinkedHashMap<>();
         final List<Charge> charges = new ArrayList<>();
         String impactBodyId = "";
         double impactAge = IMPACT_EFFECT_SECONDS;
+        boolean networkReplica;
     }
 
     private static final class Charge {
