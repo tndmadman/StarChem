@@ -192,12 +192,24 @@ final class CelestialExtractionValidator {
         World host = new World("Extraction Snapshot Host", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
         PlayerRegistry.activate(host);
 
+        WorldSystemState hostState = activeState(host);
+        require(hostState != null, "snapshot host active system missing");
+        CelestialSystem.BodyView body = planetWithMoon(hostState);
+
         int id = 1_700_000_123;
         ResourceNode source = new ResourceNode(id, "Celestial snapshot shard", NodeKind.SILICATE_ROCK,
                 Material.IRON, 1200, 1300, 500, 8, 18);
-        source.celestialAnchorBodyId = "snapshot-celestial-body";
-        source.orbit(1000, 1000, 240, 0.35, 0.02);
+        source.celestialAnchorBodyId = body.id();
+        source.orbit(body.x(), body.y(), body.radius() + 180, 0.35, 0.02);
         host.resources.add(source);
+
+        Base sourceExtractor = new Base("P1:SNAPSHOT-EXTRACTOR", "P1",
+                CelestialExtractionSystem.EXTRACTOR_STATION_ID, body.x() + body.radius() + 145, body.y());
+        sourceExtractor.celestialAnchorBodyId = body.id();
+        sourceExtractor.celestialOrbitRadius = body.radius() + 145;
+        sourceExtractor.celestialOrbitAngle = 0.25;
+        sourceExtractor.celestialOrbitSpeed = 0.004;
+        host.bases.put(sourceExtractor.id, sourceExtractor);
 
         ResourceSyncMode.fullForNextSnapshot();
         Snapshot encodedSource = WorldNetAccess.snapshot(host, 101);
@@ -228,6 +240,13 @@ final class CelestialExtractionValidator {
         require(afterReplacement != null
                         && source.celestialAnchorBodyId.equals(afterReplacement.celestialAnchorBodyId),
                 "full resource replacement must preserve celestial identity");
+        Base replicatedExtractor = client.bases.get(sourceExtractor.id);
+        require(replicatedExtractor != null
+                        && body.id().equals(replicatedExtractor.celestialAnchorBodyId)
+                        && Math.abs(replicatedExtractor.celestialOrbitRadius - sourceExtractor.celestialOrbitRadius) < 0.001
+                        && Math.abs(replicatedExtractor.celestialOrbitAngle - sourceExtractor.celestialOrbitAngle) < 0.001
+                        && Math.abs(replicatedExtractor.celestialOrbitSpeed - sourceExtractor.celestialOrbitSpeed) < 0.001,
+                "base snapshot round-trip must preserve extractor celestial anchor/orbit metadata");
     }
 
     private static void extractionNetworkStateConvergesAcrossReconnect() {
@@ -295,6 +314,8 @@ final class CelestialExtractionValidator {
         WorldSystemState system = activeState(world);
         require(system != null, "audio fixture active system missing");
         CelestialSystem.BodyView planet = planetWithMoon(system);
+        CelestialSystem.BodyView moon = firstMoonOf(system, planet.id());
+        require(moon != null, "audio command fixture requires a moon");
         Base extractor = new Base("P1:AUDIO-EXTRACTOR", "P1", CelestialExtractionSystem.EXTRACTOR_STATION_ID,
                 planet.x() + planet.radius() + 145, planet.y());
         system.bases.put(extractor.id, extractor);
@@ -302,8 +323,8 @@ final class CelestialExtractionValidator {
 
         AudioEventCenter.drain(world, "P1", system.id);
         CelestialExtractionSystem.FireResult result =
-                CelestialExtractionCommand.apply(world, "P1", system.id, planet.id());
-        require(result.fired(), "authoritative audio fixture must fire");
+                CelestialExtractionCommand.apply(world, "P1", system.id, moon.id());
+        require(result.fired(), "authoritative command path must fire at a slave moon from the master extractor");
 
         List<AudioEvent> launch = AudioEventCenter.drain(world, "P1", system.id);
         require(countCue(launch, SoundCue.EXTRACTION_CHARGE_LAUNCH) == 1,
@@ -312,6 +333,10 @@ final class CelestialExtractionValidator {
                 "launch audio must not replay without a new event");
 
         system.celestials.update(CelestialExtractionSystem.CHARGE_SECONDS + 0.05);
+        require(CelestialExtractionSystem.released(system, moon.id()),
+                "authoritative command path must release the targeted moon");
+        require(!CelestialExtractionSystem.released(system, planet.id()),
+                "authoritative moon command must not release the master planet");
         List<AudioEvent> impact = AudioEventCenter.drain(world, "P1", system.id);
         require(countCue(impact, SoundCue.EXTRACTION_FRACTURE_IMPACT) == 1,
                 "authoritative impact must distribute fracture audio exactly once");
