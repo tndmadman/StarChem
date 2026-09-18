@@ -55,20 +55,42 @@ record UnitState(String playerId, int unitId, String shipTypeId, double x, doubl
     }
 }
 
-record ResourceState(int id, String name, String kind, String material, double x, double y, double maxAmount, double harvestRate, double radius, double amount, boolean active, double respawnTimer, double orbitCenterX, double orbitCenterY, double orbitRadius, double orbitAngle, double orbitSpeed, boolean orbiting) {
+record ResourceState(int id, String name, String kind, String material, double x, double y, double maxAmount,
+                     double harvestRate, double radius, double amount, boolean active, double respawnTimer,
+                     double orbitCenterX, double orbitCenterY, double orbitRadius, double orbitAngle,
+                     double orbitSpeed, boolean orbiting, String celestialAnchorBodyId) {
+    ResourceState {
+        celestialAnchorBodyId = celestialAnchorBodyId == null ? "" : celestialAnchorBodyId;
+    }
+
+    ResourceState(int id, String name, String kind, String material, double x, double y, double maxAmount,
+                  double harvestRate, double radius, double amount, boolean active, double respawnTimer,
+                  double orbitCenterX, double orbitCenterY, double orbitRadius, double orbitAngle,
+                  double orbitSpeed, boolean orbiting) {
+        this(id, name, kind, material, x, y, maxAmount, harvestRate, radius, amount, active, respawnTimer,
+                orbitCenterX, orbitCenterY, orbitRadius, orbitAngle, orbitSpeed, orbiting, "");
+    }
+
     ResourceState(int id, String name, String kind, String material, double x, double y, double maxAmount, double harvestRate, double radius, double amount, boolean active, double respawnTimer) {
-        this(id, name, kind, material, x, y, maxAmount, harvestRate, radius, amount, active, respawnTimer, x, y, 0, 0, 0, false);
+        this(id, name, kind, material, x, y, maxAmount, harvestRate, radius, amount, active, respawnTimer, x, y, 0, 0, 0, false, "");
     }
 }
 record BaseState(String id, String playerId, String typeId, double x, double y, double hp, double shield,
-                 String cargo, String productionQueue, String logisticsStatus) {
+                 String cargo, String productionQueue, String logisticsStatus, String celestialAnchorBodyId,
+                 double celestialOrbitRadius, double celestialOrbitAngle, double celestialOrbitSpeed) {
     BaseState {
         logisticsStatus = logisticsStatus == null ? "" : logisticsStatus;
+        celestialAnchorBodyId = celestialAnchorBodyId == null ? "" : celestialAnchorBodyId;
+    }
+
+    BaseState(String id, String playerId, String typeId, double x, double y, double hp, double shield,
+              String cargo, String productionQueue, String logisticsStatus) {
+        this(id, playerId, typeId, x, y, hp, shield, cargo, productionQueue, logisticsStatus, "", 0, 0, 0);
     }
 
     BaseState(String id, String playerId, String typeId, double x, double y, double hp, double shield,
               String cargo, String productionQueue) {
-        this(id, playerId, typeId, x, y, hp, shield, cargo, productionQueue, "");
+        this(id, playerId, typeId, x, y, hp, shield, cargo, productionQueue, "", "", 0, 0, 0);
     }
 
     BaseState(String id, String playerId, String typeId, double x, double y, double hp, double shield, String cargo) {
