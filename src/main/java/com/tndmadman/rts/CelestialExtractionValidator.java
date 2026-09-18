@@ -35,6 +35,8 @@ final class CelestialExtractionValidator {
                 "fracture field must preallocate ten mineables per surveyed material");
         require(countActiveAnchored(state, planet.id()) == 0,
                 "unfractured body must not expose active physical resource nodes");
+        require(CelestialExtractionSystem.locatableFragment(state, planet.id(), 0) == null,
+                "LOCATE must never return a sealed/inactive celestial fragment");
         require(Math.abs(totalMaxVolume(state, planet.id()) - expectedVolume(body)) < 0.001,
                 "ten-times denser fracture field must preserve the original total resource volume");
 
@@ -58,6 +60,8 @@ final class CelestialExtractionValidator {
         require(CelestialExtractionSystem.released(state, planet.id()), "charge impact must release the target body");
         require(countActiveAnchored(state, planet.id()) == expectedRocks,
                 "fracture impact must expose the complete debris field");
+        require(CelestialExtractionSystem.locatableFragment(state, planet.id(), 0) != null,
+                "LOCATE must return an active fragment after authoritative impact");
         require(Math.abs(totalActiveVolume(state, planet.id()) - expectedVolume(body)) < 0.001,
                 "released debris field must still contain the original aggregate volume");
     }
@@ -118,12 +122,27 @@ final class CelestialExtractionValidator {
         require(!CelestialExtractionSystem.released(state, planet.id()),
                 "fully depleted field must return the body to sealed state");
         require(countActiveAnchored(state, planet.id()) == 0, "depleted field must have no active rocks");
+        require(CelestialExtractionSystem.locatableFragment(state, planet.id(), 0) == null,
+                "LOCATE must not return recycled inactive fragments after depletion");
         require(countStoredAnchored(state, planet.id()) == storedBefore,
                 "depletion must recycle deterministic nodes instead of deleting/reallocating them");
         require(state.resources.size() == resourceListBefore,
                 "field depletion must not resize the persistent resource list");
         require(CelestialExtractionSystem.cooldownRemaining(state, planet.id()) > 0,
                 "field exhaustion must start the extractor recycle delay");
+
+        Map<String,Object> savedCooldown = CelestialExtractionSystem.captureState(state);
+        WorldSystemState reloaded = state("extract-refire", 9104L);
+        CelestialSystem.BodyView reloadedPlanet = planetWithMoon(reloaded);
+        Base reloadedExtractor = new Base(extractor.id, "P1", CelestialExtractionSystem.EXTRACTOR_STATION_ID,
+                reloadedPlanet.x() + reloadedPlanet.radius() + 145, reloadedPlanet.y());
+        reloaded.bases.put(reloadedExtractor.id, reloadedExtractor);
+        reloaded.celestials.update(0);
+        CelestialExtractionSystem.restoreState(reloaded, savedCooldown);
+        require(CelestialExtractionSystem.cooldownRemaining(reloaded, reloadedPlanet.id()) > 0,
+                "body recycle cooldown must survive save/reload");
+        require(CelestialExtractionSystem.extractorCooldownRemaining(reloaded, reloadedPlanet.id(), "P1") > 0,
+                "extractor firing cooldown must survive save/reload");
 
         CelestialExtractionSystem.FireResult immediate = CelestialExtractionSystem.fireCharge(state, planet.id(), "P1");
         require(!immediate.fired(), "refire must be blocked during the recycle delay");
@@ -326,7 +345,9 @@ final class CelestialExtractionValidator {
         system.bases.put(extractor.id, extractor);
         system.celestials.update(0);
 
+        String otherSystem = system.id + "-not-viewed";
         AudioEventCenter.drain(world, "P1", system.id);
+        AudioEventCenter.drain(world, "P2", otherSystem);
         CelestialExtractionSystem.FireResult result =
                 CelestialExtractionCommand.apply(world, "P1", system.id, moon.id());
         require(result.fired(), "authoritative command path must fire at a slave moon from the master extractor: "
@@ -335,6 +356,8 @@ final class CelestialExtractionValidator {
         List<AudioEvent> launch = AudioEventCenter.drain(world, "P1", system.id);
         require(countCue(launch, SoundCue.EXTRACTION_CHARGE_LAUNCH) == 1,
                 "successful authoritative fire must distribute launch audio exactly once");
+        require(AudioEventCenter.drain(world, "P2", otherSystem).isEmpty(),
+                "system-scoped launch audio must not leak to a viewer in another system");
         require(AudioEventCenter.drain(world, "P1", system.id).isEmpty(),
                 "launch audio must not replay without a new event");
 
@@ -346,6 +369,8 @@ final class CelestialExtractionValidator {
         List<AudioEvent> impact = AudioEventCenter.drain(world, "P1", system.id);
         require(countCue(impact, SoundCue.EXTRACTION_FRACTURE_IMPACT) == 1,
                 "authoritative impact must distribute fracture audio exactly once");
+        require(AudioEventCenter.drain(world, "P2", otherSystem).isEmpty(),
+                "system-scoped impact audio must not leak to a viewer in another system");
         require(AudioEventCenter.drain(world, "P1", system.id).isEmpty(),
                 "impact audio must not replay without a new event");
     }
