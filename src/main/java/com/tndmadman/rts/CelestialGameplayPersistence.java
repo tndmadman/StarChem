@@ -104,8 +104,9 @@ final class CelestialGameplayPersistence {
 
         Map<String,Object> baseAnchors = ServerSaveStore.object(saved.get(BASE_ANCHORS));
         for (Base base : state.bases.values()) {
-            CelestialGameplaySystem.clearStationAnchor(base);
             Map<String,Object> row = ServerSaveStore.object(baseAnchors.get(base.id));
+            if (row.isEmpty()) continue;
+            CelestialGameplaySystem.clearStationAnchor(base);
             String bodyId = ServerSaveStore.asString(row.get("bodyId"), "");
             CelestialSystem.BodyView body = bodyId.isBlank() ? null : state.celestials.bodyView(bodyId);
             if (!CelestialGameplaySystem.isStationAnchorBody(body)) continue;
