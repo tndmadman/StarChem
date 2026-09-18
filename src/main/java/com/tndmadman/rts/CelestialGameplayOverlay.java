@@ -87,7 +87,8 @@ final class CelestialGameplayOverlay {
             return;
         }
         WorldSystemState system = activeState(world);
-        IntelView view = buildView(system, selectedBodyId(world), localPlayerId(world));
+        PeerNetwork network = networkFrom(host);
+        IntelView view = buildView(system, selectedBodyId(world), localPlayerId(world, network));
         if (view == null) {
             panel.setVisible(false);
             return;
@@ -111,7 +112,7 @@ final class CelestialGameplayOverlay {
         CelestialSystem.BodyView body = system.celestials.bodyAt(point.getX(), point.getY(), 28.0);
         if (body == null || body.visualClass() == CelestialVisualClass.STAR) return;
         SELECTED.put(world, body.id());
-        world.status = oneLine(system, body.id(), localPlayerId(world));
+        world.status = oneLine(system, body.id(), localPlayerId(world, networkFrom(panel)));
         SwingUtilities.invokeLater(() -> show(world, panel));
     }
 
@@ -245,6 +246,8 @@ final class CelestialGameplayOverlay {
                 extraction = " | extractor cooldown " + formatCooldown(extractorCooldown);
             } else if (CelestialExtractionSystem.fireReady(system, bodyId, playerId)) {
                 extraction = " | deposits surveyed — fire fracture charge";
+            } else if (CelestialExtractionSystem.extractorReady(system, bodyId, playerId)) {
+                extraction = " | Planetary Extractor detected — field state awaiting reset";
             } else {
                 extraction = " | deposits surveyed — Planetary Extractor required";
             }
@@ -253,7 +256,11 @@ final class CelestialGameplayOverlay {
                 + " | " + claim + " | intel: " + intel.name().toLowerCase(Locale.ROOT) + extraction;
     }
 
-    private static String localPlayerId(World world) {
+    private static String localPlayerId(World world, PeerNetwork network) {
+        if (network != null) {
+            String connected = network.localPlayerId();
+            if (connected != null && !connected.isBlank() && !"WAIT".equals(connected)) return connected;
+        }
         String id = PlayerRegistry.localId();
         return id == null || id.isBlank() ? world.localPlayerId : id;
     }
@@ -464,26 +471,38 @@ final class CelestialGameplayOverlay {
                 return;
             }
 
-            String playerId = localPlayerId(world);
+            PeerNetwork network = networkFrom(host);
+            String playerId = localPlayerId(world, network);
             if (!CelestialExtractionSystem.fireReady(system, bodyId, playerId)) {
                 if (CelestialExtractionSystem.chargeInFlight(system, bodyId)) {
                     world.status = "Fracture charge already in flight.";
-                } else {
-                    double bodyCooldown = CelestialExtractionSystem.cooldownRemaining(system, bodyId);
-                    double extractorCooldown = CelestialExtractionSystem.extractorCooldownRemaining(system, bodyId, playerId);
-                    if (bodyCooldown >= extractorCooldown && bodyCooldown > 0.001) {
-                        world.status = "Body recycling " + formatCooldown(bodyCooldown) + " before another fracture charge.";
-                    } else if (extractorCooldown > 0.001) {
-                        world.status = "Planetary Extractor cooldown " + formatCooldown(extractorCooldown) + ".";
-                    } else {
-                        world.status = "Deploy and anchor a Planetary Extractor to " + model.masterName() + " before firing.";
-                    }
+                    repaint();
+                    return;
                 }
-                repaint();
-                return;
+                double bodyCooldown = CelestialExtractionSystem.cooldownRemaining(system, bodyId);
+                double extractorCooldown = CelestialExtractionSystem.extractorCooldownRemaining(system, bodyId, playerId);
+                if (bodyCooldown >= extractorCooldown && bodyCooldown > 0.001) {
+                    world.status = "Body recycling " + formatCooldown(bodyCooldown) + " before another fracture charge.";
+                    repaint();
+                    return;
+                }
+                if (extractorCooldown > 0.001) {
+                    world.status = "Planetary Extractor cooldown " + formatCooldown(extractorCooldown) + ".";
+                    repaint();
+                    return;
+                }
+                // A network client can briefly hold stale replica readiness after the final rock
+                // disappears. Do not let that replica-side precheck permanently suppress an
+                // otherwise valid refire request; the authoritative server will accept/reject it.
+                if (network == null || !network.clientMode()) {
+                    world.status = CelestialExtractionSystem.extractorReady(system, bodyId, playerId)
+                            ? "Planetary Extractor detected. Waiting for the extraction field to reset."
+                            : "Deploy and anchor a Planetary Extractor to " + model.masterName() + " before firing.";
+                    repaint();
+                    return;
+                }
             }
 
-            PeerNetwork network = networkFrom(host);
             CelestialExtractionSystem.FireResult result = network == null
                     ? CelestialExtractionCommand.apply(world, playerId, world.activeSystemId(), bodyId)
                     : network.extraction(playerId, world.activeSystemId(), bodyId);
@@ -771,6 +790,9 @@ final class CelestialGameplayOverlay {
             } else if (model.fireReady()) {
                 action = "FIRE CHARGE";
                 actionColor = CYAN;
+            } else if (model.extractorReady()) {
+                action = "FIELD RESET PENDING";
+                actionColor = WARN;
             } else {
                 action = "NEED EXTRACTOR";
                 actionColor = WARN;
@@ -814,6 +836,9 @@ final class CelestialGameplayOverlay {
             } else if (model.fireReady()) {
                 g.setColor(depositHover ? CYAN : MUTED);
                 g.drawString("Click to fire fracture charge", x + 9, y + 76);
+            } else if (model.extractorReady()) {
+                g.setColor(WARN);
+                drawEllipsis(g, "Extractor detected — awaiting field reset", x + 9, y + 76, w - 18);
             } else {
                 g.setColor(WARN);
                 drawEllipsis(g, "Deploy Extractor to " + model.masterName(), x + 9, y + 76, w - 18);
