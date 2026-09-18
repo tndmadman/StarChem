@@ -174,14 +174,15 @@ final class ResourceSync {
                 || Double.compare(first.orbitCenterY(), second.orbitCenterY()) != 0
                 || Double.compare(first.orbitRadius(), second.orbitRadius()) != 0
                 || Double.compare(first.orbitSpeed(), second.orbitSpeed()) != 0
-                || first.orbiting() != second.orbiting();
+                || first.orbiting() != second.orbiting()
+                || !Objects.equals(first.celestialAnchorBodyId(), second.celestialAnchorBodyId());
     }
 
     private static ResourceState tombstone(ResourceState prior) {
         return new ResourceState(prior.id(), "Hidden resource", NodeKind.SILICATE_ROCK.name(),
                 Material.IRON.name(), prior.x(), prior.y(), 1, 0, 0, 0, false, 0,
                 prior.orbitCenterX(), prior.orbitCenterY(), prior.orbitRadius(),
-                prior.orbitAngle(), prior.orbitSpeed(), prior.orbiting());
+                prior.orbitAngle(), prior.orbitSpeed(), prior.orbiting(), prior.celestialAnchorBodyId());
     }
 
     private static List<ResourceState> all(World world) {
@@ -193,7 +194,8 @@ final class ResourceSync {
     private static ResourceState state(ResourceNode r) {
         return new ResourceState(r.id, r.name, r.kind.name(), r.material.name(), r.x, r.y,
                 r.maxAmount, r.harvestRate, r.radius, r.amount, r.active, r.respawnTimer,
-                r.orbitCenterX, r.orbitCenterY, r.orbitRadius, r.orbitAngle, r.orbitSpeed, r.orbiting);
+                r.orbitCenterX, r.orbitCenterY, r.orbitRadius, r.orbitAngle, r.orbitSpeed, r.orbiting,
+                r.celestialAnchorBodyId);
     }
 
     private static void decay(Map<Integer, Integer> dirty) {

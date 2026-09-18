@@ -2,6 +2,7 @@ package com.tndmadman.rts;
 
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 /** Regression coverage for selectable/scannable/claimable celestial gameplay. */
 final class CelestialGameplayValidator {
@@ -13,6 +14,7 @@ final class CelestialGameplayValidator {
         planetsAndMoonsAreClassifiedCorrectly();
         buildableInstallationRolesMapCorrectly();
         planetOnlyStationAnchoring();
+        deployedExtractorAnchorsBeforeBroadcast();
         stationsOrbitClaimAndRejectHostiles();
         sameOwnerAnchoringRespectsInstallationCapacity();
         stationsUseSharedNonOverlappingOrbit();
@@ -91,6 +93,40 @@ final class CelestialGameplayValidator {
         planetState.celestials.update(0);
         require(planet.id().equals(nearPlanet.celestialAnchorBodyId),
                 "a station inside planet capture distance must anchor to the planet");
+    }
+
+    private static void deployedExtractorAnchorsBeforeBroadcast() {
+        PlayerRegistry.reset("P1", "Celestial Deploy Validator", 0x50BEFF);
+        World world = new World("Celestial Deploy Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
+        PlayerRegistry.activate(world);
+        world.setDevFreeBuild("P1", true);
+
+        WorldSystemState state = activeState(world);
+        require(state != null, "live deployment fixture requires an active system");
+        CelestialSystem.BodyView planet = firstPlanet(state);
+
+        Unit deployer = new Unit("P1", 9001, "station_builder",
+                planet.x() + planet.radius() + 150, planet.y());
+        deployer.basePackageType = CelestialExtractionSystem.EXTRACTOR_STATION_ID;
+        world.units.put(deployer.key(), deployer);
+
+        require(world.placePackage(deployer), "live deployer must place the Planetary Extractor");
+
+        Base extractor = null;
+        for (Base base : world.bases.values()) {
+            if (base != null && "P1".equals(base.playerId)
+                    && CelestialExtractionSystem.EXTRACTOR_STATION_ID.equals(base.typeId)) {
+                extractor = base;
+                break;
+            }
+        }
+        require(extractor != null, "live deployment must create the Planetary Extractor");
+        require(planet.id().equals(extractor.celestialAnchorBodyId),
+                "newly placed Planetary Extractor must anchor before the placement command is broadcast");
+        require(extractor.celestialOrbitRadius > planet.radius(),
+                "newly anchored Planetary Extractor must receive a valid planetary orbit");
+        require(state.bases.get(extractor.id) == extractor,
+                "authoritative system state must contain the same anchored extractor instance");
     }
 
     private static void stationsOrbitClaimAndRejectHostiles() {
@@ -305,6 +341,15 @@ final class CelestialGameplayValidator {
         state.celestials.update(0);
         require(!moon.id().equals(base.celestialAnchorBodyId),
                 "sanitized legacy station must not re-anchor to the moon on update");
+    }
+
+    private static WorldSystemState activeState(World world) {
+        if (world == null) return null;
+        String active = world.activeSystemId();
+        for (WorldSystemState state : world.policySystemStates()) {
+            if (state != null && state.id.equals(active)) return state;
+        }
+        return null;
     }
 
     private static WorldSystemState state(String id, long seed) {

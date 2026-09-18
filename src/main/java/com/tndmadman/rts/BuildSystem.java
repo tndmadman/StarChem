@@ -131,10 +131,17 @@ final class BuildSystem {
             return false;
         }
         String baseId = nextBaseId(world, carrier.playerId);
-        world.bases.put(baseId, new Base(baseId, carrier.playerId, carrier.basePackageType, carrier.x, carrier.y));
+        Base deployed = new Base(baseId, carrier.playerId, carrier.basePackageType, carrier.x, carrier.y);
+        world.bases.put(baseId, deployed);
         StrategicSupplyService.invalidate(world);
         StrategicSummaryService.invalidate(world);
         world.units.remove(carrier.key());
+
+        // Placement commands are broadcast immediately. Resolve celestial capture before that
+        // broadcast so a station deployed inside a planet's capture radius never appears as an
+        // unanchored station while waiting for a later simulation tick.
+        world.refreshActiveCelestialGameplay();
+
         world.status = "Placed " + placed.name + ". Deployer consumed.";
         SystemAudio.playForPlayer(world, carrier.playerId, SoundCue.PLACE_STATION);
         return true;
