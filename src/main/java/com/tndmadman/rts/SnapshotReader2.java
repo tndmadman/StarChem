@@ -16,7 +16,7 @@ final class SnapshotReader2 {
         for (int i = 0; i < rows.length; i++) {
             int rowIndex = i + 1;
             String[] c = SnapshotReader.columns(rows[i], "resources", rowIndex);
-            SnapshotReader.requireColumns(c.length, "resources", rowIndex, 12, 18);
+            SnapshotReader.requireColumns(c.length, "resources", rowIndex, 12, 18, 19);
             int id = SnapshotReader.integer(c[0], 0, Integer.MAX_VALUE, "resources", rowIndex, "resource ID");
             if (!ids.add(id)) throw SnapshotReader.error("resources", rowIndex, "resource ID", "duplicate value " + id);
             String name = SnapshotReader.requiredText(c[1], SnapshotReader.MAX_NAME_LENGTH, "resources", rowIndex, "name");
@@ -31,14 +31,17 @@ final class SnapshotReader2 {
             boolean active = SnapshotReader.flag(c[10], "resources", rowIndex, "active");
             double timer = SnapshotReader.finite(c[11], 0, SnapshotReader.MAX_SCALAR, "resources", rowIndex, "respawn timer");
             ResourceNetDebug.resourceSchema(c.length);
-            if (c.length == 18) {
+            if (c.length >= 18) {
+                String celestialAnchorBodyId = c.length == 19
+                        ? SnapshotReader.text(CargoCodec.unsafed(c[18]), 128, "resources", rowIndex, "celestial anchor body ID")
+                        : "";
                 out.add(new ResourceState(id, name, kind, material, x, y, max, rate, radius, amount, active, timer,
                         SnapshotReader.coordinate(c[12], "resources", rowIndex, "orbit center x"),
                         SnapshotReader.coordinate(c[13], "resources", rowIndex, "orbit center y"),
                         SnapshotReader.finite(c[14], 0, SnapshotReader.MAX_ABS_COORDINATE, "resources", rowIndex, "orbit radius"),
                         SnapshotReader.finite(c[15], -SnapshotReader.MAX_SCALAR, SnapshotReader.MAX_SCALAR, "resources", rowIndex, "orbit angle"),
                         SnapshotReader.finite(c[16], -SnapshotReader.MAX_SCALAR, SnapshotReader.MAX_SCALAR, "resources", rowIndex, "orbit speed"),
-                        SnapshotReader.flag(c[17], "resources", rowIndex, "orbiting")));
+                        SnapshotReader.flag(c[17], "resources", rowIndex, "orbiting"), celestialAnchorBodyId));
             } else {
                 out.add(new ResourceState(id, name, kind, material, x, y, max, rate, radius, amount, active, timer));
             }

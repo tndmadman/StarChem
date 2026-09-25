@@ -5,7 +5,9 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RadialGradientPaint;
 import java.awt.geom.Point2D;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -34,9 +36,12 @@ final class CelestialExtractionSystem {
     static final String EXTRACTOR_STATION_ID = EXTRACTION.stationTypeId();
     static final int FRAGMENTS_PER_DEPOSIT = EXTRACTION.fragmentsPerDeposit();
     static final double CHARGE_SECONDS = EXTRACTION.chargeSeconds();
+    static final double EXTRACTOR_FIRE_COOLDOWN_SECONDS = EXTRACTION.extractorFireCooldownSeconds();
     static final double REFIRE_COOLDOWN_SECONDS = EXTRACTION.refireCooldownSeconds();
 
     private static final double IMPACT_EFFECT_SECONDS = EXTRACTION.impactEffectSeconds();
+    private static final int MAX_WIRE_ROWS = 512;
+    private static final int MAX_WIRE_CHARS = 64 * 1024;
     private static final int CELESTIAL_FRAGMENT_ID_BASE = 1 << 30;
     private static final long CELESTIAL_FRAGMENT_ID_SPAN = (long)Integer.MAX_VALUE - CELESTIAL_FRAGMENT_ID_BASE;
     private static final double TAU = Math.PI * 2.0;
@@ -47,8 +52,14 @@ final class CelestialExtractionSystem {
             Collections.synchronizedMap(new WeakHashMap<>());
     private static final Map<ResourceNode, WorldSystemState> RESOURCE_STATES =
             Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Map<WorldSystemState, World> WORLDS =
+            Collections.synchronizedMap(new WeakHashMap<>());
 
     private CelestialExtractionSystem() { }
+
+    static void bindWorld(WorldSystemState state, World world) {
+        if (state != null && world != null) WORLDS.put(state, world);
+    }
 
     static void register(WorldSystemState state) {
         if (state == null || state.celestials == null) return;
@@ -80,8 +91,49 @@ final class CelestialExtractionSystem {
         return Math.max(0.0, data(state).cooldownSecondsByBody.getOrDefault(bodyId, 0.0));
     }
 
+    static double extractorCooldownRemaining(WorldSystemState state, String bodyId, String playerId) {
+        Base extractor = extractorFor(state, bodyId, playerId);
+        if (extractor == null) return 0.0;
+        return Math.max(0.0, data(state).cooldownSecondsByExtractor.getOrDefault(extractor.id, 0.0));
+    }
+
+    static int activeFragmentCount(WorldSystemState state, String bodyId) {
+        if (state == null || bodyId == null || bodyId.isBlank()) return 0;
+        int count = 0;
+        for (ResourceNode node : state.resources) {
+            if (locatable(node, bodyId)) count++;
+        }
+        return count;
+    }
+
+    static ResourceNode locatableFragment(WorldSystemState state, String bodyId, int cycle) {
+        int count = activeFragmentCount(state, bodyId);
+        if (count <= 0) return null;
+        int wanted = Math.floorMod(cycle, count);
+        int seen = 0;
+        for (ResourceNode node : state.resources) {
+            if (!locatable(node, bodyId)) continue;
+            if (seen++ == wanted) return node;
+        }
+        return null;
+    }
+
+    private static boolean locatable(ResourceNode node, String bodyId) {
+        return node != null && node.active && node.amount > 0.05
+                && bodyId != null && bodyId.equals(node.celestialAnchorBodyId);
+    }
+
     static boolean extractorReady(WorldSystemState state, String bodyId, String playerId) {
         return extractorFor(state, bodyId, playerId) != null;
+    }
+
+    static boolean fireReady(WorldSystemState state, String bodyId, String playerId) {
+        if (state == null) return false;
+        reconcileExhaustedReleasedField(state, bodyId);
+        if (released(state, bodyId) || chargeInFlight(state, bodyId)
+                || cooldownRemaining(state, bodyId) > 0.001) return false;
+        Base extractor = extractorFor(state, bodyId, playerId);
+        return extractor != null && data(state).cooldownSecondsByExtractor.getOrDefault(extractor.id, 0.0) <= 0.001;
     }
 
     /** Player-facing and simulation entry point used by the integrated celestial intel control. */
@@ -101,6 +153,7 @@ final class CelestialExtractionSystem {
         if (target == null || target.visualClass() == CelestialVisualClass.STAR) {
             return new FireResult(false, "Extraction charges can only target planets and moons.");
         }
+        reconcileExhaustedReleasedField(state, bodyId);
         if (released(state, bodyId)) {
             return new FireResult(false, target.name() + " still has an exposed extraction field. Deplete it before refiring.");
         }
@@ -123,8 +176,19 @@ final class CelestialExtractionSystem {
         }
 
         ExtractionState extraction = data(state);
+        if (extraction.networkReplica) {
+            return new FireResult(false, "Fracture charges must be fired by the authoritative server.");
+        }
+        double extractorCooldown = Math.max(0.0,
+                extraction.cooldownSecondsByExtractor.getOrDefault(extractor.id, 0.0));
+        if (extractorCooldown > 0.001) {
+            return new FireResult(false, extractor.type().name + " firing systems cooling for "
+                    + (int)Math.ceil(extractorCooldown) + "s.");
+        }
+
         extraction.sealedBodyIds.add(bodyId);
         extraction.charges.add(new Charge(bodyId, extractor.id, playerId == null ? "" : playerId));
+        extraction.cooldownSecondsByExtractor.put(extractor.id, EXTRACTOR_FIRE_COOLDOWN_SECONDS);
         return new FireResult(true, "Fracture charge fired from " + extractor.type().name + " at " + target.name()
                 + ". Planetary fracture sequence: " + (int)CHARGE_SECONDS + " seconds.");
     }
@@ -134,7 +198,7 @@ final class CelestialExtractionSystem {
         if (!isCelestial(node)) return false;
         WorldSystemState state = RESOURCE_STATES.get(node);
         if (state == null) state = findState(node);
-        if (state == null) return false;
+        if (state == null || data(state).networkReplica) return false;
         return finishFieldIfExhausted(state, node.celestialAnchorBodyId);
     }
 
@@ -142,6 +206,10 @@ final class CelestialExtractionSystem {
         WorldSystemState state = STATES.get(celestials);
         if (state == null) return;
         ExtractionState extraction = data(state);
+        if (extraction.networkReplica) {
+            advanceReplicaVisuals(extraction, dt);
+            return;
+        }
 
         if (normalizeExtractorAnchors(state)) CelestialMoonInheritance.apply(state);
 
@@ -170,6 +238,8 @@ final class CelestialExtractionSystem {
                     activateBody(state, charge.bodyId);
                     extraction.impactBodyId = charge.bodyId;
                     extraction.impactAge = 0.0;
+                    World world = WORLDS.get(state);
+                    if (world != null) SystemAudio.play(world, state.id, SoundCue.EXTRACTION_FRACTURE_IMPACT);
                     it.remove();
                 }
             }
@@ -360,12 +430,26 @@ final class CelestialExtractionSystem {
     }
 
     private static void tickCooldowns(ExtractionState extraction, double dt) {
-        Iterator<Map.Entry<String,Double>> it = extraction.cooldownSecondsByBody.entrySet().iterator();
+        tickCooldownMap(extraction.cooldownSecondsByBody, dt);
+        tickCooldownMap(extraction.cooldownSecondsByExtractor, dt);
+    }
+
+    private static void tickCooldownMap(Map<String,Double> cooldowns, double dt) {
+        Iterator<Map.Entry<String,Double>> it = cooldowns.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<String,Double> entry = it.next();
             double remaining = entry.getValue() - dt;
             if (remaining <= 0.001) it.remove();
             else entry.setValue(remaining);
+        }
+    }
+
+    private static void advanceReplicaVisuals(ExtractionState extraction, double dt) {
+        if (!Double.isFinite(dt) || dt <= 0) return;
+        tickCooldowns(extraction, dt);
+        for (Charge charge : extraction.charges) charge.elapsed = Math.min(CHARGE_SECONDS, charge.elapsed + dt);
+        if (extraction.impactAge < IMPACT_EFFECT_SECONDS) {
+            extraction.impactAge = Math.min(IMPACT_EFFECT_SECONDS, extraction.impactAge + dt);
         }
     }
 
@@ -407,6 +491,18 @@ final class CelestialExtractionSystem {
         }
     }
 
+    /**
+     * Recover if the final mining/depletion callback was missed or arrived against stale tactical
+     * state. Authoritative readiness/command checks must never leave an empty released field stuck
+     * forever just because one lifecycle notification was lost. Network replicas remain read-only.
+     */
+    private static void reconcileExhaustedReleasedField(WorldSystemState state, String bodyId) {
+        if (state == null || bodyId == null || bodyId.isBlank()) return;
+        ExtractionState extraction = data(state);
+        if (extraction.networkReplica || !extraction.releasedBodyIds.contains(bodyId)) return;
+        finishFieldIfExhausted(state, bodyId);
+    }
+
     private static boolean finishFieldIfExhausted(WorldSystemState state, String bodyId) {
         if (state == null || bodyId == null || bodyId.isBlank()) return false;
         ExtractionState extraction = data(state);
@@ -427,81 +523,316 @@ final class CelestialExtractionSystem {
         extraction.releasedBodyIds.remove(bodyId);
         extraction.sealedBodyIds.remove(bodyId);
         sealBody(state, body, extraction);
+        clearFieldTargets(state, body);
         extraction.cooldownSecondsByBody.put(bodyId, REFIRE_COOLDOWN_SECONDS);
         return true;
+    }
+
+    private static void clearFieldTargets(WorldSystemState state, CelestialBodyState body) {
+        if (state == null || body == null) return;
+        for (Unit unit : state.units.values()) {
+            if (unit == null || !body.resourceNodeIds.contains(unit.automationResourceId)) continue;
+            unit.automationResourceId = -1;
+            if (unit.task == UnitTask.AUTO_HARVEST) unit.task = UnitTask.IDLE;
+        }
+        World world = WORLDS.get(state);
+        if (world == null) world = PlayerRegistry.activeWorld();
+        if (world != null && state.id.equals(world.activeSystemId())
+                && body.resourceNodeIds.contains(world.selectedResourceId)) world.selectedResourceId = -1;
+    }
+
+    static String networkState(CelestialSystem celestials) {
+        WorldSystemState state = STATES.get(celestials);
+        if (state == null) return "";
+        ExtractionState extraction = data(state);
+        StringBuilder out = new StringBuilder("v1");
+        int rows = 0;
+
+        Set<String> bodies = new LinkedHashSet<>(extraction.releasedBodyIds);
+        bodies.addAll(extraction.cooldownSecondsByBody.keySet());
+        for (String bodyId : bodies) {
+            if (rows++ >= MAX_WIRE_ROWS || bodyId == null || bodyId.isBlank()) break;
+            out.append(";B,").append(wireToken(bodyId)).append(',')
+                    .append(extraction.releasedBodyIds.contains(bodyId) ? '1' : '0').append(',')
+                    .append(Calc.round(Math.max(0, extraction.cooldownSecondsByBody.getOrDefault(bodyId, 0.0))));
+        }
+        for (Map.Entry<String,Double> entry : extraction.cooldownSecondsByExtractor.entrySet()) {
+            if (rows++ >= MAX_WIRE_ROWS) break;
+            if (entry.getKey() == null || entry.getKey().isBlank() || entry.getValue() == null || entry.getValue() <= 0) continue;
+            out.append(";E,").append(wireToken(entry.getKey())).append(',')
+                    .append(Calc.round(Math.min(EXTRACTOR_FIRE_COOLDOWN_SECONDS, entry.getValue())));
+        }
+        for (Charge charge : extraction.charges) {
+            if (rows++ >= MAX_WIRE_ROWS) break;
+            out.append(";C,").append(wireToken(charge.bodyId)).append(',')
+                    .append(wireToken(charge.extractorBaseId)).append(',')
+                    .append(wireToken(charge.playerId)).append(',')
+                    .append(Calc.round(Math.max(0, Math.min(CHARGE_SECONDS, charge.elapsed))));
+        }
+        if (rows < MAX_WIRE_ROWS && extraction.impactBodyId != null && !extraction.impactBodyId.isBlank()
+                && extraction.impactAge < IMPACT_EFFECT_SECONDS) {
+            out.append(";I,").append(wireToken(extraction.impactBodyId)).append(',')
+                    .append(Calc.round(Math.max(0, extraction.impactAge)));
+        }
+        return out.length() <= MAX_WIRE_CHARS ? out.toString() : "v1";
+    }
+
+    static void applyNetworkState(CelestialSystem celestials, String wire) {
+        WorldSystemState state = STATES.get(celestials);
+        if (state == null || wire == null || wire.isBlank() || wire.length() > MAX_WIRE_CHARS) return;
+        String[] rows = wire.split(";", -1);
+        if (rows.length == 0 || !"v1".equals(rows[0]) || rows.length > MAX_WIRE_ROWS + 1) return;
+
+        ExtractionState extraction = data(state);
+        extraction.networkReplica = true;
+        extraction.releasedBodyIds.clear();
+        extraction.sealedBodyIds.clear();
+        extraction.cooldownSecondsByBody.clear();
+        extraction.cooldownSecondsByExtractor.clear();
+        extraction.charges.clear();
+        extraction.impactBodyId = "";
+        extraction.impactAge = IMPACT_EFFECT_SECONDS;
+
+        for (int i = 1; i < rows.length; i++) {
+            if (rows[i].isBlank()) continue;
+            String[] parts = rows[i].split(",", -1);
+            try {
+                if (parts.length == 4 && "B".equals(parts[0])) {
+                    String bodyId = wireUntoken(parts[1]);
+                    if (bodyId.isBlank() || state.celestials.bodyView(bodyId) == null) continue;
+                    if ("1".equals(parts[2])) extraction.releasedBodyIds.add(bodyId);
+                    double seconds = wireDouble(parts[3], REFIRE_COOLDOWN_SECONDS);
+                    if (seconds > 0) extraction.cooldownSecondsByBody.put(bodyId, seconds);
+                } else if (parts.length == 3 && "E".equals(parts[0])) {
+                    String baseId = wireUntoken(parts[1]);
+                    double seconds = wireDouble(parts[2], EXTRACTOR_FIRE_COOLDOWN_SECONDS);
+                    if (!baseId.isBlank() && seconds > 0) extraction.cooldownSecondsByExtractor.put(baseId, seconds);
+                } else if (parts.length == 5 && "C".equals(parts[0])) {
+                    String bodyId = wireUntoken(parts[1]);
+                    String baseId = wireUntoken(parts[2]);
+                    String playerId = wireUntoken(parts[3]);
+                    if (bodyId.isBlank() || baseId.isBlank() || state.celestials.bodyView(bodyId) == null) continue;
+                    Charge charge = new Charge(bodyId, baseId, playerId);
+                    charge.elapsed = wireDouble(parts[4], CHARGE_SECONDS);
+                    extraction.charges.add(charge);
+                } else if (parts.length == 3 && "I".equals(parts[0])) {
+                    String bodyId = wireUntoken(parts[1]);
+                    if (bodyId.isBlank() || state.celestials.bodyView(bodyId) == null) continue;
+                    extraction.impactBodyId = bodyId;
+                    extraction.impactAge = wireDouble(parts[2], IMPACT_EFFECT_SECONDS);
+                }
+            } catch (RuntimeException ignored) { }
+        }
+    }
+
+    private static String wireToken(String value) {
+        String clean = value == null ? "" : value;
+        if (clean.length() > 128) clean = clean.substring(0, 128);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(clean.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String wireUntoken(String value) {
+        if (value == null || value.isBlank() || value.length() > 256) return "";
+        try {
+            String decoded = new String(Base64.getUrlDecoder().decode(value), StandardCharsets.UTF_8);
+            return decoded.length() <= 128 ? decoded : decoded.substring(0, 128);
+        } catch (IllegalArgumentException ex) {
+            return "";
+        }
+    }
+
+    private static double wireDouble(String value, double max) {
+        try {
+            double parsed = Double.parseDouble(value);
+            return Double.isFinite(parsed) ? Math.max(0, Math.min(max, parsed)) : 0;
+        } catch (NumberFormatException ex) {
+            return 0;
+        }
     }
 
     static void draw(CelestialSystem celestials, Graphics2D g) {
         WorldSystemState state = STATES.get(celestials);
         if (state == null || g == null) return;
         ExtractionState extraction = data(state);
+        if (!hasRenderableEffects(extraction)) return;
+
         Graphics2D c = (Graphics2D) g.create();
-        c.setStroke(new BasicStroke(2.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        try {
+            drawEffects(celestials, state, extraction, c);
+        } finally {
+            c.dispose();
+        }
+    }
 
-        for (Charge charge : extraction.charges) {
-            Base source = state.bases.get(charge.extractorBaseId);
-            CelestialSystem.BodyView target = celestials.bodyView(charge.bodyId);
-            if (source == null || target == null) continue;
-            double t = Math.max(0.0, Math.min(1.0, charge.elapsed / CHARGE_SECONDS));
-            double eased = t * t * (3.0 - 2.0 * t);
-            double px = source.x + (target.x() - source.x) * eased;
-            double py = source.y + (target.y() - source.y) * eased;
+    /**
+     * Keep the overwhelmingly common idle render path tiny. The detailed fracture renderer is
+     * intentionally isolated so background-only frames do not allocate a child graphics context
+     * or execute/JIT the much larger active-effect method.
+     */
+    private static boolean hasRenderableEffects(ExtractionState extraction) {
+        if (extraction == null) return false;
+        if (!extraction.charges.isEmpty()) return true;
+        return extraction.impactBodyId != null && !extraction.impactBodyId.isBlank()
+                && extraction.impactAge < IMPACT_EFFECT_SECONDS;
+    }
 
-            c.setColor(new Color(73, 204, 255, 75));
-            c.drawLine((int)Math.round(source.x), (int)Math.round(source.y),
-                    (int)Math.round(px), (int)Math.round(py));
-            c.setColor(new Color(126, 229, 255, 210));
-            c.fillOval((int)Math.round(px - 7), (int)Math.round(py - 7), 14, 14);
-            c.setColor(new Color(255, 255, 255, 235));
-            c.fillOval((int)Math.round(px - 3), (int)Math.round(py - 3), 6, 6);
+    private static void drawEffects(CelestialSystem celestials, WorldSystemState state,
+                                    ExtractionState extraction, Graphics2D c) {
 
-            double stressStart = EXTRACTION.stressStartProgress();
-            if (t > stressStart) {
-                float fracture = (float)Math.min(1.0, (t - stressStart) / Math.max(0.0001, 1.0 - stressStart));
-                c.setStroke(new BasicStroke(1.2f + fracture));
-                int rays = EXTRACTION.stressRayCount();
-                for (int ray = 0; ray < rays; ray++) {
-                    double angle = TAU * ray / rays + (charge.bodyId.hashCode() & 31) * 0.01;
-                    double inner = target.radius() * EXTRACTION.stressInnerRadiusScale();
-                    double outer = target.radius() * (EXTRACTION.stressOuterRadiusBaseScale()
-                            + EXTRACTION.stressOuterRadiusGrowthScale() * fracture);
-                    c.setColor(new Color(205, 241, 255, Math.round(55 + 135 * fracture)));
-                    c.drawLine(
-                            (int)Math.round(target.x() + Math.cos(angle) * inner),
-                            (int)Math.round(target.y() + Math.sin(angle) * inner),
-                            (int)Math.round(target.x() + Math.cos(angle + 0.08 * Math.sin(ray)) * outer),
-                            (int)Math.round(target.y() + Math.sin(angle + 0.08 * Math.sin(ray)) * outer));
+            for (Charge charge : extraction.charges) {
+                Base source = state.bases.get(charge.extractorBaseId);
+                CelestialSystem.BodyView target = celestials.bodyView(charge.bodyId);
+                if (source == null || target == null) continue;
+                double t = Math.max(0.0, Math.min(1.0, charge.elapsed / CHARGE_SECONDS));
+                double eased = smooth(t);
+                double px = source.x + (target.x() - source.x) * eased;
+                double py = source.y + (target.y() - source.y) * eased;
+                double pulse = 0.5 + 0.5 * Math.sin(charge.elapsed * 11.0);
+
+                if (t < 0.18) {
+                    double launchT = t / 0.18;
+                    double ring = 10 + launchT * 52;
+                    int alpha = (int)Math.round(210 * (1.0 - launchT));
+                    c.setStroke(new BasicStroke(2.6f));
+                    c.setColor(new Color(125, 226, 255, Math.max(0, alpha)));
+                    c.drawOval((int)Math.round(source.x - ring), (int)Math.round(source.y - ring),
+                            (int)Math.round(ring * 2), (int)Math.round(ring * 2));
+                    c.setColor(new Color(255, 255, 255, Math.max(0, (int)(235 * (1.0 - launchT)))));
+                    double core = 18 * (1.0 - launchT) + 4;
+                    c.fillOval((int)Math.round(source.x - core), (int)Math.round(source.y - core),
+                            (int)Math.round(core * 2), (int)Math.round(core * 2));
+                    long seed = stableHash(state.id, charge.bodyId, charge.extractorBaseId, "launch");
+                    for (int spark = 0; spark < 10; spark++) {
+                        double angle = normalizedAngle(seed + spark * 0x9E3779B97F4A7C15L);
+                        double inner = 12 + launchT * 10;
+                        double outer = inner + 18 + (spark % 4) * 5;
+                        c.setColor(new Color(177, 238, 255, Math.max(0, (int)(180 * (1.0 - launchT)))));
+                        c.drawLine((int)Math.round(source.x + Math.cos(angle) * inner),
+                                (int)Math.round(source.y + Math.sin(angle) * inner),
+                                (int)Math.round(source.x + Math.cos(angle) * outer),
+                                (int)Math.round(source.y + Math.sin(angle) * outer));
+                    }
                 }
-                c.setStroke(new BasicStroke(2.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            }
-        }
 
-        if (extraction.impactBodyId != null && !extraction.impactBodyId.isBlank()
-                && extraction.impactAge < IMPACT_EFFECT_SECONDS) {
-            CelestialSystem.BodyView target = celestials.bodyView(extraction.impactBodyId);
-            if (target != null) {
-                float age = (float)Math.max(0.0, Math.min(1.0, extraction.impactAge / IMPACT_EFFECT_SECONDS));
-                float radius = (float)(target.radius() * (EXTRACTION.impactRadiusStartScale()
-                        + age * EXTRACTION.impactRadiusGrowthScale()));
-                float alpha = 1.0f - age;
-                RadialGradientPaint flash = new RadialGradientPaint(
-                        new Point2D.Double(target.x(), target.y()), Math.max(8f, radius),
-                        new float[]{0f, 0.35f, 0.68f, 1f},
-                        new Color[]{new Color(255, 255, 255, Math.round(215 * alpha)),
-                                new Color(132, 230, 255, Math.round(150 * alpha)),
-                                new Color(86, 181, 230, Math.round(70 * alpha)),
-                                new Color(86, 181, 230, 0)});
-                c.setPaint(flash);
-                c.fillOval((int)Math.round(target.x() - radius), (int)Math.round(target.y() - radius),
-                        Math.round(radius * 2), Math.round(radius * 2));
-                c.setColor(new Color(196, 239, 255, Math.round(160 * alpha)));
-                c.setStroke(new BasicStroke(2.2f));
-                c.drawOval((int)Math.round(target.x() - radius * 0.72),
-                        (int)Math.round(target.y() - radius * 0.72),
-                        Math.round(radius * 1.44f), Math.round(radius * 1.44f));
+                double previousX = px;
+                double previousY = py;
+                for (int segment = 1; segment <= 14; segment++) {
+                    double st = Math.max(0, t - segment * 0.022);
+                    double se = smooth(st);
+                    double sx = source.x + (target.x() - source.x) * se;
+                    double sy = source.y + (target.y() - source.y) * se;
+                    int alpha = Math.max(12, 150 - segment * 9);
+                    c.setStroke(new BasicStroke(Math.max(1.0f, 5.2f - segment * 0.28f),
+                            BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    c.setColor(new Color(79, 205, 255, alpha));
+                    c.drawLine((int)Math.round(previousX), (int)Math.round(previousY),
+                            (int)Math.round(sx), (int)Math.round(sy));
+                    previousX = sx;
+                    previousY = sy;
+                }
+
+                double halo = 13 + pulse * 7;
+                c.setColor(new Color(72, 198, 255, 70));
+                c.fillOval((int)Math.round(px - halo), (int)Math.round(py - halo),
+                        (int)Math.round(halo * 2), (int)Math.round(halo * 2));
+                c.setColor(new Color(113, 225, 255, 220));
+                c.fillOval((int)Math.round(px - 8), (int)Math.round(py - 8), 16, 16);
+                c.setColor(new Color(255, 255, 255, 250));
+                c.fillOval((int)Math.round(px - 3.5), (int)Math.round(py - 3.5), 7, 7);
+
+                long flightSeed = stableHash(state.id, charge.bodyId, "flight");
+                for (int spark = 0; spark < 5; spark++) {
+                    double angle = normalizedAngle(flightSeed + spark * 0xD1B54A32D192ED03L + (long)(t * 17));
+                    double radius = 10 + spark * 3 + pulse * 4;
+                    double sx = px + Math.cos(angle) * radius;
+                    double sy = py + Math.sin(angle) * radius;
+                    c.setColor(new Color(190, 242, 255, 125 - spark * 16));
+                    c.fillOval((int)Math.round(sx - 1.5), (int)Math.round(sy - 1.5), 3, 3);
+                }
+
+                double stressStart = EXTRACTION.stressStartProgress();
+                if (t > stressStart) {
+                    float fracture = (float)Math.min(1.0, (t - stressStart) / Math.max(0.0001, 1.0 - stressStart));
+                    int rays = Math.max(EXTRACTION.stressRayCount(), 12);
+                    long seed = stableHash(state.id, charge.bodyId, "stress");
+                    for (int ray = 0; ray < rays; ray++) {
+                        double angle = normalizedAngle(seed + ray * 0x9E3779B97F4A7C15L);
+                        double inner = target.radius() * (0.72 + (ray % 3) * 0.04);
+                        double outer = target.radius() * (1.02 + 0.44 * fracture + (ray % 4) * 0.035);
+                        c.setStroke(new BasicStroke(1.0f + fracture * 1.8f));
+                        c.setColor(new Color(207, 244, 255, Math.round(65 + 175 * fracture)));
+                        c.drawLine((int)Math.round(target.x() + Math.cos(angle) * inner),
+                                (int)Math.round(target.y() + Math.sin(angle) * inner),
+                                (int)Math.round(target.x() + Math.cos(angle + 0.05 * Math.sin(ray)) * outer),
+                                (int)Math.round(target.y() + Math.sin(angle + 0.05 * Math.sin(ray)) * outer));
+                    }
+                    for (int ringIndex = 0; ringIndex < 3; ringIndex++) {
+                        double radius = target.radius() * (1.55 - fracture * (0.38 + ringIndex * 0.12));
+                        int alpha = Math.min(220, Math.round(55 + fracture * 125 - ringIndex * 18));
+                        c.setStroke(new BasicStroke(1.5f + fracture));
+                        c.setColor(new Color(112, 222, 255, Math.max(20, alpha)));
+                        c.drawOval((int)Math.round(target.x() - radius), (int)Math.round(target.y() - radius),
+                                (int)Math.round(radius * 2), (int)Math.round(radius * 2));
+                    }
+                }
             }
-        }
-        c.dispose();
+
+            if (extraction.impactBodyId != null && !extraction.impactBodyId.isBlank()
+                    && extraction.impactAge < IMPACT_EFFECT_SECONDS) {
+                CelestialSystem.BodyView target = celestials.bodyView(extraction.impactBodyId);
+                if (target != null) {
+                    float age = (float)Math.max(0.0, Math.min(1.0, extraction.impactAge / IMPACT_EFFECT_SECONDS));
+                    float alpha = 1.0f - age;
+                    float radius = (float)(target.radius() * (1.0 + age * 2.7));
+                    RadialGradientPaint flash = new RadialGradientPaint(
+                            new Point2D.Double(target.x(), target.y()), Math.max(10f, radius),
+                            new float[]{0f, 0.16f, 0.48f, 1f},
+                            new Color[]{new Color(255, 255, 255, Math.round(250 * alpha)),
+                                    new Color(153, 235, 255, Math.round(205 * alpha)),
+                                    new Color(68, 177, 236, Math.round(105 * alpha)),
+                                    new Color(50, 150, 230, 0)});
+                    c.setPaint(flash);
+                    c.fillOval((int)Math.round(target.x() - radius), (int)Math.round(target.y() - radius),
+                            Math.round(radius * 2), Math.round(radius * 2));
+
+                    for (int ringIndex = 0; ringIndex < 3; ringIndex++) {
+                        double ringAge = Math.max(0, Math.min(1, age * (1.1 + ringIndex * 0.22) - ringIndex * 0.08));
+                        double rr = target.radius() * (1.0 + ringAge * (2.0 + ringIndex * 0.55));
+                        int ringAlpha = Math.max(0, (int)(205 * (1.0 - ringAge) * alpha));
+                        c.setColor(new Color(185, 239, 255, ringAlpha));
+                        c.setStroke(new BasicStroke(Math.max(1.0f, 3.4f - ringIndex * 0.7f)));
+                        c.drawOval((int)Math.round(target.x() - rr), (int)Math.round(target.y() - rr),
+                                (int)Math.round(rr * 2), (int)Math.round(rr * 2));
+                    }
+
+                    long seed = stableHash(state.id, extraction.impactBodyId, "impact");
+                    for (int ray = 0; ray < 20; ray++) {
+                        double angle = normalizedAngle(seed + ray * 0x9E3779B97F4A7C15L);
+                        double inner = target.radius() * (0.9 + age * 0.5);
+                        double outer = target.radius() * (1.35 + age * (2.4 + (ray % 5) * 0.12));
+                        int rayAlpha = Math.max(0, (int)(220 * alpha));
+                        c.setColor(new Color(190 + ray % 3 * 18, 235, 255, rayAlpha));
+                        c.setStroke(new BasicStroke(ray % 3 == 0 ? 2.5f : 1.3f));
+                        c.drawLine((int)Math.round(target.x() + Math.cos(angle) * inner),
+                                (int)Math.round(target.y() + Math.sin(angle) * inner),
+                                (int)Math.round(target.x() + Math.cos(angle) * outer),
+                                (int)Math.round(target.y() + Math.sin(angle) * outer));
+                    }
+
+                    if (age < 0.18f) {
+                        double white = target.radius() * (1.05 + age * 3.2);
+                        c.setColor(new Color(255, 255, 255, Math.max(0, (int)(245 * (1.0 - age / 0.18f)))));
+                        c.fillOval((int)Math.round(target.x() - white), (int)Math.round(target.y() - white),
+                                (int)Math.round(white * 2), (int)Math.round(white * 2));
+                    }
+                }
+            }
+
+    }
+
+    private static double smooth(double value) {
+        double t = Math.max(0, Math.min(1, value));
+        return t * t * (3.0 - 2.0 * t);
     }
 
     static Map<String,Object> captureState(WorldSystemState state) {
@@ -516,6 +847,25 @@ final class CelestialExtractionSystem {
             });
             if (!cooldowns.isEmpty()) out.put("cooldowns", cooldowns);
         }
+        if (!extraction.cooldownSecondsByExtractor.isEmpty()) {
+            Map<String,Object> cooldowns = new LinkedHashMap<>();
+            extraction.cooldownSecondsByExtractor.forEach((baseId, seconds) -> {
+                if (baseId != null && !baseId.isBlank() && seconds != null && seconds > 0) cooldowns.put(baseId, seconds);
+            });
+            if (!cooldowns.isEmpty()) out.put("extractorCooldowns", cooldowns);
+        }
+        if (!extraction.charges.isEmpty()) {
+            List<Object> charges = new ArrayList<>();
+            for (Charge charge : extraction.charges) {
+                Map<String,Object> row = new LinkedHashMap<>();
+                row.put("bodyId", charge.bodyId);
+                row.put("extractorBaseId", charge.extractorBaseId);
+                row.put("playerId", charge.playerId);
+                row.put("elapsed", charge.elapsed);
+                charges.add(row);
+            }
+            out.put("charges", charges);
+        }
         return out;
     }
 
@@ -526,10 +876,12 @@ final class CelestialExtractionSystem {
         extraction.sealedBodyIds.clear();
         extraction.fragmentedBodyIds.clear();
         extraction.cooldownSecondsByBody.clear();
+        extraction.cooldownSecondsByExtractor.clear();
         extraction.nodeIndex.clear();
         extraction.charges.clear();
         extraction.impactBodyId = "";
         extraction.impactAge = IMPACT_EFFECT_SECONDS;
+        extraction.networkReplica = false;
         Map<String,Object> saved = ServerSaveStore.object(raw);
         for (Object value : ServerSaveStore.list(saved.get("releasedBodyIds"))) {
             String id = ServerSaveStore.asString(value, "");
@@ -541,6 +893,24 @@ final class CelestialExtractionSystem {
             if (bodyId != null && !bodyId.isBlank() && seconds > 0 && state.celestials.bodyView(bodyId) != null) {
                 extraction.cooldownSecondsByBody.put(bodyId, Math.min(REFIRE_COOLDOWN_SECONDS, seconds));
             }
+        }
+        for (Map.Entry<String,Object> entry : ServerSaveStore.object(saved.get("extractorCooldowns")).entrySet()) {
+            String baseId = entry.getKey();
+            double seconds = ServerSaveStore.asDouble(entry.getValue(), 0);
+            if (baseId != null && !baseId.isBlank() && seconds > 0) {
+                extraction.cooldownSecondsByExtractor.put(baseId, Math.min(EXTRACTOR_FIRE_COOLDOWN_SECONDS, seconds));
+            }
+        }
+        for (Object rawCharge : ServerSaveStore.list(saved.get("charges"))) {
+            Map<String,Object> row = ServerSaveStore.object(rawCharge);
+            String bodyId = ServerSaveStore.asString(row.get("bodyId"), "");
+            String baseId = ServerSaveStore.asString(row.get("extractorBaseId"), "");
+            String playerId = ServerSaveStore.asString(row.get("playerId"), "");
+            double elapsed = ServerSaveStore.asDouble(row.get("elapsed"), 0);
+            if (bodyId.isBlank() || baseId.isBlank() || state.celestials.bodyView(bodyId) == null) continue;
+            Charge charge = new Charge(bodyId, baseId, playerId);
+            charge.elapsed = Math.max(0, Math.min(CHARGE_SECONDS, elapsed));
+            extraction.charges.add(charge);
         }
     }
 
@@ -641,10 +1011,12 @@ final class CelestialExtractionSystem {
         final Set<String> sealedBodyIds = new LinkedHashSet<>();
         final Set<String> fragmentedBodyIds = new LinkedHashSet<>();
         final Map<String,Double> cooldownSecondsByBody = new LinkedHashMap<>();
+        final Map<String,Double> cooldownSecondsByExtractor = new LinkedHashMap<>();
         final Map<Integer,ResourceNode> nodeIndex = new LinkedHashMap<>();
         final List<Charge> charges = new ArrayList<>();
         String impactBodyId = "";
         double impactAge = IMPACT_EFFECT_SECONDS;
+        boolean networkReplica;
     }
 
     private static final class Charge {
