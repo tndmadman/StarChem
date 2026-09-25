@@ -315,6 +315,20 @@ final class CelestialGameplayOverlay {
         return (total / 60) + ":" + String.format(Locale.ROOT, "%02d", total % 60);
     }
 
+    static String depositStatusText(boolean released, int activeFragments, boolean chargeInFlight,
+                                    double bodyCooldown, double extractorCooldown,
+                                    boolean fireReady, boolean extractorReady) {
+        if (released && activeFragments > 0) return "LOCATE ROCK";
+        if (chargeInFlight) return "IN FLIGHT";
+        if (bodyCooldown >= extractorCooldown && bodyCooldown > 0.001) {
+            return "RECYCLING " + formatCooldown(bodyCooldown);
+        }
+        if (extractorCooldown > 0.001) return "COOLDOWN " + formatCooldown(extractorCooldown);
+        if (fireReady) return "READY — FIRE";
+        if (extractorReady) return "RESET PENDING";
+        return "NEED EXTRACTOR";
+    }
+
     private static String title(String raw) {
         if (raw == null || raw.isBlank()) return "";
         String[] words = raw.toLowerCase(Locale.ROOT).split("_");
@@ -773,37 +787,15 @@ final class CelestialGameplayOverlay {
                 g.setColor(alpha(accent, 205));
                 g.drawRoundRect(x, y, w, 84, 10, 10);
             }
-            String action;
-            Color actionColor;
-            if (model.released() && model.activeFragments() > 0) {
-                action = "LOCATE ↗";
-                actionColor = GOOD;
-            } else if (model.chargeInFlight()) {
-                action = "IN FLIGHT";
-                actionColor = WARN;
-            } else if (model.bodyCooldown() >= model.extractorCooldown() && model.bodyCooldown() > 0.001) {
-                action = "BODY RECYCLING " + formatCooldown(model.bodyCooldown());
-                actionColor = WARN;
-            } else if (model.extractorCooldown() > 0.001) {
-                action = "EXTRACTOR COOLDOWN " + formatCooldown(model.extractorCooldown());
-                actionColor = WARN;
-            } else if (model.fireReady()) {
-                action = "FIRE CHARGE";
-                actionColor = CYAN;
-            } else if (model.extractorReady()) {
-                action = "FIELD RESET PENDING";
-                actionColor = WARN;
-            } else {
-                action = "NEED EXTRACTOR";
-                actionColor = WARN;
-            }
+            String action = depositStatusText(
+                    model.released(), model.activeFragments(), model.chargeInFlight(),
+                    model.bodyCooldown(), model.extractorCooldown(),
+                    model.fireReady(), model.extractorReady());
+            Color actionColor = model.released() && model.activeFragments() > 0 ? GOOD
+                    : model.fireReady() ? CYAN : WARN;
             g.setFont(g.getFont().deriveFont(Font.BOLD, 8f));
             g.setColor(accent);
             g.drawString("DEPOSITS", x + 9, y + 15);
-            g.setFont(g.getFont().deriveFont(Font.BOLD, 7f));
-            g.setColor(actionColor);
-            int actionW = g.getFontMetrics().stringWidth(action);
-            g.drawString(action, x + w - actionW - 8, y + 15);
 
             List<String> safe = model.deposits() == null ? List.of() : model.deposits();
             g.setFont(g.getFont().deriveFont(Font.PLAIN, 9f));
@@ -819,29 +811,18 @@ final class CelestialGameplayOverlay {
                 g.drawString("None detected", x + 9, y + 36);
             }
 
-            g.setFont(g.getFont().deriveFont(Font.PLAIN, 8f));
-            if (model.released() && model.activeFragments() > 0) {
-                g.setColor(depositHover ? GOOD : MUTED);
-                g.drawString("Click to locate exposed rock", x + 9, y + 76);
-            } else if (model.chargeInFlight()) {
+            g.setFont(g.getFont().deriveFont(Font.BOLD, 8f));
+            if (model.chargeInFlight()) {
                 g.setColor(WARN);
-                g.drawString("Fracturing " + Math.round(model.chargeProgress() * 100) + "%", x + 9, y + 69);
+                drawCenteredEllipsis(g, "FRACTURING " + Math.round(model.chargeProgress() * 100) + "%",
+                        x + 7, y + 69, w - 14);
                 progress(g, x + 9, y + 74, w - 18, 4, model.chargeProgress(), WARN);
-            } else if (model.bodyCooldown() >= model.extractorCooldown() && model.bodyCooldown() > 0.001) {
-                g.setColor(WARN);
-                g.drawString("Body field recycling " + formatCooldown(model.bodyCooldown()), x + 9, y + 76);
-            } else if (model.extractorCooldown() > 0.001) {
-                g.setColor(WARN);
-                g.drawString("Extractor firing systems " + formatCooldown(model.extractorCooldown()), x + 9, y + 76);
-            } else if (model.fireReady()) {
-                g.setColor(depositHover ? CYAN : MUTED);
-                g.drawString("Click to fire fracture charge", x + 9, y + 76);
-            } else if (model.extractorReady()) {
-                g.setColor(WARN);
-                drawEllipsis(g, "Extractor detected — awaiting field reset", x + 9, y + 76, w - 18);
             } else {
-                g.setColor(WARN);
-                drawEllipsis(g, "Deploy Extractor to " + model.masterName(), x + 9, y + 76, w - 18);
+                Color statusColor = model.released() && model.activeFragments() > 0
+                        ? (depositHover ? GOOD : MUTED)
+                        : model.fireReady() ? (depositHover ? CYAN : MUTED) : actionColor;
+                g.setColor(statusColor);
+                drawCenteredEllipsis(g, action, x + 7, y + 76, w - 14);
             }
         }
 
