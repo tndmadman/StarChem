@@ -19,6 +19,7 @@ final class CelestialGameplayValidator {
         sameOwnerAnchoringRespectsInstallationCapacity();
         stationsUseSharedNonOverlappingOrbit();
         scansAndObjectivesProgress();
+        compactExtractionHudStatesRemainReadable();
         progressAndAnchorsPersistAcrossSavePayload();
         orbitLayoutPersistsAcrossSavePayload();
         legacyMoonAnchorIsSanitized();
@@ -219,6 +220,30 @@ final class CelestialGameplayValidator {
         double separationAfter = Math.hypot(extractor.x - shipyard.x, extractor.y - shipyard.y);
         require(Math.abs(separationBefore - separationAfter) < 0.01,
                 "shared-radius/shared-speed stations must preserve their relative spacing over time");
+    }
+
+    private static void compactExtractionHudStatesRemainReadable() {
+        require("LOCATE ROCK".equals(CelestialGameplayOverlay.depositStatusText(
+                        true, 2, false, 0, 0, false, true)),
+                "exposed deposits must use a compact locate status");
+        require("IN FLIGHT".equals(CelestialGameplayOverlay.depositStatusText(
+                        false, 0, true, 0, 0, false, true)),
+                "charge flight must use a compact status");
+        require("RECYCLING 59:59".equals(CelestialGameplayOverlay.depositStatusText(
+                        false, 0, false, 3599, 120, false, true)),
+                "body recycle timer must stay compact and readable");
+        require("COOLDOWN 59:59".equals(CelestialGameplayOverlay.depositStatusText(
+                        false, 0, false, 0, 3599, false, true)),
+                "extractor cooldown timer must stay compact and readable");
+        require("READY — FIRE".equals(CelestialGameplayOverlay.depositStatusText(
+                        false, 0, false, 0, 0, true, true)),
+                "ready state must stay compact and actionable");
+        require("RESET PENDING".equals(CelestialGameplayOverlay.depositStatusText(
+                        false, 0, false, 0, 0, false, true)),
+                "post-extraction reset state must not use the old overlapping header phrase");
+        require("NEED EXTRACTOR".equals(CelestialGameplayOverlay.depositStatusText(
+                        false, 0, false, 0, 0, false, false)),
+                "missing extractor state must stay compact");
     }
 
     private static void scansAndObjectivesProgress() {
