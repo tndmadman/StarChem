@@ -51,37 +51,39 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Capture base render baseline
-        id: baseline
+      - name: Compare three paired baseline and candidate render measurements
         if: github.event_name == 'pull_request'
         shell: bash
         run: |
-          if [[ -f base/gradle/render-performance.gradle \
-                && -f base/src/main/java/com/tndmadman/rts/RenderPerformanceValidator.java ]]; then
-            if (
-              cd base
-              gradle -I gradle/render-performance.gradle validateRenderPerformance \
-                --no-daemon --stacktrace
-            ); then
-              echo 'available=true' >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          # The runner's p95 can jump under transient GC/scheduling pressure. Alternate
+          # checkout order and take three independent samples of EACH exact scenario.
+          # This preserves the same 20% p95 regression threshold and never skips a scene.
+          for i in 1 2 3; do
+            if (( i % 2 == 1 )); then
+              checkouts=(base head)
             else
-              echo 'available=false' >> "$GITHUB_OUTPUT"
-              echo '::warning::Base branch render baseline could not be built; running absolute head budgets without relative comparison.'
+              checkouts=(head base)
             fi
-          else
-            echo 'available=false' >> "$GITHUB_OUTPUT"
-            echo 'Base branch does not yet contain the render validator; skipping relative comparison for this bootstrap PR.'
-          fi
+            for checkout in "${checkouts[@]}"; do
+              (
+                cd "$checkout"
+                gradle -I gradle/render-performance.gradle validateRenderPerformance --no-daemon --stacktrace
+              )
+              cp "$checkout/build/reports/render-performance.csv" \
+                "$checkout/build/reports/render-performance-run-$i.csv"
+            done
+          done
+          python3 head/scripts/render-performance-compare.py \
+            --base base/build/reports/render-performance-run-{1,2,3}.csv \
+            --head head/build/reports/render-performance-run-{1,2,3}.csv \
+            --max-regression 20
 
-      - name: Run render regression suite
+      - name: Run standalone render validation
+        if: github.event_name != 'pull_request'
         shell: bash
         working-directory: head
-        run: |
-          gradle_args=(-I gradle/render-performance.gradle validateRenderPerformance --no-daemon --stacktrace)
-          if [[ '${{ steps.baseline.outputs.available }}' == 'true' ]]; then
-            gradle_args+=("-PrenderPerfBaseline=../base/build/reports/render-performance.csv")
-          fi
-          gradle "${gradle_args[@]}"
+        run: gradle -I gradle/render-performance.gradle validateRenderPerformance --no-daemon --stacktrace
 
       - name: Archive render performance reports
         if: always()
@@ -91,5 +93,5 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
           path: |
-            head/build/reports/render-performance.csv
-            base/build/reports/render-performance.csv
+            head/build/reports/render-performance*.csv
+            base/build/reports/render-performance*.csv
