@@ -39,6 +39,14 @@ final class ClientPackets {
             System.out.println("DIPLOMACY " + p[2] + ": " + notice);
             return;
         }
+        if (p[0].equals("EXTRACTION_RESULT") && p.length == 3) {
+            String notice = decodeText(p[2]);
+            if (notice.isBlank()) notice = "The server processed the extraction request.";
+            AlertCenter.push(c.world, notice);
+            c.world.status = notice;
+            System.out.println("EXTRACTION " + p[1] + ": " + notice);
+            return;
+        }
         if (p[0].equals("FIT_CATALOG") && p.length == 2) {
             WorldFitCatalog.applyNetworkView(c.world, FitStateWire.decode(p[1]));
             return;

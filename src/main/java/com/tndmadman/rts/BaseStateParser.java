@@ -9,7 +9,7 @@ final class BaseStateParser {
 
     static BaseState parse(String row, int rowIndex) {
         String[] c = SnapshotReader.columns(row, "bases", rowIndex);
-        SnapshotReader.requireColumns(c.length, "bases", rowIndex, 5, 6, 7, 8, 9, 10);
+        SnapshotReader.requireColumns(c.length, "bases", rowIndex, 5, 6, 7, 8, 9, 10, 14);
         String id = SnapshotReader.requiredText(c[0], 128, "bases", rowIndex, "base ID");
         String playerId = SnapshotReader.requiredText(c[1], 64, "bases", rowIndex, "player ID");
         String typeId = SnapshotReader.requiredText(c[2], 128, "bases", rowIndex, "station type ID");
@@ -31,6 +31,16 @@ final class BaseStateParser {
                 ? SnapshotReader.text(CargoCodec.unsafed(c[9]), MAX_LOGISTICS_STATUS_CHARS,
                         "bases", rowIndex, "logistics status")
                 : "";
-        return new BaseState(id, playerId, typeId, x, y, hp, shield, cargo, productionQueue, logisticsStatus);
+        String celestialAnchorBodyId = c.length == 14
+                ? SnapshotReader.text(CargoCodec.unsafed(c[10]), 128, "bases", rowIndex, "celestial anchor body ID")
+                : "";
+        double celestialOrbitRadius = c.length == 14
+                ? SnapshotReader.finite(c[11], 0, SnapshotReader.MAX_ABS_COORDINATE, "bases", rowIndex, "celestial orbit radius") : 0;
+        double celestialOrbitAngle = c.length == 14
+                ? SnapshotReader.finite(c[12], -SnapshotReader.MAX_SCALAR, SnapshotReader.MAX_SCALAR, "bases", rowIndex, "celestial orbit angle") : 0;
+        double celestialOrbitSpeed = c.length == 14
+                ? SnapshotReader.finite(c[13], -SnapshotReader.MAX_SCALAR, SnapshotReader.MAX_SCALAR, "bases", rowIndex, "celestial orbit speed") : 0;
+        return new BaseState(id, playerId, typeId, x, y, hp, shield, cargo, productionQueue, logisticsStatus,
+                celestialAnchorBodyId, celestialOrbitRadius, celestialOrbitAngle, celestialOrbitSpeed);
     }
 }

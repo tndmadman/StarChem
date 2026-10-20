@@ -5,6 +5,7 @@ import java.util.List;
 
 final class CelestialSnapshotSync {
     private static final String SEP = "~";
+    private static final String EXTRACTION_SEP = "~X1~";
 
     private CelestialSnapshotSync() { }
 
@@ -36,6 +37,8 @@ final class CelestialSnapshotSync {
                     .append(Calc.round(get(body, "y"))).append(',')
                     .append(Calc.round(get(body, "angle")));
         }
+        String extraction = CelestialExtractionSystem.networkState(system);
+        if (!extraction.isBlank()) out.append(EXTRACTION_SEP).append(extraction);
         return out.toString();
     }
 
@@ -43,8 +46,11 @@ final class CelestialSnapshotSync {
         if (data == null || data.isBlank()) return;
         CelestialSystem system = activeCelestials(world);
         if (system == null) return;
+        int extractionCut = data.indexOf(EXTRACTION_SEP);
+        String bodyData = extractionCut < 0 ? data : data.substring(0, extractionCut);
+        String extractionData = extractionCut < 0 ? "" : data.substring(extractionCut + EXTRACTION_SEP.length());
         List<Object> bodies = bodies(system);
-        String[] rows = data.split(";", -1);
+        String[] rows = bodyData.split(";", -1);
         int count = Math.min(bodies.size(), rows.length);
         for (int i = 0; i < count; i++) {
             String[] c = rows[i].split(",", -1);
@@ -54,6 +60,7 @@ final class CelestialSnapshotSync {
             set(body, "y", parse(c[1]));
             set(body, "angle", parse(c[2]));
         }
+        if (!extractionData.isBlank()) CelestialExtractionSystem.applyNetworkState(system, extractionData);
     }
 
     private static String clean(String systemId) {

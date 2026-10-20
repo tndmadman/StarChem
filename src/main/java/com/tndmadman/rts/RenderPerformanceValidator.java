@@ -5,6 +5,7 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferInt;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -39,6 +40,7 @@ public final class RenderPerformanceValidator {
 
         validateDestructionBudgets();
         validateSpriteCacheBound();
+        validateBatchedResourceAppearance();
 
         List<Scenario> scenarios = scenarios();
         validateScenarioCoverage(scenarios);
@@ -87,6 +89,31 @@ public final class RenderPerformanceValidator {
                 new Scenario("heavy-combat", defaultSystem, 80, false, 0, 0, 220, 56, 33.33),
                 new Scenario("capital-station-destruction", defaultSystem, 20, false, 6, 0, 60, 96, 33.33),
                 new Scenario("background-nebula-expanse", NEBULA_EXPANSE, 0, false, 0, 0, 0, 0, 12.0));
+    }
+
+    /** Pixel-identical normal and batched resource drawing, including selected overlays. */
+    private static void validateBatchedResourceAppearance() {
+        World world = buildWorld(new Scenario("resource-batch-equivalence",
+                StarSystems.DEFAULT_SYSTEM_ID, 0, false, 0, 180, 0, 0, 22.0));
+        for (double zoom : ZOOMS) {
+            BufferedImage normal = new BufferedImage(IMAGE_WIDTH, IMAGE_HEIGHT, BufferedImage.TYPE_INT_ARGB_PRE);
+            BufferedImage batch = new BufferedImage(IMAGE_WIDTH, IMAGE_HEIGHT, BufferedImage.TYPE_INT_ARGB_PRE);
+            Graphics2D left = normal.createGraphics();
+            Graphics2D right = batch.createGraphics();
+            try {
+                configureGraphics(left, world, zoom);
+                configureGraphics(right, world, zoom);
+                for (ResourceNode node : world.resources) ResourceFieldRenderer.draw(left, node, node.id == 50);
+                ResourceFieldRenderer.drawAll(right, world.resources, 50);
+            } finally {
+                left.dispose();
+                right.dispose();
+            }
+            int[] expected = ((DataBufferInt) normal.getRaster().getDataBuffer()).getData();
+            int[] actual = ((DataBufferInt) batch.getRaster().getDataBuffer()).getData();
+            require(Arrays.equals(expected, actual),
+                    "batched resource pass changed pixels at zoom " + zoom);
+        }
     }
 
     private static Result measure(Scenario scenario, double zoom) {

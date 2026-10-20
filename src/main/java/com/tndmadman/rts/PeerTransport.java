@@ -199,8 +199,16 @@ final class PeerTransport {
             TcpConnection connection = connections.get(packet.connectionId());
             return connection != null || isDisconnectEvent(packet);
         }
-        return expectedRemote != null && sameEndpoint(packet.address(), packet.port(),
+        TcpConnection current = clientConnection;
+        return current != null && current.open()
+                && clientPacketMatchesConnection(packet.connectionId(), current.id)
+                && expectedRemote != null && sameEndpoint(packet.address(), packet.port(),
                 expectedRemote.getAddress(), expectedRemote.getPort());
+    }
+
+    /** Reject already-queued packets from an obsolete TCP generation after RESUME. */
+    static boolean clientPacketMatchesConnection(ConnectionId packetId, ConnectionId activeId) {
+        return activeId != null && activeId.valid() && activeId.equals(packetId);
     }
 
     void recordSnapshotRejected() { perfStats.recordSnapshotDecodeFailure(); }

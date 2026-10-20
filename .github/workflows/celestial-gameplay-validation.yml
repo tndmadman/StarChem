@@ -17,6 +17,21 @@ on:
       - 'src/main/java/com/tndmadman/rts/CelestialSystem.java'
       - 'src/main/java/com/tndmadman/rts/ResourceNode.java'
       - 'src/main/java/com/tndmadman/rts/ResourceSpawner.java'
+      - 'src/main/java/com/tndmadman/rts/ResourceSync.java'
+      - 'src/main/java/com/tndmadman/rts/ResourceOrbitSync.java'
+      - 'src/main/java/com/tndmadman/rts/NetResourceSync.java'
+      - 'src/main/java/com/tndmadman/rts/NetModels.java'
+      - 'src/main/java/com/tndmadman/rts/SnapshotWriter.java'
+      - 'src/main/java/com/tndmadman/rts/SnapshotReader*.java'
+      - 'src/main/java/com/tndmadman/rts/BaseStateParser.java'
+      - 'src/main/java/com/tndmadman/rts/NetBaseSync.java'
+      - 'src/main/java/com/tndmadman/rts/Peer*.java'
+      - 'src/main/java/com/tndmadman/rts/AUnitMove.java'
+      - 'src/main/java/com/tndmadman/rts/BPackets.java'
+      - 'src/main/java/com/tndmadman/rts/SoundCue.java'
+      - 'src/main/java/com/tndmadman/rts/SystemAudio.java'
+      - 'src/main/java/com/tndmadman/rts/AudioEventCenter.java'
+      - 'src/main/java/com/tndmadman/rts/ProceduralAudio.java'
       - 'src/main/java/com/tndmadman/rts/Base.java'
       - 'src/main/java/com/tndmadman/rts/GameCamera.java'
       - 'src/main/java/com/tndmadman/rts/WorkSystem.java'
@@ -71,6 +86,12 @@ jobs:
 
       - name: Run live celestial resource bridge validator
         run: java -Djava.awt.headless=true -cp 'build/classes/java/main:build/resources/main' com.tndmadman.rts.CelestialResourceBridgeValidator
+
+      - name: Run snapshot hardening validation
+        run: gradle validateSnapshotHardening --no-daemon
+
+      - name: Run TCP multiplayer validation
+        run: gradle validateTcpMultiplayer --no-daemon
 
       - name: Run default verification
         run: gradle check --no-daemon

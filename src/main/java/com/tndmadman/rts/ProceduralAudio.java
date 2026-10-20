@@ -108,6 +108,16 @@ final class ProceduralAudio {
             case RESOURCE_DEPLETED -> add(
                     voice(Wave.NOISE, 220, 80, 0.180, 0.12, 0.75, 0.002, 0.160),
                     voice(Wave.SINE, 130, 72, 0.190, 0.070, 0.0, 0.010, 0.170));
+            case EXTRACTION_CHARGE_LAUNCH -> add(
+                    voice(Wave.SINE, 78, 42, 0.72, 0.18, 0.02, 0.004, 0.62),
+                    voice(Wave.SAW, 180, 1180, 0.48, 0.085, 0.12, 0.006, 0.18),
+                    voice(Wave.NOISE, 1450, 180, 0.105, 0.10, 0.82, 0.001, 0.090),
+                    voice(Wave.TRIANGLE, 420, 880, 0.32, 0.060, 0.02, 0.008, 0.21));
+            case EXTRACTION_FRACTURE_IMPACT -> add(
+                    voice(Wave.SINE, 64, 28, 1.05, 0.22, 0.02, 0.002, 0.92),
+                    voice(Wave.NOISE, 520, 48, 0.54, 0.18, 0.92, 0.001, 0.48),
+                    voice(Wave.SQUARE, 1320, 145, 0.095, 0.13, 0.24, 0.001, 0.078),
+                    voice(Wave.TRIANGLE, 240, 74, 0.78, 0.10, 0.06, 0.003, 0.66));
             case TRACTOR_BEAM -> add(
                     voice(Wave.SAW, 145, 210, 0.115, 0.050, 0.05, 0.012, 0.070),
                     voice(Wave.SINE, 520, 390, 0.130, 0.032, 0.0, 0.018, 0.080),

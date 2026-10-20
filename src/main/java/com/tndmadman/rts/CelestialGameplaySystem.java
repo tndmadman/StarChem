@@ -283,7 +283,9 @@ final class CelestialGameplaySystem {
         synchronized (STATES) {
             for (WorldSystemState candidate : STATES.values()) {
                 if (candidate == null || candidate == state || Objects.equals(candidate.id, state.id)) continue;
-                for (ResourceNode node : candidate.resources) if (node.id == id) return true;
+                for (ResourceNode node : candidate.resources) {
+                    if (node != null && node.id == id) return true;
+                }
             }
         }
         return false;

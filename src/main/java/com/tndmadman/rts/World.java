@@ -120,6 +120,11 @@ final class World {
     String playerStartRegionSystemId(String playerId) { return galaxy.playerStartRegionSystemId(playerId); }
     void activateSystem(String systemId) { celestials = galaxy.activate(this, systemId); systemTime = galaxy.activeSystemTime(); }
     void saveActiveSystem() { galaxy.saveActive(this); }
+    /** Persist newly created live assets, then immediately resolve planet/station anchoring. */
+    void refreshActiveCelestialGameplay() {
+        saveActiveSystem();
+        if (celestials != null) celestials.update(0);
+    }
     List<WorldSystemState> policySystemStates() { return galaxy.systemStates(this); }
     Map<String,Object> captureServerSaveGalaxy() { return galaxy.captureSave(this); }
     void restoreServerSaveGalaxy(Map<String,Object> save) { proceduralInactiveScheduler.reset(); celestials = galaxy.restoreSave(this, save); systemTime = galaxy.activeSystemTime(); selectedResourceId = -1; }
@@ -579,7 +584,7 @@ final class World {
         Iterable<Unit> visibleUnits = WorldRenderCandidates.units(this, g2);
 
         for (Base base : visibleBases) base.draw(g2, localColor, stockpile, true);
-        for (ResourceNode node : visibleResources) node.draw(g2, node.id == selectedResourceId);
+        ResourceFieldRenderer.drawAll(g2, visibleResources, selectedResourceId);
         for (WorldItem item : visibleItems) item.draw(g2);
         for (Unit unit : visibleUnits) {
             ResourceNode node = findResource(unit.automationResourceId);

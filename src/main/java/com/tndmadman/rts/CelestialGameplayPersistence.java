@@ -25,6 +25,7 @@ final class CelestialGameplayPersistence {
         if (world == null) return;
         Map<String,Object> root = ServerSaveStore.object(savedState);
         for (WorldSystemState state : world.policySystemStates()) {
+            CelestialExtractionSystem.bindWorld(state, world);
             restoreState(state, root.get(state.id));
         }
     }

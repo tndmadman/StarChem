@@ -37,7 +37,8 @@ final class SnapshotWriter {
                     .append(r.active()).append(',').append(Calc.round(r.respawnTimer())).append(',')
                     .append(precise(r.orbitCenterX())).append(',').append(precise(r.orbitCenterY())).append(',')
                     .append(precise(r.orbitRadius())).append(',').append(precise(r.orbitAngle())).append(',')
-                    .append(precise(r.orbitSpeed())).append(',').append(r.orbiting());
+                    .append(precise(r.orbitSpeed())).append(',').append(r.orbiting()).append(',')
+                    .append(CargoCodec.safe(r.celestialAnchorBodyId()));
         }
         StringBuilder bases = new StringBuilder();
         for (BaseState base : snapshot.bases()) {
@@ -46,7 +47,11 @@ final class SnapshotWriter {
                     .append(Calc.round(base.x())).append(',').append(Calc.round(base.y())).append(',')
                     .append(Calc.round(base.hp())).append(',').append(Calc.round(base.shield())).append(',')
                     .append(CargoCodec.safe(base.cargo())).append(',').append(CargoCodec.safe(base.productionQueue())).append(',')
-                    .append(CargoCodec.safe(base.logisticsStatus()));
+                    .append(CargoCodec.safe(base.logisticsStatus())).append(',')
+                    .append(CargoCodec.safe(base.celestialAnchorBodyId())).append(',')
+                    .append(precise(base.celestialOrbitRadius())).append(',')
+                    .append(precise(base.celestialOrbitAngle())).append(',')
+                    .append(precise(base.celestialOrbitSpeed()));
         }
         StringBuilder stocks = new StringBuilder();
         for (StockState stock : snapshot.stocks()) {

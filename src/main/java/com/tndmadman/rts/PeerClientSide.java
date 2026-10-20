@@ -299,6 +299,9 @@ final class PeerClientSide {
         sendCommandToServer("PROD|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(action) + "|"
                 + cleanPacketPart(baseId) + "|" + cleanPacketPart(value) + "|" + cleanPacketPart(extra));
     }
+    void extraction(String playerId, String systemId, String bodyId) {
+        sendCommandToServer(CelestialExtractionCommand.packet(playerId, systemId, bodyId));
+    }
     void fleet(String packet) { if (packet != null && packet.startsWith("FLEET|") && packet.length() <= 16 * 1024) sendCommandToServer(packet); }
     void devSetFreeCrafting(String playerId, boolean enabled) { sendCommandToServer("DEVFREE|" + cleanPacketPart(playerId) + "|" + (enabled ? "1" : "0")); }
     void devAddHangarResource(String playerId, String baseId, Material material, double amount) {
@@ -343,6 +346,12 @@ final class PeerClientSide {
         catch (NumberFormatException ex) { throw new SnapshotDecodeException("Malformed WELCOME packet: player color is not numeric."); }
         if (parts[1].isBlank() || parts[1].length() > 64 || parts[2].isBlank() || parts[2].length() > 128) {
             throw new SnapshotDecodeException("Malformed WELCOME packet: invalid player identity.");
+        }
+        // A password reclaim after a lost rotation must never silently register
+        // a different player and discard the in-game identity or world progress.
+        if (connectedOnce && !localPlayerId.equals(parts[1])) {
+            failConnection("Server returned a different player identity during recovery.");
+            return;
         }
         String newSessionToken = markerValue(parts, "SESSION");
         if (!validSessionToken(newSessionToken)) {
@@ -646,21 +655,39 @@ final class PeerClientSide {
 
     private boolean readSessionDenied(String message) {
         if (message == null || !message.startsWith("SESSION_DENIED|")) return false;
+        // A delayed denial from an earlier handshake must not evict a session
+        // that already accepted WELCOME and authoritative state.
+        if (state != ConnectionState.RECONNECTING) return true;
         String reason = message.length() > 15 ? message.substring(15).trim() : "Saved session was rejected.";
-        SessionTokenStore.clear(config);
+        boolean reclaimSamePlayer = connectedOnce;
+        boolean hasReclaimCredential = PasswordAuth.validVerifier(scopedPasswordVerifier)
+                || config.localHostClientMode() && PasswordAuth.validVerifier(passwordVerifier);
+        if (reclaimSamePlayer && hasReclaimCredential) {
+            SessionTokenStore.clearRejectedSessionToken(config);
+        } else {
+            SessionTokenStore.clear(config);
+        }
         sessionToken = "";
         sessionChallengeNonce = "";
         transport.clearOutbound();
-        if (!connectedOnce && state == ConnectionState.RECONNECTING) {
-            localPlayerId = "SOLO";
-            state = ConnectionState.JOINING;
-            attemptStarted = System.currentTimeMillis();
-            lastHandshake = 0;
-            world.status = (reason.isBlank() ? "Saved session was rejected." : reason)
-                    + (observerRequest.requested() ? " Rejoining with the requested observer permission." : " Joining as a new player.");
+        if (reclaimSamePlayer && !hasReclaimCredential) {
+            failConnection("Session resume expired and the player credential is unavailable. Sign in again.");
             return true;
         }
-        failConnection(reason.isBlank() ? "Saved session was rejected." : reason);
+        // Resume rotations can be lost repeatedly under a broken connection.
+        // Re-authenticate with the scoped password credential instead of treating
+        // the old session token as permanent authority or losing the player ID.
+        if (!reclaimSamePlayer) localPlayerId = "SOLO";
+        state = ConnectionState.JOINING;
+        attemptStarted = System.currentTimeMillis();
+        lastHandshake = 0;
+        authChallengeSalt = "";
+        authChallengeNonce = "";
+        authRegistrationRequested = false;
+        world.status = reclaimSamePlayer
+                ? "Session resume token expired. Reclaiming the existing player with password authentication."
+                : (reason.isBlank() ? "Saved session was rejected." : reason)
+                    + (observerRequest.requested() ? " Rejoining with observer permission." : " Signing in again.");
         return true;
     }
 
