@@ -52,6 +52,8 @@ public final class TcpReconnectIntegrationValidator {
             String tokenBefore = SessionTokenStore.load(reconnecting.config()).token();
             ConnectionId connectionBefore = harness.serverNetwork.connectionIdForPlayer(playerId);
             TcpIntegrationHarness.require(connectionBefore.valid(), "initial server connection ID was missing");
+            ConnectionId clientConnectionBefore = reconnecting.network().clientConnectionId();
+            TcpIntegrationHarness.require(clientConnectionBefore.valid(), "initial client connection ID was missing");
 
             proxy.dropActiveConnection();
             harness.await(() -> reconnecting.network().clientReconnecting(), 5_000,
@@ -82,6 +84,16 @@ public final class TcpReconnectIntegrationValidator {
             ConnectionId connectionAfter = harness.serverNetwork.connectionIdForPlayer(playerId);
             TcpIntegrationHarness.require(connectionAfter.valid() && !connectionAfter.equals(connectionBefore),
                     "reconnect did not attach a new connection ID");
+            ConnectionId clientConnectionAfter = reconnecting.network().clientConnectionId();
+            TcpIntegrationHarness.require(clientConnectionAfter.valid()
+                            && !clientConnectionAfter.equals(clientConnectionBefore),
+                    "reconnect did not replace the client TCP connection identity");
+            TcpIntegrationHarness.require(
+                    !PeerTransport.clientPacketMatchesConnection(clientConnectionBefore, clientConnectionAfter),
+                    "a queued packet from the previous TCP connection could be accepted after resume");
+            TcpIntegrationHarness.require(
+                    PeerTransport.clientPacketMatchesConnection(clientConnectionAfter, clientConnectionAfter),
+                    "packets from the resumed TCP connection were unexpectedly rejected");
             TcpIntegrationHarness.require(!tokenAfter.isBlank() && !tokenAfter.equals(tokenBefore),
                     "successful RESUME did not rotate and persist the session token");
             TcpIntegrationHarness.require(observer.network().clientConnected(), "observer was affected by another client's reconnect");
