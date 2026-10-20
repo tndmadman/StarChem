@@ -2,20 +2,20 @@
 
 StarChem is a Java 17 2D top-down space RTS with solo play and dedicated-server multiplayer.
 
-## StarChem v1.8.0
+## StarChem v1.8.2
 
-The v1.8.0 release line uses:
+The published v1.8.2 release remains on the v1.8 compatibility generation:
 
 - multiplayer protocol **17**;
 - rules version **27**;
 - dedicated-server save format **6**.
 
-Published StarChem v1.7.0 multiplayer uses protocol 8 and is intentionally incompatible with v1.8.0. Persistent v1.7.0 servers can be upgraded through the validated migration path described in [`UPGRADING_TO_1.8.0.md`](UPGRADING_TO_1.8.0.md).
+Published StarChem v1.7.0 multiplayer uses protocol 8 and is intentionally incompatible with the v1.8 release line. Persistent v1.7.0 servers can be upgraded through the validated migration path described in [`UPGRADING_TO_1.8.0.md`](UPGRADING_TO_1.8.0.md).
 
 Release-facing documentation:
 
 - [`PLAY.txt`](PLAY.txt) — shortest player/server launch instructions.
-- [`RELEASE_NOTES.md`](RELEASE_NOTES.md) — v1.8.0 feature and compatibility summary.
+- [`RELEASE_NOTES.md`](RELEASE_NOTES.md) — current v1.8.2 hotfix and carried-forward feature/compatibility summary.
 - [`UPGRADING_TO_1.8.0.md`](UPGRADING_TO_1.8.0.md) — required persistent-server upgrade procedure.
 - [`AUTHENTICATION.md`](AUTHENTICATION.md) — commander accounts, password authentication, session resume, and remembered sign-ins.
 - [`TLS_IDENTITY_SECURITY.md`](TLS_IDENTITY_SECURITY.md) — server TLS identity, certificate pinning, managed key files, and external keystore configuration.
@@ -279,7 +279,7 @@ Rules and manufacturing data are loaded from the packaged `config/` directory. M
 
 ## Development and verification
 
-Local source builds resolve to the repository development version (`1.8.0-dev` during v1.8 preparation). Release builds receive the final semantic version and build commit through the release workflow.
+Local source builds currently resolve to `1.8.2-dev` (see `gradle.properties`). Release builds receive the final semantic version and build commit through the release workflow.
 
 The normal repository verification command is:
 
@@ -303,7 +303,7 @@ Before tagging, follow [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md). In summar
 
 1. Keep `RELEASE_NOTES.md`, `gradle.properties`, runtime fallback identity, protocol/rules/save documentation, and upgrade docs consistent.
 2. Require the exact final `main` commit to pass normal CI and the generic release-package workflow.
-3. Tag that exact immutable commit with `v1.8.0`.
+3. Only for a separately authorized new release, select an unused semantic-version tag, update the release identity and notes consistently, then tag the exact validated `main` commit. Do not reuse the published `v1.8.2` tag.
 4. The tag-triggered workflow rebuilds and verifies the JAR, runs canonical regressions, creates a deterministic ZIP and checksum, validates the extracted Linux package, validates Windows launchers, and only then publishes the GitHub Release assets.
 5. Do not manually rebuild or substitute release artifacts after the validated workflow.
 
