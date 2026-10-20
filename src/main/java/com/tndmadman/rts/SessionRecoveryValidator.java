@@ -358,6 +358,8 @@ public final class SessionRecoveryValidator {
             require(firstWorld.hasLiveAssets("P9"), "password reclaim discarded player assets");
             require(!SessionTokenStore.load(config).valid(),
                     "expired session token remained persisted after server rejection");
+            require(SessionTokenStore.scopedCredential(config).valid(),
+                    "password reclaim must retain its separately trusted server-scoped credential");
             String reclaimedToken = "D".repeat(43);
             firstClient.readWelcome(welcomeParts(firstWorld, "P9", reclaimedToken));
             applyInitialSync(firstClient, firstWorld, "P9", 3);
