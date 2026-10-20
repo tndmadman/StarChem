@@ -27,7 +27,6 @@ import java.awt.event.MouseWheelEvent;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Point2D;
 import java.lang.ref.WeakReference;
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -57,9 +56,6 @@ final class CelestialGameplayOverlay {
     private static final Map<World, String> SELECTED = Collections.synchronizedMap(new WeakHashMap<>());
     private static final Map<World, IntelPanel> PANELS = Collections.synchronizedMap(new WeakHashMap<>());
     private static volatile boolean listenerInstalled;
-    private static Field gamePanelWorldField;
-    private static Field gamePanelNetworkField;
-
     private CelestialGameplayOverlay() { }
 
     static void ensureInstalled(World world) {
@@ -281,33 +277,11 @@ final class CelestialGameplayOverlay {
     }
 
     private static World worldFrom(GamePanel panel) {
-        try {
-            Field field = gamePanelWorldField;
-            if (field == null) {
-                field = GamePanel.class.getDeclaredField("world");
-                field.setAccessible(true);
-                gamePanelWorldField = field;
-            }
-            Object value = field.get(panel);
-            return value instanceof World world ? world : null;
-        } catch (ReflectiveOperationException | RuntimeException ignored) {
-            return null;
-        }
+        return panel == null ? null : panel.celestialWorld();
     }
 
     private static PeerNetwork networkFrom(GamePanel panel) {
-        try {
-            Field field = gamePanelNetworkField;
-            if (field == null) {
-                field = GamePanel.class.getDeclaredField("network");
-                field.setAccessible(true);
-                gamePanelNetworkField = field;
-            }
-            Object value = field.get(panel);
-            return value instanceof PeerNetwork network ? network : null;
-        } catch (ReflectiveOperationException | RuntimeException ignored) {
-            return null;
-        }
+        return panel == null ? null : panel.celestialNetwork();
     }
 
     private static String formatCooldown(double seconds) {
