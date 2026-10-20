@@ -80,9 +80,22 @@ public final class TcpSoakValidator {
             }
 
             proxy.resumeServerToClient();
-            harness.await(() -> faulted.network().clientConnected()
-                            && harness.serverNetwork.serverSessionConnected(faulted.playerId()),
-                    45_000, "fault-injected client did not recover before soak completion");
+            try {
+                harness.await(() -> faulted.network().clientConnected()
+                                && harness.serverNetwork.serverSessionConnected(faulted.playerId()),
+                        45_000, "fault-injected client did not recover before soak completion");
+            } catch (IllegalStateException failure) {
+                throw new IllegalStateException(failure.getMessage()
+                        + " | client=" + faulted.network().clientConnectionProgress()
+                        + " | clientConnection=" + faulted.network().clientConnectionId()
+                        + " | clientFailure=" + faulted.network().failureMessage()
+                        + " | serverConnection=" + harness.serverNetwork.connectionIdForPlayer(faulted.playerId())
+                        + " | serverSessionConnected=" + harness.serverNetwork.serverSessionConnected(faulted.playerId())
+                        + " | serverPeers=" + harness.serverNetwork.serverPeerCount()
+                        + " | proxyActive=" + proxy.activeConnection()
+                        + " | proxyDownstreamPaused=" + proxy.serverToClientPaused()
+                        + " | seed=" + seed + " | iterations=" + iteration, failure);
+            }
             harness.await(() -> harness.serverNetwork.serverPeerCount() == clients.size(), 20_000,
                     "server peer count did not recover after soak faults");
             for (TcpIntegrationHarness.TestClient client : clients) {
