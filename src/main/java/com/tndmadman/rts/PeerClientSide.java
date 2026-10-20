@@ -662,7 +662,11 @@ final class PeerClientSide {
         boolean reclaimSamePlayer = connectedOnce;
         boolean hasReclaimCredential = PasswordAuth.validVerifier(scopedPasswordVerifier)
                 || config.localHostClientMode() && PasswordAuth.validVerifier(passwordVerifier);
-        SessionTokenStore.clear(config);
+        if (reclaimSamePlayer && hasReclaimCredential) {
+            SessionTokenStore.clearRejectedSessionToken(config);
+        } else {
+            SessionTokenStore.clear(config);
+        }
         sessionToken = "";
         sessionChallengeNonce = "";
         transport.clearOutbound();
