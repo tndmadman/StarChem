@@ -1,15 +1,15 @@
-# StarChem v1.8.1 release checklist
+# StarChem v1.8-generation release checklist
 
-This checklist is for the maintainer publishing StarChem v1.8.1. The generic `.github/workflows/release.yml` workflow remains the only publisher.
+This is the checklist for a separately authorized future StarChem release. v1.8.2 has already been published: do not recreate or move its tag. The generic `.github/workflows/release.yml` workflow remains the only publisher. Replace the `X.Y.Z` placeholders below with the newly approved version, not an existing published version.
 
 ## 1. Freeze the release candidate
 
-- Confirm `main` contains all intended v1.8.1 code and no known release-blocking issue remains open.
+- Confirm `main` contains all code intended for the new release and no known release-blocking issue remains open.
 - Stop merging unrelated feature work while the final candidate is being validated.
-- Confirm the development identity is `1.8.1-dev` before tagging; the tag-triggered workflow supplies final `1.8.1` to the release build.
-- Confirm `RELEASE_NOTES.md` begins exactly with `# StarChem v1.8.1`.
-- Confirm the compatibility generation remains multiplayer protocol 17, rules version 27, and save format 6.
-- Confirm the multiplayer release note explicitly states that v1.8.0 and v1.8.1 still require matching application versions and therefore must be updated together.
+- Set the development identity to the new approved `X.Y.Z-dev` in `gradle.properties` and `BuildInfo.java` before tagging; do not retag existing v1.8.2 builds.
+- Confirm `RELEASE_NOTES.md` begins exactly with `# StarChem vX.Y.Z` for that same approved release.
+- Verify the compatibility generation and document any genuine protocol, rules, or save-format change. The current v1.8.2 baseline is protocol 17, rules version 27, and save format 6; do not bump these arbitrarily.
+- State that multiplayer peers require matching application versions, even when the protocol/rules/save generation remains unchanged.
 
 ## 2. Review release-facing documentation
 
@@ -23,7 +23,7 @@ Review these files together:
 - `UPGRADING_TO_1.8.0.md`
 - `RELEASE_CHECKLIST.md`
 
-`UPGRADING_TO_1.8.0.md` remains the migration guide for persistent servers coming from published v1.7.0 because v1.8.1 stays on the v1.8 protocol/save generation.
+`UPGRADING_TO_1.8.0.md` remains the migration guide for persistent servers coming from published v1.7.0 because published v1.8.2 stays on the v1.8 protocol/save generation.
 
 Run:
 
@@ -89,7 +89,7 @@ The macOS package leg must still verify the candidate checksum/build identity, p
 
 Do not tag while the RC workflow is skipped, pending, cancelled, or red on the final `main` commit.
 
-## 5. Validate v1.8.1-specific regressions
+## 5. Validate v1.8.1/v1.8.2 regressions
 
 Before tagging, confirm the exact candidate also passes the new/changed areas introduced after v1.8.0:
 
@@ -105,10 +105,10 @@ Manual release acceptance should include a real WAN host/client check with produ
 
 ## 6. Check persistent-server readiness
 
-### v1.8.0 -> v1.8.1
+### Published v1.8.0/v1.8.1/v1.8.2 -> new candidate
 
-- Confirm save format remains 6.
-- Load representative v1.8.0 server data with the v1.8.1 candidate.
+- Verify the save format and any required migration against the actual candidate; current published v1.8.2 uses format 6.
+- Load representative saved servers from the supported v1.8 releases with the new candidate.
 - Verify players, inventory, research, production queues/policies, fog/intel state, sessions, TLS identity, and companion state remain intact.
 - Resave and restart under the same candidate.
 - Keep a complete untouched backup of the pre-update server-data directory for rollback.
@@ -130,10 +130,10 @@ Do not replace this with a hand-authored approximation of an old save.
 After every required workflow is green, identify the exact final `main` SHA and create the immutable tag:
 
 ```text
-v1.8.1
+vX.Y.Z
 ```
 
-The tag must point to the exact commit that passed final validation. Do not move or force-update an existing release tag.
+Use only the unused, separately authorized version; do not recreate `v1.8.2`. The tag must point to the exact commit that passed final validation. Do not move or force-update an existing release tag.
 
 ## 8. Let the workflow publish
 
@@ -142,8 +142,8 @@ The tag-triggered `.github/workflows/release.yml` run must perform validation ag
 Expected release assets:
 
 ```text
-StarChem-v1.8.1.zip
-StarChem-v1.8.1.zip.sha256
+StarChem-vX.Y.Z.zip
+StarChem-vX.Y.Z.zip.sha256
 ```
 
 Do not manually rebuild, rename, replace, or re-upload different binaries under the same validated release identity.
@@ -155,24 +155,24 @@ After GitHub reports the release published:
 - download the public ZIP and checksum from the release;
 - verify the SHA-256 file against the downloaded ZIP;
 - extract the ZIP into a fresh directory;
-- verify `java -jar StarChem.jar --version` reports `StarChem 1.8.1` and the expected commit prefix;
+- verify `java -jar StarChem.jar --version` reports the authorized new version and expected commit prefix;
 - launch the Windows, Linux, or macOS player package on the intended platform;
 - start a dedicated server from the packaged launcher and confirm `Dedicated server ready.`;
 - confirm `java -jar StarChem.jar --help` shows the documented server/event options;
 - verify F9 Manufacturing opens and can route a simple production request;
 - verify narration is disabled by default and can be explicitly enabled on a supported desktop platform;
-- verify a v1.8.0 client is rejected by a v1.8.1 server as an application-version mismatch rather than silently mixing versions;
+- verify an older-version client is rejected by the new-version server as an application-version mismatch rather than silently mixing versions;
 - confirm the packaged release contains README, quick start, release notes, authentication/TLS guidance, v1.8 upgrade guidance, legal notices, `config/`, JAR, and platform launchers.
 
 ## 10. Roll back a bad publication safely
 
 If post-publish verification exposes a release-blocking problem, do not silently replace assets under the same tag. Stop distribution, preserve the failed artifacts/logs, fix the repository on a new commit, rerun the complete release wall, and publish an appropriate new immutable version/tag.
 
-For a persistent server that has already run v1.8.1, restore the complete untouched pre-update server-data backup when rolling back rather than assuming an older binary has been release-tested against files written by the newer build.
+For a persistent server that has already run the newer version, restore the complete untouched pre-update server-data backup when rolling back rather than assuming an older binary has been release-tested against files written by the newer build.
 
-## Historical previous package identity
+## Historical v1.8.0 package identity
 
-The previous published release was `v1.8.0` and used these immutable package names:
+The original published v1.8.0 package used these immutable names; retain this history for the release-documentation gate:
 
 ```text
 StarChem-v1.8.0.zip
