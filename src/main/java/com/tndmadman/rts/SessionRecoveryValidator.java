@@ -295,6 +295,9 @@ public final class SessionRecoveryValidator {
             require(!Files.readString(store).contains(transientVerifier),
                     "process-only password verifier was persisted to disk");
 
+            SessionTokenStore.saveScopedCredential(config, TEST_SERVER_FINGERPRINT,
+                    "55".repeat(16), PasswordAuth.verifier(config.playerName, "validator-password"));
+
             World firstWorld = new World("Recovery Client", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
             PlayerRegistry.activate(firstWorld);
             PlayerRegistry.reset("WAIT", "Recovery Client", 0x50BEFF);
@@ -336,6 +339,32 @@ public final class SessionRecoveryValidator {
                     "resumed authoritative snapshot did not restore connected state");
             require(rotatedToken.equals(SessionTokenStore.load(config).token()),
                     "rotated resume token was not persisted");
+
+            // Reject a delayed denial from the earlier handshake without dropping READY.
+            firstClient.handle("SESSION_DENIED|Obsolete resume attempt.");
+            require(firstClient.readyState() && rotatedToken.equals(SessionTokenStore.load(config).token()),
+                    "obsolete resume denial invalidated an established connection");
+
+            // A lost WELCOME can cause an old rotating token to expire under repeated faults.
+            // Reclaim the SAME authenticated player with a scoped credential rather than
+            // creating a duplicate account or throwing away the existing world state.
+            firstClient.tick(System.currentTimeMillis() + PeerClientSide.serverSilenceMs() + 1_000);
+            require(firstClient.reconnecting(), "client did not enter reconnect recovery");
+            require(firstWorld.hasLiveAssets("P9"), "reconnect fixture lost authoritative assets");
+            firstClient.handle("SESSION_DENIED|Session token was rejected.");
+            require(firstClient.statusLine().contains("CLIENT joining")
+                            && "P9".equals(firstClient.localPlayerId()),
+                    "expired session token did not enter same-player authenticated reclaim");
+            require(firstWorld.hasLiveAssets("P9"), "password reclaim discarded player assets");
+            require(!SessionTokenStore.load(config).valid(),
+                    "expired session token remained persisted after server rejection");
+            String reclaimedToken = "D".repeat(43);
+            firstClient.readWelcome(welcomeParts(firstWorld, "P9", reclaimedToken));
+            applyInitialSync(firstClient, firstWorld, "P9", 3);
+            require(firstClient.readyState() && "P9".equals(firstClient.localPlayerId()),
+                    "password reclaim did not resynchronize the original player");
+            require(reclaimedToken.equals(SessionTokenStore.load(config).token()),
+                    "reclaimed session token was not persisted");
 
             World secondWorld = new World("Recovery Client", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
             PlayerRegistry.activate(secondWorld);
