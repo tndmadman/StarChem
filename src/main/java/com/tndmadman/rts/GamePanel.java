@@ -81,6 +81,10 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         timer = new Timer(16, e -> tick());
     }
 
+    /** Typed read-only hooks for the celestial HUD; no reflective private-field access. */
+    World celestialWorld() { return world; }
+    PeerNetwork celestialNetwork() { return network; }
+
     void start() {
         AiBrainLog.setEnabled(devMode && client == null);
         requestFocusInWindow();
