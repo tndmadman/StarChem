@@ -584,7 +584,7 @@ final class World {
         Iterable<Unit> visibleUnits = WorldRenderCandidates.units(this, g2);
 
         for (Base base : visibleBases) base.draw(g2, localColor, stockpile, true);
-        for (ResourceNode node : visibleResources) node.draw(g2, node.id == selectedResourceId);
+        ResourceFieldRenderer.drawAll(g2, visibleResources, selectedResourceId);
         for (WorldItem item : visibleItems) item.draw(g2);
         for (Unit unit : visibleUnits) {
             ResourceNode node = findResource(unit.automationResourceId);
