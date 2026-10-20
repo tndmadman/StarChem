@@ -208,6 +208,23 @@ final class SessionTokenStore {
         return true;
     }
 
+    /** Discard an expired bearer token without erasing the separately verified password
+     * credential or TLS trust. Only use this when re-authenticating the same player. */
+    static synchronized void clearRejectedSessionToken(Config config) {
+        if (config == null || config.localHostClientMode()) return;
+        EndpointKeys keys = endpointKeys(config);
+        if (!keys.valid()) return;
+        ClientSessionPropertiesStore.update(properties -> {
+            migrateProperties(properties, keys);
+            String aliased = properties.getProperty(sessionAliasKey(keys.sessionKey()), "");
+            properties.remove(keys.sessionKey());
+            properties.remove(keys.legacySessionKey());
+            if (!aliased.isBlank()) properties.remove(aliased);
+            properties.remove(sessionAliasKey(keys.sessionKey()));
+            return null;
+        });
+    }
+
     static synchronized void clear(Config config) {
         EndpointKeys keys = endpointKeys(config);
         if (!keys.valid()) return;
