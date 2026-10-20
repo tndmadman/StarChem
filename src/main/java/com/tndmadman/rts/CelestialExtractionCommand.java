@@ -23,7 +23,12 @@ final class CelestialExtractionCommand {
         if (server == null || parts == null || parts.length != 4 || connectionId == null || !connectionId.valid()) return;
         String playerId = server.ownerId(connectionId, parts[1]);
         server.touch(connectionId);
-        if (!server.owns(connectionId, playerId) || ObserverSessions.isObserver(server.world, playerId)) return;
+        if (!server.owns(connectionId, playerId)) return; // unauthenticated peers receive no gameplay details
+        if (ObserverSessions.isObserver(server.world, playerId)) {
+            send(server, connectionId, new CelestialExtractionSystem.FireResult(false,
+                    "Observer sessions are read-only and cannot fire extraction charges."));
+            return;
+        }
 
         String systemId = clean(parts[2], 128);
         String bodyId = clean(parts[3], 128);
