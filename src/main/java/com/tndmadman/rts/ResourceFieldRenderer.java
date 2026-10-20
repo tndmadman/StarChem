@@ -43,20 +43,48 @@ final class ResourceFieldRenderer {
 
     static void draw(Graphics2D source, ResourceNode node, boolean selected) {
         if (source == null || node == null || !node.active) return;
-        Lod lod = lodFor(source);
-        boolean backdrop = shouldDrawBackdrop(node, lod);
-        double cullRadius = backdrop ? fieldRadius(node.kind, lod) : nodeVisualRadius(node) + 18;
-        if (!RenderCulling.visible(source, node.x, node.y, cullRadius)) return;
-
         Graphics2D g = (Graphics2D) source.create();
+        try {
+            configure(g);
+            drawPrepared(g, node, selected);
+        } finally {
+            g.dispose();
+        }
+    }
+
+    /**
+     * Renders a full visible-resource pass with one isolated Graphics2D context.
+     * Avoids allocating/cloning 180 individual contexts in dense resource fields,
+     * without changing the visibility, LOD or sprite appearance of any node.
+     */
+    static void drawAll(Graphics2D source, Iterable<ResourceNode> nodes, int selectedResourceId) {
+        if (source == null || nodes == null) return;
+        Graphics2D g = (Graphics2D) source.create();
+        try {
+            configure(g);
+            for (ResourceNode node : nodes) {
+                if (node != null) drawPrepared(g, node, node.id == selectedResourceId);
+            }
+        } finally {
+            g.dispose();
+        }
+    }
+
+    private static void configure(Graphics2D g) {
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+    }
 
+    private static void drawPrepared(Graphics2D g, ResourceNode node, boolean selected) {
+        if (node == null || !node.active) return;
+        Lod lod = lodFor(g);
+        boolean backdrop = shouldDrawBackdrop(node, lod);
+        double cullRadius = backdrop ? fieldRadius(node.kind, lod) : nodeVisualRadius(node) + 18;
+        if (!RenderCulling.visible(g, node.x, node.y, cullRadius)) return;
         if (backdrop) drawFieldSprite(g, node, lod);
         drawHarvestNodeSprite(g, node, selected);
         drawAmountBar(g, node, selected);
-        g.dispose();
     }
 
     /**
