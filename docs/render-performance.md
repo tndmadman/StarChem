@@ -174,3 +174,11 @@ then cover extraction charging, impact audio/VFX, released debris, depletion,
 cooldown and refire, moon eligibility, save/reload and connected-client recovery.
 Record OS, CPU, GPU, Java build, zoom, resolution and observed full-frame p95.
 No headless test is proof that those manual steps passed.
+
+### Benchmark fixture ownership
+
+`RenderPerformanceValidator` disposes each scenario world (including the pixel-equivalence
+fixture) after measurement. This prevents accumulated world-scoped celestial registries and
+spatial/selection caches from distorting subsequent scenario samples in the same JVM.
+The pixel-equivalence assertion still compares the original and batched resource drawing
+at all three supported zoom levels. The 33-case, three-pair, 20% PR comparison is unchanged.

@@ -95,7 +95,8 @@ public final class RenderPerformanceValidator {
     private static void validateBatchedResourceAppearance() {
         World world = buildWorld(new Scenario("resource-batch-equivalence",
                 StarSystems.DEFAULT_SYSTEM_ID, 0, false, 0, 180, 0, 0, 22.0));
-        for (double zoom : ZOOMS) {
+        try {
+            for (double zoom : ZOOMS) {
             BufferedImage normal = new BufferedImage(IMAGE_WIDTH, IMAGE_HEIGHT, BufferedImage.TYPE_INT_ARGB_PRE);
             BufferedImage batch = new BufferedImage(IMAGE_WIDTH, IMAGE_HEIGHT, BufferedImage.TYPE_INT_ARGB_PRE);
             Graphics2D left = normal.createGraphics();
@@ -113,6 +114,9 @@ public final class RenderPerformanceValidator {
             int[] actual = ((DataBufferInt) batch.getRaster().getDataBuffer()).getData();
             require(Arrays.equals(expected, actual),
                     "batched resource pass changed pixels at zoom " + zoom);
+            }
+        } finally {
+            world.dispose();
         }
     }
 
@@ -172,6 +176,9 @@ public final class RenderPerformanceValidator {
         } finally {
             releaseExplosions(world);
             g2.dispose();
+            // Every scenario builds a real World with registered galaxy/celestial state.
+            // Keeping 33 worlds alive until JVM exit distorts repeat samples and heap use.
+            world.dispose();
         }
     }
 
