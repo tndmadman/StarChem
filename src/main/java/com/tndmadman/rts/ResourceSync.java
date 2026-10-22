@@ -14,6 +14,13 @@ final class ResourceSync {
 
     private ResourceSync() { }
 
+    static void clear(World world) {
+        if (world == null) return;
+        DIRTY.remove(world);
+        FULL.remove(world);
+        SENT.remove(world);
+    }
+
     static void mark(World world, ResourceNode node) {
         if (world == null || node == null) return;
         DIRTY.computeIfAbsent(world, w -> new LinkedHashMap<>()).put(node.id, DIRTY_SENDS);

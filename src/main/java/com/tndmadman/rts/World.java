@@ -79,6 +79,23 @@ final class World {
                 : "Waiting for player assignment in " + starSystem.name() + ".";
     }
 
+    /** Called when a match/client/server world is permanently torn down, not on system travel. */
+    void dispose() {
+        galaxy.dispose(this);
+        remoteGalaxyMapSnapshot = null;
+        celestials = null;
+        proceduralInactiveScheduler.reset();
+        clearNpcAiRuntimeState();
+        ProductionPolicySystem.clear(this);
+        ResourceSync.clear(this);
+        WorldSpatialIndex.clear(this);
+        WorldRenderCandidates.clear(this);
+        SystemAudio.forget(this);
+        PlayerRegistry.dispose(this);
+    }
+
+    List<String> simulationSystemIdsForTesting() { return galaxy.simulationSystemIds(); }
+
     long systemSeed() { return systemSeed; }
     double systemTime() { return systemTime; }
     String systemId() { return starSystem.id(); }
@@ -493,7 +510,8 @@ final class World {
     private void updateInactiveSystems(double dt) {
         if (dt == 0) return;
         if (GalaxyRuntimeOptions.generationSettings().procedural()) {
-            proceduralInactiveScheduler.update(this, dt, authoritativeGalaxyMapSnapshot());
+            // Avoid building a full UI/replication galaxy snapshot just to schedule four systems.
+            proceduralInactiveScheduler.updateRoster(this, dt, galaxy.simulationSystemIds());
             return;
         }
         String previousSystemId = activeSystemId();

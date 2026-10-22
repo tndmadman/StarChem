@@ -92,7 +92,29 @@ final class CelestialResourceBridgeValidator {
                     "refire must reactivate the same live ResourceNode object for id " + previous.id);
         }
 
-        System.out.println("Celestial live resource bridge validation passed.");
+        // Each density gets a fresh actual-ID pass; the scratch must not carry membership from
+        // the previous pass or accidentally suppress released persistent deposits.
+        for (int density : new int[] {0, 1, 100, 500, 1000}) {
+            List<ResourceNode> crowded = new ArrayList<>();
+            for (int i = 0; i < density; i++) {
+                ResourceNode ordinary = new ResourceNode(2_000_000 + i, "ordinary", NodeKind.SILICATE_ROCK,
+                        Material.IRON, 0, 0, 100, 1, 8);
+                if ((i & 3) == 0) ordinary.deplete();
+                crowded.add(ordinary);
+            }
+            for (int repeat = 0; repeat < 20; repeat++) {
+                ResourceSpawner.update(crowded, celestials, 0.0);
+                require(crowded.size() == density + refired.size(), "dense pass must bridge once");
+                require(ids(crowded).size() == crowded.size(), "dense pass must never duplicate IDs");
+            }
+        }
+
+        // A recreated system must never reuse a removed world's ID scratch or state registry.
+        state.dispose();
+        require(!state.registeredForTesting(), "bridge state must unregister on dispose");
+        require(state.resourceBridgeIds.capacityForTesting() >= 8, "reusable scratch was exercised");
+
+        System.out.println("Celestial live resource bridge validation passed (0/1/100/500/1000 x 20).");
     }
 
     private static CelestialSystem.BodyView firstPlanet(WorldSystemState state) {

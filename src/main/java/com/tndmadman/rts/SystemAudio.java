@@ -26,6 +26,15 @@ final class SystemAudio {
         }
     }
 
+    static void forget(World world) {
+        if (world == null) return;
+        NON_RENDERED_WORLDS.remove(world);
+        if (listenerWorld == world) {
+            listenerWorld = null;
+            listenerSystemId = "";
+        }
+    }
+
     static boolean nonRendered(World world) {
         return world != null && NON_RENDERED_WORLDS.contains(world);
     }

@@ -483,6 +483,8 @@ final class GameFrame extends JFrame {
         if (networkTimer != null) networkTimer.stop();
         if (network != null) network.shutdown();
         resetDeveloperSimulationState(stoppingWorld);
+        // Teardown only after the UI loop and network threads have been stopped.
+        if (stoppingWorld != null) stoppingWorld.dispose();
         gamePanel = null;
         resourceCatalogOverlay = null;
         manufacturingOverlay = null;

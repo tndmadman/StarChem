@@ -52,6 +52,20 @@ final class CelestialGameplaySystem {
         ensureBodyStates(state);
     }
 
+    static void unregisterState(WorldSystemState state) {
+        if (state == null) return;
+        synchronized (STATES) {
+            if (STATES.get(state.celestials) == state) STATES.remove(state.celestials);
+        }
+        synchronized (RESOURCE_STATES) {
+            RESOURCE_STATES.entrySet().removeIf(entry -> entry.getValue() == state);
+        }
+    }
+
+    static boolean registeredForTesting(WorldSystemState state) {
+        return state != null && STATES.get(state.celestials) == state;
+    }
+
     static void onCelestialUpdate(CelestialSystem celestials, double dt) {
         WorldSystemState state = STATES.get(celestials);
         if (state == null) return;
