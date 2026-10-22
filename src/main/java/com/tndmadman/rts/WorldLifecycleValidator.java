@@ -1,5 +1,7 @@
 package com.tndmadman.rts;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -47,6 +49,22 @@ final class WorldLifecycleValidator {
             }
             world.activateSystem(previous);
             Map<String,Object> saved = world.captureServerSaveGalaxy();
+            List<Object> rows = new ArrayList<>(ServerSaveStore.list(saved.get("systems")));
+            require(!rows.isEmpty(), "save must include system rows");
+            rows.add(rows.get(0)); // An invalid duplicated restored ID must fail closed.
+            Map<String,Object> malformedSave = new LinkedHashMap<>(saved);
+            malformedSave.put("systems", rows);
+            boolean rejected = false;
+            try {
+                world.restoreServerSaveGalaxy(malformedSave);
+            } catch (IllegalArgumentException expected) {
+                rejected = expected.getMessage() != null && expected.getMessage().contains("Duplicate system ID");
+            }
+            require(rejected, "duplicate saved galaxy system IDs must be rejected");
+            for (WorldSystemState old : initial) {
+                require(!old.registeredForTesting(), "failed restore must unregister old world state");
+            }
+
             world.restoreServerSaveGalaxy(saved);
             for (WorldSystemState state : initial)
                 require(!state.registeredForTesting(), "save restore must unregister replaced state");

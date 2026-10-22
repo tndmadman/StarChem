@@ -125,7 +125,15 @@ final class GalaxyCoordinator {
         }
         startRegionCandidates = List.copyOf(restoredCandidates);
         proceduralStartRegions = ServerSaveStore.boolValue(save, "proceduralStartRegions", false);
-        for (Object item : ServerSaveStore.list(save.get("systems"))) restoreSystem(world, ServerSaveStore.object(item));
+        try {
+            for (Object item : ServerSaveStore.list(save.get("systems"))) {
+                restoreSystem(world, ServerSaveStore.object(item));
+            }
+        } catch (RuntimeException malformed) {
+            // A rejected save must not strand partially restored states in static registries.
+            clearSystemRegistrations();
+            throw malformed;
+        }
         playerHomes.entrySet().removeIf(entry -> !systems.containsKey(entry.getValue()));
         playerStartRegions.entrySet().removeIf(entry -> !systems.containsKey(entry.getValue()));
         if (proceduralStartRegions) {
@@ -840,20 +848,29 @@ final class GalaxyCoordinator {
     private void restoreSystem(World world, Map<String,Object> data) {
         String id = ServerSaveStore.string(data, "systemId", "");
         if (id.isBlank()) return;
+        if (systems.containsKey(id)) {
+            throw new IllegalArgumentException("Duplicate system ID in restored galaxy: " + id);
+        }
         String templateId = SaveContentResolver.systemTemplateId(ServerSaveStore.string(data, "templateId", id));
         StarSystemDefinition definition = StarSystems.get(templateId);
         SystemLifetime lifetime = ServerSaveStore.enumValue(SystemLifetime.class, data.get("lifetime"), SystemLifetime.STATIC);
         WorldSystemState state = new WorldSystemState(id, templateId, definition, lifetime, "", new CelestialSystem(definition, new Random(seed ^ ((long)id.hashCode() << 21) ^ definition.id().hashCode())));
-        state.systemTime = Math.max(0, ServerSaveStore.doubleValue(data, "systemTime", 0));
-        if (state.systemTime > 0) state.celestials.update(state.systemTime);
-        restoreControl(state.control, ServerSaveStore.object(data.get("control")));
-        state.wormholes.addAll(restoreWormholes(ServerSaveStore.list(data.get("wormholes"))));
-        state.resources.addAll(restoreResources(ServerSaveStore.list(data.get("resources"))));
-        state.units.putAll(restoreUnits(world, ServerSaveStore.list(data.get("units"))));
-        state.bases.putAll(restoreBases(world, ServerSaveStore.list(data.get("bases"))));
-        state.shots.addAll(restoreShots(ServerSaveStore.list(data.get("projectiles"))));
-        state.items.addAll(restoreItems(ServerSaveStore.list(data.get("worldItems"))));
-        systems.put(id, state);
+        try {
+            state.systemTime = Math.max(0, ServerSaveStore.doubleValue(data, "systemTime", 0));
+            if (state.systemTime > 0) state.celestials.update(state.systemTime);
+            restoreControl(state.control, ServerSaveStore.object(data.get("control")));
+            state.wormholes.addAll(restoreWormholes(ServerSaveStore.list(data.get("wormholes"))));
+            state.resources.addAll(restoreResources(ServerSaveStore.list(data.get("resources"))));
+            state.units.putAll(restoreUnits(world, ServerSaveStore.list(data.get("units"))));
+            state.bases.putAll(restoreBases(world, ServerSaveStore.list(data.get("bases"))));
+            state.shots.addAll(restoreShots(ServerSaveStore.list(data.get("projectiles"))));
+            state.items.addAll(restoreItems(ServerSaveStore.list(data.get("worldItems"))));
+            systems.put(id, state);
+            simulationRoster = null;
+        } catch (RuntimeException malformed) {
+            state.dispose();
+            throw malformed;
+        }
     }
 
     private Map<String,Object> captureControl(SystemControlState control) {
