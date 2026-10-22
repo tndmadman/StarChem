@@ -156,8 +156,28 @@ tasks.register('validateIssue386Formations', JavaExec) {
     jvmArgs '-Djava.awt.headless=true'
 }
 
+tasks.register('validateWorldLifecycle', JavaExec) {
+    group = 'verification'
+    description = 'Check deterministic celestial registry cleanup across world lifecycle.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.WorldLifecycleValidator'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
+tasks.register('validateGalaxyInactiveSchedulerRoster', JavaExec) {
+    group = 'verification'
+    description = 'Check cached galaxy roster invalidation and round-robin scheduling.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.GalaxyInactiveSchedulerRosterValidator'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
 tasks.named('check') {
     dependsOn tasks.named('validateIssue386Formations')
+    dependsOn tasks.named('validateWorldLifecycle')
+    dependsOn tasks.named('validateGalaxyInactiveSchedulerRoster')
 }
 
 tasks.register('validateIssue293LogisticsRoutes', JavaExec) {

@@ -140,3 +140,37 @@ Graphics work should be treated as a performance regression when any of the foll
 5. The F4 overlay shows a material full-frame regression that the headless world-render harness does not explain.
 
 If a budget is intentionally changed, update this document and the controlled-runner baseline in the same graphics change so the new cost is explicit rather than silently normalized later.
+
+## Stabilization sprint: paired PR comparison and complete-client acceptance
+
+The PR workflow `.github/workflows/render-performance.yml` checks out the actual base
+and candidate revisions separately. It alternates the order of execution for **three**
+base/head pairs and compares the *median of the three p95 measurements* for each
+of the existing 11 scenes at 0.45, 1.0 and 1.75 zoom (**33 scene/zoom keys**).
+`scripts/render-performance-compare.py` rejects missing/duplicated keys and retains
+the existing **20%** regression limit. A successful single standalone measurement
+does **not** substitute for the paired gate.
+
+To reproduce locally with an actual paired base/head measurement, run the same
+Gradle task in separate clean checkouts (alternating baseline/candidate three times),
+then invoke:
+
+```bash
+python3 scripts/render-performance-compare.py \
+  --base base/build/reports/render-performance-run-{1,2,3}.csv \
+  --head head/build/reports/render-performance-run-{1,2,3}.csv \
+  --max-regression 20
+```
+
+Absolute times from shared runners may fluctuate with JVM JIT compilation, sprite
+cache prewarming, GC and runner contention. Preserve warmups, match both checkouts'
+Java version and JVM flags, and retain all six CSVs to diagnose a noisy failure;
+do not drop failing scenes or relax the limit.
+
+The headless benchmark intentionally omits the enclosing Swing GamePanel,
+overlays, minimap, input, audio and real network activity. Manual player acceptance
+must use F4 telemetry while panning, zooming and selecting dense fleets/resources,
+then cover extraction charging, impact audio/VFX, released debris, depletion,
+cooldown and refire, moon eligibility, save/reload and connected-client recovery.
+Record OS, CPU, GPU, Java build, zoom, resolution and observed full-frame p95.
+No headless test is proof that those manual steps passed.
