@@ -94,6 +94,8 @@ final class World {
         PlayerRegistry.dispose(this);
     }
 
+    List<String> simulationSystemIdsForTesting() { return galaxy.simulationSystemIds(); }
+
     long systemSeed() { return systemSeed; }
     double systemTime() { return systemTime; }
     String systemId() { return starSystem.id(); }
@@ -508,7 +510,8 @@ final class World {
     private void updateInactiveSystems(double dt) {
         if (dt == 0) return;
         if (GalaxyRuntimeOptions.generationSettings().procedural()) {
-            proceduralInactiveScheduler.update(this, dt, authoritativeGalaxyMapSnapshot());
+            // Avoid building a full UI/replication galaxy snapshot just to schedule four systems.
+            proceduralInactiveScheduler.updateRoster(this, dt, galaxy.simulationSystemIds());
             return;
         }
         String previousSystemId = activeSystemId();

@@ -10,6 +10,8 @@ final class GalaxyCoordinator {
     private static final double WORMHOLE_COOLDOWN_SECONDS = 0.75;
 
     private final Map<String, WorldSystemState> systems = new LinkedHashMap<>();
+    // Immutable roster identity changes only when membership changes, not each simulation tick.
+    private List<String> simulationRoster;
     private final Map<String, String> playerHomes = new LinkedHashMap<>();
     private final Map<String, String> playerStartRegions = new LinkedHashMap<>();
     private List<String> startRegionCandidates = List.of();
@@ -49,6 +51,12 @@ final class GalaxyCoordinator {
     private void clearSystemRegistrations() {
         for (WorldSystemState state : systems.values()) state.dispose();
         systems.clear();
+        simulationRoster = null;
+    }
+
+    List<String> simulationSystemIds() {
+        if (simulationRoster == null) simulationRoster = List.copyOf(systems.keySet());
+        return simulationRoster;
     }
 
     void dispose(World world) {
@@ -672,6 +680,7 @@ final class GalaxyCoordinator {
         WorldSystemState state = new WorldSystemState(id, templateId, definition, lifetime, initialControllerId, celestials);
         nextResourceId = ResourceSpawner.seed(state.resources, celestials, systemRandom, nextResourceId, definition.resourceBelts());
         systems.put(id, state);
+        simulationRoster = null;
         return state;
     }
 
@@ -704,6 +713,7 @@ final class GalaxyCoordinator {
             WorldSystemState removed = systems.remove(systemId);
             if (removed != null) removed.dispose();
         }
+        simulationRoster = null;
         playerHomes.values().removeIf(deleted::contains);
         playerStartRegions.values().removeIf(deleted::contains);
         for (WorldSystemState state : systems.values()) state.wormholes.removeIf(gate -> deleted.contains(gate.toSystemId));
