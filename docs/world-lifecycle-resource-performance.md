@@ -80,3 +80,21 @@ runs over 33 scene/zoom keys, enforcing the unchanged 20% limit. Full Swing,
 fog/HUD, VFX/audio, real LAN/WAN multiplayer and long-duration soak acceptance
 must be performed on suitable machines before release. Never infer success from
 compilation or the headless benchmark alone.
+
+## Supported galaxy-size boundary and measurement
+
+`GalaxyGenerationSettings.MAX_SYSTEMS` is currently **64**, intentionally below
+the 96-system total multiplayer wire allowance. Configuring 100/500/1000 procedural
+systems is NOT supported by the current release; do not bypass safety/replication
+limits simply to claim a larger stress number.
+
+`GalaxySchedulerPreparationBenchmark` runs actual generated 20- and 64-system
+fixtures and prints medians from 15 alternating-order preparation samples for
+the former `authoritativeGalaxyMapSnapshot` scheduler input and new
+`simulationSystemIds` roster access. It also checks the four-system update budget.
+Those measurements cover scheduler *input preparation*, not full-frame update,
+heap allocation, 24-hour soak, or an end-to-end 60 FPS guarantee. Shared-runner
+nanosecond values can be noisy. Run:
+```bash
+gradle benchmarkGalaxySchedulerPreparation --no-daemon
+```

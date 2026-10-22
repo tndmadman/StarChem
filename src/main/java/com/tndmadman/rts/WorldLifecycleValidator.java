@@ -25,6 +25,21 @@ final class WorldLifecycleValidator {
             require(!initial.isEmpty(), "constructed galaxy must have systems");
             for (WorldSystemState state : initial) require(state.registeredForTesting(), "live state registered");
 
+            // Dynamic player-home systems must be removed without affecting static live systems.
+            world.ensurePlayerHome("P2", false);
+            String deletedHomeId = world.playerHomeSystemId("P2");
+            WorldSystemState removedHome = null;
+            for (WorldSystemState candidate : world.policySystemStates()) {
+                if (candidate.id.equals(deletedHomeId)) removedHome = candidate;
+            }
+            require(removedHome != null && removedHome.registeredForTesting(),
+                    "new player home registered");
+            require(world.removePlayerAndPruneEmptySystems("P2").contains(deletedHomeId),
+                    "empty player home pruned");
+            require(!removedHome.registeredForTesting(), "pruned system unregistered");
+            for (WorldSystemState state : initial)
+                require(state.registeredForTesting(), "removing home does not unregister static systems");
+
             String previous = world.activeSystemId();
             for (WorldSystemState state : initial) {
                 world.activateSystem(state.id);

@@ -22,11 +22,23 @@ final class GalaxyInactiveSchedulerRosterValidator {
             require(scheduler.lastBatchSize() <= GalaxyInactiveSimulationScheduler.MAX_SYSTEMS_PER_FRAME,
                     "per-frame budget retained");
 
+            world.ensurePlayerHome("P2", false);
+            List<String> afterAddition = world.simulationSystemIdsForTesting();
+            require(afterAddition != initial, "system creation invalidates roster");
+            scheduler.updateRoster(world, 0.016, afterAddition);
+            require(scheduler.rosterRebuildsForTesting() == 2, "system addition rebuilds scheduler roster");
+            String homeId = world.playerHomeSystemId("P2");
+            require(world.removePlayerAndPruneEmptySystems("P2").contains(homeId), "dynamic home pruned");
+            List<String> afterRemoval = world.simulationSystemIdsForTesting();
+            require(afterRemoval != afterAddition, "system deletion invalidates roster");
+            scheduler.updateRoster(world, 0.016, afterRemoval);
+            require(scheduler.rosterRebuildsForTesting() == 3, "system deletion rebuilds scheduler roster");
+
             String originalActive = world.activeSystemId();
             if (initial.size() > 1) {
                 world.activateSystem(initial.get(1));
                 scheduler.updateRoster(world, 0.016, initial);
-                require(scheduler.rosterRebuildsForTesting() == 2, "active system change refreshes filtering");
+                require(scheduler.rosterRebuildsForTesting() == 4, "active system change refreshes filtering");
                 world.activateSystem(originalActive);
             }
 

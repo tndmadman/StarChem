@@ -174,10 +174,20 @@ tasks.register('validateGalaxyInactiveSchedulerRoster', JavaExec) {
     jvmArgs '-Djava.awt.headless=true'
 }
 
+tasks.register('benchmarkGalaxySchedulerPreparation', JavaExec) {
+    group = 'verification'
+    description = 'Measure old full galaxy map snapshot vs cached scheduler roster at supported sizes.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.GalaxySchedulerPreparationBenchmark'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
 tasks.named('check') {
     dependsOn tasks.named('validateIssue386Formations')
     dependsOn tasks.named('validateWorldLifecycle')
     dependsOn tasks.named('validateGalaxyInactiveSchedulerRoster')
+    dependsOn tasks.named('benchmarkGalaxySchedulerPreparation')
 }
 
 tasks.register('validateIssue293LogisticsRoutes', JavaExec) {

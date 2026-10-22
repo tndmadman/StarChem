@@ -44,6 +44,7 @@ run_java com.tndmadman.rts.CelestialContinuityValidator
 run_java com.tndmadman.rts.WorldLifecycleValidator
 run_java com.tndmadman.rts.CelestialResourceBridgeValidator
 run_java com.tndmadman.rts.GalaxyInactiveSchedulerRosterValidator
+run_java com.tndmadman.rts.GalaxySchedulerPreparationBenchmark
 run_java com.tndmadman.rts.StationControlValidator
 run_java com.tndmadman.rts.StationPresentationValidator
 run_java com.tndmadman.rts.ProductionLogisticsSourcingValidator
