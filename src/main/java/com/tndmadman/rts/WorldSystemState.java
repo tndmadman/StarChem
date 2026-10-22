@@ -38,6 +38,21 @@ final class WorldSystemState {
         CelestialResourceBridge.register(this);
     }
 
+    /** A state stays registered while its owning galaxy is live, including system switches. */
+    void dispose() {
+        CelestialResourceBridge.unregister(this);
+        CelestialExtractionSystem.unregister(this);
+        CelestialMoonInheritance.unregister(this);
+        CelestialGameplaySystem.unregisterState(this);
+    }
+
+    boolean registeredForTesting() {
+        return CelestialResourceBridge.registeredForTesting(this)
+                && CelestialExtractionSystem.registeredForTesting(this)
+                && CelestialMoonInheritance.registeredForTesting(this)
+                && CelestialGameplaySystem.registeredForTesting(this);
+    }
+
     int width() { return definition.width(); }
     int height() { return definition.height(); }
     boolean isStatic() { return lifetime == SystemLifetime.STATIC; }

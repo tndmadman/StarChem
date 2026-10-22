@@ -21,6 +21,17 @@ final class CelestialResourceBridge {
         STATES.put(state.celestials, state);
     }
 
+    static void unregister(WorldSystemState state) {
+        if (state == null) return;
+        synchronized (STATES) {
+            if (STATES.get(state.celestials) == state) STATES.remove(state.celestials);
+        }
+    }
+
+    static boolean registeredForTesting(WorldSystemState state) {
+        return state != null && STATES.get(state.celestials) == state;
+    }
+
     static void sync(List<ResourceNode> liveResources, CelestialSystem celestials) {
         if (liveResources == null || celestials == null) return;
         WorldSystemState state = STATES.get(celestials);

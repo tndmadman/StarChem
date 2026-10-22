@@ -67,6 +67,22 @@ final class CelestialExtractionSystem {
         DATA.computeIfAbsent(state, ignored -> new ExtractionState());
     }
 
+    static void unregister(WorldSystemState state) {
+        if (state == null) return;
+        synchronized (STATES) {
+            if (STATES.get(state.celestials) == state) STATES.remove(state.celestials);
+        }
+        DATA.remove(state);
+        WORLDS.remove(state);
+        synchronized (RESOURCE_STATES) {
+            RESOURCE_STATES.entrySet().removeIf(entry -> entry.getValue() == state);
+        }
+    }
+
+    static boolean registeredForTesting(WorldSystemState state) {
+        return state != null && STATES.get(state.celestials) == state && DATA.containsKey(state);
+    }
+
     static boolean released(WorldSystemState state, String bodyId) {
         if (state == null || bodyId == null || bodyId.isBlank()) return false;
         return data(state).releasedBodyIds.contains(bodyId);

@@ -67,6 +67,10 @@ final class WorldRenderCandidates {
         return index.matches(world) ? index : null;
     }
 
+    static void clear(World world) {
+        if (world != null) SCRATCH.remove(world);
+    }
+
     private static Scratch scratch(World world) {
         synchronized (SCRATCH) {
             return SCRATCH.computeIfAbsent(world, ignored -> new Scratch());

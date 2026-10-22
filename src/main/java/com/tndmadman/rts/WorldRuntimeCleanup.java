@@ -16,5 +16,6 @@ final class WorldRuntimeCleanup {
         OwnerFleetLocationRegistry.clear(world);
         EmpireOverviewOverlay.clear(world);
         StrategicSummaryService.clear(world);
+        world.dispose();
     }
 }

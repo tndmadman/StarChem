@@ -21,7 +21,7 @@ final class GalaxyCoordinator {
 
     CelestialSystem rebuild(World world, StarSystemDefinition primary, long seed) {
         this.seed = seed;
-        systems.clear();
+        clearSystemRegistrations();
         playerHomes.clear();
         playerStartRegions.clear();
         startRegionCandidates = List.of();
@@ -44,6 +44,21 @@ final class GalaxyCoordinator {
         activeSystemId = systems.containsKey(entrySystemId) ? entrySystemId : fallbackActiveSystemId();
         loadActive(world);
         return activeCelestials();
+    }
+
+    private void clearSystemRegistrations() {
+        for (WorldSystemState state : systems.values()) state.dispose();
+        systems.clear();
+    }
+
+    void dispose(World world) {
+        clearSystemRegistrations();
+        playerHomes.clear();
+        playerStartRegions.clear();
+        startRegionCandidates = List.of();
+        activeSystemId = null;
+        entrySystemId = null;
+        clearWorld(world);
     }
 
     private void clearWorld(World world) {
@@ -81,7 +96,7 @@ final class GalaxyCoordinator {
 
     CelestialSystem restoreSave(World world, Map<String,Object> save) {
         if (save == null) throw new IllegalArgumentException("Save is missing galaxy data.");
-        systems.clear();
+        clearSystemRegistrations();
         playerHomes.clear();
         playerStartRegions.clear();
         startRegionCandidates = List.of();
@@ -685,7 +700,10 @@ final class GalaxyCoordinator {
     }
 
     private void deleteSystems(World world, Set<String> deleted) {
-        for (String systemId : deleted) systems.remove(systemId);
+        for (String systemId : deleted) {
+            WorldSystemState removed = systems.remove(systemId);
+            if (removed != null) removed.dispose();
+        }
         playerHomes.values().removeIf(deleted::contains);
         playerStartRegions.values().removeIf(deleted::contains);
         for (WorldSystemState state : systems.values()) state.wormholes.removeIf(gate -> deleted.contains(gate.toSystemId));
