@@ -3,6 +3,7 @@ package com.tndmadman.rts;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +42,10 @@ public final class SoloSaveLoadValidator {
             PlayerRegistry.reset("SOLO", "Solo Validator", 0x2966B0);
             SoloSaveService.activate(alpha, a.id());
             alpha.completeResearch("SOLO", "advanced_industry");
+            ScenarioDirector.start(alpha, ScenarioRules.require("guided_start"), false);
+            Map<String,Object> initialScenario = ScenarioDirector.capture(alpha);
+            require("guided_start".equals(initialScenario.get("scenarioId")),
+                    "Guided Start scenario must activate before save.");
             long savedSeed = alpha.systemSeed();
             String activeSystem = alpha.activeSystemId();
             int units = alpha.units.size();
@@ -74,6 +79,11 @@ public final class SoloSaveLoadValidator {
             require(FogOfWarView.capture(loaded).containsKey("SOLO|" + activeSystem),
                     "Explored fog cells were lost.");
             require(loaded.hasResearch("SOLO", "advanced_industry"), "Research completion was lost.");
+            Map<String,Object> restoredScenario = ScenarioDirector.capture(loaded);
+            require("guided_start".equals(restoredScenario.get("scenarioId")),
+                    "Guided Start scenario ID was lost in solo archive.");
+            require(initialScenario.get("firedActions").equals(restoredScenario.get("firedActions")),
+                    "Guided Start applied starting-state actions again during restore.");
             require(PlayerRegistry.color("SOLO").getRGB() == new java.awt.Color(0x2966B0).getRGB(),
                     "Restored player color must match.");
 
@@ -105,6 +115,26 @@ public final class SoloSaveLoadValidator {
                     "Autosave incorrectly overwrote the manual checkpoint.");
             require(service.recoveryPoints(a.id()).size() >= 3,
                     "Current, previous and manual recovery points should be visible.");
+
+            // An older valid 'current' must not win over a newer valid 'manual'.
+            // Swap exact existing verified archives without changing their signed manifests.
+            Path manual = root.resolve(a.id()).resolve("solo-manual.starchem-save");
+            Path oldManual = root.resolve(a.id()).resolve("older-manual.tmp");
+            Files.copy(manual, oldManual, StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(archive, manual, StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(oldManual, archive, StandardCopyOption.REPLACE_EXISTING);
+            SoloSaveService.LatestSnapshot newest = service.mostRecentValid();
+            require(newest != null && newest.slot().id().equals(a.id())
+                            && newest.fileName().equals("solo-manual.starchem-save"),
+                    "Continue must select the exact newest validated manual snapshot, not older current.");
+            World exact = service.loadSnapshot(newest.slot().id(), newest.fileName(), config);
+            try {
+                require(exact.hasResearch("SOLO", "combat_doctrine"),
+                        "Exact Continue selection restored older current instead of newest manual.");
+            } finally { exact.dispose(); }
+            Files.copy(manual, archive, StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(oldManual, manual, StandardCopyOption.REPLACE_EXISTING);
+            Files.deleteIfExists(oldManual);
             try {
                 service.loadSnapshot(a.id(), "../unsafe", config);
                 throw new IllegalStateException("Unsafe recovery filename should be rejected.");
@@ -120,6 +150,20 @@ public final class SoloSaveLoadValidator {
                     "Recovery used corrupted autosave instead of the original manual checkpoint.");
             require(alpha.hasResearch("SOLO", "combat_doctrine"),
                     "Failed load or fallback mutated the original active World.");
+
+            PlayerRegistry.activate(alpha);
+            TutorialOverlay migrated = new TutorialOverlay(alpha, true, false);
+            migrated.restoreSoloState(Map.of("step", "WORMHOLE", "coreCompleted", true,
+                    "advancedCompleted", true));
+            Map<String,Object> migratedState = migrated.captureSoloState();
+            require("LOGISTICS_RESEARCH".equals(migratedState.get("step"))
+                            && Boolean.FALSE.equals(migratedState.get("coreCompleted")),
+                    "Legacy tutorial core completion must migrate to actual v3 economic progress.");
+            TutorialOverlay v3 = new TutorialOverlay(alpha, true, false);
+            v3.restoreSoloState(Map.of("schemaVersion", 3, "step", "HAULER_COMPLETE",
+                    "coreCompleted", false));
+            require("HAULER_COMPLETE".equals(v3.captureSoloState().get("step")),
+                    "v3 campaign tutorial checkpoint must not migrate or use global preferences.");
 
             ServerSaveStore server = new ServerSaveStore(root.resolve(a.id()), "solo", 5);
             try {
@@ -154,7 +198,7 @@ public final class SoloSaveLoadValidator {
             require(GalaxyRuntimeOptions.generationSettings().equals(procedural),
                     "Advanced procedural generation settings changed during restore.");
 
-            System.out.println("Solo slot create, save/load, seed, research, unit, ownership color,"
+            System.out.println("Solo slot create, exact Continue snapshot, Guided Start runtime, migrated tutorial, save/load, seed, research, unit, ownership color,"
                     + " rename, path safety, recovery, isolation and archive-kind validation passed.");
         } finally {
             if (alpha != null) alpha.dispose();
