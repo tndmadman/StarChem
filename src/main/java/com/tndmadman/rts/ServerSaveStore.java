@@ -214,13 +214,13 @@ final class ServerSaveStore {
         }
         SkirmishSettings skirmish = SkirmishSettings.fromSaved(manifest.get("skirmish"), config.skirmishSettings);
         GalaxyRuntimeOptions.State before = GalaxyRuntimeOptions.snapshot();
-        if (solo) {
-            GalaxyGenerationSettings settings = GalaxyGenerationSettingsCodec.restore(
-                    manifest.get("galaxyGeneration"), Math.max(1, intValue(manifest, "galaxyCopies", 1)));
-            GalaxyRuntimeOptions.configureGeneration(settings, longValue(galaxy, "seed", 0L));
-        }
         World world = null;
         try {
+            if (solo) {
+                GalaxyGenerationSettings settings = GalaxyGenerationSettingsCodec.restore(
+                        manifest.get("galaxyGeneration"), Math.max(1, intValue(manifest, "galaxyCopies", 1)));
+                GalaxyRuntimeOptions.configureGeneration(settings, longValue(galaxy, "seed", 0L));
+            }
             String playerName = solo ? string(manifest, "soloPlayerName", config.playerName) : config.playerName;
             String startSystem = solo ? string(manifest, "soloStartSystemId", config.systemId) : config.systemId;
             world = new World(playerName, skirmish.disabledNpcFactionIds(), startSystem, false);

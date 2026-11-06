@@ -208,7 +208,7 @@ final class SoloSaveService {
         catch (IllegalArgumentException ex) { return false; }
     }
     private static String cleanName(String name) {
-        if (name == null || name.isBlank() || name.length() > 80 || name.chars().anyMatch(c -> c < 32)) {
+        if (name == null || name.isBlank() || name.length() > 80 || name.chars().anyMatch(c -> c < 32 || c == '/' || c == '\\' || c == ':' || c == 127) || name.contains("..")) {
             throw new IllegalArgumentException("Slot name must be 1 to 80 printable characters.");
         }
         return name.trim();
