@@ -614,7 +614,10 @@ final class ManufacturingOverlay extends JPanel {
         detailTitle.setText(choice.name);
         detailKind.setText(choice.subtitle + "   •   " + whole(choice.timeSeconds) + "s");
         detailKind.setForeground(kindColor(choice.kind));
-        detailDescription.setText(choice.description);
+        String nextAction = ProductionRequirementGuide.nextAction(world, playerId(), choice.cost);
+        detailDescription.setText(choice.description
+                + (choice.lockedReason.isBlank() && !nextAction.isBlank()
+                    ? "\n\nNEXT ACTION: " + nextAction : ""));
         detailDescription.setCaretPosition(0);
         if (!choice.lockedReason.isBlank()) {
             detailState.setText("LOCKED — " + choice.lockedReason.toUpperCase(Locale.ROOT));
