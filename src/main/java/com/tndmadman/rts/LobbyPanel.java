@@ -114,7 +114,9 @@ final class LobbyPanel extends JPanel {
         header.add(title);
         header.add(subtitle);
 
-        JButton solo = new MenuButton("SOLO");
+        JButton solo = new MenuButton("NEW SOLO GAME");
+        JButton continueGame = new MenuButton("CONTINUE GAME");
+        JButton loadGame = new MenuButton("LOAD GAME");
         JButton connect = new MenuButton("JOIN");
         JButton refresh = new MenuButton("REFRESH LAN");
         JButton codex = new MenuButton("CODEX");
@@ -135,14 +137,17 @@ final class LobbyPanel extends JPanel {
         statusRow.add(statusLabel, BorderLayout.CENTER);
         footer.add(statusRow, BorderLayout.NORTH);
 
-        JPanel buttons = new JPanel(new GridLayout(2, 3, 8, 8));
+        JPanel buttons = new JPanel(new GridLayout(3, 3, 8, 8));
         buttons.setOpaque(false);
+        buttons.add(continueGame);
         buttons.add(solo);
+        buttons.add(loadGame);
         buttons.add(connect);
         buttons.add(refresh);
         buttons.add(codex);
         buttons.add(clearSignIns);
         buttons.add(settings);
+        buttons.add(new JLabel());
         footer.add(buttons, BorderLayout.CENTER);
 
         MenuCardPanel card = new MenuCardPanel(new BorderLayout(0, 14));
@@ -153,6 +158,8 @@ final class LobbyPanel extends JPanel {
         add(card, BorderLayout.CENTER);
 
         solo.addActionListener(e -> launchSolo());
+        continueGame.addActionListener(e -> owner.continueSolo());
+        loadGame.addActionListener(e -> owner.openSoloLoadDialog());
         connect.addActionListener(e -> startClient());
         refresh.addActionListener(e -> refreshLanServers());
         codex.addActionListener(e -> owner.toggleCodexFromLobby());
@@ -496,7 +503,7 @@ final class LobbyPanel extends JPanel {
             } else {
                 GalaxyRuntimeOptions.configureGeneration(GalaxyGenerationSettings.legacy(selectedGalaxyCopies()), 0L);
             }
-            owner.launchGame(Config.solo(nameField.getText(), devBox.isSelected(),
+            owner.launchNewSoloGame(Config.solo(nameField.getText(), devBox.isSelected(),
                     selectedSkirmishSettings(), selectedSystemId(), selectedGalaxyCopies()));
         } catch (RuntimeException ex) {
             setStatus(ex.getMessage() == null ? "Could not start solo galaxy." : ex.getMessage());

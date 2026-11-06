@@ -85,6 +85,25 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     World celestialWorld() { return world; }
     PeerNetwork celestialNetwork() { return network; }
 
+    /** Non-authoritative player view state, scoped to the selected solo campaign. */
+    Map<String,Object> captureSoloView() {
+        Map<String,Object> out = new LinkedHashMap<>();
+        out.put("camera", camera.captureSoloView());
+        out.put("controlGroups", controlGroups.captureSoloView());
+        out.put("galaxyMapOpen", galaxyMapOpen);
+        out.put("formation", formation.name());
+        return out;
+    }
+
+    void restoreSoloView(Object value) {
+        Map<String,Object> data = ServerSaveStore.object(value);
+        if (data.isEmpty()) return;
+        camera.restoreSoloView(data.get("camera"));
+        controlGroups.restoreSoloView(data.get("controlGroups"));
+        galaxyMapOpen = ServerSaveStore.boolValue(data, "galaxyMapOpen", false);
+        formation = ServerSaveStore.enumValue(FleetFormation.class, data.get("formation"), FleetFormation.GRID);
+    }
+
     void start() {
         AiBrainLog.setEnabled(devMode && client == null);
         requestFocusInWindow();
