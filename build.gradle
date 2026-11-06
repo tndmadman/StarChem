@@ -740,6 +740,19 @@ tasks.named('check') {
 }
 
 
+tasks.register('validateStartingFleet', JavaExec) {
+    group = 'verification'
+    description = 'Validate configurable starting miner fleet, owned Tier-1 radar, server flag and legacy saves.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.StartingFleetValidator'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('validateStartingFleet')
+}
+
 tasks.register('validateSoloSaveLoad', JavaExec) {
     group = 'verification'
     description = 'Validate isolated solo save slots and recovery using the validated archive format.'
