@@ -86,8 +86,11 @@ final class SoloSaveService {
     }
 
     /** Choose the latest checksum-verified snapshot, including recovery points across all slots. */
-    synchronized Slot mostRecentValid() throws IOException {
-        Slot winner = null;
+    /** A verified Continue choice identifies the actual archive, never just its directory. */
+    record LatestSnapshot(Slot slot, String fileName, Instant savedAt) { }
+
+    synchronized LatestSnapshot mostRecentValid() throws IOException {
+        LatestSnapshot winner = null;
         Instant winnerTime = null;
         for (Slot slot : list()) {
             for (Path archive : recoveryFiles(slotDir(slot.id()))) {
@@ -98,7 +101,7 @@ final class SoloSaveService {
                     Instant timestamp = parseTime(ServerSaveStore.string(checked.manifest(), "lastSavedAt", ""));
                     if (winner == null || timestamp != null
                             && (winnerTime == null || timestamp.isAfter(winnerTime))) {
-                        winner = slot;
+                        winner = new LatestSnapshot(slot, archive.getFileName().toString(), timestamp);
                         winnerTime = timestamp;
                     }
                 } catch (IOException ignored) { }

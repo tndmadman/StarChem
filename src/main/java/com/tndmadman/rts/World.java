@@ -187,6 +187,7 @@ final class World {
         out.put("npcRepairEvacuation", NpcRepairEvacuationSystem.capture(this));
         out.put("npcSquadCombat", NpcSquadCombatSystem.capture(this));
         out.put("galaxyEvents", GalaxyEventDirector.capture(this));
+        out.put("scenario", ScenarioDirector.capture(this));
         return out;
     }
     void restoreServerSaveRuntime(Map<String,Object> save) {
@@ -204,6 +205,7 @@ final class World {
         NpcRepairEvacuationSystem.restore(this, data.get("npcRepairEvacuation"));
         NpcSquadCombatSystem.restore(this, data.get("npcSquadCombat"));
         if (data.containsKey("galaxyEvents")) GalaxyEventDirector.restore(this, data.get("galaxyEvents"));
+        if (data.containsKey("scenario")) ScenarioDirector.restore(this, data.get("scenario"));
     }
     List<Material> spawnMaterials() { return starSystem.spawnMaterials(); }
     List<Material> spawnMaterials(String playerId) { return galaxy.spawnMaterials(this, playerId, starSystem); }

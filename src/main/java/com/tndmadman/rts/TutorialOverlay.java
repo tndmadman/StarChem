@@ -99,6 +99,7 @@ final class TutorialOverlay extends JComponent {
     /** Per-campaign progression without copying global tutorial preference files. */
     Map<String,Object> captureSoloState() {
         Map<String,Object> out = new LinkedHashMap<>();
+        out.put("schemaVersion", 3);
         out.put("disabled", disabled);
         out.put("coreCompleted", coreCompleted);
         out.put("advancedCompleted", advancedCompleted);
@@ -143,7 +144,28 @@ final class TutorialOverlay extends JComponent {
         trackedIndustryOutput = ServerSaveStore.enumValue(Material.class, saved.get("trackedIndustryOutput"), null);
         trackedIndustryOutputBaseline = Math.max(0,
                 ServerSaveStore.doubleValue(saved, "trackedIndustryOutputBaseline", 0));
-        step = ServerSaveStore.enumValue(Step.class, saved.get("step"), Step.SELECT);
+        int checkpointVersion = ServerSaveStore.intValue(saved, "schemaVersion", 1);
+        Step savedStep = ServerSaveStore.enumValue(Step.class, saved.get("step"), Step.SELECT);
+        if (checkpointVersion < 3) {
+            // v1/v2 had exploration in the core and industry in the optional track.
+            // Do not treat its old completion flags as proof of the v3 economy.
+            advancedCompleted = false;
+            advancedActive = false;
+            if (hasLocalShip("hauler")) {
+                coreCompleted = true;
+                savedStep = Step.ADVANCED_READY;
+            } else {
+                coreCompleted = false;
+                if (hasLocalResearch("autonomous_logistics")) savedStep = Step.HAULER_COMPLETE;
+                else if (hasLocalResearch("advanced_industry")) savedStep = Step.LOGISTICS_RESEARCH;
+                else if (hasLocalStation("laboratory")) savedStep = Step.LAB_FUEL;
+                else if (hasLocalStation("manufacturing")) savedStep = Step.QUEUE_INDUSTRY;
+                else if (hasLocalShip("station_builder")) savedStep = Step.LOAD_INDUSTRY_PACKAGE;
+                else if (localShipCount(Rules.STARTING_SHIP) >= 2) savedStep = Step.QUEUE_DEPLOYER;
+                else if (savedStep.ordinal() >= Step.QUEUE_DEPLOYER.ordinal()) savedStep = Step.QUEUE_BUILD;
+            }
+        }
+        step = savedStep;
         lastCompletedObjective = "";
         lastCompletedUntilNanos = 0;
         repaint();

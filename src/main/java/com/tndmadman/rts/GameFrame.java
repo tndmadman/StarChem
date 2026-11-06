@@ -579,19 +579,19 @@ final class GameFrame extends JFrame {
         if (soloBusy) return;
         soloBusy = true;
         menuPanel.setStatus("Finding the latest valid solo campaign...");
-        new SwingWorker<SoloSaveService.Slot,Void>() {
-            @Override protected SoloSaveService.Slot doInBackground() throws Exception {
+        new SwingWorker<SoloSaveService.LatestSnapshot,Void>() {
+            @Override protected SoloSaveService.LatestSnapshot doInBackground() throws Exception {
                 return soloSaves.mostRecentValid();
             }
             @Override protected void done() {
                 soloBusy = false;
                 try {
-                    SoloSaveService.Slot slot = get();
-                    if (slot == null) {
+                    SoloSaveService.LatestSnapshot snapshot = get();
+                    if (snapshot == null) {
                         menuPanel.setStatus("No valid solo campaign saves were found.");
                         return;
                     }
-                    loadSolo(slot.id());
+                    loadSolo(snapshot.slot().id(), snapshot.fileName());
                 } catch (Exception ex) {
                     menuPanel.setStatus("Could not inspect saves: " + ex.getMessage());
                 }
