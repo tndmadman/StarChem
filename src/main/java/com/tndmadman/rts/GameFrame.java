@@ -11,6 +11,8 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
+import java.util.LinkedHashMap;
 
 final class GameFrame extends JFrame {
     private static final String ACTIVE_SESSION_NOTICE = "Session is already active on another connection.";
@@ -185,12 +187,15 @@ final class GameFrame extends JFrame {
             soloAutosaveTimer.start();
         }
         gamePanel = new GamePanel(world, this, activeNetwork, config.devMode, devAuthorityNetwork);
+        if (soloSession) gamePanel.restoreSoloView(world.soloUiSaveState());
         resourceCatalogOverlay = new ResourceCatalogOverlay(gamePanel, world);
         manufacturingOverlay = new ManufacturingOverlay(gamePanel, world, activeNetwork);
         codexOverlay = new CodexOverlay(gamePanel);
         narrationSettingsOverlay = new NarrationSettingsOverlay();
         if (soloSession) TutorialPreferenceVersion.ensureCurrent();
-        tutorialOverlay = new TutorialOverlay(world, soloSession);
+        // Solo tutorial progression is archived with the campaign, not the global preference node.
+        tutorialOverlay = new TutorialOverlay(world, soloSession, false);
+        if (soloSession) tutorialOverlay.restoreSoloState(world.soloUiSaveState().get("tutorial"));
         inGameMenuOverlay = new InGameMenuOverlay(
                 soloSession,
                 this::closeInGameMenu,
@@ -520,6 +525,11 @@ final class GameFrame extends JFrame {
         Config config = activeSoloConfig;
         boolean resumeAfter = !soloPausedByMenu && !menuVisible();
         if (gamePanel != null) gamePanel.stop();
+        if (gamePanel != null) {
+            Map<String,Object> view = new LinkedHashMap<>(gamePanel.captureSoloView());
+            if (tutorialOverlay != null) view.put("tutorial", tutorialOverlay.captureSoloState());
+            target.setSoloUiSaveState(view);
+        }
         final SoloSaveService.CapturedSave snapshot;
         try {
             snapshot = soloSaves.capture(slotId, target, config, reason);

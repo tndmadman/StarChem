@@ -18,6 +18,8 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.prefs.Preferences;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 final class TutorialOverlay extends JComponent {
     private static final Preferences PREFS = Preferences.userNodeForPackage(TutorialOverlay.class);
@@ -83,6 +85,59 @@ final class TutorialOverlay extends JComponent {
         timer = new Timer(100, event -> tick());
         installMouseControls();
         resetCoreBaselines();
+    }
+
+    /** Per-campaign progression without copying global tutorial preference files. */
+    Map<String,Object> captureSoloState() {
+        Map<String,Object> out = new LinkedHashMap<>();
+        out.put("disabled", disabled);
+        out.put("coreCompleted", coreCompleted);
+        out.put("advancedCompleted", advancedCompleted);
+        out.put("advancedActive", advancedActive);
+        out.put("mapOpened", mapOpened);
+        out.put("catalogOpened", catalogOpened);
+        out.put("codexOpened", codexOpened);
+        out.put("deliveryAlreadyObserved", deliveryAlreadyObserved);
+        out.put("startingProspectors", startingProspectors);
+        out.put("deliveryInventoryBaseline", deliveryInventoryBaseline);
+        out.put("homeSystemId", homeSystemId == null ? "" : homeSystemId);
+        out.put("encounterSystemId", encounterSystemId);
+        out.put("encounterEnemyCount", encounterEnemyCount);
+        out.put("trackedIndustryKind", trackedIndustryKind == null ? "" : trackedIndustryKind.name());
+        out.put("trackedIndustryItemId", trackedIndustryItemId);
+        out.put("trackedIndustryPlayerId", trackedIndustryPlayerId);
+        out.put("trackedIndustryOutput", trackedIndustryOutput == null ? "" : trackedIndustryOutput.name());
+        out.put("trackedIndustryOutputBaseline", trackedIndustryOutputBaseline);
+        out.put("step", step.name());
+        return out;
+    }
+
+    void restoreSoloState(Object data) {
+        Map<String,Object> saved = ServerSaveStore.object(data);
+        if (!eligible || saved.isEmpty()) return;
+        disabled = ServerSaveStore.boolValue(saved, "disabled", disabled);
+        coreCompleted = ServerSaveStore.boolValue(saved, "coreCompleted", coreCompleted);
+        advancedCompleted = ServerSaveStore.boolValue(saved, "advancedCompleted", advancedCompleted);
+        advancedActive = ServerSaveStore.boolValue(saved, "advancedActive", advancedActive);
+        mapOpened = ServerSaveStore.boolValue(saved, "mapOpened", false);
+        catalogOpened = ServerSaveStore.boolValue(saved, "catalogOpened", false);
+        codexOpened = ServerSaveStore.boolValue(saved, "codexOpened", false);
+        deliveryAlreadyObserved = ServerSaveStore.boolValue(saved, "deliveryAlreadyObserved", false);
+        startingProspectors = Math.max(0, ServerSaveStore.intValue(saved, "startingProspectors", startingProspectors));
+        deliveryInventoryBaseline = Math.max(0, ServerSaveStore.doubleValue(saved, "deliveryInventoryBaseline", deliveryInventoryBaseline));
+        homeSystemId = ServerSaveStore.string(saved, "homeSystemId", homeSystemId);
+        encounterSystemId = ServerSaveStore.string(saved, "encounterSystemId", "");
+        encounterEnemyCount = Math.max(0, ServerSaveStore.intValue(saved, "encounterEnemyCount", 0));
+        trackedIndustryKind = ServerSaveStore.enumValue(ProductionJobKind.class, saved.get("trackedIndustryKind"), null);
+        trackedIndustryItemId = ServerSaveStore.string(saved, "trackedIndustryItemId", "");
+        trackedIndustryPlayerId = ServerSaveStore.string(saved, "trackedIndustryPlayerId", "");
+        trackedIndustryOutput = ServerSaveStore.enumValue(Material.class, saved.get("trackedIndustryOutput"), null);
+        trackedIndustryOutputBaseline = Math.max(0,
+                ServerSaveStore.doubleValue(saved, "trackedIndustryOutputBaseline", 0));
+        step = ServerSaveStore.enumValue(Step.class, saved.get("step"), Step.SELECT);
+        lastCompletedObjective = "";
+        lastCompletedUntilNanos = 0;
+        repaint();
     }
 
     void start() {
