@@ -100,22 +100,39 @@ final class SoloSaveService {
         return null;
     }
 
-    void save(String id, World world, Config config, String reason) throws IOException {
-        if (config.role() != NetworkRole.SOLO) throw new IOException("Only solo games may use solo slots.");
+    record CapturedSave(Path directory, ServerSaveStore store, ServerSaveStore.SaveSnapshot snapshot,
+                        String reason) { }
+
+    /** Must run at a paused simulation boundary, generally on the Swing event thread. */
+    CapturedSave capture(String id, World world, Config config, String reason) throws IOException {
+        if (config == null || config.role() != NetworkRole.SOLO || world == null) {
+            throw new IOException("Only a valid solo World may use solo slots.");
+        }
         Path directory = slotDir(id);
         requireDirectory(directory);
         ServerSaveStore store = store(id, directory);
         store.setSoloMetadata(id, readName(directory, config.playerName));
         PlayerRegistry.activate(world);
-        store.save(world, config, reason);
-        if (!"autosave".equals(reason)) {
-            Path temporary = directory.resolve("solo-manual.tmp");
+        return new CapturedSave(directory, store,
+                store.captureSoloSnapshot(world, config, reason), reason);
+    }
+
+    /** Can execute on an I/O worker: its input contains no live simulation objects. */
+    void write(CapturedSave captured) throws IOException {
+        captured.store().writeSoloSnapshot(captured.snapshot(), captured.reason());
+        if (!"autosave".equals(captured.reason())) {
+            Path temporary = captured.directory().resolve("solo-manual.tmp");
             try {
-                Files.copy(directory.resolve(ARCHIVE), temporary, StandardCopyOption.REPLACE_EXISTING);
+                Files.copy(captured.directory().resolve(ARCHIVE), temporary, StandardCopyOption.REPLACE_EXISTING);
                 ServerSaveStore.validateArchive(temporary);
-                Files.move(temporary, directory.resolve(MANUAL), StandardCopyOption.REPLACE_EXISTING);
+                Files.move(temporary, captured.directory().resolve(MANUAL), StandardCopyOption.REPLACE_EXISTING);
             } finally { Files.deleteIfExists(temporary); }
         }
+    }
+
+    /** Synchronous compatibility path for headless validators. */
+    void save(String id, World world, Config config, String reason) throws IOException {
+        write(capture(id, world, config, reason));
     }
 
     World load(String id, Config config) throws IOException {

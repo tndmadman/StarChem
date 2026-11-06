@@ -124,6 +124,22 @@ final class ServerSaveStore {
         if (!asynchronous || solo) persistence.await(submission);
     }
 
+    /** Capture on the simulation owner thread; the returned snapshot is immutable. */
+    SaveSnapshot captureSoloSnapshot(World world, Config config, String reason) {
+        if (!solo) throw new IllegalStateException("Only solo stores can capture solo snapshots.");
+        return captureSnapshot(world, config, reason, List.of());
+    }
+
+    /** Queue serialization and durable archive promotion without reading a mutable World. */
+    void writeSoloSnapshot(SaveSnapshot snapshot, String reason) throws IOException {
+        if (!solo || snapshot == null) throw new IOException("Invalid solo snapshot.");
+        boolean coalesce = "autosave".equals(reason);
+        ServerPersistenceCoordinator.Submission submission = persistence.submit(
+                "save-" + reason, coalesce, () -> persist(snapshot));
+        if (!submission.accepted()) throw new IOException("Persistence queue is full; save was not queued.");
+        persistence.await(submission);
+    }
+
     private SaveSnapshot captureSnapshot(World world, Config config, String reason,
                                          List<PersistentPlayerSession> sessions) {
         Map<String,Object> save = capture(world, config, reason, sessions);
@@ -642,7 +658,7 @@ final class ServerSaveStore {
         catch (RuntimeException ex) { return fallback; }
     }
 
-    private record SaveSnapshot(Map<String,Object> manifest, Map<String,Object> players,
+    record SaveSnapshot(Map<String,Object> manifest, Map<String,Object> players,
                                 Map<String,Object> galaxy, Map<String,Object> runtime) { }
 
     record ValidatedArchive(int version, Map<String,Object> manifest, Map<String,Object> players,

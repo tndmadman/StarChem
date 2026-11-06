@@ -157,6 +157,9 @@ final class GameFrame extends JFrame {
             networkTimer.start();
         }
         showGame(config, world, network, null);
+        if (config.role() == NetworkRole.SOLO) {
+            SwingUtilities.invokeLater(() -> saveSolo("initial", activeSoloSlotId, null, null));
+        }
     }
 
     static String connectionNotice(String status) {
@@ -517,10 +520,25 @@ final class GameFrame extends JFrame {
         Config config = activeSoloConfig;
         boolean resumeAfter = !soloPausedByMenu && !menuVisible();
         if (gamePanel != null) gamePanel.stop();
+        final SoloSaveService.CapturedSave snapshot;
+        try {
+            snapshot = soloSaves.capture(slotId, target, config, reason);
+        } catch (IOException | RuntimeException ex) {
+            soloBusy = false;
+            if (target == activeWorld && resumeAfter && gamePanel != null) gamePanel.start();
+            target.status = "Save capture failed; current session preserved.";
+            if (!"autosave".equals(reason) && !"initial".equals(reason)) {
+                JOptionPane.showMessageDialog(this, ex.getMessage(), "Save Capture Error",
+                        JOptionPane.ERROR_MESSAGE);
+            }
+            if (onFailure != null) onFailure.run();
+            return;
+        }
+        // Disk I/O proceeds from a frozen archive payload, not from a live World.
+        if (target == activeWorld && resumeAfter && gamePanel != null) gamePanel.start();
         new SwingWorker<Void,Void>() {
             @Override protected Void doInBackground() throws Exception {
-                soloSaves.save(slotId, target, config, reason);
-                FogOfWarPersistence.flushForTest();
+                soloSaves.write(snapshot);
                 return null;
             }
 
@@ -529,18 +547,15 @@ final class GameFrame extends JFrame {
                 try { get(); }
                 catch (Exception ex) { failure = ex; }
                 soloBusy = false;
-                if (target == activeWorld && resumeAfter && gamePanel != null && !soloPausedByMenu) {
-                    gamePanel.start();
-                }
                 if (failure == null) {
                     if (target == activeWorld) target.status = "Solo campaign saved.";
                     if (onSuccess != null) onSuccess.run();
-                    else if (!"autosave".equals(reason)) {
+                    else if ("manual".equals(reason)) {
                         JOptionPane.showMessageDialog(GameFrame.this, "Save completed successfully.");
                     }
                 } else {
                     if (target == activeWorld) target.status = "Save failed; previous valid save preserved.";
-                    if (!"autosave".equals(reason)) {
+                    if (!"autosave".equals(reason) && !"initial".equals(reason)) {
                         JOptionPane.showMessageDialog(GameFrame.this, "Save failed: " + failure.getMessage(),
                                 "Solo Save Error", JOptionPane.ERROR_MESSAGE);
                     }
