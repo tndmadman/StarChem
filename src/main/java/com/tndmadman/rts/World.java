@@ -52,6 +52,10 @@ final class World {
     int selectedResourceId = -1;
     String status = "Right-click a resource with a ship selected to auto-harvest.";
     private Map<String,Object> soloUiSaveState = Map.of();
+    private StartingFleetSettings startingFleetSettings = StartingFleetSettings.legacy();
+
+    StartingFleetSettings startingFleetSettings() { return startingFleetSettings; }
+
 
     Map<String,Object> soloUiSaveState() { return soloUiSaveState; }
     void setSoloUiSaveState(Map<String,Object> state) {
@@ -69,6 +73,14 @@ final class World {
     }
 
     World(String localPlayerName, Set<String> disabledNpcFactionIds, String systemId, boolean spawnLocalPlayer) {
+        this(localPlayerName, disabledNpcFactionIds, systemId, spawnLocalPlayer,
+                StartingFleetSettings.legacy());
+    }
+
+    World(String localPlayerName, Set<String> disabledNpcFactionIds, String systemId,
+          boolean spawnLocalPlayer, StartingFleetSettings startingFleetSettings) {
+        this.startingFleetSettings = startingFleetSettings == null
+                ? StartingFleetSettings.legacy() : startingFleetSettings;
         this.localPlayerName = Config.clean(localPlayerName);
         this.disabledNpcFactionIds = disabledNpcFactionIds == null ? Set.of() : Set.copyOf(disabledNpcFactionIds);
         setStarSystem(systemId);
@@ -78,8 +90,14 @@ final class World {
             activateSystem(playerHomeSystemId(localPlayerId));
             Point2D basePoint = startPointForPlayer(localPlayerId, 0);
             addBase(Rules.DEFAULT_BASE, basePoint.getX(), basePoint.getY());
-            Point2D start = startShipPoint(basePoint);
-            spawnShip(Rules.STARTING_SHIP, start.getX(), start.getY());
+            for (int i = 0; i < this.startingFleetSettings.prospectorCount(); i++) {
+                Point2D start = starterPlacement(basePoint, i, false);
+                spawnShip(Rules.STARTING_SHIP, start.getX(), start.getY());
+            }
+            if (this.startingFleetSettings.tierOneRadar()) {
+                Point2D radar = starterPlacement(basePoint, -1, true);
+                addBase(RadarTowerRules.TIER_ONE, radar.getX(), radar.getY());
+            }
         }
         saveActiveSystem();
         SystemAudio.listenTo(this);
@@ -188,10 +206,12 @@ final class World {
         out.put("npcSquadCombat", NpcSquadCombatSystem.capture(this));
         out.put("galaxyEvents", GalaxyEventDirector.capture(this));
         out.put("scenario", ScenarioDirector.capture(this));
+        out.put("startingFleetSettings", startingFleetSettings.capture());
         return out;
     }
     void restoreServerSaveRuntime(Map<String,Object> save) {
         Map<String,Object> data = save == null ? Map.of() : save;
+        startingFleetSettings = StartingFleetSettings.restore(data.get("startingFleetSettings"));
         SystemSimulationScheduler.restore(this, data.get("simulationScheduler"));
         ProductionPlanner.restore(this, data.get("productionPlanner"));
         LogisticsRouteSystem.restore(this, data.get("logisticsRoutes"));
@@ -319,11 +339,21 @@ final class World {
         celestials = galaxy.activate(this, home.id);
         systemTime = galaxy.activeSystemTime();
         Point2D bp = startPointForPlayer(playerId, slot);
-        Point2D sp = startShipPoint(bp);
         int baseId = nextBaseNumber(playerId);
-        int unitId = nextUnitNumber(playerId);
         bases.put(playerId + ":B" + baseId, new Base(playerId + ":B" + baseId, playerId, Rules.DEFAULT_BASE, bp.getX(), bp.getY()));
-        units.put(Unit.key(playerId, unitId), new Unit(playerId, unitId, Rules.STARTING_SHIP, sp.getX(), sp.getY()));
+        for (int i = 0; i < startingFleetSettings.prospectorCount(); i++) {
+            Point2D position = starterPlacement(bp, i, false);
+            int unitId = nextUnitNumber(playerId);
+            units.put(Unit.key(playerId, unitId), new Unit(
+                    playerId, unitId, Rules.STARTING_SHIP, position.getX(), position.getY()));
+        }
+        if (startingFleetSettings.tierOneRadar()) {
+            Point2D position = starterPlacement(bp, -1, true);
+            int radarId = nextBaseNumber(playerId);
+            String id = playerId + ":B" + radarId;
+            bases.put(id, new Base(id, playerId, RadarTowerRules.TIER_ONE,
+                    position.getX(), position.getY()));
+        }
         galaxy.saveActive(this);
         if (previous != null && !previous.isBlank() && !previous.equals(home.id)) {
             celestials = galaxy.activate(this, previous);
@@ -340,7 +370,50 @@ final class World {
     void syncEnvironment(String newSystemId, long seed, double hostTime) { boolean changed = !StarSystems.get(newSystemId).id().equals(systemId()); if (changed) setStarSystem(newSystemId); if (changed || seed != systemSeed) setSystemSeed(seed); double delta = hostTime - systemTime; if (Math.abs(delta) > 0.02) advanceEnvironment(delta); else { systemTime = hostTime; galaxy.setActiveSystemTime(hostTime); } }
     private void setStarSystem(String systemId) { starSystem = StarSystems.get(systemId); }
     private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); proceduralInactiveScheduler.reset(); clearNpcAiRuntimeState(); FleetManager.clear(this); SimulationCadence.clear(this); LogisticsRouteSystem.clear(this); remoteGalaxyMapSnapshot = null; celestials = galaxy.rebuild(this, starSystem, seed); }
-    private Point2D startShipPoint(Point2D basePoint) { return new Point2D.Double(basePoint.getX() + 180, basePoint.getY() - 80); }
+    /**
+     * Stable, collision-checked starter placement. The Outpost, natural resource
+     * nodes, existing units and every newly placed unit are excluded.
+     */
+    private Point2D starterPlacement(Point2D outpost, int ordinal, boolean radar) {
+        final double goldenAngle = Math.PI * (3.0 - Math.sqrt(5.0));
+        final double clearance = radar ? 70 : 34;
+        for (int attempt = 0; attempt < 240; attempt++) {
+            double radius = radar ? 390 + 72 * (attempt / 48)
+                    : 205 + 86 * (Math.max(0, ordinal) / 12 + attempt / 36);
+            double angle = radar ? -Math.PI / 3 + attempt * goldenAngle
+                    : ordinal * goldenAngle + attempt * 0.61;
+            double x = outpost.getX() + Math.cos(angle) * radius;
+            double y = outpost.getY() + Math.sin(angle) * radius;
+            if (width > 150 && (x < 65 || x > width - 65)) continue;
+            if (height > 150 && (y < 65 || y > height - 65)) continue;
+            boolean blocked = false;
+            for (Base base : bases.values()) {
+                if (Math.hypot(base.x - x, base.y - y) < base.interactionRadius() + clearance + 16) {
+                    blocked = true;
+                    break;
+                }
+            }
+            if (blocked) continue;
+            for (Unit unit : units.values()) {
+                if (Math.hypot(unit.x - x, unit.y - y) < clearance + 32) {
+                    blocked = true;
+                    break;
+                }
+            }
+            if (blocked) continue;
+            for (ResourceNode node : resources) {
+                if (node.active && Math.hypot(node.x - x, node.y - y) < node.radius + clearance + 15) {
+                    blocked = true;
+                    break;
+                }
+            }
+            if (!blocked) return new Point2D.Double(x, y);
+        }
+        // A degenerate authored map should still produce a playable commander;
+        // expand the search outside the initial orbital rings.
+        return new Point2D.Double(outpost.getX() + 600 + Math.max(0, ordinal) * 80,
+                outpost.getY() - 600);
+    }
 
     private void clearNpcAiRuntimeState() {
         npcSystems.clear();
