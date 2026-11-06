@@ -32,6 +32,8 @@ final class GameFrame extends JFrame {
     private final LobbyPanel menuPanel = new LobbyPanel(this);
     private final SettingsPanel settingsPanel;
     private final JPanel settingsOverlay;
+    private final CampaignOverlayController campaignDialog =
+            new CampaignOverlayController(this::restoreCampaignFocus);
     private final KeyEventDispatcher gameMenuDispatcher = this::dispatchGameMenuKey;
 
     private GamePanel gamePanel;
@@ -88,6 +90,8 @@ final class GameFrame extends JFrame {
         root.add(codexOverlay, JLayeredPane.POPUP_LAYER);
         settingsOverlay.setVisible(false);
         root.add(settingsOverlay, JLayeredPane.DRAG_LAYER);
+        campaignDialog.hideDialog();
+        root.add(campaignDialog, Integer.valueOf(JLayeredPane.DRAG_LAYER.intValue() + 100));
         menuPanel.setStatus(status);
         setTitle(BuildInfo.display() + " - Menu");
         layoutLayers();
@@ -230,6 +234,8 @@ final class GameFrame extends JFrame {
         root.add(inGameMenuOverlay, JLayeredPane.DRAG_LAYER);
         settingsOverlay.setVisible(false);
         root.add(settingsOverlay, Integer.valueOf(JLayeredPane.DRAG_LAYER.intValue() + 50));
+        campaignDialog.hideDialog();
+        root.add(campaignDialog, Integer.valueOf(JLayeredPane.DRAG_LAYER.intValue() + 100));
 
         if (!world.status.contains("Press I")) {
             world.status = world.status
@@ -357,8 +363,31 @@ final class GameFrame extends JFrame {
         if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
         if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
         if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) narrationSettingsOverlay.close();
+        if (!manufacturingOverlay.isVisible()) dismissStationPopups();
         manufacturingOverlay.toggle();
         if (manufacturingOverlay.isVisible()) root.moveToFront(manufacturingOverlay);
+    }
+
+    /** Single entry point for station shortcuts, sharing F9 cleanup and z-order. */
+    boolean openManufacturingFromStation(World world, String stationId, boolean policies) {
+        if (activeWorld != world || manufacturingOverlay == null || modalMenuVisible()) return false;
+        dismissStationPopups();
+        if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
+        if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
+        if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) narrationSettingsOverlay.close();
+        boolean opened = policies ? ManufacturingOverlay.openPoliciesForStation(world, stationId)
+                : ManufacturingOverlay.openForStation(world, stationId);
+        if (opened) {
+            root.moveToFront(manufacturingOverlay);
+            manufacturingOverlay.requestFocusInWindow();
+            root.repaint();
+        }
+        return opened;
+    }
+
+    private void dismissStationPopups() {
+        MenuSelectionManager.defaultManager().clearSelectedPath();
+        if (gamePanel != null) gamePanel.dismissStationMenus();
     }
 
     private void installCodexHotkey(JComponent target) {
@@ -409,6 +438,13 @@ final class GameFrame extends JFrame {
 
     private boolean dispatchGameMenuKey(KeyEvent event) {
         if (gamePanel == null) return false;
+        if (campaignDialog.isOpen()) {
+            if (event.getID() == KeyEvent.KEY_PRESSED && event.getKeyCode() == KeyEvent.VK_ESCAPE) {
+                campaignDialog.cancel();
+                return true;
+            }
+            return false;
+        }
         if (settingsPanel.isOpen()) {
             if (event.getID() == KeyEvent.KEY_PRESSED) {
                 if (settingsPanel.handleKeyPressed(event)) {
@@ -454,7 +490,8 @@ final class GameFrame extends JFrame {
     }
 
     private boolean modalMenuVisible() {
-        return menuVisible() || settingsPanel.isOpen() || ShipFittingWindow.active();
+        return menuVisible() || campaignDialog.isOpen() || settingsPanel.isOpen()
+                || ShipFittingWindow.active();
     }
 
     private void openInGameMenu() {
@@ -498,24 +535,35 @@ final class GameFrame extends JFrame {
 
     private void saveAsSoloFromMenu() {
         if (!soloSession || soloBusy) return;
-        String name = JOptionPane.showInputDialog(this, "New campaign slot name:", "Save As",
-                JOptionPane.QUESTION_MESSAGE);
-        if (name == null) return;
+        JTextField name = new JTextField(activeWorld.localPlayerName + " Campaign", 36);
+        campaignDialog.showDialog("Save As New Slot", "Create a new campaign slot; the current slot will remain unchanged until the save succeeds.",
+                name,
+                CampaignOverlayController.choice("Save As", () -> createAndSaveSoloSlot(name.getText())),
+                CampaignOverlayController.choice("Cancel", null));
+    }
+
+    private void createAndSaveSoloSlot(String name) {
+        if (!soloSession || soloBusy) return;
         try {
             SoloSaveService.Slot slot = soloSaves.create(name);
             saveSolo("manual", slot.id(), () -> {
                 activeSoloSlotId = slot.id();
                 SoloSaveService.activate(activeWorld, slot.id());
                 FogOfWarView.flushToPersistence(activeWorld);
-                JOptionPane.showMessageDialog(this, "Saved to new slot: " + slot.name());
+                showCampaignMessage("Save As Complete", "Saved to new slot: " + slot.name());
             }, () -> {
                 try { soloSaves.delete(slot.id()); }
                 catch (IOException ignored) { }
+                saveAsFailed(slot.name());
             });
         } catch (IOException | IllegalArgumentException ex) {
-            JOptionPane.showMessageDialog(this, ex.getMessage(), "Could not create slot",
-                    JOptionPane.ERROR_MESSAGE);
+            showCampaignMessage("Could Not Create Slot", ex.getMessage());
         }
+    }
+
+    private void saveAsFailed(String name) {
+        showCampaignMessage("Save As Failed", "Could not save to " + name
+                + ". The previous active campaign slot is unchanged.");
     }
 
     private void saveSolo(String reason, String slotId, Runnable onSuccess, Runnable onFailure) {
@@ -537,14 +585,15 @@ final class GameFrame extends JFrame {
             soloBusy = false;
             if (target == activeWorld && resumeAfter && gamePanel != null) gamePanel.start();
             target.status = "Save capture failed; current session preserved.";
-            if (!"autosave".equals(reason) && !"initial".equals(reason)) {
-                JOptionPane.showMessageDialog(this, ex.getMessage(), "Save Capture Error",
-                        JOptionPane.ERROR_MESSAGE);
-            }
             if (onFailure != null) onFailure.run();
+            else if (!"autosave".equals(reason) && !"initial".equals(reason)) {
+                showCampaignMessage("Save Capture Error", String.valueOf(ex.getMessage()));
+            }
             return;
         }
         // Disk I/O proceeds from a frozen archive payload, not from a live World.
+        if ("manual".equals(reason)) campaignDialog.showChoices(
+                "Saving Campaign", "Writing and verifying the campaign archive...");
         if (target == activeWorld && resumeAfter && gamePanel != null) gamePanel.start();
         new SwingWorker<Void,Void>() {
             @Override protected Void doInBackground() throws Exception {
@@ -559,17 +608,18 @@ final class GameFrame extends JFrame {
                 soloBusy = false;
                 if (failure == null) {
                     if (target == activeWorld) target.status = "Solo campaign saved.";
+                    if ("manual".equals(reason)) campaignDialog.hideDialog();
                     if (onSuccess != null) onSuccess.run();
                     else if ("manual".equals(reason)) {
-                        JOptionPane.showMessageDialog(GameFrame.this, "Save completed successfully.");
+                        showCampaignMessage("Save Complete", "Save completed successfully.");
                     }
                 } else {
                     if (target == activeWorld) target.status = "Save failed; previous valid save preserved.";
-                    if (!"autosave".equals(reason) && !"initial".equals(reason)) {
-                        JOptionPane.showMessageDialog(GameFrame.this, "Save failed: " + failure.getMessage(),
-                                "Solo Save Error", JOptionPane.ERROR_MESSAGE);
-                    }
+                    if ("manual".equals(reason)) campaignDialog.hideDialog();
                     if (onFailure != null) onFailure.run();
+                    else if (!"autosave".equals(reason) && !"initial".equals(reason)) {
+                        showCampaignMessage("Solo Save Error", "Save failed: " + failure.getMessage());
+                    }
                 }
             }
         }.execute();
@@ -602,81 +652,122 @@ final class GameFrame extends JFrame {
     void openSoloLoadDialog() {
         if (soloBusy) return;
         try {
-            while (true) {
-                List<SoloSaveService.Slot> slots = soloSaves.list();
-                if (slots.isEmpty()) {
-                    JOptionPane.showMessageDialog(this, "No solo campaign slots found.");
-                    return;
-                }
-                JList<SoloSaveService.Slot> list = new JList<>(
-                        slots.toArray(new SoloSaveService.Slot[0]));
-                list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-                list.setSelectedIndex(0);
-                JScrollPane scroll = new JScrollPane(list);
-                scroll.setPreferredSize(new Dimension(610, Math.min(310, 42 * slots.size())));
-                int chosen = JOptionPane.showOptionDialog(this, scroll, "Solo Campaigns",
-                        JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null,
-                        new String[]{"Load", "Recovery...", "Rename", "Delete", "Cancel"}, "Load");
-                if (chosen == 4 || chosen == JOptionPane.CLOSED_OPTION) return;
-                SoloSaveService.Slot selected = list.getSelectedValue();
-                if (selected == null) continue;
-                if (chosen == 0) {
-                    loadSolo(selected.id());
-                    return;
-                }
-                if (chosen == 1) {
-                    List<SoloSaveService.RecoveryPoint> recovery = soloSaves.recoveryPoints(selected.id());
-                    if (recovery.isEmpty()) {
-                        JOptionPane.showMessageDialog(this, "No recovery points are available.");
-                        continue;
-                    }
-                    JList<SoloSaveService.RecoveryPoint> points = new JList<>(
-                            recovery.toArray(new SoloSaveService.RecoveryPoint[0]));
-                    points.setSelectedIndex(0);
-                    JScrollPane recoveryScroll = new JScrollPane(points);
-                    recoveryScroll.setPreferredSize(new Dimension(690, Math.min(300, recovery.size() * 42)));
-                    if (JOptionPane.showConfirmDialog(this, recoveryScroll, "Choose Saved Snapshot",
-                            JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
-                        SoloSaveService.RecoveryPoint point = points.getSelectedValue();
-                        if (point != null) {
-                            loadSolo(selected.id(), point.fileName());
-                            return;
-                        }
-                    }
-                }
-                if (chosen == 2) {
-                    String name = JOptionPane.showInputDialog(this, "Rename campaign slot:",
-                            selected.name());
-                    if (name != null) soloSaves.rename(selected.id(), name);
-                }
-                if (chosen == 3) {
-                    if (soloSession && selected.id().equals(activeSoloSlotId)) {
-                        JOptionPane.showMessageDialog(this, "Cannot delete the currently running campaign.");
-                    } else if (JOptionPane.showConfirmDialog(this,
-                            "Permanently delete " + selected.name() + " and its recovery files?",
-                            "Delete Save Slot", JOptionPane.YES_NO_OPTION,
-                            JOptionPane.WARNING_MESSAGE) == JOptionPane.YES_OPTION) {
-                        soloSaves.delete(selected.id());
-                    }
-                }
+            List<SoloSaveService.Slot> slots = soloSaves.list();
+            if (slots.isEmpty()) {
+                menuPanel.setStatus("No solo campaign slots found.");
+                if (activeWorld != null) activeWorld.status = "No solo campaign slots found.";
+                return;
             }
+            JList<SoloSaveService.Slot> list = new JList<>(
+                    slots.toArray(new SoloSaveService.Slot[0]));
+            list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+            list.setSelectedIndex(0);
+            JScrollPane scroll = new JScrollPane(list);
+            scroll.setPreferredSize(new Dimension(610, Math.min(310, 42 * slots.size())));
+            campaignDialog.showDialog("Solo Campaigns", "Select a slot to load or manage its saved snapshots.", scroll,
+                    CampaignOverlayController.choice("Load", () -> {
+                        SoloSaveService.Slot slot = list.getSelectedValue();
+                        if (slot != null) loadSolo(slot.id());
+                    }),
+                    CampaignOverlayController.choice("Recovery...", () -> {
+                        SoloSaveService.Slot slot = list.getSelectedValue();
+                        if (slot != null) openSoloRecoveryDialog(slot.id());
+                    }),
+                    CampaignOverlayController.choice("Rename", () -> {
+                        SoloSaveService.Slot slot = list.getSelectedValue();
+                        if (slot != null) renameSoloSlot(slot);
+                    }),
+                    CampaignOverlayController.choice("Delete", () -> {
+                        SoloSaveService.Slot slot = list.getSelectedValue();
+                        if (slot != null) confirmDeleteSoloSlot(slot);
+                    }),
+                    CampaignOverlayController.choice("Cancel", null));
         } catch (IOException | IllegalArgumentException ex) {
-            JOptionPane.showMessageDialog(this, ex.getMessage(), "Solo Slots",
-                    JOptionPane.ERROR_MESSAGE);
+            showCampaignMessage("Solo Slots", String.valueOf(ex.getMessage()));
         }
+    }
+
+    private void openSoloRecoveryDialog(String slotId) {
+        try {
+            List<SoloSaveService.RecoveryPoint> points = soloSaves.recoveryPoints(slotId);
+            if (points.isEmpty()) {
+                showCampaignMessage("Recovery", "No recovery points are available.");
+                return;
+            }
+            JList<SoloSaveService.RecoveryPoint> list = new JList<>(
+                    points.toArray(new SoloSaveService.RecoveryPoint[0]));
+            list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+            list.setSelectedIndex(0);
+            JScrollPane scroll = new JScrollPane(list);
+            scroll.setPreferredSize(new Dimension(610, Math.min(300, points.size() * 42)));
+            campaignDialog.showDialog("Choose Saved Snapshot", "Load the exact selected recovery file, not the newest slot snapshot.", scroll,
+                    CampaignOverlayController.choice("Load Snapshot", () -> {
+                        SoloSaveService.RecoveryPoint point = list.getSelectedValue();
+                        if (point != null) loadSolo(slotId, point.fileName());
+                    }),
+                    CampaignOverlayController.choice("Back", this::openSoloLoadDialog),
+                    CampaignOverlayController.choice("Cancel", null));
+        } catch (IOException | IllegalArgumentException ex) {
+            showCampaignMessage("Recovery Error", String.valueOf(ex.getMessage()));
+        }
+    }
+
+    private void renameSoloSlot(SoloSaveService.Slot slot) {
+        JTextField name = new JTextField(slot.name(), 36);
+        campaignDialog.showDialog("Rename Campaign", "Choose a new name for the selected campaign slot.", name,
+                CampaignOverlayController.choice("Rename", () -> {
+                    try {
+                        soloSaves.rename(slot.id(), name.getText());
+                        openSoloLoadDialog();
+                    } catch (IOException | IllegalArgumentException ex) {
+                        showCampaignMessage("Rename Failed", String.valueOf(ex.getMessage()));
+                    }
+                }),
+                CampaignOverlayController.choice("Back", this::openSoloLoadDialog),
+                CampaignOverlayController.choice("Cancel", null));
+    }
+
+    private void confirmDeleteSoloSlot(SoloSaveService.Slot slot) {
+        if (soloSession && slot.id().equals(activeSoloSlotId)) {
+            showCampaignMessage("Delete Blocked", "Cannot delete the currently running campaign.");
+            return;
+        }
+        campaignDialog.showChoices("Delete Save Slot",
+                "Permanently delete " + slot.name() + " and its recovery files?",
+                CampaignOverlayController.choice("Delete Permanently", () -> {
+                    try {
+                        soloSaves.delete(slot.id());
+                        openSoloLoadDialog();
+                    } catch (IOException | IllegalArgumentException ex) {
+                        showCampaignMessage("Delete Failed", String.valueOf(ex.getMessage()));
+                    }
+                }),
+                CampaignOverlayController.choice("Back", this::openSoloLoadDialog),
+                CampaignOverlayController.choice("Cancel", null));
     }
 
     private void loadSolo(String slotId) { loadSolo(slotId, null); }
 
     private void loadSolo(String slotId, String snapshot) {
         if (soloBusy) return;
-        if (soloSession && JOptionPane.showConfirmDialog(this,
-                "Load this campaign? Unsaved changes in the current game will be lost.",
-                "Load Solo Campaign", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+        if (soloSession) {
+            campaignDialog.showChoices("Load Solo Campaign",
+                    "Load this campaign? Unsaved changes in the current game will be lost.",
+                    CampaignOverlayController.choice("Load Campaign",
+                            () -> beginLoadSolo(slotId, snapshot)),
+                    CampaignOverlayController.choice("Cancel", null));
+            return;
+        }
+        beginLoadSolo(slotId, snapshot);
+    }
+
+    private void beginLoadSolo(String slotId, String snapshot) {
+        if (soloBusy) return;
         soloBusy = true;
         World previous = activeWorld;
         boolean resumeAfterFailure = soloSession && !soloPausedByMenu;
         if (soloSession && gamePanel != null) gamePanel.stop();
+        campaignDialog.showChoices("Loading Campaign", "Validating and restoring the selected campaign archive...");
         new SwingWorker<World,Void>() {
             @Override protected World doInBackground() throws Exception {
                 Config config = Config.solo("Player");
@@ -686,6 +777,7 @@ final class GameFrame extends JFrame {
             @Override protected void done() {
                 try {
                     World restored = get();
+                    campaignDialog.hideDialog();
                     stopActiveGame();
                     activeSoloSlotId = slotId;
                     PlayerRegistry.activate(restored);
@@ -701,9 +793,8 @@ final class GameFrame extends JFrame {
                         SystemAudio.listenTo(previous);
                         if (resumeAfterFailure && gamePanel != null) gamePanel.start();
                     }
-                    JOptionPane.showMessageDialog(GameFrame.this,
-                            "Could not load campaign. Current session was preserved.\n" + ex.getMessage(),
-                            "Load Error", JOptionPane.ERROR_MESSAGE);
+                    showCampaignMessage("Load Error",
+                            "Could not load campaign. Current session was preserved.\n" + ex.getMessage());
                 } finally {
                     soloBusy = false;
                 }
@@ -716,28 +807,36 @@ final class GameFrame extends JFrame {
 
     private void requestExit(boolean quit) {
         if (soloBusy) {
-            JOptionPane.showMessageDialog(this, "A save or load is still in progress.");
+            showCampaignMessage("Campaign Busy", "A save or load is still in progress.");
             return;
         }
         if (!soloSession) { exitConfirmed(quit); return; }
-        int choice = JOptionPane.showOptionDialog(this,
+        campaignDialog.showChoices(quit ? "Quit StarChem" : "Return to Main Menu",
                 "Save the current solo campaign before leaving?",
-                quit ? "Quit StarChem" : "Return to Main Menu",
-                JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null,
-                new String[]{"Save & Exit", "Exit Without Saving", "Cancel"}, "Save & Exit");
-        if (choice == 0) saveSolo("manual", activeSoloSlotId,
-                () -> exitConfirmed(quit), () -> saveExitFailed(quit));
-        else if (choice == 1) exitConfirmed(quit);
+                CampaignOverlayController.choice("Save & Exit", () -> saveSolo("manual",
+                        activeSoloSlotId, () -> exitConfirmed(quit), () -> saveExitFailed(quit))),
+                CampaignOverlayController.choice("Exit Without Saving", () -> exitConfirmed(quit)),
+                CampaignOverlayController.choice("Cancel", null));
     }
 
     private void saveExitFailed(boolean quit) {
-        int choice = JOptionPane.showOptionDialog(this,
+        campaignDialog.showChoices("Save & Exit Failed",
                 "The campaign could not be saved. The current game is still open.",
-                "Save & Exit Failed", JOptionPane.DEFAULT_OPTION, JOptionPane.ERROR_MESSAGE, null,
-                new String[]{"Retry Save", "Exit Without Saving", "Cancel"}, "Retry Save");
-        if (choice == 0) saveSolo("manual", activeSoloSlotId,
-                () -> exitConfirmed(quit), () -> saveExitFailed(quit));
-        else if (choice == 1) exitConfirmed(quit);
+                CampaignOverlayController.choice("Retry Save", () -> saveSolo("manual",
+                        activeSoloSlotId, () -> exitConfirmed(quit), () -> saveExitFailed(quit))),
+                CampaignOverlayController.choice("Exit Without Saving", () -> exitConfirmed(quit)),
+                CampaignOverlayController.choice("Cancel", null));
+    }
+
+    private void showCampaignMessage(String title, String message) {
+        campaignDialog.showChoices(title, message == null ? "An unknown error occurred." : message,
+                CampaignOverlayController.choice("OK", null));
+    }
+
+    private void restoreCampaignFocus() {
+        if (menuVisible()) inGameMenuOverlay.requestFocusInWindow();
+        else if (gamePanel != null) gamePanel.requestFocusInWindow();
+        else menuPanel.requestFocusForName();
     }
 
     private void exitConfirmed(boolean quit) {
@@ -759,6 +858,7 @@ final class GameFrame extends JFrame {
             if (settingsPanel.handleEscapePressed() == SettingsPanel.Result.BACK) break;
         }
         if (inGameMenuOverlay != null) inGameMenuOverlay.close();
+        campaignDialog.hideDialog();
         ShipFittingWindow.closeActive();
         soloPausedByMenu = false;
         if (gamePanel != null) gamePanel.stop();
@@ -813,6 +913,7 @@ final class GameFrame extends JFrame {
         if (codexOverlay != null) codexOverlay.setBounds(0, 0, width, height);
         if (narrationSettingsOverlay != null) narrationSettingsOverlay.setBounds(0, 0, width, height);
         if (inGameMenuOverlay != null) inGameMenuOverlay.setBounds(0, 0, width, height);
+        campaignDialog.setBounds(0, 0, width, height);
         if (endStatePanel != null) endStatePanel.setBounds(0, 0, width, height);
         if (connectionOverlayPanel != null) connectionOverlayPanel.setBounds(0, 0, width, height);
         int menuWidth = Math.min(760, Math.max(560, width - 160));
