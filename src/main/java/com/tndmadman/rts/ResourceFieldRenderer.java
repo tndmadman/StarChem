@@ -59,6 +59,10 @@ final class ResourceFieldRenderer {
      */
     static void drawAll(Graphics2D source, Iterable<ResourceNode> nodes, int selectedResourceId) {
         if (source == null || nodes == null) return;
+        // Empty resource passes are common (background and every fleet
+        // benchmark). Avoid a whole Graphics2D clone and quality-hint setup
+        // when there are zero resource pixels to render.
+        if (nodes instanceof java.util.Collection<?> collection && collection.isEmpty()) return;
         Graphics2D g = (Graphics2D) source.create();
         try {
             configure(g);
