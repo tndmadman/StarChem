@@ -451,8 +451,29 @@ final class GalaxyCoordinator {
         g2.setColor(new Color(9, 15, 24));
         g2.fillRect(0, 0, width, height);
         g2.setColor(new Color(22, 33, 48));
-        for (int x = 0; x <= width; x += 160) g2.drawLine(x, 0, x, height);
-        for (int y = 0; y <= height; y += 160) g2.drawLine(0, y, width, y);
+        // Grid strokes are invariant in world coordinates. Clipping the iteration
+        // to the actual viewport avoids issuing hundreds of invisible Java2D
+        // drawLine calls at distant camera positions and small zoom factors.
+        // The containing fill, stroke positions, and paint order stay unchanged.
+        Rectangle clip = g2.getClipBounds();
+        if (clip != null) {
+            long minX = Math.max(0L, (long) clip.x);
+            long minY = Math.max(0L, (long) clip.y);
+            long maxX = Math.min((long) width, (long) clip.x + clip.width);
+            long maxY = Math.min((long) height, (long) clip.y + clip.height);
+            if (minX <= maxX && minY <= maxY) {
+                long firstX = ((minX + 159L) / 160L) * 160L;
+                long firstY = ((minY + 159L) / 160L) * 160L;
+                for (long x = firstX; x <= maxX; x += 160L)
+                    g2.drawLine((int) x, 0, (int) x, height);
+                for (long y = firstY; y <= maxY; y += 160L)
+                    g2.drawLine(0, (int) y, width, (int) y);
+            }
+        } else {
+            // Graphics contexts without a clip preserve the legacy full map.
+            for (int x = 0; x <= width; x += 160) g2.drawLine(x, 0, x, height);
+            for (int y = 0; y <= height; y += 160) g2.drawLine(0, y, width, y);
+        }
         WorldSystemState state = active();
         if (state != null) {
             g2.setColor(new Color(220, 238, 250, 190));
