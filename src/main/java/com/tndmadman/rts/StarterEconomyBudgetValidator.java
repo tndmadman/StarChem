@@ -21,7 +21,8 @@ public final class StarterEconomyBudgetValidator {
 
     static void validateOrThrow() {
         Budget budget = new Budget();
-        budget.consume(Rules.ship("prospector").buildCost);     // second miner
+        // New campaigns already receive their configured miner fleet; do not
+        // count a second Prospector purchase as mandatory progression.
         budget.consume(Rules.ship("station_builder").buildCost);
         budget.consume(Rules.base("manufacturing").buildCost);
         Snapshot factory = budget.snapshot();
