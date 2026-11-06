@@ -928,8 +928,18 @@ final class GameFrame extends JFrame {
         if (connectionOverlayPanel != null) connectionOverlayPanel.setBounds(0, 0, width, height);
         int menuWidth = Math.min(760, Math.max(560, width - 160));
         int menuHeight = Math.min(860, Math.max(700, height - 30));
+        boolean menuSizeChanged = menuPanel.getWidth() != menuWidth
+                || menuPanel.getHeight() != menuHeight;
         menuPanel.setBounds((width - menuWidth) / 2, (height - menuHeight) / 2,
                 menuWidth, menuHeight);
+        if (menuSizeChanged) {
+            // The root has a null layout. Changing the menu's bounds alone is
+            // not guaranteed to validate nested BorderLayout/JViewport children.
+            // Reflow in both directions, especially after restoring a larger
+            // window from its minimum size.
+            menuPanel.revalidate();
+            menuPanel.repaint();
+        }
     }
 
     private void applyInitialDisplaySettings() {
