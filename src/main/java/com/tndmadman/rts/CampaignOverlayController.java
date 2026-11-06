@@ -15,6 +15,7 @@ final class CampaignOverlayController extends JPanel {
     private final JPanel card = new JPanel(new BorderLayout(0, 16));
     private final Runnable restoreFocus;
     private Runnable cancelAction;
+    private boolean busy;
 
     CampaignOverlayController(Runnable restoreFocus) {
         super(new GridBagLayout());
@@ -47,7 +48,14 @@ final class CampaignOverlayController extends JPanel {
         showDialog(title, description, null, choices);
     }
 
+    /** A committed I/O operation cannot be dismissed mid-write or mid-restore. */
+    void showBusy(String title, String description) {
+        showDialog(title, description, null);
+        busy = true;
+    }
+
     void showDialog(String title, String description, JComponent content, Choice... choices) {
+        busy = false;
         card.removeAll();
         JLabel heading = new JLabel(title);
         heading.setForeground(new Color(135, 223, 255));
@@ -125,7 +133,7 @@ final class CampaignOverlayController extends JPanel {
     }
 
     void cancel() {
-        if (!isOpen()) return;
+        if (!isOpen() || busy) return;
         Runnable callback = cancelAction;
         hideDialog();
         if (callback != null) callback.run();
@@ -135,6 +143,7 @@ final class CampaignOverlayController extends JPanel {
         if (!isVisible()) return;
         setVisible(false);
         cancelAction = null;
+        busy = false;
         removeAll();
         if (restoreFocus != null) SwingUtilities.invokeLater(() -> {
             // A button may immediately open another campaign dialog.
