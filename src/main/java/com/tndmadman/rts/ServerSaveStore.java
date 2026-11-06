@@ -30,6 +30,10 @@ import java.util.zip.ZipOutputStream;
 
 final class ServerSaveStore {
     static final int SAVE_FORMAT_VERSION = 6;
+    // Deterministic post-construction rollback probe used by SoloSaveLoadValidator.
+    // Disabled by default; never set by gameplay or any persisted setting.
+    static volatile boolean failSoloCandidateRestoreForTest;
+
     private static final String EXTENSION = ".starchem-save";
     private static final DateTimeFormatter BACKUP_TIMESTAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS")
             .withZone(java.time.ZoneOffset.UTC);
@@ -264,18 +268,25 @@ final class ServerSaveStore {
             if (solo) {
                 FogOfWarView.restore(world, runtime.get("soloFog"));
                 world.restoreSoloUiSaveState(runtime.get("soloUi"));
-                // Solo archives load on a SwingWorker thread. Keep the candidate
-                // registry isolated until the game frame commits the restored World.
-                PlayerRegistry.activate(previousRegistryWorld);
+                if (failSoloCandidateRestoreForTest) {
+                    throw new IllegalStateException("Injected candidate restoration failure.");
+                }
+                // The global procedural generation policy belongs to the
+                // displayed campaign, not this background candidate. Stage the
+                // candidate policy for GameFrame to commit after a successful load.
+                world.stageSoloGenerationOptions(GalaxyRuntimeOptions.snapshot());
             }
             return world;
         } catch (RuntimeException ex) {
             if (world != null) world.dispose();
+            throw new IOException("Save state could not be restored: " + ex.getMessage(), ex);
+        } finally {
+            // Both successful and rejected candidates must leave the current
+            // campaign's global settings and per-thread registry untouched.
             if (solo) {
                 GalaxyRuntimeOptions.restore(before);
                 PlayerRegistry.activate(previousRegistryWorld);
             }
-            throw new IOException("Save state could not be restored: " + ex.getMessage(), ex);
         }
     }
 
