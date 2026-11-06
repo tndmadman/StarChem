@@ -188,6 +188,10 @@ final class FogOfWarView {
     }
 
     static synchronized void clearCachedStateForTest(World world) {
+        forget(world);
+    }
+
+    static synchronized void forget(World world) {
         if (world != null) STATES.remove(world);
     }
 
@@ -206,7 +210,8 @@ final class FogOfWarView {
                 || state.worldWidth != world.width || state.worldHeight != world.height
                 || state.environmentSeed != environmentSeed) {
             state = new SystemState(systemId, environmentSeed, columns, rows, world.width, world.height);
-            state.restore(FogOfWarPersistence.load(playerId, systemId, environmentSeed, columns, rows));
+            state.restore(FogOfWarPersistence.load(SoloSaveService.fogPlayerKey(world, playerId),
+                    systemId, environmentSeed, columns, rows));
             worldState.systems.put(key, state);
         }
         if (now - state.lastUpdateNanos < UPDATE_INTERVAL_NANOS) return state;
@@ -222,7 +227,8 @@ final class FogOfWarView {
         observeContacts(world, playerId, frame, state);
         boolean wormholesChanged = observeWormholes(world, frame, state);
         if (sensorUpdate.explorationChanged() || wormholesChanged) {
-            FogOfWarPersistence.saveLater(playerId, systemId, environmentSeed, columns, rows,
+            FogOfWarPersistence.saveLater(SoloSaveService.fogPlayerKey(world, playerId),
+                    systemId, environmentSeed, columns, rows,
                     state.explored, state.wormholes.values());
         }
         return state;
