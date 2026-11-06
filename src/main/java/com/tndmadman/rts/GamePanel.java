@@ -418,6 +418,11 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         }
     }
 
+    /** Dismisses any station/build popup before a full-frame game console opens. */
+    void dismissStationMenus() {
+        buildMenu.hide();
+    }
+
     private void clickLeft(MouseEvent e, Point2D p) {
         boolean visiblePoint = FogOfWarView.currentlyVisible(world, p.getX(), p.getY());
         boolean exploredPoint = FogOfWarView.explored(world, p.getX(), p.getY());
