@@ -158,15 +158,20 @@ final class BuildMenu {
         for (String shipId : def.buildableShips) {
             ShipType ship = Rules.findShip(shipId);
             if (ship == null) continue;
+            // Free-build only waives resource costs, never research authorization.
+            // Keep the historical dev-menu filtering; regular players can see
+            // disabled future hulls with their missing research labels.
+            if (free && !ResearchRules.shipUnlocked(world, base.playerId, shipId)) continue;
             List<ShipLoadoutDefinition> variants = WeaponRules.loadoutsForHull(shipId);
             for (ShipLoadoutDefinition loadout : variants) {
+                if (free && !WeaponRules.unlocked(world, base.playerId, loadout)) continue;
                 List<Cost> cost = WeaponRules.buildCost(ship, loadout);
                 String variant = variants.size() > 1 ? " - " + loadout.displayName() : "";
-                String locked = !free && !ResearchPolicy.unlocked(world, base.playerId,
+                String locked = !ResearchPolicy.unlocked(world, base.playerId,
                         ResearchUnlockKind.SHIP, shipId)
                         ? "Research " + ResearchPolicy.missingUnlockLabel(world, base.playerId,
                                 ResearchUnlockKind.SHIP, shipId)
-                        : !free && !WeaponRules.unlocked(world, base.playerId, loadout)
+                        : !WeaponRules.unlocked(world, base.playerId, loadout)
                         ? "Loadout research " + WeaponRules.missingResearchLabel(world, base.playerId, loadout) : "";
                 entries.add(new Entry(
                         "Build " + ship.name + variant,
@@ -189,10 +194,11 @@ final class BuildMenu {
         for (String packageId : def.basePackages) {
             BaseType station = Rules.base(packageId);
             if (station == null) continue;
-            boolean available = free || ResearchPolicy.unlocked(world, base.playerId,
+            boolean available = ResearchPolicy.unlocked(world, base.playerId,
                     ResearchUnlockKind.STATION_PACKAGE, packageId)
                     && ResearchPolicy.unlocked(world, base.playerId, ResearchUnlockKind.STATION, packageId)
                     && StationPackageResearchRules.unlocked(world, base.playerId, packageId);
+            if (free && !available) continue;
             String blocked = available ? "" : "Research " +
                     ResearchPolicy.missingUnlockLabel(world, base.playerId,
                             ResearchUnlockKind.STATION_PACKAGE, packageId);
@@ -330,6 +336,7 @@ final class BuildMenu {
                         && ResearchPolicy.unlocked(world, base.playerId,
                                 ResearchUnlockKind.CRAFTABLE, item.id)) unlocked++;
             }
+            if (free && unlocked <= 0) continue;
             String detail = unlocked + " / " + inCategory.size() + " recipes available";
             entries.add(new Entry(
                     "Manufacturing | " + category.label,
@@ -376,9 +383,12 @@ final class BuildMenu {
 
     private void addCraftableEntry(World world, PeerNetwork network, Base base,
                                    CraftableItem item, boolean free) {
-        String blocked = !free && !item.unlockedFor(world, base.playerId)
+        if (free && (!item.unlockedFor(world, base.playerId)
+                || !ResearchPolicy.unlocked(world, base.playerId,
+                        ResearchUnlockKind.CRAFTABLE, item.id))) return;
+        String blocked = !item.unlockedFor(world, base.playerId)
                 ? "Research " + item.missingResearchLabel(world, base.playerId)
-                : !free && !ResearchPolicy.unlocked(world, base.playerId,
+                : !ResearchPolicy.unlocked(world, base.playerId,
                         ResearchUnlockKind.CRAFTABLE, item.id)
                 ? "Research " + ResearchPolicy.missingUnlockLabel(world, base.playerId,
                         ResearchUnlockKind.CRAFTABLE, item.id) : "";
