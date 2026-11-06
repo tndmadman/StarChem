@@ -121,7 +121,38 @@ public final class ScenarioFrameworkValidator {
             Base outpost = world.bases.values().stream().filter(base ->
                     "SOLO".equals(base.playerId) && Rules.DEFAULT_BASE.equals(base.typeId))
                     .findFirst().orElseThrow();
-            outpost.inventory.put(Material.IRON, 5.0);
+            Unit miner = world.units.values().stream()
+                    .filter(unit -> "SOLO".equals(unit.playerId)
+                            && Rules.STARTING_SHIP.equals(unit.shipTypeId))
+                    .findFirst().orElseThrow();
+            ResourceNode iron = world.resources.stream()
+                    .filter(node -> node.active && node.material == Material.IRON
+                            && node.amount >= 10
+                            && miner.type().harvestKinds.contains(node.kind))
+                    .min(java.util.Comparator.comparingDouble(node ->
+                            Calc.distance(node.x, node.y, outpost.x, outpost.y)))
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Guided starter has no accessible Iron to mine."));
+            double sourceBefore = iron.amount;
+            miner.selected = true;
+            world.autoHarvestSelected(iron);
+            // Use actual game movement, WorkSystem extraction and hangar unload.
+            // Order the miner home after collecting the tutorial's 5 Iron rather
+            // than fabricate a hangar deposit or grant developer-only materials.
+            boolean sentHome = false;
+            for (int tick = 0; tick < 8000
+                    && outpost.inventory.getOrDefault(Material.IRON, 0.0) < 5; tick++) {
+                world.update(0.25);
+                if (!sentHome && miner.inventory.getOrDefault(Material.IRON, 0.0) >= 6) {
+                    world.sendToNearestBase(miner);
+                    sentHome = true;
+                }
+            }
+            if (iron.amount > sourceBefore - 5
+                    || outpost.inventory.getOrDefault(Material.IRON, 0.0) < 5) {
+                throw new IllegalStateException(
+                        "Starter miner failed to extract and physically unload 5 Iron.");
+            }
             world.saveActiveSystem();
             ScenarioDirector.evaluateAuthoritative(world);
             ScenarioView mined = ScenarioDirector.view(world);
