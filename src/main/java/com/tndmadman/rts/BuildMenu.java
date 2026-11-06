@@ -693,7 +693,7 @@ final class BuildMenu {
         return null;
     }
 
-    private void hide() {
+    void hide() {
         popup.setVisible(false);
         visible = false;
         preciseWheelRemainder = 0;
