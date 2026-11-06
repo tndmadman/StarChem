@@ -180,6 +180,8 @@ final class GameFrame extends JFrame {
     private void showGame(Config config, World world, PeerNetwork activeNetwork,
                           PeerNetwork devAuthorityNetwork) {
         activeWorld = world;
+        // Loaded save candidates are audio-suppressed until the frame commits them.
+        SystemAudio.markRendered(world);
         soloSession = config.role() == NetworkRole.SOLO;
         activeSoloConfig = soloSession ? config : null;
         if (soloSession) {
