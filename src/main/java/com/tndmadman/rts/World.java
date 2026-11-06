@@ -709,10 +709,11 @@ final class World {
         drawMap(g2);
         galaxy.draw(this, g2);
 
-        Iterable<Base> visibleBases = WorldRenderCandidates.bases(this, g2);
-        Iterable<ResourceNode> visibleResources = WorldRenderCandidates.resources(this, g2);
-        Iterable<WorldItem> visibleItems = WorldRenderCandidates.items(this, g2);
-        Iterable<Unit> visibleUnits = WorldRenderCandidates.units(this, g2);
+        WorldRenderCandidates.Frame visible = WorldRenderCandidates.prepareFrame(this, g2);
+        Iterable<Base> visibleBases = visible.bases();
+        Iterable<ResourceNode> visibleResources = visible.resources();
+        Iterable<WorldItem> visibleItems = visible.items();
+        Iterable<Unit> visibleUnits = visible.units();
 
         for (Base base : visibleBases) base.draw(g2, localColor, stockpile, true);
         ResourceFieldRenderer.drawAll(g2, visibleResources, selectedResourceId);
