@@ -17,6 +17,7 @@ public final class ScenarioFrameworkValidator {
         validateCatalog();
         validateLaunchLifecycle();
         validateProgressionAndStartingState();
+        validateGuidedStarterOreObjective();
         validateSchedulerCaptureRestore();
         validateFailureAndHiddenObjective();
         validateCompletion();
@@ -99,6 +100,40 @@ public final class ScenarioFrameworkValidator {
                 objective(hauling, "hauler_wing").status());
         expectEquals("regional stage active", ScenarioObjectiveStatus.ACTIVE,
                 objective(hauling, "regional_presence").status());
+    }
+
+    private static void validateGuidedStarterOreObjective() {
+        PlayerRegistry.reset("SOLO", "Guided Starter", 0x50BEFF);
+        World world = new World("Guided Starter", Set.of(), StarSystems.DEFAULT_SYSTEM_ID,
+                true, StartingFleetSettings.newCampaign(15));
+        try {
+            PlayerRegistry.activate(world);
+            PlayerRegistry.reset("SOLO", "Guided Starter", 0x50BEFF);
+            ScenarioDirector.start(world, "guided_start");
+            ScenarioView initial = ScenarioDirector.view(world);
+            expectEquals("15 miners must not auto-complete guided ore objective",
+                    ScenarioObjectiveStatus.ACTIVE,
+                    objective(initial, "second_prospector").status());
+            expectEquals("Deployer remains locked until real mining and unloading",
+                    ScenarioObjectiveStatus.LOCKED,
+                    objective(initial, "deployer").status());
+
+            Base outpost = world.bases.values().stream().filter(base ->
+                    "SOLO".equals(base.playerId) && Rules.DEFAULT_BASE.equals(base.typeId))
+                    .findFirst().orElseThrow();
+            outpost.inventory.put(Material.IRON, 5.0);
+            world.saveActiveSystem();
+            ScenarioDirector.evaluateAuthoritative(world);
+            ScenarioView mined = ScenarioDirector.view(world);
+            expectEquals("stored iron completes first guided objective",
+                    ScenarioObjectiveStatus.COMPLETED,
+                    objective(mined, "second_prospector").status());
+            expectEquals("earned resources unlock Deployer objective",
+                    ScenarioObjectiveStatus.ACTIVE,
+                    objective(mined, "deployer").status());
+        } finally {
+            world.dispose();
+        }
     }
 
     private static void validateSchedulerCaptureRestore() {
