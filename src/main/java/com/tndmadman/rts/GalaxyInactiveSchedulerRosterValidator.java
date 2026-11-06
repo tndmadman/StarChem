@@ -49,6 +49,16 @@ final class GalaxyInactiveSchedulerRosterValidator {
             scheduler.updateRoster(world, 0.016, restored);
             require(scheduler.rosterRebuildsForTesting() >= 2, "restored roster recognized");
 
+            // Malformed/stale roster IDs are never permitted to advance the active world.
+            String currentActive = world.activeSystemId();
+            double currentTime = world.systemTime();
+            scheduler.updateRoster(world, 0.016, List.of("nonexistent-system-id"));
+            require(scheduler.lastBatchSize() == 0, "unknown system must not consume simulation work");
+            require(currentActive.equals(world.activeSystemId()), "unknown system must not switch the world");
+            require(world.systemTime() == currentTime, "unknown system must not advance active simulation");
+            scheduler.updateRoster(world, Double.NaN, List.of("nonexistent-system-id"));
+            require(scheduler.lastBatchSize() == 0, "invalid delta must not simulate a system");
+
             world.syncEnvironment(world.systemId(), world.systemSeed() + 1, 0);
             require(world.simulationSystemIdsForTesting() != restored, "new match invalidates roster");
         } finally {

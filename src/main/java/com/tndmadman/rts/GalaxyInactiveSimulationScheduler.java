@@ -59,6 +59,11 @@ final class GalaxyInactiveSimulationScheduler {
             return;
         }
 
+        // An overflowed clock would feed infinite elapsed time into authoritative simulation.
+        if (!Double.isFinite(clock + dt)) {
+            lastBatch = List.of();
+            return;
+        }
         clock += dt;
         String activeSystemId = world.activeSystemId();
         if (activeSystemId != null && !activeSystemId.isBlank()) lastUpdatedAt.put(activeSystemId, clock);
@@ -82,6 +87,12 @@ final class GalaxyInactiveSimulationScheduler {
                 lastUpdatedAt.put(systemId, clock);
                 if (elapsed <= 0) continue;
                 world.activateSystem(systemId);
+                // A stale/malformed roster must not accidentally advance the currently
+                // active system when the requested system no longer exists.
+                if (!systemId.equals(world.activeSystemId())) {
+                    lastUpdatedAt.remove(systemId);
+                    continue;
+                }
                 world.updateCurrentSystem(elapsed);
                 updated.add(systemId);
             }

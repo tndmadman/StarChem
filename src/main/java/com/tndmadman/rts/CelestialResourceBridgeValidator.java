@@ -1,5 +1,6 @@
 package com.tndmadman.rts;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -12,6 +13,7 @@ final class CelestialResourceBridgeValidator {
 
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
+        validateScratchMembership();
 
         StarSystemDefinition definition = StarSystems.defaultSystem();
         CelestialSystem celestials = new CelestialSystem(definition, new Random(918273L));
@@ -115,6 +117,35 @@ final class CelestialResourceBridgeValidator {
         require(state.resourceBridgeIds.capacityForTesting() >= 8, "reusable scratch was exercised");
 
         System.out.println("Celestial live resource bridge validation passed (0/1/100/500/1000 x 20).");
+    }
+
+    /** Covers zero/negative/extreme IDs, deliberate hash collisions, reset, and epoch wrap. */
+    private static void validateScratchMembership() {
+        CelestialResourceBridge.IdScratch scratch = new CelestialResourceBridge.IdScratch();
+        scratch.reset(6);
+        int capacity = scratch.capacityForTesting();
+        require(scratch.add(0), "zero resource ID inserted");
+        require(scratch.add(capacity), "first deliberate hash collision inserted");
+        require(scratch.add(capacity * 2), "second deliberate hash collision inserted");
+        require(!scratch.add(capacity), "hash collision must not admit a duplicate");
+        require(scratch.add(Integer.MIN_VALUE), "minimum integer ID inserted");
+        require(scratch.add(Integer.MAX_VALUE), "maximum integer ID inserted");
+        require(scratch.add(-1), "negative resource ID inserted");
+        require(!scratch.add(Integer.MAX_VALUE), "maximum integer duplicate rejected");
+
+        scratch.reset(6);
+        require(scratch.add(0), "reset must not preserve stale membership");
+        require(scratch.add(Integer.MAX_VALUE), "reset must re-admit previous ID");
+        try {
+            Field generation = CelestialResourceBridge.IdScratch.class.getDeclaredField("generation");
+            generation.setAccessible(true);
+            generation.setInt(scratch, Integer.MAX_VALUE);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("Could not exercise resource membership generation rollover", failure);
+        }
+        scratch.reset(6);
+        require(scratch.add(0), "generation rollover must clear old occupancy stamps");
+        require(!scratch.add(0), "generation rollover must still reject duplicates");
     }
 
     private static CelestialSystem.BodyView firstPlanet(WorldSystemState state) {
