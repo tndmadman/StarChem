@@ -104,6 +104,15 @@ final class GalaxyCoordinator {
 
     CelestialSystem restoreSave(World world, Map<String,Object> save) {
         if (save == null) throw new IllegalArgumentException("Save is missing galaxy data.");
+        // Reject duplicate IDs before tearing down a valid live world. Other malformed
+        // restoration failures still dispose partially constructed replacement systems.
+        List<Object> savedSystemRows = ServerSaveStore.list(save.get("systems"));
+        Set<String> savedIds = new HashSet<>();
+        for (Object item : savedSystemRows) {
+            String id = ServerSaveStore.string(ServerSaveStore.object(item), "systemId", "");
+            if (!id.isBlank() && !savedIds.add(id))
+                throw new IllegalArgumentException("Duplicate system ID in restored galaxy: " + id);
+        }
         clearSystemRegistrations();
         playerHomes.clear();
         playerStartRegions.clear();
@@ -126,7 +135,7 @@ final class GalaxyCoordinator {
         startRegionCandidates = List.copyOf(restoredCandidates);
         proceduralStartRegions = ServerSaveStore.boolValue(save, "proceduralStartRegions", false);
         try {
-            for (Object item : ServerSaveStore.list(save.get("systems"))) {
+            for (Object item : savedSystemRows) {
                 restoreSystem(world, ServerSaveStore.object(item));
             }
         } catch (RuntimeException malformed) {

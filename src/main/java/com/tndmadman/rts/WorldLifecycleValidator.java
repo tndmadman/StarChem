@@ -62,8 +62,11 @@ final class WorldLifecycleValidator {
             }
             require(rejected, "duplicate saved galaxy system IDs must be rejected");
             for (WorldSystemState old : initial) {
-                require(!old.registeredForTesting(), "failed restore must unregister old world state");
+                require(old.registeredForTesting(),
+                        "duplicate save IDs must be rejected before tearing down the live galaxy");
             }
+            require(world.policySystemStates().size() == initial.size(),
+                    "duplicate save IDs must preserve the original live systems");
 
             world.restoreServerSaveGalaxy(saved);
             for (WorldSystemState state : initial)

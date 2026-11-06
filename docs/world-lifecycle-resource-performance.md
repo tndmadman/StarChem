@@ -118,3 +118,8 @@ all 11 scenes, three zoom levels and the existing 20% p95 threshold, requires al
 33 expected scene/zoom keys, and collects five paired baseline/candidate trials
 for further diagnosis. Do not mark this render blocker resolved until the new
 comparison and any follow-up profiling pass.
+
+Save restoration now rejects duplicate `systemId` rows before tearing down an
+already-running galaxy, preserving its live registrations on this specific malformed
+input. Other malformed restoration cases still dispose partially registered
+replacement systems; a fully transactional load is outside this focused fix.
