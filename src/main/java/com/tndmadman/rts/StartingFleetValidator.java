@@ -78,6 +78,19 @@ public final class StartingFleetValidator {
                     "P1".equals(base.playerId)
                             && Rules.DEFAULT_BASE.equals(base.typeId))
                     .count() == 1, "new multiplayer commander missing Outpost");
+            // An accidental second callback, or a reconnect after loading a
+            // server save, cannot grant a second fleet / radar / Outpost.
+            restarted.spawnPlayerGroup("P1", 0, false);
+            restarted.activateSystem(restarted.playerHomeSystemId("P1"));
+            require(restarted.units.values().stream().filter(unit ->
+                    "P1".equals(unit.playerId) && Rules.STARTING_SHIP.equals(unit.shipTypeId))
+                    .count() == 30, "reconnecting commander was gifted duplicate Prospectors");
+            require(restarted.bases.values().stream().filter(base ->
+                    "P1".equals(base.playerId) && RadarTowerRules.TIER_ONE.equals(base.typeId))
+                    .count() == 1, "reconnecting commander was gifted duplicate radar");
+            require(restarted.bases.values().stream().filter(base ->
+                    "P1".equals(base.playerId) && Rules.DEFAULT_BASE.equals(base.typeId))
+                    .count() == 1, "reconnecting commander was gifted duplicate Outpost");
         } finally {
             server.dispose();
             restarted.dispose();
