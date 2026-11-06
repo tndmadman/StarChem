@@ -85,19 +85,54 @@ final class SoloSaveService {
         return List.copyOf(out);
     }
 
+    /** Choose the latest checksum-verified snapshot, including recovery points across all slots. */
     synchronized Slot mostRecentValid() throws IOException {
+        Slot winner = null;
+        Instant winnerTime = null;
         for (Slot slot : list()) {
             for (Path archive : recoveryFiles(slotDir(slot.id()))) {
                 try {
                     ServerSaveStore.ValidatedArchive checked = ServerSaveStore.validateArchive(archive);
-                    if ("solo-state".equals(ServerSaveStore.string(checked.manifest(), "archiveKind", ""))
-                            && slot.id().equals(ServerSaveStore.string(checked.manifest(), "soloSlotId", ""))) {
-                        return slot;
+                    if (!"solo-state".equals(ServerSaveStore.string(checked.manifest(), "archiveKind", ""))
+                            || !slot.id().equals(ServerSaveStore.string(checked.manifest(), "soloSlotId", ""))) continue;
+                    Instant timestamp = parseTime(ServerSaveStore.string(checked.manifest(), "lastSavedAt", ""));
+                    if (winner == null || timestamp != null
+                            && (winnerTime == null || timestamp.isAfter(winnerTime))) {
+                        winner = slot;
+                        winnerTime = timestamp;
                     }
                 } catch (IOException ignored) { }
             }
         }
-        return null;
+        return winner;
+    }
+
+    record RecoveryPoint(String fileName, String reason, Instant savedAt, String status) {
+        @Override public String toString() {
+            return fileName + " — " + reason + " — " + (savedAt == null ? "Unknown date" : savedAt)
+                    + " [" + status + "]";
+        }
+    }
+
+    /** Metadata scan only: a full checksum and structural check occurs before restoration. */
+    List<RecoveryPoint> recoveryPoints(String slotId) throws IOException {
+        Path directory = slotDir(slotId);
+        requireDirectory(directory);
+        List<RecoveryPoint> out = new ArrayList<>();
+        for (Path file : recoveryFiles(directory)) {
+            try {
+                Map<String,Object> manifest = ServerSaveStore.readManifest(file);
+                if (!"solo-state".equals(ServerSaveStore.string(manifest, "archiveKind", ""))
+                        || !slotId.equals(ServerSaveStore.string(manifest, "soloSlotId", ""))) continue;
+                out.add(new RecoveryPoint(file.getFileName().toString(),
+                        ServerSaveStore.string(manifest, "reason", "save"),
+                        parseTime(ServerSaveStore.string(manifest, "lastSavedAt", "")),
+                        "CHECK ON LOAD"));
+            } catch (IOException ex) {
+                out.add(new RecoveryPoint(file.getFileName().toString(), "unreadable", null, "CORRUPT"));
+            }
+        }
+        return List.copyOf(out);
     }
 
     record CapturedSave(Path directory, ServerSaveStore store, ServerSaveStore.SaveSnapshot snapshot,
@@ -142,19 +177,34 @@ final class SoloSaveService {
         IOException failure = null;
         for (Path archive : recoveryFiles(directory)) {
             try {
-                ServerSaveStore.ValidatedArchive checked = ServerSaveStore.validateArchive(archive);
-                if (!"solo-state".equals(ServerSaveStore.string(checked.manifest(), "archiveKind", ""))
-                        || !id.equals(ServerSaveStore.string(checked.manifest(), "soloSlotId", ""))) {
-                    throw new IOException("Archive belongs to another save slot.");
-                }
-                ServerSaveStore store = store(id, directory);
-                store.setSoloMetadata(id, readName(directory, "Solo Campaign"));
-                World world = store.loadArchive(archive, config);
-                activate(world, id);
-                return world;
+                return loadSnapshot(id, archive.getFileName().toString(), config);
             } catch (IOException ex) { failure = ex; }
         }
         throw failure == null ? new IOException("No saved campaign exists in that slot.") : failure;
+    }
+
+    World loadSnapshot(String id, String fileName, Config config) throws IOException {
+        if (config.role() != NetworkRole.SOLO) throw new IOException("Only solo games may load solo slots.");
+        Path directory = slotDir(id);
+        requireDirectory(directory);
+        Path selected = null;
+        for (Path candidate : recoveryFiles(directory)) {
+            if (candidate.getFileName().toString().equals(fileName)) {
+                selected = candidate;
+                break;
+            }
+        }
+        if (selected == null) throw new IOException("Unknown recovery snapshot.");
+        ServerSaveStore.ValidatedArchive checked = ServerSaveStore.validateArchive(selected);
+        if (!"solo-state".equals(ServerSaveStore.string(checked.manifest(), "archiveKind", ""))
+                || !id.equals(ServerSaveStore.string(checked.manifest(), "soloSlotId", ""))) {
+            throw new IOException("Archive belongs to another save slot.");
+        }
+        ServerSaveStore store = store(id, directory);
+        store.setSoloMetadata(id, readName(directory, "Solo Campaign"));
+        World world = store.loadArchive(selected, config);
+        activate(world, id);
+        return world;
     }
 
     synchronized void rename(String id, String name) throws IOException {

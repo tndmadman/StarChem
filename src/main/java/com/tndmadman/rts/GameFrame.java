@@ -577,16 +577,26 @@ final class GameFrame extends JFrame {
 
     void continueSolo() {
         if (soloBusy) return;
-        try {
-            SoloSaveService.Slot slot = soloSaves.mostRecentValid();
-            if (slot == null) {
-                menuPanel.setStatus("No valid solo campaign saves were found.");
-                return;
+        soloBusy = true;
+        menuPanel.setStatus("Finding the latest valid solo campaign...");
+        new SwingWorker<SoloSaveService.Slot,Void>() {
+            @Override protected SoloSaveService.Slot doInBackground() throws Exception {
+                return soloSaves.mostRecentValid();
             }
-            loadSolo(slot.id());
-        } catch (IOException ex) {
-            menuPanel.setStatus("Could not inspect saves: " + ex.getMessage());
-        }
+            @Override protected void done() {
+                soloBusy = false;
+                try {
+                    SoloSaveService.Slot slot = get();
+                    if (slot == null) {
+                        menuPanel.setStatus("No valid solo campaign saves were found.");
+                        return;
+                    }
+                    loadSolo(slot.id());
+                } catch (Exception ex) {
+                    menuPanel.setStatus("Could not inspect saves: " + ex.getMessage());
+                }
+            }
+        }.execute();
     }
 
     void openSoloLoadDialog() {
@@ -606,8 +616,8 @@ final class GameFrame extends JFrame {
                 scroll.setPreferredSize(new Dimension(610, Math.min(310, 42 * slots.size())));
                 int chosen = JOptionPane.showOptionDialog(this, scroll, "Solo Campaigns",
                         JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null,
-                        new String[]{"Load", "Rename", "Delete", "Cancel"}, "Load");
-                if (chosen == 3 || chosen == JOptionPane.CLOSED_OPTION) return;
+                        new String[]{"Load", "Recovery...", "Rename", "Delete", "Cancel"}, "Load");
+                if (chosen == 4 || chosen == JOptionPane.CLOSED_OPTION) return;
                 SoloSaveService.Slot selected = list.getSelectedValue();
                 if (selected == null) continue;
                 if (chosen == 0) {
@@ -615,11 +625,31 @@ final class GameFrame extends JFrame {
                     return;
                 }
                 if (chosen == 1) {
+                    List<SoloSaveService.RecoveryPoint> recovery = soloSaves.recoveryPoints(selected.id());
+                    if (recovery.isEmpty()) {
+                        JOptionPane.showMessageDialog(this, "No recovery points are available.");
+                        continue;
+                    }
+                    JList<SoloSaveService.RecoveryPoint> points = new JList<>(
+                            recovery.toArray(new SoloSaveService.RecoveryPoint[0]));
+                    points.setSelectedIndex(0);
+                    JScrollPane recoveryScroll = new JScrollPane(points);
+                    recoveryScroll.setPreferredSize(new Dimension(690, Math.min(300, recovery.size() * 42)));
+                    if (JOptionPane.showConfirmDialog(this, recoveryScroll, "Choose Saved Snapshot",
+                            JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
+                        SoloSaveService.RecoveryPoint point = points.getSelectedValue();
+                        if (point != null) {
+                            loadSolo(selected.id(), point.fileName());
+                            return;
+                        }
+                    }
+                }
+                if (chosen == 2) {
                     String name = JOptionPane.showInputDialog(this, "Rename campaign slot:",
                             selected.name());
                     if (name != null) soloSaves.rename(selected.id(), name);
                 }
-                if (chosen == 2) {
+                if (chosen == 3) {
                     if (soloSession && selected.id().equals(activeSoloSlotId)) {
                         JOptionPane.showMessageDialog(this, "Cannot delete the currently running campaign.");
                     } else if (JOptionPane.showConfirmDialog(this,
@@ -636,7 +666,9 @@ final class GameFrame extends JFrame {
         }
     }
 
-    private void loadSolo(String slotId) {
+    private void loadSolo(String slotId) { loadSolo(slotId, null); }
+
+    private void loadSolo(String slotId, String snapshot) {
         if (soloBusy) return;
         if (soloSession && JOptionPane.showConfirmDialog(this,
                 "Load this campaign? Unsaved changes in the current game will be lost.",
@@ -647,7 +679,9 @@ final class GameFrame extends JFrame {
         if (soloSession && gamePanel != null) gamePanel.stop();
         new SwingWorker<World,Void>() {
             @Override protected World doInBackground() throws Exception {
-                return soloSaves.load(slotId, Config.solo("Player"));
+                Config config = Config.solo("Player");
+                return snapshot == null ? soloSaves.load(slotId, config)
+                        : soloSaves.loadSnapshot(slotId, snapshot, config);
             }
             @Override protected void done() {
                 try {
