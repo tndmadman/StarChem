@@ -19,6 +19,42 @@ final class WorldRenderCandidates {
 
     private WorldRenderCandidates() { }
 
+    /**
+     * Resolve the spatial index once for a complete world paint. Previously every
+     * base/resource/item/unit layer rescanned the live entity counts to verify the
+     * same index, which scales poorly with large fleets and does no useful work
+     * between consecutive layers of one draw call.
+     *
+     * The returned scratch lists are valid until the next frame for this world.
+     * Painting is synchronous on the owning render thread.
+     */
+    static Frame prepareFrame(World world, Graphics2D g2) {
+        Rectangle clip = g2 == null ? null : g2.getClipBounds();
+        WorldSpatialIndex index = index(world, clip);
+        Iterable<Base> bases;
+        Iterable<ResourceNode> resources;
+        Iterable<WorldItem> items;
+        Iterable<Unit> units;
+        if (index == null) {
+            bases = world.bases.values();
+            resources = world.resources;
+            items = world.items;
+            units = world.units.values();
+        } else {
+            Scratch scratch = scratch(world);
+            bases = index.basesIn(clip, BASE_MARGIN, scratch.bases);
+            resources = index.resourcesIn(clip, RESOURCE_MARGIN, scratch.resources);
+            items = index.itemsIn(clip, ITEM_MARGIN, scratch.items);
+            units = index.unitsIn(clip, UNIT_MARGIN, scratch.units);
+        }
+        SelectionRenderPolicy.Frame selection = SelectionRenderPolicy.beginFrame(world, g2, units);
+        FleetSelectionOverlay.drawFrame(g2, world, selection);
+        return new Frame(bases, resources, items, units);
+    }
+
+    record Frame(Iterable<Base> bases, Iterable<ResourceNode> resources,
+                 Iterable<WorldItem> items, Iterable<Unit> units) { }
+
     static Iterable<Unit> units(World world, Graphics2D g2) {
         Rectangle clip = g2 == null ? null : g2.getClipBounds();
         WorldSpatialIndex index = index(world, clip);
