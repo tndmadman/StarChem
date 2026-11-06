@@ -79,6 +79,15 @@ final class World {
 
     World(String localPlayerName, Set<String> disabledNpcFactionIds, String systemId,
           boolean spawnLocalPlayer, StartingFleetSettings startingFleetSettings) {
+        this(localPlayerName, disabledNpcFactionIds, systemId, spawnLocalPlayer,
+                startingFleetSettings, false);
+    }
+
+    /** Candidate archives must not steal the global sound listener before commit. */
+    World(String localPlayerName, Set<String> disabledNpcFactionIds, String systemId,
+          boolean spawnLocalPlayer, StartingFleetSettings startingFleetSettings,
+          boolean candidateNonRendered) {
+        if (candidateNonRendered) SystemAudio.markNonRendered(this);
         this.startingFleetSettings = startingFleetSettings == null
                 ? StartingFleetSettings.legacy() : startingFleetSettings;
         this.localPlayerName = Config.clean(localPlayerName);
@@ -100,7 +109,7 @@ final class World {
             }
         }
         saveActiveSystem();
-        SystemAudio.listenTo(this);
+        if (!candidateNonRendered) SystemAudio.listenTo(this);
         status = spawnLocalPlayer
                 ? "Entered " + starSystem.name() + ". Left-click a wormhole to view that system; ships travel on contact."
                 : "Waiting for player assignment in " + starSystem.name() + ".";
