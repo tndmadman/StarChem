@@ -121,6 +121,12 @@ public final class ScenarioFrameworkValidator {
             Base outpost = world.bases.values().stream().filter(base ->
                     "SOLO".equals(base.playerId) && Rules.DEFAULT_BASE.equals(base.typeId))
                     .findFirst().orElseThrow();
+            Base radar = world.bases.values().stream()
+                    .filter(base -> "SOLO".equals(base.playerId)
+                            && RadarTowerRules.TIER_ONE.equals(base.typeId))
+                    .findFirst().orElseThrow();
+            expectEquals("radar cannot intercept ore deliveries",
+                    outpost, world.nearestBase("SOLO", radar.x, radar.y));
             Unit miner = world.units.values().stream()
                     .filter(unit -> "SOLO".equals(unit.playerId)
                             && Rules.STARTING_SHIP.equals(unit.shipTypeId))
