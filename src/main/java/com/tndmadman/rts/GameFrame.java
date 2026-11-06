@@ -782,6 +782,9 @@ final class GameFrame extends JFrame {
                     World restored = get();
                     campaignDialog.hideDialog();
                     stopActiveGame();
+                    // Promote the candidate's generation policy only after the
+                    // old session is stopped and the archive has loaded cleanly.
+                    restored.commitStagedSoloGenerationOptions();
                     activeSoloSlotId = slotId;
                     PlayerRegistry.activate(restored);
                     SoloSaveService.activate(restored, slotId);
