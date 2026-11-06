@@ -241,6 +241,7 @@ final class ServerSaveStore {
             world.restoreServerSaveGalaxy(galaxy);
             world.restoreSavedSystemSeed(longValue(galaxy, "seed", world.systemSeed()));
             world.restoreServerSaveRuntime(runtime);
+            if (solo) FogOfWarView.restore(world, runtime.get("soloFog"));
             return world;
         } catch (RuntimeException ex) {
             if (world != null) world.dispose();
@@ -278,6 +279,7 @@ final class ServerSaveStore {
             manifest.put("galaxyCopies", GalaxyRuntimeOptions.copiesPerTemplate());
             manifest.put("galaxyGeneration", GalaxyGenerationSettingsCodec.capture(GalaxyRuntimeOptions.generationSettings()));
         }
+        manifest.put("activeSystemId", world.activeSystemId());
         manifest.put("skirmish", SkirmishRuntime.settings(world).saveMap());
         save.put("manifest", manifest);
 
@@ -300,6 +302,7 @@ final class ServerSaveStore {
         save.put("galaxy", world.captureServerSaveGalaxy());
         Map<String,Object> runtime = new LinkedHashMap<>(world.captureServerSaveRuntime());
         runtime.put("shipFits", WorldFitCatalog.capture(world));
+        if (solo) runtime.put("soloFog", FogOfWarView.capture(world));
         save.put("runtime", runtime);
         return save;
     }
