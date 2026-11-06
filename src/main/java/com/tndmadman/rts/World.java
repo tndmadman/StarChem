@@ -79,6 +79,34 @@ final class World {
                 : "Waiting for player assignment in " + starSystem.name() + ".";
     }
 
+    /** Called after simulation/networking and final saves stop, never on system travel. */
+    void dispose() {
+        // The same world-scoped cleanup must run for solo clients and dedicated servers.
+        WorldRuntimeCleanup.discard(this);
+        galaxy.dispose(this);
+        remoteGalaxyMapSnapshot = null;
+        celestials = null;
+        proceduralInactiveScheduler.reset();
+        clearNpcAiRuntimeState();
+        // ProductionPlanner uses strong identity keys; it must not retain disposed worlds.
+        ProductionPlanner.clear(this);
+        ProductionPolicySystem.clear(this);
+        LogisticsRouteSystem.clear(this);
+        FleetManager.clear(this);
+        SystemSimulationScheduler.clear(this);
+        SimulationCadence.clear(this);
+        GalaxyEventDirector.clear(this);
+        GalaxyEventExtensions.clear(this);
+        ScenarioDirector.clear(this);
+        ResourceSync.clear(this);
+        WorldSpatialIndex.clear(this);
+        WorldRenderCandidates.clear(this);
+        SystemAudio.forget(this);
+        PlayerRegistry.dispose(this);
+    }
+
+    List<String> simulationSystemIdsForTesting() { return galaxy.simulationSystemIds(); }
+
     long systemSeed() { return systemSeed; }
     double systemTime() { return systemTime; }
     String systemId() { return starSystem.id(); }
@@ -493,7 +521,8 @@ final class World {
     private void updateInactiveSystems(double dt) {
         if (dt == 0) return;
         if (GalaxyRuntimeOptions.generationSettings().procedural()) {
-            proceduralInactiveScheduler.update(this, dt, authoritativeGalaxyMapSnapshot());
+            // Avoid building a full UI/replication galaxy snapshot just to schedule four systems.
+            proceduralInactiveScheduler.updateRoster(this, dt, galaxy.simulationSystemIds());
             return;
         }
         String previousSystemId = activeSystemId();

@@ -1,5 +1,6 @@
 package com.tndmadman.rts;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -12,6 +13,7 @@ final class CelestialResourceBridgeValidator {
 
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
+        validateScratchMembership();
 
         StarSystemDefinition definition = StarSystems.defaultSystem();
         CelestialSystem celestials = new CelestialSystem(definition, new Random(918273L));
@@ -92,7 +94,58 @@ final class CelestialResourceBridgeValidator {
                     "refire must reactivate the same live ResourceNode object for id " + previous.id);
         }
 
-        System.out.println("Celestial live resource bridge validation passed.");
+        // Each density gets a fresh actual-ID pass; the scratch must not carry membership from
+        // the previous pass or accidentally suppress released persistent deposits.
+        for (int density : new int[] {0, 1, 100, 500, 1000}) {
+            List<ResourceNode> crowded = new ArrayList<>();
+            for (int i = 0; i < density; i++) {
+                ResourceNode ordinary = new ResourceNode(2_000_000 + i, "ordinary", NodeKind.SILICATE_ROCK,
+                        Material.IRON, 0, 0, 100, 1, 8);
+                if ((i & 3) == 0) ordinary.deplete();
+                crowded.add(ordinary);
+            }
+            for (int repeat = 0; repeat < 20; repeat++) {
+                ResourceSpawner.update(crowded, celestials, 0.0);
+                require(crowded.size() == density + refired.size(), "dense pass must bridge once");
+                require(ids(crowded).size() == crowded.size(), "dense pass must never duplicate IDs");
+            }
+        }
+
+        // A recreated system must never reuse a removed world's ID scratch or state registry.
+        state.dispose();
+        require(!state.registeredForTesting(), "bridge state must unregister on dispose");
+        require(state.resourceBridgeIds.capacityForTesting() >= 8, "reusable scratch was exercised");
+
+        System.out.println("Celestial live resource bridge validation passed (0/1/100/500/1000 x 20).");
+    }
+
+    /** Covers zero/negative/extreme IDs, deliberate hash collisions, reset, and epoch wrap. */
+    private static void validateScratchMembership() {
+        CelestialResourceBridge.IdScratch scratch = new CelestialResourceBridge.IdScratch();
+        scratch.reset(6);
+        int capacity = scratch.capacityForTesting();
+        require(scratch.add(0), "zero resource ID inserted");
+        require(scratch.add(capacity), "first deliberate hash collision inserted");
+        require(scratch.add(capacity * 2), "second deliberate hash collision inserted");
+        require(!scratch.add(capacity), "hash collision must not admit a duplicate");
+        require(scratch.add(Integer.MIN_VALUE), "minimum integer ID inserted");
+        require(scratch.add(Integer.MAX_VALUE), "maximum integer ID inserted");
+        require(scratch.add(-1), "negative resource ID inserted");
+        require(!scratch.add(Integer.MAX_VALUE), "maximum integer duplicate rejected");
+
+        scratch.reset(6);
+        require(scratch.add(0), "reset must not preserve stale membership");
+        require(scratch.add(Integer.MAX_VALUE), "reset must re-admit previous ID");
+        try {
+            Field generation = CelestialResourceBridge.IdScratch.class.getDeclaredField("generation");
+            generation.setAccessible(true);
+            generation.setInt(scratch, Integer.MAX_VALUE);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("Could not exercise resource membership generation rollover", failure);
+        }
+        scratch.reset(6);
+        require(scratch.add(0), "generation rollover must clear old occupancy stamps");
+        require(!scratch.add(0), "generation rollover must still reject duplicates");
     }
 
     private static CelestialSystem.BodyView firstPlanet(WorldSystemState state) {

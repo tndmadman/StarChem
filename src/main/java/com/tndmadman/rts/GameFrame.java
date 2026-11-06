@@ -474,7 +474,6 @@ final class GameFrame extends JFrame {
             gameMenuDispatcherInstalled = false;
         }
         if (manufacturingOverlay != null) manufacturingOverlay.disposeOverlay();
-        WorldRuntimeCleanup.discard(stoppingWorld);
         if (resourceCatalogOverlay != null) resourceCatalogOverlay.setVisible(false);
         if (codexOverlay != null) codexOverlay.close();
         if (narrationSettingsOverlay != null) narrationSettingsOverlay.close();
@@ -483,6 +482,8 @@ final class GameFrame extends JFrame {
         if (networkTimer != null) networkTimer.stop();
         if (network != null) network.shutdown();
         resetDeveloperSimulationState(stoppingWorld);
+        // Teardown only after the UI loop and network threads have been stopped.
+        if (stoppingWorld != null) stoppingWorld.dispose();
         gamePanel = null;
         resourceCatalogOverlay = null;
         manufacturingOverlay = null;

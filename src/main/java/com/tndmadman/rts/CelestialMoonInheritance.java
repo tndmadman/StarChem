@@ -32,6 +32,18 @@ final class CelestialMoonInheritance {
         CelestialObjectiveTooltipOverlay.ensureInstalled();
     }
 
+    static void unregister(WorldSystemState state) {
+        if (state == null) return;
+        synchronized (STATES) {
+            if (STATES.get(state.celestials) == state) STATES.remove(state.celestials);
+        }
+        CLAIM_RESERVATIONS.remove(state.celestials);
+    }
+
+    static boolean registeredForTesting(WorldSystemState state) {
+        return state != null && STATES.get(state.celestials) == state;
+    }
+
     static void apply(CelestialSystem celestials) {
         if (celestials == null) return;
         WorldSystemState state = STATES.get(celestials);

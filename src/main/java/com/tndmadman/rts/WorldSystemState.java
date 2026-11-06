@@ -11,6 +11,8 @@ final class WorldSystemState {
     final SystemControlPoint controlPoint;
     final CelestialSystem celestials;
     final List<ResourceNode> resources = new ArrayList<>();
+    // Per-system, reusable scratch; never an authoritative index or a cross-world registry.
+    final CelestialResourceBridge.IdScratch resourceBridgeIds = new CelestialResourceBridge.IdScratch();
     final Map<String, Unit> units = new LinkedHashMap<>();
     final Map<String, Base> bases = new LinkedHashMap<>();
     final List<ProjectileShot> shots = new ArrayList<>();
@@ -36,6 +38,21 @@ final class WorldSystemState {
         CelestialMoonInheritance.register(this);
         CelestialExtractionSystem.register(this);
         CelestialResourceBridge.register(this);
+    }
+
+    /** A state stays registered while its owning galaxy is live, including system switches. */
+    void dispose() {
+        CelestialResourceBridge.unregister(this);
+        CelestialExtractionSystem.unregister(this);
+        CelestialMoonInheritance.unregister(this);
+        CelestialGameplaySystem.unregisterState(this);
+    }
+
+    boolean registeredForTesting() {
+        return CelestialResourceBridge.registeredForTesting(this)
+                && CelestialExtractionSystem.registeredForTesting(this)
+                && CelestialMoonInheritance.registeredForTesting(this)
+                && CelestialGameplaySystem.registeredForTesting(this);
     }
 
     int width() { return definition.width(); }
