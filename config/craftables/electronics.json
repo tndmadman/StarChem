@@ -88,7 +88,7 @@
       "requiredResources": {
         "PRINTED_CIRCUIT_BOARD": 4,
         "ALUMINUM_ALLOY": 6,
-        "GOLD_CONTACT_MESH": 2
+        "COPPER_WIRING": 12
       },
       "output": {
         "material": "CAPACITOR_BANK",
@@ -130,7 +130,7 @@
       "requiredResources": {
         "PRINTED_CIRCUIT_BOARD": 3,
         "SENSOR_ARRAY": 2,
-        "GOLD_CONTACT_MESH": 1
+        "COPPER_WIRING": 8
       },
       "output": {
         "material": "NAVIGATION_COMPUTER",
