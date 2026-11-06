@@ -69,6 +69,8 @@ public final class TutorialControlsValidator {
         tutorial.skipSectionForTest();
         expectStep("skip production section", tutorial, "QUEUE_DEPLOYER");
         tutorial.skipSectionForTest();
+        expectStep("skip station expansion section", tutorial, "LOAD_INDUSTRY_PACKAGE");
+        tutorial.skipSectionForTest();
         expectStep("skip first industry section", tutorial, "LAB_STATION");
         tutorial.skipSectionForTest();
         expectStep("skip research section", tutorial, "LOGISTICS_RESEARCH");
