@@ -755,8 +755,12 @@ final class GameFrame extends JFrame {
         if (soloBusy) return;
         if (soloSession) {
             campaignDialog.showChoices("Load Solo Campaign",
-                    "Load this campaign? Unsaved changes in the current game will be lost.",
-                    CampaignOverlayController.choice("Load Campaign",
+                    "Save your current campaign before loading the selected save?",
+                    CampaignOverlayController.choice("Save & Load", () -> saveSolo("manual",
+                            activeSoloSlotId, () -> beginLoadSolo(slotId, snapshot),
+                            () -> showCampaignMessage("Save Failed",
+                                    "The selected campaign was not loaded. Your current game is preserved."))),
+                    CampaignOverlayController.choice("Load Without Saving",
                             () -> beginLoadSolo(slotId, snapshot)),
                     CampaignOverlayController.choice("Cancel", null));
             return;
