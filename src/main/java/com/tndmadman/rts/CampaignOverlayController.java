@@ -123,7 +123,10 @@ final class CampaignOverlayController extends JPanel {
         SwingUtilities.invokeLater(() -> {
             if (!isVisible()) return;
             if (content instanceof JTextField field) field.requestFocusInWindow();
-            else requestFocusInWindow();
+            else if (content instanceof JScrollPane pane
+                    && pane.getViewport().getView() instanceof JComponent list) {
+                list.requestFocusInWindow();
+            } else requestFocusInWindow();
         });
     }
 
