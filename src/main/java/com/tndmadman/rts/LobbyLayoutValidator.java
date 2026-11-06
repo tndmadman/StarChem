@@ -56,15 +56,33 @@ public final class LobbyLayoutValidator {
         require(lobby.getPreferredSize().width < 1600,
                 "Launcher settings still force an excessively wide window.");
 
-        // Verify the form can be laid out at the supported minimum game window
-        // size and under a narrower usable settings viewport.
-        for (int width : new int[]{900, 980, 1280}) {
+        // The game centers a 740–760px menu inside normal 900–1280px
+        // windows. Exercise the user-reported failure: large -> small ->
+        // large, twice, as well as a narrower nonstandard viewport.
+        int originalEditorWidth = -1;
+        for (int width : new int[]{760, 740, 760, 740, 760, 640, 760}) {
             lobby.setSize(new Dimension(width, 720));
             layoutTree(lobby);
             JViewport viewport = settings.getViewport();
-            if (viewport.getWidth() > 0) {
-                require(viewport.getView().getWidth() == viewport.getWidth(),
-                        "Settings view extends beyond viewport at width " + width);
+            int visibleWidth = viewport.getWidth();
+            require(visibleWidth > 0,
+                    "The settings viewport did not lay out at menu width " + width);
+            require(viewport.getView().getWidth() == visibleWidth,
+                    "Settings viewport remained at an obsolete width after resize to " + width
+                            + ": view=" + viewport.getView().getWidth()
+                            + " viewport=" + visibleWidth);
+            require(miner.getWidth() > 0, "Starting Prospectors has zero width at " + width);
+            java.awt.Point minerOrigin = SwingUtilities.convertPoint(
+                    miner, 0, 0, viewport.getView());
+            require(minerOrigin.x >= 0 && minerOrigin.x + miner.getWidth() <= visibleWidth,
+                    "Starting Prospectors is horizontally clipped at " + width
+                            + ": right=" + (minerOrigin.x + miner.getWidth())
+                            + " viewport=" + visibleWidth);
+            if (width == 760) {
+                if (originalEditorWidth == -1) originalEditorWidth = miner.getWidth();
+                else require(Math.abs(miner.getWidth() - originalEditorWidth) <= 2,
+                        "Starting Prospectors failed to re-expand after shrink: before="
+                                + originalEditorWidth + ", after=" + miner.getWidth());
             }
         }
     }
