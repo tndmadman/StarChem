@@ -20,6 +20,9 @@ final class LobbyPanel extends JPanel {
     private final JComboBox<StarSystemDefinition> systemBox = new JComboBox<>();
     private final JComboBox<Integer> galaxyCopiesBox = new JComboBox<>(new Integer[]{1, 2});
     private final JCheckBox proceduralGalaxyBox = new JCheckBox("Procedural galaxy");
+    private final JSpinner startingMinersSpinner = new JSpinner(new SpinnerNumberModel(
+            StartingFleetSettings.DEFAULT_PROSPECTORS,
+            StartingFleetSettings.MIN_PROSPECTORS, StartingFleetSettings.MAX_PROSPECTORS, 1));
     private final JComboBox<GalaxySizePreset> galaxySizeBox = new JComboBox<>(GalaxySizePreset.values());
     private final JComboBox<GalaxyTopologyStyle> galaxyTopologyBox = new JComboBox<>(GalaxyTopologyStyle.values());
     private final JTextField galaxySeedField = new JTextField("random", 18);
@@ -244,6 +247,7 @@ final class LobbyPanel extends JPanel {
         addFormRow(grid, row++, "Observer access",
                 help("Observer requires a server invitation and uses the server-selected PUBLIC, FOLLOW, or FULL visibility policy."));
         addFormRow(grid, row++, "Solo starting home", systemBox);
+        addFormRow(grid, row++, "Starting Prospectors (1-50)", startingMinersSpinner);
         addFormRow(grid, row++, "Solo galaxy copies", galaxyCopiesBox);
         addFormRow(grid, row++, "Solo procedural galaxy", proceduralGalaxyBox);
         addFormRow(grid, row++, "Solo galaxy size", galaxySizeBox);
@@ -504,7 +508,7 @@ final class LobbyPanel extends JPanel {
             GalaxyRuntimeOptions.configureGeneration(GalaxyGenerationSettings.legacy(1), 0L);
             SkirmishSettings peaceful = ScenarioLaunch.adjustSkirmish(SkirmishSettings.standard());
             owner.launchNewSoloGame(Config.solo(nameField.getText(), false, peaceful,
-                    "sol_standard", 1));
+                    "sol_standard", 1).withStartingMiners((Integer) startingMinersSpinner.getValue()));
         } catch (RuntimeException ex) {
             ScenarioLaunch.consume();
             setStatus(ex.getMessage() == null ? "Could not launch Guided Start." : ex.getMessage());
@@ -524,7 +528,8 @@ final class LobbyPanel extends JPanel {
                 GalaxyRuntimeOptions.configureGeneration(GalaxyGenerationSettings.legacy(selectedGalaxyCopies()), 0L);
             }
             owner.launchNewSoloGame(Config.solo(nameField.getText(), devBox.isSelected(),
-                    selectedSkirmishSettings(), selectedSystemId(), selectedGalaxyCopies()));
+                    selectedSkirmishSettings(), selectedSystemId(), selectedGalaxyCopies())
+                    .withStartingMiners((Integer) startingMinersSpinner.getValue()));
         } catch (RuntimeException ex) {
             setStatus(ex.getMessage() == null ? "Could not start solo galaxy." : ex.getMessage());
         }
