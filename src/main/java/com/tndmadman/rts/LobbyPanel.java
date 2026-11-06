@@ -500,6 +500,18 @@ final class LobbyPanel extends JPanel {
         galaxyPreviewButton.setEnabled(procedural);
     }
 
+    private int selectedStartingProspectors() {
+        try {
+            // Commit text edits before launching; never silently reuse an
+            // earlier count when the operator has typed an invalid value.
+            startingMinersSpinner.commitEdit();
+        } catch (java.text.ParseException ex) {
+            throw new IllegalArgumentException("Starting Prospectors must be 1-50.");
+        }
+        Object selected = startingMinersSpinner.getValue();
+        return StartingFleetSettings.parseCount(String.valueOf(selected));
+    }
+
     private void launchGuidedSolo() {
         try {
             // A deliberately explicit preset, not an invisible mutation of
@@ -508,7 +520,7 @@ final class LobbyPanel extends JPanel {
             GalaxyRuntimeOptions.configureGeneration(GalaxyGenerationSettings.legacy(1), 0L);
             SkirmishSettings peaceful = ScenarioLaunch.adjustSkirmish(SkirmishSettings.standard());
             owner.launchNewSoloGame(Config.solo(nameField.getText(), false, peaceful,
-                    "sol_standard", 1).withStartingMiners((Integer) startingMinersSpinner.getValue()));
+                    "sol_standard", 1).withStartingMiners(selectedStartingProspectors()));
         } catch (RuntimeException ex) {
             ScenarioLaunch.consume();
             setStatus(ex.getMessage() == null ? "Could not launch Guided Start." : ex.getMessage());
@@ -529,7 +541,7 @@ final class LobbyPanel extends JPanel {
             }
             owner.launchNewSoloGame(Config.solo(nameField.getText(), devBox.isSelected(),
                     selectedSkirmishSettings(), selectedSystemId(), selectedGalaxyCopies())
-                    .withStartingMiners((Integer) startingMinersSpinner.getValue()));
+                    .withStartingMiners(selectedStartingProspectors()));
         } catch (RuntimeException ex) {
             setStatus(ex.getMessage() == null ? "Could not start solo galaxy." : ex.getMessage());
         }
