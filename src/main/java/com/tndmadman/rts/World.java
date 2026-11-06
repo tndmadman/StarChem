@@ -79,14 +79,25 @@ final class World {
                 : "Waiting for player assignment in " + starSystem.name() + ".";
     }
 
-    /** Called when a match/client/server world is permanently torn down, not on system travel. */
+    /** Called after simulation/networking and final saves stop, never on system travel. */
     void dispose() {
+        // The same world-scoped cleanup must run for solo clients and dedicated servers.
+        WorldRuntimeCleanup.discard(this);
         galaxy.dispose(this);
         remoteGalaxyMapSnapshot = null;
         celestials = null;
         proceduralInactiveScheduler.reset();
         clearNpcAiRuntimeState();
+        // ProductionPlanner uses strong identity keys; it must not retain disposed worlds.
+        ProductionPlanner.clear(this);
         ProductionPolicySystem.clear(this);
+        LogisticsRouteSystem.clear(this);
+        FleetManager.clear(this);
+        SystemSimulationScheduler.clear(this);
+        SimulationCadence.clear(this);
+        GalaxyEventDirector.clear(this);
+        GalaxyEventExtensions.clear(this);
+        ScenarioDirector.clear(this);
         ResourceSync.clear(this);
         WorldSpatialIndex.clear(this);
         WorldRenderCandidates.clear(this);

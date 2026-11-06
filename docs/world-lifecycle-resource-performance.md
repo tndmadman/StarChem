@@ -98,3 +98,23 @@ nanosecond values can be noisy. Run:
 ```bash
 gradle benchmarkGalaxySchedulerPreparation --no-daemon
 ```
+
+## Follow-up stabilization audit (November 2026)
+
+World disposal now owns the common graphical-client and headless-server registry cleanup.
+The graphical client stops the UI and network before disposal; the server finishes its
+stop/save and fog-of-war persistence close before disposal. System travel does not
+call disposal. The world also clears strong-keyed `ProductionPlanner` state, active
+logistics, fleet, event and simulation-cadence runtime maps. Dedicated server shutdown
+previously skipped `WorldRuntimeCleanup.discard`, while a static
+`IdentityHashMap<World, PlannerState>` could retain worlds with queued plans.
+The lifecycle validator exercises both planner-state and inactive-cadence teardown.
+
+Render gate investigation: the October 22 paired comparison failed for
+`background-default` at 0.45 zoom (13.622 ms baseline p95 vs. 24.814 ms candidate,
++82.2%), with substantial variance in both groups and 32/33 passing scenarios.
+This is not sufficient to establish the underlying cause. The updated gate keeps
+all 11 scenes, three zoom levels and the existing 20% p95 threshold, requires all
+33 expected scene/zoom keys, and collects five paired baseline/candidate trials
+for further diagnosis. Do not mark this render blocker resolved until the new
+comparison and any follow-up profiling pass.

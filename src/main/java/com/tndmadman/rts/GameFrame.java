@@ -474,7 +474,6 @@ final class GameFrame extends JFrame {
             gameMenuDispatcherInstalled = false;
         }
         if (manufacturingOverlay != null) manufacturingOverlay.disposeOverlay();
-        WorldRuntimeCleanup.discard(stoppingWorld);
         if (resourceCatalogOverlay != null) resourceCatalogOverlay.setVisible(false);
         if (codexOverlay != null) codexOverlay.close();
         if (narrationSettingsOverlay != null) narrationSettingsOverlay.close();

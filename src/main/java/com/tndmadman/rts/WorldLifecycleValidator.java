@@ -79,7 +79,29 @@ final class WorldLifecycleValidator {
             for (WorldSystemState state : restarted)
                 require(state.registeredForTesting(), "restart replacement registered");
 
+            // The server and graphical client both use World.dispose. Verify teardown
+            // also removes non-celestial world-scoped state, not just galaxy systems.
+            Map<String,Object> fakeSavedPlan = Map.of("plans", List.of(Map.of(
+                    "id", "AP-test",
+                    "systemId", world.activeSystemId(),
+                    "playerId", "P1",
+                    "root", Map.of(
+                            "kind", "SHIP",
+                            "itemId", Rules.STARTING_SHIP,
+                            "targetBaseId", "P1:B-test",
+                            "productionJobId", "J-test"))));
+            ProductionPlanner.restore(world, fakeSavedPlan);
+            require(ProductionPlanner.containsWorldForTesting(world),
+                    "restored auto-production planner must be associated with its live world");
+            SystemSimulationScheduler.step(world, 0.1);
+            require(SystemSimulationScheduler.containsWorldForTesting(world),
+                    "inactive simulation cadence must be associated with its live world");
+
             world.dispose();
+            require(!ProductionPlanner.containsWorldForTesting(world),
+                    "world disposal must remove strong-keyed auto-production planner state");
+            require(!SystemSimulationScheduler.containsWorldForTesting(world),
+                    "world disposal must remove deferred simulation time");
             for (WorldSystemState state : restarted)
                 require(!state.registeredForTesting(), "world dispose unregisters all systems");
             world.dispose();
