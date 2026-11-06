@@ -112,8 +112,11 @@ final class CampaignOverlayController extends JPanel {
         setVisible(true);
         revalidate();
         repaint();
-        if (content instanceof JTextField field) field.requestFocusInWindow();
-        else requestFocusInWindow();
+        SwingUtilities.invokeLater(() -> {
+            if (!isVisible()) return;
+            if (content instanceof JTextField field) field.requestFocusInWindow();
+            else requestFocusInWindow();
+        });
     }
 
     private static void getRootPaneDefaultAction(JButton button) {
@@ -133,7 +136,11 @@ final class CampaignOverlayController extends JPanel {
         setVisible(false);
         cancelAction = null;
         removeAll();
-        if (restoreFocus != null) SwingUtilities.invokeLater(restoreFocus);
+        if (restoreFocus != null) SwingUtilities.invokeLater(() -> {
+            // A button may immediately open another campaign dialog.
+            // Never steal focus from its text editor or snapshot selector.
+            if (!isVisible()) restoreFocus.run();
+        });
     }
 
     @Override protected void paintComponent(Graphics graphics) {
