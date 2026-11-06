@@ -235,7 +235,9 @@ final class ServerSaveStore {
             if (solo) {
                 GalaxyGenerationSettings settings = GalaxyGenerationSettingsCodec.restore(
                         manifest.get("galaxyGeneration"), Math.max(1, intValue(manifest, "galaxyCopies", 1)));
-                GalaxyRuntimeOptions.configureGeneration(settings, longValue(galaxy, "seed", 0L));
+                GalaxyRuntimeOptions.configureCopies(Math.max(1, intValue(manifest, "galaxyCopies", 1)));
+                GalaxyRuntimeOptions.configureGeneration(settings,
+                        longValue(manifest, "galaxyGenerationSeed", longValue(galaxy, "seed", 0L)));
             }
             String playerName = solo ? string(manifest, "soloPlayerName", config.playerName) : config.playerName;
             String startSystem = solo ? string(manifest, "soloStartSystemId", config.systemId) : config.systemId;
@@ -296,6 +298,7 @@ final class ServerSaveStore {
             manifest.put("soloPlayerName", world.localPlayerName);
             manifest.put("soloStartSystemId", world.systemId());
             manifest.put("galaxyCopies", GalaxyRuntimeOptions.copiesPerTemplate());
+            manifest.put("galaxyGenerationSeed", GalaxyRuntimeOptions.generationSeed(world.systemSeed()));
             manifest.put("galaxyGeneration", GalaxyGenerationSettingsCodec.capture(GalaxyRuntimeOptions.generationSettings()));
         }
         manifest.put("activeSystemId", world.activeSystemId());
