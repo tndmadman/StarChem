@@ -15,6 +15,7 @@ import javax.swing.JSpinner;
 import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
@@ -61,18 +62,20 @@ final class StationControlMenu {
         if (!nonProduction) {
             JButton production = actionButton("OPEN MANUFACTURING (F9)", () -> {
                 popup.setVisible(false);
-                if (!ManufacturingOverlay.openForStation(world, base.id)) {
-                    world.status = "Manufacturing console is unavailable.";
-                }
+                GameFrame frame = SwingUtilities.getWindowAncestor(invoker) instanceof GameFrame owner ? owner : null;
+                boolean opened = frame == null ? ManufacturingOverlay.openForStation(world, base.id)
+                        : frame.openManufacturingFromStation(world, base.id, false);
+                if (!opened) world.status = "Manufacturing console is unavailable.";
             });
             production.setAlignmentX(Component.LEFT_ALIGNMENT);
             content.add(production);
             content.add(Box.createVerticalStrut(5));
             JButton policies = actionButton("MANAGE PRODUCTION POLICIES", () -> {
                 popup.setVisible(false);
-                if (!ManufacturingOverlay.openPoliciesForStation(world, base.id)) {
-                    world.status = "Manufacturing policy console is unavailable.";
-                }
+                GameFrame frame = SwingUtilities.getWindowAncestor(invoker) instanceof GameFrame owner ? owner : null;
+                boolean opened = frame == null ? ManufacturingOverlay.openPoliciesForStation(world, base.id)
+                        : frame.openManufacturingFromStation(world, base.id, true);
+                if (!opened) world.status = "Manufacturing policy console is unavailable.";
             });
             policies.setAlignmentX(Component.LEFT_ALIGNMENT);
             content.add(policies);
