@@ -46,6 +46,30 @@ public final class SoloSaveLoadValidator {
             Map<String,Object> initialScenario = ScenarioDirector.capture(alpha);
             require("guided_start".equals(initialScenario.get("scenarioId")),
                     "Guided Start scenario must activate before save.");
+            // Save a genuinely paid, unfinished manufacturing job. Loading must
+            // retain the queue, partial remaining time and consumed reservations.
+            CraftableItem oldRecipe = CraftingRules.item("research_matrix");
+            require(oldRecipe != null, "Historical Research Matrix recipe ID was removed.");
+            Base queuedFactory = new Base("SOLO:B8000", "SOLO", "manufacturing",
+                    alpha.width / 2.0 + 300, alpha.height / 2.0);
+            alpha.bases.put(queuedFactory.id, queuedFactory);
+            for (Cost cost : oldRecipe.requiredResources) {
+                queuedFactory.inventory.merge(cost.material(), cost.amount(), Double::sum);
+            }
+            require(ProductionSystem.enqueueCraftable(alpha, queuedFactory, oldRecipe, false),
+                    "Could not queue actual paid Research Matrix manufacturing.");
+            require(queuedFactory.productionQueue.size() == 1
+                            && queuedFactory.productionQueue.get(0).resourcesReserved,
+                    "Manufacturing job was not reserved before saving.");
+            double queuedRemaining = queuedFactory.productionQueue.get(0).remaining;
+
+            Base legacyFactory = new Base("SOLO:B8001", "SOLO", "manufacturing",
+                    alpha.width / 2.0 + 500, alpha.height / 2.0);
+            ProductionSystem.readInto("P42^CRAFTABLE^research_matrix^16^8^1^-", legacyFactory);
+            require(legacyFactory.productionQueue.size() == 1
+                            && "research_matrix".equals(legacyFactory.productionQueue.get(0).itemId),
+                    "Seven-column legacy manufacturing queue cannot be migrated.");
+
             long savedSeed = alpha.systemSeed();
             String activeSystem = alpha.activeSystemId();
             int units = alpha.units.size();
@@ -84,6 +108,21 @@ public final class SoloSaveLoadValidator {
             require(loaded.systemSeed() == savedSeed, "Restored seed must match.");
             require(activeSystem.equals(loaded.activeSystemId()), "Restored system must match.");
             require(loaded.units.size() == units, "Restored units must match.");
+            Base restoredFactory = loaded.bases.get(queuedFactory.id);
+            require(restoredFactory != null && restoredFactory.productionQueue.size() == 1,
+                    "Unfinished manufacturing job was lost on save/load.");
+            ProductionJob restoredJob = restoredFactory.productionQueue.get(0);
+            require(restoredJob.resourcesReserved
+                            && "research_matrix".equals(restoredJob.itemId)
+                            && Math.abs(restoredJob.remaining - queuedRemaining) < 0.001,
+                    "Paid manufacturing reservations or remaining time changed on restore.");
+            require(!HangarStore.canAfford(restoredFactory.inventory, oldRecipe.requiredResources),
+                    "Production input resources were refunded or duplicated across save/load.");
+            ProductionSystem.update(loaded, queuedRemaining + 1);
+            require(restoredFactory.productionQueue.isEmpty()
+                            && restoredFactory.inventory.getOrDefault(oldRecipe.outputMaterial, 0.0)
+                                >= oldRecipe.outputAmount,
+                    "Restored legacy-compatible manufacturing job did not produce its output.");
             require(loaded.soloUiSaveState().containsKey("camera"), "Solo camera data was lost.");
             require(FogOfWarView.capture(loaded).containsKey("SOLO|" + activeSystem),
                     "Explored fog cells were lost.");
