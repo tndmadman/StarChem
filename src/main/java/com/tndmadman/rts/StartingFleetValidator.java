@@ -52,6 +52,37 @@ public final class StartingFleetValidator {
             }
         }
 
+        // Dedicated server: after a restart the saved policy, not a newly
+        // supplied CLI default, must control later first-time commanders.
+        PlayerRegistry.reset("SOLO", "Server", 0x50BEFF);
+        World server = new World("Server", Set.of(), StarSystems.DEFAULT_SYSTEM_ID,
+                false, StartingFleetSettings.newCampaign(30));
+        World restarted = new World("Server", Set.of(), StarSystems.DEFAULT_SYSTEM_ID,
+                false, StartingFleetSettings.newCampaign(15));
+        try {
+            Map<String,Object> savedPolicy = Map.of("startingFleetSettings",
+                    server.captureServerSaveRuntime().get("startingFleetSettings"));
+            restarted.restoreServerSaveRuntime(savedPolicy);
+            require(restarted.startingFleetSettings().prospectorCount() == 30,
+                    "server restart silently replaced saved policy");
+            restarted.spawnPlayerGroup("P1", 0, false);
+            restarted.activateSystem(restarted.playerHomeSystemId("P1"));
+            require(restarted.units.values().stream().filter(unit ->
+                    "P1".equals(unit.playerId) && Rules.STARTING_SHIP.equals(unit.shipTypeId))
+                    .count() == 30, "new multiplayer commander did not inherit saved fleet count");
+            require(restarted.bases.values().stream().filter(base ->
+                    "P1".equals(base.playerId)
+                            && RadarTowerRules.TIER_ONE.equals(base.typeId))
+                    .count() == 1, "new multiplayer commander missing radar");
+            require(restarted.bases.values().stream().filter(base ->
+                    "P1".equals(base.playerId)
+                            && Rules.DEFAULT_BASE.equals(base.typeId))
+                    .count() == 1, "new multiplayer commander missing Outpost");
+        } finally {
+            server.dispose();
+            restarted.dispose();
+        }
+
         PlayerRegistry.reset("SOLO", "Legacy", 0x50BEFF);
         World legacy = new World("Legacy");
         try {
@@ -65,7 +96,7 @@ public final class StartingFleetValidator {
             legacy.dispose();
         }
 
-        System.out.println("StarChem starting fleet validator passed: 1/10/15/30/50, radar, CLI and legacy.");
+        System.out.println("StarChem starting fleet validator passed: 1/10/15/30/50, radar, CLI, server restart and legacy.");
     }
 
     private static void require(boolean condition, String message) {
