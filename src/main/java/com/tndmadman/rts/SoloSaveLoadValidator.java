@@ -65,7 +65,7 @@ public final class SoloSaveLoadValidator {
 
             Base legacyFactory = new Base("SOLO:B8001", "SOLO", "manufacturing",
                     alpha.width / 2.0 + 500, alpha.height / 2.0);
-            ProductionSystem.readInto("P42^CRAFTABLE^research_matrix^16^8^1^-", legacyFactory);
+            ProductionQueueCodec.readInto("P42^CRAFTABLE^research_matrix^16^8^1^-", legacyFactory);
             require(legacyFactory.productionQueue.size() == 1
                             && "research_matrix".equals(legacyFactory.productionQueue.get(0).itemId),
                     "Seven-column legacy manufacturing queue cannot be migrated.");
