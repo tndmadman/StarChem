@@ -151,7 +151,15 @@ public final class ScenarioFrameworkValidator {
             if (iron.amount > sourceBefore - 5
                     || outpost.inventory.getOrDefault(Material.IRON, 0.0) < 5) {
                 throw new IllegalStateException(
-                        "Starter miner failed to extract and physically unload 5 Iron.");
+                        "Starter miner failed to extract and physically unload 5 Iron: "
+                        + "nodeBefore=" + sourceBefore + " nodeAfter=" + iron.amount
+                        + " minerCargo=" + miner.inventory + " minerTask=" + miner.task
+                        + " minerPosition=" + miner.x + "," + miner.y
+                        + " nodePosition=" + iron.x + "," + iron.y
+                        + " outpostPosition=" + outpost.x + "," + outpost.y
+                        + " outpostInventory=" + outpost.inventory
+                        + " activeBases=" + world.bases.size()
+                        + " status=" + world.status);
             }
             world.saveActiveSystem();
             ScenarioDirector.evaluateAuthoritative(world);
