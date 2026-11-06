@@ -752,3 +752,13 @@ tasks.register('validateSoloSaveLoad', JavaExec) {
 tasks.named('check') {
     dependsOn tasks.named('validateSoloSaveLoad')
 }
+
+
+tasks.register('benchmarkSoloSaveLoad', JavaExec) {
+    group = 'verification'
+    description = 'Measure 20- and 64-system procedural solo archive capture, write and reload.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.SoloSavePerformanceBenchmark'
+    jvmArgs '-Djava.awt.headless=true'
+}

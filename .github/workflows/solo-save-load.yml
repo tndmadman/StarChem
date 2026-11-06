@@ -24,3 +24,6 @@ jobs:
         run: gradle clean classes check jar --no-daemon
       - name: Validate solo save/load independently
         run: gradle validateSoloSaveLoad --no-daemon
+      - name: Measure supported 20- and 64-system save/load
+        run: gradle benchmarkSoloSaveLoad --no-daemon
+        timeout-minutes: 12
