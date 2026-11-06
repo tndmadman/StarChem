@@ -1,7 +1,7 @@
 {
   "id": "guided_start",
   "name": "Learn to Play — Guided Start",
-  "description": "A peaceful economic introduction with the regular authoritative production and research rules. Mine, manufacture, fuel a laboratory, and build a Hauler.",
+  "description": "A peaceful economic introduction starting with a configurable Prospector fleet and Tier-1 Radar. Mine and unload ore, manufacture, fuel a laboratory, and build a Hauler.",
   "multiplayer": "SOLO",
   "galaxy": {
     "copiesPerTemplate": 1
@@ -17,13 +17,13 @@
   "objectives": [
     {
       "id": "second_prospector",
-      "title": "1 · Expand Your Mining Fleet",
-      "description": "Select the initial Prospector, mine Iron and Copper, unload into the Outpost, and build a second Prospector.",
+      "title": "1 · Mine and Deliver Iron",
+      "description": "Select a group of Prospectors, right-click a nearby Iron resource to start mining, then unload at least 5 Iron into your Outpost. The 15 starting miners and Tier-1 Radar are already provided; do not build a second miner for this objective.",
       "kind": "PRIMARY",
       "trigger": {
-        "type": "OWN_SHIP_TYPE",
-        "value": "prospector",
-        "target": 2
+        "type": "OWN_STORED_MATERIAL",
+        "value": "iron",
+        "target": 5
       }
     },
     {
