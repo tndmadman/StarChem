@@ -230,6 +230,7 @@ final class ServerSaveStore {
         }
         SkirmishSettings skirmish = SkirmishSettings.fromSaved(manifest.get("skirmish"), config.skirmishSettings);
         GalaxyRuntimeOptions.State before = GalaxyRuntimeOptions.snapshot();
+        World previousRegistryWorld = PlayerRegistry.activeWorld();
         World world = null;
         try {
             if (solo) {
@@ -241,7 +242,8 @@ final class ServerSaveStore {
             }
             String playerName = solo ? string(manifest, "soloPlayerName", config.playerName) : config.playerName;
             String startSystem = solo ? string(manifest, "soloStartSystemId", config.systemId) : config.systemId;
-            world = new World(playerName, skirmish.disabledNpcFactionIds(), startSystem, false);
+            world = new World(playerName, skirmish.disabledNpcFactionIds(), startSystem,
+                    false, StartingFleetSettings.legacy(), true);
             SkirmishRuntime.bind(world, skirmish);
             PlayerRegistry.activate(world);
             restorePlayers(players);
@@ -262,11 +264,17 @@ final class ServerSaveStore {
             if (solo) {
                 FogOfWarView.restore(world, runtime.get("soloFog"));
                 world.restoreSoloUiSaveState(runtime.get("soloUi"));
+                // Solo archives load on a SwingWorker thread. Keep the candidate
+                // registry isolated until the game frame commits the restored World.
+                PlayerRegistry.activate(previousRegistryWorld);
             }
             return world;
         } catch (RuntimeException ex) {
             if (world != null) world.dispose();
-            if (solo) GalaxyRuntimeOptions.restore(before);
+            if (solo) {
+                GalaxyRuntimeOptions.restore(before);
+                PlayerRegistry.activate(previousRegistryWorld);
+            }
             throw new IOException("Save state could not be restored: " + ex.getMessage(), ex);
         }
     }
