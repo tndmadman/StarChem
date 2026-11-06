@@ -1,0 +1,154 @@
+{
+  "id": "guided_start",
+  "name": "Learn to Play — Guided Start",
+  "description": "A peaceful economic introduction with the regular authoritative production and research rules. Mine, manufacture, fuel a laboratory, and build a Hauler.",
+  "multiplayer": "SOLO",
+  "galaxy": {
+    "copiesPerTemplate": 1
+  },
+  "startingState": {
+    "ships": [],
+    "stations": [],
+    "completedResearch": {}
+  },
+  "enabledNpcFactions": [],
+  "diplomacy": {},
+  "events": {},
+  "objectives": [
+    {
+      "id": "second_prospector",
+      "title": "1 · Expand Your Mining Fleet",
+      "description": "Select the initial Prospector, mine Iron and Copper, unload into the Outpost, and build a second Prospector.",
+      "kind": "PRIMARY",
+      "trigger": {
+        "type": "OWN_SHIP_TYPE",
+        "value": "prospector",
+        "target": 2
+      }
+    },
+    {
+      "id": "deployer",
+      "title": "2 · Build a Deployer",
+      "description": "Mine and deliver the Deployer's required materials, then build a station-placement ship at your Outpost.",
+      "kind": "PRIMARY",
+      "prerequisites": [
+        "second_prospector"
+      ],
+      "trigger": {
+        "type": "OWN_SHIP_TYPE",
+        "value": "station_builder",
+        "target": 1
+      }
+    },
+    {
+      "id": "manufacturing",
+      "title": "3 · Start Manufacturing",
+      "description": "Load a Manufacturing Plant package into a Deployer, place it, and inspect recipes for Steel Plate, Copper Wiring, and electronics.",
+      "kind": "PRIMARY",
+      "prerequisites": [
+        "deployer"
+      ],
+      "trigger": {
+        "type": "OWN_STATION_TYPE",
+        "value": "manufacturing",
+        "target": 1
+      }
+    },
+    {
+      "id": "laboratory",
+      "title": "4 · Establish a Research Lab",
+      "description": "Manufacture Power Regulators, Radiation Shielding, and Research Matrices. Build a second Deployer to place the Research Lab.",
+      "kind": "PRIMARY",
+      "prerequisites": [
+        "manufacturing"
+      ],
+      "trigger": {
+        "type": "OWN_STATION_TYPE",
+        "value": "laboratory",
+        "target": 1
+      }
+    },
+    {
+      "id": "advanced_industry",
+      "title": "5 · Research Advanced Industry",
+      "description": "Manufacture Fuel from gases, deliver it to the Research Lab, supply the research materials, and complete Advanced Industry.",
+      "kind": "PRIMARY",
+      "prerequisites": [
+        "laboratory"
+      ],
+      "trigger": {
+        "type": "COMPLETE_RESEARCH",
+        "value": "advanced_industry",
+        "target": 1
+      }
+    },
+    {
+      "id": "logistics",
+      "title": "6 · Unlock Cargo Pods",
+      "description": "Research Logistics Engineering, then manufacture Cargo Pods for a Shipyard and your first Hauler.",
+      "kind": "PRIMARY",
+      "prerequisites": [
+        "advanced_industry"
+      ],
+      "trigger": {
+        "type": "COMPLETE_RESEARCH",
+        "value": "logistics_engineering",
+        "target": 1
+      }
+    },
+    {
+      "id": "autonomous",
+      "title": "7 · Unlock Hauler Controls",
+      "description": "Research Autonomous Logistics to unlock Logistics Control Modules. Manufacture the required sensors and navigation electronics.",
+      "kind": "PRIMARY",
+      "prerequisites": [
+        "logistics"
+      ],
+      "trigger": {
+        "type": "COMPLETE_RESEARCH",
+        "value": "autonomous_logistics",
+        "target": 1
+      }
+    },
+    {
+      "id": "shipyard",
+      "title": "8 · Establish a Shipyard",
+      "description": "Build and deploy the Shipyard package after manufacturing the required Cargo Pods and other industrial components.",
+      "kind": "PRIMARY",
+      "prerequisites": [
+        "autonomous"
+      ],
+      "trigger": {
+        "type": "OWN_STATION_TYPE",
+        "value": "shipyard",
+        "target": 1
+      }
+    },
+    {
+      "id": "first_hauler",
+      "title": "9 · Build Your First Hauler",
+      "description": "Build a Hauler at the Shipyard using Cargo Pods, a Logistics Control Module, Fuel Cell Stacks, and an available loadout. You can continue normal play afterward.",
+      "kind": "PRIMARY",
+      "prerequisites": [
+        "shipyard"
+      ],
+      "trigger": {
+        "type": "OWN_SHIP_TYPE",
+        "value": "hauler",
+        "target": 1
+      }
+    },
+    {
+      "id": "explore",
+      "title": "Optional · Expand to Another System",
+      "description": "When ready, open the galaxy map and expand into a second connected system. Exploration is not required for early research.",
+      "kind": "OPTIONAL",
+      "trigger": {
+        "type": "CONTROL_SYSTEMS",
+        "target": 2
+      }
+    }
+  ],
+  "completionText": "You have established mining, manufacturing, research, and logistics. Continue freely or start a custom Solo game.",
+  "failureText": "Your frontier could not complete the introduction."
+}

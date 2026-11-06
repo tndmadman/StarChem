@@ -25,6 +25,7 @@ final class TutorialOverlay extends JComponent {
     private static final String PREF_LEGACY_COMPLETED = "firstRunTutorialCompleted";
     private static final String PREF_CORE_COMPLETED = "firstRunTutorialCoreCompleted";
     private static final String PREF_ADVANCED_COMPLETED = "firstRunTutorialAdvancedCompleted";
+    private static final String PREF_ACTIVE_STEP = "firstRunTutorialActiveStepV3";
 
     private static final int HUD_X = 16;
     private static final int HUD_Y = 154;
@@ -78,6 +79,14 @@ final class TutorialOverlay extends JComponent {
         this.coreCompleted = persist && (legacyCompleted || readBoolean(PREF_CORE_COMPLETED, false));
         this.advancedCompleted = persist && readBoolean(PREF_ADVANCED_COMPLETED, false);
         if (coreCompleted) step = advancedCompleted ? Step.COMPLETE : Step.ADVANCED_READY;
+        else if (persist && !disabled) {
+            try {
+                Step checkpoint = Step.valueOf(PREFS.get(PREF_ACTIVE_STEP, "SELECT"));
+                if (checkpoint != Step.COMPLETE && checkpoint != Step.ADVANCED_READY
+                        && (localShipCount(Rules.STARTING_SHIP) >= 2
+                            || hasLocalStation("manufacturing"))) step = checkpoint;
+            } catch (IllegalArgumentException | SecurityException ignored) { }
+        }
         setOpaque(false);
         setFocusable(false);
         timer = new Timer(100, event -> tick());
@@ -148,14 +157,14 @@ final class TutorialOverlay extends JComponent {
     void skipCurrentObjective() {
         if (!active()) return;
         Step skipped = step;
-        if (step == Step.RESPOND) {
-            completeCore("Skipped objective: " + skipped.objective + ". Advanced tutorial is available with F2.",
+        if (step == Step.HAULER_COMPLETE) {
+            completeCore("Economic tutorial completed by skipping the final objective.",
                     "Core tutorial completed by skipping the final objective.");
             return;
         }
-        if (step == Step.COMPLETE_INDUSTRY) {
-            completeAdvanced("Skipped objective: " + skipped.objective + ". All tutorials are complete.",
-                    "Advanced tutorial completed by skipping the final objective.");
+        if (step == Step.RESPOND) {
+            completeAdvanced("Optional tutorial completed by skipping the final objective.",
+                    "Optional tutorial completed.");
             return;
         }
         step = step.next();
@@ -278,18 +287,32 @@ final class TutorialOverlay extends JComponent {
             case DELIVER -> { if (deliveryAlreadyObserved || friendlyBaseInventoryTotal() > deliveryInventoryBaseline + 0.05) advance(); }
             case QUEUE_BUILD -> { if (hasQueuedShip(Rules.STARTING_SHIP) || localShipCount(Rules.STARTING_SHIP) > startingProspectors) advance(); }
             case BUILD_COMPLETE -> { if (localShipCount(Rules.STARTING_SHIP) > startingProspectors) advance(); }
-            case MAP -> { if (mapOpened) advance(); }
-            case WORMHOLE -> { String activeSystemId = safe(world.activeSystemId()); if (!activeSystemId.equals(homeSystemId) && hasLocalLiveUnit()) advance(); }
-            case ENCOUNTER -> updateNpcEncounter();
-            case RESPOND -> updateNpcResponse();
+            case QUEUE_DEPLOYER -> { if (hasQueuedShip("station_builder") || hasLocalShip("station_builder")
+                    || hasLocalStation("manufacturing")) advance(); }
+            case DEPLOYER_COMPLETE -> { if (hasLocalShip("station_builder")
+                    || hasLocalStation("manufacturing")) advance(); }
+            case LOAD_INDUSTRY_PACKAGE -> { if (hasLoadedIndustryPackage()
+                    || hasLocalStation("manufacturing")) advance(); }
+            case PLACE_INDUSTRY_STATION -> { if (hasLocalStation("manufacturing")) advance(); }
+            case QUEUE_INDUSTRY -> { if (captureIndustryJob()
+                    || localMaterialTotal(Material.COPPER_WIRING) > 0.05) advance(); }
+            case COMPLETE_INDUSTRY -> { if (industryCompletionObserved()
+                    || localMaterialTotal(Material.COPPER_WIRING) > 0.05) advance(); }
+            case LAB_STATION -> { if (hasLocalStation("laboratory")) advance(); }
+            case LAB_FUEL -> { if (hasFueledLab() || hasLocalResearch("advanced_industry")) advance(); }
+            case ADVANCED_RESEARCH -> { if (hasLocalResearch("advanced_industry")) advance(); }
+            case LOGISTICS_RESEARCH -> { if (hasLocalResearch("logistics_engineering")
+                    && hasLocalResearch("autonomous_logistics")) advance(); }
+            case HAULER_COMPLETE -> { if (hasLocalShip("hauler")) finishCore(); }
             case CATALOG -> { if (catalogOpened) advance(); }
             case CODEX -> { if (codexOpened) advance(); }
-            case QUEUE_DEPLOYER -> { if (hasQueuedShip("station_builder") || hasLocalShip("station_builder")) advance(); }
-            case DEPLOYER_COMPLETE -> { if (hasLocalShip("station_builder")) advance(); }
-            case LOAD_INDUSTRY_PACKAGE -> { if (hasLoadedIndustryPackage() || hasIndustryStation()) advance(); }
-            case PLACE_INDUSTRY_STATION -> { if (hasIndustryStation()) advance(); }
-            case QUEUE_INDUSTRY -> { if (captureIndustryJob()) advance(); }
-            case COMPLETE_INDUSTRY -> { if (industryCompletionObserved()) finishAdvanced(); }
+            case MAP -> { if (mapOpened) advance(); }
+            case WORMHOLE -> {
+                String activeSystemId = safe(world.activeSystemId());
+                if (!activeSystemId.equals(homeSystemId) && hasLocalLiveUnit()) advance();
+            }
+            case ENCOUNTER -> { if (allNpcsDisabled()) finishAdvanced(); else updateNpcEncounter(); }
+            case RESPOND -> updateNpcResponse();
             case ADVANCED_READY, COMPLETE -> { }
         }
     }
@@ -315,7 +338,7 @@ final class TutorialOverlay extends JComponent {
             encounterSystemId = activeSystemId;
             encounterEnemyCount = enemies;
         }
-        if (!activeSystemId.equals(encounterSystemId) || attackingNpc() || enemies < encounterEnemyCount) finishCore();
+        if (!activeSystemId.equals(encounterSystemId) || attackingNpc() || enemies < encounterEnemyCount) finishAdvanced();
     }
 
     private void advance() {
@@ -331,6 +354,7 @@ final class TutorialOverlay extends JComponent {
         if (step == Step.DELIVER && !deliveryAlreadyObserved) deliveryInventoryBaseline = friendlyBaseInventoryTotal();
         if (step == Step.ENCOUNTER) { encounterSystemId = ""; encounterEnemyCount = 0; }
         if (step == Step.QUEUE_INDUSTRY) clearTrackedIndustryJob();
+        writeStepCheckpoint();
     }
 
     private void finishCore() { completeCore("Core tutorial complete. Press F2 when ready for optional advanced operations.", "Core tutorial complete. Press F2 for the optional advanced tutorial."); }
@@ -346,6 +370,7 @@ final class TutorialOverlay extends JComponent {
         writeBoolean(PREF_CORE_COMPLETED, true);
         writeBoolean(PREF_ADVANCED_COMPLETED, false);
         writeBoolean(PREF_LEGACY_COMPLETED, true);
+        writeStepCheckpoint();
         world.status = status;
         AlertCenter.push(world, alert);
         repaint();
@@ -364,6 +389,7 @@ final class TutorialOverlay extends JComponent {
         writeBoolean(PREF_CORE_COMPLETED, true);
         writeBoolean(PREF_ADVANCED_COMPLETED, true);
         writeBoolean(PREF_LEGACY_COMPLETED, true);
+        writeStepCheckpoint();
         world.status = status;
         AlertCenter.push(world, alert);
         repaint();
@@ -386,14 +412,21 @@ final class TutorialOverlay extends JComponent {
         writeBoolean(PREF_CORE_COMPLETED, false);
         writeBoolean(PREF_ADVANCED_COMPLETED, false);
         writeBoolean(PREF_LEGACY_COMPLETED, false);
+        writeStepCheckpoint();
         resetCoreBaselines();
         world.status = "Core tutorial restarted.";
         repaint();
     }
 
+    private void writeStepCheckpoint() {
+        if (!persist) return;
+        try { PREFS.put(PREF_ACTIVE_STEP, step.name()); }
+        catch (SecurityException ignored) { }
+    }
+
     private void rememberCompletion(Step completedStep) { lastCompletedObjective = completedStep.objective; lastCompletedUntilNanos = System.nanoTime() + 2_500_000_000L; }
     private void clearCompletionNotice() { lastCompletedObjective = ""; lastCompletedUntilNanos = 0; }
-    private void resetCoreBaselines() { startingProspectors = localShipCount(Rules.STARTING_SHIP); deliveryInventoryBaseline = friendlyBaseInventoryTotal(); deliveryAlreadyObserved = false; homeSystemId = world == null ? "" : safe(world.activeSystemId()); }
+    private void resetCoreBaselines() { startingProspectors = Math.min(1, localShipCount(Rules.STARTING_SHIP)); deliveryInventoryBaseline = friendlyBaseInventoryTotal(); deliveryAlreadyObserved = false; homeSystemId = world == null ? "" : safe(world.activeSystemId()); }
     private void resetAdvancedObservations() { catalogOpened = false; codexOpened = false; clearTrackedIndustryJob(); clearCompletionNotice(); }
 
     private boolean hasActiveHarvester() {
@@ -415,15 +448,41 @@ final class TutorialOverlay extends JComponent {
     private boolean hasLocalLiveUnit() { for (Unit unit : world.units.values()) if (PlayerRegistry.isLocal(unit.playerId) && unit.hp > 0) return true; return false; }
     private boolean hasLocalShip(String shipId) { return localShipCount(shipId) > 0; }
     private int localShipCount(String shipId) { if (world == null) return 0; int count = 0; for (Unit unit : world.units.values()) if (PlayerRegistry.isLocal(unit.playerId) && unit.hp > 0 && shipId.equals(unit.shipTypeId)) count++; return count; }
-    private boolean hasLoadedIndustryPackage() { for (Unit unit : world.units.values()) if (PlayerRegistry.isLocal(unit.playerId) && unit.hp > 0 && isIndustryStationType(unit.basePackageType)) return true; return false; }
-    private boolean hasIndustryStation() { for (Base base : world.bases.values()) if (PlayerRegistry.isLocal(base.playerId) && base.hp > 0 && isIndustryStationType(base.typeId)) return true; return false; }
+    private boolean hasLoadedIndustryPackage() {
+        for (Unit unit : world.units.values())
+            if (PlayerRegistry.isLocal(unit.playerId) && unit.hp > 0
+                    && "manufacturing".equals(unit.basePackageType)) return true;
+        return false;
+    }
+    private boolean hasLocalStation(String id) {
+        for (Base base : world.bases.values())
+            if (PlayerRegistry.isLocal(base.playerId) && base.hp > 0
+                    && id.equals(base.typeId)) return true;
+        return false;
+    }
+    private boolean hasFueledLab() {
+        for (Base base : world.bases.values())
+            if (PlayerRegistry.isLocal(base.playerId) && base.hp > 0
+                    && "laboratory".equals(base.typeId)
+                    && base.inventory.getOrDefault(Material.FUEL, 0.0) > 0.05) return true;
+        return false;
+    }
+    private boolean hasLocalResearch(String topicId) {
+        return world.hasResearch(PlayerRegistry.localId(), topicId);
+    }
+    private boolean allNpcsDisabled() {
+        java.util.Set<String> disabled = SkirmishRuntime.settings(world).disabledNpcFactionIds();
+        return disabled.contains(Config.RAIDERS_ID)
+                && disabled.contains(Config.FREE_MINERS_ID)
+                && disabled.contains(Config.CORSAIRS_ID);
+    }
 
     private boolean captureIndustryJob() {
         if (trackedIndustryKind != null && !trackedIndustryItemId.isBlank()) return true;
         for (Base base : world.bases.values()) {
             if (!PlayerRegistry.isLocal(base.playerId) || base.hp <= 0) continue;
             for (ProductionJob job : base.productionQueue) {
-                if (job.kind != ProductionJobKind.CRAFTABLE && job.kind != ProductionJobKind.RESEARCH) continue;
+                if (!"manufacturing".equals(base.typeId) || job.kind != ProductionJobKind.CRAFTABLE) continue;
                 trackedIndustryKind = job.kind;
                 trackedIndustryItemId = job.itemId;
                 trackedIndustryPlayerId = base.playerId;
@@ -455,15 +514,27 @@ final class TutorialOverlay extends JComponent {
     private double localMaterialTotal(Material material) { if (material == null) return 0; double total = 0; for (Base base : world.bases.values()) if (PlayerRegistry.isLocal(base.playerId) && base.hp > 0) total += Math.max(0, base.inventory.getOrDefault(material, 0.0)); return total; }
     private double localCargoTotal() { double total = 0; for (Unit unit : world.units.values()) if (PlayerRegistry.isLocal(unit.playerId) && unit.hp > 0) total += unit.cargoUsed(); return total; }
     private double friendlyBaseInventoryTotal() { if (world == null) return 0; double total = 0; for (Base base : world.bases.values()) { if (!PlayerRegistry.isLocal(base.playerId) || base.hp <= 0) continue; for (double amount : base.inventory.values()) total += Math.max(0, amount); } return total; }
-    private int visibleNpcAssets() { int count = 0; for (Unit unit : world.units.values()) if (unit.hp > 0 && NpcRules.isNpcFaction(unit.playerId)) count++; for (Base base : world.bases.values()) if (base.hp > 0 && NpcRules.isNpcFaction(base.playerId)) count++; return count; }
+    private int visibleNpcAssets() {
+        VisibilityRules.Frame visibility = VisibilityRules.frame(world, PlayerRegistry.localId());
+        int count = 0;
+        for (Unit unit : world.units.values())
+            if (unit.hp > 0 && NpcRules.isNpcFaction(unit.playerId)
+                    && visibility.unitVisible(unit)) count++;
+        for (Base base : world.bases.values())
+            if (base.hp > 0 && NpcRules.isNpcFaction(base.playerId)
+                    && visibility.baseVisible(base)) count++;
+        return count;
+    }
 
     private boolean attackingNpc() {
         for (Unit unit : world.units.values()) {
             if (!PlayerRegistry.isLocal(unit.playerId) || unit.hp <= 0 || unit.task != UnitTask.ATTACK) continue;
             Unit targetUnit = CombatTarget.unit(world, unit.attackTarget);
-            if (targetUnit != null && NpcRules.isNpcFaction(targetUnit.playerId)) return true;
+            if (targetUnit != null && NpcRules.isNpcFaction(targetUnit.playerId)
+                    && DiplomacySystem.hostile(world, unit.playerId, targetUnit.playerId)) return true;
             Base targetBase = CombatTarget.base(world, unit.attackTarget);
-            if (targetBase != null && NpcRules.isNpcFaction(targetBase.playerId)) return true;
+            if (targetBase != null && NpcRules.isNpcFaction(targetBase.playerId)
+                    && DiplomacySystem.hostile(world, unit.playerId, targetBase.playerId)) return true;
         }
         return false;
     }
@@ -521,7 +592,7 @@ final class TutorialOverlay extends JComponent {
         int width = hudWidth();
         int y = HUD_Y + HUD_HEIGHT - 43;
         int available = width - 28 - CONTROL_GAP * 4;
-        int buttonWidth = Math.max(90, available / 5);
+        int buttonWidth = Math.max(44, available / 5);
         int x = HUD_X + 14;
         pauseButton.setBounds(x, y, buttonWidth, 28); x += buttonWidth + CONTROL_GAP;
         skipStepButton.setBounds(x, y, buttonWidth, 28); x += buttonWidth + CONTROL_GAP;
@@ -540,7 +611,7 @@ final class TutorialOverlay extends JComponent {
         boolean advanced = step.isAdvanced();
         int objectiveIndex = advanced ? step.advancedIndex() : step.ordinal() + 1;
         int objectiveCount = advanced ? Step.advancedPlayableCount() : Step.corePlayableCount();
-        String tutorialTitle = advanced ? "ADVANCED TUTORIAL (OPTIONAL)" : "CORE TUTORIAL";
+        String tutorialTitle = advanced ? "OPTIONAL EXPLORATION / DEFENSE" : "CORE ECONOMY TUTORIAL";
         Color accent = advanced ? new Color(255, 185, 85) : new Color(80, 190, 255);
         Color accentLight = advanced ? new Color(255, 215, 145) : new Color(135, 220, 255);
         g2.setColor(new Color(5, 10, 17, 232));
@@ -550,12 +621,13 @@ final class TutorialOverlay extends JComponent {
         g2.drawRoundRect(HUD_X, HUD_Y, width, HUD_HEIGHT, 14, 14);
         g2.setFont(g2.getFont().deriveFont(Font.BOLD, 12f));
         g2.setColor(accentLight);
-        g2.drawString(tutorialTitle + "  •  " + step.chapter.toUpperCase() + "  •  " + objectiveIndex + "/" + objectiveCount, HUD_X + 14, HUD_Y + 19);
+        g2.drawString(fit(g2, tutorialTitle + "  •  " + step.chapter.toUpperCase() + "  •  " + objectiveIndex + "/" + objectiveCount, innerWidth), HUD_X + 14, HUD_Y + 19);
         int barX = HUD_X + 14, barY = HUD_Y + 28, barW = innerWidth;
         g2.setColor(new Color(30, 45, 58)); g2.fillRoundRect(barX, barY, barW, 6, 6, 6);
         g2.setColor(accent); int progressW = (int)Math.round(barW * Math.min(1.0, objectiveIndex / (double)objectiveCount)); g2.fillRoundRect(barX, barY, Math.max(6, progressW), 6, 6, 6);
-        drawActionGraphic(g2, HUD_X + 16, HUD_Y + 48, 128, 145, accent, accentLight);
-        int textX = HUD_X + 160, textWidth = width - 178;
+        if (width >= 570) drawActionGraphic(g2, HUD_X + 16, HUD_Y + 48, 128, 145, accent, accentLight);
+        int textX = width >= 570 ? HUD_X + 160 : HUD_X + 14;
+        int textWidth = width >= 570 ? width - 178 : width - 28;
         g2.setFont(g2.getFont().deriveFont(Font.BOLD, 17f)); g2.setColor(Color.WHITE); g2.drawString(fit(g2, step.objective, textWidth), textX, HUD_Y + 62);
         drawDetailLine(g2, "DO", step.instruction, textX, HUD_Y + 88, textWidth, accentLight);
         drawDetailLine(g2, "LOOK FOR", step.lookFor, textX, HUD_Y + 113, textWidth, new Color(205, 226, 238));
@@ -563,7 +635,11 @@ final class TutorialOverlay extends JComponent {
         drawDetailLine(g2, "WHY", step.context, textX, HUD_Y + 163, textWidth, new Color(150, 190, 215));
         g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 11f));
         if (!lastCompletedObjective.isBlank() && System.nanoTime() < lastCompletedUntilNanos) { g2.setColor(new Color(125, 230, 155)); g2.drawString(fit(g2, "✓ " + lastCompletedObjective, innerWidth), HUD_X + 14, HUD_Y + 211); }
-        else { g2.setColor(new Color(135, 175, 200)); g2.drawString("Keyboard: F2 pause • F3 skip step • F4 skip section • F5 restart • F6 skip track", HUD_X + 14, HUD_Y + 211); g2.drawString("Shift+F5 restarts everything • Shift+F6 skips everything", HUD_X + 14, HUD_Y + 226); }
+        else {
+            g2.setColor(new Color(135, 175, 200));
+            g2.drawString(fit(g2, "Keyboard: F2 pause • F3 skip step • F4 skip section • F5 restart • F6 skip track", innerWidth), HUD_X + 14, HUD_Y + 211);
+            g2.drawString(fit(g2, "Shift+F5 restarts everything • Shift+F6 skips everything", innerWidth), HUD_X + 14, HUD_Y + 226);
+        }
         drawControlButton(g2, pauseButton, "Pause", "F2", accent);
         drawControlButton(g2, skipStepButton, "Skip Step", "F3", accent);
         drawControlButton(g2, skipSectionButton, "Skip Section", "F4", accent);
@@ -599,7 +675,7 @@ final class TutorialOverlay extends JComponent {
     private void drawChoice(Graphics2D g2, int cx, int cy) { g2.setStroke(new BasicStroke(2.5f)); g2.drawLine(cx, cy + 24, cx, cy - 5); g2.drawLine(cx, cy - 5, cx - 23, cy - 25); g2.drawLine(cx, cy - 5, cx + 23, cy - 25); g2.drawLine(cx - 23, cy - 25, cx - 15, cy - 24); g2.drawLine(cx - 23, cy - 25, cx - 21, cy - 17); g2.drawLine(cx + 23, cy - 25, cx + 15, cy - 24); g2.drawLine(cx + 23, cy - 25, cx + 21, cy - 17); }
     private void drawDetailLine(Graphics2D g2, String label, String value, int x, int y, int width, Color valueColor) { g2.setFont(g2.getFont().deriveFont(Font.BOLD, 10f)); g2.setColor(new Color(115, 155, 180)); g2.drawString(label, x, y); int labelWidth = Math.max(62, g2.getFontMetrics().stringWidth(label) + 12); g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f)); g2.setColor(valueColor); g2.drawString(fit(g2, value, width - labelWidth), x + labelWidth, y); }
     private void drawControlButton(Graphics2D g2, Rectangle bounds, String label, String key, Color accent) { g2.setColor(new Color(20, 38, 52, 240)); g2.fillRoundRect(bounds.x, bounds.y, bounds.width, bounds.height, 8, 8); g2.setColor(new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 165)); g2.drawRoundRect(bounds.x, bounds.y, bounds.width, bounds.height, 8, 8); g2.setFont(g2.getFont().deriveFont(Font.BOLD, 10f)); g2.setColor(Color.WHITE); drawCentered(g2, fit(g2, label + "  [" + key + "]", bounds.width - 8), bounds.x + bounds.width / 2, bounds.y + 18); }
-    private int hudWidth() { return Math.min(880, Math.max(640, getWidth() - 32)); }
+    private int hudWidth() { return Math.max(290, Math.min(880, getWidth() - 32)); }
     private static void drawCentered(Graphics2D g2, String text, int centerX, int baselineY) { int width = g2.getFontMetrics().stringWidth(text); g2.drawString(text, centerX - width / 2, baselineY); }
     private static String fit(Graphics2D g2, String value, int maxWidth) { if (value == null) return ""; if (g2.getFontMetrics().stringWidth(value) <= maxWidth) return value; String suffix = "…"; int length = value.length(); while (length > 1 && g2.getFontMetrics().stringWidth(value.substring(0, length) + suffix) > maxWidth) length--; return value.substring(0, Math.max(1, length)) + suffix; }
     private void writeBoolean(String key, boolean value) { if (!persist) return; try { PREFS.putBoolean(key, value); } catch (SecurityException ignored) { } }
@@ -617,19 +693,24 @@ final class TutorialOverlay extends JComponent {
         DELIVER("Resource Operations", "Deliver cargo to the Outpost", "Allow the automated Prospector to return, or move it inside the Outpost unload range.", "The ship approaching the Outpost and its cargo amount dropping.", "The Outpost inventory increases after the cargo unloads.", "Delivered materials become available for construction and production.", ActionKind.WATCH, "", "OUTPOST"),
         QUEUE_BUILD("Production", "Queue a second Prospector", "Left-click the Outpost, open its production menu, then click Build Prospector.", "The Outpost build list and a Prospector production entry costing iron and copper.", "A Prospector job appears in the Outpost production queue.", "Stations reserve resources and process production jobs in order.", ActionKind.LEFT_CLICK, "LEFT", "OUTPOST → BUILD PROSPECTOR"),
         BUILD_COMPLETE("Production", "Wait for construction to finish", "Leave the job queued and watch the Outpost production progress.", "The active production indicator counting down toward completion.", "A second Prospector launches beside the Outpost.", "Additional miners increase income and let you split assignments.", ActionKind.WAIT, "", "PRODUCTION QUEUE"),
-        MAP("Exploration", "Open the galaxy map", "Press M once while the game view has focus.", "Connected systems, wormhole links, and your local assets on the map.", "The galaxy map opens.", "The map shows where your fleet can expand or retreat.", ActionKind.KEY, "M", "GALAXY MAP"),
-        WORMHOLE("Exploration", "Travel through a wormhole", "Close the map, select a ship, then right-click a wormhole gate leading to another system.", "A wormhole/gate marker and a travel order from the selected ship.", "The active system changes and one of your ships is present there.", "Wormholes connect systems with different resources and threats.", ActionKind.RIGHT_CLICK, "RIGHT", "WORMHOLE GATE"),
-        ENCOUNTER("Survival", "Locate an NPC presence", "Look around the new system and allow contacts to enter scouting range.", "A non-player ship or station with a different faction name or color.", "The tutorial detects an NPC asset in the current system.", "New systems may contain miners, raiders, fleets, or stations.", ActionKind.WATCH, "", "NPC CONTACT"),
-        RESPOND("Survival", "Respond to the NPC threat", "Choose: attack the NPC, destroy part of its force, or retreat through a wormhole.", "Attack lines and weapon fire, falling enemy count, or a safe route out.", "You engage, reduce the threat, or leave the encounter system.", "Choosing when to fight or withdraw protects your early economy.", ActionKind.CHOICE, "", "FIGHT OR WITHDRAW"),
-        ADVANCED_READY("Advanced", "Advanced tutorial available", "Press F2 when you are ready to begin the optional advanced track.", "The status message confirming core completion.", "The advanced tutorial opens at Reference Tools.", "The optional track covers reference tools, station deployment, and industry.", ActionKind.KEY, "F2", "ADVANCED TRACK"),
-        CATALOG("Reference Tools", "Open the resource catalog", "Press I to open the searchable resource catalog.", "Material names, resource locations, recipes, and uses.", "The resource catalog opens.", "The catalog helps you plan where to gather every required resource.", ActionKind.KEY, "I", "RESOURCE CATALOG"),
-        CODEX("Reference Tools", "Open the codex", "Close the catalog if needed, then press F1.", "Ship, station, crafting, research, and control reference pages.", "The codex opens.", "The codex explains progression requirements before you commit resources.", ActionKind.KEY, "F1", "CODEX"),
         QUEUE_DEPLOYER("Station Expansion", "Queue a Deployer", "Left-click the Outpost and choose Build Deployer in its production menu.", "The Deployer entry and its material requirements.", "A Deployer job appears in the Outpost queue, or a Deployer already exists.", "Deployers transport and place packaged stations.", ActionKind.LEFT_CLICK, "LEFT", "OUTPOST → BUILD DEPLOYER"),
         DEPLOYER_COMPLETE("Station Expansion", "Launch the Deployer", "Keep the Deployer job queued until construction finishes.", "A large station-placement ship launching beside the Outpost.", "A living Deployer is present in your fleet.", "An empty Deployer must be near the Outpost before a station package can be loaded.", ActionKind.WAIT, "", "DEPLOYER SHIP"),
-        LOAD_INDUSTRY_PACKAGE("Station Expansion", "Load an industry station package", "Move the empty Deployer near the Outpost, click the Outpost, then load Manufacturing Plant or Research Lab.", "A package entry in the production menu and the Deployer package slot.", "The Deployer carries an industry package, or that station already exists.", "Manufacturing creates components; laboratories convert components into research progress.", ActionKind.LEFT_CLICK, "LEFT", "OUTPOST → STATION PACKAGE"),
-        PLACE_INDUSTRY_STATION("Station Expansion", "Place the industry station", "Select the loaded Deployer, open its placement menu, then click the package and choose open space.", "A placement preview that is clear of other stations and obstructions.", "A Manufacturing Plant or Research Lab appears in the system.", "Specialized stations unlock the deeper production and technology economy.", ActionKind.LEFT_CLICK, "LEFT", "DEPLOYER → PLACE PACKAGE"),
-        QUEUE_INDUSTRY("Industry", "Queue manufacturing or research", "Click the new station and queue any available recipe or research topic.", "An unlocked entry whose required resources are in the station hangar.", "A crafting or research job appears in the station production queue.", "Advanced production consumes delivered resources and may require station fuel.", ActionKind.LEFT_CLICK, "LEFT", "INDUSTRY STATION"),
-        COMPLETE_INDUSTRY("Industry", "Complete the industry job", "Keep the station fueled and supplied while the queued job counts down.", "The blocked-reason field staying clear and remaining time decreasing.", "A crafted output enters inventory or the research topic becomes complete.", "Completed components and research unlock stronger ships, stations, and equipment.", ActionKind.WAIT, "", "ACTIVE INDUSTRY JOB"),
+        LOAD_INDUSTRY_PACKAGE("First Industry", "Load the Manufacturing Plant", "Bring an empty Deployer near the Outpost, then load a Manufacturing Plant package.", "Manufacturing Plant package in the Deployer slot.", "Manufacturing is loaded, or the plant already exists.", "Build a factory before attempting laboratory components.", ActionKind.LEFT_CLICK, "LEFT", "OUTPOST → MANUFACTURING"),
+        PLACE_INDUSTRY_STATION("First Industry", "Place the Manufacturing Plant", "Select the loaded Deployer and place Manufacturing in clear space.", "A clear placement preview.", "A player-owned Manufacturing Plant exists.", "This factory makes the parts needed for research.", ActionKind.LEFT_CLICK, "LEFT", "DEPLOYER → PLACE"),
+        QUEUE_INDUSTRY("First Industry", "Queue a starter component", "Open Manufacturing and queue Copper Wiring; mine and deliver missing Copper first.", "A real crafting job in the station queue.", "Copper Wiring production is queued or has already completed.", "Intermediates require raw inputs and produce batches.", ActionKind.LEFT_CLICK, "LEFT", "MANUFACTURE COPPER WIRING"),
+        COMPLETE_INDUSTRY("First Industry", "Finish manufacturing", "Let the plant complete a component batch and inspect its output inventory.", "Manufactured output in station inventory.", "A starter component has been produced.", "Manufactured materials are used for advanced stations.", ActionKind.WAIT, "", "CRAFTED OUTPUT"),
+        LAB_STATION("First Research", "Build a Research Lab", "Manufacture Frames, Research Matrices, Regulators, Coolant and Shielding, then place the Lab using another Deployer.", "The Lab package requires genuine produced components.", "A player-owned Research Lab is constructed.", "Laboratory construction depends on the first Manufacturing Plant.", ActionKind.LEFT_CLICK, "LEFT", "DEPLOYER → LAB"),
+        LAB_FUEL("First Research", "Fuel the Research Lab", "Manufacture Fuel from Hydrogen, Helium and Methane; deliver it to your Lab.", "Fuel in the Lab inventory.", "The Lab contains operational Fuel.", "Research cannot advance without Fuel.", ActionKind.LEFT_CLICK, "LEFT", "LAB → FUEL"),
+        ADVANCED_RESEARCH("First Research", "Research Advanced Industry", "Provide the research materials and Fuel, then complete Advanced Industry in the Lab.", "The Lab research queue and completion result.", "Advanced Industry is complete.", "Unlocking the Hauler blueprint does not yet make it constructible.", ActionKind.LEFT_CLICK, "LEFT", "ADVANCED INDUSTRY"),
+        LOGISTICS_RESEARCH("Specialization", "Unlock Hauler logistics", "Research Logistics Engineering and Autonomous Logistics. Their components enable the Shipyard and Hauler.", "Cargo Pods and Logistics Control Module unlocks.", "Both logistics research topics are completed.", "Your Hauler requires components from these later research grants.", ActionKind.LEFT_CLICK, "LEFT", "RESEARCH LOGISTICS"),
+        HAULER_COMPLETE("Specialization", "Build your first Hauler", "Craft and place a Shipyard, then manufacture the components and queue a Hauler there.", "Hauler resource requirements and build queue.", "A player-owned Hauler has launched.", "You can now expand your industrial logistics network.", ActionKind.LEFT_CLICK, "LEFT", "SHIPYARD → HAULER"),
+        ADVANCED_READY("Optional Exploration", "Core economy complete", "Press F2 for optional exploration and defense, or continue freely.", "Your first Hauler has been built.", "Optional chapters can be replayed or skipped.", "You have built a functional mining, research, and logistics economy.", ActionKind.KEY, "F2", "OPTIONAL TRACK"),
+        CATALOG("Reference Tools", "Open the resource catalog", "Press I to open the searchable resource catalog.", "Material names, resource locations, recipes, and uses.", "The resource catalog opens.", "The catalog helps you plan where to gather every required resource.", ActionKind.KEY, "I", "RESOURCE CATALOG"),
+        CODEX("Reference Tools", "Open the codex", "Close the catalog if needed, then press F1.", "Ship, station, crafting, research, and control reference pages.", "The codex opens.", "The codex explains progression requirements before you commit resources.", ActionKind.KEY, "F1", "CODEX"),
+        MAP("Exploration", "Open the galaxy map", "Press M once while the game view has focus.", "Connected systems, wormhole links, and your local assets on the map.", "The galaxy map opens.", "The map shows where your fleet can expand or retreat.", ActionKind.KEY, "M", "GALAXY MAP"),
+        WORMHOLE("Exploration", "Travel through a wormhole", "Close the map, select a ship, then right-click a wormhole gate leading to another system.", "A wormhole/gate marker and a travel order from the selected ship.", "The active system changes and one of your ships is present there.", "Wormholes connect systems with different resources and threats.", ActionKind.RIGHT_CLICK, "RIGHT", "WORMHOLE GATE"),
+        ENCOUNTER("Optional Defense", "Find a visible NPC contact", "Scout a visible contact only if NPC factions are enabled. Peaceful games skip this objective.", "A contact within your actual sensor visibility.", "A visible NPC is detected, or peaceful mode completes this optional track.", "Tutorials never reveal undiscovered enemy assets.", ActionKind.WATCH, "", "VISIBLE CONTACT"),
+        RESPOND("Optional Defense", "Respond to a contact", "Retreat, observe, or engage a genuinely hostile NPC. Do not attack neutral factions for this tutorial.", "An escape route or confirmed hostile force.", "You withdraw or safely respond to the threat.", "Choosing not to fight can be the correct tactic.", ActionKind.CHOICE, "", "WITHDRAW OR DEFEND"),
         COMPLETE("Complete", "All tutorials complete", "Press Shift+F5 to replay everything from the beginning.", "Normal gameplay with no tutorial overlay blocking your view.", "Both core and advanced completion states remain saved locally.", "You now understand fleet control, economy, exploration, survival, expansion, and industry.", ActionKind.KEY, "SHIFT+F5", "REPLAY ALL");
 
         final String chapter, objective, instruction, lookFor, success, context, inputLabel, targetLabel;

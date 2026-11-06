@@ -27,7 +27,10 @@ public final class ScenarioFrameworkValidator {
     }
 
     private static void validateCatalog() {
-        expectEquals("sample scenario count", 3, ScenarioRules.all().size());
+        expectEquals("sample scenario count", 4, ScenarioRules.all().size());
+        expectEquals("guided start lookup", "guided_start", ScenarioRules.require("guided_start").id());
+        expectEquals("guided start has no duplicate starter ships", 0,
+                ScenarioRules.require("guided_start").startingState().ships().size());
         expectEquals("frontier lookup", "frontier_industry", ScenarioRules.require("frontier_industry").id());
         expectEquals("survival lookup", "corsair_endurance", ScenarioRules.require("corsair_endurance").id());
         expectEquals("conquest lookup", "conquest_path", ScenarioRules.require("conquest_path").id());
