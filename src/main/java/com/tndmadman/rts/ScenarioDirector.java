@@ -225,6 +225,7 @@ final class ScenarioDirector {
             case OWN_STATIONS -> sum(members, metrics::stations);
             case OWN_SHIP_TYPE -> sum(members, id -> metrics.shipTypes(id).getOrDefault(trigger.value(), 0));
             case OWN_STATION_TYPE -> sum(members, id -> metrics.stationTypes(id).getOrDefault(trigger.value(), 0));
+            case OWN_STORED_MATERIAL -> sum(members, id -> metrics.storedMaterials(id).getOrDefault(trigger.value(), 0));
             case LIVE_ASSETS -> sum(members, metrics::liveAssets);
             case FLEET_POWER -> sum(members, metrics::fleetPower);
             case CONTROL_SYSTEMS -> sum(members, metrics::controlledSystems);
