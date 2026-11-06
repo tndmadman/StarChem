@@ -70,7 +70,16 @@ public final class SoloSaveLoadValidator {
                     "Solo archives must not contain server authentication sessions.");
             require(service.mostRecentValid() != null, "Continue must find the first valid save.");
 
+            World previousRegistry = PlayerRegistry.activeWorld();
+            SystemAudio.listenTo(alpha);
+            GalaxyRuntimeOptions.State previousOptions = GalaxyRuntimeOptions.snapshot();
             loaded = service.load(a.id(), config);
+            require(PlayerRegistry.activeWorld() == previousRegistry,
+                    "Loading a candidate changed the active thread's registry before commit.");
+            require(SystemAudio.rendered(alpha),
+                    "Loading a candidate stole the currently audible world.");
+            require(GalaxyRuntimeOptions.snapshot().equals(previousOptions),
+                    "Candidate options were published to the live campaign before commit.");
             PlayerRegistry.activate(loaded);
             require(loaded.systemSeed() == savedSeed, "Restored seed must match.");
             require(activeSystem.equals(loaded.activeSystemId()), "Restored system must match.");
@@ -86,6 +95,33 @@ public final class SoloSaveLoadValidator {
                     "Guided Start applied starting-state actions again during restore.");
             require(PlayerRegistry.color("SOLO").getRGB() == new java.awt.Color(0x2966B0).getRGB(),
                     "Restored player color must match.");
+
+            // Force failures only AFTER a candidate World/registry and galaxy
+            // have been constructed. Check that ten rejected candidates cannot
+            // steal the process-wide generation or audio state from this session.
+            SystemAudio.listenTo(loaded);
+            GalaxyRuntimeOptions.State goodOptions = GalaxyRuntimeOptions.snapshot();
+            for (int failedAttempt = 0; failedAttempt < 10; failedAttempt++) {
+                ServerSaveStore.failSoloCandidateRestoreForTest = true;
+                try {
+                    service.loadSnapshot(a.id(), SoloSaveService.ARCHIVE, config);
+                    throw new IllegalStateException("Injected restoration failure was not rejected.");
+                } catch (IOException expected) {
+                    require(expected.getMessage().contains("Injected candidate restoration failure"),
+                            "The rollback probe did not reach post-construction restoration.");
+                } finally {
+                    ServerSaveStore.failSoloCandidateRestoreForTest = false;
+                }
+                require(PlayerRegistry.activeWorld() == loaded,
+                        "Rejected candidate replaced the active player registry.");
+                require(GalaxyRuntimeOptions.snapshot().equals(goodOptions),
+                        "Rejected candidate changed process-wide generation options.");
+                require(SystemAudio.rendered(loaded),
+                        "Rejected candidate stole playback from the active campaign.");
+                require(loaded.hasResearch("SOLO", "advanced_industry"),
+                        "Rejected candidate modified the working campaign.");
+            }
+
 
             beta = new World("Solo Validator", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, false);
             PlayerRegistry.activate(beta);
@@ -190,7 +226,11 @@ public final class SoloSaveLoadValidator {
             long proceduralWorldSeed = proceduralWorld.systemSeed();
             service.save(proceduralSlot.id(), proceduralWorld, config, "manual");
             GalaxyRuntimeOptions.clearGenerationOverride();
+            GalaxyRuntimeOptions.State lobbyOptions = GalaxyRuntimeOptions.snapshot();
             proceduralLoaded = service.load(proceduralSlot.id(), config);
+            require(GalaxyRuntimeOptions.snapshot().equals(lobbyOptions),
+                    "Restoring an uncommitted procedural candidate changed global lobby settings.");
+            proceduralLoaded.commitStagedSoloGenerationOptions();
             require(proceduralLoaded.systemSeed() == proceduralWorldSeed,
                     "Procedural World.systemSeed changed during restore.");
             require(GalaxyRuntimeOptions.generationSeed(-1) == selectedSeed,
@@ -210,6 +250,7 @@ public final class SoloSaveLoadValidator {
             if (proceduralWorld != null) proceduralWorld.dispose();
             if (proceduralLoaded != null) proceduralLoaded.dispose();
             GalaxyRuntimeOptions.restore(before);
+            ServerSaveStore.failSoloCandidateRestoreForTest = false;
             try (Stream<Path> files = Files.walk(root)) {
                 for (Path path : files.sorted(Comparator.reverseOrder()).toList()) {
                     Files.deleteIfExists(path);
