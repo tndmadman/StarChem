@@ -60,6 +60,21 @@ final class LobbyPanel extends JPanel {
         styleField(addressField);
         styleField(portField);
         styleField(galaxySeedField);
+        // NumberEditor uses a formatted field whose unrestricted preferred width
+        // can make the whole GridBag form wider than the viewport after typing.
+        // Keep the editor compact; validation still happens on launch.
+        JSpinner.NumberEditor minerEditor = new JSpinner.NumberEditor(startingMinersSpinner, "#");
+        startingMinersSpinner.setEditor(minerEditor);
+        JFormattedTextField minerText = minerEditor.getTextField();
+        minerText.setColumns(3);
+        minerText.setHorizontalAlignment(SwingConstants.RIGHT);
+        minerText.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override public void focusGained(java.awt.event.FocusEvent event) {
+                SwingUtilities.invokeLater(() -> {
+                    if (minerText.isFocusOwner()) minerText.selectAll();
+                });
+            }
+        });
         styleServerList(lanServerList);
         styleServerList(recentServerList);
         styleCombo(systemBox);
@@ -235,17 +250,16 @@ final class LobbyPanel extends JPanel {
     }
 
     private JPanel createSettingsGrid() {
-        JPanel grid = new JPanel(new GridBagLayout());
-        grid.setOpaque(false);
+        JPanel grid = new SettingsGrid();
         int row = 0;
         addFormRow(grid, row++, "Commander name", nameField);
         addFormRow(grid, row++, "Address", addressField);
         addFormRow(grid, row++, "Port", portField);
         addFormRow(grid, row++, "JOIN accounts",
-                help("Remote: sign in to an existing commander. Local: an unused name creates one."));
+                wrappingHelp("Remote: sign in to an existing commander. Local: an unused name creates one."));
         addFormRow(grid, row++, "JOIN role", observerBox);
         addFormRow(grid, row++, "Observer access",
-                help("Observer requires a server invitation and uses the server-selected PUBLIC, FOLLOW, or FULL visibility policy."));
+                wrappingHelp("Observer requires a server invitation and uses the server-selected PUBLIC, FOLLOW, or FULL visibility policy."));
         addFormRow(grid, row++, "Solo starting home", systemBox);
         addFormRow(grid, row++, "Starting Prospectors (1-50)", startingMinersSpinner);
         addFormRow(grid, row++, "Solo galaxy copies", galaxyCopiesBox);
@@ -265,6 +279,25 @@ final class LobbyPanel extends JPanel {
         addFormRow(grid, row++, "", spawnFreeMinersBox);
         addFormRow(grid, row, "", spawnCorsairsBox);
         return grid;
+    }
+
+    /** Bound the settings content to the available viewport even under DPI scaling. */
+    private static final class SettingsGrid extends JPanel implements Scrollable {
+        SettingsGrid() {
+            super(new GridBagLayout());
+            setOpaque(false);
+        }
+
+        @Override public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
+        @Override public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) {
+            return 18;
+        }
+        @Override public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) {
+            return Math.max(18, orientation == SwingConstants.VERTICAL
+                    ? visible.height - 18 : visible.width - 18);
+        }
+        @Override public boolean getScrollableTracksViewportWidth() { return true; }
+        @Override public boolean getScrollableTracksViewportHeight() { return false; }
     }
 
     private JPanel diplomacyRulesPanel() {
@@ -326,6 +359,19 @@ final class LobbyPanel extends JPanel {
         label.setForeground(UiPalette.TEXT_MUTED);
         label.setFont(label.getFont().deriveFont(Font.PLAIN, 11f));
         return label;
+    }
+
+    private JTextArea wrappingHelp(String text) {
+        JTextArea help = new JTextArea(text, 2, 32);
+        help.setLineWrap(true);
+        help.setWrapStyleWord(true);
+        help.setEditable(false);
+        help.setFocusable(false);
+        help.setOpaque(false);
+        help.setForeground(UiPalette.TEXT_MUTED);
+        help.setFont(help.getFont().deriveFont(Font.PLAIN, 11f));
+        help.setBorder(BorderFactory.createEmptyBorder());
+        return help;
     }
 
     private void styleField(JTextField field) {
