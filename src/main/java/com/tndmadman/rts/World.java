@@ -357,6 +357,10 @@ final class World {
     void spawnPlayerGroup(String playerId, int slot) { spawnPlayerGroup(playerId, slot, false); }
 
     void spawnPlayerGroup(String playerId, int slot, boolean usePrimaryDefinition) {
+        // Reconnects/repeated spawn callbacks must never gift another fleet,
+        // Outpost or radar to a commander with live assets in any system.
+        if (playerId == null || playerId.isBlank() || "WAIT".equals(playerId)
+                || hasLiveAssets(playerId)) return;
         GalaxySystem home = galaxy.ensurePlayerHome(this, playerId, starSystem, usePrimaryDefinition);
         String previous = activeSystemId();
         celestials = galaxy.activate(this, home.id);
