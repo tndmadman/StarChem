@@ -10,6 +10,7 @@ import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
+import java.util.List;
 
 final class GameFrame extends JFrame {
     private static final String ACTIVE_SESSION_NOTICE = "Session is already active on another connection.";
@@ -46,10 +47,15 @@ final class GameFrame extends JFrame {
     private boolean gameMenuDispatcherInstalled;
     private boolean soloSession;
     private boolean soloPausedByMenu;
+    private final SoloSaveService soloSaves = new SoloSaveService();
+    private String activeSoloSlotId;
+    private Config activeSoloConfig;
+    private Timer soloAutosaveTimer;
+    private boolean soloBusy;
 
     GameFrame(Config config) {
         super(BuildInfo.display());
-        setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+        setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         setSize(1280, 900);
         setMinimumSize(new Dimension(900, 720));
         setLocationRelativeTo(null);
@@ -63,7 +69,7 @@ final class GameFrame extends JFrame {
             @Override public void componentResized(ComponentEvent event) { layoutLayers(); }
         });
         addWindowListener(new WindowAdapter() {
-            @Override public void windowClosing(WindowEvent event) { stopActiveGame(); }
+            @Override public void windowClosing(WindowEvent event) { requestExit(true); }
         });
         if (config.showLobby) showLobby("Choose Solo or Join.");
         else launchGame(config);
@@ -94,6 +100,13 @@ final class GameFrame extends JFrame {
 
     void openLobbySettings() { openSettings(SettingsPanel.Source.LOBBY); }
 
+    void launchNewSoloGame(Config config) {
+        if (config == null || config.role() != NetworkRole.SOLO) {
+            throw new IllegalArgumentException("New solo game requires solo configuration.");
+        }
+        launchGame(config);
+    }
+
     void launchGame(Config config) {
         GalaxyRuntimeOptions.configure(config);
         if (config.role() == NetworkRole.SERVER) {
@@ -101,8 +114,18 @@ final class GameFrame extends JFrame {
             return;
         }
         stopActiveGame();
+        if (config.role() == NetworkRole.SOLO) {
+            try {
+                activeSoloSlotId = soloSaves.create(config.playerName + " Campaign").id();
+            } catch (IOException | IllegalArgumentException ex) {
+                showLobby("Unable to create solo campaign slot: " + ex.getMessage());
+                return;
+            }
+        }
         World world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId,
                 config.role() == NetworkRole.SOLO);
+        PlayerRegistry.activate(world);
+        if (config.role() == NetworkRole.SOLO) SoloSaveService.activate(world, activeSoloSlotId);
         SkirmishRuntime.bind(world, config.skirmishSettings);
         DevTimerSettings.configure(world, config.disableProductionTimers);
         GalaxyEventDirector.configurePolicy(world, config, false);
@@ -148,6 +171,16 @@ final class GameFrame extends JFrame {
                           PeerNetwork devAuthorityNetwork) {
         activeWorld = world;
         soloSession = config.role() == NetworkRole.SOLO;
+        activeSoloConfig = soloSession ? config : null;
+        if (soloSession) {
+            soloAutosaveTimer = new Timer(Math.max(30, config.autosaveSeconds) * 1000,
+                    event -> {
+                        if (!soloBusy && !soloPausedByMenu && activeWorld == world) {
+                            saveSolo("autosave", activeSoloSlotId, null, null);
+                        }
+                    });
+            soloAutosaveTimer.start();
+        }
         gamePanel = new GamePanel(world, this, activeNetwork, config.devMode, devAuthorityNetwork);
         resourceCatalogOverlay = new ResourceCatalogOverlay(gamePanel, world);
         manufacturingOverlay = new ManufacturingOverlay(gamePanel, world, activeNetwork);
@@ -161,7 +194,10 @@ final class GameFrame extends JFrame {
                 this::openGameSettingsFromMenu,
                 this::startTutorialFromMenu,
                 this::returnToLobbyFromMenu,
-                this::quitGameFromMenu);
+                this::quitGameFromMenu,
+                this::saveSoloFromMenu,
+                this::saveAsSoloFromMenu,
+                this::openSoloLoadDialog);
 
         installResourceCatalogHotkey(gamePanel);
         installManufacturingHotkey(gamePanel);
@@ -459,6 +495,8 @@ final class GameFrame extends JFrame {
     }
 
     private void stopActiveGame() {
+        if (soloAutosaveTimer != null) soloAutosaveTimer.stop();
+        soloAutosaveTimer = null;
         World stoppingWorld = activeWorld;
         settingsOverlay.setVisible(false);
         while (settingsPanel.isOpen()) {
@@ -498,6 +536,8 @@ final class GameFrame extends JFrame {
         networkTimer = null;
         activeWorld = null;
         soloSession = false;
+        activeSoloSlotId = null;
+        activeSoloConfig = null;
     }
 
     static void resetDeveloperSimulationState(World world) {
