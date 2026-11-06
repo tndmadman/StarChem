@@ -42,7 +42,7 @@ public final class TutorialControlsValidator {
         expectStep("advanced starts after core skip", tutorial, "CATALOG");
         expectTrue("advanced active", tutorial.active());
         tutorial.skipSectionForTest();
-        expectStep("skip reference section", tutorial, "QUEUE_DEPLOYER");
+        expectStep("skip reference section", tutorial, "MAP");
         tutorial.restartTrackForTest();
         expectStep("restart advanced track", tutorial, "CATALOG");
         tutorial.skipTrackForTest();
@@ -67,19 +67,21 @@ public final class TutorialControlsValidator {
         tutorial.skipSectionForTest();
         expectStep("skip resource operations section", tutorial, "QUEUE_BUILD");
         tutorial.skipSectionForTest();
-        expectStep("skip production section", tutorial, "MAP");
+        expectStep("skip production section", tutorial, "QUEUE_DEPLOYER");
         tutorial.skipSectionForTest();
-        expectStep("skip exploration section", tutorial, "ENCOUNTER");
+        expectStep("skip first industry section", tutorial, "LAB_STATION");
         tutorial.skipSectionForTest();
-        expectStep("skip final core section", tutorial, "ADVANCED_READY");
+        expectStep("skip research section", tutorial, "LOGISTICS_RESEARCH");
+        tutorial.skipSectionForTest();
+        expectStep("skip specialization section", tutorial, "ADVANCED_READY");
         expectTrue("core complete after final section skip", tutorial.coreCompletedForTest());
         tutorial.toggle();
         tutorial.skipSectionForTest();
-        expectStep("skip advanced reference section", tutorial, "QUEUE_DEPLOYER");
+        expectStep("skip advanced reference section", tutorial, "MAP");
         tutorial.skipSectionForTest();
-        expectStep("skip station expansion section", tutorial, "QUEUE_INDUSTRY");
+        expectStep("skip optional exploration section", tutorial, "ENCOUNTER");
         tutorial.skipSectionForTest();
-        expectStep("skip final advanced section", tutorial, "COMPLETE");
+        expectStep("skip optional defense section", tutorial, "COMPLETE");
         expectTrue("advanced complete after final section skip", tutorial.advancedCompletedForTest());
     }
 

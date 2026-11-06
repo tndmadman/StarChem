@@ -21,8 +21,8 @@ public final class TutorialOverlayValidator {
     private static void validateCoreAndAdvancedProgression() {
         World world = new World("Tutorial Tester", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, true);
         TutorialOverlay tutorial = new TutorialOverlay(world, true, false);
-        expectEquals("core objective count", 10, tutorial.objectiveCountForTest());
-        expectEquals("advanced objective count", 8, tutorial.advancedObjectiveCountForTest());
+        expectEquals("core objective count", 17, tutorial.objectiveCountForTest());
+        expectEquals("optional objective count", 6, tutorial.advancedObjectiveCountForTest());
         expectStep("initial objective", tutorial, "SELECT");
 
         Unit prospector = firstLocalUnit(world);
@@ -30,67 +30,30 @@ public final class TutorialOverlayValidator {
         prospector.selected = true;
         tutorial.updateForTest();
         expectStep("selection", tutorial, "HARVEST");
-
-        ResourceNode resource = firstHarvestableResource(world, prospector);
-        world.autoHarvestSelected(resource);
+        ResourceNode node = firstHarvestableResource(world, prospector);
+        world.autoHarvestSelected(node);
         tutorial.updateForTest();
         expectStep("harvest", tutorial, "COLLECT");
-        prospector.inventory.put(resource.material, 10.0);
+        prospector.inventory.put(node.material, 10.0);
         tutorial.updateForTest();
         expectStep("collect", tutorial, "DELIVER");
-        outpost.inventory.put(resource.material, outpost.inventory.getOrDefault(resource.material, 0.0) + 5.0);
+        outpost.inventory.put(node.material, outpost.inventory.getOrDefault(node.material, 0.0) + 5.0);
         tutorial.updateForTest();
-        expectStep("deliver", tutorial, "QUEUE_BUILD");
+        expectStep("delivery", tutorial, "QUEUE_BUILD");
 
-        Unit secondProspector = new Unit(prospector.playerId, nextUnitId(world, prospector.playerId),
+        Unit second = new Unit(prospector.playerId, nextUnitId(world, prospector.playerId),
                 Rules.STARTING_SHIP, outpost.x + 100, outpost.y);
-        world.units.put(secondProspector.key(), secondProspector);
+        world.units.put(second.key(), second);
         tutorial.updateForTest();
-        expectStep("build queue satisfied", tutorial, "BUILD_COMPLETE");
+        expectStep("second queued", tutorial, "BUILD_COMPLETE");
         tutorial.updateForTest();
-        expectStep("build complete", tutorial, "MAP");
-        tutorial.observeGalaxyMapForTest();
-        tutorial.updateForTest();
-        expectStep("map", tutorial, "WORMHOLE");
+        expectStep("second completed", tutorial, "QUEUE_DEPLOYER");
 
-        String home = world.activeSystemId();
-        String destination = firstOtherSystem(world, home);
-        if (!world.viewGalaxySystem(destination)) throw new IllegalStateException("Could not view tutorial destination.");
-        Unit traveler = new Unit(prospector.playerId, prospector.unitId, Rules.STARTING_SHIP, 120, 120);
-        world.units.put(traveler.key(), traveler);
-        tutorial.updateForTest();
-        expectStep("wormhole", tutorial, "ENCOUNTER");
-
-        NpcFaction faction = NpcRules.factions().stream().findFirst()
-                .orElseThrow(() -> new IllegalStateException("Tutorial validation requires an NPC faction."));
-        Unit npc = new Unit(faction.id(), 9001, Rules.STARTING_SHIP, 220, 220);
-        world.units.put(npc.key(), npc);
-        tutorial.updateForTest();
-        expectStep("encounter", tutorial, "RESPOND");
-        if (!world.viewGalaxySystem(home)) throw new IllegalStateException("Could not return home.");
-        tutorial.updateForTest();
-        expectStep("core ready", tutorial, "ADVANCED_READY");
-        expectTrue("core completed", tutorial.coreCompletedForTest());
-        expectFalse("core completion hides overlay", tutorial.active());
-
-        tutorial.toggle();
-        expectStep("advanced begins", tutorial, "CATALOG");
-        tutorial.observeCatalogForTest();
-        tutorial.updateForTest();
-        expectStep("catalog", tutorial, "CODEX");
-        tutorial.observeCodexForTest();
-        tutorial.updateForTest();
-        expectStep("codex", tutorial, "QUEUE_DEPLOYER");
-
-        ProductionJob deployerJob = new ProductionJob("TD1", ProductionJobKind.SHIP, "station_builder",
-                14, 14, false, "");
-        outpost.productionQueue.add(deployerJob);
-        tutorial.updateForTest();
-        expectStep("deployer queued", tutorial, "DEPLOYER_COMPLETE");
-        outpost.productionQueue.remove(deployerJob);
         Unit deployer = new Unit(prospector.playerId, nextUnitId(world, prospector.playerId),
                 "station_builder", outpost.x + 130, outpost.y);
         world.units.put(deployer.key(), deployer);
+        tutorial.updateForTest();
+        expectStep("deployer queued", tutorial, "DEPLOYER_COMPLETE");
         tutorial.updateForTest();
         expectStep("deployer complete", tutorial, "LOAD_INDUSTRY_PACKAGE");
         deployer.basePackageType = "manufacturing";
@@ -101,19 +64,57 @@ public final class TutorialOverlayValidator {
                 outpost.x + 400, outpost.y);
         world.bases.put(manufacturing.id, manufacturing);
         tutorial.updateForTest();
-        expectStep("station placed", tutorial, "QUEUE_INDUSTRY");
-        CraftableItem item = firstCraftable("manufacturing");
-        ProductionJob industryJob = new ProductionJob("TI1", ProductionJobKind.CRAFTABLE, item.id,
-                item.timeSeconds, item.timeSeconds, false, "");
-        manufacturing.productionQueue.add(industryJob);
+        expectStep("manufacturing placed", tutorial, "QUEUE_INDUSTRY");
+        CraftableItem wiring = CraftingRules.item("copper_wiring");
+        ProductionJob job = new ProductionJob("TI1", ProductionJobKind.CRAFTABLE, wiring.id,
+                wiring.timeSeconds, wiring.timeSeconds, false, "");
+        manufacturing.productionQueue.add(job);
         tutorial.updateForTest();
-        expectStep("industry queued", tutorial, "COMPLETE_INDUSTRY");
-        manufacturing.productionQueue.remove(industryJob);
-        manufacturing.inventory.put(item.outputMaterial,
-                manufacturing.inventory.getOrDefault(item.outputMaterial, 0.0) + item.outputAmount);
+        expectStep("craft queued", tutorial, "COMPLETE_INDUSTRY");
+        manufacturing.productionQueue.remove(job);
+        manufacturing.inventory.put(wiring.outputMaterial, wiring.outputAmount);
         tutorial.updateForTest();
-        expectStep("advanced complete", tutorial, "COMPLETE");
-        expectTrue("advanced completed", tutorial.advancedCompletedForTest());
+        expectStep("craft completed", tutorial, "LAB_STATION");
+
+        Base lab = new Base("TUTORIAL-LAB", prospector.playerId, "laboratory",
+                outpost.x + 550, outpost.y);
+        world.bases.put(lab.id, lab);
+        tutorial.updateForTest();
+        expectStep("Lab constructed", tutorial, "LAB_FUEL");
+        lab.inventory.put(Material.FUEL, 50.0);
+        tutorial.updateForTest();
+        expectStep("Lab fueled", tutorial, "ADVANCED_RESEARCH");
+        world.completedResearch.computeIfAbsent(prospector.playerId,
+                ignored -> new java.util.LinkedHashSet<>()).add("advanced_industry");
+        tutorial.updateForTest();
+        expectStep("Advanced Industry complete", tutorial, "LOGISTICS_RESEARCH");
+        world.completedResearch.get(prospector.playerId).add("logistics_engineering");
+        world.completedResearch.get(prospector.playerId).add("autonomous_logistics");
+        tutorial.updateForTest();
+        expectStep("logistics complete", tutorial, "HAULER_COMPLETE");
+
+        Unit hauler = new Unit(prospector.playerId, nextUnitId(world, prospector.playerId),
+                "hauler", outpost.x + 650, outpost.y);
+        world.units.put(hauler.key(), hauler);
+        tutorial.updateForTest();
+        expectStep("core completed", tutorial, "ADVANCED_READY");
+        expectTrue("economic track completed", tutorial.coreCompletedForTest());
+        expectFalse("core overlay deactivates", tutorial.active());
+
+        tutorial.toggle();
+        expectStep("optional starts", tutorial, "CATALOG");
+        tutorial.observeCatalogForTest();
+        tutorial.updateForTest();
+        expectStep("catalog", tutorial, "CODEX");
+        tutorial.observeCodexForTest();
+        tutorial.updateForTest();
+        expectStep("codex", tutorial, "MAP");
+        tutorial.observeGalaxyMapForTest();
+        tutorial.updateForTest();
+        expectStep("map", tutorial, "WORMHOLE");
+        tutorial.skipTrackForTest();
+        expectStep("optional track finished", tutorial, "COMPLETE");
+        expectTrue("optional marked complete", tutorial.advancedCompletedForTest());
     }
 
     private static void validateFastCargoDelivery() {
