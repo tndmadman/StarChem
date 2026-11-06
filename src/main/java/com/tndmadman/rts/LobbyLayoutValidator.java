@@ -3,7 +3,6 @@ package com.tndmadman.rts;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
-import java.awt.Rectangle;
 import javax.swing.JFormattedTextField;
 import javax.swing.JSpinner;
 import javax.swing.JViewport;
@@ -73,6 +72,7 @@ public final class LobbyLayoutValidator {
     private static JScrollPane findSettingsScroll(Container root) {
         for (Component child : root.getComponents()) {
             if (child instanceof JScrollPane pane
+                    && pane.getViewport().getView() instanceof javax.swing.JPanel
                     && pane.getViewport().getView() instanceof Scrollable) return pane;
             if (child instanceof Container nested) {
                 JScrollPane found = findSettingsScroll(nested);
