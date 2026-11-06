@@ -16,6 +16,8 @@ public final class TutorialOverlayValidator {
         validateFastCargoDelivery();
         validatePauseResume();
         validateMultiplayerIsolation();
+        validateDisabledNpcOptionalTrack();
+        validateHiddenNpcCannotAdvanceOptionalTrack();
     }
 
     private static void validateCoreAndAdvancedProgression() {
@@ -151,6 +153,40 @@ public final class TutorialOverlayValidator {
         expectFalse("joined tutorial inactive", tutorial.active());
         tutorial.toggle();
         expectFalse("joined tutorial remains inactive", tutorial.active());
+    }
+
+    private static void validateDisabledNpcOptionalTrack() {
+        World world = new World("Peaceful Tutorial", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, true);
+        SkirmishRuntime.bind(world, SkirmishSettings.standard(
+                Set.of(Config.RAIDERS_ID, Config.FREE_MINERS_ID, Config.CORSAIRS_ID)));
+        TutorialOverlay tutorial = new TutorialOverlay(world, true, false);
+        tutorial.skipTrackForTest();
+        tutorial.toggle();
+        tutorial.skipSectionForTest(); // resource catalog and codex
+        tutorial.skipSectionForTest(); // galaxy map and wormhole
+        expectStep("optional NPC encounter reached", tutorial, "ENCOUNTER");
+        tutorial.updateForTest();
+        expectStep("peaceful optional track completes", tutorial, "COMPLETE");
+        expectTrue("peaceful optional track completed", tutorial.advancedCompletedForTest());
+    }
+
+    private static void validateHiddenNpcCannotAdvanceOptionalTrack() {
+        World world = new World("Hidden Tutorial NPC", Set.of(), StarSystems.DEFAULT_SYSTEM_ID, true);
+        TutorialOverlay tutorial = new TutorialOverlay(world, true, false);
+        tutorial.skipTrackForTest();
+        tutorial.toggle();
+        tutorial.skipSectionForTest();
+        tutorial.skipSectionForTest();
+        expectStep("optional contact stage", tutorial, "ENCOUNTER");
+        world.units.values().removeIf(unit -> NpcRules.isNpcFaction(unit.playerId));
+        world.bases.values().removeIf(base -> NpcRules.isNpcFaction(base.playerId));
+        NpcFaction npc = NpcRules.factions().stream().findFirst()
+                .orElseThrow(() -> new IllegalStateException("Expected an NPC definition"));
+        Unit hidden = new Unit(npc.id(), 9231, Rules.STARTING_SHIP,
+                Math.max(4000, world.width - 50), Math.max(4000, world.height - 50));
+        world.units.put(hidden.key(), hidden);
+        tutorial.updateForTest();
+        expectStep("hidden NPC remains hidden", tutorial, "ENCOUNTER");
     }
 
     private static Unit firstLocalUnit(World world) {

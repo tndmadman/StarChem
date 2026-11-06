@@ -80,10 +80,9 @@ final class ProductionRequirementGuide {
                 double needed = input.amount() * batches
                         - held.getOrDefault(input.material(), 0.0);
                 if (needed > 0.001) {
-                    chain.add(recipe.name);
                     String next = explain(world, playerId, input.material(), needed,
                             held, stations, visiting, chain, depth + 1);
-                    return String.join(" → ", chain) + " → " + next;
+                    return recipe.name + " → " + next;
                 }
             }
             return "Queue " + batches + " batch(es) of " + recipe.name

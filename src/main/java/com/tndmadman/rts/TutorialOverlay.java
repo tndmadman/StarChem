@@ -530,9 +530,11 @@ final class TutorialOverlay extends JComponent {
         for (Unit unit : world.units.values()) {
             if (!PlayerRegistry.isLocal(unit.playerId) || unit.hp <= 0 || unit.task != UnitTask.ATTACK) continue;
             Unit targetUnit = CombatTarget.unit(world, unit.attackTarget);
-            if (targetUnit != null && NpcRules.isNpcFaction(targetUnit.playerId)) return true;
+            if (targetUnit != null && NpcRules.isNpcFaction(targetUnit.playerId)
+                    && DiplomacySystem.hostile(world, unit.playerId, targetUnit.playerId)) return true;
             Base targetBase = CombatTarget.base(world, unit.attackTarget);
-            if (targetBase != null && NpcRules.isNpcFaction(targetBase.playerId)) return true;
+            if (targetBase != null && NpcRules.isNpcFaction(targetBase.playerId)
+                    && DiplomacySystem.hostile(world, unit.playerId, targetBase.playerId)) return true;
         }
         return false;
     }
@@ -590,7 +592,7 @@ final class TutorialOverlay extends JComponent {
         int width = hudWidth();
         int y = HUD_Y + HUD_HEIGHT - 43;
         int available = width - 28 - CONTROL_GAP * 4;
-        int buttonWidth = Math.max(90, available / 5);
+        int buttonWidth = Math.max(44, available / 5);
         int x = HUD_X + 14;
         pauseButton.setBounds(x, y, buttonWidth, 28); x += buttonWidth + CONTROL_GAP;
         skipStepButton.setBounds(x, y, buttonWidth, 28); x += buttonWidth + CONTROL_GAP;
@@ -609,7 +611,7 @@ final class TutorialOverlay extends JComponent {
         boolean advanced = step.isAdvanced();
         int objectiveIndex = advanced ? step.advancedIndex() : step.ordinal() + 1;
         int objectiveCount = advanced ? Step.advancedPlayableCount() : Step.corePlayableCount();
-        String tutorialTitle = advanced ? "ADVANCED TUTORIAL (OPTIONAL)" : "CORE TUTORIAL";
+        String tutorialTitle = advanced ? "OPTIONAL EXPLORATION / DEFENSE" : "CORE ECONOMY TUTORIAL";
         Color accent = advanced ? new Color(255, 185, 85) : new Color(80, 190, 255);
         Color accentLight = advanced ? new Color(255, 215, 145) : new Color(135, 220, 255);
         g2.setColor(new Color(5, 10, 17, 232));
@@ -619,12 +621,13 @@ final class TutorialOverlay extends JComponent {
         g2.drawRoundRect(HUD_X, HUD_Y, width, HUD_HEIGHT, 14, 14);
         g2.setFont(g2.getFont().deriveFont(Font.BOLD, 12f));
         g2.setColor(accentLight);
-        g2.drawString(tutorialTitle + "  •  " + step.chapter.toUpperCase() + "  •  " + objectiveIndex + "/" + objectiveCount, HUD_X + 14, HUD_Y + 19);
+        g2.drawString(fit(g2, tutorialTitle + "  •  " + step.chapter.toUpperCase() + "  •  " + objectiveIndex + "/" + objectiveCount, innerWidth), HUD_X + 14, HUD_Y + 19);
         int barX = HUD_X + 14, barY = HUD_Y + 28, barW = innerWidth;
         g2.setColor(new Color(30, 45, 58)); g2.fillRoundRect(barX, barY, barW, 6, 6, 6);
         g2.setColor(accent); int progressW = (int)Math.round(barW * Math.min(1.0, objectiveIndex / (double)objectiveCount)); g2.fillRoundRect(barX, barY, Math.max(6, progressW), 6, 6, 6);
-        drawActionGraphic(g2, HUD_X + 16, HUD_Y + 48, 128, 145, accent, accentLight);
-        int textX = HUD_X + 160, textWidth = width - 178;
+        if (width >= 570) drawActionGraphic(g2, HUD_X + 16, HUD_Y + 48, 128, 145, accent, accentLight);
+        int textX = width >= 570 ? HUD_X + 160 : HUD_X + 14;
+        int textWidth = width >= 570 ? width - 178 : width - 28;
         g2.setFont(g2.getFont().deriveFont(Font.BOLD, 17f)); g2.setColor(Color.WHITE); g2.drawString(fit(g2, step.objective, textWidth), textX, HUD_Y + 62);
         drawDetailLine(g2, "DO", step.instruction, textX, HUD_Y + 88, textWidth, accentLight);
         drawDetailLine(g2, "LOOK FOR", step.lookFor, textX, HUD_Y + 113, textWidth, new Color(205, 226, 238));
@@ -632,7 +635,11 @@ final class TutorialOverlay extends JComponent {
         drawDetailLine(g2, "WHY", step.context, textX, HUD_Y + 163, textWidth, new Color(150, 190, 215));
         g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 11f));
         if (!lastCompletedObjective.isBlank() && System.nanoTime() < lastCompletedUntilNanos) { g2.setColor(new Color(125, 230, 155)); g2.drawString(fit(g2, "✓ " + lastCompletedObjective, innerWidth), HUD_X + 14, HUD_Y + 211); }
-        else { g2.setColor(new Color(135, 175, 200)); g2.drawString("Keyboard: F2 pause • F3 skip step • F4 skip section • F5 restart • F6 skip track", HUD_X + 14, HUD_Y + 211); g2.drawString("Shift+F5 restarts everything • Shift+F6 skips everything", HUD_X + 14, HUD_Y + 226); }
+        else {
+            g2.setColor(new Color(135, 175, 200));
+            g2.drawString(fit(g2, "Keyboard: F2 pause • F3 skip step • F4 skip section • F5 restart • F6 skip track", innerWidth), HUD_X + 14, HUD_Y + 211);
+            g2.drawString(fit(g2, "Shift+F5 restarts everything • Shift+F6 skips everything", innerWidth), HUD_X + 14, HUD_Y + 226);
+        }
         drawControlButton(g2, pauseButton, "Pause", "F2", accent);
         drawControlButton(g2, skipStepButton, "Skip Step", "F3", accent);
         drawControlButton(g2, skipSectionButton, "Skip Section", "F4", accent);
@@ -668,7 +675,7 @@ final class TutorialOverlay extends JComponent {
     private void drawChoice(Graphics2D g2, int cx, int cy) { g2.setStroke(new BasicStroke(2.5f)); g2.drawLine(cx, cy + 24, cx, cy - 5); g2.drawLine(cx, cy - 5, cx - 23, cy - 25); g2.drawLine(cx, cy - 5, cx + 23, cy - 25); g2.drawLine(cx - 23, cy - 25, cx - 15, cy - 24); g2.drawLine(cx - 23, cy - 25, cx - 21, cy - 17); g2.drawLine(cx + 23, cy - 25, cx + 15, cy - 24); g2.drawLine(cx + 23, cy - 25, cx + 21, cy - 17); }
     private void drawDetailLine(Graphics2D g2, String label, String value, int x, int y, int width, Color valueColor) { g2.setFont(g2.getFont().deriveFont(Font.BOLD, 10f)); g2.setColor(new Color(115, 155, 180)); g2.drawString(label, x, y); int labelWidth = Math.max(62, g2.getFontMetrics().stringWidth(label) + 12); g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f)); g2.setColor(valueColor); g2.drawString(fit(g2, value, width - labelWidth), x + labelWidth, y); }
     private void drawControlButton(Graphics2D g2, Rectangle bounds, String label, String key, Color accent) { g2.setColor(new Color(20, 38, 52, 240)); g2.fillRoundRect(bounds.x, bounds.y, bounds.width, bounds.height, 8, 8); g2.setColor(new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 165)); g2.drawRoundRect(bounds.x, bounds.y, bounds.width, bounds.height, 8, 8); g2.setFont(g2.getFont().deriveFont(Font.BOLD, 10f)); g2.setColor(Color.WHITE); drawCentered(g2, fit(g2, label + "  [" + key + "]", bounds.width - 8), bounds.x + bounds.width / 2, bounds.y + 18); }
-    private int hudWidth() { return Math.min(880, Math.max(640, getWidth() - 32)); }
+    private int hudWidth() { return Math.max(290, Math.min(880, getWidth() - 32)); }
     private static void drawCentered(Graphics2D g2, String text, int centerX, int baselineY) { int width = g2.getFontMetrics().stringWidth(text); g2.drawString(text, centerX - width / 2, baselineY); }
     private static String fit(Graphics2D g2, String value, int maxWidth) { if (value == null) return ""; if (g2.getFontMetrics().stringWidth(value) <= maxWidth) return value; String suffix = "…"; int length = value.length(); while (length > 1 && g2.getFontMetrics().stringWidth(value.substring(0, length) + suffix) > maxWidth) length--; return value.substring(0, Math.max(1, length)) + suffix; }
     private void writeBoolean(String key, boolean value) { if (!persist) return; try { PREFS.putBoolean(key, value); } catch (SecurityException ignored) { } }
