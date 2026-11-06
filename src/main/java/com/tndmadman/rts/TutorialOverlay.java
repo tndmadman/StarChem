@@ -99,7 +99,7 @@ final class TutorialOverlay extends JComponent {
     /** Per-campaign progression without copying global tutorial preference files. */
     Map<String,Object> captureSoloState() {
         Map<String,Object> out = new LinkedHashMap<>();
-        out.put("schemaVersion", 3);
+        out.put("schemaVersion", 4);
         out.put("disabled", disabled);
         out.put("coreCompleted", coreCompleted);
         out.put("advancedCompleted", advancedCompleted);
@@ -164,6 +164,10 @@ final class TutorialOverlay extends JComponent {
                 else if (localShipCount(Rules.STARTING_SHIP) >= 2) savedStep = Step.QUEUE_DEPLOYER;
                 else if (savedStep.ordinal() >= Step.QUEUE_DEPLOYER.ordinal()) savedStep = Step.QUEUE_BUILD;
             }
+        }
+        if (checkpointVersion < 4 && world.startingFleetSettings().prospectorCount() > 1
+                && (savedStep == Step.QUEUE_BUILD || savedStep == Step.BUILD_COMPLETE)) {
+            savedStep = Step.QUEUE_DEPLOYER;
         }
         step = savedStep;
         lastCompletedObjective = "";
@@ -420,7 +424,8 @@ final class TutorialOverlay extends JComponent {
 
     private void advance() {
         Step completedStep = step;
-        step = step.next();
+        step = completedStep == Step.DELIVER && startingProspectors > 1
+                ? Step.QUEUE_DEPLOYER : step.next();
         rememberCompletion(completedStep);
         onStepEntered();
         AlertCenter.push(world, "Tutorial objective complete: " + completedStep.objective + ".");
@@ -503,7 +508,7 @@ final class TutorialOverlay extends JComponent {
 
     private void rememberCompletion(Step completedStep) { lastCompletedObjective = completedStep.objective; lastCompletedUntilNanos = System.nanoTime() + 2_500_000_000L; }
     private void clearCompletionNotice() { lastCompletedObjective = ""; lastCompletedUntilNanos = 0; }
-    private void resetCoreBaselines() { startingProspectors = Math.min(1, localShipCount(Rules.STARTING_SHIP)); deliveryInventoryBaseline = friendlyBaseInventoryTotal(); deliveryAlreadyObserved = false; homeSystemId = world == null ? "" : safe(world.activeSystemId()); }
+    private void resetCoreBaselines() { startingProspectors = localShipCount(Rules.STARTING_SHIP); deliveryInventoryBaseline = friendlyBaseInventoryTotal(); deliveryAlreadyObserved = false; homeSystemId = world == null ? "" : safe(world.activeSystemId()); }
     private void resetAdvancedObservations() { catalogOpened = false; codexOpened = false; clearTrackedIndustryJob(); clearCompletionNotice(); }
 
     private boolean hasActiveHarvester() {
