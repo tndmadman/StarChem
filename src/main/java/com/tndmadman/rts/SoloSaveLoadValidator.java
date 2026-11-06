@@ -138,7 +138,11 @@ public final class SoloSaveLoadValidator {
             // Force failures only AFTER a candidate World/registry and galaxy
             // have been constructed. Check that ten rejected candidates cannot
             // steal the process-wide generation or audio state from this session.
-            SystemAudio.listenTo(loaded);
+            // A headless load does not run GameFrame.showGame(), so simulate
+            // the same explicit UI commit that makes a candidate audible.
+            SystemAudio.markRendered(loaded);
+            require(SystemAudio.rendered(loaded),
+                    "Committed restored campaign was not promoted to audio listener.");
             GalaxyRuntimeOptions.State goodOptions = GalaxyRuntimeOptions.snapshot();
             for (int failedAttempt = 0; failedAttempt < 10; failedAttempt++) {
                 ServerSaveStore.failSoloCandidateRestoreForTest = true;
