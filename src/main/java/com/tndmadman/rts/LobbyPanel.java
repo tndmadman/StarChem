@@ -246,6 +246,15 @@ final class LobbyPanel extends JPanel {
         pane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
         pane.getVerticalScrollBar().setUnitIncrement(18);
         pane.setMinimumSize(new Dimension(0, 120));
+        pane.getViewport().addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override public void componentResized(java.awt.event.ComponentEvent event) {
+                // Revalidate the actual form whenever its viewport changes.
+                // A shrink must not leave the GridBag fields stuck at their
+                // previous narrow widths when the launcher grows again.
+                grid.revalidate();
+                grid.repaint();
+            }
+        });
         return pane;
     }
 
