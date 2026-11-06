@@ -47,7 +47,7 @@
       "requiredResources": {
         "COPPER_WIRING": 12,
         "SILICATES": 8,
-        "GOLD_CONTACT_MESH": 2
+        "NICKEL": 5
       },
       "output": {
         "material": "PRINTED_CIRCUIT_BOARD",
@@ -106,8 +106,9 @@
       "timeSeconds": 11,
       "requiredResources": {
         "PRINTED_CIRCUIT_BOARD": 4,
-        "RARE_EARTHS": 4,
-        "ARGON": 3
+        "COPPER": 12,
+        "SILICATES": 10,
+        "NICKEL": 5
       },
       "output": {
         "material": "SENSOR_ARRAY",
