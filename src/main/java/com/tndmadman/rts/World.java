@@ -53,6 +53,20 @@ final class World {
     String status = "Right-click a resource with a ship selected to auto-harvest.";
     private Map<String,Object> soloUiSaveState = Map.of();
     private StartingFleetSettings startingFleetSettings = StartingFleetSettings.legacy();
+    // Archive candidates are constructed off the EDT. Generation options are
+    // process-wide, so do not publish candidate settings until the UI commits it.
+    private GalaxyRuntimeOptions.State stagedSoloGenerationOptions;
+
+    void stageSoloGenerationOptions(GalaxyRuntimeOptions.State state) {
+        stagedSoloGenerationOptions = state;
+    }
+
+    void commitStagedSoloGenerationOptions() {
+        if (stagedSoloGenerationOptions == null) return;
+        GalaxyRuntimeOptions.restore(stagedSoloGenerationOptions);
+        stagedSoloGenerationOptions = null;
+    }
+
 
     StartingFleetSettings startingFleetSettings() { return startingFleetSettings; }
 
