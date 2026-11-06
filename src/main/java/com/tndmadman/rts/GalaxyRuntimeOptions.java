@@ -8,6 +8,18 @@ final class GalaxyRuntimeOptions {
 
     private GalaxyRuntimeOptions() { }
 
+    record State(int copies, GalaxyGenerationSettings settings, Long seed, boolean explicit) { }
+    static State snapshot() {
+        return new State(copiesPerTemplate, generationSettings, generationSeedOverride, explicitGenerationOverride);
+    }
+    static void restore(State previous) {
+        if (previous == null) return;
+        copiesPerTemplate = previous.copies();
+        generationSettings = previous.settings();
+        generationSeedOverride = previous.seed();
+        explicitGenerationOverride = previous.explicit();
+    }
+
     static void configure(Config config) {
         int configured = config == null ? 1 : config.galaxyCopies;
         copiesPerTemplate = Math.max(1, Math.min(2, ScenarioLaunch.galaxyCopies(configured)));

@@ -10,6 +10,9 @@ import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
+import java.util.List;
+import java.util.Map;
+import java.util.LinkedHashMap;
 
 final class GameFrame extends JFrame {
     private static final String ACTIVE_SESSION_NOTICE = "Session is already active on another connection.";
@@ -46,10 +49,15 @@ final class GameFrame extends JFrame {
     private boolean gameMenuDispatcherInstalled;
     private boolean soloSession;
     private boolean soloPausedByMenu;
+    private final SoloSaveService soloSaves = new SoloSaveService();
+    private String activeSoloSlotId;
+    private Config activeSoloConfig;
+    private Timer soloAutosaveTimer;
+    private boolean soloBusy;
 
     GameFrame(Config config) {
         super(BuildInfo.display());
-        setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+        setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         setSize(1280, 900);
         setMinimumSize(new Dimension(900, 720));
         setLocationRelativeTo(null);
@@ -63,7 +71,7 @@ final class GameFrame extends JFrame {
             @Override public void componentResized(ComponentEvent event) { layoutLayers(); }
         });
         addWindowListener(new WindowAdapter() {
-            @Override public void windowClosing(WindowEvent event) { stopActiveGame(); }
+            @Override public void windowClosing(WindowEvent event) { requestExit(true); }
         });
         if (config.showLobby) showLobby("Choose Solo or Join.");
         else launchGame(config);
@@ -94,6 +102,13 @@ final class GameFrame extends JFrame {
 
     void openLobbySettings() { openSettings(SettingsPanel.Source.LOBBY); }
 
+    void launchNewSoloGame(Config config) {
+        if (config == null || config.role() != NetworkRole.SOLO) {
+            throw new IllegalArgumentException("New solo game requires solo configuration.");
+        }
+        launchGame(config);
+    }
+
     void launchGame(Config config) {
         GalaxyRuntimeOptions.configure(config);
         if (config.role() == NetworkRole.SERVER) {
@@ -101,8 +116,18 @@ final class GameFrame extends JFrame {
             return;
         }
         stopActiveGame();
+        if (config.role() == NetworkRole.SOLO) {
+            try {
+                activeSoloSlotId = soloSaves.create(config.playerName + " Campaign").id();
+            } catch (IOException | IllegalArgumentException ex) {
+                showLobby("Unable to create solo campaign slot: " + ex.getMessage());
+                return;
+            }
+        }
         World world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId,
                 config.role() == NetworkRole.SOLO);
+        PlayerRegistry.activate(world);
+        if (config.role() == NetworkRole.SOLO) SoloSaveService.activate(world, activeSoloSlotId);
         SkirmishRuntime.bind(world, config.skirmishSettings);
         DevTimerSettings.configure(world, config.disableProductionTimers);
         GalaxyEventDirector.configurePolicy(world, config, false);
@@ -134,6 +159,9 @@ final class GameFrame extends JFrame {
             networkTimer.start();
         }
         showGame(config, world, network, null);
+        if (config.role() == NetworkRole.SOLO) {
+            SwingUtilities.invokeLater(() -> saveSolo("initial", activeSoloSlotId, null, null));
+        }
     }
 
     static String connectionNotice(String status) {
@@ -148,20 +176,36 @@ final class GameFrame extends JFrame {
                           PeerNetwork devAuthorityNetwork) {
         activeWorld = world;
         soloSession = config.role() == NetworkRole.SOLO;
+        activeSoloConfig = soloSession ? config : null;
+        if (soloSession) {
+            soloAutosaveTimer = new Timer(Math.max(30, config.autosaveSeconds) * 1000,
+                    event -> {
+                        if (!soloBusy && !soloPausedByMenu && activeWorld == world) {
+                            saveSolo("autosave", activeSoloSlotId, null, null);
+                        }
+                    });
+            soloAutosaveTimer.start();
+        }
         gamePanel = new GamePanel(world, this, activeNetwork, config.devMode, devAuthorityNetwork);
+        if (soloSession) gamePanel.restoreSoloView(world.soloUiSaveState());
         resourceCatalogOverlay = new ResourceCatalogOverlay(gamePanel, world);
         manufacturingOverlay = new ManufacturingOverlay(gamePanel, world, activeNetwork);
         codexOverlay = new CodexOverlay(gamePanel);
         narrationSettingsOverlay = new NarrationSettingsOverlay();
         if (soloSession) TutorialPreferenceVersion.ensureCurrent();
-        tutorialOverlay = new TutorialOverlay(world, soloSession);
+        // Solo tutorial progression is archived with the campaign, not the global preference node.
+        tutorialOverlay = new TutorialOverlay(world, soloSession, false);
+        if (soloSession) tutorialOverlay.restoreSoloState(world.soloUiSaveState().get("tutorial"));
         inGameMenuOverlay = new InGameMenuOverlay(
                 soloSession,
                 this::closeInGameMenu,
                 this::openGameSettingsFromMenu,
                 this::startTutorialFromMenu,
                 this::returnToLobbyFromMenu,
-                this::quitGameFromMenu);
+                this::quitGameFromMenu,
+                this::saveSoloFromMenu,
+                this::saveAsSoloFromMenu,
+                this::openSoloLoadDialog);
 
         installResourceCatalogHotkey(gamePanel);
         installManufacturingHotkey(gamePanel);
@@ -448,17 +492,267 @@ final class GameFrame extends JFrame {
         closeInGameMenu();
     }
 
-    private void returnToLobbyFromMenu() {
-        showLobby("Returned to the main menu.");
+    private void saveSoloFromMenu() {
+        if (soloSession) saveSolo("manual", activeSoloSlotId, null, null);
     }
 
-    private void quitGameFromMenu() {
-        stopActiveGame();
-        dispose();
-        System.exit(0);
+    private void saveAsSoloFromMenu() {
+        if (!soloSession || soloBusy) return;
+        String name = JOptionPane.showInputDialog(this, "New campaign slot name:", "Save As",
+                JOptionPane.QUESTION_MESSAGE);
+        if (name == null) return;
+        try {
+            SoloSaveService.Slot slot = soloSaves.create(name);
+            saveSolo("manual", slot.id(), () -> {
+                activeSoloSlotId = slot.id();
+                SoloSaveService.activate(activeWorld, slot.id());
+                FogOfWarView.flushToPersistence(activeWorld);
+                JOptionPane.showMessageDialog(this, "Saved to new slot: " + slot.name());
+            }, () -> {
+                try { soloSaves.delete(slot.id()); }
+                catch (IOException ignored) { }
+            });
+        } catch (IOException | IllegalArgumentException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Could not create slot",
+                    JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void saveSolo(String reason, String slotId, Runnable onSuccess, Runnable onFailure) {
+        if (!soloSession || soloBusy || activeWorld == null || slotId == null) return;
+        soloBusy = true;
+        World target = activeWorld;
+        Config config = activeSoloConfig;
+        boolean resumeAfter = !soloPausedByMenu && !menuVisible();
+        if (gamePanel != null) gamePanel.stop();
+        if (gamePanel != null) {
+            Map<String,Object> view = new LinkedHashMap<>(gamePanel.captureSoloView());
+            if (tutorialOverlay != null) view.put("tutorial", tutorialOverlay.captureSoloState());
+            target.setSoloUiSaveState(view);
+        }
+        final SoloSaveService.CapturedSave snapshot;
+        try {
+            snapshot = soloSaves.capture(slotId, target, config, reason);
+        } catch (IOException | RuntimeException ex) {
+            soloBusy = false;
+            if (target == activeWorld && resumeAfter && gamePanel != null) gamePanel.start();
+            target.status = "Save capture failed; current session preserved.";
+            if (!"autosave".equals(reason) && !"initial".equals(reason)) {
+                JOptionPane.showMessageDialog(this, ex.getMessage(), "Save Capture Error",
+                        JOptionPane.ERROR_MESSAGE);
+            }
+            if (onFailure != null) onFailure.run();
+            return;
+        }
+        // Disk I/O proceeds from a frozen archive payload, not from a live World.
+        if (target == activeWorld && resumeAfter && gamePanel != null) gamePanel.start();
+        new SwingWorker<Void,Void>() {
+            @Override protected Void doInBackground() throws Exception {
+                soloSaves.write(snapshot);
+                return null;
+            }
+
+            @Override protected void done() {
+                Exception failure = null;
+                try { get(); }
+                catch (Exception ex) { failure = ex; }
+                soloBusy = false;
+                if (failure == null) {
+                    if (target == activeWorld) target.status = "Solo campaign saved.";
+                    if (onSuccess != null) onSuccess.run();
+                    else if ("manual".equals(reason)) {
+                        JOptionPane.showMessageDialog(GameFrame.this, "Save completed successfully.");
+                    }
+                } else {
+                    if (target == activeWorld) target.status = "Save failed; previous valid save preserved.";
+                    if (!"autosave".equals(reason) && !"initial".equals(reason)) {
+                        JOptionPane.showMessageDialog(GameFrame.this, "Save failed: " + failure.getMessage(),
+                                "Solo Save Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                    if (onFailure != null) onFailure.run();
+                }
+            }
+        }.execute();
+    }
+
+    void continueSolo() {
+        if (soloBusy) return;
+        soloBusy = true;
+        menuPanel.setStatus("Finding the latest valid solo campaign...");
+        new SwingWorker<SoloSaveService.Slot,Void>() {
+            @Override protected SoloSaveService.Slot doInBackground() throws Exception {
+                return soloSaves.mostRecentValid();
+            }
+            @Override protected void done() {
+                soloBusy = false;
+                try {
+                    SoloSaveService.Slot slot = get();
+                    if (slot == null) {
+                        menuPanel.setStatus("No valid solo campaign saves were found.");
+                        return;
+                    }
+                    loadSolo(slot.id());
+                } catch (Exception ex) {
+                    menuPanel.setStatus("Could not inspect saves: " + ex.getMessage());
+                }
+            }
+        }.execute();
+    }
+
+    void openSoloLoadDialog() {
+        if (soloBusy) return;
+        try {
+            while (true) {
+                List<SoloSaveService.Slot> slots = soloSaves.list();
+                if (slots.isEmpty()) {
+                    JOptionPane.showMessageDialog(this, "No solo campaign slots found.");
+                    return;
+                }
+                JList<SoloSaveService.Slot> list = new JList<>(
+                        slots.toArray(new SoloSaveService.Slot[0]));
+                list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+                list.setSelectedIndex(0);
+                JScrollPane scroll = new JScrollPane(list);
+                scroll.setPreferredSize(new Dimension(610, Math.min(310, 42 * slots.size())));
+                int chosen = JOptionPane.showOptionDialog(this, scroll, "Solo Campaigns",
+                        JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null,
+                        new String[]{"Load", "Recovery...", "Rename", "Delete", "Cancel"}, "Load");
+                if (chosen == 4 || chosen == JOptionPane.CLOSED_OPTION) return;
+                SoloSaveService.Slot selected = list.getSelectedValue();
+                if (selected == null) continue;
+                if (chosen == 0) {
+                    loadSolo(selected.id());
+                    return;
+                }
+                if (chosen == 1) {
+                    List<SoloSaveService.RecoveryPoint> recovery = soloSaves.recoveryPoints(selected.id());
+                    if (recovery.isEmpty()) {
+                        JOptionPane.showMessageDialog(this, "No recovery points are available.");
+                        continue;
+                    }
+                    JList<SoloSaveService.RecoveryPoint> points = new JList<>(
+                            recovery.toArray(new SoloSaveService.RecoveryPoint[0]));
+                    points.setSelectedIndex(0);
+                    JScrollPane recoveryScroll = new JScrollPane(points);
+                    recoveryScroll.setPreferredSize(new Dimension(690, Math.min(300, recovery.size() * 42)));
+                    if (JOptionPane.showConfirmDialog(this, recoveryScroll, "Choose Saved Snapshot",
+                            JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
+                        SoloSaveService.RecoveryPoint point = points.getSelectedValue();
+                        if (point != null) {
+                            loadSolo(selected.id(), point.fileName());
+                            return;
+                        }
+                    }
+                }
+                if (chosen == 2) {
+                    String name = JOptionPane.showInputDialog(this, "Rename campaign slot:",
+                            selected.name());
+                    if (name != null) soloSaves.rename(selected.id(), name);
+                }
+                if (chosen == 3) {
+                    if (soloSession && selected.id().equals(activeSoloSlotId)) {
+                        JOptionPane.showMessageDialog(this, "Cannot delete the currently running campaign.");
+                    } else if (JOptionPane.showConfirmDialog(this,
+                            "Permanently delete " + selected.name() + " and its recovery files?",
+                            "Delete Save Slot", JOptionPane.YES_NO_OPTION,
+                            JOptionPane.WARNING_MESSAGE) == JOptionPane.YES_OPTION) {
+                        soloSaves.delete(selected.id());
+                    }
+                }
+            }
+        } catch (IOException | IllegalArgumentException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Solo Slots",
+                    JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void loadSolo(String slotId) { loadSolo(slotId, null); }
+
+    private void loadSolo(String slotId, String snapshot) {
+        if (soloBusy) return;
+        if (soloSession && JOptionPane.showConfirmDialog(this,
+                "Load this campaign? Unsaved changes in the current game will be lost.",
+                "Load Solo Campaign", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+        soloBusy = true;
+        World previous = activeWorld;
+        boolean resumeAfterFailure = soloSession && !soloPausedByMenu;
+        if (soloSession && gamePanel != null) gamePanel.stop();
+        new SwingWorker<World,Void>() {
+            @Override protected World doInBackground() throws Exception {
+                Config config = Config.solo("Player");
+                return snapshot == null ? soloSaves.load(slotId, config)
+                        : soloSaves.loadSnapshot(slotId, snapshot, config);
+            }
+            @Override protected void done() {
+                try {
+                    World restored = get();
+                    stopActiveGame();
+                    activeSoloSlotId = slotId;
+                    PlayerRegistry.activate(restored);
+                    SoloSaveService.activate(restored, slotId);
+                    Config loadedConfig = Config.solo(restored.localPlayerName, false,
+                            SkirmishRuntime.settings(restored), restored.systemId(),
+                            GalaxyRuntimeOptions.copiesPerTemplate());
+                    showGame(loadedConfig, restored, null, null);
+                    restored.status = "Loaded solo campaign.";
+                } catch (Exception ex) {
+                    if (previous != null) {
+                        PlayerRegistry.activate(previous);
+                        SystemAudio.listenTo(previous);
+                        if (resumeAfterFailure && gamePanel != null) gamePanel.start();
+                    }
+                    JOptionPane.showMessageDialog(GameFrame.this,
+                            "Could not load campaign. Current session was preserved.\n" + ex.getMessage(),
+                            "Load Error", JOptionPane.ERROR_MESSAGE);
+                } finally {
+                    soloBusy = false;
+                }
+            }
+        }.execute();
+    }
+
+    private void returnToLobbyFromMenu() { requestExit(false); }
+    private void quitGameFromMenu() { requestExit(true); }
+
+    private void requestExit(boolean quit) {
+        if (soloBusy) {
+            JOptionPane.showMessageDialog(this, "A save or load is still in progress.");
+            return;
+        }
+        if (!soloSession) { exitConfirmed(quit); return; }
+        int choice = JOptionPane.showOptionDialog(this,
+                "Save the current solo campaign before leaving?",
+                quit ? "Quit StarChem" : "Return to Main Menu",
+                JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null,
+                new String[]{"Save & Exit", "Exit Without Saving", "Cancel"}, "Save & Exit");
+        if (choice == 0) saveSolo("manual", activeSoloSlotId,
+                () -> exitConfirmed(quit), () -> saveExitFailed(quit));
+        else if (choice == 1) exitConfirmed(quit);
+    }
+
+    private void saveExitFailed(boolean quit) {
+        int choice = JOptionPane.showOptionDialog(this,
+                "The campaign could not be saved. The current game is still open.",
+                "Save & Exit Failed", JOptionPane.DEFAULT_OPTION, JOptionPane.ERROR_MESSAGE, null,
+                new String[]{"Retry Save", "Exit Without Saving", "Cancel"}, "Retry Save");
+        if (choice == 0) saveSolo("manual", activeSoloSlotId,
+                () -> exitConfirmed(quit), () -> saveExitFailed(quit));
+        else if (choice == 1) exitConfirmed(quit);
+    }
+
+    private void exitConfirmed(boolean quit) {
+        if (quit) {
+            stopActiveGame();
+            dispose();
+            System.exit(0);
+        } else {
+            showLobby("Returned to the main menu.");
+        }
     }
 
     private void stopActiveGame() {
+        if (soloAutosaveTimer != null) soloAutosaveTimer.stop();
+        soloAutosaveTimer = null;
         World stoppingWorld = activeWorld;
         settingsOverlay.setVisible(false);
         while (settingsPanel.isOpen()) {
@@ -497,6 +791,8 @@ final class GameFrame extends JFrame {
         networkTimer = null;
         activeWorld = null;
         soloSession = false;
+        activeSoloSlotId = null;
+        activeSoloConfig = null;
     }
 
     static void resetDeveloperSimulationState(World world) {

@@ -57,12 +57,30 @@ final class ServerSaveStore {
     private String saveId = "";
     private Instant createdAt = Instant.now();
     private List<PersistentPlayerSession> loadedPlayerSessions = List.of();
+    private final boolean solo;
+    private String soloSlotId = "";
+    private String soloSlotName = "";
 
     ServerSaveStore(Path saveDir, String saveName, int backupCount) {
+        this(saveDir, saveName, backupCount, false);
+    }
+
+    ServerSaveStore(Path saveDir, String saveName, int backupCount, boolean solo) {
         this.saveDir = saveDir == null ? Path.of("saves") : saveDir;
         this.saveName = Config.cleanSaveName(saveName);
         this.backupCount = Math.max(1, backupCount);
         this.persistence = ServerPersistenceCoordinator.forSave(this.saveDir, this.saveName);
+        this.solo = solo;
+    }
+
+    void setSoloMetadata(String id, String name) {
+        if (!solo) throw new IllegalStateException("Only solo stores accept slot metadata.");
+        this.soloSlotId = id;
+        this.soloSlotName = name;
+    }
+
+    World loadArchive(Path archive, Config config) throws IOException {
+        return readWorld(archive, config);
     }
 
     Optional<World> load(Config config) throws IOException {
@@ -103,7 +121,23 @@ final class ServerSaveStore {
         ServerPersistenceCoordinator.Submission submission = persistence.submit(
                 "save-" + safeReason, coalesce, () -> persist(snapshot));
         if (!submission.accepted()) throw new IOException("Persistence queue is full; save was not queued.");
-        if (!asynchronous) persistence.await(submission);
+        if (!asynchronous || solo) persistence.await(submission);
+    }
+
+    /** Capture on the simulation owner thread; the returned snapshot is immutable. */
+    SaveSnapshot captureSoloSnapshot(World world, Config config, String reason) {
+        if (!solo) throw new IllegalStateException("Only solo stores can capture solo snapshots.");
+        return captureSnapshot(world, config, reason, List.of());
+    }
+
+    /** Queue serialization and durable archive promotion without reading a mutable World. */
+    void writeSoloSnapshot(SaveSnapshot snapshot, String reason) throws IOException {
+        if (!solo || snapshot == null) throw new IOException("Invalid solo snapshot.");
+        boolean coalesce = "autosave".equals(reason);
+        ServerPersistenceCoordinator.Submission submission = persistence.submit(
+                "save-" + reason, coalesce, () -> persist(snapshot));
+        if (!submission.accepted()) throw new IOException("Persistence queue is full; save was not queued.");
+        persistence.await(submission);
     }
 
     private SaveSnapshot captureSnapshot(World world, Config config, String reason,
@@ -177,6 +211,12 @@ final class ServerSaveStore {
         Map<String,Object> players = archive.players();
         Map<String,Object> galaxy = archive.galaxy();
         Map<String,Object> runtime = archive.runtime();
+        String kind = string(manifest, "archiveKind", "server-state");
+        if (solo && !"solo-state".equals(kind)) throw new IOException("Not a solo campaign archive.");
+        if (!solo && "solo-state".equals(kind)) throw new IOException("Solo archives cannot be loaded by the server.");
+        if (solo && !soloSlotId.equals(string(manifest, "soloSlotId", ""))) {
+            throw new IOException("Solo archive belongs to a different slot.");
+        }
         saveId = string(manifest, "saveId", "");
         createdAt = parseInstant(string(manifest, "createdAt", ""));
         ServerSaveMigration.Result migrated = ServerSaveMigration.migrate(version, manifest, players, galaxy, runtime);
@@ -189,25 +229,46 @@ final class ServerSaveStore {
                     + String.join("; ", migrated.notes()));
         }
         SkirmishSettings skirmish = SkirmishSettings.fromSaved(manifest.get("skirmish"), config.skirmishSettings);
-        World world = new World(config.playerName, skirmish.disabledNpcFactionIds(), config.systemId, false);
-        SkirmishRuntime.bind(world, skirmish);
-        PlayerRegistry.activate(world);
-        restorePlayers(players);
-        loadedPlayerSessions = restorePlayerSessions(players.get("sessions"));
-        world.completedResearch.clear();
-        for (Map.Entry<String,Object> entry : object(players.get("completedResearch")).entrySet()) {
-            LinkedHashSet<String> topics = new LinkedHashSet<>();
-            for (Object topic : list(entry.getValue())) {
-                String id = SaveContentResolver.productionItemId(ProductionJobKind.RESEARCH, asString(topic, ""));
-                if (!id.isBlank()) topics.add(id);
+        GalaxyRuntimeOptions.State before = GalaxyRuntimeOptions.snapshot();
+        World world = null;
+        try {
+            if (solo) {
+                GalaxyGenerationSettings settings = GalaxyGenerationSettingsCodec.restore(
+                        manifest.get("galaxyGeneration"), Math.max(1, intValue(manifest, "galaxyCopies", 1)));
+                GalaxyRuntimeOptions.configureCopies(Math.max(1, intValue(manifest, "galaxyCopies", 1)));
+                GalaxyRuntimeOptions.configureGeneration(settings,
+                        longValue(manifest, "galaxyGenerationSeed", longValue(galaxy, "seed", 0L)));
             }
-            world.completedResearch.put(entry.getKey(), topics);
+            String playerName = solo ? string(manifest, "soloPlayerName", config.playerName) : config.playerName;
+            String startSystem = solo ? string(manifest, "soloStartSystemId", config.systemId) : config.systemId;
+            world = new World(playerName, skirmish.disabledNpcFactionIds(), startSystem, false);
+            SkirmishRuntime.bind(world, skirmish);
+            PlayerRegistry.activate(world);
+            restorePlayers(players);
+            loadedPlayerSessions = solo ? List.of() : restorePlayerSessions(players.get("sessions"));
+            world.completedResearch.clear();
+            for (Map.Entry<String,Object> entry : object(players.get("completedResearch")).entrySet()) {
+                LinkedHashSet<String> topics = new LinkedHashSet<>();
+                for (Object topic : list(entry.getValue())) {
+                    String id = SaveContentResolver.productionItemId(ProductionJobKind.RESEARCH, asString(topic, ""));
+                    if (!id.isBlank()) topics.add(id);
+                }
+                world.completedResearch.put(entry.getKey(), topics);
+            }
+            WorldFitCatalog.restore(world, runtime.get("shipFits"));
+            world.restoreServerSaveGalaxy(galaxy);
+            world.restoreSavedSystemSeed(longValue(galaxy, "seed", world.systemSeed()));
+            world.restoreServerSaveRuntime(runtime);
+            if (solo) {
+                FogOfWarView.restore(world, runtime.get("soloFog"));
+                world.restoreSoloUiSaveState(runtime.get("soloUi"));
+            }
+            return world;
+        } catch (RuntimeException ex) {
+            if (world != null) world.dispose();
+            if (solo) GalaxyRuntimeOptions.restore(before);
+            throw new IOException("Save state could not be restored: " + ex.getMessage(), ex);
         }
-        // Dynamic fit definitions must exist before galaxy units and production queues resolve their fit IDs.
-        WorldFitCatalog.restore(world, runtime.get("shipFits"));
-        world.restoreServerSaveGalaxy(galaxy);
-        world.restoreServerSaveRuntime(runtime);
-        return world;
     }
 
     private Map<String,Object> capture(World world, Config config, String reason, List<PersistentPlayerSession> sessions) {
@@ -230,7 +291,17 @@ final class ServerSaveStore {
         MultiplayerCompatibility.Descriptor descriptor = MultiplayerCompatibility.local();
         manifest.put("rulesVersion", descriptor.rulesVersion());
         manifest.put("configurationFingerprint", descriptor.configHash());
-        manifest.put("archiveKind", "server-state");
+        manifest.put("archiveKind", solo ? "solo-state" : "server-state");
+        if (solo) {
+            manifest.put("soloSlotId", soloSlotId);
+            manifest.put("soloSlotName", soloSlotName);
+            manifest.put("soloPlayerName", world.localPlayerName);
+            manifest.put("soloStartSystemId", world.systemId());
+            manifest.put("galaxyCopies", GalaxyRuntimeOptions.copiesPerTemplate());
+            manifest.put("galaxyGenerationSeed", GalaxyRuntimeOptions.generationSeed(world.systemSeed()));
+            manifest.put("galaxyGeneration", GalaxyGenerationSettingsCodec.capture(GalaxyRuntimeOptions.generationSettings()));
+        }
+        manifest.put("activeSystemId", world.activeSystemId());
         manifest.put("skirmish", SkirmishRuntime.settings(world).saveMap());
         save.put("manifest", manifest);
 
@@ -248,11 +319,15 @@ final class ServerSaveStore {
         Map<String,Object> research = new LinkedHashMap<>();
         for (Map.Entry<String,java.util.Set<String>> entry : world.completedResearch.entrySet()) research.put(entry.getKey(), new ArrayList<>(entry.getValue()));
         players.put("completedResearch", research);
-        players.put("sessions", capturePlayerSessions(sessions));
+        players.put("sessions", solo ? List.of() : capturePlayerSessions(sessions));
         save.put("players", players);
         save.put("galaxy", world.captureServerSaveGalaxy());
         Map<String,Object> runtime = new LinkedHashMap<>(world.captureServerSaveRuntime());
         runtime.put("shipFits", WorldFitCatalog.capture(world));
+        if (solo) {
+            runtime.put("soloFog", FogOfWarView.capture(world));
+            runtime.put("soloUi", world.soloUiSaveState());
+        }
         save.put("runtime", runtime);
         return save;
     }
@@ -358,6 +433,23 @@ final class ServerSaveStore {
             Files.move(from, to, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException ex) {
             Files.move(from, to, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    static Map<String,Object> readManifest(Path path) throws IOException {
+        if (path == null || !Files.isRegularFile(path) || Files.size(path) > MAX_ARCHIVE_BYTES) {
+            throw new IOException("Save archive is missing or too large.");
+        }
+        try (ZipFile zip = new ZipFile(path.toFile(), StandardCharsets.UTF_8)) {
+            ZipEntry entry = zip.getEntry("manifest.json");
+            if (entry == null || entry.getSize() > MAX_MANIFEST_BYTES) throw new IOException("Missing save manifest.");
+            byte[] content;
+            try (InputStream input = zip.getInputStream(entry)) {
+                content = BoundedText.readBytes(input, MAX_MANIFEST_BYTES, "manifest.json");
+            }
+            Map<String,Object> manifest = parseObject(content, "manifest.json");
+            saveFormatVersion(manifest);
+            return manifest;
         }
     }
 
@@ -575,7 +667,7 @@ final class ServerSaveStore {
         catch (RuntimeException ex) { return fallback; }
     }
 
-    private record SaveSnapshot(Map<String,Object> manifest, Map<String,Object> players,
+    record SaveSnapshot(Map<String,Object> manifest, Map<String,Object> players,
                                 Map<String,Object> galaxy, Map<String,Object> runtime) { }
 
     record ValidatedArchive(int version, Map<String,Object> manifest, Map<String,Object> players,
