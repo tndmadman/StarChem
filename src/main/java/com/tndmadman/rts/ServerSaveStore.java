@@ -257,7 +257,10 @@ final class ServerSaveStore {
             world.restoreServerSaveGalaxy(galaxy);
             world.restoreSavedSystemSeed(longValue(galaxy, "seed", world.systemSeed()));
             world.restoreServerSaveRuntime(runtime);
-            if (solo) FogOfWarView.restore(world, runtime.get("soloFog"));
+            if (solo) {
+                FogOfWarView.restore(world, runtime.get("soloFog"));
+                world.restoreSoloUiSaveState(runtime.get("soloUi"));
+            }
             return world;
         } catch (RuntimeException ex) {
             if (world != null) world.dispose();
@@ -318,7 +321,10 @@ final class ServerSaveStore {
         save.put("galaxy", world.captureServerSaveGalaxy());
         Map<String,Object> runtime = new LinkedHashMap<>(world.captureServerSaveRuntime());
         runtime.put("shipFits", WorldFitCatalog.capture(world));
-        if (solo) runtime.put("soloFog", FogOfWarView.capture(world));
+        if (solo) {
+            runtime.put("soloFog", FogOfWarView.capture(world));
+            runtime.put("soloUi", world.soloUiSaveState());
+        }
         save.put("runtime", runtime);
         return save;
     }

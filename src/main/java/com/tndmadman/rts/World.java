@@ -51,6 +51,15 @@ final class World {
     int nextWorldItemId = 1;
     int selectedResourceId = -1;
     String status = "Right-click a resource with a ship selected to auto-harvest.";
+    private Map<String,Object> soloUiSaveState = Map.of();
+
+    Map<String,Object> soloUiSaveState() { return soloUiSaveState; }
+    void setSoloUiSaveState(Map<String,Object> state) {
+        soloUiSaveState = state == null ? Map.of() : new LinkedHashMap<>(state);
+    }
+    void restoreSoloUiSaveState(Object saved) {
+        soloUiSaveState = new LinkedHashMap<>(ServerSaveStore.object(saved));
+    }
 
     World(String localPlayerName) { this(localPlayerName, Set.of(), StarSystems.DEFAULT_SYSTEM_ID); }
     World(String localPlayerName, Set<String> disabledNpcFactionIds) { this(localPlayerName, disabledNpcFactionIds, StarSystems.DEFAULT_SYSTEM_ID); }
