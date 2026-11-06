@@ -507,7 +507,13 @@ final class GalaxyCoordinator {
         Base best = null;
         double bestDist = Double.MAX_VALUE;
         for (Base base : world.bases.values()) {
-            if (!base.playerId.equals(playerId)) continue;
+            if (!base.playerId.equals(playerId) || base.hp <= 0) continue;
+            // Mining/hauler unloads must target an actual storage facility.
+            // Fresh commanders also own a radar picket; radar, jammer and
+            // decoy inventories must not siphon cargo away from the Outpost.
+            String role = StationControls.role(base.typeId);
+            if (!("production".equals(role) || "extractor".equals(role))
+                    || base.type().unloadRate <= 0 || base.type().unloadRange <= 0) continue;
             double d = Calc.distance(x, y, base.x, base.y);
             if (d < bestDist) { best = base; bestDist = d; }
         }
