@@ -78,7 +78,8 @@ final class HeadlessGameServer {
             world = loaded.get();
             System.out.println("Loaded server save '" + config.saveName + "'.");
         } else {
-            world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId, false);
+            world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId, false,
+                    StartingFleetSettings.newCampaign(config.startingMiners));
             SkirmishRuntime.bind(world, config.skirmishSettings);
             System.out.println(config.newWorld ? "Starting a new server world by request." : "No server save found; starting a new world.");
         }
