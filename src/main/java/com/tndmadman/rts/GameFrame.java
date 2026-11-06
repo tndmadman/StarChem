@@ -129,7 +129,8 @@ final class GameFrame extends JFrame {
             }
         }
         World world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId,
-                config.role() == NetworkRole.SOLO);
+                config.role() == NetworkRole.SOLO,
+                StartingFleetSettings.newCampaign(config.startingMiners));
         PlayerRegistry.activate(world);
         if (config.role() == NetworkRole.SOLO) SoloSaveService.activate(world, activeSoloSlotId);
         SkirmishRuntime.bind(world, config.skirmishSettings);
