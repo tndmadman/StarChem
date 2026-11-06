@@ -595,7 +595,7 @@ final class GameFrame extends JFrame {
             return;
         }
         // Disk I/O proceeds from a frozen archive payload, not from a live World.
-        if ("manual".equals(reason)) campaignDialog.showChoices(
+        if ("manual".equals(reason)) campaignDialog.showBusy(
                 "Saving Campaign", "Writing and verifying the campaign archive...");
         if (target == activeWorld && resumeAfter && gamePanel != null) gamePanel.start();
         new SwingWorker<Void,Void>() {
@@ -770,7 +770,7 @@ final class GameFrame extends JFrame {
         World previous = activeWorld;
         boolean resumeAfterFailure = soloSession && !soloPausedByMenu;
         if (soloSession && gamePanel != null) gamePanel.stop();
-        campaignDialog.showChoices("Loading Campaign", "Validating and restoring the selected campaign archive...");
+        campaignDialog.showBusy("Loading Campaign", "Validating and restoring the selected campaign archive...");
         new SwingWorker<World,Void>() {
             @Override protected World doInBackground() throws Exception {
                 Config config = Config.solo("Player");
