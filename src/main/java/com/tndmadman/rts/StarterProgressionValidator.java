@@ -161,7 +161,7 @@ public final class StarterProgressionValidator {
         return true;
     }
 
-    private static Set<Material> starterMaterials() {
+    static Set<Material> starterMaterials() {
         EnumSet<Material> found = EnumSet.noneOf(Material.class);
         Path path = Path.of("config/systems/sol-standard.json");
         try {

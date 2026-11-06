@@ -22,6 +22,7 @@ public final class IntermediateCraftingValidator {
         validateShipUnlockAlignment();
         validateBootstrap();
         StarterProgressionValidator.validateOrThrow();
+        StarterEconomyBudgetValidator.validateOrThrow();
         validateUsage();
     }
 
