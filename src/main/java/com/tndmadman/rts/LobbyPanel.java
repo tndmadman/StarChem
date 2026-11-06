@@ -114,7 +114,8 @@ final class LobbyPanel extends JPanel {
         header.add(title);
         header.add(subtitle);
 
-        JButton solo = new MenuButton("SOLO");
+        JButton guided = new MenuButton("LEARN TO PLAY — GUIDED START");
+        JButton solo = new MenuButton("SOLO / CUSTOM");
         JButton connect = new MenuButton("JOIN");
         JButton refresh = new MenuButton("REFRESH LAN");
         JButton codex = new MenuButton("CODEX");
@@ -143,7 +144,9 @@ final class LobbyPanel extends JPanel {
         buttons.add(codex);
         buttons.add(clearSignIns);
         buttons.add(settings);
-        footer.add(buttons, BorderLayout.CENTER);
+        guided.setToolTipText("Peaceful, no-cheat economic introduction: mining, industry, research, and the first Hauler.");
+        footer.add(guided, BorderLayout.CENTER);
+        footer.add(buttons, BorderLayout.SOUTH);
 
         MenuCardPanel card = new MenuCardPanel(new BorderLayout(0, 14));
         card.setBorder(BorderFactory.createEmptyBorder(22, 28, 22, 28));
@@ -152,6 +155,7 @@ final class LobbyPanel extends JPanel {
         card.add(footer, BorderLayout.SOUTH);
         add(card, BorderLayout.CENTER);
 
+        guided.addActionListener(e -> launchGuidedSolo());
         solo.addActionListener(e -> launchSolo());
         connect.addActionListener(e -> startClient());
         refresh.addActionListener(e -> refreshLanServers());
@@ -485,7 +489,23 @@ final class LobbyPanel extends JPanel {
         galaxyPreviewButton.setEnabled(procedural);
     }
 
+    private void launchGuidedSolo() {
+        try {
+            // A deliberately explicit preset, not an invisible mutation of
+            // custom skirmish choices or a developer free-build shortcut.
+            ScenarioLaunch.selectForSolo("guided_start");
+            GalaxyRuntimeOptions.configureGeneration(GalaxyGenerationSettings.legacy(1), 0L);
+            SkirmishSettings peaceful = ScenarioLaunch.adjustSkirmish(SkirmishSettings.standard());
+            owner.launchGame(Config.solo(nameField.getText(), false, peaceful,
+                    "sol_standard", 1));
+        } catch (RuntimeException ex) {
+            ScenarioLaunch.consume();
+            setStatus(ex.getMessage() == null ? "Could not launch Guided Start." : ex.getMessage());
+        }
+    }
+
     private void launchSolo() {
+        ScenarioLaunch.selectForSolo("");
         try {
             if (proceduralGalaxyBox.isSelected()) {
                 long seed = GalaxyMatchSetup.seed(galaxySeedField.getText());

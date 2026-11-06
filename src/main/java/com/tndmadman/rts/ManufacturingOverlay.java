@@ -560,8 +560,11 @@ final class ManufacturingOverlay extends JPanel {
         }
 
         for (CraftableItem item : CraftingRules.all()) {
-            String locked = free || item.unlockedFor(world, playerId)
-                    ? "" : "Requires " + item.missingResearchLabel(world, playerId);
+            String locked = !free && !item.unlockedFor(world, playerId)
+                    ? "Requires " + item.missingResearchLabel(world, playerId)
+                    : !free && !ResearchPolicy.unlocked(world, playerId, ResearchUnlockKind.CRAFTABLE, item.id)
+                    ? "Requires " + ResearchPolicy.missingUnlockLabel(world, playerId,
+                            ResearchUnlockKind.CRAFTABLE, item.id) : "";
             String description = item.description == null || item.description.isBlank()
                     ? "Manufactured " + item.outputMaterial.label : item.description;
             ProductionChoice choice = new ProductionChoice(
@@ -613,12 +616,18 @@ final class ManufacturingOverlay extends JPanel {
         detailKind.setForeground(kindColor(choice.kind));
         detailDescription.setText(choice.description);
         detailDescription.setCaretPosition(0);
-        if (choice.lockedReason.isBlank()) {
-            detailState.setText("READY TO ROUTE");
-            detailState.setForeground(READY);
-        } else {
-            detailState.setText(choice.lockedReason.toUpperCase(Locale.ROOT));
+        if (!choice.lockedReason.isBlank()) {
+            detailState.setText("LOCKED — " + choice.lockedReason.toUpperCase(Locale.ROOT));
             detailState.setForeground(choice.lockedReason.equals("Completed") ? READY : BLOCKED);
+        } else if (eligibleStations(choice).isEmpty()) {
+            detailState.setText("UNLOCKED — BUILD A COMPATIBLE PRODUCTION STATION");
+            detailState.setForeground(WARNING);
+        } else if (!world.devFreeBuildFor(playerId()) && !hasCatalogMaterials(choice)) {
+            detailState.setText("UNLOCKED — MISSING MATERIALS (SEE BELOW)");
+            detailState.setForeground(WARNING);
+        } else {
+            detailState.setText("READY — QUEUE PRODUCTION");
+            detailState.setForeground(READY);
         }
         populateCosts(choice);
         populateStations(choice);
@@ -637,6 +646,14 @@ final class ManufacturingOverlay extends JPanel {
         stationCombo.setModel(new DefaultComboBoxModel<>());
         buildButton.setEnabled(false);
         automationPanel.setVisible(false);
+    }
+
+    private boolean hasCatalogMaterials(ProductionChoice choice) {
+        EnumMap<Material, Double> totals = aggregateInventory();
+        for (Cost cost : choice.cost) {
+            if (totals.getOrDefault(cost.material(), 0.0) + 0.0001 < cost.amount()) return false;
+        }
+        return true;
     }
 
     private void populateCosts(ProductionChoice choice) {
@@ -659,6 +676,15 @@ final class ManufacturingOverlay extends JPanel {
                 row.add(amount, BorderLayout.EAST);
                 row.setAlignmentX(Component.LEFT_ALIGNMENT);
                 costPanel.add(row);
+                if (available + 0.0001 < cost.amount() && !cost.material().raw) {
+                    CraftableItem recipe = CraftingRules.preferredForOutput(cost.material());
+                    if (recipe != null) {
+                        JLabel guidance = smallLabel("  Craft " + recipe.name
+                                + " at " + String.join(", ", recipe.stationTypes), MUTED);
+                        guidance.setAlignmentX(Component.LEFT_ALIGNMENT);
+                        costPanel.add(guidance);
+                    }
+                }
             }
         }
         costPanel.revalidate();
