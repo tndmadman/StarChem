@@ -277,6 +277,14 @@ tasks.register('validateTcpMultiplayer', JavaExec) {
     mainClass = 'com.tndmadman.rts.TcpMultiplayerValidator'
 }
 
+tasks.register('validateTcpJoinLifecycle', JavaExec) {
+    group = 'verification'
+    description = 'Validate two-client READY, idempotent JOIN/RESUME, and recovered session ownership.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.TcpJoinLifecycleValidator'
+}
+
 tasks.register('validateTcpMultiClient', JavaExec) {
     group = 'verification'
     description = 'Validate simultaneous TCP clients, command isolation, and survivor responsiveness.'
@@ -664,6 +672,7 @@ tasks.named('check') {
     dependsOn tasks.named('validateNetworkSecurity')
     dependsOn tasks.named('validateTcpMultiplayer')
     dependsOn tasks.named('validateTcpMultiClient')
+    dependsOn tasks.named('validateTcpJoinLifecycle')
     dependsOn tasks.named('validateTcpSlowClient')
     dependsOn tasks.named('validateTcpReconnect')
     dependsOn tasks.named('validateDedicatedTcpServer')
