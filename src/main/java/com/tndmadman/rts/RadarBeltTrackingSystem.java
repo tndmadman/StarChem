@@ -422,7 +422,8 @@ final class RadarBeltTrackingSystem {
             if (bytes.length > MAX_PACKET_CHARS) return;
             Object parsed = MiniJson.parse(new String(bytes, StandardCharsets.UTF_8),
                     new MiniJson.Limits(MAX_PACKET_CHARS, 12, 10000, 1024, 1024, 64, true));
-            if (!(parsed instanceof Map<?, ?> root) || !Integer.valueOf(1).equals(root.get("version"))
+            if (!(parsed instanceof Map<?, ?> root) || !(root.get("version") instanceof Number version)
+                    || version.intValue() != 1
                     || !(root.get("systemId") instanceof String systemId) || systemId.length() > 128
                     || !(root.get("radars") instanceof List<?> sourceRadars) || sourceRadars.size() > MAX_RADARS
                     || !(root.get("tracks") instanceof List<?> sourceTracks) || sourceTracks.size() > MAX_RADARS * 3) return;
