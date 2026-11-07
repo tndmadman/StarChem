@@ -151,6 +151,7 @@ final class PeerNetwork implements CommandSink {
         return server == null ? 0 : server.initialSyncBuilds(server.connectionIdForPlayer(playerId));
     }
     int clientSyncTransitions() { return client == null ? 0 : client.syncTransitions(); }
+    void discardNextInitialViewForTest() { if (client != null) client.discardNextInitialViewForTest(); }
     void sendDuplicateHandshakeForTest() { if (client != null) client.duplicateHandshakeForTest(); }
     void replayWelcomeForTest(String playerId) {
         if (server != null) server.replayWelcomeForTest(server.connectionIdForPlayer(playerId));
