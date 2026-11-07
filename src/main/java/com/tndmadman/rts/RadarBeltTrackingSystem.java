@@ -21,9 +21,10 @@ final class RadarBeltTrackingSystem {
     private static final int MAX_RADARS = 128;
     private static final int MAX_PACKET_CHARS = 196_608;
     private static final long SEND_INTERVAL_NANOS = 250_000_000L;
+    private static final long CLIENT_TRACK_STALE_NANOS = 2_000_000_000L;
     private static final Map<World, Map<String, Cache>> AGGREGATES =
             Collections.synchronizedMap(new WeakHashMap<>());
-    private static final Map<World, Map<String, View>> CLIENT_VIEWS =
+    private static final Map<World, Map<String, ClientView>> CLIENT_VIEWS =
             Collections.synchronizedMap(new WeakHashMap<>());
     private static final Map<World, Map<String, Long>> SEND_TIMES =
             Collections.synchronizedMap(new WeakHashMap<>());
@@ -42,6 +43,7 @@ final class RadarBeltTrackingSystem {
         static View empty(String id) { return new View(id, List.of(), Map.of()); }
     }
     private record Cache(long quarterTick, Map<String, Track> tracks) { }
+    private record ClientView(View view, long receivedAt) { }
 
     static void markClient(World world) { if (world != null) CLIENT_WORLDS.add(world); }
 
@@ -222,7 +224,9 @@ final class RadarBeltTrackingSystem {
         if (world == null) return View.empty("");
         String systemId = world.activeSystemId();
         if (CLIENT_WORLDS.contains(world)) {
-            return CLIENT_VIEWS.getOrDefault(world, Map.of()).getOrDefault(systemId, View.empty(systemId));
+            ClientView received = CLIENT_VIEWS.getOrDefault(world, Map.of()).get(systemId);
+            return received != null && System.nanoTime() - received.receivedAt() < CLIENT_TRACK_STALE_NANOS
+                    ? received.view() : View.empty(systemId);
         }
         return authoritative(world, viewer, systemId);
     }
@@ -409,7 +413,8 @@ final class RadarBeltTrackingSystem {
             }
             markClient(world);
             CLIENT_VIEWS.computeIfAbsent(world, ignored -> new HashMap<>())
-                    .put(systemId, new View(systemId, List.copyOf(radars), Map.copyOf(tracks)));
+                    .put(systemId, new ClientView(
+                            new View(systemId, List.copyOf(radars), Map.copyOf(tracks)), System.nanoTime()));
         } catch (RuntimeException ignored) {
             // Malformed or stale server view cannot grant local permissions or reveal anything.
         }

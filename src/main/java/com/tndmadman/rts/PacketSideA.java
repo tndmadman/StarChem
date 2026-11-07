@@ -15,6 +15,12 @@ final class PacketSideA {
             server.change(parts[1], () -> changed[0] = StationControlCommands.apply(
                     server.world, parts[1], parts[3], parts[4], parts[5]));
             accepted = changed[0];
+            if (accepted) {
+                // Immediate authoritative replacement removes a deselected marker without
+                // waiting for the next 250 ms periodic snapshot.
+                server.transport.sendOrdered(
+                        RadarBeltTrackingSystem.packet(server.world, parts[1], parts[2]), connectionId);
+            }
         }
         server.transport.sendOrdered("RADAR_BELT_RESULT|" + (accepted ? "OK" : "REJECTED"), connectionId);
         return true;
