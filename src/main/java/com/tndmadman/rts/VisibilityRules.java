@@ -84,7 +84,7 @@ final class VisibilityRules {
             if (world != null) {
                 for (Base base : world.bases.values()) {
                     if (base == null || base.hp <= 0
-                            || !IntelWarfareSystem.allied(world, this.playerId, base.playerId)
+                            || !this.playerId.equals(base.playerId) // belt intel is owner-only
                             || !IntelWarfareSystem.isRadar(base.typeId)
                             || StationControls.radarSearchTarget(world, base)
                             != StationControls.RadarSearchTarget.AREA) continue;
@@ -197,7 +197,8 @@ final class VisibilityRules {
                     Base source = world.bases.get(sensor.sourceKey().substring(2));
                     if (source != null && IntelWarfareSystem.isRadar(source.typeId)
                             && resource.resourceBeltId != null && !resource.resourceBeltId.isBlank()
-                            && !RadarBeltTrackingSystem.tracking(world, source, resource)) continue;
+                            && (!playerId.equals(source.playerId)
+                                || !RadarBeltTrackingSystem.tracking(world, source, resource))) continue;
                 }
                 double dx = resource.x - sensor.x(), dy = resource.y - sensor.y();
                 if (dx * dx + dy * dy <= sensor.rangeSquared()) return true;
