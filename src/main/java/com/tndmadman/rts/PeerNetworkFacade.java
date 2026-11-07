@@ -144,6 +144,14 @@ final class PeerNetwork implements CommandSink {
     ConnectionId connectionIdForPlayer(String playerId) { return server == null ? ConnectionId.NONE : server.connectionIdForPlayer(playerId); }
     ConnectionDiagnostics connectionDiagnostics(ConnectionId id) { return transport.diagnostics(id); }
     int serverPeerCount() { return server == null ? 0 : server.peerCount(); }
+    boolean serverConnectionReady(String playerId) {
+        return server != null && server.isReady(server.connectionIdForPlayer(playerId));
+    }
+    int serverInitialSyncBuilds(String playerId) {
+        return server == null ? 0 : server.initialSyncBuilds(server.connectionIdForPlayer(playerId));
+    }
+    int clientSyncTransitions() { return client == null ? 0 : client.syncTransitions(); }
+    void sendDuplicateHandshakeForTest() { if (client != null) client.duplicateHandshakeForTest(); }
     boolean serverSessionConnected(String playerId) { return server != null && server.sessionConnected(playerId); }
     List<PersistentPlayerSession> persistentPlayerSessions() { return server == null ? List.of() : server.persistentSessions(); }
     void forceServerResourceCorrectionForTest() { if (server != null) server.forceResourceCorrectionForTest(); }
