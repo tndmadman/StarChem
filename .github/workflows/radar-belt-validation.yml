@@ -34,6 +34,14 @@ jobs:
           gradle-version: '8.10.2'
       - name: Gradle clean check jar
         run: gradle clean check jar --no-daemon
+      - name: Repeat TCP authoritative snapshot convergence
+        run: |
+          set -euo pipefail
+          CP="build/classes/java/main:build/resources/main"
+          for attempt in 1 2 3; do
+            echo "TCP convergence attempt ${attempt}/3"
+            java -Djava.awt.headless=true -cp "$CP" com.tndmadman.rts.TcpMultiplayerValidator
+          done
       - name: Dedicated radar and adjacent regression validators
         run: |
           set -euo pipefail
