@@ -2,9 +2,11 @@ package com.tndmadman.rts;
 
 final class PeerClientSide {
     private static final long HEARTBEAT_MS = 1000;
-    private static final long JOIN_TIMEOUT_MS = 8000;
-    private static final long INITIAL_SYNC_TIMEOUT_MS = 30_000;
-    private static final long SERVER_SILENCE_MS = 5000;
+    private static final long JOIN_TIMEOUT_MS = 25_000;
+    private static final long INITIAL_SYNC_TIMEOUT_MS = 45_000;
+    private static final long INITIAL_SYNC_RETRY_MS = 7_000;
+    private static final long READY_ACK_RETRY_MS = 2_000;
+    private static final long SERVER_SILENCE_MS = 15_000;
     private static final long RECONNECT_TIMEOUT_MS = 55_000;
     final Config config;
     final World world;
@@ -41,6 +43,12 @@ final class PeerClientSide {
     private String failureMessage = "";
     private String lastTransportFailure = "";
     private String pendingReadyName = "";
+    private ConnectionId welcomeConnection = ConnectionId.NONE;
+    private long lastSyncRetry;
+    private long lastReadySend;
+    private boolean readyAcknowledged;
+    private int syncTransitions;
+    private int handshakeRetries;
 
     PeerClientSide(Config config, World world, PeerTransport transport) {
         this.config = config;
@@ -95,6 +103,12 @@ final class PeerClientSide {
     boolean connectedState() { return state == ConnectionState.CONNECTED; }
     boolean readyState() { return state == ConnectionState.CONNECTED; }
     long lastSnapshotSequence() { return lastSnapshotSequence; }
+    int syncTransitions() { return syncTransitions; }
+    void duplicateHandshakeForTest() {
+        if (state == ConnectionState.CONNECTED || state == ConnectionState.SYNCING) {
+            sendControlToServer(sessionToken.isBlank() ? joinMessage() : resumeMessage());
+        }
+    }
     String viewedSystemId() { return viewedSystemId; }
     long pendingViewRevision() { return pendingViewRevision; }
     boolean viewSwitchPending() { return viewRequestPending; }
@@ -190,6 +204,9 @@ final class PeerClientSide {
             case FAILED, DISCONNECTED -> { return; }
             case CONNECTED -> {
                 if (now - lastServerPacket >= SERVER_SILENCE_MS) {
+                    System.err.println("[CONNECTION][RECONNECT_START] phase=READY player=" + localPlayerId
+                            + " connection=" + transport.clientConnectionId() + " reason=SERVER_SILENCE"
+                            + " idleMs=" + (now - lastServerPacket));
                     beginReconnect(now);
                     return;
                 }
@@ -197,15 +214,26 @@ final class PeerClientSide {
                     sendControlToServer("PING|" + localPlayerId);
                     lastPing = now;
                 }
+                if (!readyAcknowledged && now - lastReadySend >= READY_ACK_RETRY_MS) sendClientReady(now);
             }
             case SYNCING -> {
                 if (now - attemptStarted >= INITIAL_SYNC_TIMEOUT_MS) {
+                    System.err.println("[CONNECTION][RECONNECT_START] phase=SYNCING player=" + localPlayerId
+                            + " connection=" + transport.clientConnectionId() + " reason=INITIAL_SYNC_TIMEOUT"
+                            + " elapsedMs=" + (now - attemptStarted));
                     beginReconnect(now);
                     return;
                 }
                 if (now - lastPing >= HEARTBEAT_MS) {
                     sendControlToServer("PING|" + localPlayerId);
                     lastPing = now;
+                }
+                if (now - attemptStarted >= INITIAL_SYNC_RETRY_MS
+                        && now - lastSyncRetry >= INITIAL_SYNC_RETRY_MS) {
+                    lastSyncRetry = now;
+                    sendControlToServer("SYNC_RETRY|" + localPlayerId);
+                    System.out.println("[CONNECTION][INITIAL_SYNC_RETRY] player=" + localPlayerId
+                            + " connection=" + transport.clientConnectionId() + " elapsedMs=" + (now - attemptStarted));
                 }
             }
             case JOINING -> {
@@ -216,6 +244,7 @@ final class PeerClientSide {
                 if (now - lastHandshake >= HEARTBEAT_MS) {
                     sendControlToServer(joinMessage());
                     lastHandshake = now;
+                    handshakeRetries++;
                 }
             }
             case RECONNECTING -> {
@@ -230,6 +259,7 @@ final class PeerClientSide {
                 if (now - lastHandshake >= HEARTBEAT_MS) {
                     sendControlToServer(resumeMessage());
                     lastHandshake = now;
+                    handshakeRetries++;
                 }
             }
         }
@@ -251,6 +281,12 @@ final class PeerClientSide {
         if (!fromConfiguredServer(packet)) return;
         PlayerRegistry.activate(world);
         lastServerPacket = System.currentTimeMillis();
+        if (message != null && message.startsWith("READY_ACK|")) {
+            if (state == ConnectionState.CONNECTED && message.substring("READY_ACK|".length()).equals(localPlayerId)) {
+                readyAcknowledged = true;
+            }
+            return;
+        }
         if (UnitQueueWire.readState(world, message, localPlayerId)) return;
         if (ObserverSessions.applyClientState(world, message)) {
             if (ObserverSessions.clientObserver(world)) {
@@ -357,6 +393,18 @@ final class PeerClientSide {
         if (!validSessionToken(newSessionToken)) {
             throw new SnapshotDecodeException("Malformed WELCOME packet: missing or invalid session token.");
         }
+        ConnectionId currentConnection = transport.clientConnectionId();
+        if (state == ConnectionState.CONNECTED || state == ConnectionState.SYNCING) {
+            if (welcomeConnection.equals(currentConnection) && localPlayerId.equals(parts[1])) {
+                if (sessionToken.equals(newSessionToken)) return; // idempotent replay
+                failConnection("Conflicting session token on the same authenticated TCP generation.");
+                return;
+            }
+            // An active authenticated generation must not be replaced by an unsolicited WELCOME.
+            failConnection("Conflicting player identity or connection generation in WELCOME.");
+            return;
+        }
+        if (state != ConnectionState.JOINING && state != ConnectionState.RECONNECTING) return;
         ConnectionState previousState = state;
         if (derivedScopedCredential && PasswordAuth.validVerifier(authServerFingerprint)
                 && PasswordAuth.decodeHex(authScopedSalt).length == 16
@@ -373,6 +421,12 @@ final class PeerClientSide {
         authRegistrationRequested = false;
         localPlayerId = parts[1];
         sessionToken = newSessionToken;
+        welcomeConnection = currentConnection;
+        lastSnapshotSequence = 0; // new TCP generation may have an earlier server snapshot sequence
+        readyAcknowledged = false;
+        lastReadySend = 0;
+        lastSyncRetry = System.currentTimeMillis();
+        syncTransitions++;
         state = ConnectionState.SYNCING;
         syncingResume = previousState == ConnectionState.RECONNECTING || connectedOnce;
         pendingReadyName = parts[2];
@@ -403,9 +457,14 @@ final class PeerClientSide {
         world.status = syncingResume
                 ? "Session resumed. Receiving authoritative state for " + pendingReadyName + "."
                 : "Server accepted " + pendingReadyName + ". Receiving authoritative state.";
+        System.out.println("[CONNECTION][WELCOME] player=" + localPlayerId
+                + " connection=" + welcomeConnection + " phase=SYNCING retries=" + handshakeRetries);
     }
 
     void readSnapshot(String message) {
+        // The INITIAL VIEW_SYNC is the authoritative readiness barrier. Applying regular
+        // snapshots first can make the initial frame look stale and prevent readiness.
+        if (state == ConnectionState.SYNCING) return;
         try {
             Snapshot snapshot = SnapshotReader.read(message);
             ResourceNetDebug.clientReceive("REGULAR", snapshot, lastSnapshotSequence, viewSnapshotMode);
@@ -471,6 +530,10 @@ final class PeerClientSide {
         attemptStarted = now;
         lastServerPacket = now;
         lastPing = now;
+        sendClientReady(now);
+        System.out.println("[CONNECTION][INITIAL_SYNC_RECEIVED] player=" + localPlayerId
+                + " connection=" + welcomeConnection + " phase=READY elapsedMs=" + (now - lastSyncRetry)
+                + " sequence=" + lastSnapshotSequence);
         if (ObserverSessions.clientObserver(world)) {
             world.status = (resumed ? "Reconnected" : "Joined") + " as read-only " + ObserverSessions.clientWatermark(world) + ".";
         } else {
@@ -573,6 +636,7 @@ final class PeerClientSide {
 
     private boolean readJoinDenied(String message) {
         if (message == null || !message.startsWith("JOIN_DENIED|")) return false;
+        if (state == ConnectionState.SYNCING || state == ConnectionState.CONNECTED) return true;
         String reason = message.length() > 12 ? message.substring(12).trim() : "Join refused by server.";
         if (reason.toLowerCase(java.util.Locale.ROOT).contains("password")) {
             SessionTokenStore.clear(config);
@@ -594,23 +658,29 @@ final class PeerClientSide {
 
     private boolean readAuthRequired(String message) {
         if (message == null || !message.startsWith("AUTH_REQUIRED|")) return false;
+        if (state != ConnectionState.JOINING) return true;
         String[] parts = message.split("\\|", -1);
         if (parts.length < 3 || PasswordAuth.decodeHex(parts[2]).length != 16
                 || !preparePasswordMaterial(parts[2])) {
             if (state != ConnectionState.FAILED) failConnection("Server sent an invalid registration challenge.");
             return true;
         }
+        boolean changed = !authRegistrationRequested || !parts[2].equals(authScopedSalt);
         authRegistrationRequested = true;
         authChallengeSalt = "";
         authChallengeNonce = "";
         state = ConnectionState.JOINING;
-        lastHandshake = 0;
+        if (changed) {
+            sendControlToServer(joinMessage());
+            lastHandshake = System.currentTimeMillis();
+        }
         world.status = "Registering a server-scoped player credential for " + config.playerName + ".";
         return true;
     }
 
     private boolean readAuthChallenge(String message) {
         if (message == null || !message.startsWith("AUTH_CHALLENGE|")) return false;
+        if (state != ConnectionState.JOINING) return true;
         String[] parts = message.split("\\|", -1);
         PasswordAuth.ChallengeSalts salts = parts.length < 4
                 ? PasswordAuth.ChallengeSalts.EMPTY : PasswordAuth.decodeChallengeSalts(parts[2]);
@@ -620,35 +690,46 @@ final class PeerClientSide {
         }
         String scopedSalt = PasswordAuth.encodeVerifier(salts.scopedSalt());
         if (!preparePasswordMaterial(scopedSalt)) return true;
+        boolean changed = !parts[3].equals(authChallengeNonce);
         authRegistrationRequested = false;
         authChallengeSalt = PasswordAuth.encodeVerifier(salts.currentSalt());
         authScopedSalt = scopedSalt;
         authChallengeNonce = parts[3];
         state = ConnectionState.JOINING;
-        lastHandshake = 0;
+        if (changed) {
+            sendControlToServer(joinMessage());
+            lastHandshake = System.currentTimeMillis();
+        }
         world.status = "Answering server-scoped password challenge for " + config.playerName + ".";
         return true;
     }
 
     private boolean readSessionBusy(String message) {
         if (message == null || !message.startsWith("SESSION_BUSY|")) return false;
+        if (state != ConnectionState.RECONNECTING) return true;
         String reason = message.length() > 13 ? message.substring(13).trim() : "Saved session is already active.";
         sessionChallengeNonce = "";
-        lastHandshake = 0;
+        // Busy is a valid terminal owner conflict for this socket, not an immediate retry trigger.
+        lastHandshake = System.currentTimeMillis() + 1_000;
         world.status = (reason.isBlank() ? "Saved session is already active." : reason) + " Waiting to resume.";
         return true;
     }
 
     private boolean readSessionChallenge(String message) {
         if (message == null || !message.startsWith("SESSION_CHALLENGE|")) return false;
+        if (state != ConnectionState.RECONNECTING) return true;
         String[] parts = message.split("\\|", -1);
         if (parts.length < 3 || !parts[1].equals(localPlayerId) || !PasswordAuth.validNonce(parts[2])) {
             failConnection("Server sent an invalid resume challenge.");
             return true;
         }
+        boolean changed = !parts[2].equals(sessionChallengeNonce);
         sessionChallengeNonce = parts[2];
         state = ConnectionState.RECONNECTING;
-        lastHandshake = 0;
+        if (changed) {
+            sendControlToServer(resumeMessage());
+            lastHandshake = System.currentTimeMillis();
+        }
         world.status = "Answering saved session challenge for " + localPlayerId + ".";
         return true;
     }
@@ -792,13 +873,22 @@ final class PeerClientSide {
         syncingResume = true;
         pendingReadyName = "";
         sessionChallengeNonce = "";
+        welcomeConnection = ConnectionId.NONE;
+        readyAcknowledged = false;
         attemptStarted = now;
         lastHandshake = 0;
+        handshakeRetries = 0;
         devApproved = false;
         world.setDevFreeBuild(localPlayerId, false);
         transport.clearOutbound();
         transport.reconnectClient();
         world.status = "Connection interrupted. Reconnecting to " + config.serverAddress + " without dropping player state.";
+    }
+
+    private void sendClientReady(long now) {
+        if (state != ConnectionState.CONNECTED || lastSnapshotSequence <= 0) return;
+        sendControlToServer("CLIENT_READY|" + localPlayerId + "|" + lastSnapshotSequence);
+        lastReadySend = now;
     }
 
     private String transportDetail(String message) {
