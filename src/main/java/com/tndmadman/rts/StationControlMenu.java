@@ -398,6 +398,12 @@ final class StationControlMenu {
 
     private static void buildOrbitalTracking(JPanel content, JPopupMenu popup, Component invoker,
                                              World world, PeerNetwork network, Base radar, int x, int y) {
+        if (!PlayerRegistry.isLocal(radar.playerId)) {
+            content.add(section("ORBITAL BELT TRACKING"));
+            content.add(label("Tracking selections are private to the radar owner.", Font.PLAIN, 12, MUTED));
+            content.add(Box.createVerticalStrut(12));
+            return;
+        }
         int limit = RadarBeltTrackingSystem.capacity(radar);
         List<String> selected = RadarBeltTrackingSystem.selected(world, radar);
         boolean paused = StationControls.radarSearchTarget(world, radar)
@@ -410,7 +416,7 @@ final class StationControlMenu {
         content.add(help);
         content.add(Box.createVerticalStrut(6));
         List<ResourceBelt> belts = RadarBeltTrackingSystem.catalog(world);
-        RadarBeltTrackingSystem.View authorized = RadarBeltTrackingSystem.view(world, radar.playerId);
+        RadarBeltTrackingSystem.View authorized = RadarBeltTrackingSystem.view(world, PlayerRegistry.localId());
         if (belts.isEmpty()) {
             content.add(label("This star system has no authored resource belts.", Font.PLAIN, 12, MUTED));
         }
@@ -556,6 +562,10 @@ final class StationControlMenu {
 
     private static void send(JPopupMenu popup, Component invoker, World world, PeerNetwork network,
                              Base base, int x, int y, String action, String value) {
+        if (action.startsWith("RADAR_BELT_") && !PlayerRegistry.isLocal(base.playerId)) {
+            world.status = "Only the owning commander can select that radar's belts.";
+            return;
+        }
         if (network != null && network.clientMode() && action.startsWith("RADAR_BELT_")) {
             network.production(base.playerId, "CONTROL", base.id, action, value);
             world.status = "Requested radar belt tracking update from server.";

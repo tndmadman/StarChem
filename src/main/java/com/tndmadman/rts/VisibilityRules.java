@@ -160,7 +160,9 @@ final class VisibilityRules {
                     : IntelWarfareSystem.DetectionStage.NONE;
 
             for (ResourceRadar radar : resourceRadars) {
-                if (resource.resourceBeltId == null || !radar.selectedBelts.contains(resource.resourceBeltId)) continue;
+                // Non-belt event and celestial resources retain the historical local radar survey.
+                if (resource.resourceBeltId != null && !resource.resourceBeltId.isBlank()
+                        && !radar.selectedBelts.contains(resource.resourceBeltId)) continue;
                 double distance = Calc.distance(radar.base.x, radar.base.y, resource.x, resource.y);
                 if (distance > radar.range) continue;
                 IntelWarfareSystem.DetectionStage radarStage = switch (radar.surveyPower) {
