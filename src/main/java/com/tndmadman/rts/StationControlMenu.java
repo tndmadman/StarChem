@@ -429,7 +429,10 @@ final class StationControlMenu {
                     : !track.active() ? "Depleted — waiting for respawn"
                     : track.activeCount() + "/" + track.totalCount() + " active nodes | "
                     + (int)Math.round(Math.hypot(track.x() - radar.x, track.y() - radar.y)) + " range | "
-                    + (int)Math.round(Math.toDegrees(Math.atan2(track.y() - radar.y, track.x() - radar.x))) + "° bearing";
+                    + (int)Math.round(Math.toDegrees(Math.atan2(track.y() - radar.y, track.x() - radar.x))) + "° bearing"
+                    + (Math.hypot(track.x() - radar.x, track.y() - radar.y)
+                            > VisibilityRules.baseSensorRange(world, radar)
+                            ? " | Tracked — outside miner dispatch range" : "");
             String materials = belt.materials.stream().map(material -> material.label).distinct()
                     .limit(5).reduce((first, next) -> first + ", " + next).orElse("none");
             JPanel row = new JPanel();
