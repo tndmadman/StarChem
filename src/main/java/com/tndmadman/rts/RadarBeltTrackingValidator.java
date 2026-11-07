@@ -123,6 +123,16 @@ public final class RadarBeltTrackingValidator {
             require(Math.abs(difference - Math.atan2(Math.sin(first.orbitAngle - second.orbitAngle),
                     Math.cos(first.orbitAngle - second.orbitAngle))) < 1e-7,
                     "Long-run belt shear separated member offsets");
+            // Deliberately simulate a legacy split cluster and ensure the primary
+            // bearing selects a populated segment instead of drawing a full ring.
+            ResourceNode outlier = node(70003, belt, sunX, sunY, radius, 0.0);
+            world.resources.add(outlier);
+            world.systemTime += 0.5;
+            RadarBeltTrackingSystem.Track split = RadarBeltTrackingSystem.view(world, "P1")
+                    .tracks().get(belt.id);
+            require(split != null && split.active() && split.halfArc() < belt.arc,
+                    "Sheared orbital resource belt produced a fictitious full-ring marker");
+            world.resources.remove(outlier);
             first.deplete(); second.deplete();
             world.systemTime += 0.5;
             RadarBeltTrackingSystem.Track depleted = RadarBeltTrackingSystem.view(world, "P1")

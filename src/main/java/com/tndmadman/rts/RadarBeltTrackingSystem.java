@@ -283,9 +283,10 @@ final class RadarBeltTrackingSystem {
     private static final class Accumulator {
         final ResourceBelt belt;
         final double sunX, sunY;
-        double sin, cos, radiusSum, weightSum, maxOffset;
+        double sin, cos, radiusSum, weightSum;
         int active, total;
-        final List<Double> angles = new ArrayList<>();
+        private record Sample(double sin, double cos, double radius, double weight, double angle) { }
+        final List<Sample> samples = new ArrayList<>();
         Accumulator(ResourceBelt belt, double sunX, double sunY) {
             this.belt = belt; this.sunX = sunX; this.sunY = sunY;
         }
@@ -302,23 +303,66 @@ final class RadarBeltTrackingSystem {
             cos += Math.cos(a) * w;
             radiusSum += r * w;
             weightSum += w;
-            angles.add(a);
+            samples.add(new Sample(Math.sin(a), Math.cos(a), r, w, a));
             active++;
         }
         Track result(String systemId) {
-            if (active == 0 || weightSum <= 0 || Math.hypot(sin, cos) < 1.0e-10) {
+            if (active == 0 || weightSum <= 0) {
                 return new Track(belt.id, belt.name, belt.kind.name(), 0, total,
                         Double.NaN, Double.NaN, 0, 0);
             }
             double angle = Math.atan2(sin, cos);
-            double radius = radiusSum / weightSum;
-            for (double other : angles) {
-                double delta = Math.abs(Math.atan2(Math.sin(other - angle), Math.cos(other - angle)));
-                maxOffset = Math.max(maxOffset, delta);
+            double halfArc = 0;
+            for (Sample sample : samples) {
+                double delta = Math.abs(Math.atan2(Math.sin(sample.angle() - angle),
+                        Math.cos(sample.angle() - angle)));
+                halfArc = Math.max(halfArc, delta);
             }
+            // Historical saves can have independently sheared resources. Rather than
+            // aim at an empty weighted midpoint of several orbital patches, point to
+            // the densest real contiguous sector (not the authored orbital radius).
+            double allowed = Math.max(0.05, Math.min(Math.PI * 0.95, belt.arc * 0.5));
+            if (halfArc > allowed + 0.02 || Math.hypot(sin, cos) / weightSum < 0.25) {
+                Sample winner = samples.get(0);
+                double bestWeight = -1;
+                double cosWindow = Math.cos(allowed);
+                for (Sample candidate : samples) {
+                    double nearby = 0;
+                    for (Sample sample : samples) {
+                        double dot = candidate.sin() * sample.sin()
+                                + candidate.cos() * sample.cos();
+                        if (dot >= cosWindow) nearby += sample.weight();
+                    }
+                    if (nearby > bestWeight) { bestWeight = nearby; winner = candidate; }
+                }
+                double selectedSin = 0, selectedCos = 0, selectedRadius = 0, selectedWeight = 0;
+                for (Sample sample : samples) {
+                    double dot = winner.sin() * sample.sin() + winner.cos() * sample.cos();
+                    if (dot < cosWindow) continue;
+                    selectedSin += sample.sin() * sample.weight();
+                    selectedCos += sample.cos() * sample.weight();
+                    selectedRadius += sample.radius() * sample.weight();
+                    selectedWeight += sample.weight();
+                }
+                if (selectedWeight > 0) {
+                    sin = selectedSin;
+                    cos = selectedCos;
+                    radiusSum = selectedRadius;
+                    weightSum = selectedWeight;
+                    angle = Math.atan2(sin, cos);
+                    halfArc = 0;
+                    for (Sample sample : samples) {
+                        double dot = winner.sin() * sample.sin() + winner.cos() * sample.cos();
+                        if (dot < cosWindow) continue;
+                        halfArc = Math.max(halfArc, Math.abs(Math.atan2(
+                                Math.sin(sample.angle() - angle), Math.cos(sample.angle() - angle))));
+                    }
+                }
+            }
+            double radius = radiusSum / weightSum;
             return new Track(belt.id, belt.name, belt.kind.name(), active, total,
                     sunX + Math.cos(angle) * radius, sunY + Math.sin(angle) * radius,
-                    radius, Math.min(Math.PI, maxOffset));
+                    radius, Math.min(Math.PI, halfArc));
         }
     }
 
