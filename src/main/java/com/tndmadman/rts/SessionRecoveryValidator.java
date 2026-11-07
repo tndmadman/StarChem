@@ -166,9 +166,18 @@ public final class SessionRecoveryValidator {
             require(server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1",
                             sessionReference(rawNetworkToken), "", "", false, ""),
                     "duplicate resume retry was not idempotent");
+            require(server.initialSyncBuilds(reboundEndpoint) == 1,
+                    "immediate duplicate RESUME incorrectly rebuilt full initial world state");
+            // The new response policy rate-limits WELCOME-only delivery recovery.
+            Thread.sleep(2_100);
+            require(server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1",
+                            sessionReference(rawNetworkToken), "", "", false, ""),
+                    "bounded duplicate RESUME delivery recovery was denied");
             String retryWelcome = receivePayload(reboundClient, "WELCOME|");
             require(reboundToken.equals(markerValue(retryWelcome, "SESSION")),
                     "duplicate resume retry changed the active token again");
+            require(server.initialSyncBuilds(reboundEndpoint) == 1,
+                    "WELCOME delivery retry incorrectly rebuilt initial world state");
 
             require(!server.resume(firstEndpoint, loopback, firstClient.getLocalPort(), "P1",
                             sessionReference(firstToken), "", "", false, ""),
