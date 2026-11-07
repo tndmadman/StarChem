@@ -112,18 +112,41 @@ final class ResourceRingPlacement {
                     break;
                 }
             }
-            if (!Double.isFinite(originalCenter)) {
-                // An old save has the live orbital angles but no arc center. Reconstruct
-                // a best-effort shared center by unwinding elapsed orbital motion.
+            boolean legacyGeometry = !Double.isFinite(originalCenter);
+            double commonSpeed = ResourceSpawner.speedFor(belt.orbit);
+            if (legacyGeometry) {
+                // Legacy rocks once had independent speed jitter, so unwinding by their
+                // differing speeds reconstructs an inconsistent arc. Use their currently
+                // occupied direction instead and preserve in-arc positions on migration.
                 double sin = 0, cos = 0;
                 for (ResourceNode node : members) {
-                    double initial = node.orbitAngle - node.orbitSpeed * systemTime;
-                    sin += Math.sin(initial);
-                    cos += Math.cos(initial);
+                    if (!Double.isFinite(node.orbitAngle)) continue;
+                    sin += Math.sin(node.orbitAngle);
+                    cos += Math.cos(node.orbitAngle);
                 }
-                originalCenter = Math.atan2(sin, cos);
+                double currentCenter = Math.atan2(sin, cos);
+                originalCenter = currentCenter - commonSpeed * systemTime;
             }
+            double phaseNow = originalCenter + commonSpeed * systemTime;
             for (ResourceNode node : members) {
+                // Belt members now share exactly one angular velocity. Legacy outliers
+                // are moved only if they escaped the original partial orbital arc.
+                node.orbitSpeed = commonSpeed;
+                if (legacyGeometry && node.orbiting && Double.isFinite(node.orbitAngle)) {
+                    double offset = Math.atan2(Math.sin(node.orbitAngle - phaseNow),
+                            Math.cos(node.orbitAngle - phaseNow));
+                    if (Math.abs(offset) > belt.arc * 0.5) {
+                        // Stable per-node fractional offset prevents a pile-up at the edge.
+                        double fraction = ((node.id * 1103515245L + 12345L) & 0x7fffffffL)
+                                / (double)0x80000000L;
+                        offset = (fraction - 0.5) * belt.arc * 0.94;
+                        node.orbitAngle = phaseNow + offset;
+                        node.orbitCenterX = definition.width() * 0.5;
+                        node.orbitCenterY = definition.height() * 0.5;
+                        node.x = node.orbitCenterX + Math.cos(node.orbitAngle) * node.orbitRadius;
+                        node.y = node.orbitCenterY + Math.sin(node.orbitAngle) * node.orbitRadius;
+                    }
+                }
                 if (!Double.isFinite(node.resourceBeltCenterAngle))
                     node.resourceBeltCenterAngle = originalCenter;
                 double min = belt.orbit - belt.width;
