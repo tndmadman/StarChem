@@ -87,6 +87,12 @@ jobs:
       - name: Run live celestial resource bridge validator
         run: java -Djava.awt.headless=true -cp 'build/classes/java/main:build/resources/main' com.tndmadman.rts.CelestialResourceBridgeValidator
 
+      - name: Run world lifecycle ownership validator
+        run: gradle validateWorldLifecycle --no-daemon
+
+      - name: Run galaxy inactive scheduler roster validator
+        run: gradle validateGalaxyInactiveSchedulerRoster --no-daemon
+
       - name: Run snapshot hardening validation
         run: gradle validateSnapshotHardening --no-daemon
 

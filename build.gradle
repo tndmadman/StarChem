@@ -156,8 +156,38 @@ tasks.register('validateIssue386Formations', JavaExec) {
     jvmArgs '-Djava.awt.headless=true'
 }
 
+tasks.register('validateWorldLifecycle', JavaExec) {
+    group = 'verification'
+    description = 'Check deterministic celestial registry cleanup across world lifecycle.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.WorldLifecycleValidator'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
+tasks.register('validateGalaxyInactiveSchedulerRoster', JavaExec) {
+    group = 'verification'
+    description = 'Check cached galaxy roster invalidation and round-robin scheduling.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.GalaxyInactiveSchedulerRosterValidator'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
+tasks.register('benchmarkGalaxySchedulerPreparation', JavaExec) {
+    group = 'verification'
+    description = 'Measure old full galaxy map snapshot vs cached scheduler roster at supported sizes.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.GalaxySchedulerPreparationBenchmark'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
 tasks.named('check') {
     dependsOn tasks.named('validateIssue386Formations')
+    dependsOn tasks.named('validateWorldLifecycle')
+    dependsOn tasks.named('validateGalaxyInactiveSchedulerRoster')
+    dependsOn tasks.named('benchmarkGalaxySchedulerPreparation')
 }
 
 tasks.register('validateIssue293LogisticsRoutes', JavaExec) {
@@ -369,6 +399,15 @@ tasks.register('validateMaterialCoverage', JavaExec) {
     dependsOn tasks.named('classes')
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'com.tndmadman.rts.MaterialCoverageValidator'
+}
+
+tasks.register('validateResourceRingPlacement', JavaExec) {
+    group = 'verification'
+    description = 'Validate bounded resource belts, aluminum regeneration and legacy save migration.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.ResourceRingPlacementValidator'
+    jvmArgs '-Djava.awt.headless=true'
 }
 
 tasks.register('validateResourceCatalog', JavaExec) {
@@ -639,6 +678,7 @@ tasks.named('check') {
     dependsOn tasks.named('validateNpcSystemIsolation')
     dependsOn tasks.named('validateMaterialCoverage')
     dependsOn tasks.named('validateResourceCatalog')
+    dependsOn tasks.named('validateResourceRingPlacement')
     dependsOn tasks.named('validateMinimapHud')
     dependsOn tasks.named('validateCodexCatalog')
     dependsOn tasks.named('validateIntermediateCrafting')
@@ -707,4 +747,82 @@ tasks.register('validateSavedCredentialReplay', JavaExec) {
 
 tasks.named('check') {
     dependsOn tasks.named('validateSavedCredentialReplay')
+}
+
+
+tasks.register('validateCampaignOverlay', JavaExec) {
+    group = 'verification'
+    description = 'Headless EDT validator for in-frame campaign busy, Escape and cancel controls.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.CampaignOverlayValidator'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('validateCampaignOverlay')
+}
+
+tasks.register('validateStationPopupDismissal', JavaExec) {
+    group = 'verification'
+    description = 'Check that every native station overview can be dismissed before full-frame UI.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.StationPopupDismissalValidator'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('validateStationPopupDismissal')
+}
+
+
+tasks.register('validateStartingFleet', JavaExec) {
+    group = 'verification'
+    description = 'Validate configurable starting miner fleet, owned Tier-1 radar, server flag and legacy saves.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.StartingFleetValidator'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('validateStartingFleet')
+}
+
+tasks.register('validateLobbyLayout', JavaExec) {
+    group = 'verification'
+    description = 'Validate viewport-aware launcher settings, wrapped help, and bounded starter count editor.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.LobbyLayoutValidator'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('validateLobbyLayout')
+}
+
+
+tasks.register('validateSoloSaveLoad', JavaExec) {
+    group = 'verification'
+    description = 'Validate isolated solo save slots and recovery using the validated archive format.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.SoloSaveLoadValidator'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('validateSoloSaveLoad')
+}
+
+
+tasks.register('benchmarkSoloSaveLoad', JavaExec) {
+    group = 'verification'
+    description = 'Measure 20- and 64-system procedural solo archive capture, write and reload.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.SoloSavePerformanceBenchmark'
+    jvmArgs '-Djava.awt.headless=true'
 }

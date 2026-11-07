@@ -146,6 +146,7 @@ Important dedicated-server options include:
 --name NAME
 --system SYSTEM_ID
 --galaxy-copies 1|2
+--starting-miners N     # 1..50, default 15 for NEW commanders
 --skirmish-preset peaceful|standard|hostile|sandbox
 --npc-difficulty relaxed|normal|hard|brutal
 --victory-condition ID
@@ -165,6 +166,8 @@ Use `java -jar StarChem.jar --help` rather than copying an old option list from 
 ### Persistent settings and new worlds
 
 World/scenario state is authoritative and persisted. Changing launch arguments on a later restart does not silently rewrite an existing world's saved policy. Use `--new-world` only when you intentionally want a new session rather than the existing persistent world.
+
+Fresh Solo/Guided games and first-time dedicated-server commanders receive one Outpost, **15 Prospector miners** and **one owned Radar Picket I** by default. The new Solo/Guided lobby control sets starting miners from 1 to 50; dedicated servers accept `--starting-miners N`. Starter policy is saved with the world. New commanders joining a loaded server use the saved policy, not a changed startup flag. Existing/returning commanders do not receive duplicate ships; legacy saves without the starter policy retain their historical one-Prospector/no-radar behavior.
 
 Dynamic galaxy-event startup controls accept `all`, `none`, or comma-separated configured category IDs for `--event-categories`. Event frequency is clamped to the supported 0..4 range by the application parser.
 

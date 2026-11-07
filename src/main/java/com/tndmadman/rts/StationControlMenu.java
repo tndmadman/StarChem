@@ -5,6 +5,7 @@ import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JComponent;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -15,6 +16,9 @@ import javax.swing.JSpinner;
 import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
@@ -34,10 +38,38 @@ final class StationControlMenu {
     private static final Color MUTED = new Color(155, 180, 196);
     private static final Color ACCENT = new Color(90, 220, 255);
     private static final int LABEL_WRAP_WIDTH = 470;
+    // The control overview is an independent Swing popup, not a root-layer UI.
+    // Tracking it on its invoker lets any full-screen overlay close it explicitly.
+    private static final String ACTIVE_POPUP_KEY =
+            StationControlMenu.class.getName() + ".activePopup";
 
     private StationControlMenu() { }
 
     static boolean handles(String typeId) { return StationControls.handles(typeId); }
+
+    /** Explicitly dismiss a station overview even if Swing's menu selection path is empty. */
+    static void dismiss(Component invoker) {
+        if (!(invoker instanceof JComponent component)) return;
+        Object current = component.getClientProperty(ACTIVE_POPUP_KEY);
+        component.putClientProperty(ACTIVE_POPUP_KEY, null);
+        if (current instanceof JPopupMenu popup) popup.setVisible(false);
+    }
+
+    /** Keep at most one station overview per game panel; no process-global popup reference. */
+    static void trackPopup(Component invoker, JPopupMenu popup) {
+        if (!(invoker instanceof JComponent component) || popup == null) return;
+        dismiss(invoker);
+        component.putClientProperty(ACTIVE_POPUP_KEY, popup);
+        popup.addPopupMenuListener(new PopupMenuListener() {
+            private void clear() {
+                if (component.getClientProperty(ACTIVE_POPUP_KEY) == popup)
+                    component.putClientProperty(ACTIVE_POPUP_KEY, null);
+            }
+            @Override public void popupMenuWillBecomeVisible(PopupMenuEvent event) { }
+            @Override public void popupMenuWillBecomeInvisible(PopupMenuEvent event) { clear(); }
+            @Override public void popupMenuCanceled(PopupMenuEvent event) { clear(); }
+        });
+    }
 
     static boolean showIfHandled(Component invoker, World world, PeerNetwork network, Base base, int x, int y) {
         if (invoker == null || world == null || base == null || !handles(base.typeId)) return false;
@@ -61,18 +93,20 @@ final class StationControlMenu {
         if (!nonProduction) {
             JButton production = actionButton("OPEN MANUFACTURING (F9)", () -> {
                 popup.setVisible(false);
-                if (!ManufacturingOverlay.openForStation(world, base.id)) {
-                    world.status = "Manufacturing console is unavailable.";
-                }
+                GameFrame frame = SwingUtilities.getWindowAncestor(invoker) instanceof GameFrame owner ? owner : null;
+                boolean opened = frame == null ? ManufacturingOverlay.openForStation(world, base.id)
+                        : frame.openManufacturingFromStation(world, base.id, false);
+                if (!opened) world.status = "Manufacturing console is unavailable.";
             });
             production.setAlignmentX(Component.LEFT_ALIGNMENT);
             content.add(production);
             content.add(Box.createVerticalStrut(5));
             JButton policies = actionButton("MANAGE PRODUCTION POLICIES", () -> {
                 popup.setVisible(false);
-                if (!ManufacturingOverlay.openPoliciesForStation(world, base.id)) {
-                    world.status = "Manufacturing policy console is unavailable.";
-                }
+                GameFrame frame = SwingUtilities.getWindowAncestor(invoker) instanceof GameFrame owner ? owner : null;
+                boolean opened = frame == null ? ManufacturingOverlay.openPoliciesForStation(world, base.id)
+                        : frame.openManufacturingFromStation(world, base.id, true);
+                if (!opened) world.status = "Manufacturing policy console is unavailable.";
             });
             policies.setAlignmentX(Component.LEFT_ALIGNMENT);
             content.add(policies);
@@ -97,6 +131,7 @@ final class StationControlMenu {
         scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         scroll.setPreferredSize(new Dimension(520, Math.min(640, Math.max(230, content.getPreferredSize().height + 16))));
         popup.add(scroll);
+        trackPopup(invoker, popup);
         popup.show(invoker, Math.max(4, x), Math.max(4, y));
         return true;
     }

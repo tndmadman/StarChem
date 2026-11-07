@@ -3,13 +3,14 @@ package com.tndmadman.rts;
 import java.util.prefs.Preferences;
 
 final class TutorialPreferenceVersion {
-    static final int CURRENT_VERSION = 2;
+    static final int CURRENT_VERSION = 3;
     private static final String PREF_VERSION = "firstRunTutorialStateVersion";
     private static final String[] OBSOLETE_STATE_KEYS = {
             "firstRunTutorialDisabled",
             "firstRunTutorialCompleted",
             "firstRunTutorialCoreCompleted",
-            "firstRunTutorialAdvancedCompleted"
+            "firstRunTutorialAdvancedCompleted",
+            "firstRunTutorialActiveStepV3"
     };
 
     private TutorialPreferenceVersion() { }
