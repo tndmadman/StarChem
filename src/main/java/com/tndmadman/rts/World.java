@@ -133,6 +133,7 @@ final class World {
     void dispose() {
         // The same world-scoped cleanup must run for solo clients and dedicated servers.
         WorldRuntimeCleanup.discard(this);
+        RadarBeltTrackingSystem.clear(this);
         galaxy.dispose(this);
         remoteGalaxyMapSnapshot = null;
         celestials = null;
@@ -183,6 +184,7 @@ final class World {
         clearNpcAiRuntimeState();
         LogisticsRouteSystem.clear(this);
         remoteGalaxyMapSnapshot = null;
+        RadarBeltTrackingSystem.resetSystem(this);
         celestials = galaxy.rebuild(this, starSystem, systemSeed);
         systemTime = galaxy.activeSystemTime();
     }
@@ -211,8 +213,9 @@ final class World {
         if (celestials != null) celestials.update(0);
     }
     List<WorldSystemState> policySystemStates() { return galaxy.systemStates(this); }
+    WorldSystemState radarBeltState(String systemId) { return galaxy.stateForRadarTracking(systemId); }
     Map<String,Object> captureServerSaveGalaxy() { return galaxy.captureSave(this); }
-    void restoreServerSaveGalaxy(Map<String,Object> save) { proceduralInactiveScheduler.reset(); celestials = galaxy.restoreSave(this, save); systemTime = galaxy.activeSystemTime(); selectedResourceId = -1; }
+    void restoreServerSaveGalaxy(Map<String,Object> save) { proceduralInactiveScheduler.reset(); RadarBeltTrackingSystem.clear(this); celestials = galaxy.restoreSave(this, save); systemTime = galaxy.activeSystemTime(); selectedResourceId = -1; }
     Map<String,Object> captureServerSaveRuntime() {
         Map<String,Object> out = new LinkedHashMap<>();
         out.put("simulationScheduler", SystemSimulationScheduler.capture(this));
@@ -396,7 +399,7 @@ final class World {
     void syncEnvironment(long seed, double hostTime) { syncEnvironment(systemId(), seed, hostTime); }
     void syncEnvironment(String newSystemId, long seed, double hostTime) { boolean changed = !StarSystems.get(newSystemId).id().equals(systemId()); if (changed) setStarSystem(newSystemId); if (changed || seed != systemSeed) setSystemSeed(seed); double delta = hostTime - systemTime; if (Math.abs(delta) > 0.02) advanceEnvironment(delta); else { systemTime = hostTime; galaxy.setActiveSystemTime(hostTime); } }
     private void setStarSystem(String systemId) { starSystem = StarSystems.get(systemId); }
-    private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); proceduralInactiveScheduler.reset(); clearNpcAiRuntimeState(); FleetManager.clear(this); SimulationCadence.clear(this); LogisticsRouteSystem.clear(this); remoteGalaxyMapSnapshot = null; celestials = galaxy.rebuild(this, starSystem, seed); }
+    private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); proceduralInactiveScheduler.reset(); clearNpcAiRuntimeState(); FleetManager.clear(this); SimulationCadence.clear(this); LogisticsRouteSystem.clear(this); remoteGalaxyMapSnapshot = null; RadarBeltTrackingSystem.resetSystem(this); celestials = galaxy.rebuild(this, starSystem, seed); }
     /**
      * Stable, collision-checked starter placement. The Outpost, natural resource
      * nodes, existing units and every newly placed unit are excluded.

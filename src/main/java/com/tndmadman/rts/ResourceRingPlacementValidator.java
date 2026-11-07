@@ -149,6 +149,12 @@ public final class ResourceRingPlacementValidator {
             require(ResourceRingPlacement.withinRadius(migrated, belt), "Legacy escaped node not returned to belt");
             require(Math.abs(migrated.amount - 3.25) < 1e-7, "Legacy migration changed inventory");
             require(Double.isFinite(migrated.resourceBeltCenterAngle), "Legacy belt phase not recovered");
+            require(Math.abs(migrated.orbitSpeed - ResourceSpawner.speedFor(belt.orbit)) < 1e-9,
+                    "Legacy belt kept independent speed shear");
+            double migratedPhase = migrated.resourceBeltCenterAngle
+                    + ResourceSpawner.speedFor(belt.orbit) * restored.systemTime();
+            require(ResourceRingPlacement.withinArc(migrated.orbitAngle, migratedPhase, belt.arc),
+                    "Migrated resource remained outside its original partial arc");
         } finally {
             if (restored != null) restored.dispose();
             world.dispose();

@@ -38,6 +38,11 @@ final class RadarTowerRules {
         return tier == null ? 0 : tier.sensorRange();
     }
 
+    static int trackedBeltLimit(String stationTypeId) {
+        RadarTowerTier tier = tier(stationTypeId);
+        return tier == null ? 0 : tier.trackedBeltLimit();
+    }
+
     static int resourceDispatchLimit(String stationTypeId) {
         RadarTowerTier tier = tier(stationTypeId);
         return tier == null ? 0 : tier.resourceDispatchLimit();
@@ -86,9 +91,13 @@ final class RadarTowerRules {
                 double sensorRange = number(station, "sensorRange", 0);
                 String requiredResearch = string(station, "requiredResearch", "").trim();
                 int dispatchLimit = integer(station, "resourceDispatchLimit", 0);
+                int trackedBeltLimit = integer(station, "trackedBeltLimit", -1);
                 if (tier <= 0) throw new RuleConfigurationException("Radar station " + id + " requires radarTier >= 1.");
                 if (!Double.isFinite(sensorRange) || sensorRange <= 0) {
                     throw new RuleConfigurationException("Radar station " + id + " requires a positive sensorRange.");
+                }
+                if (trackedBeltLimit < 1 || trackedBeltLimit > 3 || trackedBeltLimit != tier) {
+                    throw new RuleConfigurationException("Radar station " + id + " requires trackedBeltLimit equal to radarTier (1-3).");
                 }
                 if (dispatchLimit < 0) {
                     throw new RuleConfigurationException("Radar station " + id + " requires resourceDispatchLimit >= 0.");
@@ -96,7 +105,7 @@ final class RadarTowerRules {
                 if (!requiredResearch.isBlank() && ResearchRules.topic(requiredResearch) == null) {
                     throw new RuleConfigurationException("Radar station " + id + " references unknown research: " + requiredResearch);
                 }
-                out.put(id, new RadarTowerTier(id, tier, sensorRange, requiredResearch, dispatchLimit));
+                out.put(id, new RadarTowerTier(id, tier, sensorRange, requiredResearch, dispatchLimit, trackedBeltLimit));
             }
             if (out.isEmpty()) throw new RuleConfigurationException("No stations with role 'radar' were configured.");
             return Collections.unmodifiableMap(out);
@@ -140,13 +149,14 @@ final class RadarTowerRules {
     }
 
     record RadarTowerTier(String stationTypeId, int tier, double sensorRange, String requiredResearchId,
-                          int resourceDispatchLimit) {
+                          int resourceDispatchLimit, int trackedBeltLimit) {
         RadarTowerTier {
             stationTypeId = stationTypeId == null ? "" : stationTypeId;
             tier = Math.max(1, tier);
             sensorRange = Math.max(0, sensorRange);
             requiredResearchId = requiredResearchId == null ? "" : requiredResearchId;
             resourceDispatchLimit = Math.max(0, resourceDispatchLimit);
+            trackedBeltLimit = Math.max(1, Math.min(3, trackedBeltLimit));
         }
     }
 }
