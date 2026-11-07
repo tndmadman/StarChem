@@ -3,9 +3,11 @@ on:
   push:
     branches:
       - feature/solo-save-load
+      - integration/four-plus-orbital-radar-20261106
   pull_request:
     branches:
       - feature/world-lifecycle-resource-performance-20261021
+      - main
 permissions:
   contents: read
 jobs:
