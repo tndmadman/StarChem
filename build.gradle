@@ -763,6 +763,20 @@ tasks.named('check') {
     dependsOn tasks.named('validateCampaignOverlay')
 }
 
+tasks.register('validateStationPopupDismissal', JavaExec) {
+    group = 'verification'
+    description = 'Check that every native station overview can be dismissed before full-frame UI.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.StationPopupDismissalValidator'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('validateStationPopupDismissal')
+}
+
+
 tasks.register('validateStartingFleet', JavaExec) {
     group = 'verification'
     description = 'Validate configurable starting miner fleet, owned Tier-1 radar, server flag and legacy saves.'
