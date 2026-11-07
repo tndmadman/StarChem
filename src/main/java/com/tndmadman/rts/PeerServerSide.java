@@ -9,7 +9,12 @@ final class PeerServerSide {
     private static final long SNAPSHOT_MS = 100;
     private static final long GALAXY_MS = 1000;
     private static final long RESOURCE_CORRECTION_MS = 5000;
-    private static final long TIMEOUT_MS = 4000;
+    private static final long READY_IDLE_TIMEOUT_MS = 20_000;
+    private static final long SYNC_IDLE_TIMEOUT_MS = 30_000;
+    private static final long SYNC_HARD_TIMEOUT_MS = 90_000;
+    private static final long WELCOME_REPLAY_INTERVAL_MS = 2_000;
+    private static final long SYNC_REPLAY_INTERVAL_MS = 5_000;
+    private static final int MAX_INITIAL_SYNC_REPLAYS = 2;
     private static final long RESUME_REPLAY_MS = 10_000;
     private static final long AUTH_CHALLENGE_MS = 30_000;
     private static final double MAX_DEV_RESOURCE_AMOUNT = 100_000.0;
@@ -20,6 +25,8 @@ final class PeerServerSide {
     final ClientViewCache views = new ClientViewCache();
     private final AuthoritativeSystemScheduler systemScheduler = new AuthoritativeSystemScheduler();
     private final Map<ConnectionId, ServerPeer> peers = new LinkedHashMap<>();
+    /** Per-TCP-generation admission state. Never keyed by IP or player name. */
+    private final Map<ConnectionId, InitialSyncState> initialSyncs = new LinkedHashMap<>();
     private final Map<String, PlayerSession> sessions = new LinkedHashMap<>();
     private final Map<ConnectionId, AuthChallenge> authChallenges = new LinkedHashMap<>();
     private final Map<ConnectionId, RegistrationChallenge> registrationChallenges = new LinkedHashMap<>();
@@ -224,7 +231,11 @@ final class PeerServerSide {
         ServerPeer existingPeer = peers.get(connectionId);
         if (existingPeer != null) {
             PlayerSession existingSession = sessions.get(existingPeer.playerId());
-            if (existingSession != null) sendSessionState(existingSession, existingPeer, existingSession.currentToken);
+            if (existingSession != null && normalizedName(cleanName).equals(normalizedName(existingSession.name))) {
+                sendSessionState(existingSession, existingPeer, existingSession.currentToken);
+            } else {
+                transport.sendOrdered(joinDenied("Connection already belongs to another player."), connectionId);
+            }
             return;
         }
         if (!registrationAllowed(address)) {
@@ -258,7 +269,11 @@ final class PeerServerSide {
         ServerPeer existingPeer = peers.get(connectionId);
         if (existingPeer != null) {
             PlayerSession existingSession = sessions.get(existingPeer.playerId());
-            if (existingSession != null) sendSessionState(existingSession, existingPeer, existingSession.currentToken);
+            if (existingSession != null && normalizedName(cleanName).equals(normalizedName(existingSession.name))) {
+                sendSessionState(existingSession, existingPeer, existingSession.currentToken);
+            } else {
+                transport.sendOrdered(joinDenied("Connection already belongs to another player."), connectionId);
+            }
             return;
         }
         CredentialResponse credential = CredentialResponse.parse(passwordVerifier);
@@ -612,6 +627,7 @@ final class PeerServerSide {
         registrationChallenges.remove(connectionId);
         sessionChallenges.remove(connectionId);
         ServerPeer peer = peers.remove(connectionId);
+        initialSyncs.remove(connectionId);
         if (peer == null) return;
         transport.closeConnection(peer.connectionId());
         PlayerSession session = sessions.get(peer.playerId());
@@ -661,9 +677,69 @@ final class PeerServerSide {
 
     private void sendSessionState(PlayerSession session, ServerPeer peer, String token) {
         if (session == null || peer == null) return;
+        long now = System.currentTimeMillis();
+        InitialSyncState existing = initialSyncs.get(peer.connectionId());
+        if (existing != null) {
+            if (!session.playerId.equals(existing.playerId)) return;
+            // A duplicate JOIN/RESUME is a delivery retry, NOT a fresh admission.
+            // The token is not rotated and the world snapshot is never rebuilt here.
+            if (!existing.ready && now - existing.lastWelcomeAt >= WELCOME_REPLAY_INTERVAL_MS) {
+                existing.lastWelcomeAt = now;
+                transport.sendOrdered(welcome(session.playerId, session.name, session.rgb,
+                        peer.devFreeBuild(), session.currentToken), peer.connectionId());
+                System.out.println("[CONNECTION][WELCOME_REPLAY] id=" + peer.connectionId()
+                        + " player=" + session.playerId + " phase=SYNCING reason=DUPLICATE_HANDSHAKE");
+            }
+            return;
+        }
+        InitialSyncState sync = new InitialSyncState(session.playerId, now, sequence);
+        initialSyncs.put(peer.connectionId(), sync);
         transport.sendOrdered(welcome(session.playerId, session.name, session.rgb, peer.devFreeBuild(), token), peer.connectionId());
         transport.sendOrdered(envMessage(), peer.connectionId());
+        System.out.println("[CONNECTION][INITIAL_SYNC_START] id=" + peer.connectionId()
+                + " player=" + session.playerId + " phase=SYNCING firstSequence=" + sequence);
         sendInitial(peer);
+        System.out.println("[CONNECTION][INITIAL_SYNC_SENT] id=" + peer.connectionId()
+                + " player=" + session.playerId + " phase=SYNCING elapsedMs=" + (System.currentTimeMillis() - now));
+    }
+
+    void clientReady(ConnectionId id, String playerId, long sequenceSeen) {
+        if (!owns(id, playerId) || sequenceSeen <= 0) return;
+        InitialSyncState sync = initialSyncs.get(id);
+        if (sync == null || !sync.playerId.equals(playerId) || sequenceSeen < sync.firstSequence) return;
+        touch(id);
+        if (!sync.ready) {
+            sync.ready = true;
+            System.out.println("[CONNECTION][CLIENT_READY] id=" + id + " player=" + playerId
+                    + " phase=READY elapsedMs=" + (System.currentTimeMillis() - sync.startedAt)
+                    + " retries=" + sync.replays + " sequence=" + sequenceSeen);
+        }
+        transport.sendOrdered("READY_ACK|" + playerId, id);
+    }
+
+    void retryInitialSync(ConnectionId id, String playerId) {
+        if (!owns(id, playerId)) return;
+        InitialSyncState sync = initialSyncs.get(id);
+        ServerPeer peer = peers.get(id);
+        if (sync == null || peer == null || !sync.playerId.equals(playerId) || sync.ready) return;
+        long now = System.currentTimeMillis();
+        if (sync.replays >= MAX_INITIAL_SYNC_REPLAYS
+                || now - sync.lastReplayAt < SYNC_REPLAY_INTERVAL_MS) return;
+        sync.replays++;
+        sync.lastReplayAt = now;
+        System.out.println("[CONNECTION][INITIAL_SYNC_RETRY] id=" + id + " player=" + playerId
+                + " phase=SYNCING retries=" + sync.replays + " reason=CLIENT_REQUEST");
+        sendInitial(peer);
+    }
+
+    boolean isReady(ConnectionId id) {
+        InitialSyncState sync = initialSyncs.get(id);
+        return sync != null && sync.ready;
+    }
+
+    int initialSyncBuilds(ConnectionId id) {
+        InitialSyncState sync = initialSyncs.get(id);
+        return sync == null ? 0 : 1 + sync.replays;
     }
 
     private void applyAiCommand(String command) {
@@ -744,7 +820,20 @@ final class PeerServerSide {
     private void removeTimedOut(long now) {
         for (ConnectionId connectionId : new ArrayList<>(peers.keySet())) {
             ServerPeer peer = peers.get(connectionId);
-            if (peer != null && now - peer.lastSeen() > TIMEOUT_MS) disconnectPeer(connectionId, now, "timed out");
+            if (peer == null) continue;
+            InitialSyncState sync = initialSyncs.get(connectionId);
+            boolean syncing = sync != null && !sync.ready;
+            long idle = now - peer.lastSeen();
+            long phaseElapsed = sync == null ? 0 : now - sync.startedAt;
+            String reason = syncing && phaseElapsed > SYNC_HARD_TIMEOUT_MS ? "SYNC_HARD_TIMEOUT"
+                    : idle > (syncing ? SYNC_IDLE_TIMEOUT_MS : READY_IDLE_TIMEOUT_MS)
+                    ? syncing ? "SYNC_IDLE_TIMEOUT" : "READY_IDLE_TIMEOUT" : "";
+            if (!reason.isBlank()) {
+                System.err.println("[CONNECTION][TIMEOUT] id=" + connectionId + " player=" + peer.playerId()
+                        + " phase=" + (syncing ? "SYNCING" : "READY") + " reason=" + reason
+                        + " elapsedMs=" + phaseElapsed + " idleMs=" + idle);
+                disconnectPeer(connectionId, now, reason);
+            }
         }
     }
     private void removeExpiredAuthChallenges(long now) {
@@ -828,6 +917,24 @@ final class PeerServerSide {
             String legacy = separator < 0 ? "" : raw.substring(separator + 1);
             return new CredentialResponse(PasswordAuth.validVerifier(scoped) ? scoped.toLowerCase(Locale.ROOT) : "",
                     PasswordAuth.validVerifier(legacy) ? legacy.toLowerCase(Locale.ROOT) : "");
+        }
+    }
+
+    private static final class InitialSyncState {
+        final String playerId;
+        final long startedAt;
+        final long firstSequence;
+        long lastWelcomeAt;
+        long lastReplayAt;
+        int replays;
+        boolean ready;
+
+        InitialSyncState(String playerId, long now, long firstSequence) {
+            this.playerId = playerId;
+            this.startedAt = now;
+            this.firstSequence = firstSequence;
+            this.lastWelcomeAt = now;
+            this.lastReplayAt = now;
         }
     }
 
