@@ -21,6 +21,7 @@ public final class RadarBeltTrackingValidator {
         validateConfigAndTierCommands();
         validateGeometryAndDepletion();
         validateFogAndAuthorization();
+        validateSystemSwitching();
         validateSaveAndLegacyDefaults();
         validateFilteredWireAndRendering();
         System.out.println("Radar belt tracking validator passed.");
@@ -61,6 +62,8 @@ public final class RadarBeltTrackingValidator {
             require(StationControlCommands.apply(world, "P1", t2.id, "RADAR_BELT_ADD", belts.get(3).id),
                     "T2 could not add after freeing slot");
             require(RadarBeltTrackingSystem.selected(world, t2).size() == 2, "T2 selection count incorrect");
+            require(RadarBeltTrackingSystem.view(world, "P1").tracks().size() == 4,
+                    "Selected belts from distinct radars were not unioned/deduplicated");
             require(!StationControlCommands.apply(world, "P1", t3.id, "RADAR_BELT_ADD", belts.get(3).id),
                     "T3 exceeded three selections");
             require(!StationControlCommands.apply(world, "P1", t1.id, "RADAR_BELT_SELECT", "other-system-only"),
@@ -183,6 +186,46 @@ public final class RadarBeltTrackingValidator {
                     "Enemy view leaked owner's radar selection");
             require(owner.tracks().size() == 1 && intruder.tracks().size() == 1,
                     "Incorrect per-owner selected belt union");
+        } finally { world.dispose(); }
+    }
+
+    private static void validateSystemSwitching() {
+        World world = createWorld();
+        try {
+            String home = world.activeSystemId();
+            clear(world);
+            List<ResourceBelt> homeBelts = RadarBeltTrackingSystem.catalog(world);
+            if (homeBelts.size() < 2) throw new IllegalStateException("No alternate home belt");
+            Base homeRadar = radar(world, "P1:B45", "P1", "radar_picket");
+            require(StationControlCommands.apply(world, "P1", homeRadar.id,
+                    "RADAR_BELT_SELECT", homeBelts.get(1).id), "Home selection rejected");
+            world.saveActiveSystem();
+            String away = "";
+            for (WorldSystemState state : world.policySystemStates()) {
+                if (!state.id.equals(home) && !state.definition.resourceBelts().isEmpty()) {
+                    away = state.id;
+                    break;
+                }
+            }
+            require(!away.isBlank(), "No second star system for independent selection regression");
+            world.activateSystem(away);
+            Base awayRadar = radar(world, homeRadar.id, "P1", "radar_picket");
+            List<String> awayDefault = RadarBeltTrackingSystem.selected(world, awayRadar);
+            require(awayDefault.size() == 1
+                    && awayDefault.get(0).equals(RadarBeltTrackingSystem.catalog(world).get(0).id),
+                    "Away radar reused another system's saved selection");
+            require(StationControlCommands.apply(world, "P1", awayRadar.id,
+                    "RADAR_BELT_CLEAR", ""), "Away system clear rejected");
+            require(RadarBeltTrackingSystem.view(world, "P1").tracks().isEmpty(),
+                    "Away system retained a radar track after clear");
+            world.saveActiveSystem();
+            world.activateSystem(home);
+            Base recovered = world.bases.get(homeRadar.id);
+            require(recovered != null && RadarBeltTrackingSystem.selected(world, recovered)
+                    .equals(List.of(homeBelts.get(1).id)), "System switch leaked or discarded home selection");
+            world.activateSystem(away);
+            require(RadarBeltTrackingSystem.selected(world, world.bases.get(awayRadar.id)).isEmpty(),
+                    "Empty selection from away system was replaced when switched back");
         } finally { world.dispose(); }
     }
 
