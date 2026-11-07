@@ -240,6 +240,19 @@ final class GameFrame extends JFrame {
         campaignDialog.hideDialog();
         root.add(campaignDialog, Integer.valueOf(JLayeredPane.DRAG_LAYER.intValue() + 100));
 
+        // The selected-station overview is a separate native popup that can
+        // otherwise stay above JLayeredPane consoles even at modal z-order.
+        // Dismiss it for every full-screen overlay, regardless of which UI
+        // shortcut or toolbar entry point opens that overlay.
+        for (JComponent overlay : new JComponent[]{
+                resourceCatalogOverlay, manufacturingOverlay, tutorialOverlay,
+                narrationSettingsOverlay, codexOverlay, endStatePanel,
+                inGameMenuOverlay, settingsOverlay, campaignDialog}) {
+            closeStationPopupOnOverlayShow(overlay);
+        }
+        if (connectionOverlayPanel != null)
+            closeStationPopupOnOverlayShow(connectionOverlayPanel);
+
         if (!world.status.contains("Press I")) {
             world.status = world.status
                     + " Press I for catalog; F9 manufacturing; F1 for codex; F8 for narration; ESC for menu"
@@ -311,6 +324,7 @@ final class GameFrame extends JFrame {
     }
 
     private void openSettings(SettingsPanel.Source source) {
+        dismissStationPopups();
         if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
         if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
         if (manufacturingOverlay != null && manufacturingOverlay.isVisible()) manufacturingOverlay.close();
@@ -347,6 +361,7 @@ final class GameFrame extends JFrame {
         if (resourceCatalogOverlay == null || modalMenuVisible()) return;
         if (resourceCatalogOverlay.isSearchFocused()
                 || manufacturingOverlay != null && manufacturingOverlay.isSearchFocused()) return;
+        if (!resourceCatalogOverlay.isVisible()) dismissStationPopups();
         if (manufacturingOverlay != null && manufacturingOverlay.isVisible()) manufacturingOverlay.close();
         if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
         if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) narrationSettingsOverlay.close();
@@ -389,8 +404,19 @@ final class GameFrame extends JFrame {
     }
 
     private void dismissStationPopups() {
+        // Clear both Swing's selected menu path and the explicitly tracked
+        // station popup; the latter may have been created as a heavyweight
+        // popup outside the JLayeredPane hierarchy.
         MenuSelectionManager.defaultManager().clearSelectedPath();
         if (gamePanel != null) gamePanel.dismissStationMenus();
+    }
+
+    private void closeStationPopupOnOverlayShow(JComponent overlay) {
+        overlay.addComponentListener(new ComponentAdapter() {
+            @Override public void componentShown(ComponentEvent event) {
+                if (gamePanel != null) dismissStationPopups();
+            }
+        });
     }
 
     private void installCodexHotkey(JComponent target) {
@@ -399,6 +425,7 @@ final class GameFrame extends JFrame {
         target.getActionMap().put(CODEX_ACTION, new AbstractAction() {
             @Override public void actionPerformed(ActionEvent event) {
                 if (codexOverlay == null || modalMenuVisible()) return;
+                if (!codexOverlay.isVisible()) dismissStationPopups();
                 if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
                 if (manufacturingOverlay != null && manufacturingOverlay.isVisible()) manufacturingOverlay.close();
                 if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) narrationSettingsOverlay.close();
@@ -417,6 +444,7 @@ final class GameFrame extends JFrame {
 
     void toggleNarrationFromGame() {
         if (narrationSettingsOverlay == null || modalMenuVisible()) return;
+        if (!narrationSettingsOverlay.isVisible()) dismissStationPopups();
         if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
         if (manufacturingOverlay != null && manufacturingOverlay.isVisible()) manufacturingOverlay.close();
         if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
@@ -428,7 +456,10 @@ final class GameFrame extends JFrame {
                 .put(KeyStroke.getKeyStroke(KeyEvent.VK_F2, 0), TUTORIAL_ACTION);
         target.getActionMap().put(TUTORIAL_ACTION, new AbstractAction() {
             @Override public void actionPerformed(ActionEvent event) {
-                if (tutorialOverlay != null && !modalMenuVisible()) tutorialOverlay.toggle();
+                if (tutorialOverlay != null && !modalMenuVisible()) {
+                    dismissStationPopups();
+                    tutorialOverlay.toggle();
+                }
             }
         });
     }
@@ -499,6 +530,7 @@ final class GameFrame extends JFrame {
 
     private void openInGameMenu() {
         if (inGameMenuOverlay == null || modalMenuVisible()) return;
+        dismissStationPopups();
         if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
         if (manufacturingOverlay != null && manufacturingOverlay.isVisible()) manufacturingOverlay.close();
         if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
@@ -860,6 +892,7 @@ final class GameFrame extends JFrame {
     }
 
     private void stopActiveGame() {
+        dismissStationPopups();
         if (soloAutosaveTimer != null) soloAutosaveTimer.stop();
         soloAutosaveTimer = null;
         World stoppingWorld = activeWorld;
