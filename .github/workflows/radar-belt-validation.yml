@@ -1,0 +1,51 @@
+name: Orbital Resource Belt Radar Validation
+
+on:
+  push:
+    branches:
+      - feature/radar-orbital-belt-tracking-20261106
+      - integration/four-plus-orbital-radar-20261106
+  pull_request:
+    branches:
+      - integration/four-branch-20261105
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: orbital-radar-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Compile, check, package, and validate radar tracking
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Gradle clean check jar
+        run: gradle clean check jar --no-daemon
+      - name: Dedicated radar and adjacent regression validators
+        run: |
+          set -euo pipefail
+          CP="build/classes/java/main:build/resources/main"
+          for class in \
+            RadarBeltTrackingValidator \
+            RadarTowerValidator \
+            ResourceRingPlacementValidator \
+            FogOfWarValidator \
+            AuthoritativeFogOfWarValidator \
+            ResourceReplicationValidator \
+            MinimapHudValidator \
+            SoloSaveLoadValidator; do
+            java -Djava.awt.headless=true -cp "$CP" "com.tndmadman.rts.$class"
+          done

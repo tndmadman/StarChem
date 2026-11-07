@@ -296,6 +296,12 @@ final class PeerClientSide {
     void build(String playerId, String baseId, String shipTypeId) { sendCommandToServer("BUILD|" + playerId + "|" + baseId + "|" + shipTypeId); }
     void basePackage(String playerId, String mode, String baseOrUnitId, String packageType) { sendCommandToServer("PACK|" + playerId + "|" + mode + "|" + baseOrUnitId + "|" + packageType); }
     void production(String playerId, String action, String baseId, String value, String extra) {
+        if ("CONTROL".equalsIgnoreCase(action) && value != null && value.startsWith("RADAR_BELT_")) {
+            sendCommandToServer("RADAR_BELT_CMD|" + cleanPacketPart(playerId) + "|"
+                    + cleanPacketPart(world.activeSystemId()) + "|" + cleanPacketPart(baseId) + "|"
+                    + cleanPacketPart(value) + "|" + cleanPacketPart(extra));
+            return;
+        }
         sendCommandToServer("PROD|" + cleanPacketPart(playerId) + "|" + cleanPacketPart(action) + "|"
                 + cleanPacketPart(baseId) + "|" + cleanPacketPart(value) + "|" + cleanPacketPart(extra));
     }
@@ -341,6 +347,8 @@ final class PeerClientSide {
     void readSeed(String seed) { try { world.useSystemSeed(Long.parseLong(seed)); } catch (NumberFormatException ignored) { } }
     void readWelcome(String[] parts) {
         if (parts.length < 4) return;
+        RadarBeltTrackingSystem.clear(world);
+        RadarBeltTrackingSystem.markClient(world);
         int rgb;
         try { rgb = Integer.parseInt(parts[3]); }
         catch (NumberFormatException ex) { throw new SnapshotDecodeException("Malformed WELCOME packet: player color is not numeric."); }

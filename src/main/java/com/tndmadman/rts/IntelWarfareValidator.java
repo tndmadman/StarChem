@@ -86,6 +86,9 @@ public final class IntelWarfareValidator {
         IntelWarfareSystem.setRadarMode(world, radar, IntelWarfareSystem.RadarMode.ACTIVE, "P1");
         ResourceNode resource = new ResourceNode(77, "Survey iron", NodeKind.SILICATE_ROCK,
                 Material.IRON, 4_500, 4_000, 500, 5, 3);
+        // Existing radar-dispatch contract is unchanged, but modern radar surveying
+        // requires this synthetic fixture to belong to one of the chosen belts.
+        resource.resourceBeltId = RadarBeltTrackingSystem.catalog(world).get(0).id;
         world.resources.add(resource);
         require(VisibilityRules.resourceStage(world, "P1", resource) == IntelWarfareSystem.DetectionStage.DETAILED,
                 "Radar Array did not fully survey a nearby resource.");

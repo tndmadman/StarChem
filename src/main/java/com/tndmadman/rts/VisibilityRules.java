@@ -84,14 +84,15 @@ final class VisibilityRules {
             if (world != null) {
                 for (Base base : world.bases.values()) {
                     if (base == null || base.hp <= 0
-                            || !IntelWarfareSystem.allied(world, this.playerId, base.playerId)
+                            || !this.playerId.equals(base.playerId) // belt intel is owner-only
                             || !IntelWarfareSystem.isRadar(base.typeId)
                             || StationControls.radarSearchTarget(world, base)
-                            == StationControls.RadarSearchTarget.WORMHOLES) continue;
+                            != StationControls.RadarSearchTarget.AREA) continue;
                     double range = baseSensorRange(world, base);
                     if (range > 0) {
-                        radars.add(new ResourceRadar(base.x, base.y, range,
-                                IntelWarfareSystem.surveyPower(base.typeId)));
+                        radars.add(new ResourceRadar(base, range,
+                                IntelWarfareSystem.surveyPower(base.typeId),
+                                Set.copyOf(RadarBeltTrackingSystem.selected(world, base))));
                     }
                 }
                 for (Unit unit : world.units.values()) {
@@ -154,12 +155,15 @@ final class VisibilityRules {
             if (world == null || resource == null || !resource.active) {
                 return IntelWarfareSystem.DetectionStage.NONE;
             }
-            IntelWarfareSystem.DetectionStage stage = pointVisible(resource.x, resource.y)
+            IntelWarfareSystem.DetectionStage stage = resourcePointVisible(resource)
                     ? IntelWarfareSystem.DetectionStage.CONTACT
                     : IntelWarfareSystem.DetectionStage.NONE;
 
             for (ResourceRadar radar : resourceRadars) {
-                double distance = Calc.distance(radar.x, radar.y, resource.x, resource.y);
+                // Non-belt event and celestial resources retain the historical local radar survey.
+                if (resource.resourceBeltId != null && !resource.resourceBeltId.isBlank()
+                        && !radar.selectedBelts.contains(resource.resourceBeltId)) continue;
+                double distance = Calc.distance(radar.base.x, radar.base.y, resource.x, resource.y);
                 if (distance > radar.range) continue;
                 IntelWarfareSystem.DetectionStage radarStage = switch (radar.surveyPower) {
                     case 0 -> IntelWarfareSystem.DetectionStage.CONTACT;
@@ -184,6 +188,22 @@ final class VisibilityRules {
                 if (local.ordinal() > stage.ordinal()) stage = local;
             }
             return stage;
+        }
+
+        // Keep military fog sensors unchanged; only the radar-only resource channel obeys selection.
+        private boolean resourcePointVisible(ResourceNode resource) {
+            for (Sensor sensor : sensors) {
+                if (sensor.sourceKey().startsWith("B:") && world != null) {
+                    Base source = world.bases.get(sensor.sourceKey().substring(2));
+                    if (source != null && IntelWarfareSystem.isRadar(source.typeId)
+                            && resource.resourceBeltId != null && !resource.resourceBeltId.isBlank()
+                            && (!playerId.equals(source.playerId)
+                                || !RadarBeltTrackingSystem.tracking(world, source, resource))) continue;
+                }
+                double dx = resource.x - sensor.x(), dy = resource.y - sensor.y();
+                if (dx * dx + dy * dy <= sensor.rangeSquared()) return true;
+            }
+            return false;
         }
 
         boolean unitVisible(Unit unit) {
@@ -282,7 +302,7 @@ final class VisibilityRules {
     }
 
     record Sensor(String sourceKey, double x, double y, double range, double rangeSquared) { }
-    private record ResourceRadar(double x, double y, double range, int surveyPower) { }
+    private record ResourceRadar(Base base, double range, int surveyPower, Set<String> selectedBelts) { }
     private record ResourceHarvester(double x, double y, double identifiedRange, double detailedRange,
                                      Set<NodeKind> harvestKinds) { }
 }
