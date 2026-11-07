@@ -28,6 +28,15 @@ final class PlayerRegistry {
 
     static World activeWorld() { return ACTIVE_WORLD.get(); }
 
+    static void dispose(World world) {
+        if (world == null) return;
+        BY_WORLD.remove(world);
+        if (ACTIVE_WORLD.get() == world) {
+            ACTIVE_WORLD.remove();
+            ACTIVE.set(DEFAULT);
+        }
+    }
+
     static void reset(String id, String name, int rgb) {
         RegistryState state = state();
         state.players.clear();

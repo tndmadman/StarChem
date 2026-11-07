@@ -125,6 +125,15 @@ The gate must generate real v1.7.0 state and validate current-code migration, au
 
 Do not replace this with a hand-authored approximation of an old save.
 
+### Stabilization sprint verification before the next release
+
+- Run `gradle validateWorldLifecycle validateGalaxyInactiveSchedulerRoster --no-daemon` and `com.tndmadman.rts.CelestialResourceBridgeValidator`; these also belong to the canonical regression wall.
+- Check system removal, repeated match creation, save restoration and client reconnect against the actual target branch, not merely an old merge.
+- Retain the paired 33-case render performance gate with the 20% p95 threshold and review its six CSV artifacts.
+- Collect F4 full-client measurements under dense resource fields, large fleets, camera pan/zoom and fog, and manually complete planetary extraction charge, impact, debris, exhaustion, cooldown and refire.
+- Perform multiplayer fog/observer/security and dedicated-server shutdown/restart acceptance on real client/server instances.
+- Treat unrun GUI, audio or WAN cases as release outstanding until independently executed and recorded. These changes are unreleased until an authorized future version is published.
+
 ## 7. Tag the exact validated main commit
 
 After every required workflow is green, identify the exact final `main` SHA and create the immutable tag:

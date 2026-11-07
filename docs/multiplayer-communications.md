@@ -77,3 +77,13 @@ This policy is intentionally separate from kick/ban moderation. A communications
 - Outbound chat and pings remain ordered and non-coalescing at the TCP control layer. Semantic ping coalescing happens before send.
 - Slow-client backpressure and transport queue limits remain unchanged.
 - Normal chat history is not persisted or replayed.
+
+## JOIN/RESUME synchronization lifecycle (1.8.2-dev, protocol 18)
+
+The TLS-pinned, version-compatible connection authenticates by registration/password challenge or token reference plus proof. On success the server sends WELCOME, ENV and one initial VIEW_SYNC. The client ignores normal snapshots until it applies initial VIEW_SYNC, and only then enters local READY and sends CLIENT_READY|playerId|snapshotSequence. The server validates exact connection ownership and snapshot sequence, records READY once, and sends READY_ACK|playerId. Lost acknowledgments are harmless because the client can retry and the server acknowledges duplicate READY idempotently.
+
+During synchronization the client can request SYNC_RETRY|playerId after seven seconds if the authoritative full view was lost. The server allows at most two replays, with a five-second minimum interval, on the authenticated generation. A repeated JOIN/RESUME may retransmit the existing WELCOME but must not rotate the session token or trigger another large snapshot. Duplicate WELCOME on an already syncing/ready generation does not reset world state or the startup clock. A new TCP socket generation must still authenticate and receive its own initial view.
+
+Startup auth has a finite 25-second client deadline and a separate bounded server pre-auth limit. Initial sync has a 45-second client deadline, 30-second server authenticated idle deadline and 90-second server hard deadline. READY peers have a 20-second server idle timeout; clients detect 15 seconds of server silence. Transport reconnect uses bounded exponential backoff with jitter. Terminal TLS, version, password and token errors retain their existing checks.
+
+Correlated logs include TLS_READY, INITIAL_SYNC_START/SENT/RETRY/RECEIVED, CLIENT_READY, TIMEOUT and SOCKET_CLOSE with socket/player identifiers, phases, durations and failure reasons. No password, verifier, token or proof should appear in diagnostics.

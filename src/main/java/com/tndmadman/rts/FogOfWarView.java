@@ -188,7 +188,100 @@ final class FogOfWarView {
     }
 
     static synchronized void clearCachedStateForTest(World world) {
+        forget(world);
+    }
+
+    static synchronized void forget(World world) {
         if (world != null) STATES.remove(world);
+    }
+
+    /** Snapshot only exploration progression, never transient render tiles or contacts. */
+    static synchronized Map<String,Object> capture(World world) {
+        WorldState found = STATES.get(world);
+        if (found == null) return Map.of();
+        Map<String,Object> out = new LinkedHashMap<>();
+        for (Map.Entry<String,SystemState> entry : found.systems.entrySet()) {
+            SystemState state = entry.getValue();
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("systemId", state.systemId);
+            row.put("seed", state.environmentSeed);
+            row.put("columns", state.columns);
+            row.put("rows", state.rows);
+            row.put("width", state.worldWidth);
+            row.put("height", state.worldHeight);
+            row.put("bits", java.util.Base64.getEncoder().encodeToString(state.explored.toByteArray()));
+            List<Object> gates = new ArrayList<>();
+            for (KnownWormhole gate : state.wormholes.values()) {
+                if (gates.size() >= 512) break;
+                Map<String,Object> saved = new LinkedHashMap<>();
+                saved.put("id", gate.id());
+                saved.put("to", gate.toSystemId());
+                saved.put("x", gate.x());
+                saved.put("y", gate.y());
+                gates.add(saved);
+            }
+            row.put("wormholes", gates);
+            out.put(entry.getKey(), row);
+        }
+        return out;
+    }
+
+    /** Restore per-world slot data before the first UI fog update. */
+    static synchronized void restore(World world, Object saved) {
+        if (world == null) return;
+        WorldState restored = new WorldState();
+        int count = 0;
+        for (Map.Entry<String,Object> entry : ServerSaveStore.object(saved).entrySet()) {
+            if (++count > 128) break;
+            Map<String,Object> row = ServerSaveStore.object(entry.getValue());
+            String systemId = ServerSaveStore.string(row, "systemId", "");
+            long seed = ServerSaveStore.longValue(row, "seed", world.systemSeed());
+            int cols = ServerSaveStore.intValue(row, "columns", 0);
+            int rows = ServerSaveStore.intValue(row, "rows", 0);
+            int width = ServerSaveStore.intValue(row, "width", 0);
+            int height = ServerSaveStore.intValue(row, "height", 0);
+            if (systemId.isBlank() || cols < 1 || rows < 1 || cols > 4096 || rows > 4096
+                    || (long)cols * rows > 8_000_000L || width < 1 || height < 1
+                    || width > 262_144 || height > 262_144) continue;
+            String bits = ServerSaveStore.string(row, "bits", "");
+            if (bits.length() > 2_000_000) continue;
+            try {
+                BitSet explored = BitSet.valueOf(java.util.Base64.getDecoder().decode(bits));
+                if (explored.length() > cols * rows) continue;
+                List<KnownWormhole> gates = new ArrayList<>();
+                for (Object item : ServerSaveStore.list(row.get("wormholes"))) {
+                    if (gates.size() >= 512) break;
+                    Map<String,Object> gate = ServerSaveStore.object(item);
+                    String id = ServerSaveStore.string(gate, "id", "");
+                    String to = ServerSaveStore.string(gate, "to", "");
+                    double x = ServerSaveStore.doubleValue(gate, "x", Double.NaN);
+                    double y = ServerSaveStore.doubleValue(gate, "y", Double.NaN);
+                    if (!id.isBlank() && !to.isBlank() && Double.isFinite(x) && Double.isFinite(y)) {
+                        gates.add(new KnownWormhole(id, to, x, y));
+                    }
+                }
+                SystemState state = new SystemState(systemId, seed, cols, rows, width, height);
+                state.restore(new FogOfWarPersistence.Stored(explored, gates));
+                restored.systems.put(entry.getKey(), state);
+            } catch (IllegalArgumentException ignored) { }
+        }
+        STATES.put(world, restored);
+    }
+
+    /** Copy cached exploration into the slot-scoped client store, including Save As. */
+    static synchronized void flushToPersistence(World world) {
+        WorldState found = STATES.get(world);
+        if (found == null) return;
+        for (Map.Entry<String,SystemState> entry : found.systems.entrySet()) {
+            SystemState state = entry.getValue();
+            int separator = entry.getKey().indexOf('|');
+            if (separator <= 0) continue;
+            String playerId = entry.getKey().substring(0, separator);
+            FogOfWarPersistence.saveLater(SoloSaveService.fogPlayerKey(world, playerId),
+                    state.systemId, state.environmentSeed, state.columns, state.rows,
+                    state.explored, state.wormholes.values());
+        }
+        FogOfWarPersistence.flushForTest();
     }
 
     private static SystemState update(World world, long now) {
@@ -206,7 +299,8 @@ final class FogOfWarView {
                 || state.worldWidth != world.width || state.worldHeight != world.height
                 || state.environmentSeed != environmentSeed) {
             state = new SystemState(systemId, environmentSeed, columns, rows, world.width, world.height);
-            state.restore(FogOfWarPersistence.load(playerId, systemId, environmentSeed, columns, rows));
+            state.restore(FogOfWarPersistence.load(SoloSaveService.fogPlayerKey(world, playerId),
+                    systemId, environmentSeed, columns, rows));
             worldState.systems.put(key, state);
         }
         if (now - state.lastUpdateNanos < UPDATE_INTERVAL_NANOS) return state;
@@ -222,7 +316,8 @@ final class FogOfWarView {
         observeContacts(world, playerId, frame, state);
         boolean wormholesChanged = observeWormholes(world, frame, state);
         if (sensorUpdate.explorationChanged() || wormholesChanged) {
-            FogOfWarPersistence.saveLater(playerId, systemId, environmentSeed, columns, rows,
+            FogOfWarPersistence.saveLater(SoloSaveService.fogPlayerKey(world, playerId),
+                    systemId, environmentSeed, columns, rows,
                     state.explored, state.wormholes.values());
         }
         return state;

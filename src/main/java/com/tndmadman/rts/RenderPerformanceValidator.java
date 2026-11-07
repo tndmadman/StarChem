@@ -41,6 +41,7 @@ public final class RenderPerformanceValidator {
         validateDestructionBudgets();
         validateSpriteCacheBound();
         validateBatchedResourceAppearance();
+        validateBackgroundGridPixels();
 
         List<Scenario> scenarios = scenarios();
         validateScenarioCoverage(scenarios);
@@ -75,6 +76,54 @@ public final class RenderPerformanceValidator {
                 options.enforceTiming ? "ENFORCED" : "report-only", options.maxRegressionPercent);
     }
 
+    /**
+     * Off-viewport grid culling must retain bit-identical pixels for a translated
+     * and scaled Java2D viewport. Test every production benchmark zoom and
+     * multiple non-grid-aligned camera positions, not just the initial view.
+     */
+    private static void validateBackgroundGridPixels() {
+        final int worldWidth = 12000;
+        final int worldHeight = 8000;
+        final int imageWidth = 800;
+        final int imageHeight = 480;
+        final GalaxyCoordinator background = new GalaxyCoordinator();
+
+        for (double zoom : ZOOMS) {
+            for (double[] camera : new double[][]{
+                    {worldWidth / 2.0, worldHeight / 2.0},
+                    {180.25, 240.75},
+                    {worldWidth - 230.5, worldHeight - 199.25}}) {
+                BufferedImage expected = new BufferedImage(imageWidth, imageHeight, BufferedImage.TYPE_INT_ARGB);
+                BufferedImage actual = new BufferedImage(imageWidth, imageHeight, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D legacy = expected.createGraphics();
+                Graphics2D optimized = actual.createGraphics();
+                try {
+                    for (Graphics2D graphics : new Graphics2D[]{legacy, optimized}) {
+                        graphics.setClip(0, 0, imageWidth, imageHeight);
+                        graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                        graphics.translate(imageWidth / 2.0, imageHeight / 2.0);
+                        graphics.scale(zoom, zoom);
+                        graphics.translate(-camera[0], -camera[1]);
+                    }
+                    legacy.setColor(new Color(9, 15, 24));
+                    legacy.fillRect(0, 0, worldWidth, worldHeight);
+                    legacy.setColor(new Color(22, 33, 48));
+                    for (int x = 0; x <= worldWidth; x += 160) legacy.drawLine(x, 0, x, worldHeight);
+                    for (int y = 0; y <= worldHeight; y += 160) legacy.drawLine(0, y, worldWidth, y);
+                    background.drawMap(optimized, worldWidth, worldHeight);
+                } finally {
+                    legacy.dispose();
+                    optimized.dispose();
+                }
+                require(Arrays.equals(
+                                ((DataBufferInt) expected.getRaster().getDataBuffer()).getData(),
+                                ((DataBufferInt) actual.getRaster().getDataBuffer()).getData()),
+                        "Background grid pixel regression at zoom " + zoom
+                                + " and camera " + Arrays.toString(camera));
+            }
+        }
+    }
+
     private static List<Scenario> scenarios() {
         String defaultSystem = StarSystems.DEFAULT_SYSTEM_ID;
         return List.of(
@@ -95,7 +144,8 @@ public final class RenderPerformanceValidator {
     private static void validateBatchedResourceAppearance() {
         World world = buildWorld(new Scenario("resource-batch-equivalence",
                 StarSystems.DEFAULT_SYSTEM_ID, 0, false, 0, 180, 0, 0, 22.0));
-        for (double zoom : ZOOMS) {
+        try {
+            for (double zoom : ZOOMS) {
             BufferedImage normal = new BufferedImage(IMAGE_WIDTH, IMAGE_HEIGHT, BufferedImage.TYPE_INT_ARGB_PRE);
             BufferedImage batch = new BufferedImage(IMAGE_WIDTH, IMAGE_HEIGHT, BufferedImage.TYPE_INT_ARGB_PRE);
             Graphics2D left = normal.createGraphics();
@@ -113,6 +163,9 @@ public final class RenderPerformanceValidator {
             int[] actual = ((DataBufferInt) batch.getRaster().getDataBuffer()).getData();
             require(Arrays.equals(expected, actual),
                     "batched resource pass changed pixels at zoom " + zoom);
+            }
+        } finally {
+            world.dispose();
         }
     }
 
@@ -172,6 +225,9 @@ public final class RenderPerformanceValidator {
         } finally {
             releaseExplosions(world);
             g2.dispose();
+            // Every scenario builds a real World with registered galaxy/celestial state.
+            // Keeping 33 worlds alive until JVM exit distorts repeat samples and heap use.
+            world.dispose();
         }
     }
 

@@ -2,6 +2,8 @@
 
 StarChem v1.8.2 is a multiplayer join/reconnect hotfix for the v1.8 line. It keeps **protocol 17**, **rules version 27**, and **save format 6** unchanged, so v1.8.1 saves continue to load directly. Multiplayer still requires the exact application version, so servers and clients should update to v1.8.2 together.
 
+> **Unreleased integration (1.8.2-dev):** authenticated `CLIENT_READY`, `READY_ACK` and `SYNC_RETRY` require **development protocol 18**, not the published v1.8.2 protocol 17. Upgrade dedicated servers and every joining client together; protocol-17 clients are intentionally rejected by protocol-18 servers. This changes the multiplayer wire only: rules version 27 and save format 6 remain unchanged. This integration is not an official published release.
+
 ## v1.8.2 Multiplayer Hotfix
 
 - Prevented owner-scoped galaxy/strategic state from mutating client state during generic packet decoding before the client identity has been validated.

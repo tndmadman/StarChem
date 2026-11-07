@@ -10,6 +10,9 @@ import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
+import java.util.List;
+import java.util.Map;
+import java.util.LinkedHashMap;
 
 final class GameFrame extends JFrame {
     private static final String ACTIVE_SESSION_NOTICE = "Session is already active on another connection.";
@@ -29,6 +32,8 @@ final class GameFrame extends JFrame {
     private final LobbyPanel menuPanel = new LobbyPanel(this);
     private final SettingsPanel settingsPanel;
     private final JPanel settingsOverlay;
+    private final CampaignOverlayController campaignDialog =
+            new CampaignOverlayController(this::restoreCampaignFocus);
     private final KeyEventDispatcher gameMenuDispatcher = this::dispatchGameMenuKey;
 
     private GamePanel gamePanel;
@@ -46,10 +51,15 @@ final class GameFrame extends JFrame {
     private boolean gameMenuDispatcherInstalled;
     private boolean soloSession;
     private boolean soloPausedByMenu;
+    private final SoloSaveService soloSaves = new SoloSaveService();
+    private String activeSoloSlotId;
+    private Config activeSoloConfig;
+    private Timer soloAutosaveTimer;
+    private boolean soloBusy;
 
     GameFrame(Config config) {
         super(BuildInfo.display());
-        setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+        setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         setSize(1280, 900);
         setMinimumSize(new Dimension(900, 720));
         setLocationRelativeTo(null);
@@ -63,7 +73,7 @@ final class GameFrame extends JFrame {
             @Override public void componentResized(ComponentEvent event) { layoutLayers(); }
         });
         addWindowListener(new WindowAdapter() {
-            @Override public void windowClosing(WindowEvent event) { stopActiveGame(); }
+            @Override public void windowClosing(WindowEvent event) { requestExit(true); }
         });
         if (config.showLobby) showLobby("Choose Solo or Join.");
         else launchGame(config);
@@ -80,6 +90,8 @@ final class GameFrame extends JFrame {
         root.add(codexOverlay, JLayeredPane.POPUP_LAYER);
         settingsOverlay.setVisible(false);
         root.add(settingsOverlay, JLayeredPane.DRAG_LAYER);
+        campaignDialog.hideDialog();
+        root.add(campaignDialog, Integer.valueOf(JLayeredPane.DRAG_LAYER.intValue() + 100));
         menuPanel.setStatus(status);
         setTitle(BuildInfo.display() + " - Menu");
         layoutLayers();
@@ -94,6 +106,13 @@ final class GameFrame extends JFrame {
 
     void openLobbySettings() { openSettings(SettingsPanel.Source.LOBBY); }
 
+    void launchNewSoloGame(Config config) {
+        if (config == null || config.role() != NetworkRole.SOLO) {
+            throw new IllegalArgumentException("New solo game requires solo configuration.");
+        }
+        launchGame(config);
+    }
+
     void launchGame(Config config) {
         GalaxyRuntimeOptions.configure(config);
         if (config.role() == NetworkRole.SERVER) {
@@ -101,8 +120,19 @@ final class GameFrame extends JFrame {
             return;
         }
         stopActiveGame();
+        if (config.role() == NetworkRole.SOLO) {
+            try {
+                activeSoloSlotId = soloSaves.create(config.playerName + " Campaign").id();
+            } catch (IOException | IllegalArgumentException ex) {
+                showLobby("Unable to create solo campaign slot: " + ex.getMessage());
+                return;
+            }
+        }
         World world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId,
-                config.role() == NetworkRole.SOLO);
+                config.role() == NetworkRole.SOLO,
+                StartingFleetSettings.newCampaign(config.startingMiners));
+        PlayerRegistry.activate(world);
+        if (config.role() == NetworkRole.SOLO) SoloSaveService.activate(world, activeSoloSlotId);
         SkirmishRuntime.bind(world, config.skirmishSettings);
         DevTimerSettings.configure(world, config.disableProductionTimers);
         GalaxyEventDirector.configurePolicy(world, config, false);
@@ -134,6 +164,9 @@ final class GameFrame extends JFrame {
             networkTimer.start();
         }
         showGame(config, world, network, null);
+        if (config.role() == NetworkRole.SOLO) {
+            SwingUtilities.invokeLater(() -> saveSolo("initial", activeSoloSlotId, null, null));
+        }
     }
 
     static String connectionNotice(String status) {
@@ -147,21 +180,39 @@ final class GameFrame extends JFrame {
     private void showGame(Config config, World world, PeerNetwork activeNetwork,
                           PeerNetwork devAuthorityNetwork) {
         activeWorld = world;
+        // Loaded save candidates are audio-suppressed until the frame commits them.
+        SystemAudio.markRendered(world);
         soloSession = config.role() == NetworkRole.SOLO;
+        activeSoloConfig = soloSession ? config : null;
+        if (soloSession) {
+            soloAutosaveTimer = new Timer(Math.max(30, config.autosaveSeconds) * 1000,
+                    event -> {
+                        if (!soloBusy && !soloPausedByMenu && activeWorld == world) {
+                            saveSolo("autosave", activeSoloSlotId, null, null);
+                        }
+                    });
+            soloAutosaveTimer.start();
+        }
         gamePanel = new GamePanel(world, this, activeNetwork, config.devMode, devAuthorityNetwork);
+        if (soloSession) gamePanel.restoreSoloView(world.soloUiSaveState());
         resourceCatalogOverlay = new ResourceCatalogOverlay(gamePanel, world);
         manufacturingOverlay = new ManufacturingOverlay(gamePanel, world, activeNetwork);
         codexOverlay = new CodexOverlay(gamePanel);
         narrationSettingsOverlay = new NarrationSettingsOverlay();
         if (soloSession) TutorialPreferenceVersion.ensureCurrent();
-        tutorialOverlay = new TutorialOverlay(world, soloSession);
+        // Solo tutorial progression is archived with the campaign, not the global preference node.
+        tutorialOverlay = new TutorialOverlay(world, soloSession, false);
+        if (soloSession) tutorialOverlay.restoreSoloState(world.soloUiSaveState().get("tutorial"));
         inGameMenuOverlay = new InGameMenuOverlay(
                 soloSession,
                 this::closeInGameMenu,
                 this::openGameSettingsFromMenu,
                 this::startTutorialFromMenu,
                 this::returnToLobbyFromMenu,
-                this::quitGameFromMenu);
+                this::quitGameFromMenu,
+                this::saveSoloFromMenu,
+                this::saveAsSoloFromMenu,
+                this::openSoloLoadDialog);
 
         installResourceCatalogHotkey(gamePanel);
         installManufacturingHotkey(gamePanel);
@@ -186,6 +237,21 @@ final class GameFrame extends JFrame {
         root.add(inGameMenuOverlay, JLayeredPane.DRAG_LAYER);
         settingsOverlay.setVisible(false);
         root.add(settingsOverlay, Integer.valueOf(JLayeredPane.DRAG_LAYER.intValue() + 50));
+        campaignDialog.hideDialog();
+        root.add(campaignDialog, Integer.valueOf(JLayeredPane.DRAG_LAYER.intValue() + 100));
+
+        // The selected-station overview is a separate native popup that can
+        // otherwise stay above JLayeredPane consoles even at modal z-order.
+        // Dismiss it for every full-screen overlay, regardless of which UI
+        // shortcut or toolbar entry point opens that overlay.
+        for (JComponent overlay : new JComponent[]{
+                resourceCatalogOverlay, manufacturingOverlay, tutorialOverlay,
+                narrationSettingsOverlay, codexOverlay, endStatePanel,
+                inGameMenuOverlay, settingsOverlay, campaignDialog}) {
+            closeStationPopupOnOverlayShow(overlay);
+        }
+        if (connectionOverlayPanel != null)
+            closeStationPopupOnOverlayShow(connectionOverlayPanel);
 
         if (!world.status.contains("Press I")) {
             world.status = world.status
@@ -258,6 +324,7 @@ final class GameFrame extends JFrame {
     }
 
     private void openSettings(SettingsPanel.Source source) {
+        dismissStationPopups();
         if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
         if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
         if (manufacturingOverlay != null && manufacturingOverlay.isVisible()) manufacturingOverlay.close();
@@ -294,6 +361,7 @@ final class GameFrame extends JFrame {
         if (resourceCatalogOverlay == null || modalMenuVisible()) return;
         if (resourceCatalogOverlay.isSearchFocused()
                 || manufacturingOverlay != null && manufacturingOverlay.isSearchFocused()) return;
+        if (!resourceCatalogOverlay.isVisible()) dismissStationPopups();
         if (manufacturingOverlay != null && manufacturingOverlay.isVisible()) manufacturingOverlay.close();
         if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
         if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) narrationSettingsOverlay.close();
@@ -313,8 +381,42 @@ final class GameFrame extends JFrame {
         if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
         if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
         if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) narrationSettingsOverlay.close();
+        if (!manufacturingOverlay.isVisible()) dismissStationPopups();
         manufacturingOverlay.toggle();
         if (manufacturingOverlay.isVisible()) root.moveToFront(manufacturingOverlay);
+    }
+
+    /** Single entry point for station shortcuts, sharing F9 cleanup and z-order. */
+    boolean openManufacturingFromStation(World world, String stationId, boolean policies) {
+        if (activeWorld != world || manufacturingOverlay == null || modalMenuVisible()) return false;
+        dismissStationPopups();
+        if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
+        if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
+        if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) narrationSettingsOverlay.close();
+        boolean opened = policies ? ManufacturingOverlay.openPoliciesForStation(world, stationId)
+                : ManufacturingOverlay.openForStation(world, stationId);
+        if (opened) {
+            root.moveToFront(manufacturingOverlay);
+            manufacturingOverlay.requestFocusInWindow();
+            root.repaint();
+        }
+        return opened;
+    }
+
+    private void dismissStationPopups() {
+        // Clear both Swing's selected menu path and the explicitly tracked
+        // station popup; the latter may have been created as a heavyweight
+        // popup outside the JLayeredPane hierarchy.
+        MenuSelectionManager.defaultManager().clearSelectedPath();
+        if (gamePanel != null) gamePanel.dismissStationMenus();
+    }
+
+    private void closeStationPopupOnOverlayShow(JComponent overlay) {
+        overlay.addComponentListener(new ComponentAdapter() {
+            @Override public void componentShown(ComponentEvent event) {
+                if (gamePanel != null) dismissStationPopups();
+            }
+        });
     }
 
     private void installCodexHotkey(JComponent target) {
@@ -323,6 +425,7 @@ final class GameFrame extends JFrame {
         target.getActionMap().put(CODEX_ACTION, new AbstractAction() {
             @Override public void actionPerformed(ActionEvent event) {
                 if (codexOverlay == null || modalMenuVisible()) return;
+                if (!codexOverlay.isVisible()) dismissStationPopups();
                 if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
                 if (manufacturingOverlay != null && manufacturingOverlay.isVisible()) manufacturingOverlay.close();
                 if (narrationSettingsOverlay != null && narrationSettingsOverlay.isVisible()) narrationSettingsOverlay.close();
@@ -341,6 +444,7 @@ final class GameFrame extends JFrame {
 
     void toggleNarrationFromGame() {
         if (narrationSettingsOverlay == null || modalMenuVisible()) return;
+        if (!narrationSettingsOverlay.isVisible()) dismissStationPopups();
         if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
         if (manufacturingOverlay != null && manufacturingOverlay.isVisible()) manufacturingOverlay.close();
         if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
@@ -352,7 +456,10 @@ final class GameFrame extends JFrame {
                 .put(KeyStroke.getKeyStroke(KeyEvent.VK_F2, 0), TUTORIAL_ACTION);
         target.getActionMap().put(TUTORIAL_ACTION, new AbstractAction() {
             @Override public void actionPerformed(ActionEvent event) {
-                if (tutorialOverlay != null && !modalMenuVisible()) tutorialOverlay.toggle();
+                if (tutorialOverlay != null && !modalMenuVisible()) {
+                    dismissStationPopups();
+                    tutorialOverlay.toggle();
+                }
             }
         });
     }
@@ -365,6 +472,13 @@ final class GameFrame extends JFrame {
 
     private boolean dispatchGameMenuKey(KeyEvent event) {
         if (gamePanel == null) return false;
+        if (campaignDialog.isOpen()) {
+            if (event.getID() == KeyEvent.KEY_PRESSED && event.getKeyCode() == KeyEvent.VK_ESCAPE) {
+                campaignDialog.cancel();
+                return true;
+            }
+            return false;
+        }
         if (settingsPanel.isOpen()) {
             if (event.getID() == KeyEvent.KEY_PRESSED) {
                 if (settingsPanel.handleKeyPressed(event)) {
@@ -410,11 +524,13 @@ final class GameFrame extends JFrame {
     }
 
     private boolean modalMenuVisible() {
-        return menuVisible() || settingsPanel.isOpen() || ShipFittingWindow.active();
+        return menuVisible() || campaignDialog.isOpen() || settingsPanel.isOpen()
+                || ShipFittingWindow.active();
     }
 
     private void openInGameMenu() {
         if (inGameMenuOverlay == null || modalMenuVisible()) return;
+        dismissStationPopups();
         if (resourceCatalogOverlay != null && resourceCatalogOverlay.isVisible()) resourceCatalogOverlay.close();
         if (manufacturingOverlay != null && manufacturingOverlay.isVisible()) manufacturingOverlay.close();
         if (codexOverlay != null && codexOverlay.isVisible()) codexOverlay.close();
@@ -448,23 +564,344 @@ final class GameFrame extends JFrame {
         closeInGameMenu();
     }
 
-    private void returnToLobbyFromMenu() {
-        showLobby("Returned to the main menu.");
+    private void saveSoloFromMenu() {
+        if (soloSession) saveSolo("manual", activeSoloSlotId, null, null);
     }
 
-    private void quitGameFromMenu() {
-        stopActiveGame();
-        dispose();
-        System.exit(0);
+    private void saveAsSoloFromMenu() {
+        if (!soloSession || soloBusy) return;
+        JTextField name = new JTextField(activeWorld.localPlayerName + " Campaign", 36);
+        campaignDialog.showDialog("Save As New Slot", "Create a new campaign slot; the current slot will remain unchanged until the save succeeds.",
+                name,
+                CampaignOverlayController.choice("Save As", () -> createAndSaveSoloSlot(name.getText())),
+                CampaignOverlayController.choice("Cancel", null));
+    }
+
+    private void createAndSaveSoloSlot(String name) {
+        if (!soloSession || soloBusy) return;
+        try {
+            SoloSaveService.Slot slot = soloSaves.create(name);
+            saveSolo("manual", slot.id(), () -> {
+                activeSoloSlotId = slot.id();
+                SoloSaveService.activate(activeWorld, slot.id());
+                FogOfWarView.flushToPersistence(activeWorld);
+                showCampaignMessage("Save As Complete", "Saved to new slot: " + slot.name());
+            }, () -> {
+                try { soloSaves.delete(slot.id()); }
+                catch (IOException ignored) { }
+                saveAsFailed(slot.name());
+            });
+        } catch (IOException | IllegalArgumentException ex) {
+            showCampaignMessage("Could Not Create Slot", ex.getMessage());
+        }
+    }
+
+    private void saveAsFailed(String name) {
+        showCampaignMessage("Save As Failed", "Could not save to " + name
+                + ". The previous active campaign slot is unchanged.");
+    }
+
+    private void saveSolo(String reason, String slotId, Runnable onSuccess, Runnable onFailure) {
+        if (!soloSession || soloBusy || activeWorld == null || slotId == null) return;
+        soloBusy = true;
+        World target = activeWorld;
+        Config config = activeSoloConfig;
+        boolean resumeAfter = !soloPausedByMenu && !menuVisible();
+        if (gamePanel != null) gamePanel.stop();
+        if (gamePanel != null) {
+            Map<String,Object> view = new LinkedHashMap<>(gamePanel.captureSoloView());
+            if (tutorialOverlay != null) view.put("tutorial", tutorialOverlay.captureSoloState());
+            target.setSoloUiSaveState(view);
+        }
+        final SoloSaveService.CapturedSave snapshot;
+        try {
+            snapshot = soloSaves.capture(slotId, target, config, reason);
+        } catch (IOException | RuntimeException ex) {
+            soloBusy = false;
+            if (target == activeWorld && resumeAfter && gamePanel != null) gamePanel.start();
+            target.status = "Save capture failed; current session preserved.";
+            if (onFailure != null) onFailure.run();
+            else if (!"autosave".equals(reason) && !"initial".equals(reason)) {
+                showCampaignMessage("Save Capture Error", String.valueOf(ex.getMessage()));
+            }
+            return;
+        }
+        // Disk I/O proceeds from a frozen archive payload, not from a live World.
+        if ("manual".equals(reason)) campaignDialog.showBusy(
+                "Saving Campaign", "Writing and verifying the campaign archive...");
+        if (target == activeWorld && resumeAfter && gamePanel != null) gamePanel.start();
+        new SwingWorker<Void,Void>() {
+            @Override protected Void doInBackground() throws Exception {
+                soloSaves.write(snapshot);
+                return null;
+            }
+
+            @Override protected void done() {
+                Exception failure = null;
+                try { get(); }
+                catch (Exception ex) { failure = ex; }
+                soloBusy = false;
+                if (failure == null) {
+                    if (target == activeWorld) target.status = "Solo campaign saved.";
+                    if ("manual".equals(reason)) campaignDialog.hideDialog();
+                    if (onSuccess != null) onSuccess.run();
+                    else if ("manual".equals(reason)) {
+                        showCampaignMessage("Save Complete", "Save completed successfully.");
+                    }
+                } else {
+                    if (target == activeWorld) target.status = "Save failed; previous valid save preserved.";
+                    if ("manual".equals(reason)) campaignDialog.hideDialog();
+                    if (onFailure != null) onFailure.run();
+                    else if (!"autosave".equals(reason) && !"initial".equals(reason)) {
+                        showCampaignMessage("Solo Save Error", "Save failed: " + failure.getMessage());
+                    }
+                }
+            }
+        }.execute();
+    }
+
+    void continueSolo() {
+        if (soloBusy) return;
+        soloBusy = true;
+        menuPanel.setStatus("Finding the latest valid solo campaign...");
+        new SwingWorker<SoloSaveService.LatestSnapshot,Void>() {
+            @Override protected SoloSaveService.LatestSnapshot doInBackground() throws Exception {
+                return soloSaves.mostRecentValid();
+            }
+            @Override protected void done() {
+                soloBusy = false;
+                try {
+                    SoloSaveService.LatestSnapshot snapshot = get();
+                    if (snapshot == null) {
+                        menuPanel.setStatus("No valid solo campaign saves were found.");
+                        return;
+                    }
+                    loadSolo(snapshot.slot().id(), snapshot.fileName());
+                } catch (Exception ex) {
+                    menuPanel.setStatus("Could not inspect saves: " + ex.getMessage());
+                }
+            }
+        }.execute();
+    }
+
+    void openSoloLoadDialog() {
+        if (soloBusy) return;
+        try {
+            List<SoloSaveService.Slot> slots = soloSaves.list();
+            if (slots.isEmpty()) {
+                menuPanel.setStatus("No solo campaign slots found.");
+                if (activeWorld != null) activeWorld.status = "No solo campaign slots found.";
+                return;
+            }
+            JList<SoloSaveService.Slot> list = new JList<>(
+                    slots.toArray(new SoloSaveService.Slot[0]));
+            list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+            list.setSelectedIndex(0);
+            JScrollPane scroll = new JScrollPane(list);
+            scroll.setPreferredSize(new Dimension(610, Math.min(310, 42 * slots.size())));
+            campaignDialog.showDialog("Solo Campaigns", "Select a slot to load or manage its saved snapshots.", scroll,
+                    CampaignOverlayController.choice("Load", () -> {
+                        SoloSaveService.Slot slot = list.getSelectedValue();
+                        if (slot != null) loadSolo(slot.id());
+                    }),
+                    CampaignOverlayController.choice("Recovery...", () -> {
+                        SoloSaveService.Slot slot = list.getSelectedValue();
+                        if (slot != null) openSoloRecoveryDialog(slot.id());
+                    }),
+                    CampaignOverlayController.choice("Rename", () -> {
+                        SoloSaveService.Slot slot = list.getSelectedValue();
+                        if (slot != null) renameSoloSlot(slot);
+                    }),
+                    CampaignOverlayController.choice("Delete", () -> {
+                        SoloSaveService.Slot slot = list.getSelectedValue();
+                        if (slot != null) confirmDeleteSoloSlot(slot);
+                    }),
+                    CampaignOverlayController.choice("Cancel", null));
+        } catch (IOException | IllegalArgumentException ex) {
+            showCampaignMessage("Solo Slots", String.valueOf(ex.getMessage()));
+        }
+    }
+
+    private void openSoloRecoveryDialog(String slotId) {
+        try {
+            List<SoloSaveService.RecoveryPoint> points = soloSaves.recoveryPoints(slotId);
+            if (points.isEmpty()) {
+                showCampaignMessage("Recovery", "No recovery points are available.");
+                return;
+            }
+            JList<SoloSaveService.RecoveryPoint> list = new JList<>(
+                    points.toArray(new SoloSaveService.RecoveryPoint[0]));
+            list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+            list.setSelectedIndex(0);
+            JScrollPane scroll = new JScrollPane(list);
+            scroll.setPreferredSize(new Dimension(610, Math.min(300, points.size() * 42)));
+            campaignDialog.showDialog("Choose Saved Snapshot", "Load the exact selected recovery file, not the newest slot snapshot.", scroll,
+                    CampaignOverlayController.choice("Load Snapshot", () -> {
+                        SoloSaveService.RecoveryPoint point = list.getSelectedValue();
+                        if (point != null) loadSolo(slotId, point.fileName());
+                    }),
+                    CampaignOverlayController.choice("Back", this::openSoloLoadDialog),
+                    CampaignOverlayController.choice("Cancel", null));
+        } catch (IOException | IllegalArgumentException ex) {
+            showCampaignMessage("Recovery Error", String.valueOf(ex.getMessage()));
+        }
+    }
+
+    private void renameSoloSlot(SoloSaveService.Slot slot) {
+        JTextField name = new JTextField(slot.name(), 36);
+        campaignDialog.showDialog("Rename Campaign", "Choose a new name for the selected campaign slot.", name,
+                CampaignOverlayController.choice("Rename", () -> {
+                    try {
+                        soloSaves.rename(slot.id(), name.getText());
+                        openSoloLoadDialog();
+                    } catch (IOException | IllegalArgumentException ex) {
+                        showCampaignMessage("Rename Failed", String.valueOf(ex.getMessage()));
+                    }
+                }),
+                CampaignOverlayController.choice("Back", this::openSoloLoadDialog),
+                CampaignOverlayController.choice("Cancel", null));
+    }
+
+    private void confirmDeleteSoloSlot(SoloSaveService.Slot slot) {
+        if (soloSession && slot.id().equals(activeSoloSlotId)) {
+            showCampaignMessage("Delete Blocked", "Cannot delete the currently running campaign.");
+            return;
+        }
+        campaignDialog.showChoices("Delete Save Slot",
+                "Permanently delete " + slot.name() + " and its recovery files?",
+                CampaignOverlayController.choice("Delete Permanently", () -> {
+                    try {
+                        soloSaves.delete(slot.id());
+                        openSoloLoadDialog();
+                    } catch (IOException | IllegalArgumentException ex) {
+                        showCampaignMessage("Delete Failed", String.valueOf(ex.getMessage()));
+                    }
+                }),
+                CampaignOverlayController.choice("Back", this::openSoloLoadDialog),
+                CampaignOverlayController.choice("Cancel", null));
+    }
+
+    private void loadSolo(String slotId) { loadSolo(slotId, null); }
+
+    private void loadSolo(String slotId, String snapshot) {
+        if (soloBusy) return;
+        if (soloSession) {
+            campaignDialog.showChoices("Load Solo Campaign",
+                    "Save your current campaign before loading the selected save?",
+                    CampaignOverlayController.choice("Save & Load", () -> saveSolo("manual",
+                            activeSoloSlotId, () -> beginLoadSolo(slotId, snapshot),
+                            () -> showCampaignMessage("Save Failed",
+                                    "The selected campaign was not loaded. Your current game is preserved."))),
+                    CampaignOverlayController.choice("Load Without Saving",
+                            () -> beginLoadSolo(slotId, snapshot)),
+                    CampaignOverlayController.choice("Cancel", null));
+            return;
+        }
+        beginLoadSolo(slotId, snapshot);
+    }
+
+    private void beginLoadSolo(String slotId, String snapshot) {
+        if (soloBusy) return;
+        soloBusy = true;
+        World previous = activeWorld;
+        boolean resumeAfterFailure = soloSession && !soloPausedByMenu;
+        if (soloSession && gamePanel != null) gamePanel.stop();
+        campaignDialog.showBusy("Loading Campaign", "Validating and restoring the selected campaign archive...");
+        new SwingWorker<World,Void>() {
+            @Override protected World doInBackground() throws Exception {
+                Config config = Config.solo("Player");
+                return snapshot == null ? soloSaves.load(slotId, config)
+                        : soloSaves.loadSnapshot(slotId, snapshot, config);
+            }
+            @Override protected void done() {
+                try {
+                    World restored = get();
+                    campaignDialog.hideDialog();
+                    stopActiveGame();
+                    // Promote the candidate's generation policy only after the
+                    // old session is stopped and the archive has loaded cleanly.
+                    restored.commitStagedSoloGenerationOptions();
+                    activeSoloSlotId = slotId;
+                    PlayerRegistry.activate(restored);
+                    SoloSaveService.activate(restored, slotId);
+                    Config loadedConfig = Config.solo(restored.localPlayerName, false,
+                            SkirmishRuntime.settings(restored), restored.systemId(),
+                            GalaxyRuntimeOptions.copiesPerTemplate());
+                    showGame(loadedConfig, restored, null, null);
+                    restored.status = "Loaded solo campaign.";
+                } catch (Exception ex) {
+                    if (previous != null) {
+                        PlayerRegistry.activate(previous);
+                        SystemAudio.listenTo(previous);
+                        if (resumeAfterFailure && gamePanel != null) gamePanel.start();
+                    }
+                    showCampaignMessage("Load Error",
+                            "Could not load campaign. Current session was preserved.\n" + ex.getMessage());
+                } finally {
+                    soloBusy = false;
+                }
+            }
+        }.execute();
+    }
+
+    private void returnToLobbyFromMenu() { requestExit(false); }
+    private void quitGameFromMenu() { requestExit(true); }
+
+    private void requestExit(boolean quit) {
+        if (soloBusy) {
+            showCampaignMessage("Campaign Busy", "A save or load is still in progress.");
+            return;
+        }
+        if (!soloSession) { exitConfirmed(quit); return; }
+        campaignDialog.showChoices(quit ? "Quit StarChem" : "Return to Main Menu",
+                "Save the current solo campaign before leaving?",
+                CampaignOverlayController.choice("Save & Exit", () -> saveSolo("manual",
+                        activeSoloSlotId, () -> exitConfirmed(quit), () -> saveExitFailed(quit))),
+                CampaignOverlayController.choice("Exit Without Saving", () -> exitConfirmed(quit)),
+                CampaignOverlayController.choice("Cancel", null));
+    }
+
+    private void saveExitFailed(boolean quit) {
+        campaignDialog.showChoices("Save & Exit Failed",
+                "The campaign could not be saved. The current game is still open.",
+                CampaignOverlayController.choice("Retry Save", () -> saveSolo("manual",
+                        activeSoloSlotId, () -> exitConfirmed(quit), () -> saveExitFailed(quit))),
+                CampaignOverlayController.choice("Exit Without Saving", () -> exitConfirmed(quit)),
+                CampaignOverlayController.choice("Cancel", null));
+    }
+
+    private void showCampaignMessage(String title, String message) {
+        campaignDialog.showChoices(title, message == null ? "An unknown error occurred." : message,
+                CampaignOverlayController.choice("OK", null));
+    }
+
+    private void restoreCampaignFocus() {
+        if (menuVisible()) inGameMenuOverlay.requestFocusInWindow();
+        else if (gamePanel != null) gamePanel.requestFocusInWindow();
+        else menuPanel.requestFocusForName();
+    }
+
+    private void exitConfirmed(boolean quit) {
+        if (quit) {
+            stopActiveGame();
+            dispose();
+            System.exit(0);
+        } else {
+            showLobby("Returned to the main menu.");
+        }
     }
 
     private void stopActiveGame() {
+        dismissStationPopups();
+        if (soloAutosaveTimer != null) soloAutosaveTimer.stop();
+        soloAutosaveTimer = null;
         World stoppingWorld = activeWorld;
         settingsOverlay.setVisible(false);
         while (settingsPanel.isOpen()) {
             if (settingsPanel.handleEscapePressed() == SettingsPanel.Result.BACK) break;
         }
         if (inGameMenuOverlay != null) inGameMenuOverlay.close();
+        campaignDialog.hideDialog();
         ShipFittingWindow.closeActive();
         soloPausedByMenu = false;
         if (gamePanel != null) gamePanel.stop();
@@ -474,7 +911,6 @@ final class GameFrame extends JFrame {
             gameMenuDispatcherInstalled = false;
         }
         if (manufacturingOverlay != null) manufacturingOverlay.disposeOverlay();
-        WorldRuntimeCleanup.discard(stoppingWorld);
         if (resourceCatalogOverlay != null) resourceCatalogOverlay.setVisible(false);
         if (codexOverlay != null) codexOverlay.close();
         if (narrationSettingsOverlay != null) narrationSettingsOverlay.close();
@@ -483,6 +919,8 @@ final class GameFrame extends JFrame {
         if (networkTimer != null) networkTimer.stop();
         if (network != null) network.shutdown();
         resetDeveloperSimulationState(stoppingWorld);
+        // Teardown only after the UI loop and network threads have been stopped.
+        if (stoppingWorld != null) stoppingWorld.dispose();
         gamePanel = null;
         resourceCatalogOverlay = null;
         manufacturingOverlay = null;
@@ -496,6 +934,8 @@ final class GameFrame extends JFrame {
         networkTimer = null;
         activeWorld = null;
         soloSession = false;
+        activeSoloSlotId = null;
+        activeSoloConfig = null;
     }
 
     static void resetDeveloperSimulationState(World world) {
@@ -516,12 +956,23 @@ final class GameFrame extends JFrame {
         if (codexOverlay != null) codexOverlay.setBounds(0, 0, width, height);
         if (narrationSettingsOverlay != null) narrationSettingsOverlay.setBounds(0, 0, width, height);
         if (inGameMenuOverlay != null) inGameMenuOverlay.setBounds(0, 0, width, height);
+        campaignDialog.setBounds(0, 0, width, height);
         if (endStatePanel != null) endStatePanel.setBounds(0, 0, width, height);
         if (connectionOverlayPanel != null) connectionOverlayPanel.setBounds(0, 0, width, height);
         int menuWidth = Math.min(760, Math.max(560, width - 160));
         int menuHeight = Math.min(860, Math.max(700, height - 30));
+        boolean menuSizeChanged = menuPanel.getWidth() != menuWidth
+                || menuPanel.getHeight() != menuHeight;
         menuPanel.setBounds((width - menuWidth) / 2, (height - menuHeight) / 2,
                 menuWidth, menuHeight);
+        if (menuSizeChanged) {
+            // The root has a null layout. Changing the menu's bounds alone is
+            // not guaranteed to validate nested BorderLayout/JViewport children.
+            // Reflow in both directions, especially after restoring a larger
+            // window from its minimum size.
+            menuPanel.revalidate();
+            menuPanel.repaint();
+        }
     }
 
     private void applyInitialDisplaySettings() {

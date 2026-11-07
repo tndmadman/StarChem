@@ -13,18 +13,23 @@ import java.util.List;
 
 /** Exact feature/game-menu visual design, with tutorial and diplomacy actions. */
 final class GameMenuOverlay {
-    enum Action { NONE, RESUME, SETTINGS, DIPLOMACY, TUTORIAL, RETURN_TO_MAIN_MENU, QUIT }
+    enum Action { NONE, RESUME, SAVE_GAME, SAVE_AS, LOAD_GAME, SETTINGS, DIPLOMACY, TUTORIAL, RETURN_TO_MAIN_MENU, QUIT }
 
     private static final int PANEL_W = 460;
-    private static final int PANEL_H = 602;
+    private static final int PANEL_H = 664;
     private static final int BUTTON_W = 300;
     private static final int BUTTON_H = 48;
-    private static final int BUTTON_GAP = 18;
+    private static final int BUTTON_GAP = 10;
 
     private final List<MenuButton> buttons = new ArrayList<>();
 
     GameMenuOverlay(boolean tutorialAvailable) {
         buttons.add(new MenuButton(Action.RESUME, "Return to Game", true));
+        if (tutorialAvailable) {
+            buttons.add(new MenuButton(Action.SAVE_GAME, "Save Game", true));
+            buttons.add(new MenuButton(Action.SAVE_AS, "Save As New Slot", true));
+            buttons.add(new MenuButton(Action.LOAD_GAME, "Load Game", true));
+        }
         buttons.add(new MenuButton(Action.SETTINGS, "Settings", true));
         buttons.add(new MenuButton(Action.DIPLOMACY, "Diplomacy", true));
         buttons.add(new MenuButton(Action.TUTORIAL,
@@ -55,7 +60,7 @@ final class GameMenuOverlay {
         g2.setColor(UiPalette.TEXT_MUTED);
         drawCentered(g2, "Game Menu", width, panelY + 76);
 
-        int y = panelY + 118;
+        int y = panelY + 106;
         for (MenuButton button : buttons) {
             button.x = panelX + (PANEL_W - BUTTON_W) / 2;
             button.y = y;

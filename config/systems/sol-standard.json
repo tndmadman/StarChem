@@ -19,13 +19,13 @@
     {"id": "giant_moon_b", "name": "Giant Moon B", "parent": "giant", "orbit": 390, "radius": 18, "speed": 0.035, "color": "#91A5BE"}
   ],
   "resourceBelts": [
-    {"name": "Inner Industrial Belt", "kind": "SILICATE_ROCK", "orbit": 2100, "width": 360, "arc": 1.7, "count": 90, "amount": 23, "harvestRate": 7.4, "radius": 2.9,
+    {"id": "inner_industrial_belt", "name": "Inner Industrial Belt", "kind": "SILICATE_ROCK", "orbit": 2100, "width": 360, "arc": 1.7, "count": 90, "amount": 23, "harvestRate": 7.4, "radius": 2.9,
       "composition": [{"material": "IRON", "weight": 45}, {"material": "COPPER", "weight": 25}, {"material": "NICKEL", "weight": 18}, {"material": "ALUMINUM", "weight": 12}]},
-    {"name": "Silicate Carbon Belt", "kind": "SILICATE_ROCK", "orbit": 3650, "width": 430, "arc": 1.8, "count": 85, "amount": 23, "harvestRate": 7.6, "radius": 3.0,
+    {"id": "silicate_carbon_belt", "name": "Silicate Carbon Belt", "kind": "SILICATE_ROCK", "orbit": 3650, "width": 430, "arc": 1.8, "count": 85, "amount": 23, "harvestRate": 7.6, "radius": 3.0,
       "composition": [{"material": "SILICATES", "weight": 62}, {"material": "CARBON", "weight": 28}, {"material": "PHOSPHATES", "weight": 10}]},
-    {"name": "Outer Ice Ring", "kind": "SILICATE_ROCK", "orbit": 5000, "width": 420, "arc": 1.2, "count": 65, "amount": 21, "harvestRate": 7.1, "radius": 2.9,
+    {"id": "outer_ice_ring", "name": "Outer Ice Ring", "kind": "SILICATE_ROCK", "orbit": 5000, "width": 420, "arc": 1.2, "count": 65, "amount": 21, "harvestRate": 7.1, "radius": 2.9,
       "composition": [{"material": "ICE", "weight": 82}, {"material": "SILICATES", "weight": 18}]},
-    {"name": "Fuel Gas Band", "kind": "GAS_CLOUD", "orbit": 6500, "width": 650, "arc": 2.0, "count": 100, "amount": 24, "harvestRate": 8.0, "radius": 4.6,
+    {"id": "fuel_gas_band", "name": "Fuel Gas Band", "kind": "GAS_CLOUD", "orbit": 6500, "width": 650, "arc": 2.0, "count": 100, "amount": 24, "harvestRate": 8.0, "radius": 4.6,
       "composition": [{"material": "HYDROGEN", "weight": 36}, {"material": "HELIUM", "weight": 24}, {"material": "METHANE", "weight": 22}, {"material": "AMMONIA", "weight": 10}, {"material": "NITROGEN", "weight": 8}]}
   ]
 }

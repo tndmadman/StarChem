@@ -15,6 +15,18 @@ final class ClientPackets {
         if (p[0].equals("ENV")) { c.readEnv(p); return; }
         if (p[0].equals("SEED") && p.length >= 2) { c.readSeed(p[1]); return; }
         if (p[0].equals("WELCOME")) { c.readWelcome(p); return; }
+        if (p[0].equals("RADAR_BELT_VIEW") && p.length == 2) {
+            RadarBeltTrackingSystem.applyClient(c.world, p[1]);
+            return;
+        }
+        if (p[0].equals("RADAR_BELT_RESULT") && p.length == 2) {
+            if ("OK".equals(p[1])) c.world.status = "Radar belt selection accepted by the server.";
+            else {
+                c.world.status = "Radar belt request rejected by server (ownership, belt, or tier limit).";
+                AlertCenter.push(c.world, c.world.status);
+            }
+            return;
+        }
         if (p[0].equals("FOG_STATE") && p.length == 2) {
             ServerFogOfWarState.applyClient(c.world, c.localPlayerId(), p[1]);
             return;

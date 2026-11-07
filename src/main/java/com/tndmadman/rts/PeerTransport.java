@@ -12,6 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -24,8 +25,11 @@ final class PeerTransport {
     private static final int MAX_CONTROL_FRAMES = 256;
     private static final int MAX_OUTBOUND_BYTES = 8 * 1024 * 1024;
     private static final int CONNECT_TIMEOUT_MS = 1_500;
-    private static final int SOCKET_IDLE_TIMEOUT_MS = 15_000;
+    // Socket I/O is a last-resort bound; application heartbeat and phase-specific
+    // authenticated startup/READY deadlines run at 20/30/90 seconds instead.
+    private static final int SOCKET_IDLE_TIMEOUT_MS = 95_000;
     private static final long RECONNECT_DELAY_MS = 250;
+    private static final long MAX_RECONNECT_DELAY_MS = 4_000;
     private static final int HANDSHAKE_THREADS = 4;
     private static final int HANDSHAKE_QUEUE = 32;
     private static final AtomicLong HANDSHAKE_THREAD_IDS = new AtomicLong();
@@ -332,7 +336,7 @@ final class PeerTransport {
     private String prepareClientMessage(String message) {
         if (message == null) return null;
         if (!serverMode && (message.startsWith("JOIN|") || message.startsWith("RESUME|"))) {
-            compatibilityAccepted = false;
+            // A handshake retransmission does not invalidate an accepted TCP generation.
             return MultiplayerCompatibility.versionClientHandshake(message);
         }
         return message;
@@ -350,7 +354,7 @@ final class PeerTransport {
 
     private String inspectServerInbound(String message, NetPacket packet) {
         ConnectionId id = packet.connectionId();
-        if (isHandshakeAttempt(message)) compatibleConnections.remove(id);
+        // Compatible duplicate handshakes must not suppress authenticated PING/READY.
         MultiplayerCompatibility.WireResult result = MultiplayerCompatibility.inspectClientHandshake(message);
         if (result.action() == MultiplayerCompatibility.WireAction.REJECT) {
             sendOrdered(result.detail(), id);
@@ -439,6 +443,8 @@ final class PeerTransport {
             endpointIndex.put(connection.endpoint, connection.id);
             handedOff = true;
             perfStats.recordConnectionOpened();
+            System.out.println("[CONNECTION][TLS_READY] id=" + connection.id
+                    + " role=SERVER phase=AUTHENTICATING endpoint=" + connection.endpoint);
             connection.start();
         } catch (IOException ex) {
             if (running) perfStats.recordConnectionRejected();
@@ -460,7 +466,7 @@ final class PeerTransport {
             for (TcpConnection connection : List.copyOf(connections.values())) {
                 if (!connection.authenticated() && preAuthGate.expired(connection.id, now)) {
                     perfStats.recordConnectionRejected();
-                    connection.close();
+                    connection.close("AUTHENTICATION_DEADLINE");
                 }
             }
             sleep(100);
@@ -468,6 +474,7 @@ final class PeerTransport {
     }
 
     private void connectLoop() {
+        long retryDelayMs = RECONNECT_DELAY_MS;
         while (running) {
   if (pendingServerFingerprintChange.get() != null) {
       sleep(100);
@@ -495,6 +502,9 @@ final class PeerTransport {
       pendingServerFingerprintChange.set(null);
       clientConnection = connection;
       perfStats.recordConnectionOpened();
+      retryDelayMs = RECONNECT_DELAY_MS;
+      System.out.println("[CONNECTION][TLS_READY] id=" + connection.id
+              + " role=CLIENT phase=AUTHENTICATING endpoint=" + connection.endpoint);
       connection.start();
   } catch (TlsIdentity.FingerprintChangedException ex) {
       closeQuietly(socket);
@@ -506,7 +516,10 @@ final class PeerTransport {
       clientConnectFailure.set(detail == null || detail.isBlank()
               ? ex.getClass().getSimpleName()
               : detail.trim());
-      sleep(RECONNECT_DELAY_MS);
+      System.err.println("[CONNECTION][TCP_CONNECT_FAILURE] phase=CONNECTING reason=IO_FAILURE"
+              + " retryDelayMs=" + retryDelayMs + " error=" + ex.getClass().getSimpleName());
+      sleep(retryDelayMs + ThreadLocalRandom.current().nextLong(Math.max(1L, retryDelayMs / 4)));
+      retryDelayMs = Math.min(MAX_RECONNECT_DELAY_MS, retryDelayMs * 2);
   }
         }
     }
@@ -566,6 +579,13 @@ final class PeerTransport {
 
     private void connectionClosed(TcpConnection connection) {
         perfStats.recordConnectionClosed();
+        System.out.println("[CONNECTION][SOCKET_CLOSE] id=" + connection.id
+                + " role=" + (serverMode ? "SERVER" : "CLIENT")
+                + " phase=" + (connection.authenticated() ? "AUTHENTICATED" : "PRE_AUTH")
+                + " reason=" + connection.closeReason.get()
+                + " elapsedMs=" + (System.currentTimeMillis() - connection.openedAt)
+                + " pendingFrames=" + connection.pendingFrames()
+                + " pendingBytes=" + connection.pendingBytes());
         compatibleConnections.remove(connection.id);
         inbound.discard(connection.id);
         if (serverMode) {
@@ -636,6 +656,8 @@ final class PeerTransport {
         private final Map<String, OutboundFrame> replaceableFrames = new LinkedHashMap<>();
         private final AtomicBoolean open = new AtomicBoolean(true);
         private final AtomicBoolean authenticated = new AtomicBoolean(!serverMode);
+        private final AtomicReference<String> closeReason = new AtomicReference<>("");
+        private final long openedAt = System.currentTimeMillis();
         private int controlFrameCount;
         private long queuedBytes;
         private long coalescedSnapshots;
@@ -664,6 +686,9 @@ final class PeerTransport {
             try { bytes = TcpFrameCodec.encode(message); }
             catch (IOException ex) {
                 perfStats.recordMalformedPacket();
+                System.err.println("[CONNECTION][FRAME_REJECTED] id=" + id
+                        + " delivery=" + deliveryClass + " reason=ENCODE_OR_FRAME_LIMIT");
+                if (message != null && SyncFrame.isView(message)) close("INITIAL_VIEW_FRAME_REJECTED");
                 return false;
             }
             String key = replaceableKey(deliveryClass);
@@ -698,7 +723,7 @@ final class PeerTransport {
             }
             if (closeSlow) {
                 perfStats.recordSlowConnectionClosed();
-                close();
+                close("OUTBOUND_QUEUE_PRESSURE");
                 return false;
             }
             return true;
@@ -751,7 +776,10 @@ final class PeerTransport {
             close();
         }
 
-        void close() {
+        void close() { close("LOCAL_CLOSE"); }
+
+        void close(String reason) {
+            closeReason.compareAndSet("", reason == null || reason.isBlank() ? "UNKNOWN" : reason);
             if (!open.compareAndSet(true, false)) return;
             closeQuietly(socket);
             synchronized (this) { notifyAll(); }
@@ -765,14 +793,18 @@ final class PeerTransport {
                             serverMode && !authenticated()
                                     ? MAX_PRE_AUTH_FRAME_BYTES
                                     : TcpFrameCodec.MAX_FRAME_BYTES);
-                    if (frame == null) break;
+                    if (frame == null) {
+                        closeReason.compareAndSet("", "REMOTE_EOF");
+                        break;
+                    }
                     receive(this, frame);
                 }
             } catch (SocketTimeoutException ignored) {
                 if (serverMode && !authenticated()) perfStats.recordConnectionRejected();
-                // Application heartbeats and snapshots normally keep healthy connections active.
+                closeReason.compareAndSet("", "SOCKET_READ_IDLE_TIMEOUT");
             } catch (IOException ex) {
                 if (open.get()) perfStats.recordMalformedPacket();
+                closeReason.compareAndSet("", "SOCKET_READ_" + ex.getClass().getSimpleName());
             } finally {
                 close();
             }
@@ -792,8 +824,8 @@ final class PeerTransport {
                         completeWrite();
                     }
                 }
-            } catch (IOException ignored) {
-                // Socket closure is the recovery signal.
+            } catch (IOException ex) {
+                closeReason.compareAndSet("", "SOCKET_WRITE_" + ex.getClass().getSimpleName());
             } finally {
                 close();
             }

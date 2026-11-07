@@ -1,5 +1,6 @@
 package com.tndmadman.rts;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -21,32 +22,82 @@ final class CelestialResourceBridge {
         STATES.put(state.celestials, state);
     }
 
+    static void unregister(WorldSystemState state) {
+        if (state == null) return;
+        synchronized (STATES) {
+            if (STATES.get(state.celestials) == state) STATES.remove(state.celestials);
+        }
+    }
+
+    static boolean registeredForTesting(WorldSystemState state) {
+        return state != null && STATES.get(state.celestials) == state;
+    }
+
     static void sync(List<ResourceNode> liveResources, CelestialSystem celestials) {
         if (liveResources == null || celestials == null) return;
         WorldSystemState state = STATES.get(celestials);
         if (state == null || liveResources == state.resources) return;
 
-        // Keep already-bridged nodes in the tactical list when a field seals. They become inactive
-        // in place, so depletion never removes list entries or forces a spatial/list rebuild.
+        // Rebuild membership from the live list every pass. IDs can enter through restoration,
+        // depletion, normal spawning or system activation, so a persistent membership cache would
+        // go stale. The per-system primitive scratch reuses storage without boxing/allocation.
+        IdScratch seen = state.resourceBridgeIds;
+        seen.reset(liveResources.size() + state.resources.size());
         for (ResourceNode node : liveResources) {
-            if (!isCelestial(node) || CelestialExtractionSystem.released(state, node.celestialAnchorBodyId)) continue;
-            node.active = false;
-            node.respawnTimer = 0;
+            if (node == null) continue;
+            seen.add(node.id);
+            // Depleted bodies retain the same object/ID; only mineability is disabled.
+            if (isCelestial(node) && !CelestialExtractionSystem.released(state, node.celestialAnchorBodyId)) {
+                node.active = false;
+                node.respawnTimer = 0;
+            }
         }
 
-        // Do not call celestials.update(0) from this render/simulation hot path. The normal celestial
-        // simulation pass owns deposit seeding. Calling a nested zero-delta celestial update here
-        // after the last rock depleted was doing a second full celestial gameplay pass on the exact
-        // frame the field disappeared and caused the remaining depletion hitch.
+        // Normal celestial simulation seeds persistent deposits. Do not recurse into update(0).
         for (ResourceNode node : state.resources) {
-            if (!isReleasedCelestial(state, node) || containsId(liveResources, node.id)) continue;
+            if (!isReleasedCelestial(state, node) || !seen.add(node.id)) continue;
             liveResources.add(node);
         }
     }
 
-    private static boolean containsId(List<ResourceNode> resources, int id) {
-        for (ResourceNode node : resources) if (node != null && node.id == id) return true;
-        return false;
+    /**
+     * Epoch-stamped open-addressed int set, sized for the current pass and reused by its owning
+     * WorldSystemState. It is NOT an incremental resource index: every sync scans actual live IDs.
+     * No object reference survives in this scratch, and no state can leak across worlds.
+     */
+    static final class IdScratch {
+        private int[] ids = new int[0];
+        private int[] generations = new int[0];
+        private int generation;
+
+        void reset(int entries) {
+            long needed = Math.max(8L, (long) Math.max(0, entries) * 2L);
+            if (needed > (1L << 29)) throw new IllegalArgumentException("Resource index too large");
+            int capacity = 8;
+            while (capacity < needed) capacity <<= 1;
+            if (capacity > ids.length) {
+                ids = new int[capacity];
+                generations = new int[capacity];
+                generation = 1;
+            } else if (++generation <= 0) {
+                Arrays.fill(generations, 0);
+                generation = 1;
+            }
+        }
+
+        boolean add(int id) {
+            int mask = ids.length - 1;
+            int slot = (id * 0x9E3779B9) & mask;
+            while (generations[slot] == generation) {
+                if (ids[slot] == id) return false;
+                slot = (slot + 1) & mask;
+            }
+            ids[slot] = id;
+            generations[slot] = generation;
+            return true;
+        }
+
+        int capacityForTesting() { return ids.length; }
     }
 
     private static boolean isReleasedCelestial(WorldSystemState state, ResourceNode node) {

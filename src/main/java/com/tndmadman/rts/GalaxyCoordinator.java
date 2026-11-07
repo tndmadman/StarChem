@@ -10,6 +10,8 @@ final class GalaxyCoordinator {
     private static final double WORMHOLE_COOLDOWN_SECONDS = 0.75;
 
     private final Map<String, WorldSystemState> systems = new LinkedHashMap<>();
+    // Immutable roster identity changes only when membership changes, not each simulation tick.
+    private List<String> simulationRoster;
     private final Map<String, String> playerHomes = new LinkedHashMap<>();
     private final Map<String, String> playerStartRegions = new LinkedHashMap<>();
     private List<String> startRegionCandidates = List.of();
@@ -21,7 +23,7 @@ final class GalaxyCoordinator {
 
     CelestialSystem rebuild(World world, StarSystemDefinition primary, long seed) {
         this.seed = seed;
-        systems.clear();
+        clearSystemRegistrations();
         playerHomes.clear();
         playerStartRegions.clear();
         startRegionCandidates = List.of();
@@ -46,6 +48,27 @@ final class GalaxyCoordinator {
         return activeCelestials();
     }
 
+    private void clearSystemRegistrations() {
+        for (WorldSystemState state : systems.values()) state.dispose();
+        systems.clear();
+        simulationRoster = null;
+    }
+
+    List<String> simulationSystemIds() {
+        if (simulationRoster == null) simulationRoster = List.copyOf(systems.keySet());
+        return simulationRoster;
+    }
+
+    void dispose(World world) {
+        clearSystemRegistrations();
+        playerHomes.clear();
+        playerStartRegions.clear();
+        startRegionCandidates = List.of();
+        activeSystemId = null;
+        entrySystemId = null;
+        clearWorld(world);
+    }
+
     private void clearWorld(World world) {
         UnitCommandQueueSystem.clearWorld(world);
         world.resources.clear();
@@ -59,6 +82,8 @@ final class GalaxyCoordinator {
     String activeSystemId() { return activeSystemId; }
     String activeControllerId() { WorldSystemState state = active(); return state == null ? "" : state.control.controllerId(); }
     CelestialSystem activeCelestials() { WorldSystemState state = active(); return state == null ? null : state.celestials; }
+    StarSystemDefinition activeDefinition() { WorldSystemState state = active(); return state == null ? null : state.definition; }
+    WorldSystemState stateForRadarTracking(String id) { return id == null ? null : systems.get(id); }
     double activeSystemTime() { WorldSystemState state = active(); return state == null ? 0 : state.systemTime; }
     void setActiveSystemTime(double time) { WorldSystemState state = active(); if (state != null) state.systemTime = Math.max(0, time); }
 
@@ -81,7 +106,16 @@ final class GalaxyCoordinator {
 
     CelestialSystem restoreSave(World world, Map<String,Object> save) {
         if (save == null) throw new IllegalArgumentException("Save is missing galaxy data.");
-        systems.clear();
+        // Reject duplicate IDs before tearing down a valid live world. Other malformed
+        // restoration failures still dispose partially constructed replacement systems.
+        List<Object> savedSystemRows = ServerSaveStore.list(save.get("systems"));
+        Set<String> savedIds = new HashSet<>();
+        for (Object item : savedSystemRows) {
+            String id = ServerSaveStore.string(ServerSaveStore.object(item), "systemId", "");
+            if (!id.isBlank() && !savedIds.add(id))
+                throw new IllegalArgumentException("Duplicate system ID in restored galaxy: " + id);
+        }
+        clearSystemRegistrations();
         playerHomes.clear();
         playerStartRegions.clear();
         startRegionCandidates = List.of();
@@ -102,7 +136,15 @@ final class GalaxyCoordinator {
         }
         startRegionCandidates = List.copyOf(restoredCandidates);
         proceduralStartRegions = ServerSaveStore.boolValue(save, "proceduralStartRegions", false);
-        for (Object item : ServerSaveStore.list(save.get("systems"))) restoreSystem(world, ServerSaveStore.object(item));
+        try {
+            for (Object item : savedSystemRows) {
+                restoreSystem(world, ServerSaveStore.object(item));
+            }
+        } catch (RuntimeException malformed) {
+            // A rejected save must not strand partially restored states in static registries.
+            clearSystemRegistrations();
+            throw malformed;
+        }
         playerHomes.entrySet().removeIf(entry -> !systems.containsKey(entry.getValue()));
         playerStartRegions.entrySet().removeIf(entry -> !systems.containsKey(entry.getValue()));
         if (proceduralStartRegions) {
@@ -411,8 +453,29 @@ final class GalaxyCoordinator {
         g2.setColor(new Color(9, 15, 24));
         g2.fillRect(0, 0, width, height);
         g2.setColor(new Color(22, 33, 48));
-        for (int x = 0; x <= width; x += 160) g2.drawLine(x, 0, x, height);
-        for (int y = 0; y <= height; y += 160) g2.drawLine(0, y, width, y);
+        // Grid strokes are invariant in world coordinates. Clipping the iteration
+        // to the actual viewport avoids issuing hundreds of invisible Java2D
+        // drawLine calls at distant camera positions and small zoom factors.
+        // The containing fill, stroke positions, and paint order stay unchanged.
+        Rectangle clip = g2.getClipBounds();
+        if (clip != null) {
+            long minX = Math.max(0L, (long) clip.x);
+            long minY = Math.max(0L, (long) clip.y);
+            long maxX = Math.min((long) width, (long) clip.x + clip.width);
+            long maxY = Math.min((long) height, (long) clip.y + clip.height);
+            if (minX <= maxX && minY <= maxY) {
+                long firstX = ((minX + 159L) / 160L) * 160L;
+                long firstY = ((minY + 159L) / 160L) * 160L;
+                for (long x = firstX; x <= maxX; x += 160L)
+                    g2.drawLine((int) x, 0, (int) x, height);
+                for (long y = firstY; y <= maxY; y += 160L)
+                    g2.drawLine(0, (int) y, width, (int) y);
+            }
+        } else {
+            // Graphics contexts without a clip preserve the legacy full map.
+            for (int x = 0; x <= width; x += 160) g2.drawLine(x, 0, x, height);
+            for (int y = 0; y <= height; y += 160) g2.drawLine(0, y, width, y);
+        }
         WorldSystemState state = active();
         if (state != null) {
             g2.setColor(new Color(220, 238, 250, 190));
@@ -467,7 +530,13 @@ final class GalaxyCoordinator {
         Base best = null;
         double bestDist = Double.MAX_VALUE;
         for (Base base : world.bases.values()) {
-            if (!base.playerId.equals(playerId)) continue;
+            if (!base.playerId.equals(playerId) || base.hp <= 0) continue;
+            // Mining/hauler unloads must target an actual storage facility.
+            // Fresh commanders also own a radar picket; radar, jammer and
+            // decoy inventories must not siphon cargo away from the Outpost.
+            String role = StationControls.role(base.typeId);
+            if (!("production".equals(role) || "extractor".equals(role))
+                    || base.type().unloadRate <= 0 || base.type().unloadRange <= 0) continue;
             double d = Calc.distance(x, y, base.x, base.y);
             if (d < bestDist) { best = base; bestDist = d; }
         }
@@ -657,6 +726,7 @@ final class GalaxyCoordinator {
         WorldSystemState state = new WorldSystemState(id, templateId, definition, lifetime, initialControllerId, celestials);
         nextResourceId = ResourceSpawner.seed(state.resources, celestials, systemRandom, nextResourceId, definition.resourceBelts());
         systems.put(id, state);
+        simulationRoster = null;
         return state;
     }
 
@@ -685,7 +755,11 @@ final class GalaxyCoordinator {
     }
 
     private void deleteSystems(World world, Set<String> deleted) {
-        for (String systemId : deleted) systems.remove(systemId);
+        for (String systemId : deleted) {
+            WorldSystemState removed = systems.remove(systemId);
+            if (removed != null) removed.dispose();
+        }
+        simulationRoster = null;
         playerHomes.values().removeIf(deleted::contains);
         playerStartRegions.values().removeIf(deleted::contains);
         for (WorldSystemState state : systems.values()) state.wormholes.removeIf(gate -> deleted.contains(gate.toSystemId));
@@ -802,6 +876,8 @@ final class GalaxyCoordinator {
         out.put("control", captureControl(state.control));
         out.put("wormholes", captureWormholes(state.wormholes));
         out.put("resources", captureResources(state.resources));
+        out.put("radarBeltSelections", RadarBeltTrackingSystem.capture(state));
+        out.put("radarSearchTargets", RadarBeltTrackingSystem.captureSearchTargets(state));
         out.put("units", captureUnits(world, state.units.values()));
         out.put("bases", captureBases(state.bases.values()));
         out.put("projectiles", captureShots(state.shots));
@@ -812,20 +888,31 @@ final class GalaxyCoordinator {
     private void restoreSystem(World world, Map<String,Object> data) {
         String id = ServerSaveStore.string(data, "systemId", "");
         if (id.isBlank()) return;
+        if (systems.containsKey(id)) {
+            throw new IllegalArgumentException("Duplicate system ID in restored galaxy: " + id);
+        }
         String templateId = SaveContentResolver.systemTemplateId(ServerSaveStore.string(data, "templateId", id));
         StarSystemDefinition definition = StarSystems.get(templateId);
         SystemLifetime lifetime = ServerSaveStore.enumValue(SystemLifetime.class, data.get("lifetime"), SystemLifetime.STATIC);
         WorldSystemState state = new WorldSystemState(id, templateId, definition, lifetime, "", new CelestialSystem(definition, new Random(seed ^ ((long)id.hashCode() << 21) ^ definition.id().hashCode())));
-        state.systemTime = Math.max(0, ServerSaveStore.doubleValue(data, "systemTime", 0));
-        if (state.systemTime > 0) state.celestials.update(state.systemTime);
-        restoreControl(state.control, ServerSaveStore.object(data.get("control")));
-        state.wormholes.addAll(restoreWormholes(ServerSaveStore.list(data.get("wormholes"))));
-        state.resources.addAll(restoreResources(ServerSaveStore.list(data.get("resources"))));
-        state.units.putAll(restoreUnits(world, ServerSaveStore.list(data.get("units"))));
-        state.bases.putAll(restoreBases(world, ServerSaveStore.list(data.get("bases"))));
-        state.shots.addAll(restoreShots(ServerSaveStore.list(data.get("projectiles"))));
-        state.items.addAll(restoreItems(ServerSaveStore.list(data.get("worldItems"))));
-        systems.put(id, state);
+        try {
+            state.systemTime = Math.max(0, ServerSaveStore.doubleValue(data, "systemTime", 0));
+            if (state.systemTime > 0) state.celestials.update(state.systemTime);
+            restoreControl(state.control, ServerSaveStore.object(data.get("control")));
+            state.wormholes.addAll(restoreWormholes(ServerSaveStore.list(data.get("wormholes"))));
+            state.resources.addAll(restoreResources(ServerSaveStore.list(data.get("resources")), definition, state.systemTime));
+            state.units.putAll(restoreUnits(world, ServerSaveStore.list(data.get("units"))));
+            state.bases.putAll(restoreBases(world, ServerSaveStore.list(data.get("bases"))));
+            RadarBeltTrackingSystem.restore(state, data.get("radarBeltSelections"));
+            RadarBeltTrackingSystem.restoreSearchTargets(state, data.get("radarSearchTargets"));
+            state.shots.addAll(restoreShots(ServerSaveStore.list(data.get("projectiles"))));
+            state.items.addAll(restoreItems(ServerSaveStore.list(data.get("worldItems"))));
+            systems.put(id, state);
+            simulationRoster = null;
+        } catch (RuntimeException malformed) {
+            state.dispose();
+            throw malformed;
+        }
     }
 
     private Map<String,Object> captureControl(SystemControlState control) {
@@ -880,12 +967,17 @@ final class GalaxyCoordinator {
             row.put("active", node.active); row.put("orbiting", node.orbiting); row.put("orbitCenterX", node.orbitCenterX);
             row.put("orbitCenterY", node.orbitCenterY); row.put("orbitRadius", node.orbitRadius); row.put("orbitAngle", node.orbitAngle);
             row.put("orbitSpeed", node.orbitSpeed);
+            row.put("celestialAnchorBodyId", node.celestialAnchorBodyId);
+            if (node.resourceBeltId != null && !node.resourceBeltId.isBlank()) {
+                row.put("resourceBeltId", node.resourceBeltId);
+                row.put("resourceBeltCenterAngle", node.resourceBeltCenterAngle);
+            }
             out.add(row);
         }
         return out;
     }
 
-    private List<ResourceNode> restoreResources(List<Object> rows) {
+    private List<ResourceNode> restoreResources(List<Object> rows, StarSystemDefinition definition, double systemTime) {
         List<ResourceNode> out = new ArrayList<>();
         for (Object item : rows) {
             Map<String,Object> row = ServerSaveStore.object(item);
@@ -905,8 +997,12 @@ final class GalaxyCoordinator {
             node.orbitRadius = ServerSaveStore.doubleValue(row, "orbitRadius", 0);
             node.orbitAngle = ServerSaveStore.doubleValue(row, "orbitAngle", 0);
             node.orbitSpeed = ServerSaveStore.doubleValue(row, "orbitSpeed", 0);
+            node.celestialAnchorBodyId = ServerSaveStore.string(row, "celestialAnchorBodyId", "");
+            node.resourceBeltId = ServerSaveStore.string(row, "resourceBeltId", "");
+            node.resourceBeltCenterAngle = ServerSaveStore.doubleValue(row, "resourceBeltCenterAngle", Double.NaN);
             out.add(node);
         }
+        ResourceRingPlacement.migrateLoaded(out, definition, systemTime);
         return out;
     }
 

@@ -20,6 +20,9 @@ final class LobbyPanel extends JPanel {
     private final JComboBox<StarSystemDefinition> systemBox = new JComboBox<>();
     private final JComboBox<Integer> galaxyCopiesBox = new JComboBox<>(new Integer[]{1, 2});
     private final JCheckBox proceduralGalaxyBox = new JCheckBox("Procedural galaxy");
+    private final JSpinner startingMinersSpinner = new JSpinner(new SpinnerNumberModel(
+            StartingFleetSettings.DEFAULT_PROSPECTORS,
+            StartingFleetSettings.MIN_PROSPECTORS, StartingFleetSettings.MAX_PROSPECTORS, 1));
     private final JComboBox<GalaxySizePreset> galaxySizeBox = new JComboBox<>(GalaxySizePreset.values());
     private final JComboBox<GalaxyTopologyStyle> galaxyTopologyBox = new JComboBox<>(GalaxyTopologyStyle.values());
     private final JTextField galaxySeedField = new JTextField("random", 18);
@@ -57,6 +60,21 @@ final class LobbyPanel extends JPanel {
         styleField(addressField);
         styleField(portField);
         styleField(galaxySeedField);
+        // NumberEditor uses a formatted field whose unrestricted preferred width
+        // can make the whole GridBag form wider than the viewport after typing.
+        // Keep the editor compact; validation still happens on launch.
+        JSpinner.NumberEditor minerEditor = new JSpinner.NumberEditor(startingMinersSpinner, "#");
+        startingMinersSpinner.setEditor(minerEditor);
+        JFormattedTextField minerText = minerEditor.getTextField();
+        minerText.setColumns(3);
+        minerText.setHorizontalAlignment(SwingConstants.RIGHT);
+        minerText.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override public void focusGained(java.awt.event.FocusEvent event) {
+                SwingUtilities.invokeLater(() -> {
+                    if (minerText.isFocusOwner()) minerText.selectAll();
+                });
+            }
+        });
         styleServerList(lanServerList);
         styleServerList(recentServerList);
         styleCombo(systemBox);
@@ -114,7 +132,10 @@ final class LobbyPanel extends JPanel {
         header.add(title);
         header.add(subtitle);
 
-        JButton solo = new MenuButton("SOLO");
+        JButton guided = new MenuButton("LEARN TO PLAY — GUIDED START");
+        JButton solo = new MenuButton("NEW SOLO / CUSTOM");
+        JButton continueGame = new MenuButton("CONTINUE GAME");
+        JButton loadGame = new MenuButton("LOAD GAME");
         JButton connect = new MenuButton("JOIN");
         JButton refresh = new MenuButton("REFRESH LAN");
         JButton codex = new MenuButton("CODEX");
@@ -135,15 +156,20 @@ final class LobbyPanel extends JPanel {
         statusRow.add(statusLabel, BorderLayout.CENTER);
         footer.add(statusRow, BorderLayout.NORTH);
 
-        JPanel buttons = new JPanel(new GridLayout(2, 3, 8, 8));
+        JPanel buttons = new JPanel(new GridLayout(3, 3, 8, 8));
         buttons.setOpaque(false);
+        buttons.add(continueGame);
         buttons.add(solo);
+        buttons.add(loadGame);
         buttons.add(connect);
         buttons.add(refresh);
         buttons.add(codex);
         buttons.add(clearSignIns);
         buttons.add(settings);
-        footer.add(buttons, BorderLayout.CENTER);
+        buttons.add(new JLabel());
+        guided.setToolTipText("Peaceful economic introduction: mining, industry, research, and your first Hauler.");
+        footer.add(guided, BorderLayout.CENTER);
+        footer.add(buttons, BorderLayout.SOUTH);
 
         MenuCardPanel card = new MenuCardPanel(new BorderLayout(0, 14));
         card.setBorder(BorderFactory.createEmptyBorder(22, 28, 22, 28));
@@ -152,7 +178,10 @@ final class LobbyPanel extends JPanel {
         card.add(footer, BorderLayout.SOUTH);
         add(card, BorderLayout.CENTER);
 
+        guided.addActionListener(e -> launchGuidedSolo());
         solo.addActionListener(e -> launchSolo());
+        continueGame.addActionListener(e -> owner.continueSolo());
+        loadGame.addActionListener(e -> owner.openSoloLoadDialog());
         connect.addActionListener(e -> startClient());
         refresh.addActionListener(e -> refreshLanServers());
         codex.addActionListener(e -> owner.toggleCodexFromLobby());
@@ -217,22 +246,31 @@ final class LobbyPanel extends JPanel {
         pane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
         pane.getVerticalScrollBar().setUnitIncrement(18);
         pane.setMinimumSize(new Dimension(0, 120));
+        pane.getViewport().addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override public void componentResized(java.awt.event.ComponentEvent event) {
+                // Revalidate the actual form whenever its viewport changes.
+                // A shrink must not leave the GridBag fields stuck at their
+                // previous narrow widths when the launcher grows again.
+                grid.revalidate();
+                grid.repaint();
+            }
+        });
         return pane;
     }
 
     private JPanel createSettingsGrid() {
-        JPanel grid = new JPanel(new GridBagLayout());
-        grid.setOpaque(false);
+        JPanel grid = new SettingsGrid();
         int row = 0;
         addFormRow(grid, row++, "Commander name", nameField);
         addFormRow(grid, row++, "Address", addressField);
         addFormRow(grid, row++, "Port", portField);
         addFormRow(grid, row++, "JOIN accounts",
-                help("Remote: sign in to an existing commander. Local: an unused name creates one."));
+                wrappingHelp("Remote: sign in to an existing commander. Local: an unused name creates one."));
         addFormRow(grid, row++, "JOIN role", observerBox);
         addFormRow(grid, row++, "Observer access",
-                help("Observer requires a server invitation and uses the server-selected PUBLIC, FOLLOW, or FULL visibility policy."));
+                wrappingHelp("Observer requires a server invitation and uses the server-selected PUBLIC, FOLLOW, or FULL visibility policy."));
         addFormRow(grid, row++, "Solo starting home", systemBox);
+        addFormRow(grid, row++, "Starting Prospectors (1-50)", startingMinersSpinner);
         addFormRow(grid, row++, "Solo galaxy copies", galaxyCopiesBox);
         addFormRow(grid, row++, "Solo procedural galaxy", proceduralGalaxyBox);
         addFormRow(grid, row++, "Solo galaxy size", galaxySizeBox);
@@ -250,6 +288,25 @@ final class LobbyPanel extends JPanel {
         addFormRow(grid, row++, "", spawnFreeMinersBox);
         addFormRow(grid, row, "", spawnCorsairsBox);
         return grid;
+    }
+
+    /** Bound the settings content to the available viewport even under DPI scaling. */
+    private static final class SettingsGrid extends JPanel implements Scrollable {
+        SettingsGrid() {
+            super(new GridBagLayout());
+            setOpaque(false);
+        }
+
+        @Override public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
+        @Override public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) {
+            return 18;
+        }
+        @Override public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) {
+            return Math.max(18, orientation == SwingConstants.VERTICAL
+                    ? visible.height - 18 : visible.width - 18);
+        }
+        @Override public boolean getScrollableTracksViewportWidth() { return true; }
+        @Override public boolean getScrollableTracksViewportHeight() { return false; }
     }
 
     private JPanel diplomacyRulesPanel() {
@@ -311,6 +368,19 @@ final class LobbyPanel extends JPanel {
         label.setForeground(UiPalette.TEXT_MUTED);
         label.setFont(label.getFont().deriveFont(Font.PLAIN, 11f));
         return label;
+    }
+
+    private JTextArea wrappingHelp(String text) {
+        JTextArea help = new JTextArea(text, 2, 32);
+        help.setLineWrap(true);
+        help.setWrapStyleWord(true);
+        help.setEditable(false);
+        help.setFocusable(false);
+        help.setOpaque(false);
+        help.setForeground(UiPalette.TEXT_MUTED);
+        help.setFont(help.getFont().deriveFont(Font.PLAIN, 11f));
+        help.setBorder(BorderFactory.createEmptyBorder());
+        return help;
     }
 
     private void styleField(JTextField field) {
@@ -485,7 +555,35 @@ final class LobbyPanel extends JPanel {
         galaxyPreviewButton.setEnabled(procedural);
     }
 
+    private int selectedStartingProspectors() {
+        try {
+            // Commit text edits before launching; never silently reuse an
+            // earlier count when the operator has typed an invalid value.
+            startingMinersSpinner.commitEdit();
+        } catch (java.text.ParseException ex) {
+            throw new IllegalArgumentException("Starting Prospectors must be 1-50.");
+        }
+        Object selected = startingMinersSpinner.getValue();
+        return StartingFleetSettings.parseCount(String.valueOf(selected));
+    }
+
+    private void launchGuidedSolo() {
+        try {
+            // A deliberately explicit preset, not an invisible mutation of
+            // custom skirmish choices or a developer free-build shortcut.
+            ScenarioLaunch.selectForSolo("guided_start");
+            GalaxyRuntimeOptions.configureGeneration(GalaxyGenerationSettings.legacy(1), 0L);
+            SkirmishSettings peaceful = ScenarioLaunch.adjustSkirmish(SkirmishSettings.standard());
+            owner.launchNewSoloGame(Config.solo(nameField.getText(), false, peaceful,
+                    "sol_standard", 1).withStartingMiners(selectedStartingProspectors()));
+        } catch (RuntimeException ex) {
+            ScenarioLaunch.consume();
+            setStatus(ex.getMessage() == null ? "Could not launch Guided Start." : ex.getMessage());
+        }
+    }
+
     private void launchSolo() {
+        ScenarioLaunch.selectForSolo("");
         try {
             if (proceduralGalaxyBox.isSelected()) {
                 long seed = GalaxyMatchSetup.seed(galaxySeedField.getText());
@@ -496,8 +594,9 @@ final class LobbyPanel extends JPanel {
             } else {
                 GalaxyRuntimeOptions.configureGeneration(GalaxyGenerationSettings.legacy(selectedGalaxyCopies()), 0L);
             }
-            owner.launchGame(Config.solo(nameField.getText(), devBox.isSelected(),
-                    selectedSkirmishSettings(), selectedSystemId(), selectedGalaxyCopies()));
+            owner.launchNewSoloGame(Config.solo(nameField.getText(), devBox.isSelected(),
+                    selectedSkirmishSettings(), selectedSystemId(), selectedGalaxyCopies())
+                    .withStartingMiners(selectedStartingProspectors()));
         } catch (RuntimeException ex) {
             setStatus(ex.getMessage() == null ? "Could not start solo galaxy." : ex.getMessage());
         }
