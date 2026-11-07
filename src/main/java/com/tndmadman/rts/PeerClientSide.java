@@ -106,7 +106,8 @@ final class PeerClientSide {
     int syncTransitions() { return syncTransitions; }
     void duplicateHandshakeForTest() {
         if (state == ConnectionState.CONNECTED || state == ConnectionState.SYNCING) {
-            sendControlToServer(sessionToken.isBlank() ? joinMessage() : resumeMessage());
+            sendControlToServer(joinMessage());
+            if (!sessionToken.isBlank()) sendControlToServer(resumeMessage());
         }
     }
     String viewedSystemId() { return viewedSystemId; }
