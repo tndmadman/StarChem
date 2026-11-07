@@ -31,6 +31,9 @@ final class ResourceFieldRenderer {
     private static final long MAX_NODE_CACHE_BYTES = 32L * 1024L * 1024L;
     private static final int NODE_AMOUNT_STEPS = 16;
     private static final int NODE_PADDING = 7;
+    // Source sprites are always alpha composited (often bilinearly enlarged). Keeping
+    // their cached pixels premultiplied avoids Java2D per-blit color conversion;
+    // the world-space dimensions, LOD, and fully transparent crop stay unchanged.
 
     private static final Map<SpriteKey, FieldSprite> FIELD_CACHE = new LinkedHashMap<>(64, 0.75f, true) {
         @Override protected boolean removeEldestEntry(Map.Entry<SpriteKey, FieldSprite> eldest) {
@@ -132,7 +135,7 @@ final class ResourceFieldRenderer {
             case MEDIUM -> 84;
             case NEAR -> 104;
         };
-        BufferedImage image = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        BufferedImage image = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB_PRE);
         Graphics2D g = image.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         Random random = new Random(seed(key));
@@ -185,7 +188,7 @@ final class ResourceFieldRenderer {
             case MEDIUM -> 104;
             case NEAR -> 124;
         };
-        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB_PRE);
         Graphics2D g = image.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
@@ -316,7 +319,7 @@ final class ResourceFieldRenderer {
         if ((worldWidth & 1) != 0) worldWidth++;
         if ((worldHeight & 1) != 0) worldHeight++;
 
-        BufferedImage image = new BufferedImage(worldWidth, worldHeight, BufferedImage.TYPE_INT_ARGB);
+        BufferedImage image = new BufferedImage(worldWidth, worldHeight, BufferedImage.TYPE_INT_ARGB_PRE);
         Graphics2D g = image.createGraphics();
         try {
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
