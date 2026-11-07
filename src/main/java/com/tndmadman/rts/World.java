@@ -133,6 +133,7 @@ final class World {
     void dispose() {
         // The same world-scoped cleanup must run for solo clients and dedicated servers.
         WorldRuntimeCleanup.discard(this);
+        RadarBeltTrackingSystem.clear(this);
         galaxy.dispose(this);
         remoteGalaxyMapSnapshot = null;
         celestials = null;
@@ -211,8 +212,9 @@ final class World {
         if (celestials != null) celestials.update(0);
     }
     List<WorldSystemState> policySystemStates() { return galaxy.systemStates(this); }
+    WorldSystemState radarBeltState(String systemId) { return galaxy.stateForRadarTracking(systemId); }
     Map<String,Object> captureServerSaveGalaxy() { return galaxy.captureSave(this); }
-    void restoreServerSaveGalaxy(Map<String,Object> save) { proceduralInactiveScheduler.reset(); celestials = galaxy.restoreSave(this, save); systemTime = galaxy.activeSystemTime(); selectedResourceId = -1; }
+    void restoreServerSaveGalaxy(Map<String,Object> save) { proceduralInactiveScheduler.reset(); RadarBeltTrackingSystem.clear(this); celestials = galaxy.restoreSave(this, save); systemTime = galaxy.activeSystemTime(); selectedResourceId = -1; }
     Map<String,Object> captureServerSaveRuntime() {
         Map<String,Object> out = new LinkedHashMap<>();
         out.put("simulationScheduler", SystemSimulationScheduler.capture(this));

@@ -11,6 +11,8 @@ final class WorldSystemState {
     final SystemControlPoint controlPoint;
     final CelestialSystem celestials;
     final List<ResourceNode> resources = new ArrayList<>();
+    // Missing radar key initializes template-order defaults; present empty preserves a player's Clear.
+    final Map<String, LinkedHashSet<String>> radarBeltSelections = new LinkedHashMap<>();
     // Per-system, reusable scratch; never an authoritative index or a cross-world registry.
     final CelestialResourceBridge.IdScratch resourceBridgeIds = new CelestialResourceBridge.IdScratch();
     final Map<String, Unit> units = new LinkedHashMap<>();

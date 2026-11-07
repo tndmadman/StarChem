@@ -83,6 +83,7 @@ final class GalaxyCoordinator {
     String activeControllerId() { WorldSystemState state = active(); return state == null ? "" : state.control.controllerId(); }
     CelestialSystem activeCelestials() { WorldSystemState state = active(); return state == null ? null : state.celestials; }
     StarSystemDefinition activeDefinition() { WorldSystemState state = active(); return state == null ? null : state.definition; }
+    WorldSystemState stateForRadarTracking(String id) { return id == null ? null : systems.get(id); }
     double activeSystemTime() { WorldSystemState state = active(); return state == null ? 0 : state.systemTime; }
     void setActiveSystemTime(double time) { WorldSystemState state = active(); if (state != null) state.systemTime = Math.max(0, time); }
 
@@ -875,6 +876,7 @@ final class GalaxyCoordinator {
         out.put("control", captureControl(state.control));
         out.put("wormholes", captureWormholes(state.wormholes));
         out.put("resources", captureResources(state.resources));
+        out.put("radarBeltSelections", RadarBeltTrackingSystem.capture(state));
         out.put("units", captureUnits(world, state.units.values()));
         out.put("bases", captureBases(state.bases.values()));
         out.put("projectiles", captureShots(state.shots));
@@ -900,6 +902,7 @@ final class GalaxyCoordinator {
             state.resources.addAll(restoreResources(ServerSaveStore.list(data.get("resources")), definition, state.systemTime));
             state.units.putAll(restoreUnits(world, ServerSaveStore.list(data.get("units"))));
             state.bases.putAll(restoreBases(world, ServerSaveStore.list(data.get("bases"))));
+            RadarBeltTrackingSystem.restore(state, data.get("radarBeltSelections"));
             state.shots.addAll(restoreShots(ServerSaveStore.list(data.get("projectiles"))));
             state.items.addAll(restoreItems(ServerSaveStore.list(data.get("worldItems"))));
             systems.put(id, state);
