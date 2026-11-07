@@ -32,13 +32,22 @@ final class StationControls {
 
     static RadarSearchTarget radarSearchTarget(World world, Base radar) {
         if (world == null || radar == null || !IntelWarfareSystem.isRadar(radar.typeId)) return RadarSearchTarget.AREA;
-        return systemState(world).radarSearchTargets.getOrDefault(radar.id, RadarSearchTarget.AREA);
+        Boolean paused = RadarBeltTrackingSystem.remotePaused(world, radar);
+        if (paused != null) return paused ? RadarSearchTarget.WORMHOLES : RadarSearchTarget.AREA;
+        return radarSearchTargetForSystem(world.radarBeltState(world.activeSystemId()), radar);
     }
 
     static boolean setRadarSearchTarget(World world, Base radar, RadarSearchTarget target) {
         if (world == null || radar == null || target == null || !IntelWarfareSystem.isRadar(radar.typeId)) return false;
-        systemState(world).radarSearchTargets.put(radar.id, target);
+        WorldSystemState state = world.radarBeltState(world.activeSystemId());
+        if (state == null || radar.hp <= 0 || world.bases.get(radar.id) != radar) return false;
+        state.radarSearchTargets.put(radar.id, target);
         return true;
+    }
+
+    static RadarSearchTarget radarSearchTargetForSystem(WorldSystemState state, Base radar) {
+        return state == null || radar == null ? RadarSearchTarget.AREA
+                : state.radarSearchTargets.getOrDefault(radar.id, RadarSearchTarget.AREA);
     }
 
     static double wormholeSearchRange(World world, Base radar) {
@@ -278,7 +287,7 @@ final class StationControlCommands {
     static boolean apply(World world, String playerId, String baseId, String action, String value) {
         if (world == null || playerId == null || baseId == null || action == null) return false;
         Base base = world.bases.get(baseId);
-        if (base == null || !playerId.equals(base.playerId)) return false;
+        if (base == null || base.hp <= 0 || !playerId.equals(base.playerId)) return false;
         String command = action.trim().toUpperCase(Locale.ROOT);
         if (command.startsWith("LOG_ROUTE_")) {
             return LogisticsRouteSystem.applyCommand(world, playerId, baseId, command, value);
@@ -286,6 +295,8 @@ final class StationControlCommands {
         if (!StationControls.nonProduction(base.typeId)) return false;
         boolean changed = switch (command) {
             case "RADAR_SEARCH_TARGET" -> StationControls.setRadarSearchTarget(world, base, radarSearchTarget(value));
+            case "RADAR_BELT_SELECT", "RADAR_BELT_ADD", "RADAR_BELT_REMOVE", "RADAR_BELT_CLEAR" ->
+                    RadarBeltTrackingSystem.apply(world, base, command, value);
             case "RADAR_PRIORITY_TOP" -> StationControls.putRadarPriorityFirst(world, base, material(value));
             case "RADAR_PRIORITY_UP" -> StationControls.moveRadarPriority(world, base, material(value), -1);
             case "RADAR_PRIORITY_DOWN" -> StationControls.moveRadarPriority(world, base, material(value), 1);
@@ -318,6 +329,7 @@ final class StationControlCommands {
                     ? " is focusing on wormhole signatures; general area exploration is paused."
                     : " resumed general area exploration.");
         }
+        if (action.startsWith("RADAR_BELT")) return base.type().name + " orbital belt selections updated.";
         if (action.startsWith("RADAR_PRIORITY")) {
             if ("RADAR_PRIORITY_CLEAR".equals(action)) return base.type().name + " resource priorities cleared.";
             Material material = material(value);

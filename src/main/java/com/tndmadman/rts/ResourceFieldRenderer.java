@@ -13,6 +13,7 @@ import java.awt.geom.Ellipse2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.Point2D;
 import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferInt;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -30,9 +31,12 @@ final class ResourceFieldRenderer {
     private static final long MAX_NODE_CACHE_BYTES = 32L * 1024L * 1024L;
     private static final int NODE_AMOUNT_STEPS = 16;
     private static final int NODE_PADDING = 7;
+    // Source sprites are always alpha composited (often bilinearly enlarged). Keeping
+    // their cached pixels premultiplied avoids Java2D per-blit color conversion;
+    // the world-space dimensions, LOD, and fully transparent crop stay unchanged.
 
-    private static final Map<SpriteKey, BufferedImage> FIELD_CACHE = new LinkedHashMap<>(64, 0.75f, true) {
-        @Override protected boolean removeEldestEntry(Map.Entry<SpriteKey, BufferedImage> eldest) {
+    private static final Map<SpriteKey, FieldSprite> FIELD_CACHE = new LinkedHashMap<>(64, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<SpriteKey, FieldSprite> eldest) {
             return size() > MAX_CACHE_ENTRIES;
         }
     };
@@ -59,6 +63,10 @@ final class ResourceFieldRenderer {
      */
     static void drawAll(Graphics2D source, Iterable<ResourceNode> nodes, int selectedResourceId) {
         if (source == null || nodes == null) return;
+        // Empty resource passes are common (background and every fleet
+        // benchmark). Avoid a whole Graphics2D clone and quality-hint setup
+        // when there are zero resource pixels to render.
+        if (nodes instanceof java.util.Collection<?> collection && collection.isEmpty()) return;
         Graphics2D g = (Graphics2D) source.create();
         try {
             configure(g);
@@ -102,20 +110,23 @@ final class ResourceFieldRenderer {
     private static void drawFieldSprite(Graphics2D g, ResourceNode node, Lod lod) {
         int variant = Math.floorMod(node.id * 37 + node.material.ordinal() * 11, 24);
         SpriteKey key = new SpriteKey(node.kind, node.material, variant, depletionBucket(node), lod);
-        BufferedImage sprite = cachedSprite(key);
-        double width = sprite.getWidth();
-        double height = sprite.getHeight();
-        g.drawImage(sprite,
-                (int)Math.round(node.x - width / 2.0),
-                (int)Math.round(node.y - height / 2.0), null);
+        FieldSprite sprite = cachedSprite(key);
+        double width = sprite.worldWidth();
+        double height = sprite.worldHeight();
+        g.drawImage(sprite.image(),
+                (int)Math.round(node.x - width / 2.0) + sprite.cropX(),
+                (int)Math.round(node.y - height / 2.0) + sprite.cropY(), null);
     }
 
-    private static synchronized BufferedImage cachedSprite(SpriteKey key) {
-        BufferedImage cached = FIELD_CACHE.get(key);
+    private static synchronized FieldSprite cachedSprite(SpriteKey key) {
+        FieldSprite cached = FIELD_CACHE.get(key);
         if (cached != null) return cached;
         BufferedImage created = key.kind == NodeKind.GAS_CLOUD ? createGasField(key) : createAsteroidField(key);
-        FIELD_CACHE.put(key, created);
-        return created;
+        CroppedSprite cropped = cropAlphaPadding(created);
+        FieldSprite sprite = new FieldSprite(cropped.image(), created.getWidth(),
+                created.getHeight(), cropped.x(), cropped.y());
+        FIELD_CACHE.put(key, sprite);
+        return sprite;
     }
 
     private static BufferedImage createAsteroidField(SpriteKey key) {
@@ -124,7 +135,7 @@ final class ResourceFieldRenderer {
             case MEDIUM -> 84;
             case NEAR -> 104;
         };
-        BufferedImage image = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        BufferedImage image = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB_PRE);
         Graphics2D g = image.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         Random random = new Random(seed(key));
@@ -177,7 +188,7 @@ final class ResourceFieldRenderer {
             case MEDIUM -> 104;
             case NEAR -> 124;
         };
-        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB_PRE);
         Graphics2D g = image.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
@@ -233,7 +244,7 @@ final class ResourceFieldRenderer {
         } else {
             int x = (int)Math.round(node.x - sprite.worldWidth / 2.0);
             int y = (int)Math.round(node.y - sprite.worldHeight / 2.0);
-            g.drawImage(sprite.image, x, y, sprite.worldWidth, sprite.worldHeight, null);
+            g.drawImage(sprite.image, x + sprite.cropX, y + sprite.cropY, null);
         }
 
         if (selected) {
@@ -266,6 +277,36 @@ final class ResourceFieldRenderer {
         return new NodeSpriteKey(node.kind, node.material, seededId, radiusQuarter, amountBucket);
     }
 
+    /** Crop only zero-alpha image padding, leaving a three-pixel bilinear guard. */
+    private static CroppedSprite cropAlphaPadding(BufferedImage image) {
+        int width = image.getWidth(), height = image.getHeight();
+        int[] pixels = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
+        int minX = width, minY = height, maxX = -1, maxY = -1;
+        for (int y = 0; y < height; y++) {
+            int row = y * width;
+            for (int x = 0; x < width; x++) {
+                if ((pixels[row + x] >>> 24) == 0) continue;
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x);
+                maxY = Math.max(maxY, y);
+            }
+        }
+        if (maxX < 0) return new CroppedSprite(image, 0, 0);
+        int guard = 3;
+        minX = Math.max(0, minX - guard);
+        minY = Math.max(0, minY - guard);
+        maxX = Math.min(width - 1, maxX + guard);
+        maxY = Math.min(height - 1, maxY + guard);
+        int w = maxX - minX + 1, h = maxY - minY + 1;
+        if ((long)w * h >= (long)width * height * 0.90) {
+            return new CroppedSprite(image, 0, 0);
+        }
+        // getSubimage retains the original backing raster, and cache accounting
+        // continues to charge its complete size; no hidden memory expansion.
+        return new CroppedSprite(image.getSubimage(minX, minY, w, h), minX, minY);
+    }
+
     private static NodeSprite createNodeSprite(NodeSpriteKey key) {
         double pct = key.amountBucket / (double)(NODE_AMOUNT_STEPS - 1);
         double baseRadius = key.radiusQuarter / 4.0;
@@ -278,7 +319,7 @@ final class ResourceFieldRenderer {
         if ((worldWidth & 1) != 0) worldWidth++;
         if ((worldHeight & 1) != 0) worldHeight++;
 
-        BufferedImage image = new BufferedImage(worldWidth, worldHeight, BufferedImage.TYPE_INT_ARGB);
+        BufferedImage image = new BufferedImage(worldWidth, worldHeight, BufferedImage.TYPE_INT_ARGB_PRE);
         Graphics2D g = image.createGraphics();
         try {
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -296,7 +337,9 @@ final class ResourceFieldRenderer {
             g.dispose();
         }
         long bytes = (long)image.getWidth() * image.getHeight() * Integer.BYTES;
-        return new NodeSprite(image, worldWidth, worldHeight, bytes);
+        CroppedSprite cropped = cropAlphaPadding(image);
+        return new NodeSprite(cropped.image(), worldWidth, worldHeight, bytes,
+                cropped.x(), cropped.y());
     }
 
     private static void putNodeSprite(NodeSpriteKey key, NodeSprite sprite) {
@@ -549,5 +592,9 @@ final class ResourceFieldRenderer {
     private enum Lod { FAR, MEDIUM, NEAR }
     private record SpriteKey(NodeKind kind, Material material, int variant, int depletionBucket, Lod lod) { }
     private record NodeSpriteKey(NodeKind kind, Material material, int seededId, int radiusQuarter, int amountBucket) { }
-    private record NodeSprite(BufferedImage image, int worldWidth, int worldHeight, long rawBytes) { }
+    private record NodeSprite(BufferedImage image, int worldWidth, int worldHeight,
+                              long rawBytes, int cropX, int cropY) { }
+    private record FieldSprite(BufferedImage image, int worldWidth, int worldHeight,
+                               int cropX, int cropY) { }
+    private record CroppedSprite(BufferedImage image, int x, int y) { }
 }

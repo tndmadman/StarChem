@@ -13,11 +13,11 @@
     {"id": "knife", "name": "Knife Moon", "parent": "hideout", "orbit": 260, "radius": 18, "speed": -0.058, "color": "#9990AA"}
   ],
   "resourceBelts": [
-    {"name": "Raider Ore Cache", "kind": "SILICATE_ROCK", "orbit": 2250, "width": 430, "arc": 2.2, "count": 120, "amount": 23, "harvestRate": 7.1, "radius": 2.8,
+    {"id": "raider_ore_cache", "name": "Raider Ore Cache", "kind": "SILICATE_ROCK", "orbit": 2250, "width": 430, "arc": 2.2, "count": 120, "amount": 23, "harvestRate": 7.1, "radius": 2.8,
       "composition": [{"material": "IRON", "weight": 28}, {"material": "COPPER", "weight": 22}, {"material": "SILICATES", "weight": 22}, {"material": "GOLD", "weight": 10}, {"material": "RARE_EARTHS", "weight": 10}, {"material": "PLATINUM", "weight": 8}]},
-    {"name": "Black Gas", "kind": "GAS_CLOUD", "orbit": 4400, "width": 680, "arc": 2.0, "count": 120, "amount": 29, "harvestRate": 8.4, "radius": 4.9,
+    {"id": "black_gas", "name": "Black Gas", "kind": "GAS_CLOUD", "orbit": 4400, "width": 680, "arc": 2.0, "count": 120, "amount": 29, "harvestRate": 8.4, "radius": 4.9,
       "composition": [{"material": "METHANE", "weight": 32}, {"material": "AMMONIA", "weight": 24}, {"material": "HYDROGEN", "weight": 18}, {"material": "ARGON", "weight": 14}, {"material": "XENON", "weight": 12}]},
-    {"name": "Hidden Heavy Metals", "kind": "SILICATE_ROCK", "orbit": 5900, "width": 280, "arc": 0.8, "count": 48, "amount": 14, "harvestRate": 5.3, "radius": 2.3,
+    {"id": "hidden_heavy_metals", "name": "Hidden Heavy Metals", "kind": "SILICATE_ROCK", "orbit": 5900, "width": 280, "arc": 0.8, "count": 48, "amount": 14, "harvestRate": 5.3, "radius": 2.3,
       "composition": [{"material": "TITANIUM", "weight": 38}, {"material": "TUNGSTEN", "weight": 28}, {"material": "URANIUM", "weight": 14}, {"material": "COBALT", "weight": 20}]}
   ]
 }

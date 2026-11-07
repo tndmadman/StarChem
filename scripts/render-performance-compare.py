@@ -9,6 +9,23 @@ from statistics import median
 import sys
 
 
+EXPECTED_SCENES = frozenset({
+    "background-default",
+    "fleet-20",
+    "fleet-50",
+    "fleet-100",
+    "fleet-150",
+    "fleet-100-selected",
+    "multi-large-station",
+    "resource-field",
+    "heavy-combat",
+    "capital-station-destruction",
+    "background-nebula-expanse",
+})
+EXPECTED_ZOOMS = frozenset({"0.45", "1.00", "1.75"})
+EXPECTED_KEYS = frozenset((scene, zoom) for scene in EXPECTED_SCENES for zoom in EXPECTED_ZOOMS)
+
+
 def parse_report(filename: Path) -> dict[tuple[str, str], float]:
     with filename.open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
@@ -37,6 +54,10 @@ def evaluate(base_files: list[Path], head_files: list[Path], limit_percent: floa
     base_runs = [parse_report(path) for path in base_files]
     head_runs = [parse_report(path) for path in head_files]
     keys = set(base_runs[0])
+    if keys != EXPECTED_KEYS:
+        raise ValueError("Baseline does not contain the complete 33-scenario render contract "
+                         f"(missing: {sorted(EXPECTED_KEYS - keys)}, "
+                         f"extra: {sorted(keys - EXPECTED_KEYS)})")
     for name, run in [("baseline", r) for r in base_runs] + [("candidate", r) for r in head_runs]:
         if set(run) != keys:
             raise ValueError(f"{name} scenarios differ from baseline "

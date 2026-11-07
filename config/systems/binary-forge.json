@@ -14,9 +14,9 @@
     {"id": "slag", "name": "Slag World", "parent": "sun_a", "orbit": 3100, "radius": 74, "speed": -0.011, "color": "#8A6352"}
   ],
   "resourceBelts": [
-    {"name": "Foundry Belt", "kind": "SILICATE_ROCK", "orbit": 2300, "width": 430, "arc": 2.2, "count": 190, "amount": 28, "harvestRate": 8.2, "radius": 3.1,
+    {"id": "foundry_belt", "name": "Foundry Belt", "kind": "SILICATE_ROCK", "orbit": 2300, "width": 430, "arc": 2.2, "count": 190, "amount": 28, "harvestRate": 8.2, "radius": 3.1,
       "composition": [{"material": "IRON", "weight": 42}, {"material": "NICKEL", "weight": 28}, {"material": "ALUMINUM", "weight": 20}, {"material": "COPPER", "weight": 10}]},
-    {"name": "Heavy Metal Arc", "kind": "SILICATE_ROCK", "orbit": 4700, "width": 360, "arc": 1.5, "count": 90, "amount": 20, "harvestRate": 6.8, "radius": 2.8,
+    {"id": "heavy_metal_arc", "name": "Heavy Metal Arc", "kind": "SILICATE_ROCK", "orbit": 4700, "width": 360, "arc": 1.5, "count": 90, "amount": 20, "harvestRate": 6.8, "radius": 2.8,
       "composition": [{"material": "COBALT", "weight": 55}, {"material": "TITANIUM", "weight": 35}, {"material": "TUNGSTEN", "weight": 10}]}
   ]
 }

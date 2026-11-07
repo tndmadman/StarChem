@@ -26,12 +26,27 @@ final class SystemAudio {
         }
     }
 
+    static void forget(World world) {
+        if (world == null) return;
+        NON_RENDERED_WORLDS.remove(world);
+        if (listenerWorld == world) {
+            listenerWorld = null;
+            listenerSystemId = "";
+        }
+    }
+
     static boolean nonRendered(World world) {
         return world != null && NON_RENDERED_WORLDS.contains(world);
     }
 
     static boolean rendered(World world) {
         return world != null && !nonRendered(world) && listenerWorld == world;
+    }
+
+    /** Called only after a validated candidate is committed as the rendered campaign. */
+    static void markRendered(World world) {
+        if (world != null) NON_RENDERED_WORLDS.remove(world);
+        listenTo(world);
     }
 
     static void listenTo(World world) {

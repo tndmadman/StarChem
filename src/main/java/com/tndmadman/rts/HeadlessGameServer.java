@@ -78,10 +78,16 @@ final class HeadlessGameServer {
             world = loaded.get();
             System.out.println("Loaded server save '" + config.saveName + "'.");
         } else {
-            world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId, false);
+            world = new World(config.playerName, config.disabledNpcFactionIds, config.systemId, false,
+                    StartingFleetSettings.newCampaign(config.startingMiners));
             SkirmishRuntime.bind(world, config.skirmishSettings);
             System.out.println(config.newWorld ? "Starting a new server world by request." : "No server save found; starting a new world.");
         }
+        System.out.println("New commander starter policy: "
+                + world.startingFleetSettings().prospectorCount()
+                + " Prospectors and Tier-1 radar "
+                + (world.startingFleetSettings().tierOneRadar() ? "enabled" : "disabled")
+                + " (persisted in world save; restart CLI cannot alter existing policy).");
         DevTimerSettings.configure(world, config.disableProductionTimers);
         GalaxyEventDirector.configurePolicy(world, config, loaded.isPresent());
         PeerNetwork network = PeerNetwork.start(config, world, saves.loadedPlayerSessions(), accessPolicy);

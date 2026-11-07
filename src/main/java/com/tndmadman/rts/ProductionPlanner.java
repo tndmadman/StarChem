@@ -21,6 +21,15 @@ final class ProductionPlanner {
 
     private ProductionPlanner() { }
 
+    /** Remove strong-keyed planner state only when this match is permanently disposed. */
+    static synchronized void clear(World world) {
+        if (world != null) STATES.remove(world);
+    }
+
+    static synchronized boolean containsWorldForTesting(World world) {
+        return world != null && STATES.containsKey(world);
+    }
+
     static boolean queueShip(World world, Base target, ShipType ship) {
         return queueShip(world, target, ship, ship == null ? null : WeaponRules.defaultLoadout(ship.id));
     }

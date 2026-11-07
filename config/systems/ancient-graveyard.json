@@ -14,9 +14,9 @@
     {"id": "warden", "name": "Warden", "parent": "sun", "orbit": 5900, "radius": 98, "speed": -0.004, "color": "#66717E"}
   ],
   "resourceBelts": [
-    {"name": "Relic Field", "kind": "SILICATE_ROCK", "orbit": 3850, "width": 650, "arc": 3.4, "count": 175, "amount": 18, "harvestRate": 6.0, "radius": 2.6,
+    {"id": "relic_field", "name": "Relic Field", "kind": "SILICATE_ROCK", "orbit": 3850, "width": 650, "arc": 3.4, "count": 175, "amount": 18, "harvestRate": 6.0, "radius": 2.6,
       "composition": [{"material": "SILICATES", "weight": 28}, {"material": "GOLD", "weight": 22}, {"material": "PLATINUM", "weight": 18}, {"material": "RARE_EARTHS", "weight": 22}, {"material": "TITANIUM", "weight": 10}]},
-    {"name": "Dormant Propellant Clouds", "kind": "GAS_CLOUD", "orbit": 6800, "width": 520, "arc": 1.7, "count": 75, "amount": 15, "harvestRate": 5.2, "radius": 4.0,
+    {"id": "dormant_propellant_clouds", "name": "Dormant Propellant Clouds", "kind": "GAS_CLOUD", "orbit": 6800, "width": 520, "arc": 1.7, "count": 75, "amount": 15, "harvestRate": 5.2, "radius": 4.0,
       "composition": [{"material": "XENON", "weight": 18}, {"material": "ARGON", "weight": 42}, {"material": "NEON", "weight": 25}, {"material": "HELIUM", "weight": 15}]}
   ]
 }
