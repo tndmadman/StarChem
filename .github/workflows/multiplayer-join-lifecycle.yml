@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - fix/multiplayer-join-reconnect-stability-20261106
+      - integration/four-plus-radar-plus-multiplayer-stability-20261107
   pull_request:
     branches:
       - integration/four-branch-20261105
+      - main
   workflow_dispatch:
 
 permissions:

@@ -36,11 +36,16 @@ SAVE_FORMAT="$(sed -n 's/^[[:space:]]*static final int SAVE_FORMAT_VERSION = \([
 RULES_VERSION="$(sed -n 's/^[[:space:]]*\"rulesVersion\":[[:space:]]*\([0-9][0-9]*\),/\1/p' \
   config/starchem.json | head -n 1)"
 
-[[ "$PROTOCOL" == "17" ]] || fail "v${NOTES_VERSION} expects protocol 17; source reports '$PROTOCOL'"
+# Published v1.8.2 used protocol 17; this unreleased 1.8.2-dev integration
+# deliberately bumps the wire to 18 for authenticated READY/ACK/SYNC_RETRY.
+# Keep the published 17 references in release history, but validate this
+# development branch against its actual on-the-wire protocol.
+[[ "$PROTOCOL" == "18" ]] || fail "current development integration expects protocol 18; source reports '$PROTOCOL'"
 [[ "$RULES_VERSION" == "27" ]] || fail "v${NOTES_VERSION} expects rules version 27; config reports '$RULES_VERSION'"
 [[ "$SAVE_FORMAT" == "6" ]] || fail "v${NOTES_VERSION} expects save format 6; source reports '$SAVE_FORMAT'"
 
-grep -Fq 'protocol 17' RELEASE_NOTES.md || fail "release notes do not document protocol 17"
+grep -Fq 'protocol 17' RELEASE_NOTES.md || fail "release notes do not document published protocol 17"
+grep -Fq 'development protocol 18' RELEASE_NOTES.md || fail "release notes do not document unreleased development protocol 18"
 grep -Fq 'rules version 27' RELEASE_NOTES.md || fail "release notes do not document rules version 27"
 grep -Fq 'save format 6' RELEASE_NOTES.md || fail "release notes do not document save format 6"
 

@@ -4,6 +4,7 @@ on:
     branches:
       - feature/solo-save-load
       - integration/four-plus-orbital-radar-20261106
+      - integration/four-plus-radar-plus-multiplayer-stability-20261107
   pull_request:
     branches:
       - feature/world-lifecycle-resource-performance-20261021

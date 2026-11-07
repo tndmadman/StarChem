@@ -10,6 +10,8 @@ The published v1.8.2 release remains on the v1.8 compatibility generation:
 - rules version **27**;
 - dedicated-server save format **6**.
 
+**Unreleased integration builds (1.8.2-dev):** the JOIN/reconnect recovery feature uses **development protocol 18** for authenticated initial-view readiness. This is distinct from the published v1.8.2 protocol 17. Protocol-17 clients cannot connect to this dev server; update all participants together. Rules version 27 and save format 6 remain unchanged. This branch is not a released version.
+
 Published StarChem v1.7.0 multiplayer uses protocol 8 and is intentionally incompatible with the v1.8 release line. Persistent v1.7.0 servers can be upgraded through the validated migration path described in [`UPGRADING_TO_1.8.0.md`](UPGRADING_TO_1.8.0.md).
 
 Release-facing documentation:
