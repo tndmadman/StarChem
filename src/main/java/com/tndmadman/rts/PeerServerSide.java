@@ -742,6 +742,16 @@ final class PeerServerSide {
         return sync == null ? 0 : 1 + sync.replays;
     }
 
+    /** Test-only delivery duplication on the existing trusted TCP generation. */
+    void replayWelcomeForTest(ConnectionId id) {
+        ServerPeer peer = peers.get(id);
+        PlayerSession session = peer == null ? null : sessions.get(peer.playerId());
+        if (session != null && session.connected && id.equals(session.connectionId)) {
+            transport.sendOrdered(welcome(session.playerId, session.name, session.rgb,
+                    peer.devFreeBuild(), session.currentToken), id);
+        }
+    }
+
     private void applyAiCommand(String command) {
         switch (command) {
             case "togglePauseAi" -> world.aiDevSettings.pauseAi = !world.aiDevSettings.pauseAi;
