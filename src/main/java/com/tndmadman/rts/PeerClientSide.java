@@ -49,6 +49,7 @@ final class PeerClientSide {
     private boolean readyAcknowledged;
     private int syncTransitions;
     private int handshakeRetries;
+    private boolean discardNextInitialViewForTest;
 
     PeerClientSide(Config config, World world, PeerTransport transport) {
         this.config = config;
@@ -104,6 +105,7 @@ final class PeerClientSide {
     boolean readyState() { return state == ConnectionState.CONNECTED; }
     long lastSnapshotSequence() { return lastSnapshotSequence; }
     int syncTransitions() { return syncTransitions; }
+    void discardNextInitialViewForTest() { discardNextInitialViewForTest = true; }
     void duplicateHandshakeForTest() {
         if (state == ConnectionState.CONNECTED || state == ConnectionState.SYNCING) {
             sendControlToServer(joinMessage());
@@ -482,6 +484,12 @@ final class PeerClientSide {
     }
 
     void readFullView(String message) {
+        if (discardNextInitialViewForTest && state == ConnectionState.SYNCING
+                && !SyncFrame.isResourceCorrection(message)) {
+            discardNextInitialViewForTest = false;
+            System.out.println("[CONNECTION][FAULT_INJECTION] discarded first initial VIEW_SYNC");
+            return;
+        }
         try {
             Snapshot snapshot = SyncFrame.read(message);
             if (SyncFrame.isResourceCorrection(message)) {
