@@ -401,6 +401,15 @@ tasks.register('validateMaterialCoverage', JavaExec) {
     mainClass = 'com.tndmadman.rts.MaterialCoverageValidator'
 }
 
+tasks.register('validateResourceRingPlacement', JavaExec) {
+    group = 'verification'
+    description = 'Validate bounded resource belts, aluminum regeneration and legacy save migration.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tndmadman.rts.ResourceRingPlacementValidator'
+    jvmArgs '-Djava.awt.headless=true'
+}
+
 tasks.register('validateResourceCatalog', JavaExec) {
     group = 'verification'
     description = 'Validate resource catalog entries and star-system mappings.'
@@ -669,6 +678,7 @@ tasks.named('check') {
     dependsOn tasks.named('validateNpcSystemIsolation')
     dependsOn tasks.named('validateMaterialCoverage')
     dependsOn tasks.named('validateResourceCatalog')
+    dependsOn tasks.named('validateResourceRingPlacement')
     dependsOn tasks.named('validateMinimapHud')
     dependsOn tasks.named('validateCodexCatalog')
     dependsOn tasks.named('validateIntermediateCrafting')

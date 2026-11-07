@@ -32,7 +32,9 @@ final class ResourceSpawner {
         for (ResourceNode node : resources) node.updateOrbit(dt);
     }
 
-    static void relocate(ResourceNode node, List<ResourceNode> resources, Collection<Base> bases, CelestialSystem celestials, Random random) {
+    static void relocate(ResourceNode node, List<ResourceNode> resources, Collection<Base> bases,
+                         CelestialSystem celestials, Random random, StarSystemDefinition system, double systemTime) {
+        if (node == null) return;
         if (node != null && celestials != null && node.celestialAnchorBodyId != null
                 && !node.celestialAnchorBodyId.isBlank()) {
             CelestialSystem.BodyView body = celestials.bodyView(node.celestialAnchorBodyId);
@@ -45,6 +47,19 @@ final class ResourceSpawner {
                 return;
             }
         }
+        ResourceBelt belt = ResourceRingPlacement.resolve(node, system);
+        if (belt != null && celestials != null) {
+            ResourceRingPlacement.relocate(node, resources, bases, celestials, random, belt, systemTime);
+            return;
+        }
+        // A belt removed by a config change must not cause existing natural resources
+        // to scatter across unrelated rings. Retain its last orbital radius instead.
+        if (node.resourceBeltId != null && !node.resourceBeltId.isBlank()) {
+            activate(node, node.orbitCenterX, node.orbitCenterY, node.orbitRadius,
+                    node.orbitAngle, node.orbitSpeed);
+            return;
+        }
+        // Event-created nodes are not members of authored resource belts.
         ResourceNode anchor = anchorFor(node, resources, random);
         double orbitRadius = anchor == null ? 2200 + random.nextDouble() * 4400 : anchor.orbitRadius + random.nextGaussian() * 90;
         double orbitAngle = anchor == null ? random.nextDouble() * Math.PI * 2 : anchor.orbitAngle + random.nextGaussian() * 0.18;
@@ -56,13 +71,16 @@ final class ResourceSpawner {
         double center = random.nextDouble() * Math.PI * 2;
         List<Material> materials = belt.materials.isEmpty() ? List.of(Material.IRON) : belt.materials;
         for (int i = 0; i < belt.count; i++) {
-            double orbitRadius = belt.orbit + random.nextGaussian() * belt.width;
-            double orbitAngle = center + (random.nextDouble() - 0.5) * belt.arc;
-            double orbitSpeed = speedFor(orbitRadius) * (0.9 + random.nextDouble() * 0.2);
+            double orbitRadius = ResourceRingPlacement.radius(belt, random);
+            double orbitAngle = ResourceRingPlacement.angle(belt, center, random);
+            // Common belt speed keeps a partial arc together as it orbits.
+            double orbitSpeed = speedFor(belt.orbit);
             Material material = materials.get(random.nextInt(materials.size()));
             double nodeAmount = belt.amount * (0.35 + random.nextDouble() * 1.5);
             double nodeRadius = radiusForAmount(belt.radius, belt.amount, nodeAmount, random);
             ResourceNode node = new ResourceNode(id++, belt.name + " " + material.name() + " " + i, belt.kind, material, 0, 0, nodeAmount, belt.harvestRate, nodeRadius);
+            node.resourceBeltId = belt.id;
+            node.resourceBeltCenterAngle = center;
             node.orbit(celestials.sunX(), celestials.sunY(), orbitRadius, orbitAngle, orbitSpeed);
             out.add(node);
         }
@@ -95,7 +113,7 @@ final class ResourceSpawner {
         node.orbit(centerX, centerY, orbitRadius, orbitAngle, orbitSpeed);
     }
 
-    private static double speedFor(double orbitRadius) {
+    static double speedFor(double orbitRadius) {
         return 0.028 * Math.pow(2000.0 / Math.max(900.0, orbitRadius), 0.65);
     }
 }

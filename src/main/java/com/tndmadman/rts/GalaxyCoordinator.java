@@ -82,6 +82,7 @@ final class GalaxyCoordinator {
     String activeSystemId() { return activeSystemId; }
     String activeControllerId() { WorldSystemState state = active(); return state == null ? "" : state.control.controllerId(); }
     CelestialSystem activeCelestials() { WorldSystemState state = active(); return state == null ? null : state.celestials; }
+    StarSystemDefinition activeDefinition() { WorldSystemState state = active(); return state == null ? null : state.definition; }
     double activeSystemTime() { WorldSystemState state = active(); return state == null ? 0 : state.systemTime; }
     void setActiveSystemTime(double time) { WorldSystemState state = active(); if (state != null) state.systemTime = Math.max(0, time); }
 
@@ -896,7 +897,7 @@ final class GalaxyCoordinator {
             if (state.systemTime > 0) state.celestials.update(state.systemTime);
             restoreControl(state.control, ServerSaveStore.object(data.get("control")));
             state.wormholes.addAll(restoreWormholes(ServerSaveStore.list(data.get("wormholes"))));
-            state.resources.addAll(restoreResources(ServerSaveStore.list(data.get("resources"))));
+            state.resources.addAll(restoreResources(ServerSaveStore.list(data.get("resources")), definition, state.systemTime));
             state.units.putAll(restoreUnits(world, ServerSaveStore.list(data.get("units"))));
             state.bases.putAll(restoreBases(world, ServerSaveStore.list(data.get("bases"))));
             state.shots.addAll(restoreShots(ServerSaveStore.list(data.get("projectiles"))));
@@ -961,12 +962,17 @@ final class GalaxyCoordinator {
             row.put("active", node.active); row.put("orbiting", node.orbiting); row.put("orbitCenterX", node.orbitCenterX);
             row.put("orbitCenterY", node.orbitCenterY); row.put("orbitRadius", node.orbitRadius); row.put("orbitAngle", node.orbitAngle);
             row.put("orbitSpeed", node.orbitSpeed);
+            row.put("celestialAnchorBodyId", node.celestialAnchorBodyId);
+            if (node.resourceBeltId != null && !node.resourceBeltId.isBlank()) {
+                row.put("resourceBeltId", node.resourceBeltId);
+                row.put("resourceBeltCenterAngle", node.resourceBeltCenterAngle);
+            }
             out.add(row);
         }
         return out;
     }
 
-    private List<ResourceNode> restoreResources(List<Object> rows) {
+    private List<ResourceNode> restoreResources(List<Object> rows, StarSystemDefinition definition, double systemTime) {
         List<ResourceNode> out = new ArrayList<>();
         for (Object item : rows) {
             Map<String,Object> row = ServerSaveStore.object(item);
@@ -986,8 +992,12 @@ final class GalaxyCoordinator {
             node.orbitRadius = ServerSaveStore.doubleValue(row, "orbitRadius", 0);
             node.orbitAngle = ServerSaveStore.doubleValue(row, "orbitAngle", 0);
             node.orbitSpeed = ServerSaveStore.doubleValue(row, "orbitSpeed", 0);
+            node.celestialAnchorBodyId = ServerSaveStore.string(row, "celestialAnchorBodyId", "");
+            node.resourceBeltId = ServerSaveStore.string(row, "resourceBeltId", "");
+            node.resourceBeltCenterAngle = ServerSaveStore.doubleValue(row, "resourceBeltCenterAngle", Double.NaN);
             out.add(node);
         }
+        ResourceRingPlacement.migrateLoaded(out, definition, systemTime);
         return out;
     }
 

@@ -84,6 +84,12 @@ final class StarSystems {
         int height = integer(root, "height", 16000);
         List<CelestialBodyDefinition> bodies = parseBodies(root.get("bodies"));
         List<ResourceBelt> belts = parseBelts(root.get("resourceBelts"));
+        Set<String> beltIds = new HashSet<>();
+        for (ResourceBelt belt : belts) {
+            if (!beltIds.add(belt.id)) throw new IllegalArgumentException("Duplicate resource belt id: " + belt.id);
+            if (belt.orbit + belt.width > Math.min(width, height) * 0.5)
+                throw new IllegalArgumentException("Resource belt exceeds system bounds: " + belt.id);
+        }
         List<Material> spawnMaterials = parseMaterials(root.get("spawnMaterials"));
         if (bodies.isEmpty()) bodies = fallbackBodies();
         if (belts.isEmpty()) belts = fallbackBelts();
@@ -110,7 +116,8 @@ final class StarSystems {
         for (Object item : array(value)) {
             Map<String,Object> b = object(item);
             if (b.isEmpty()) continue;
-            out.add(new ResourceBelt(string(b, "name", "Resource Belt"), nodeKind(string(b, "kind", "SILICATE_ROCK")),
+            out.add(new ResourceBelt(string(b, "id", ResourceBelt.stableId(string(b, "name", "Resource Belt"))),
+                    string(b, "name", "Resource Belt"), nodeKind(string(b, "kind", "SILICATE_ROCK")),
                     parseBeltMaterials(b), number(b, "orbit", 2500), number(b, "width", 300), number(b, "arc", 1.0),
                     integer(b, "count", 20), number(b, "amount", 100), number(b, "harvestRate", 8), number(b, "radius", 3)));
         }

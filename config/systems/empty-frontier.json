@@ -12,11 +12,11 @@
     {"id": "homestead", "name": "Homestead Rock", "parent": "quiet_star", "orbit": 2100, "radius": 62, "speed": 0.013, "color": "#8BA37B"}
   ],
   "resourceBelts": [
-    {"name": "Starter Metals", "kind": "SILICATE_ROCK", "orbit": 2050, "width": 390, "arc": 1.8, "count": 105, "amount": 21, "harvestRate": 7.0, "radius": 2.8,
+    {"id": "starter_metals", "name": "Starter Metals", "kind": "SILICATE_ROCK", "orbit": 2050, "width": 390, "arc": 1.8, "count": 105, "amount": 21, "harvestRate": 7.0, "radius": 2.8,
       "composition": [{"material": "IRON", "weight": 46}, {"material": "COPPER", "weight": 28}, {"material": "NICKEL", "weight": 16}, {"material": "ALUMINUM", "weight": 10}]},
-    {"name": "Starter Minerals", "kind": "SILICATE_ROCK", "orbit": 3300, "width": 430, "arc": 1.8, "count": 105, "amount": 22, "harvestRate": 7.0, "radius": 2.8,
+    {"id": "starter_minerals", "name": "Starter Minerals", "kind": "SILICATE_ROCK", "orbit": 3300, "width": 430, "arc": 1.8, "count": 105, "amount": 22, "harvestRate": 7.0, "radius": 2.8,
       "composition": [{"material": "SILICATES", "weight": 58}, {"material": "ICE", "weight": 28}, {"material": "CARBON", "weight": 14}]},
-    {"name": "Starter Fuel Drift", "kind": "GAS_CLOUD", "orbit": 4900, "width": 560, "arc": 1.5, "count": 72, "amount": 19, "harvestRate": 6.8, "radius": 4.3,
+    {"id": "starter_fuel_drift", "name": "Starter Fuel Drift", "kind": "GAS_CLOUD", "orbit": 4900, "width": 560, "arc": 1.5, "count": 72, "amount": 19, "harvestRate": 6.8, "radius": 4.3,
       "composition": [{"material": "HYDROGEN", "weight": 42}, {"material": "HELIUM", "weight": 30}, {"material": "METHANE", "weight": 24}, {"material": "AMMONIA", "weight": 4}]}
   ]
 }
