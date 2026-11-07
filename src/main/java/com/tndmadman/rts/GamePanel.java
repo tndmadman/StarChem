@@ -418,8 +418,9 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         }
     }
 
-    /** Dismisses any station/build popup before a full-frame game console opens. */
+    /** Dismiss both native station overviews and build menus before full-frame UI. */
     void dismissStationMenus() {
+        StationControlMenu.dismiss(this);
         buildMenu.hide();
     }
 
