@@ -21,13 +21,14 @@ final class ResourceRingPlacement {
     private ResourceRingPlacement() { }
 
     static double radius(ResourceBelt belt, Random random) {
-        // Truncated normal distribution (not a clipped normal with piles at the edges).
-        // width is the strict half-width, rather than the Gaussian standard deviation.
-        for (int attempt = 0; attempt < 32; attempt++) {
-            double offset = random.nextGaussian() * belt.width / 2.5;
-            if (Math.abs(offset) <= belt.width) return belt.orbit + offset;
-        }
-        return belt.orbit; // bounded even for adversarial random sources
+        // Reflect a normal sample at the ring boundaries instead of clipping
+        // it there or drawing a second sample. This retains one Gaussian draw
+        // per node (important for legacy seeded worlds), preserves in-band
+        // positions exactly, and has no pile-up at either ring edge.
+        double shifted = (random.nextGaussian() + 1.0) % 4.0;
+        if (shifted < 0) shifted += 4.0;
+        double reflected = (shifted <= 2.0 ? shifted : 4.0 - shifted) - 1.0;
+        return belt.orbit + reflected * belt.width;
     }
 
     static double angle(ResourceBelt belt, double center, Random random) {

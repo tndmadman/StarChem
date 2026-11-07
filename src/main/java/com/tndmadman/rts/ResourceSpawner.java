@@ -75,6 +75,9 @@ final class ResourceSpawner {
             double orbitAngle = ResourceRingPlacement.angle(belt, center, random);
             // Common belt speed keeps a partial arc together as it orbits.
             double orbitSpeed = speedFor(belt.orbit);
+            // Preserve the legacy random draw order for subsequent material
+            // selection, other belts and seeded NPC/galaxy test scenarios.
+            random.nextDouble();
             Material material = materials.get(random.nextInt(materials.size()));
             double nodeAmount = belt.amount * (0.35 + random.nextDouble() * 1.5);
             double nodeRadius = radiusForAmount(belt.radius, belt.amount, nodeAmount, random);
