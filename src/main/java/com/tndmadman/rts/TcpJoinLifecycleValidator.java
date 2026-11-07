@@ -13,6 +13,7 @@ public final class TcpJoinLifecycleValidator {
     private TcpJoinLifecycleValidator() { }
 
     public static void main(String[] args) throws Exception {
+        validateLostInitialView();
         try (TcpIntegrationHarness harness = TcpIntegrationHarness.dedicated();
              TcpFaultProxy proxy = new TcpFaultProxy(
                      InetAddress.getLoopbackAddress(), harness.serverConfig.port)) {
@@ -91,6 +92,29 @@ public final class TcpJoinLifecycleValidator {
             System.out.println("StarChem TCP JOIN lifecycle validation passed: two READY clients, "
                     + "15 Prospectors and T1 radar, duplicate JOIN/RESUME/WELCOME, "
                     + "single initial sync, forced reconnect, owner and fleet preservation.");
+        }
+    }
+
+    private static void validateLostInitialView() throws Exception {
+        // Drop the first authoritative initial frame after the server has sent it.
+        // The client must request a bounded in-place resend rather than churn sockets.
+        try (TcpIntegrationHarness harness = TcpIntegrationHarness.dedicated()) {
+            TcpIntegrationHarness.TestClient slow = harness.addClient("Lifecycle Lost Initial");
+            slow.network().discardNextInitialViewForTest();
+            harness.await(() -> slow.network().clientSyncTransitions() == 1, 15_000,
+                    "client never received WELCOME before the dropped initial VIEW_SYNC");
+            ConnectionId socketBefore = slow.network().clientConnectionId();
+            require(socketBefore.valid(), "client had no TCP socket during initial sync");
+            harness.await(() -> slow.network().clientConnected()
+                    && harness.serverNetwork.serverConnectionReady(slow.playerId()), 30_000,
+                    "client did not recover the lost initial VIEW_SYNC on its existing socket");
+            require(slow.network().clientConnectionId().equals(socketBefore),
+                    "lost initial VIEW_SYNC caused a needless TCP reconnect");
+            require(slow.network().clientSyncTransitions() == 1,
+                    "lost initial VIEW_SYNC caused WELCOME to demote the client");
+            require(harness.serverNetwork.serverInitialSyncBuilds(slow.playerId()) == 2,
+                    "lost initial VIEW_SYNC did not use exactly one bounded replay");
+            assertStarter(harness.serverWorld, slow.playerId());
         }
     }
 
