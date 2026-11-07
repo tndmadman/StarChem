@@ -23,11 +23,6 @@ final class SideAJoin {
                         : remoteRegistration ? "remote registration request" : "initial join";
                 System.out.println("[CONNECTION][SERVER][AUTH] JOIN " + phase + " name="
                         + Config.clean(name) + " source=" + source + " connection=" + connectionId + '.');
-                if (remoteRegistration) {
-                    System.out.println("[CONNECTION][SERVER][REGISTRATION] Unused remote commander name="
-                            + Config.clean(name) + " source=" + source
-                            + "; issuing the existing registration challenge.");
-                }
                 try {
                     server.join(connectionId,
                             realAddress,
@@ -64,6 +59,17 @@ final class SideAJoin {
                         markerValue(parts, "SESSION_PROOF"),
                         server.requestedResumeDev(parts), server.requestedResumeDevToken(parts));
                 ObserverSessions.finishAuthentication(server, connectionId);
+                return true;
+            }
+            case "CLIENT_READY" -> {
+                if (parts.length == 3) {
+                    try { server.clientReady(connectionId, parts[1], Long.parseLong(parts[2])); }
+                    catch (NumberFormatException ignored) { }
+                }
+                return true;
+            }
+            case "SYNC_RETRY" -> {
+                if (parts.length == 2) server.retryInitialSync(connectionId, parts[1]);
                 return true;
             }
             case "PING" -> { server.touch(connectionId); return true; }

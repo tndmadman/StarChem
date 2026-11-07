@@ -16,7 +16,7 @@ import java.util.Set;
 import java.util.TreeSet;
 
 final class MultiplayerCompatibility {
-    static final int PROTOCOL_VERSION = 17;
+    static final int PROTOCOL_VERSION = 18;
     static final int MAX_CLIENT_HANDSHAKE_CHARS = 4096;
     static final int MAX_CLIENT_HANDSHAKE_FIELDS = 32;
     static final int MAX_CLIENT_HANDSHAKE_FIELD_CHARS = 512;
