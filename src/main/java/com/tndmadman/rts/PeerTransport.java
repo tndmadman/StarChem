@@ -25,7 +25,9 @@ final class PeerTransport {
     private static final int MAX_CONTROL_FRAMES = 256;
     private static final int MAX_OUTBOUND_BYTES = 8 * 1024 * 1024;
     private static final int CONNECT_TIMEOUT_MS = 1_500;
-    private static final int SOCKET_IDLE_TIMEOUT_MS = 15_000;
+    // Socket I/O is a last-resort bound; application heartbeat and phase-specific
+    // authenticated startup/READY deadlines run at 20/30/90 seconds instead.
+    private static final int SOCKET_IDLE_TIMEOUT_MS = 95_000;
     private static final long RECONNECT_DELAY_MS = 250;
     private static final long MAX_RECONNECT_DELAY_MS = 4_000;
     private static final int HANDSHAKE_THREADS = 4;
