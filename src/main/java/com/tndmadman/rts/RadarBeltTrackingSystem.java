@@ -48,11 +48,16 @@ final class RadarBeltTrackingSystem {
     static void markClient(World world) { if (world != null) CLIENT_WORLDS.add(world); }
 
     static void clear(World world) {
+        resetSystem(world);
+        CLIENT_WORLDS.remove(world);
+    }
+
+    /** A galaxy rebuild invalidates tracks but retains client/server trust classification. */
+    static void resetSystem(World world) {
         if (world == null) return;
         AGGREGATES.remove(world);
         CLIENT_VIEWS.remove(world);
         SEND_TIMES.remove(world);
-        CLIENT_WORLDS.remove(world);
     }
 
     static List<ResourceBelt> catalog(World world) {
