@@ -877,6 +877,7 @@ final class GalaxyCoordinator {
         out.put("wormholes", captureWormholes(state.wormholes));
         out.put("resources", captureResources(state.resources));
         out.put("radarBeltSelections", RadarBeltTrackingSystem.capture(state));
+        out.put("radarSearchTargets", RadarBeltTrackingSystem.captureSearchTargets(state));
         out.put("units", captureUnits(world, state.units.values()));
         out.put("bases", captureBases(state.bases.values()));
         out.put("projectiles", captureShots(state.shots));
@@ -903,6 +904,7 @@ final class GalaxyCoordinator {
             state.units.putAll(restoreUnits(world, ServerSaveStore.list(data.get("units"))));
             state.bases.putAll(restoreBases(world, ServerSaveStore.list(data.get("bases"))));
             RadarBeltTrackingSystem.restore(state, data.get("radarBeltSelections"));
+            RadarBeltTrackingSystem.restoreSearchTargets(state, data.get("radarSearchTargets"));
             state.shots.addAll(restoreShots(ServerSaveStore.list(data.get("projectiles"))));
             state.items.addAll(restoreItems(ServerSaveStore.list(data.get("worldItems"))));
             systems.put(id, state);

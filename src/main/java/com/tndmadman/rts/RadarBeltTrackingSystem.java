@@ -75,7 +75,7 @@ final class RadarBeltTrackingSystem {
             return List.of();
         }
         WorldSystemState state = current(world);
-        if (state == null || !state.bases.containsKey(radar.id)) return List.of();
+        if (state == null || world.bases.get(radar.id) != radar) return List.of();
         return List.copyOf(selection(state, radar));
     }
 
@@ -113,7 +113,7 @@ final class RadarBeltTrackingSystem {
         if (world == null || radar == null || radar.hp <= 0 || capacity(radar) <= 0
                 || world.bases.get(radar.id) != radar) return false;
         WorldSystemState state = current(world);
-        if (state == null || !state.bases.containsKey(radar.id) || action == null) return false;
+        if (state == null || action == null) return false;
         LinkedHashSet<String> selected = selection(state, radar);
         String id = beltId == null ? "" : beltId.trim();
         boolean valid = false;
@@ -181,6 +181,35 @@ final class RadarBeltTrackingSystem {
         }
     }
 
+    static Map<String, Object> captureSearchTargets(WorldSystemState state) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        if (state == null) return out;
+        for (Map.Entry<String, StationControls.RadarSearchTarget> entry : state.radarSearchTargets.entrySet()) {
+            if (state.bases.containsKey(entry.getKey()) && entry.getValue() != null) {
+                out.put(entry.getKey(), entry.getValue().name());
+            }
+        }
+        return out;
+    }
+
+    static void restoreSearchTargets(WorldSystemState state, Object payload) {
+        if (payload == null || state == null) return;
+        if (!(payload instanceof Map<?, ?> modes) || modes.size() > 1024)
+            throw new IllegalArgumentException("Invalid saved radar search modes");
+        for (Map.Entry<?, ?> entry : modes.entrySet()) {
+            if (!(entry.getKey() instanceof String id) || id.length() > 128
+                    || !(entry.getValue() instanceof String text))
+                throw new IllegalArgumentException("Invalid saved radar search-mode entry");
+            Base base = state.bases.get(id);
+            if (base == null || base.hp <= 0 || capacity(base) == 0) continue;
+            try {
+                state.radarSearchTargets.put(id, StationControls.RadarSearchTarget.valueOf(text));
+            } catch (IllegalArgumentException ex) {
+                throw new IllegalArgumentException("Unknown saved radar search mode");
+            }
+        }
+    }
+
     static Boolean remotePaused(World world, Base radar) {
         if (world == null || radar == null || !CLIENT_WORLDS.contains(world)) return null;
         for (RadarView row : view(world, PlayerRegistry.localId()).radars()) {
@@ -204,7 +233,8 @@ final class RadarBeltTrackingSystem {
         List<RadarView> radars = new ArrayList<>();
         LinkedHashSet<String> wanted = new LinkedHashSet<>();
         // Owner only. No implicit allied sharing of remote ore intel.
-        for (Base radar : state.bases.values()) {
+        Map<String, Base> liveBases = state.id.equals(world.activeSystemId()) ? world.bases : state.bases;
+        for (Base radar : liveBases.values()) {
             if (radars.size() >= MAX_RADARS) break;
             if (radar.hp <= 0 || !viewer.equals(radar.playerId) || capacity(radar) == 0) continue;
             boolean paused = StationControls.radarSearchTargetForSystem(state, radar)
