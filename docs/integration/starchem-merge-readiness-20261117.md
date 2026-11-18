@@ -21,7 +21,7 @@ This work established a conservative consolidation branch and documented the rem
 | Previously verified CI | 26/26 PR workflows successful on `371b5a51fb4be8df3bdb47c4245c660c1c66fb0f` |
 | Actual final-head tests | NOT RUN at document creation |
 | Manual Windows/multiplayer/gameplay acceptance | NOT RUN |
-| Final PR | To be populated after creation; draft only |
+| Final PR | [#462](https://github.com/tndmadman/StarChem/pull/462) — draft only |
 
 ## Compatibility
 
