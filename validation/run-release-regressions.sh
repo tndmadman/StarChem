@@ -38,9 +38,14 @@ run_java com.tndmadman.rts.FogPerformanceValidator
 run_java com.tndmadman.rts.MovementPerformanceProfiler --gate
 run_java com.tndmadman.rts.SelectionPerformanceValidator
 run_java com.tndmadman.rts.RadarTowerValidator
+run_java com.tndmadman.rts.RadarBeltTrackingValidator
 run_java com.tndmadman.rts.IntelWarfareValidator
 run_java com.tndmadman.rts.CelestialRenderValidator
 run_java com.tndmadman.rts.CelestialContinuityValidator
+run_java com.tndmadman.rts.WorldLifecycleValidator
+run_java com.tndmadman.rts.CelestialResourceBridgeValidator
+run_java com.tndmadman.rts.GalaxyInactiveSchedulerRosterValidator
+run_java com.tndmadman.rts.GalaxySchedulerPreparationBenchmark
 run_java com.tndmadman.rts.StationControlValidator
 run_java com.tndmadman.rts.StationPresentationValidator
 run_java com.tndmadman.rts.ProductionLogisticsSourcingValidator
@@ -54,6 +59,7 @@ run_java com.tndmadman.rts.NumericCommandValidationValidator authenticated
 run_java com.tndmadman.rts.NumericCommandValidationValidator repair
 run_java com.tndmadman.rts.NumericCommandValidationValidator serialization
 run_java com.tndmadman.rts.MiningCommandValidationValidator
+run_java com.tndmadman.rts.ResourceRingPlacementValidator
 run_java com.tndmadman.rts.Issue399ResourceVisualValidator
 run_java com.tndmadman.rts.NarrationProcessValidator
 run_java com.tndmadman.rts.Issue395RespawnAuthorityValidator

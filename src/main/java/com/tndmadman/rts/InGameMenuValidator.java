@@ -19,6 +19,9 @@ public final class InGameMenuValidator {
         expectEquals("feature menu button height", 48, GameMenuOverlay.buttonHeightForTest());
         expectEquals("feature menu labels", List.of(
                 "Return to Game",
+                "Save Game",
+                "Save As New Slot",
+                "Load Game",
                 "Settings",
                 "Diplomacy",
                 "Start / Resume Tutorial",

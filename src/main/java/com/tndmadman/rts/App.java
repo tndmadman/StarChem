@@ -179,7 +179,10 @@ public final class App {
             } else if (server != null && exitCode == 0) {
                 exitCode = server.shutdownExitCode();
             }
-            if (server != null) ServerFogOfWarPersistence.close(server.world);
+            if (server != null) {
+                ServerFogOfWarPersistence.close(server.world);
+                server.world.dispose();
+            }
             removeShutdownHook(shutdownHook);
         }
         return exitCode;

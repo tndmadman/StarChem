@@ -51,6 +51,33 @@ final class World {
     int nextWorldItemId = 1;
     int selectedResourceId = -1;
     String status = "Right-click a resource with a ship selected to auto-harvest.";
+    private Map<String,Object> soloUiSaveState = Map.of();
+    private StartingFleetSettings startingFleetSettings = StartingFleetSettings.legacy();
+    // Archive candidates are constructed off the EDT. Generation options are
+    // process-wide, so do not publish candidate settings until the UI commits it.
+    private GalaxyRuntimeOptions.State stagedSoloGenerationOptions;
+
+    void stageSoloGenerationOptions(GalaxyRuntimeOptions.State state) {
+        stagedSoloGenerationOptions = state;
+    }
+
+    void commitStagedSoloGenerationOptions() {
+        if (stagedSoloGenerationOptions == null) return;
+        GalaxyRuntimeOptions.restore(stagedSoloGenerationOptions);
+        stagedSoloGenerationOptions = null;
+    }
+
+
+    StartingFleetSettings startingFleetSettings() { return startingFleetSettings; }
+
+
+    Map<String,Object> soloUiSaveState() { return soloUiSaveState; }
+    void setSoloUiSaveState(Map<String,Object> state) {
+        soloUiSaveState = state == null ? Map.of() : new LinkedHashMap<>(state);
+    }
+    void restoreSoloUiSaveState(Object saved) {
+        soloUiSaveState = new LinkedHashMap<>(ServerSaveStore.object(saved));
+    }
 
     World(String localPlayerName) { this(localPlayerName, Set.of(), StarSystems.DEFAULT_SYSTEM_ID); }
     World(String localPlayerName, Set<String> disabledNpcFactionIds) { this(localPlayerName, disabledNpcFactionIds, StarSystems.DEFAULT_SYSTEM_ID); }
@@ -60,6 +87,23 @@ final class World {
     }
 
     World(String localPlayerName, Set<String> disabledNpcFactionIds, String systemId, boolean spawnLocalPlayer) {
+        this(localPlayerName, disabledNpcFactionIds, systemId, spawnLocalPlayer,
+                StartingFleetSettings.legacy());
+    }
+
+    World(String localPlayerName, Set<String> disabledNpcFactionIds, String systemId,
+          boolean spawnLocalPlayer, StartingFleetSettings startingFleetSettings) {
+        this(localPlayerName, disabledNpcFactionIds, systemId, spawnLocalPlayer,
+                startingFleetSettings, false);
+    }
+
+    /** Candidate archives must not steal the global sound listener before commit. */
+    World(String localPlayerName, Set<String> disabledNpcFactionIds, String systemId,
+          boolean spawnLocalPlayer, StartingFleetSettings startingFleetSettings,
+          boolean candidateNonRendered) {
+        if (candidateNonRendered) SystemAudio.markNonRendered(this);
+        this.startingFleetSettings = startingFleetSettings == null
+                ? StartingFleetSettings.legacy() : startingFleetSettings;
         this.localPlayerName = Config.clean(localPlayerName);
         this.disabledNpcFactionIds = disabledNpcFactionIds == null ? Set.of() : Set.copyOf(disabledNpcFactionIds);
         setStarSystem(systemId);
@@ -69,17 +113,59 @@ final class World {
             activateSystem(playerHomeSystemId(localPlayerId));
             Point2D basePoint = startPointForPlayer(localPlayerId, 0);
             addBase(Rules.DEFAULT_BASE, basePoint.getX(), basePoint.getY());
-            Point2D start = startShipPoint(basePoint);
-            spawnShip(Rules.STARTING_SHIP, start.getX(), start.getY());
+            for (int i = 0; i < this.startingFleetSettings.prospectorCount(); i++) {
+                Point2D start = starterPlacement(basePoint, i, false);
+                spawnShip(Rules.STARTING_SHIP, start.getX(), start.getY());
+            }
+            if (this.startingFleetSettings.tierOneRadar()) {
+                Point2D radar = starterPlacement(basePoint, -1, true);
+                addBase(RadarTowerRules.TIER_ONE, radar.getX(), radar.getY());
+            }
         }
         saveActiveSystem();
-        SystemAudio.listenTo(this);
+        if (!candidateNonRendered) SystemAudio.listenTo(this);
         status = spawnLocalPlayer
                 ? "Entered " + starSystem.name() + ". Left-click a wormhole to view that system; ships travel on contact."
                 : "Waiting for player assignment in " + starSystem.name() + ".";
     }
 
+    /** Called after simulation/networking and final saves stop, never on system travel. */
+    void dispose() {
+        // The same world-scoped cleanup must run for solo clients and dedicated servers.
+        WorldRuntimeCleanup.discard(this);
+        RadarBeltTrackingSystem.clear(this);
+        galaxy.dispose(this);
+        remoteGalaxyMapSnapshot = null;
+        celestials = null;
+        proceduralInactiveScheduler.reset();
+        clearNpcAiRuntimeState();
+        // ProductionPlanner uses strong identity keys; it must not retain disposed worlds.
+        ProductionPlanner.clear(this);
+        ProductionPolicySystem.clear(this);
+        LogisticsRouteSystem.clear(this);
+        FleetManager.clear(this);
+        SystemSimulationScheduler.clear(this);
+        SimulationCadence.clear(this);
+        GalaxyEventDirector.clear(this);
+        GalaxyEventExtensions.clear(this);
+        ScenarioDirector.clear(this);
+        ResourceSync.clear(this);
+        WorldSpatialIndex.clear(this);
+        WorldRenderCandidates.clear(this);
+        SystemAudio.forget(this);
+        FogOfWarView.forget(this);
+        SoloSaveService.forget(this);
+        PlayerRegistry.dispose(this);
+    }
+
+    List<String> simulationSystemIdsForTesting() { return galaxy.simulationSystemIds(); }
+
     long systemSeed() { return systemSeed; }
+    /** Synchronize the seed after restoring the authoritative galaxy, without rebuilding it. */
+    void restoreSavedSystemSeed(long seed) {
+        systemSeed = seed;
+        random = new Random(seed);
+    }
     double systemTime() { return systemTime; }
     String systemId() { return starSystem.id(); }
     String systemName() { return starSystem.name(); }
@@ -98,6 +184,7 @@ final class World {
         clearNpcAiRuntimeState();
         LogisticsRouteSystem.clear(this);
         remoteGalaxyMapSnapshot = null;
+        RadarBeltTrackingSystem.resetSystem(this);
         celestials = galaxy.rebuild(this, starSystem, systemSeed);
         systemTime = galaxy.activeSystemTime();
     }
@@ -126,8 +213,9 @@ final class World {
         if (celestials != null) celestials.update(0);
     }
     List<WorldSystemState> policySystemStates() { return galaxy.systemStates(this); }
+    WorldSystemState radarBeltState(String systemId) { return galaxy.stateForRadarTracking(systemId); }
     Map<String,Object> captureServerSaveGalaxy() { return galaxy.captureSave(this); }
-    void restoreServerSaveGalaxy(Map<String,Object> save) { proceduralInactiveScheduler.reset(); celestials = galaxy.restoreSave(this, save); systemTime = galaxy.activeSystemTime(); selectedResourceId = -1; }
+    void restoreServerSaveGalaxy(Map<String,Object> save) { proceduralInactiveScheduler.reset(); RadarBeltTrackingSystem.clear(this); celestials = galaxy.restoreSave(this, save); systemTime = galaxy.activeSystemTime(); selectedResourceId = -1; }
     Map<String,Object> captureServerSaveRuntime() {
         Map<String,Object> out = new LinkedHashMap<>();
         out.put("simulationScheduler", SystemSimulationScheduler.capture(this));
@@ -142,10 +230,14 @@ final class World {
         out.put("npcRecovery", NpcRecoverySystem.capture(this));
         out.put("npcRepairEvacuation", NpcRepairEvacuationSystem.capture(this));
         out.put("npcSquadCombat", NpcSquadCombatSystem.capture(this));
+        out.put("galaxyEvents", GalaxyEventDirector.capture(this));
+        out.put("scenario", ScenarioDirector.capture(this));
+        out.put("startingFleetSettings", startingFleetSettings.capture());
         return out;
     }
     void restoreServerSaveRuntime(Map<String,Object> save) {
         Map<String,Object> data = save == null ? Map.of() : save;
+        startingFleetSettings = StartingFleetSettings.restore(data.get("startingFleetSettings"));
         SystemSimulationScheduler.restore(this, data.get("simulationScheduler"));
         ProductionPlanner.restore(this, data.get("productionPlanner"));
         LogisticsRouteSystem.restore(this, data.get("logisticsRoutes"));
@@ -158,6 +250,8 @@ final class World {
         NpcRecoverySystem.restore(this, data.get("npcRecovery"));
         NpcRepairEvacuationSystem.restore(this, data.get("npcRepairEvacuation"));
         NpcSquadCombatSystem.restore(this, data.get("npcSquadCombat"));
+        if (data.containsKey("galaxyEvents")) GalaxyEventDirector.restore(this, data.get("galaxyEvents"));
+        if (data.containsKey("scenario")) ScenarioDirector.restore(this, data.get("scenario"));
     }
     List<Material> spawnMaterials() { return starSystem.spawnMaterials(); }
     List<Material> spawnMaterials(String playerId) { return galaxy.spawnMaterials(this, playerId, starSystem); }
@@ -266,16 +360,30 @@ final class World {
     void spawnPlayerGroup(String playerId, int slot) { spawnPlayerGroup(playerId, slot, false); }
 
     void spawnPlayerGroup(String playerId, int slot, boolean usePrimaryDefinition) {
+        // Reconnects/repeated spawn callbacks must never gift another fleet,
+        // Outpost or radar to a commander with live assets in any system.
+        if (playerId == null || playerId.isBlank() || "WAIT".equals(playerId)
+                || hasLiveAssets(playerId)) return;
         GalaxySystem home = galaxy.ensurePlayerHome(this, playerId, starSystem, usePrimaryDefinition);
         String previous = activeSystemId();
         celestials = galaxy.activate(this, home.id);
         systemTime = galaxy.activeSystemTime();
         Point2D bp = startPointForPlayer(playerId, slot);
-        Point2D sp = startShipPoint(bp);
         int baseId = nextBaseNumber(playerId);
-        int unitId = nextUnitNumber(playerId);
         bases.put(playerId + ":B" + baseId, new Base(playerId + ":B" + baseId, playerId, Rules.DEFAULT_BASE, bp.getX(), bp.getY()));
-        units.put(Unit.key(playerId, unitId), new Unit(playerId, unitId, Rules.STARTING_SHIP, sp.getX(), sp.getY()));
+        for (int i = 0; i < startingFleetSettings.prospectorCount(); i++) {
+            Point2D position = starterPlacement(bp, i, false);
+            int unitId = nextUnitNumber(playerId);
+            units.put(Unit.key(playerId, unitId), new Unit(
+                    playerId, unitId, Rules.STARTING_SHIP, position.getX(), position.getY()));
+        }
+        if (startingFleetSettings.tierOneRadar()) {
+            Point2D position = starterPlacement(bp, -1, true);
+            int radarId = nextBaseNumber(playerId);
+            String id = playerId + ":B" + radarId;
+            bases.put(id, new Base(id, playerId, RadarTowerRules.TIER_ONE,
+                    position.getX(), position.getY()));
+        }
         galaxy.saveActive(this);
         if (previous != null && !previous.isBlank() && !previous.equals(home.id)) {
             celestials = galaxy.activate(this, previous);
@@ -291,8 +399,51 @@ final class World {
     void syncEnvironment(long seed, double hostTime) { syncEnvironment(systemId(), seed, hostTime); }
     void syncEnvironment(String newSystemId, long seed, double hostTime) { boolean changed = !StarSystems.get(newSystemId).id().equals(systemId()); if (changed) setStarSystem(newSystemId); if (changed || seed != systemSeed) setSystemSeed(seed); double delta = hostTime - systemTime; if (Math.abs(delta) > 0.02) advanceEnvironment(delta); else { systemTime = hostTime; galaxy.setActiveSystemTime(hostTime); } }
     private void setStarSystem(String systemId) { starSystem = StarSystems.get(systemId); }
-    private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); proceduralInactiveScheduler.reset(); clearNpcAiRuntimeState(); FleetManager.clear(this); SimulationCadence.clear(this); LogisticsRouteSystem.clear(this); remoteGalaxyMapSnapshot = null; celestials = galaxy.rebuild(this, starSystem, seed); }
-    private Point2D startShipPoint(Point2D basePoint) { return new Point2D.Double(basePoint.getX() + 180, basePoint.getY() - 80); }
+    private void setSystemSeed(long seed) { systemSeed = seed; systemTime = 0; random = new Random(seed); proceduralInactiveScheduler.reset(); clearNpcAiRuntimeState(); FleetManager.clear(this); SimulationCadence.clear(this); LogisticsRouteSystem.clear(this); remoteGalaxyMapSnapshot = null; RadarBeltTrackingSystem.resetSystem(this); celestials = galaxy.rebuild(this, starSystem, seed); }
+    /**
+     * Stable, collision-checked starter placement. The Outpost, natural resource
+     * nodes, existing units and every newly placed unit are excluded.
+     */
+    private Point2D starterPlacement(Point2D outpost, int ordinal, boolean radar) {
+        final double goldenAngle = Math.PI * (3.0 - Math.sqrt(5.0));
+        final double clearance = radar ? 70 : 34;
+        for (int attempt = 0; attempt < 240; attempt++) {
+            double radius = radar ? 390 + 72 * (attempt / 48)
+                    : 205 + 86 * (Math.max(0, ordinal) / 12 + attempt / 36);
+            double angle = radar ? -Math.PI / 3 + attempt * goldenAngle
+                    : ordinal * goldenAngle + attempt * 0.61;
+            double x = outpost.getX() + Math.cos(angle) * radius;
+            double y = outpost.getY() + Math.sin(angle) * radius;
+            if (width > 150 && (x < 65 || x > width - 65)) continue;
+            if (height > 150 && (y < 65 || y > height - 65)) continue;
+            boolean blocked = false;
+            for (Base base : bases.values()) {
+                if (Math.hypot(base.x - x, base.y - y) < base.interactionRadius() + clearance + 16) {
+                    blocked = true;
+                    break;
+                }
+            }
+            if (blocked) continue;
+            for (Unit unit : units.values()) {
+                if (Math.hypot(unit.x - x, unit.y - y) < clearance + 32) {
+                    blocked = true;
+                    break;
+                }
+            }
+            if (blocked) continue;
+            for (ResourceNode node : resources) {
+                if (node.active && Math.hypot(node.x - x, node.y - y) < node.radius + clearance + 15) {
+                    blocked = true;
+                    break;
+                }
+            }
+            if (!blocked) return new Point2D.Double(x, y);
+        }
+        // A degenerate authored map should still produce a playable commander;
+        // expand the search outside the initial orbital rings.
+        return new Point2D.Double(outpost.getX() + 600 + Math.max(0, ordinal) * 80,
+                outpost.getY() - 600);
+    }
 
     private void clearNpcAiRuntimeState() {
         npcSystems.clear();
@@ -493,7 +644,8 @@ final class World {
     private void updateInactiveSystems(double dt) {
         if (dt == 0) return;
         if (GalaxyRuntimeOptions.generationSettings().procedural()) {
-            proceduralInactiveScheduler.update(this, dt, authoritativeGalaxyMapSnapshot());
+            // Avoid building a full UI/replication galaxy snapshot just to schedule four systems.
+            proceduralInactiveScheduler.updateRoster(this, dt, galaxy.simulationSystemIds());
             return;
         }
         String previousSystemId = activeSystemId();
@@ -578,10 +730,11 @@ final class World {
         drawMap(g2);
         galaxy.draw(this, g2);
 
-        Iterable<Base> visibleBases = WorldRenderCandidates.bases(this, g2);
-        Iterable<ResourceNode> visibleResources = WorldRenderCandidates.resources(this, g2);
-        Iterable<WorldItem> visibleItems = WorldRenderCandidates.items(this, g2);
-        Iterable<Unit> visibleUnits = WorldRenderCandidates.units(this, g2);
+        WorldRenderCandidates.Frame visible = WorldRenderCandidates.prepareFrame(this, g2);
+        Iterable<Base> visibleBases = visible.bases();
+        Iterable<ResourceNode> visibleResources = visible.resources();
+        Iterable<WorldItem> visibleItems = visible.items();
+        Iterable<Unit> visibleUnits = visible.units();
 
         for (Base base : visibleBases) base.draw(g2, localColor, stockpile, true);
         ResourceFieldRenderer.drawAll(g2, visibleResources, selectedResourceId);
@@ -615,7 +768,10 @@ final class World {
     boolean scoutRetarget(Unit unit, ResourceNode oldNode) { return oldNode != null && scoutSystem.retargetAfterDepletion(this, unit, oldNode); }
     void orbitAround(Unit unit, double cx, double cy, double radius, double dt, double speed) { unit.orbitAngle += dt * speed * (unit.unitId % 2 == 0 ? 1 : -1); unit.targetX = Calc.clamp(cx + Math.cos(unit.orbitAngle) * radius, 0, width); unit.targetY = Calc.clamp(cy + Math.sin(unit.orbitAngle) * radius, 0, height); unit.orbitRetarget = 0; }
     void moveTowardOrbit(Unit unit, double cx, double cy, double radius) { double angle = Math.atan2(unit.y - cy, unit.x - cx); if (Double.isNaN(angle)) angle = unit.unitId; unit.targetX = Calc.clamp(cx + Math.cos(angle) * radius, 0, width); unit.targetY = Calc.clamp(cy + Math.sin(angle) * radius, 0, height); }
-    void relocateResource(ResourceNode node) { ResourceSpawner.relocate(node, resources, bases.values(), celestials, random); }
+    void relocateResource(ResourceNode node) {
+        ResourceSpawner.relocate(node, resources, bases.values(), celestials, random,
+                galaxy.activeDefinition(), systemTime);
+    }
     private void cleanupDestroyed() { Iterator<Unit> unitIt = units.values().iterator(); while (unitIt.hasNext()) { Unit unit = unitIt.next(); if (unit.hp <= 0) { UnitCommandQueueSystem.remove(this, unit.key()); FleetManager.removeUnit(this, unit.key()); dropLoot(unit); explodeUnit(unit); unitIt.remove(); } } Iterator<Base> baseIt = bases.values().iterator(); while (baseIt.hasNext()) { Base base = baseIt.next(); if (base.hp <= 0) { dropLoot(base); explodeBase(base); baseIt.remove(); } } NpcStationReplacementSystem.replaceMissingStations(this); NpcCollapseSystem.removeShipsWithoutStations(this); shots.removeIf(shot -> !CombatTarget.alive(this, shot.targetKey) || shot.weapon() == null); for (Unit unit : units.values()) if (!unit.attackTarget.isBlank() && !CombatTarget.alive(this, unit.attackTarget)) { unit.attackTarget = ""; if (unit.task == UnitTask.ATTACK) unit.task = UnitTask.IDLE; } }
     private void dropLoot(Unit unit) { int count = WorldLootDrops.scatter(this, SalvageDrops.fromUnit(unit), unit.x, unit.y, Math.max(1.0, unit.type().size.scale), lootSeed(unit.key(), unit.x, unit.y)); if (count > 0 && PlayerRegistry.isLocal(unit.playerId)) status = "Destroyed ship dropped cargo and salvage."; }
     private void dropLoot(Base base) { double power = Math.max(2.4, base.type().maxHp / 900.0); int count = WorldLootDrops.scatter(this, SalvageDrops.fromBase(base), base.x, base.y, power, lootSeed(base.id, base.x, base.y)); if (count > 0 && PlayerRegistry.isLocal(base.playerId)) status = "Destroyed station dropped hangar loot and salvage."; }

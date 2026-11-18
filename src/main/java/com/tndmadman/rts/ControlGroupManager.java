@@ -26,6 +26,44 @@ final class ControlGroupManager {
         for (int i = 0; i < groups.length; i++) groups[i] = new Group();
     }
 
+    Map<String,Object> captureSoloView() {
+        List<Object> data = new ArrayList<>();
+        for (Group group : groups) {
+            Map<String,Object> row = new LinkedHashMap<>();
+            row.put("keys", new ArrayList<>(group.keys));
+            row.put("formation", group.formation.name());
+            row.put("preferredSystemId", group.preferredSystemId);
+            data.add(row);
+        }
+        return Map.of("groups", data, "activeGroup", activeGroup);
+    }
+
+    void restoreSoloView(Object value) {
+        Map<String,Object> data = ServerSaveStore.object(value);
+        List<Object> list = ServerSaveStore.list(data.get("groups"));
+        for (int i = 0; i < GROUP_COUNT; i++) {
+            Group group = groups[i];
+            group.keys.clear();
+            group.formation = FleetFormation.GRID;
+            group.preferredSystemId = "";
+            if (i >= list.size()) continue;
+            Map<String,Object> row = ServerSaveStore.object(list.get(i));
+            for (Object key : ServerSaveStore.list(row.get("keys"))) {
+                String id = ServerSaveStore.asString(key, "");
+                if (group.keys.size() >= 2048) break;
+                if (!id.isBlank() && id.length() <= 256) group.keys.add(id);
+            }
+            group.formation = ServerSaveStore.enumValue(FleetFormation.class, row.get("formation"), FleetFormation.GRID);
+            String systemId = ServerSaveStore.string(row, "preferredSystemId", "");
+            if (systemId.length() <= 256) group.preferredSystemId = systemId;
+        }
+        int selected = ServerSaveStore.intValue(data, "activeGroup", -1);
+        activeGroup = selected >= 0 && selected < GROUP_COUNT && !groups[selected].keys.isEmpty() ? selected : -1;
+        heldKeyCodes.clear();
+        lastTapGroup = -1;
+        lastTapNanos = 0;
+    }
+
     void assign(int number, Collection<String> unitKeys, FleetFormation formation) {
         Group group = group(number);
         group.keys.clear();

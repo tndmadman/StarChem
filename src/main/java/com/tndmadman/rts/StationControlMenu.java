@@ -5,6 +5,7 @@ import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JComponent;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -15,6 +16,9 @@ import javax.swing.JSpinner;
 import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
@@ -35,9 +39,38 @@ final class StationControlMenu {
     private static final Color ACCENT = new Color(90, 220, 255);
     private static final int LABEL_WRAP_WIDTH = 470;
 
+    // The control overview is an independent Swing popup, not a root-layer UI.
+    // Tracking it on its invoker lets any full-screen overlay close it explicitly.
+    private static final String ACTIVE_POPUP_KEY =
+            StationControlMenu.class.getName() + ".activePopup";
+
     private StationControlMenu() { }
 
     static boolean handles(String typeId) { return StationControls.handles(typeId); }
+
+    /** Explicitly dismiss a station overview even if Swing's menu selection path is empty. */
+    static void dismiss(Component invoker) {
+        if (!(invoker instanceof JComponent component)) return;
+        Object current = component.getClientProperty(ACTIVE_POPUP_KEY);
+        component.putClientProperty(ACTIVE_POPUP_KEY, null);
+        if (current instanceof JPopupMenu popup) popup.setVisible(false);
+    }
+
+    /** Keep at most one station overview per game panel; no process-global popup reference. */
+    static void trackPopup(Component invoker, JPopupMenu popup) {
+        if (!(invoker instanceof JComponent component) || popup == null) return;
+        dismiss(invoker);
+        component.putClientProperty(ACTIVE_POPUP_KEY, popup);
+        popup.addPopupMenuListener(new PopupMenuListener() {
+            private void clear() {
+                if (component.getClientProperty(ACTIVE_POPUP_KEY) == popup)
+                    component.putClientProperty(ACTIVE_POPUP_KEY, null);
+            }
+            @Override public void popupMenuWillBecomeVisible(PopupMenuEvent event) { }
+            @Override public void popupMenuWillBecomeInvisible(PopupMenuEvent event) { clear(); }
+            @Override public void popupMenuCanceled(PopupMenuEvent event) { clear(); }
+        });
+    }
 
     static boolean showIfHandled(Component invoker, World world, PeerNetwork network, Base base, int x, int y) {
         if (invoker == null || world == null || base == null || !handles(base.typeId)) return false;
@@ -61,18 +94,20 @@ final class StationControlMenu {
         if (!nonProduction) {
             JButton production = actionButton("OPEN MANUFACTURING (F9)", () -> {
                 popup.setVisible(false);
-                if (!ManufacturingOverlay.openForStation(world, base.id)) {
-                    world.status = "Manufacturing console is unavailable.";
-                }
+                GameFrame frame = SwingUtilities.getWindowAncestor(invoker) instanceof GameFrame owner ? owner : null;
+                boolean opened = frame == null ? ManufacturingOverlay.openForStation(world, base.id)
+                        : frame.openManufacturingFromStation(world, base.id, false);
+                if (!opened) world.status = "Manufacturing console is unavailable.";
             });
             production.setAlignmentX(Component.LEFT_ALIGNMENT);
             content.add(production);
             content.add(Box.createVerticalStrut(5));
             JButton policies = actionButton("MANAGE PRODUCTION POLICIES", () -> {
                 popup.setVisible(false);
-                if (!ManufacturingOverlay.openPoliciesForStation(world, base.id)) {
-                    world.status = "Manufacturing policy console is unavailable.";
-                }
+                GameFrame frame = SwingUtilities.getWindowAncestor(invoker) instanceof GameFrame owner ? owner : null;
+                boolean opened = frame == null ? ManufacturingOverlay.openPoliciesForStation(world, base.id)
+                        : frame.openManufacturingFromStation(world, base.id, true);
+                if (!opened) world.status = "Manufacturing policy console is unavailable.";
             });
             policies.setAlignmentX(Component.LEFT_ALIGNMENT);
             content.add(policies);
@@ -97,6 +132,7 @@ final class StationControlMenu {
         scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         scroll.setPreferredSize(new Dimension(520, Math.min(640, Math.max(230, content.getPreferredSize().height + 16))));
         popup.add(scroll);
+        trackPopup(invoker, popup);
         popup.show(invoker, Math.max(4, x), Math.max(4, y));
         return true;
     }
@@ -357,6 +393,8 @@ final class StationControlMenu {
         content.add(wormholes);
         content.add(Box.createVerticalStrut(10));
 
+        buildOrbitalTracking(content, popup, invoker, world, network, radar, x, y);
+
         content.add(section("RESOURCE PRIORITY"));
         JLabel note = label(searchTarget == StationControls.RadarSearchTarget.WORMHOLES
                         ? "Resource survey is paused while this radar searches for wormholes; priorities are retained."
@@ -389,6 +427,76 @@ final class StationControlMenu {
             content.add(Box.createVerticalStrut(5));
             content.add(clear);
         }
+    }
+
+    private static void buildOrbitalTracking(JPanel content, JPopupMenu popup, Component invoker,
+                                             World world, PeerNetwork network, Base radar, int x, int y) {
+        if (!PlayerRegistry.isLocal(radar.playerId)) {
+            content.add(section("ORBITAL BELT TRACKING"));
+            content.add(label("Tracking selections are private to the radar owner.", Font.PLAIN, 12, MUTED));
+            content.add(Box.createVerticalStrut(12));
+            return;
+        }
+        int limit = RadarBeltTrackingSystem.capacity(radar);
+        List<String> selected = RadarBeltTrackingSystem.selected(world, radar);
+        boolean paused = StationControls.radarSearchTarget(world, radar)
+                == StationControls.RadarSearchTarget.WORMHOLES;
+        content.add(section("ORBITAL BELT TRACKING — " + selected.size() + "/" + limit + " ACTIVE SLOTS"));
+        JLabel help = label(paused ? "Paused during WORMHOLES scan; belt choices are retained."
+                : "Bearings follow the real moving resource clusters; tactical sensor ranges stay unchanged.",
+                Font.PLAIN, 11, MUTED);
+        help.setAlignmentX(Component.LEFT_ALIGNMENT);
+        content.add(help);
+        content.add(Box.createVerticalStrut(6));
+        List<ResourceBelt> belts = RadarBeltTrackingSystem.catalog(world);
+        RadarBeltTrackingSystem.View authorized = RadarBeltTrackingSystem.view(world, PlayerRegistry.localId());
+        if (belts.isEmpty()) {
+            content.add(label("This star system has no authored resource belts.", Font.PLAIN, 12, MUTED));
+        }
+        for (ResourceBelt belt : belts) {
+            boolean chosen = selected.contains(belt.id);
+            RadarBeltTrackingSystem.Track track = authorized.tracks().get(belt.id);
+            String info = paused && chosen ? "Paused — WORMHOLES mode"
+                    : !chosen ? "Not tracking"
+                    : track == null ? "Awaiting tracking data"
+                    : !track.active() ? "Depleted — waiting for respawn"
+                    : track.activeCount() + "/" + track.totalCount() + " active nodes | "
+                    + (int)Math.round(Math.hypot(track.x() - radar.x, track.y() - radar.y)) + " range | "
+                    + (int)Math.round(Math.toDegrees(Math.atan2(track.y() - radar.y, track.x() - radar.x))) + "° bearing"
+                    + (Math.hypot(track.x() - radar.x, track.y() - radar.y)
+                            > VisibilityRules.baseSensorRange(world, radar)
+                            ? " | Tracked — outside miner dispatch range" : "");
+            String materials = belt.materials.stream().map(material -> material.label).distinct()
+                    .limit(5).reduce((first, next) -> first + ", " + next).orElse("none");
+            JPanel row = new JPanel();
+            row.setBackground(PANEL);
+            row.setLayout(new BoxLayout(row, BoxLayout.Y_AXIS));
+            row.setBorder(BorderFactory.createEmptyBorder(5, 7, 5, 7));
+            JLabel title = label((chosen ? "● " : "○ ") + belt.name + " — " + belt.kind.name(),
+                    Font.BOLD, 12, chosen ? ACCENT : TEXT);
+            title.setAlignmentX(Component.LEFT_ALIGNMENT);
+            row.add(title);
+            JLabel detail = label(materials + " | " + info, Font.PLAIN, 11, MUTED);
+            detail.setAlignmentX(Component.LEFT_ALIGNMENT);
+            row.add(detail);
+            row.add(Box.createVerticalStrut(4));
+            String command = chosen ? "RADAR_BELT_REMOVE" : limit == 1 ? "RADAR_BELT_SELECT" : "RADAR_BELT_ADD";
+            JButton control = smallButton(chosen ? "Stop tracking" : limit == 1 ? "Track this belt" : "Add tracking",
+                    () -> send(popup, invoker, world, network, radar, x, y, command, belt.id));
+            control.setEnabled(chosen || selected.size() < limit || limit == 1);
+            if (!control.isEnabled()) control.setToolTipText("Radar slots full; remove another belt first.");
+            control.setAlignmentX(Component.LEFT_ALIGNMENT);
+            row.add(control);
+            row.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(row);
+            content.add(Box.createVerticalStrut(4));
+        }
+        JButton clear = actionButton("Clear selected belts", () -> send(popup, invoker, world, network,
+                radar, x, y, "RADAR_BELT_CLEAR", ""));
+        clear.setEnabled(!selected.isEmpty());
+        clear.setAlignmentX(Component.LEFT_ALIGNMENT);
+        content.add(clear);
+        content.add(Box.createVerticalStrut(12));
     }
 
     private static JPanel radarMaterialRow(JPopupMenu popup, Component invoker, World world, PeerNetwork network,
@@ -490,6 +598,16 @@ final class StationControlMenu {
 
     private static void send(JPopupMenu popup, Component invoker, World world, PeerNetwork network,
                              Base base, int x, int y, String action, String value) {
+        if (action.startsWith("RADAR_BELT_") && !PlayerRegistry.isLocal(base.playerId)) {
+            world.status = "Only the owning commander can select that radar's belts.";
+            return;
+        }
+        if (network != null && network.clientMode() && action.startsWith("RADAR_BELT_")) {
+            network.production(base.playerId, "CONTROL", base.id, action, value);
+            world.status = "Requested radar belt tracking update from server.";
+            popup.setVisible(false);
+            return; // Authoritative view, not optimistic local selection, determines the next display.
+        }
         boolean changed = StationControlCommands.apply(world, base.playerId, base.id, action, value);
         if (!changed) return;
         if (network != null) network.production(base.playerId, "CONTROL", base.id, action, value);

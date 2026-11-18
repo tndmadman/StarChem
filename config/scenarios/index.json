@@ -1,5 +1,6 @@
 {
   "scenarioFiles": [
+    "guided-start.json",
     "frontier-industry.json",
     "corsair-endurance.json",
     "conquest-path.json"

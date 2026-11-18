@@ -56,6 +56,16 @@ final class SnapshotSmoother {
             unit.y = state.y();
             return true;
         }
+        // When the authoritative ship is stationary, there is no movement to
+        // predict. The normal dead zone would preserve a residual offset forever
+        // (including after a long stream of TCP snapshots). Correct it exactly,
+        // while leaving smoothing and its thresholds for moving ships intact.
+        if (safeTask(state.task(), unit.task) == UnitTask.IDLE
+                && Calc.distance(state.x(), state.y(), state.targetX(), state.targetY()) <= 0.001) {
+            unit.x = state.x();
+            unit.y = state.y();
+            return true;
+        }
         double error = Calc.distance(unit.x, unit.y, state.x(), state.y());
         double deadZone = local ? 12 : 24;
         double snap = local ? 600 : 360;

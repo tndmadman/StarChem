@@ -2,6 +2,8 @@
 
 StarChem v1.8.0 can load and migrate a server-data directory created by the published v1.7.0 release. The published v1.7.0 baseline uses multiplayer protocol 8, rules version 14, and save format 2. StarChem v1.8.0 uses protocol 17, rules version 27, and save format 6.
 
+**Later unreleased development note:** the 1.8.2-dev JOIN/reconnect integration uses protocol 18 for authenticated readiness (versus published v1.8.0/v1.8.2 protocol 17). This does not change the v1.7.0-to-v1.8.0 migration steps below or the server save format 6. Both server and client must use matching protocol-18 development builds.
+
 This is a one-way operational upgrade unless you restore the complete pre-upgrade backup. Do not expect a v1.7.0 binary to safely read state after v1.8.0 has migrated and written it.
 
 ## Before upgrading

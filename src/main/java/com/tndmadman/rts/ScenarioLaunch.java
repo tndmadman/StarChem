@@ -46,6 +46,12 @@ final class ScenarioLaunch {
         return out.toArray(String[]::new);
     }
 
+    /** Select a fresh SOLO scenario from the graphical lobby, or clear for custom play. */
+    static void selectForSolo(String scenarioId) {
+        selectedId = scenarioId == null || scenarioId.isBlank()
+                ? "" : ScenarioRules.require(scenarioId).id();
+    }
+
     static boolean selected() { return !selectedId.isBlank(); }
     static String selectedId() { return selectedId; }
     static void consume() { selectedId = ""; }

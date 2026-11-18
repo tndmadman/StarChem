@@ -31,6 +31,7 @@ final class Config {
     final int autosaveSeconds;
     final int backupCount;
     final boolean newWorld;
+    final int startingMiners;
     final boolean galaxyEventsEnabled;
     final double galaxyEventFrequency;
     final Set<GalaxyEventKind> galaxyEventCategories;
@@ -65,6 +66,21 @@ final class Config {
                    String saveName, int autosaveSeconds, int backupCount, boolean newWorld,
                    SkirmishSettings skirmishSettings, boolean galaxyEventsEnabled,
                    double galaxyEventFrequency, Set<GalaxyEventKind> galaxyEventCategories) {
+        this(playerName, showLobby, hostMode, dedicatedServer, localHostClient, devMode, devToken,
+                disableProductionTimers, port, serverAddress, disabledNpcFactionIds, systemId, galaxyCopies,
+                saveDir, saveName, autosaveSeconds, backupCount, newWorld, skirmishSettings,
+                galaxyEventsEnabled, galaxyEventFrequency, galaxyEventCategories,
+                StartingFleetSettings.DEFAULT_PROSPECTORS);
+    }
+
+    private Config(String playerName, boolean showLobby, boolean hostMode, boolean dedicatedServer,
+                   boolean localHostClient, boolean devMode, String devToken,
+                   boolean disableProductionTimers, int port, InetSocketAddress serverAddress,
+                   Set<String> disabledNpcFactionIds, String systemId, int galaxyCopies, Path saveDir,
+                   String saveName, int autosaveSeconds, int backupCount, boolean newWorld,
+                   SkirmishSettings skirmishSettings, boolean galaxyEventsEnabled,
+                   double galaxyEventFrequency, Set<GalaxyEventKind> galaxyEventCategories,
+                   int startingMiners) {
         this.playerName = playerName;
         this.showLobby = showLobby;
         this.hostMode = hostMode;
@@ -85,6 +101,7 @@ final class Config {
         this.autosaveSeconds = Math.max(0, autosaveSeconds);
         this.backupCount = Math.max(1, Math.min(24, backupCount));
         this.newWorld = newWorld;
+        this.startingMiners = StartingFleetSettings.newCampaign(startingMiners).prospectorCount();
         this.galaxyEventsEnabled = galaxyEventsEnabled;
         this.galaxyEventFrequency = clampEventFrequency(galaxyEventFrequency);
         this.galaxyEventCategories = galaxyEventCategories == null
@@ -109,6 +126,7 @@ final class Config {
         int autosaveSeconds = 60;
         int backupCount = 5;
         boolean newWorld = false;
+        int startingMiners = StartingFleetSettings.DEFAULT_PROSPECTORS;
         boolean galaxyEventsEnabled = true;
         double galaxyEventFrequency = 1.0;
         Set<GalaxyEventKind> galaxyEventCategories = Set.of(GalaxyEventKind.values());
@@ -133,6 +151,8 @@ final class Config {
                 case "--backup-count" -> backupCount = parsePositiveInt(
                         requiredValue(args, ++i, option), "Backup count");
                 case "--new-world" -> newWorld = true;
+                case "--starting-miners" -> startingMiners = StartingFleetSettings.parseCount(
+                        requiredValue(args, ++i, option));
                 case "--disable-events" -> galaxyEventsEnabled = false;
                 case "--enable-events" -> galaxyEventsEnabled = true;
                 case "--event-frequency" -> galaxyEventFrequency = parseEventFrequency(
@@ -175,7 +195,7 @@ final class Config {
                     disableProductionTimers, port == 0 ? 50000 : port, null,
                     selectedSkirmish.disabledNpcFactionIds(), system, galaxyCopies, dedicatedSaveDir,
                     saveName, autosaveSeconds, backupCount, newWorld, selectedSkirmish, galaxyEventsEnabled,
-                    galaxyEventFrequency, galaxyEventCategories);
+                    galaxyEventFrequency, galaxyEventCategories).withStartingMiners(startingMiners);
         }
         if (server != null) {
             return join(name, server.getHostString(), server.getPort(), dev,
@@ -185,7 +205,8 @@ final class Config {
         return new Config(clean(name), false, false, false, false, dev, devToken,
                 disableProductionTimers, 0, null, selectedSkirmish.disabledNpcFactionIds(), system,
                 galaxyCopies, soloSaveDir, saveName, autosaveSeconds, backupCount, newWorld,
-                selectedSkirmish, galaxyEventsEnabled, galaxyEventFrequency, galaxyEventCategories);
+                selectedSkirmish, galaxyEventsEnabled, galaxyEventFrequency, galaxyEventCategories)
+                .withStartingMiners(startingMiners);
     }
 
     private static IllegalArgumentException conflictingDevTokenSources() {
@@ -295,6 +316,14 @@ final class Config {
                 hostConfig.saveName, hostConfig.autosaveSeconds, hostConfig.backupCount,
                 hostConfig.newWorld, hostConfig.skirmishSettings, hostConfig.galaxyEventsEnabled,
                 hostConfig.galaxyEventFrequency, hostConfig.galaxyEventCategories);
+    }
+
+    Config withStartingMiners(int count) {
+        return new Config(playerName, showLobby, hostMode, dedicatedServer, localHostClient, devMode,
+                devToken, disableProductionTimers, port, serverAddress, disabledNpcFactionIds,
+                systemId, galaxyCopies, saveDir, saveName, autosaveSeconds, backupCount, newWorld,
+                skirmishSettings, galaxyEventsEnabled, galaxyEventFrequency, galaxyEventCategories,
+                count);
     }
 
     NetworkRole role() {

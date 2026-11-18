@@ -84,9 +84,17 @@ public final class SessionRecoveryValidator {
             require(world.hasLiveAssets("P1"), "takeover attempt changed P1 assets");
             require(world.hasResearch("P1", "session-recovery-marker"), "takeover attempt changed P1 research");
 
-            long timeoutNow = System.currentTimeMillis() + 10_000;
+            // The connection is authenticated but has not acknowledged its initial VIEW_SYNC.
+            // A short startup pause must not expire the player: the sync phase has its
+            // own 30-second idle budget and a 90-second absolute hard deadline.
+            long now = System.currentTimeMillis();
+            server.tick(now + 10_000);
+            require(server.owns(firstEndpoint, "P1"),
+                    "authentication startup was terminated by the obsolete four-second idle timeout");
+            long timeoutNow = now + 95_000;
             server.tick(timeoutNow);
-            require(!server.owns(firstEndpoint, "P1"), "timed-out TCP connection remained connected");
+            require(!server.owns(firstEndpoint, "P1"),
+                    "sync-phase hard timeout did not detach a stalled TCP connection");
             require(world.hasLiveAssets("P1"), "timeout deleted P1 assets");
             require(world.hasResearch("P1", "session-recovery-marker"), "timeout deleted P1 research");
             ConnectionId rawTokenEndpoint = transport.connectionId(loopback, rawTokenClient.getLocalPort());
@@ -158,9 +166,18 @@ public final class SessionRecoveryValidator {
             require(server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1",
                             sessionReference(rawNetworkToken), "", "", false, ""),
                     "duplicate resume retry was not idempotent");
+            require(server.initialSyncBuilds(reboundEndpoint) == 1,
+                    "immediate duplicate RESUME incorrectly rebuilt full initial world state");
+            // The new response policy rate-limits WELCOME-only delivery recovery.
+            Thread.sleep(2_100);
+            require(server.resume(reboundEndpoint, loopback, reboundClient.getLocalPort(), "P1",
+                            sessionReference(rawNetworkToken), "", "", false, ""),
+                    "bounded duplicate RESUME delivery recovery was denied");
             String retryWelcome = receivePayload(reboundClient, "WELCOME|");
             require(reboundToken.equals(markerValue(retryWelcome, "SESSION")),
                     "duplicate resume retry changed the active token again");
+            require(server.initialSyncBuilds(reboundEndpoint) == 1,
+                    "WELCOME delivery retry incorrectly rebuilt initial world state");
 
             require(!server.resume(firstEndpoint, loopback, firstClient.getLocalPort(), "P1",
                             sessionReference(firstToken), "", "", false, ""),

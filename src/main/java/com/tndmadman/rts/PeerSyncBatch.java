@@ -15,6 +15,7 @@ final class PeerSyncBatch {
             for (ServerPeer peer : peers) {
                 next = PeerSyncSender.sendOne(world, views, peer, next, SyncKind.REGULAR, fullResources, out);
                 sendQueueState(world, peer, false, out);
+                sendRadarBeltView(world, views, peer, false, out);
                 sendNotices(world, peer, out);
                 sendAudio(world, views, peer, out);
             }
@@ -29,10 +30,20 @@ final class PeerSyncBatch {
         long next = PeerSyncSender.sendOne(world, views, peer, sequence, SyncKind.INITIAL, out);
         sendFogState(world, views, peer, out);
         sendQueueState(world, peer, true, out);
+        sendRadarBeltView(world, views, peer, true, out);
         sendNotices(world, peer, out);
         sendAudio(world, views, peer, out);
         GlobalLeaderboard.forceNextAuthoritativeSend(world);
         return next;
+    }
+
+    private static void sendRadarBeltView(World world, ClientViewCache views, ServerPeer peer,
+                                          boolean initial, NetOutbound out) {
+        if (world == null || views == null || peer == null || out == null) return;
+        String systemId = views.view(world, peer.playerId());
+        if (!RadarBeltTrackingSystem.shouldSend(world, peer.playerId(), systemId, initial)) return;
+        out.send(RadarBeltTrackingSystem.packet(world, peer.playerId(), systemId),
+                peer.connectionId(), DeliveryClass.ORDERED);
     }
 
     private static void sendQueueState(World world, ServerPeer peer, boolean initial, NetOutbound out) {

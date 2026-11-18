@@ -15,6 +15,14 @@ final class SystemSimulationScheduler {
 
     private SystemSimulationScheduler() { }
 
+    static synchronized void clear(World world) {
+        if (world != null) ACCUMULATED.remove(world);
+    }
+
+    static synchronized boolean containsWorldForTesting(World world) {
+        return world != null && ACCUMULATED.containsKey(world);
+    }
+
     static synchronized double step(World world, double dt) {
         if (world == null || dt <= 0) return 0;
         SimulationTier tier = tier(world);

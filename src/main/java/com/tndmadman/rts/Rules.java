@@ -176,6 +176,7 @@ final class Rules {
             Map<String,Object> b = object(item);
             if (b.isEmpty()) continue;
             out.add(new ResourceBelt(
+                    string(b, "id", ResourceBelt.stableId(string(b, "name", "Resource Belt"))),
                     string(b, "name", "Resource Belt"),
                     nodeKind(string(b, "kind", "SILICATE_ROCK")),
                     materials(b.get("materials")),
@@ -473,6 +474,7 @@ final class BaseType {
 }
 
 final class ResourceBelt {
+    final String id;
     final String name;
     final NodeKind kind;
     final List<Material> materials;
@@ -481,6 +483,18 @@ final class ResourceBelt {
 
     ResourceBelt(String name, NodeKind kind, List<Material> materials, double orbit, double width, double arc,
                  int count, double amount, double harvestRate, double radius) {
+        this(stableId(name), name, kind, materials, orbit, width, arc, count, amount, harvestRate, radius);
+    }
+
+    ResourceBelt(String id, String name, NodeKind kind, List<Material> materials, double orbit, double width, double arc,
+                 int count, double amount, double harvestRate, double radius) {
+        if (id == null || id.isBlank() || !id.matches("[a-z0-9_]+"))
+            throw new IllegalArgumentException("Invalid resource belt id: " + id);
+        if (!Double.isFinite(orbit) || !Double.isFinite(width) || orbit <= width || width <= 0
+                || !Double.isFinite(arc) || arc <= 0 || arc > Math.PI * 2
+                || count < 0 || !Double.isFinite(amount) || amount <= 0)
+            throw new IllegalArgumentException("Invalid resource belt geometry: " + name);
+        this.id = id;
         this.name = name;
         this.kind = kind;
         this.materials = materials;
@@ -491,5 +505,11 @@ final class ResourceBelt {
         this.amount = amount;
         this.harvestRate = harvestRate;
         this.radius = radius;
+    }
+
+    static String stableId(String name) {
+        String id = (name == null ? "" : name.toLowerCase(java.util.Locale.ROOT))
+                .replaceAll("[^a-z0-9]+", "_").replaceAll("^_+|_+$", "");
+        return id.isBlank() ? "resource_belt" : id;
     }
 }

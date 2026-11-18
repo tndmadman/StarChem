@@ -36,6 +36,11 @@ public final class StationControlValidator {
                 Material.IRON, 4_450, 4_000, 500, 5, 3);
         ResourceNode copper = new ResourceNode(2, "Copper field", NodeKind.SILICATE_ROCK,
                 Material.COPPER, 4_850, 4_000, 500, 5, 3);
+        // Radar priority still chooses materials *within* a tracked belt. Tag
+        // these synthetic rocks as members of the single default T1 belt.
+        String selectedBelt = RadarBeltTrackingSystem.catalog(world).get(0).id;
+        iron.resourceBeltId = selectedBelt;
+        copper.resourceBeltId = selectedBelt;
         world.resources.add(iron);
         world.resources.add(copper);
 

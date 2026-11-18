@@ -187,7 +187,8 @@ final class ScoutSystem {
             double range = VisibilityRules.baseSensorRange(world, radar);
             double rangeSquared = range * range;
             for (ResourceNode node : world.resources) {
-                if (!node.active || node.id == oldNode.id || !miner.type().harvestKinds.contains(node.kind)) continue;
+                if (!node.active || node.id == oldNode.id || !miner.type().harvestKinds.contains(node.kind)
+                        || !RadarBeltTrackingSystem.tracking(world, radar, node)) continue;
                 double radarDx = radar.x - node.x;
                 double radarDy = radar.y - node.y;
                 if (radarDx * radarDx + radarDy * radarDy > rangeSquared) continue;
@@ -249,7 +250,8 @@ final class ScoutSystem {
         for (ResourceNode node : world.resources) {
             double dx = radar.x - node.x;
             double dy = radar.y - node.y;
-            if (node.active && dx * dx + dy * dy <= rangeSquared
+            if (node.active && RadarBeltTrackingSystem.tracking(world, radar, node)
+                    && dx * dx + dy * dy <= rangeSquared
                     && visibility.resourceStage(node).atLeast(IntelWarfareSystem.DetectionStage.IDENTIFIED)) {
                 visible.add(node);
             }

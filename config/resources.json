@@ -1,7 +1,7 @@
 {
   "resourceBelts": [
     {
-      "name": "Inner Iron Belt",
+      "id": "inner_iron_belt", "name": "Inner Iron Belt",
       "kind": "SILICATE_ROCK",
       "materials": [
         "IRON"
@@ -15,7 +15,7 @@
       "radius": 2.8
     },
     {
-      "name": "Copper Arc",
+      "id": "copper_arc", "name": "Copper Arc",
       "kind": "SILICATE_ROCK",
       "materials": [
         "COPPER"
@@ -29,7 +29,7 @@
       "radius": 2.6
     },
     {
-      "name": "Silicate Belt",
+      "id": "silicate_belt", "name": "Silicate Belt",
       "kind": "SILICATE_ROCK",
       "materials": [
         "SILICATES"
@@ -43,7 +43,7 @@
       "radius": 3.0
     },
     {
-      "name": "Ice Ring",
+      "id": "ice_ring", "name": "Ice Ring",
       "kind": "SILICATE_ROCK",
       "materials": [
         "ICE"
@@ -57,7 +57,7 @@
       "radius": 2.8
     },
     {
-      "name": "Hydrogen Drift",
+      "id": "hydrogen_drift", "name": "Hydrogen Drift",
       "kind": "GAS_CLOUD",
       "materials": [
         "HYDROGEN"
@@ -71,7 +71,7 @@
       "radius": 4.8
     },
     {
-      "name": "Outer Gas Band",
+      "id": "outer_gas_band", "name": "Outer Gas Band",
       "kind": "GAS_CLOUD",
       "materials": [
         "HELIUM",

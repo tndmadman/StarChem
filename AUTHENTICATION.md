@@ -2,6 +2,8 @@
 
 StarChem v1.8.0 uses multiplayer protocol 17, rules version 27, and save format 6. Authentication and session resume occur only after the client has established TLS and verified the server identity it has pinned for that endpoint.
 
+> **Development compatibility note (1.8.2-dev JOIN lifecycle fix):** the new mandatory `CLIENT_READY`, `READY_ACK` and `SYNC_RETRY` phases use multiplayer protocol **18**. Both server and client must be updated together. The protocol-17 references below describe the published 1.8.0 authentication release and are retained for historical accuracy.
+
 For server-certificate storage, migration, and operator-supplied keystores, read `TLS_IDENTITY_SECURITY.md`. For a persistent-server upgrade from the published v1.7.0 release, read `UPGRADING_TO_1.8.0.md` before starting v1.8.0 against the old server-data directory.
 
 ## Compatibility
@@ -117,3 +119,13 @@ A full persistent-server backup can also contain retained identity state, admini
 Unauthenticated JOIN attempts are rate-limited independently from normal authenticated traffic. Pre-authentication connections are bounded before expensive per-connection work is allowed to grow without limit.
 
 TLS and application authentication use bounded deadlines; partial frames do not extend the authentication period indefinitely. A successful password or session proof still must pass the server's normal admission and moderation policy before the connection gains a player session.
+
+## 1.8.2-dev authenticated readiness and retries
+
+The authenticated TCP generation progresses through TLS identity validation, compatible JOIN/RESUME proof, WELCOME, initial authoritative VIEW_SYNC, client CLIENT_READY acknowledgment, and server READY_ACK. No gameplay command is enabled until the client has applied an initial authoritative full-view snapshot. The server recognizes READY only for its bound connection ID and player identity with a valid snapshot sequence.
+
+Repeated JOIN or RESUME on the same already-proven TCP generation may receive a rate-limited WELCOME replay but never re-rotates the session token or rebuilds the initial snapshot. The client ignores an exact duplicate WELCOME for the current generation, including after READY. A missing initial VIEW_SYNC can be recovered by a bounded authenticated SYNC_RETRY; it cannot authorize an unauthenticated client. The server accepts repeated CLIENT_READY acknowledgments idempotently.
+
+Defaults: 25 seconds for initial client authentication, 45 seconds for the client initial-view wait, up to two server initial-view replays at 5-second spacing, a 30-second syncing peer idle window, a 90-second sync hard deadline, a 20-second READY peer idle window, and a 15-second client server-silence threshold. Socket establishment retries use 250 ms to 4 s exponential backoff with jitter. These are separate from the existing bounded pre-auth TLS/authentication deadline.
+
+Operators can use correlation fields in [CONNECTION] logs (connection ID, player ID after auth, phase, elapsed milliseconds, retry count, closure reason). Tokens, password verifiers and proofs must not be logged.

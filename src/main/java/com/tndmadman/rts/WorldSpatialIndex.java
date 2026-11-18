@@ -39,6 +39,10 @@ final class WorldSpatialIndex {
         }
     }
 
+    static void clear(World world) {
+        if (world != null) INDEXES.remove(world);
+    }
+
     static WorldSpatialIndex rebuild(World world) {
         WorldSpatialIndex index = forWorld(world);
         index.rebuildNow(world);

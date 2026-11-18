@@ -17,6 +17,9 @@ final class InGameMenuOverlay extends JComponent {
     private final Runnable resumeAction;
     private final Runnable settingsAction;
     private final Runnable tutorialAction;
+    private final Runnable saveAction;
+    private final Runnable saveAsAction;
+    private final Runnable loadAction;
     private final Runnable lobbyAction;
     private final Runnable quitAction;
 
@@ -26,12 +29,23 @@ final class InGameMenuOverlay extends JComponent {
                       Runnable tutorialAction,
                       Runnable lobbyAction,
                       Runnable quitAction) {
+        this(tutorialAvailable, resumeAction, settingsAction, tutorialAction,
+                lobbyAction, quitAction, null, null, null);
+    }
+
+    InGameMenuOverlay(boolean tutorialAvailable,
+                      Runnable resumeAction, Runnable settingsAction, Runnable tutorialAction,
+                      Runnable lobbyAction, Runnable quitAction,
+                      Runnable saveAction, Runnable saveAsAction, Runnable loadAction) {
         this.menu = new GameMenuOverlay(tutorialAvailable);
         this.resumeAction = resumeAction;
         this.settingsAction = settingsAction;
         this.tutorialAction = tutorialAction;
         this.lobbyAction = lobbyAction;
         this.quitAction = quitAction;
+        this.saveAction = saveAction;
+        this.saveAsAction = saveAsAction;
+        this.loadAction = loadAction;
         setOpaque(false);
         setFocusable(true);
         setVisible(false);
@@ -81,6 +95,9 @@ final class InGameMenuOverlay extends JComponent {
     private void run(GameMenuOverlay.Action action) {
         switch (action) {
             case RESUME -> run(resumeAction);
+            case SAVE_GAME -> run(saveAction);
+            case SAVE_AS -> run(saveAsAction);
+            case LOAD_GAME -> run(loadAction);
             case SETTINGS -> run(settingsAction);
             case DIPLOMACY -> {
                 close();

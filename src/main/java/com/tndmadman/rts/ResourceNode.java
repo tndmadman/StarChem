@@ -16,6 +16,10 @@ final class ResourceNode {
     boolean active = true;
     boolean orbiting;
     String celestialAnchorBodyId = "";
+    // Authoritative natural-belt identity; blank for event and celestial resources.
+    String resourceBeltId = "";
+    // Center of the belt arc at system time zero (radians).
+    double resourceBeltCenterAngle = Double.NaN;
 
     ResourceNode(int id, String name, NodeKind kind, Material material, double x, double y, double maxAmount, double harvestRate, double radius) {
         this.id = id; this.name = name; this.kind = kind; this.material = material; this.x = x; this.y = y;

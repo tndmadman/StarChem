@@ -148,11 +148,11 @@
       "stationTypes": [
         "manufacturing"
       ],
-      "timeSeconds": 15,
+      "timeSeconds": 12,
       "requiredResources": {
-        "TUNGSTEN": 8,
-        "SILICATES": 10,
-        "PHOSPHATES": 6
+        "ALUMINUM": 8,
+        "SILICATES": 16,
+        "CARBON": 8
       },
       "output": {
         "material": "RADIATION_SHIELDING",

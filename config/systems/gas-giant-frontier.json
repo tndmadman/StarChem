@@ -14,11 +14,11 @@
     {"id": "moon_b", "name": "Broken Moon", "parent": "leviathan", "orbit": 520, "radius": 34, "speed": -0.031, "color": "#938A7B"}
   ],
   "resourceBelts": [
-    {"name": "Fuel Gas Sea", "kind": "GAS_CLOUD", "orbit": 3500, "width": 760, "arc": 2.7, "count": 145, "amount": 31, "harvestRate": 9.6, "radius": 5.1,
+    {"id": "fuel_gas_sea", "name": "Fuel Gas Sea", "kind": "GAS_CLOUD", "orbit": 3500, "width": 760, "arc": 2.7, "count": 145, "amount": 31, "harvestRate": 9.6, "radius": 5.1,
       "composition": [{"material": "HYDROGEN", "weight": 34}, {"material": "HELIUM", "weight": 24}, {"material": "METHANE", "weight": 22}, {"material": "AMMONIA", "weight": 10}, {"material": "NITROGEN", "weight": 10}]},
-    {"name": "Noble Gas Wake", "kind": "GAS_CLOUD", "orbit": 6100, "width": 820, "arc": 2.0, "count": 90, "amount": 22, "harvestRate": 7.0, "radius": 4.7,
+    {"id": "noble_gas_wake", "name": "Noble Gas Wake", "kind": "GAS_CLOUD", "orbit": 6100, "width": 820, "arc": 2.0, "count": 90, "amount": 22, "harvestRate": 7.0, "radius": 4.7,
       "composition": [{"material": "ARGON", "weight": 50}, {"material": "NEON", "weight": 30}, {"material": "XENON", "weight": 8}, {"material": "HELIUM", "weight": 12}]},
-    {"name": "Anchor Rocks", "kind": "SILICATE_ROCK", "orbit": 2300, "width": 330, "arc": 1.1, "count": 65, "amount": 18, "harvestRate": 6.2, "radius": 2.6,
+    {"id": "anchor_rocks", "name": "Anchor Rocks", "kind": "SILICATE_ROCK", "orbit": 2300, "width": 330, "arc": 1.1, "count": 65, "amount": 18, "harvestRate": 6.2, "radius": 2.6,
       "composition": [{"material": "IRON", "weight": 42}, {"material": "SILICATES", "weight": 32}, {"material": "NICKEL", "weight": 16}, {"material": "CARBON", "weight": 10}]}
   ]
 }

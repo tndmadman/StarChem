@@ -156,22 +156,32 @@ final class BuildMenu {
         addQueueEntries(world, network, base);
 
         for (String shipId : def.buildableShips) {
-            if (!ResearchRules.shipUnlocked(world, base.playerId, shipId)) continue;
             ShipType ship = Rules.findShip(shipId);
             if (ship == null) continue;
+            // Free-build only waives resource costs, never research authorization.
+            // Keep the historical dev-menu filtering; regular players can see
+            // disabled future hulls with their missing research labels.
+            if (free && !ResearchRules.shipUnlocked(world, base.playerId, shipId)) continue;
             List<ShipLoadoutDefinition> variants = WeaponRules.loadoutsForHull(shipId);
             for (ShipLoadoutDefinition loadout : variants) {
-                if (!WeaponRules.unlocked(world, base.playerId, loadout)) continue;
+                if (free && !WeaponRules.unlocked(world, base.playerId, loadout)) continue;
                 List<Cost> cost = WeaponRules.buildCost(ship, loadout);
                 String variant = variants.size() > 1 ? " - " + loadout.displayName() : "";
+                String locked = !ResearchPolicy.unlocked(world, base.playerId,
+                        ResearchUnlockKind.SHIP, shipId)
+                        ? "Research " + ResearchPolicy.missingUnlockLabel(world, base.playerId,
+                                ResearchUnlockKind.SHIP, shipId)
+                        : !WeaponRules.unlocked(world, base.playerId, loadout)
+                        ? "Loadout research " + WeaponRules.missingResearchLabel(world, base.playerId, loadout) : "";
                 entries.add(new Entry(
                         "Build " + ship.name + variant,
-                        timeDetail("Build", ship.buildTimeSeconds, free),
+                        !locked.isBlank() ? "LOCKED — " + locked
+                                : availabilityDetail(base, cost, free, ship.buildTimeSeconds),
                         defenseLine(ship),
                         new ShipPreviewIcon(ship),
                         requirementTooltip("Build " + ship.name + variant, cost, free,
-                                defenseLine(ship), weaponText(weaponBadges(loadout))),
-                        false,
+                                defenseLine(ship), weaponText(weaponBadges(loadout)), locked),
+                        !locked.isBlank(),
                         false,
                         false,
                         () -> sendProduction(world, network, base, "ENQUEUE",
@@ -182,17 +192,28 @@ final class BuildMenu {
         addCustomFitBuildEntries(world, network, base, free);
 
         for (String packageId : def.basePackages) {
-            if (!StationPackageResearchRules.unlocked(world, base.playerId, packageId)) continue;
             BaseType station = Rules.base(packageId);
             if (station == null) continue;
+            boolean available = ResearchPolicy.unlocked(world, base.playerId,
+                    ResearchUnlockKind.STATION_PACKAGE, packageId)
+                    && ResearchPolicy.unlocked(world, base.playerId, ResearchUnlockKind.STATION, packageId)
+                    && StationPackageResearchRules.unlocked(world, base.playerId, packageId);
+            if (free && !available) continue;
+            String blocked = available ? "" : "Research " +
+                    ResearchPolicy.missingUnlockLabel(world, base.playerId,
+                            ResearchUnlockKind.STATION_PACKAGE, packageId);
+            if (!available && blocked.equals("Research ")) {
+                blocked += StationPackageResearchRules.requiredResearchName(packageId);
+            }
             entries.add(new Entry(
                     "Load " + station.name,
-                    timeDetail("Build", station.buildTimeSeconds, free),
+                    !available ? "LOCKED — " + blocked
+                            : availabilityDetail(base, station.buildCost, free, station.buildTimeSeconds),
                     stationDefenseLine(station),
                     new StationPreviewIcon(station),
                     requirementTooltip("Load " + station.name, station.buildCost, free,
-                            stationDefenseLine(station), "Carried and placed by a Deployer."),
-                    false,
+                            stationDefenseLine(station), "Carried and placed by a Deployer.", blocked),
+                    !available,
                     false,
                     false,
                     () -> sendProduction(world, network, base, "ENQUEUE",
@@ -311,10 +332,12 @@ final class BuildMenu {
                     CraftingRules.forStationAndCategory(base.typeId, category);
             int unlocked = 0;
             for (CraftableItem item : inCategory) {
-                if (item.unlockedFor(world, base.playerId)) unlocked++;
+                if (item.unlockedFor(world, base.playerId)
+                        && ResearchPolicy.unlocked(world, base.playerId,
+                                ResearchUnlockKind.CRAFTABLE, item.id)) unlocked++;
             }
-            if (unlocked <= 0) continue;
-            String detail = unlocked + (unlocked == 1 ? " recipe" : " recipes");
+            if (free && unlocked <= 0) continue;
+            String detail = unlocked + " / " + inCategory.size() + " recipes available";
             entries.add(new Entry(
                     "Manufacturing | " + category.label,
                     detail,
@@ -360,17 +383,26 @@ final class BuildMenu {
 
     private void addCraftableEntry(World world, PeerNetwork network, Base base,
                                    CraftableItem item, boolean free) {
-        if (!item.unlockedFor(world, base.playerId)) return;
+        if (free && (!item.unlockedFor(world, base.playerId)
+                || !ResearchPolicy.unlocked(world, base.playerId,
+                        ResearchUnlockKind.CRAFTABLE, item.id))) return;
+        String blocked = !item.unlockedFor(world, base.playerId)
+                ? "Research " + item.missingResearchLabel(world, base.playerId)
+                : !ResearchPolicy.unlocked(world, base.playerId,
+                        ResearchUnlockKind.CRAFTABLE, item.id)
+                ? "Research " + ResearchPolicy.missingUnlockLabel(world, base.playerId,
+                        ResearchUnlockKind.CRAFTABLE, item.id) : "";
         String description = item.description.isBlank() ? "Style: " + item.style : item.description;
         entries.add(new Entry(
                 "Manufacture " + item.name,
-                (free ? "Free build • " : "") + item.outputLabel()
-                        + " • " + whole(item.timeSeconds) + "s",
+                !blocked.isBlank() ? "LOCKED — " + blocked
+                        : availabilityDetail(base, item.requiredResources, free, item.timeSeconds)
+                                + " • " + item.outputLabel(),
                 description,
                 new MaterialPreviewIcon(item.outputMaterial),
                 requirementTooltip("Manufacture " + item.name, item.requiredResources, free,
-                        "Produces " + item.outputLabel(), description),
-                false,
+                        "Produces " + item.outputLabel(), description, blocked),
+                !blocked.isBlank(),
                 false,
                 false,
                 () -> sendProduction(world, network, base, "ENQUEUE",
@@ -582,6 +614,19 @@ final class BuildMenu {
         return html.toString();
     }
 
+    private String availabilityDetail(Base base, List<Cost> costs, boolean free, double seconds) {
+        if (free) return "READY — Free build";
+        List<String> missing = new ArrayList<>();
+        for (Cost cost : costs) {
+            double have = base.inventory.getOrDefault(cost.material(), 0.0);
+            if (have + 0.0001 < cost.amount()) {
+                missing.add(cost.material().label + " " + whole(cost.amount() - have));
+            }
+        }
+        return missing.isEmpty() ? "READY • " + whole(seconds) + "s"
+                : "UNLOCKED — Need " + String.join(", ", missing);
+    }
+
     private String requirementTooltip(String heading, List<Cost> costs, boolean free,
                                       String... extraLines) {
         String required = costs == null || costs.isEmpty()
@@ -648,7 +693,7 @@ final class BuildMenu {
         return null;
     }
 
-    private void hide() {
+    void hide() {
         popup.setVisible(false);
         visible = false;
         preciseWheelRemainder = 0;

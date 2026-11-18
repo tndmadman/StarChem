@@ -17,6 +17,7 @@ public final class ScenarioFrameworkValidator {
         validateCatalog();
         validateLaunchLifecycle();
         validateProgressionAndStartingState();
+        validateGuidedStarterOreObjective();
         validateSchedulerCaptureRestore();
         validateFailureAndHiddenObjective();
         validateCompletion();
@@ -27,7 +28,10 @@ public final class ScenarioFrameworkValidator {
     }
 
     private static void validateCatalog() {
-        expectEquals("sample scenario count", 3, ScenarioRules.all().size());
+        expectEquals("sample scenario count", 4, ScenarioRules.all().size());
+        expectEquals("guided start lookup", "guided_start", ScenarioRules.require("guided_start").id());
+        expectEquals("guided start has no duplicate starter ships", 0,
+                ScenarioRules.require("guided_start").startingState().ships().size());
         expectEquals("frontier lookup", "frontier_industry", ScenarioRules.require("frontier_industry").id());
         expectEquals("survival lookup", "corsair_endurance", ScenarioRules.require("corsair_endurance").id());
         expectEquals("conquest lookup", "conquest_path", ScenarioRules.require("conquest_path").id());
@@ -96,6 +100,90 @@ public final class ScenarioFrameworkValidator {
                 objective(hauling, "hauler_wing").status());
         expectEquals("regional stage active", ScenarioObjectiveStatus.ACTIVE,
                 objective(hauling, "regional_presence").status());
+    }
+
+    private static void validateGuidedStarterOreObjective() {
+        PlayerRegistry.reset("SOLO", "Guided Starter", 0x50BEFF);
+        World world = new World("Guided Starter", Set.of(), StarSystems.DEFAULT_SYSTEM_ID,
+                true, StartingFleetSettings.newCampaign(15));
+        try {
+            PlayerRegistry.activate(world);
+            PlayerRegistry.reset("SOLO", "Guided Starter", 0x50BEFF);
+            ScenarioDirector.start(world, "guided_start");
+            ScenarioView initial = ScenarioDirector.view(world);
+            expectEquals("15 miners must not auto-complete guided ore objective",
+                    ScenarioObjectiveStatus.ACTIVE,
+                    objective(initial, "second_prospector").status());
+            expectEquals("Deployer remains locked until real mining and unloading",
+                    ScenarioObjectiveStatus.LOCKED,
+                    objective(initial, "deployer").status());
+
+            Base outpost = world.bases.values().stream().filter(base ->
+                    "SOLO".equals(base.playerId) && Rules.DEFAULT_BASE.equals(base.typeId))
+                    .findFirst().orElseThrow();
+            Base radar = world.bases.values().stream()
+                    .filter(base -> "SOLO".equals(base.playerId)
+                            && RadarTowerRules.TIER_ONE.equals(base.typeId))
+                    .findFirst().orElseThrow();
+            expectEquals("radar cannot intercept ore deliveries",
+                    outpost, world.nearestBase("SOLO", radar.x, radar.y));
+            Unit miner = world.units.values().stream()
+                    .filter(unit -> "SOLO".equals(unit.playerId)
+                            && Rules.STARTING_SHIP.equals(unit.shipTypeId))
+                    .findFirst().orElseThrow();
+            ResourceNode iron = world.resources.stream()
+                    .filter(node -> node.active && node.material == Material.IRON
+                            && node.amount >= 10
+                            && miner.type().harvestKinds.contains(node.kind))
+                    .min(java.util.Comparator.comparingDouble(node ->
+                            Calc.distance(node.x, node.y, outpost.x, outpost.y)))
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Guided starter has no accessible Iron to mine."));
+            double sourceBefore = iron.amount;
+            expectEquals("fresh Outpost is not gifted Iron", 0.0,
+                    outpost.inventory.getOrDefault(Material.IRON, 0.0));
+            miner.selected = true;
+            world.autoHarvestSelected(iron);
+            // Use actual game movement, WorkSystem extraction and hangar unload.
+            // Order the miner home after collecting the tutorial's 5 Iron rather
+            // than fabricate a hangar deposit or grant developer-only materials.
+            boolean sentHome = false;
+            for (int tick = 0; tick < 8000
+                    && outpost.inventory.getOrDefault(Material.IRON, 0.0) < 5; tick++) {
+                world.update(0.25);
+                if (!sentHome && miner.inventory.getOrDefault(Material.IRON, 0.0) >= 6) {
+                    world.sendToNearestBase(miner);
+                    sentHome = true;
+                }
+            }
+            // All fifteen Prospectors may independently discover and mine Iron.
+            // The chosen resource is not required to be the source: the real
+            // completion invariant is >=5 ore unloaded into a previously empty
+            // Outpost without inventory injection or developer grants.
+            if (outpost.inventory.getOrDefault(Material.IRON, 0.0) < 5) {
+                throw new IllegalStateException(
+                        "Starter miner failed to extract and physically unload 5 Iron: "
+                        + "nodeBefore=" + sourceBefore + " nodeAfter=" + iron.amount
+                        + " minerCargo=" + miner.inventory + " minerTask=" + miner.task
+                        + " minerPosition=" + miner.x + "," + miner.y
+                        + " nodePosition=" + iron.x + "," + iron.y
+                        + " outpostPosition=" + outpost.x + "," + outpost.y
+                        + " outpostInventory=" + outpost.inventory
+                        + " activeBases=" + world.bases.size()
+                        + " status=" + world.status);
+            }
+            world.saveActiveSystem();
+            ScenarioDirector.evaluateAuthoritative(world);
+            ScenarioView mined = ScenarioDirector.view(world);
+            expectEquals("stored iron completes first guided objective",
+                    ScenarioObjectiveStatus.COMPLETED,
+                    objective(mined, "second_prospector").status());
+            expectEquals("earned resources unlock Deployer objective",
+                    ScenarioObjectiveStatus.ACTIVE,
+                    objective(mined, "deployer").status());
+        } finally {
+            world.dispose();
+        }
     }
 
     private static void validateSchedulerCaptureRestore() {

@@ -51,6 +51,10 @@ for file in README.md PLAY.txt AUTHENTICATION.md RELEASE_NOTES.md UPGRADING_TO_1
   require_unstyled_text "$file" 'save format 6'
 done
 
+# The development wire break must be disclosed without rewriting historical v1.8.2 facts.
+require_text README.md 'development protocol 18'
+require_text RELEASE_NOTES.md 'development protocol 18'
+require_text AUTHENTICATION.md 'protocol **18**'
 require_text README.md 'UPGRADING_TO_1.8.0.md'
 require_text README.md 'AUTHENTICATION.md'
 require_text README.md 'TLS_IDENTITY_SECURITY.md'

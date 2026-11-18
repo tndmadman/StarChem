@@ -92,6 +92,10 @@ final class SpaceBackgroundRenderer {
     }
 
     private void drawStars(Graphics2D g2, Rectangle2D view, List<Star> stars, boolean glow) {
+        // Reuse shapes inside the paint pass. Creating ~1,500 ellipses each frame
+        // increases allocation pressure in the empty-background benchmark.
+        Ellipse2D.Double ellipse = new Ellipse2D.Double();
+        Line2D.Double rayLine = new Line2D.Double();
         double vx = view.getX();
         double vy = view.getY();
         for (Star star : stars) {
@@ -104,23 +108,28 @@ final class SpaceBackgroundRenderer {
                 Color glowColor = alpha(star.color, Math.max(18, star.color.getAlpha() / 5));
                 g2.setColor(glowColor);
                 double gr = star.radius * 2.8;
-                g2.fill(new Ellipse2D.Double(x - gr, y - gr, gr * 2, gr * 2));
+                ellipse.setFrame(x - gr, y - gr, gr * 2, gr * 2);
+                g2.fill(ellipse);
             }
             g2.setColor(star.color);
-            g2.fill(new Ellipse2D.Double(x - star.radius, y - star.radius,
-                    star.radius * 2, star.radius * 2));
+            ellipse.setFrame(x - star.radius, y - star.radius,
+                    star.radius * 2, star.radius * 2);
+            g2.fill(ellipse);
 
             if (glow && star.radius >= 6.2) {
                 g2.setColor(alpha(star.color, Math.min(220, star.color.getAlpha())));
                 g2.setStroke(new BasicStroke(1.0f));
                 double ray = star.radius * 2.1;
-                g2.draw(new Line2D.Double(x - ray, y, x + ray, y));
-                g2.draw(new Line2D.Double(x, y - ray, x, y + ray));
+                rayLine.setLine(x - ray, y, x + ray, y);
+                g2.draw(rayLine);
+                rayLine.setLine(x, y - ray, x, y + ray);
+                g2.draw(rayLine);
             }
         }
     }
 
     private void drawDust(Graphics2D g2, Rectangle2D view) {
+        Ellipse2D.Double ellipse = new Ellipse2D.Double();
         for (DustPatch patch : dustPatches) {
             double x = patch.x + view.getX() * patch.parallax;
             double y = patch.y + view.getY() * patch.parallax;
@@ -128,15 +137,18 @@ final class SpaceBackgroundRenderer {
             if (!visible(view, x, y, margin)) continue;
 
             g2.setColor(patch.outer);
-            g2.fill(new Ellipse2D.Double(x - patch.width * 0.5, y - patch.height * 0.5,
-                    patch.width, patch.height));
+            ellipse.setFrame(x - patch.width * 0.5, y - patch.height * 0.5,
+                    patch.width, patch.height);
+            g2.fill(ellipse);
             g2.setColor(patch.inner);
-            g2.fill(new Ellipse2D.Double(x - patch.width * 0.31, y - patch.height * 0.34,
-                    patch.width * 0.62, patch.height * 0.68));
+            ellipse.setFrame(x - patch.width * 0.31, y - patch.height * 0.34,
+                    patch.width * 0.62, patch.height * 0.68);
+            g2.fill(ellipse);
         }
     }
 
     private void drawClouds(Graphics2D g2, Rectangle2D view) {
+        Ellipse2D.Double ellipse = new Ellipse2D.Double();
         for (Cloud cloud : clouds) {
             double baseX = cloud.x + view.getX() * cloud.parallax;
             double baseY = cloud.y + view.getY() * cloud.parallax;
@@ -146,14 +158,16 @@ final class SpaceBackgroundRenderer {
                 double x = baseX + lobe.dx;
                 double y = baseY + lobe.dy;
                 g2.setColor(lobe.color);
-                g2.fill(new Ellipse2D.Double(x - lobe.width * 0.5, y - lobe.height * 0.5,
-                        lobe.width, lobe.height));
+                ellipse.setFrame(x - lobe.width * 0.5, y - lobe.height * 0.5,
+                        lobe.width, lobe.height);
+                g2.fill(ellipse);
             }
         }
     }
 
     private void drawDebris(Graphics2D g2, Rectangle2D view) {
         if (debris.isEmpty()) return;
+        Line2D.Double line = new Line2D.Double();
         g2.setStroke(new BasicStroke(4.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
         for (Debris piece : debris) {
             double x = piece.x + view.getX() * piece.parallax;
@@ -163,12 +177,14 @@ final class SpaceBackgroundRenderer {
             double dx = Math.cos(piece.angle) * piece.length * 0.5;
             double dy = Math.sin(piece.angle) * piece.length * 0.5;
             g2.setColor(piece.color);
-            g2.draw(new Line2D.Double(x - dx, y - dy, x + dx, y + dy));
+            line.setLine(x - dx, y - dy, x + dx, y + dy);
+            g2.draw(line);
 
             double branchAngle = piece.angle + 0.72;
             double bx = Math.cos(branchAngle) * piece.length * 0.24;
             double by = Math.sin(branchAngle) * piece.length * 0.24;
-            g2.draw(new Line2D.Double(x - bx, y - by, x + bx, y + by));
+            line.setLine(x - bx, y - by, x + bx, y + by);
+            g2.draw(line);
         }
     }
 

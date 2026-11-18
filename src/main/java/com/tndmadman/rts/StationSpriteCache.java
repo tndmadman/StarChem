@@ -4,6 +4,8 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferInt;
+import java.awt.geom.AffineTransform;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -44,7 +46,21 @@ final class StationSpriteCache {
         int y = (int)Math.round(base.y - size / 2.0);
         Object oldInterpolation = source.getRenderingHint(RenderingHints.KEY_INTERPOLATION);
         source.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-        source.drawImage(sprite.image(), x, y, size, size, null);
+        if (sprite.trimmed() == sprite.image()) {
+            source.drawImage(sprite.image(), x, y, size, size, null);
+        } else {
+            // Keep full-sized atlas for UI previews but draw only visible
+            // static architecture on the map at the original pixel mapping.
+            AffineTransform before = source.getTransform();
+            try {
+                source.translate(x, y);
+                double scale = size / (double) sprite.image().getWidth();
+                source.scale(scale, scale);
+                source.drawImage(sprite.trimmed(), sprite.cropX(), sprite.cropY(), null);
+            } finally {
+                source.setTransform(before);
+            }
+        }
         if (oldInterpolation != null) source.setRenderingHint(RenderingHints.KEY_INTERPOLATION, oldInterpolation);
         else source.getRenderingHints().remove(RenderingHints.KEY_INTERPOLATION);
         return true;
@@ -129,7 +145,38 @@ final class StationSpriteCache {
         } finally {
             g.dispose();
         }
-        return new Sprite(image, worldSize, rawBytes(image));
+        return trimForDraw(image, worldSize);
+    }
+
+    private static Sprite trimForDraw(BufferedImage image, int worldSize) {
+        int width = image.getWidth(), height = image.getHeight();
+        int[] pixels = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
+        int minX = width, minY = height, maxX = -1, maxY = -1;
+        for (int y = 0; y < height; y++) {
+            int row = y * width;
+            for (int x = 0; x < width; x++) {
+                if ((pixels[row + x] >>> 24) == 0) continue;
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+            }
+        }
+        long bytes = rawBytes(image);
+        if (maxX < 0) return new Sprite(image, image, worldSize, bytes, 0, 0);
+        int padding = 5;
+        minX = Math.max(0, minX - padding);
+        minY = Math.max(0, minY - padding);
+        maxX = Math.min(width - 1, maxX + padding);
+        maxY = Math.min(height - 1, maxY + padding);
+        int occupiedWidth = maxX - minX + 1, occupiedHeight = maxY - minY + 1;
+        // Cropping must save meaningful raster work to justify an extra
+        // transform. The full original image remains available for previews.
+        if ((long) occupiedWidth * occupiedHeight >= (long) width * height * 0.85) {
+            return new Sprite(image, image, worldSize, bytes, 0, 0);
+        }
+        BufferedImage trimmed = image.getSubimage(minX, minY, occupiedWidth, occupiedHeight);
+        return new Sprite(image, trimmed, worldSize, bytes, minX, minY);
     }
 
     private static void putBounded(Key key, Sprite sprite) {
@@ -196,5 +243,6 @@ final class StationSpriteCache {
             long maxEstimatedBytes) { }
 
     private record Key(String typeId, int rgb, Lod lod) { }
-    private record Sprite(BufferedImage image, int worldSize, long rawBytes) { }
+    private record Sprite(BufferedImage image, BufferedImage trimmed, int worldSize,
+                          long rawBytes, int cropX, int cropY) { }
 }

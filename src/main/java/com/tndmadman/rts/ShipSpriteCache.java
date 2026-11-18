@@ -4,6 +4,7 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferInt;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -155,7 +156,7 @@ final class ShipSpriteCache {
             g.scale(rasterScale, rasterScale);
             ShipShape.draw(g, type, color, variant);
             int worldSize = Math.max(IMAGE_SIZE, (int)Math.ceil(IMAGE_SIZE / rasterScale));
-            return new Sprite(image, worldSize);
+            return trimTransparentPadding(image, worldSize);
         } finally {
             g.dispose();
         }
@@ -177,6 +178,41 @@ final class ShipSpriteCache {
             long prewarmedSprites,
             double prewarmGenerationMs) { }
 
-    record Sprite(BufferedImage image, int worldSize) { }
+    /**
+     * Crop only fully transparent padding from the static canonical sprite.
+     * Retain a three-pixel safety border so bilinear filtering and rotated
+     * silhouettes stay unchanged; the original backing raster remains shared.
+     * At high zoom this avoids compositing thousands of transparent sprite
+     * pixels for every visible ship, with no additional atlas variants.
+     */
+    private static Sprite trimTransparentPadding(BufferedImage image, int worldSize) {
+        int width = image.getWidth();
+        int height = image.getHeight();
+        int[] pixels = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
+        int minX = width, minY = height, maxX = -1, maxY = -1;
+        for (int y = 0; y < height; y++) {
+            int row = y * width;
+            for (int x = 0; x < width; x++) {
+                if ((pixels[row + x] >>> 24) == 0) continue;
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+            }
+        }
+        if (maxX < 0) return new Sprite(image, worldSize, 0, 0);
+        int padding = 3;
+        minX = Math.max(0, minX - padding);
+        minY = Math.max(0, minY - padding);
+        maxX = Math.min(width - 1, maxX + padding);
+        maxY = Math.min(height - 1, maxY + padding);
+        if (minX == 0 && minY == 0 && maxX == width - 1 && maxY == height - 1) {
+            return new Sprite(image, worldSize, 0, 0);
+        }
+        return new Sprite(image.getSubimage(minX, minY, maxX - minX + 1, maxY - minY + 1),
+                worldSize, minX, minY);
+    }
+
+    record Sprite(BufferedImage image, int worldSize, int cropX, int cropY) { }
     private record Key(String typeId, int rgb, int visualVariant) { }
 }

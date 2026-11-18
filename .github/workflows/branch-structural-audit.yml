@@ -1,0 +1,41 @@
+name: Branch Structural Audit
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  structural-audit:
+    name: Snapshot and triage remote branches
+    if: github.head_ref == 'integration/starchem-all-ready-20261117' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out all Git history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Audit remote branches
+        run: |
+          python3 scripts/audit-branches.py \
+            --candidate origin/integration/starchem-all-ready-20261117 \
+            --out-dir build/branch-audit
+
+      - name: Publish structural audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: branch-structural-audit
+          path: build/branch-audit/
+          if-no-files-found: warn
+          retention-days: 30

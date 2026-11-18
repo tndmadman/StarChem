@@ -110,6 +110,13 @@ final class ScenarioRules {
                             + " references unknown station type " + trigger.value() + ".");
                 }
             }
+            case OWN_STORED_MATERIAL -> {
+                try { Material.valueOf(trigger.value().toUpperCase(Locale.ROOT)); }
+                catch (IllegalArgumentException ex) {
+                    throw new IllegalArgumentException("Scenario " + definition.id() + " objective " + objective.id()
+                            + " references unknown material " + trigger.value() + ".");
+                }
+            }
             default -> { }
         }
     }
@@ -420,6 +427,7 @@ enum ScenarioTriggerType {
     OWN_STATIONS,
     OWN_SHIP_TYPE,
     OWN_STATION_TYPE,
+    OWN_STORED_MATERIAL,
     LIVE_ASSETS,
     FLEET_POWER,
     CONTROL_SYSTEMS,
@@ -435,7 +443,8 @@ record ScenarioTrigger(ScenarioTriggerType type, String value, int target, Scena
         comparison = comparison == null ? ScenarioComparison.AT_LEAST : comparison;
         if ((type == ScenarioTriggerType.COMPLETE_RESEARCH
                 || type == ScenarioTriggerType.OWN_SHIP_TYPE
-                || type == ScenarioTriggerType.OWN_STATION_TYPE) && value.isBlank()) {
+                || type == ScenarioTriggerType.OWN_STATION_TYPE
+                || type == ScenarioTriggerType.OWN_STORED_MATERIAL) && value.isBlank()) {
             throw new IllegalArgumentException("Scenario trigger " + type + " requires a value.");
         }
     }

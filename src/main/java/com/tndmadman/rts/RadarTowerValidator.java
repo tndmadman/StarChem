@@ -115,6 +115,8 @@ public final class RadarTowerValidator {
         IntelWarfareSystem.setRadarMode(world, radar, IntelWarfareSystem.RadarMode.ACTIVE, "P1");
         ResourceNode node = new ResourceNode(1, "Radar iron", NodeKind.SILICATE_ROCK,
                 Material.IRON, 5_000, 4_000, 500, 5, 3);
+        // Radar worker automation now honors the authored belt slots, not unassigned rocks.
+        node.resourceBeltId = RadarBeltTrackingSystem.catalog(world).get(0).id;
         world.resources.add(node);
         int limit = RadarTowerRules.resourceDispatchLimit(radarTypeId);
         for (int i = 1; i <= limit + 2; i++) {

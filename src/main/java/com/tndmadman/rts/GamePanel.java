@@ -85,6 +85,25 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
     World celestialWorld() { return world; }
     PeerNetwork celestialNetwork() { return network; }
 
+    /** Non-authoritative player view state, scoped to the selected solo campaign. */
+    Map<String,Object> captureSoloView() {
+        Map<String,Object> out = new LinkedHashMap<>();
+        out.put("camera", camera.captureSoloView());
+        out.put("controlGroups", controlGroups.captureSoloView());
+        out.put("galaxyMapOpen", galaxyMapOpen);
+        out.put("formation", formation.name());
+        return out;
+    }
+
+    void restoreSoloView(Object value) {
+        Map<String,Object> data = ServerSaveStore.object(value);
+        if (data.isEmpty()) return;
+        camera.restoreSoloView(data.get("camera"));
+        controlGroups.restoreSoloView(data.get("controlGroups"));
+        galaxyMapOpen = ServerSaveStore.boolValue(data, "galaxyMapOpen", false);
+        formation = ServerSaveStore.enumValue(FleetFormation.class, data.get("formation"), FleetFormation.GRID);
+    }
+
     void start() {
         AiBrainLog.setEnabled(devMode && client == null);
         requestFocusInWindow();
@@ -137,6 +156,7 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
         world.draw(g2);
         if (devMode) aiDevOverlay.drawWorld(g2, world, aiDevPanel.overlayEnabled(), aiDevPanel.pathLinesEnabled());
         FogOfWarView.drawWorld(g2, world);
+        RadarBeltTrackingOverlay.drawWorld(g2, world, camera.visibleWorldRect(getWidth(), getHeight()));
         drawSelectionBox(g2);
         g2.setTransform(old);
         WormholeIndicator.draw(g2, world, camera, getWidth(), getHeight());
@@ -397,6 +417,12 @@ final class GamePanel extends JPanel implements KeyListener, MouseListener, Mous
             clearCameraKeys();
             repaint();
         }
+    }
+
+    /** Dismiss both native station overviews and build menus before full-frame UI. */
+    void dismissStationMenus() {
+        StationControlMenu.dismiss(this);
+        buildMenu.hide();
     }
 
     private void clickLeft(MouseEvent e, Point2D p) {

@@ -22,6 +22,22 @@ final class GameCamera {
     private boolean initialized;
     private Set<String> lastLocalEntityKeys = Set.of();
 
+    Map<String,Object> captureSoloView() {
+        return Map.of("x", x, "y", y, "zoom", zoom, "initialized", initialized);
+    }
+
+    void restoreSoloView(Object value) {
+        Map<String,Object> data = ServerSaveStore.object(value);
+        double savedX = ServerSaveStore.doubleValue(data, "x", 0);
+        double savedY = ServerSaveStore.doubleValue(data, "y", 0);
+        double savedZoom = ServerSaveStore.doubleValue(data, "zoom", MAX_ZOOM);
+        if (!Double.isFinite(savedX) || !Double.isFinite(savedY) || !Double.isFinite(savedZoom)) return;
+        x = Math.max(0, savedX);
+        y = Math.max(0, savedY);
+        zoom = Calc.clamp(savedZoom, MIN_ZOOM, MAX_ZOOM);
+        initialized = ServerSaveStore.boolValue(data, "initialized", false);
+    }
+
     static GameCamera forWorld(World world) {
         return world == null ? null : ACTIVE.get(world);
     }

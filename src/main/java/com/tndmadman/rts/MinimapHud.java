@@ -44,6 +44,7 @@ final class MinimapHud {
         drawWormholes(g, world, layout.map);
         drawEvents(g, world, layout.map);
         drawPings(g, world, layout.map);
+        RadarBeltTrackingOverlay.drawMinimap(g, world, layout.map);
         drawCamera(g, camera.visibleWorldRect(screenW, screenH), world, layout.map);
         g.dispose();
     }

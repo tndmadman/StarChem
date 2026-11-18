@@ -44,6 +44,7 @@ final class AiBrainLogAsyncWriter {
     private volatile boolean stopRequested;
     private volatile boolean forceStop;
     private volatile boolean pausedForTests;
+    private volatile boolean pauseAcknowledgedForTests;
     private volatile boolean inFlight;
     private volatile boolean running;
     private volatile boolean fileOpen;
@@ -114,8 +115,27 @@ final class AiBrainLogAsyncWriter {
     }
 
     void pauseForTests(boolean paused) {
+        // A deterministic backpressure test must know the writer has really
+        // stopped draining before it enqueues its saturated burst. The prior
+        // fire-and-forget pause could race a fast CI worker and silently drain
+        // hundreds of rows, producing a false failure in the drop assertion.
+        if (paused) pauseAcknowledgedForTests = false;
         pausedForTests = paused;
-        if (!paused) worker.interrupt();
+        worker.interrupt();
+        if (!paused) return;
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        while (!pauseAcknowledgedForTests && worker.isAlive()
+                && System.nanoTime() < deadline) {
+            try {
+                Thread.sleep(2L);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted while pausing AI log writer", ex);
+            }
+        }
+        if (!pauseAcknowledgedForTests) {
+            throw new IllegalStateException("AI log writer did not acknowledge test pause");
+        }
     }
 
     private void join(long millis) {
@@ -141,9 +161,11 @@ final class AiBrainLogAsyncWriter {
 
             while (!forceStop) {
                 if (pausedForTests) {
+                    pauseAcknowledgedForTests = true;
                     sleepWhilePaused();
                     continue;
                 }
+                pauseAcknowledgedForTests = false;
                 Entry entry = poll();
                 if (entry != null) {
                     inFlight = true;

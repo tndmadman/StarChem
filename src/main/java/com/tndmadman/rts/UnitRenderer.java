@@ -99,7 +99,18 @@ final class UnitRenderer {
         // Use the exact same facing transform as the detailed path so issue #447 stays fixed.
         s.rotate(ShipVisualFacing.heading(unit.heading));
         int half = size / 2;
-        s.drawImage(sprite.image(), -half, -half, size, size, null);
+        if (sprite.cropX() == 0 && sprite.cropY() == 0
+                && sprite.image().getWidth() == ShipSpriteCache.imageSize()
+                && sprite.image().getHeight() == ShipSpriteCache.imageSize()) {
+            s.drawImage(sprite.image(), -half, -half, size, size, null);
+        } else {
+            // Reproduce the full 144px atlas placement in world coordinates
+            // while rasterizing only its occupied rectangular footprint.
+            double spriteScale = size / (double) ShipSpriteCache.imageSize();
+            s.translate(-half, -half);
+            s.scale(spriteScale, spriteScale);
+            s.drawImage(sprite.image(), sprite.cropX(), sprite.cropY(), null);
+        }
         s.dispose();
     }
 

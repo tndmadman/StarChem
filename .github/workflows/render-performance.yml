@@ -31,6 +31,7 @@ jobs:
       - name: Check out proposed source
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: head
 
       - name: Check out pull-request base
@@ -51,15 +52,20 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Compare three paired baseline and candidate render measurements
+      - name: Verify render comparison contract
+        shell: bash
+        run: python3 head/scripts/test-render-performance-compare.py
+
+      - name: Compare five paired baseline and candidate render measurements
         if: github.event_name == 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
           # The runner's p95 can jump under transient GC/scheduling pressure. Alternate
           # checkout order and take three independent samples of EACH exact scenario.
-          # This preserves the same 20% p95 regression threshold and never skips a scene.
-          for i in 1 2 3; do
+          # Five complete pairs provide additional evidence without dropping any scene,
+          # changing the fixture, or relaxing the 20% p95 regression threshold.
+          for i in 1 2 3 4 5; do
             if (( i % 2 == 1 )); then
               checkouts=(base head)
             else
@@ -75,8 +81,8 @@ jobs:
             done
           done
           python3 head/scripts/render-performance-compare.py \
-            --base base/build/reports/render-performance-run-{1,2,3}.csv \
-            --head head/build/reports/render-performance-run-{1,2,3}.csv \
+            --base base/build/reports/render-performance-run-{1,2,3,4,5}.csv \
+            --head head/build/reports/render-performance-run-{1,2,3,4,5}.csv \
             --max-regression 20
 
       - name: Run standalone render validation

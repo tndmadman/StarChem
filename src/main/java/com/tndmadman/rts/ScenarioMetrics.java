@@ -2,6 +2,7 @@ package com.tndmadman.rts;
 
 import java.util.HashMap;
 import java.util.LinkedHashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -16,6 +17,7 @@ final class ScenarioMetrics {
     private final Map<String,Integer> controlledSystems = new HashMap<>();
     private final Map<String,Map<String,Integer>> shipTypes = new HashMap<>();
     private final Map<String,Map<String,Integer>> stationTypes = new HashMap<>();
+    private final Map<String,Map<String,Integer>> storedMaterials = new HashMap<>();
     private double maxSystemTime;
 
     private ScenarioMetrics() { }
@@ -63,6 +65,13 @@ final class ScenarioMetrics {
                     metrics.liveAssets.merge(base.playerId, 1, Integer::sum);
                     metrics.stationTypes.computeIfAbsent(base.playerId, ignored -> new HashMap<>())
                             .merge(base.typeId, 1, Integer::sum);
+                    for (Map.Entry<Material,Double> entry : base.inventory.entrySet()) {
+                        double quantity = entry.getValue() == null ? 0 : entry.getValue();
+                        if (!Double.isFinite(quantity) || quantity <= 0) continue;
+                        metrics.storedMaterials.computeIfAbsent(base.playerId, ignored -> new HashMap<>())
+                                .merge(entry.getKey().name().toLowerCase(Locale.ROOT),
+                                        (int)Math.min(Integer.MAX_VALUE, Math.floor(quantity)), Integer::sum);
+                    }
                     metrics.fleetPower.merge(base.playerId, strength(base.hp, base.shield), Integer::sum);
                 }
             }
@@ -82,6 +91,7 @@ final class ScenarioMetrics {
     int controlledSystems(String id) { return controlledSystems.getOrDefault(id, 0); }
     Map<String,Integer> shipTypes(String id) { return shipTypes.getOrDefault(id, Map.of()); }
     Map<String,Integer> stationTypes(String id) { return stationTypes.getOrDefault(id, Map.of()); }
+    Map<String,Integer> storedMaterials(String id) { return storedMaterials.getOrDefault(id, Map.of()); }
     double maxSystemTime() { return maxSystemTime; }
 
     private static int strength(double hp, double shield) {

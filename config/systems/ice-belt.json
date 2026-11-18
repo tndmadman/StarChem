@@ -14,11 +14,11 @@
     {"id": "glass", "name": "Glass Moon", "parent": "frost", "orbit": 310, "radius": 20, "speed": -0.052, "color": "#D2F3FF"}
   ],
   "resourceBelts": [
-    {"name": "Frozen Shelf", "kind": "SILICATE_ROCK", "orbit": 3000, "width": 590, "arc": 2.4, "count": 150, "amount": 31, "harvestRate": 8.4, "radius": 3.2,
+    {"id": "frozen_shelf", "name": "Frozen Shelf", "kind": "SILICATE_ROCK", "orbit": 3000, "width": 590, "arc": 2.4, "count": 150, "amount": 31, "harvestRate": 8.4, "radius": 3.2,
       "composition": [{"material": "ICE", "weight": 58}, {"material": "SILICATES", "weight": 22}, {"material": "CARBON", "weight": 12}, {"material": "PHOSPHATES", "weight": 8}]},
-    {"name": "Cold Gas Halo", "kind": "GAS_CLOUD", "orbit": 5450, "width": 690, "arc": 2.2, "count": 105, "amount": 26, "harvestRate": 8.0, "radius": 4.7,
+    {"id": "cold_gas_halo", "name": "Cold Gas Halo", "kind": "GAS_CLOUD", "orbit": 5450, "width": 690, "arc": 2.2, "count": 105, "amount": 26, "harvestRate": 8.0, "radius": 4.7,
       "composition": [{"material": "HYDROGEN", "weight": 42}, {"material": "HELIUM", "weight": 24}, {"material": "NITROGEN", "weight": 18}, {"material": "METHANE", "weight": 12}, {"material": "NEON", "weight": 4}]},
-    {"name": "Trace Metal Ring", "kind": "SILICATE_ROCK", "orbit": 1850, "width": 290, "arc": 1.1, "count": 60, "amount": 16, "harvestRate": 5.9, "radius": 2.5,
+    {"id": "trace_metal_ring", "name": "Trace Metal Ring", "kind": "SILICATE_ROCK", "orbit": 1850, "width": 290, "arc": 1.1, "count": 60, "amount": 16, "harvestRate": 5.9, "radius": 2.5,
       "composition": [{"material": "IRON", "weight": 44}, {"material": "COPPER", "weight": 24}, {"material": "NICKEL", "weight": 20}, {"material": "ALUMINUM", "weight": 12}]}
   ]
 }

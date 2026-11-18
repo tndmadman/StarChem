@@ -60,3 +60,11 @@ Every view request carries a monotonically increasing client revision. Full-view
 ## Multiplayer validation
 
 Normal verification covers simultaneous clients, command isolation, one backpressured client beside healthy clients, abrupt socket loss with automatic full-path resume, dedicated headless servers, stale connection events, rapid view switching, and a deterministic smoke soak. TLS-specific verification additionally covers first-use blocking, explicit pin approval, matching and mismatching pins, prevention of silent replacement, endpoint-scoped trust, and the local loopback exception. The separate `tcpSoak` Gradle task and scheduled workflow run the same workload for an extended duration with a reproducible seed.
+
+## Authenticated startup readiness (development protocol 18)
+
+Per-socket compatibility remains accepted after a valid WELCOME: a compatible duplicate JOIN or RESUME must never clear the compatibility flag and accidentally drop PING or CLIENT_READY. A malformed or incompatible handshake still fails the explicit compatibility gate. CLIENT_READY is not authentication and is accepted only for a connection that has already proved possession and owns the player session.
+
+The server queues the initial full view once per connection generation, and records a first sequence and startup timestamp. It accepts a client READY acknowledgment only after the client has applied a full authoritative initial view. Duplicate WELCOME is safe on the same client generation and cannot reset state. SYNC_RETRY is authenticated, has a 5-second cooldown and a strict two-replay cap; snapshots never rebuild on repeated JOIN/RESUME alone. Startup idle, hard progress, and established-peer idle deadlines are independent. Socket closure logs provide bounded queues, elapsed milliseconds, and reason codes; authentication secrets are never written to logs.
+
+Initial-view frames exceeding the 512,000-byte wire limit are reported as FRAME_REJECTED and the affected TCP generation is closed; the server never waits silently for an unqueueable frame. An operator must resolve the oversized snapshot rather than disable the frame or DoS bounds.

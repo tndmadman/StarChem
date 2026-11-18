@@ -139,8 +139,12 @@ final class NpcStationConstructionSystem {
 
         builder.basePackageType = plan.packageType;
         Base source = world.bases.get(plan.sourceBaseId);
+        // A site was validated against resources at reservation time. Moving
+        // asteroid belts can cross that site while the deployer travels; they
+        // must not repeatedly invalidate a paid construction commitment.
+        // Revalidate persistent hazards such as bases and wormholes instead.
         if (plan.phase == NpcConstructionPhase.TRAVELLING
-                && !validSite(world, faction, source, station, plan.targetX, plan.targetY)) {
+                && !validSite(world, faction, source, station, plan.targetX, plan.targetY, false)) {
             Base planningAnchor = source == null
                     ? anchorBase(faction, plan.anchorX, plan.anchorY) : source;
             Site replacement = selectSite(world, faction, planningAnchor, station);
@@ -469,6 +473,11 @@ final class NpcStationConstructionSystem {
 
     private static boolean validSite(World world, NpcFaction faction, Base source,
                                      BaseType station, double x, double y) {
+        return validSite(world, faction, source, station, x, y, true);
+    }
+
+    private static boolean validSite(World world, NpcFaction faction, Base source,
+                                     BaseType station, double x, double y, boolean checkMovingResources) {
         double margin = Math.max(SITE_MARGIN, station.buildRadius + 90.0);
         if (x < margin || y < margin
                 || x > world.width - margin || y > world.height - margin) return false;
@@ -482,10 +491,12 @@ final class NpcStationConstructionSystem {
             }
             if (Calc.distance(x, y, base.x, base.y) < minimum) return false;
         }
-        for (ResourceNode node : world.resources) {
-            if (!node.active) continue;
-            if (Calc.distance(x, y, node.x, node.y)
-                    < node.radius + station.buildRadius + 80.0) return false;
+        if (checkMovingResources) {
+            for (ResourceNode node : world.resources) {
+                if (!node.active) continue;
+                if (Calc.distance(x, y, node.x, node.y)
+                        < node.radius + station.buildRadius + 80.0) return false;
+            }
         }
         for (WormholeGate gate : world.wormholes) {
             if (Calc.distance(x, y, gate.x, gate.y) < MIN_WORMHOLE_CLEARANCE) return false;

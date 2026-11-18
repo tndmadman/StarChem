@@ -18,6 +18,7 @@ public final class NpcStationConstructionValidator {
         validateScoredTravelAndTimedCompletion();
         validateCancellationAndLossRules();
         validateObstructionReplanning();
+        validateMovingAsteroidDoesNotInvalidateReservedSite();
         validateNpcSystemUsesPipeline();
     }
 
@@ -180,6 +181,29 @@ public final class NpcStationConstructionValidator {
                 "site replanning charged the station package again");
         require(factionBaseCount(fixture.world, fixture.faction.id()) == 2,
                 "replanning created an extra completed station");
+    }
+
+    private static void validateMovingAsteroidDoesNotInvalidateReservedSite() {
+        Fixture fixture = fixture("NPC Station Orbiting Resource");
+        BaseType station = Rules.base("shipyard");
+        require(NpcStationConstructionSystem.start(fixture.world, fixture.faction,
+                        fixture.source, fixture.builder, station.id,
+                        NpcBudgetCategory.STATION_RECOVERY),
+                "moving-resource fixture could not reserve a construction site");
+        NpcStationConstructionSnapshot reserved = NpcStationConstructionSystem.snapshot(
+                fixture.world, fixture.faction);
+        // A mobile resource passes through the selected site after reservation.
+        // Only persistent obstructions should invalidate an issued plan.
+        fixture.world.resources.add(new ResourceNode(92_000, "Passing asteroid",
+                NodeKind.SILICATE_ROCK, Material.IRON,
+                reserved.targetX(), reserved.targetY(), 100, 10, 20));
+        NpcStationConstructionSystem.update(fixture.world, fixture.faction, 1.0);
+        NpcStationConstructionSnapshot after = NpcStationConstructionSystem.snapshot(
+                fixture.world, fixture.faction);
+        require(after.active() && after.replans() == 0
+                        && Math.abs(after.targetX() - reserved.targetX()) < EPSILON
+                        && Math.abs(after.targetY() - reserved.targetY()) < EPSILON,
+                "orbiting asteroid invalidated an already reserved construction site");
     }
 
     private static void validateNpcSystemUsesPipeline() {
