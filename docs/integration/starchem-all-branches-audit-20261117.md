@@ -25,6 +25,69 @@ Date: 2026-11-17. Repository: `tndmadman/StarChem`.
 
 **The zero counts are not findings of absence. They mean that classification work has not yet been completed.**
 
+## Follow-up structural inspection — 2026-11-17
+
+The earlier snapshot remains a historical checkpoint, **not** a final branch audit.
+The five priority refs below were compared against integration candidate
+cc26b3a0f4db26837873a6ffb2fc2d1b04fe1373 using GitHub commit
+comparisons and recursive Git tree blob-SHA comparisons.
+
+| Historical ref | Head SHA | Matching file blobs | Paths with differing blobs | Historical-only paths |
+|---|---|---:|---:|---:|
+| agent/fix-corsair-remote-view | 0d7450e7d21c55e6436f687c68073d78a6f50553 | 108 | 221 | 0 |
+| automation/ai-lifecycle-fix | c0ff8e18a04cb8fad37e34ec6b112606264ace5c | 97 | 228 | 3 |
+| graphics-388-foundation-overhaul | dac9801764ff47e1c92ae2479149a64f83d1b8ac | 489 | 195 | 0 |
+| feature/centralized-manufacturing-ui | 8b1528a8b301b94cd764c7997234039b2f005ccc | 428 | 191 | 0 |
+| feature/issue-384-scenario-framework | 9a5165c3dcfd55c7c58ca71c082b97ea5fbc6db7 | 495 | 178 | 0 |
+
+These counts compare complete file trees at each historical head. A file
+with different contents is **not** proof of missing features. The absence
+of historical-only paths does not prove behavioral equivalence.
+
+Specific source findings:
+
+- ManufacturingPolicyPanel.java in the historical manufacturing UI branch
+  has exactly the same blob as the candidate:
+  8214712ee1e71c72ba81c99d74a34218aa8705a2.
+  The candidate ManufacturingOverlay.java uses additional
+  ProductionCatalogRules, ResearchPolicy, and ProductionRequirementGuide
+  paths. Full behavior comparison remains necessary.
+- NpcFactionScopedRuntimeReset.java in the AI lifecycle branch has exactly
+  the same blob as the candidate:
+  e7799630f110bb20d011f9a6b648593fc62d76e8.
+  NpcSystem.java differs, including later GalaxyEventDirector.ownsUnit
+  checks and WeaponRules.armed(unit) calls. The three historical-only
+  paths are one-off lifecycle-automation workflows and
+  tools/ai-lifecycle-fix.patch; do not import without reviewing purpose.
+- The candidate ScenarioDirector.java retains all substantive historical
+  lines in the inspected direct content comparison, with an additional
+  OWN_STORED_MATERIAL objective case. ScenarioFrameworkValidator.java
+  contains more cases, including Guided Start ore validation.
+- The candidate RenderPerformanceValidator.java contains additional pixel
+  tests. The newer StationRenderer.java uses StationSpriteCache and
+  far-LOD behavior, so the historical renderer is not safe to copy over it.
+- The Corsair branch matches the candidate on
+  NpcFactionScopedRuntimeReset.java but diverges in other NPC/AI sources.
+
+**All five remain BLOCKED for complete semantic comparison.** No missing
+feature was inferred from divergence. No historical branch was merged.
+
+A reproducible, read-only structural audit script now exists at
+scripts/audit-branches.py on the consolidation branch. From a complete
+Git checkout with Python 3, use:
+
+~~~bash
+python3 scripts/audit-branches.py
+~~~
+
+It fetches refs, records exact SHAs, ahead/behind counts, merge bases,
+patch-unique nonmerge commits, and changed paths, then emits JSON and CSV
+under build/branch-audit/. It classifies verified ancestry and exact tree
+identity only; divergent branches stay BLOCKED for semantic review.
+The script passed Python syntax checking and a synthetic three-branch
+Git smoke test. **It was NOT run on the full StarChem repository**, since
+this session has no runnable checkout.
+
 ## Remote branch ref snapshot
 
 The table lists all branch references and their observed full SHA. Verified ancestry applies only to the nine PR heads; other branches remain blocked for investigation. Full main-relative ahead/behind counts and patch-equivalence checks have NOT been performed for the unreviewed branches.
