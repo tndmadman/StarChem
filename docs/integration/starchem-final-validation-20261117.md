@@ -54,3 +54,34 @@ GitHub Actions lookup for `371b5a51fb4be8df3bdb47c4245c660c1c66fb0f` returned 26
 | Final head CI | Full workflows after candidate commit/PR | PENDING | Must inspect exact final SHA after PR exists |
 
 All missing acceptance evidence is merge-blocking. Do not report PASS for any test not executed on the candidate SHA. CI checks on the previous branch are historical evidence, not final sign-off.
+
+## Follow-up evidence checkpoint (2026-11-17, after audit tooling commits)
+
+This section adds evidence without changing any earlier NOT RUN into PASS.
+
+- Source review on candidate cdda4db33792beebf3e0662258abdd94747b2b86:
+  MultiplayerCompatibility.PROTOCOL_VERSION = 18;
+  config/starchem.json rulesVersion = 27;
+  ServerSaveStore.SAVE_FORMAT_VERSION = 6.
+  These are static code/configuration findings, not migration or protocol acceptance.
+- scripts/audit-branches.py passed Python compilation and a synthetic three-branch
+  Git smoke test. This is a tooling test, **not** a StarChem repository audit.
+- The new Branch Structural Audit workflow was added to PR #462. It requires a
+  completed run and review of generated CSV/JSON evidence before structural
+  classification can be counted as checked.
+- Graphics Integration Validation on the earlier candidate
+  cc26b3a0f4db26837873a6ffb2fc2d1b04fe1373 FAILED:
+  default background at zoom 0.45 had p50 9.988 -> 12.302 ms (+23.2%);
+  multi-large-station at zoom 1.00 had p50 14.801 -> 17.951 ms (+21.3%).
+  The workflow's sustained-p50 gate allows at most 20% regression.
+  [Failure run](https://github.com/tndmadman/StarChem/actions/runs/44214893774).
+  Do not assume it is reproduced on the final head without reviewing that run.
+- The separate Render Performance workflow performs five paired runs with
+  33 scene/zoom combinations and a 20% p95 regression contract; it is separate
+  from the graphics integration workflow's p50 check.
+- Final-head Java, graphics, render, and structural-audit workflows remain
+  **PENDING / NOT VERIFIED** until the exact last commit finishes its checks.
+- Actual Windows GUI, 900-second TCP soak, two-client dedicated-server acceptance,
+  ten corrupted-load tests, and actual first-Hauler progression remain NOT RUN.
+
+Do not merge from a static source review or partial workflow results.

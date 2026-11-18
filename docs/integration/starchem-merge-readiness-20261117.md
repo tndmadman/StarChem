@@ -40,3 +40,35 @@ The integration contains multiplayer protocol **18** (verified from `Multiplayer
 ## Release policy
 
 Keep this PR in draft. Do not merge to `main` until the owner explicitly approves and all gates pass. Existing source branches and PRs are unchanged.
+
+## Additional implementation / review checkpoint (2026-11-17)
+
+Work added directly to the existing integration branch:
+
+- fcc1eef74f6225cc0457a1c5c6182b9c2fb25a22:
+  scripts/audit-branches.py — read-only, full-history remote-branch
+  structural audit that emits JSON/CSV without automatic semantic approval.
+- 2ccf75913f6bea9836783343f81f35787f486ee3:
+  add five source-tree inspection results to the existing branch audit report.
+- cdda4db33792beebf3e0662258abdd94747b2b86:
+  add Branch Structural Audit CI workflow, scoped to this consolidation PR.
+
+The five priority branch trees were compared with candidate
+cc26b3a0f4db26837873a6ffb2fc2d1b04fe1373.
+Matching file blob counts by branch were 108, 97, 489, 428 and 495,
+respectively, in the audit report's order. None is fully classified,
+and no unverified feature has been bulk-merged. No application source
+changes or runtime defect repairs have been claimed.
+
+Source constants verified: protocol 18, rules 27, save format 6.
+Compatibility behavior is **not** proven by those constants.
+
+An earlier Graphics Integration Validation run failed two sustained-p50
+scenes by 23.2% and 21.3% relative to its frozen baseline:
+https://github.com/tndmadman/StarChem/actions/runs/44214893774.
+Do not relax the 20% limit or count a prior-head pass as a final-head pass.
+
+**Decision remains NOT READY — BLOCKERS REMAIN.**
+The comprehensive branch semantic audit, automated final-head CI,
+real Windows/multiplayer acceptance, 900-second TCP soak, rollback tests,
+and genuine first-Hauler campaign run remain necessary.
